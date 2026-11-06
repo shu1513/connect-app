@@ -138,7 +138,7 @@ async function main() {
       await deliverEmails(new Date(), fake("ok"));
       const linkAfter = await row(link.id);
       check("a queued email is sent once, recorded with the service's reference, and its login link is purged", linkAfter.status === "sent" && Boolean(linkAfter.providerId?.startsWith("fake_")) && linkAfter.body === "" && idsSeen.includes(link.id), linkAfter.status);
-      check("the email's own ID is what the service is given as the idempotency key", idsSeen[0] === link.id);
+      check("the email's own ID is what the service is given as the idempotency key", idsSeen.includes(link.id) && idsSeen.every((id) => /^[0-9a-f-]{36}$/.test(id)));
       await deliverEmails(new Date(), fake("ok"));
       check("sent emails are not sent again", sentTo.filter((t) => t === addr("link")).length === 1);
 
@@ -176,7 +176,11 @@ async function main() {
 
       // Two helpers at once: each email goes out once.
       for (let i = 0; i < 6; i++) await db.transaction((tx) => queueEmail(tx, { to: addr(`many${i}`), subject: "Many", text: "x", key: `many:${RUN}:${i}` }));
-      await Promise.all([deliverEmails(new Date(), fake("ok")), deliverEmails(new Date(), fake("ok"))]);
+      // Batches are small and the outbox may hold older rows too, so keep going until nothing is left.
+      for (let i = 0; i < 10; i++) {
+        const [a, b] = await Promise.all([deliverEmails(new Date(), fake("ok")), deliverEmails(new Date(), fake("ok"))]);
+        if (a + b === 0) break;
+      }
       check("two helpers sending at the same time send each email once", sentTo.filter((t) => t.includes("many")).length === 6, String(sentTo.filter((t) => t.includes("many")).length));
     }
   } finally {
