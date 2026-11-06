@@ -28,8 +28,8 @@ export async function writeCallReminders(now: Date): Promise<number> {
     .where(and(gt(schema.calls.startsAt, now), lte(schema.calls.startsAt, new Date(now.getTime() + 24 * HOUR)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
   let written = 0;
   for (const { call, payment, source } of soon) {
-    // Test calls made by an admin are not real appointments.
-    if (source === "admin") continue;
+    // Test calls made by an admin are not real appointments; an instant call starts within a minute of being accepted.
+    if (source === "admin" || source === "now") continue;
     const kinds = dueReminders(call.startsAt, now);
     if (kinds.length === 0) continue;
     const people = await db.select().from(schema.user).where(inArray(schema.user.id, [call.hostId, call.customerId]));
@@ -43,7 +43,9 @@ export async function writeCallReminders(now: Date): Promise<number> {
       const link = `${appUrl()}/calls/${call.id}`;
       const paidNote =
         payment && person.id === call.customerId
-          ? ` You pay for the time ${otherName} is in the call during the booked time (up to ${formatMoney(payment.bookedCents)}), including time they spend waiting for you inside it; the 5 minutes before the start are not counted.`
+          ? call.billing === "together"
+            ? ` You pay for the time you and ${otherName} are both in the call during the booked time (up to ${formatMoney(payment.bookedCents)}).`
+            : ` You pay for the time ${otherName} is in the call during the booked time (up to ${formatMoney(payment.bookedCents)}), including time they spend waiting for you inside it; the 5 minutes before the start are not counted.`
           : "";
       for (const kind of kinds) {
         const when = whenFor(person, call.startsAt);

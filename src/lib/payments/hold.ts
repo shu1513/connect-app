@@ -54,7 +54,7 @@ async function payCutoffOf(reader: Pick<typeof db, "select">, callId: string): P
   const [booking] = await reader
     .select({ payBy: schema.bookings.payBy })
     .from(schema.bookings)
-    .where(and(eq(schema.bookings.callId, callId), eq(schema.bookings.source, "customer")));
+    .where(and(eq(schema.bookings.callId, callId), inArray(schema.bookings.source, ["customer", "now"])));
   return booking?.payBy ?? null;
 }
 

@@ -34,38 +34,38 @@ describe("what the customer owes for a call that took place", () => {
   const call = { pricePer15Cents: PRICE, bookedSeconds: HOUR };
 
   it("is the full price when the host was there the whole time", () => {
-    expect(attendanceChargeCents({ ...call, hostSeconds: HOUR })).toBe(8000);
+    expect(attendanceChargeCents({ ...call, countedSeconds: HOUR })).toBe(8000);
   });
   it("drops when the host is 5 minutes late", () => {
     // 55 minutes at $20 per 15 minutes = $73.33
-    expect(attendanceChargeCents({ ...call, hostSeconds: 3300 })).toBe(7333);
+    expect(attendanceChargeCents({ ...call, countedSeconds: 3300 })).toBe(7333);
   });
   it("drops when the host leaves 4 minutes early", () => {
     // 56 minutes = $74.67
-    expect(attendanceChargeCents({ ...call, hostSeconds: 3360 })).toBe(7467);
+    expect(attendanceChargeCents({ ...call, countedSeconds: 3360 })).toBe(7467);
   });
   it("is nothing when the host never showed up", () => {
-    expect(attendanceChargeCents({ ...call, hostSeconds: 0 })).toBe(0);
+    expect(attendanceChargeCents({ ...call, countedSeconds: 0 })).toBe(0);
   });
   it("does not depend on the customer: it is charged for the time the host waited", () => {
     // The pricing rule only ever sees the host's time. A late or absent customer changes nothing.
-    expect(attendanceChargeCents({ ...call, hostSeconds: HOUR })).toBe(8000);
+    expect(attendanceChargeCents({ ...call, countedSeconds: HOUR })).toBe(8000);
   });
   it("is counted to the second", () => {
     // 1 second at $20 per 15 minutes = 2.22 cents; 100 seconds = $2.22
-    expect(attendanceChargeCents({ ...call, hostSeconds: 100 })).toBe(222);
+    expect(attendanceChargeCents({ ...call, countedSeconds: 100 })).toBe(222);
   });
   it("is never more than the booked total, even if more time is reported", () => {
-    expect(attendanceChargeCents({ ...call, hostSeconds: HOUR + 500 })).toBe(8000);
+    expect(attendanceChargeCents({ ...call, countedSeconds: HOUR + 500 })).toBe(8000);
   });
   it("is nothing when it would come to less than 50 cents", () => {
     // 20 seconds = 44 cents
-    expect(attendanceChargeCents({ ...call, hostSeconds: 20 })).toBe(0);
+    expect(attendanceChargeCents({ ...call, countedSeconds: 20 })).toBe(0);
     // 23 seconds = 51 cents
-    expect(attendanceChargeCents({ ...call, hostSeconds: 23 })).toBe(51);
+    expect(attendanceChargeCents({ ...call, countedSeconds: 23 })).toBe(51);
   });
   it("is nothing for a free call", () => {
-    expect(attendanceChargeCents({ pricePer15Cents: 0, bookedSeconds: HOUR, hostSeconds: HOUR })).toBe(0);
+    expect(attendanceChargeCents({ pricePer15Cents: 0, bookedSeconds: HOUR, countedSeconds: HOUR })).toBe(0);
   });
 });
 
@@ -153,7 +153,7 @@ describe("the payout charge", () => {
 describe("bad inputs are refused, not guessed", () => {
   it("refuses fractions of a cent or of a second", () => {
     expect(() => bookedTotalCents(19.99, 900)).toThrow();
-    expect(() => attendanceChargeCents({ pricePer15Cents: 2000, bookedSeconds: 900, hostSeconds: 1.5 })).toThrow();
+    expect(() => attendanceChargeCents({ pricePer15Cents: 2000, bookedSeconds: 900, countedSeconds: 1.5 })).toThrow();
   });
   it("refuses negative numbers", () => {
     expect(() => bookedTotalCents(-1, 900)).toThrow();

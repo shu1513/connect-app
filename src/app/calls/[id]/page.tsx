@@ -97,6 +97,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
               bookedPrice={bookedPrice!}
               pricePer15={formatMoney(payment.pricePer15Cents)}
               cancelRule={cancelRuleSentence(call.freeCancelMinutes, bookedPrice!)}
+              billing={call.billing}
             />
           )
         ) : (

@@ -53,11 +53,12 @@ export function bookedTotalCents(pricePer15Cents: number, bookedSeconds: number)
 export function attendanceChargeCents(input: {
   pricePer15Cents: number;
   bookedSeconds: number;
-  hostSeconds: number;
+  /** The seconds that count by the call's rule: the host's time, or the time both were in. */
+  countedSeconds: number;
 }): number {
-  assertWholeNonNegative("hostSeconds", input.hostSeconds);
+  assertWholeNonNegative("countedSeconds", input.countedSeconds);
   const booked = bookedTotalCents(input.pricePer15Cents, input.bookedSeconds);
-  const billableSeconds = Math.min(input.hostSeconds, input.bookedSeconds);
+  const billableSeconds = Math.min(input.countedSeconds, input.bookedSeconds);
   const charge = Math.min(booked, roundDiv(input.pricePer15Cents * billableSeconds, QUARTER_HOUR_SECONDS));
   return charge < MIN_CHARGE_CENTS ? 0 : charge;
 }
