@@ -1,6 +1,6 @@
 # Plan: Module 6 — Notifications
 
-**Status: final. Astra checked the recommendations on 6 November 2026; the builder adopted them with these changes: delivery is tracked per attempt (claimed in batches, retried with limits, never resent blindly after Resend's 24-hour window); bounce and complaint messages from Resend are handled and bad addresses are not written to again; the "It's time" email says the room is open and that waiting counts only inside the booked time; unsubscribing works by a safe link and by the one-click header, and only for reminders; text messages and phone notifications stay out.**
+**Status: built and merged (module record in `docs/module-record.md`). Astra checked the recommendations on 6 November 2026; the builder adopted them with these changes: delivery is tracked per attempt (claimed in batches, retried with limits, never resent blindly after Resend's 24-hour window); bounce and complaint messages from Resend are handled and bad addresses are not written to again; the "It's time" email says the room is open and that waiting counts only inside the booked time; unsubscribing works by a safe link and by the one-click header, and only for reminders; text messages and phone notifications stay out.**
 
 The app already writes an email for every important event (a request, an answer, a cancelled call,
 a card problem, a report). But nothing is ever really sent: emails sit on a test page. This module

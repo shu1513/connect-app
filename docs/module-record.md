@@ -20,7 +20,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 3. Accounts and profiles | Built and merged. |
 | 4. Calendar and booking | Built and merged. |
 | 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
-| 6. Notifications | Plan written; being checked. |
+| 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
 | 7. "Available now" calls and extending a call | Not started. |
 | 8. Ratings, notes, contacts, search; messaging | Not started. |
 | Final pass: joining everything together | Not started. |
@@ -232,6 +232,43 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 **Still open**
 - A restricted Stripe key is needed to read "18 or older" from a passed check (the founder must be logged in to Stripe to create it); until then nobody passes the check.
 - Real IDs and faces can only be tried with Stripe's test documents.
+
+---
+
+## Module 6: Notifications
+
+**Plan:** `plans/06-notifications.md`
+
+**What was recommended, and what was decided** (from module 5 on the builder decides after Astra's check; the founder asked for everything to be documented)
+
+| # | Topic | Decided |
+| --- | --- | --- |
+| 1 | How emails are sent | Resend (free for 3,000 a month, then about $20). The app keeps writing to its outbox; the helper sends what is in it and records the result. Astra's additions taken: delivery tracked per try, retried with limits, never resent blindly after Resend's 24-hour memory; bounces and complaints handled; bad addresses never written to again. |
+| 2 | Reminders before a call | 24 hours before, 1 hour before, and "your room is open" when the room opens (5 minutes before), to both people, once each, with a link to the call. |
+| 3 | Reminders about requests | A host whose request runs out in about 2 hours gets one reminder. |
+| 4 | Text messages | Not now: needs a registered company and carrier approval; costs per message. |
+| 5 | Phone or browser notifications | Not now: needs an installed app or a permission flow that works badly on iPhones. |
+| 6 | Choices for people | One switch, "reminder emails" (on by default), on the account page; emails about things that happened are always sent. Every reminder has an unsubscribe link that works without logging in, plus the one-click header mail programs use. |
+| 7 | Login links in emails | No "one-tap sign-in": a link that logs you in would let anyone who sees the email into the account. Links go to the call page; a logged-out person logs in and is sent on. |
+| 8 | The "It's time" email | Who, when, how long, the link, and for paid calls what counts for money (Astra's wording: the room is open; waiting counts only inside the booked time). |
+
+**What was built**
+- Sending through Resend when a key is set (nothing is sent without one, so development stays silent): one email claimed at a time, with a lease, so two helpers never send the same email and a helper that dies mid-send is recovered; the email's own ID is the idempotency key; a try more than a day old whose answer was lost is never repeated; retries with growing waits and a limit; expired emails closed and login-link text purged; a daily allowance per address.
+- Bounce and complaint messages from Resend (signed) mark an address as one we never write to again.
+- Reminders written by the helper inside their windows only (a helper that was down does not send a pile of stale ones); each expires at its moment; none for cancelled calls, test calls, paused or closed people, or people who opted out, and a reminder already queued is dropped if any of that changes before it is sent.
+- Email delivery runs in its own loop in the helper, so a slow sending service never delays closing rooms or the money jobs.
+- The reminder switch on the account page; the unsubscribe page (a button, so link scanners change nothing) and the one-click endpoint.
+- The admin outbox page shows delivery status and lets the founder send a test email.
+
+**What the reviewers found**
+- Astra: 15 findings, 13 taken. The most important: rows left mid-send by a crashed helper were stuck for ever; the "do not resend after a day" protection could be lost; email sending could block the helper for minutes; reminders already queued ignored a later opt-out or cancellation; the one-click header pointed at the wrong address. Not taken: a few-millisecond timing difference on the password-reset form (Better Auth's own lookup dominates, and sign-up enumeration is already closed); serialising the daily allowance across several helpers (one helper runs; the cap is a soft guard).
+- CodeRabbit: 6 comments, all overlapping with Astra's; 5 fixed, the reset-timing one left as above.
+
+**How it was checked**
+- 29 checks over 4 journeys (`scripts/notifications-check.ts`) with a pretend sending service, including crash recovery, opt-out after queueing and the one-click header's own address; plus all earlier journeys and the 169 automatic tests.
+
+**Still open**
+- Real delivery and inbox placement need the Resend account and the company's web address (founder).
 
 ---
 
