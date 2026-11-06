@@ -45,16 +45,21 @@ export default async function HomePage() {
       </header>
 
       <p className="mt-6">
-        <Link href="/calls/new" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
-          Create a test call
+        <Link href="/host" className="underline underline-offset-2">
+          Hosting
         </Link>
-        <Link href="/host" className="ml-4 underline underline-offset-2">
-          Hosting settings
+        <Link href="/account" className="ml-4 underline underline-offset-2">
+          Your account
         </Link>
         {admin && (
-          <Link href="/admin" className="ml-4 underline underline-offset-2">
-            Admin
-          </Link>
+          <>
+            <Link href="/admin" className="ml-4 underline underline-offset-2">
+              Admin
+            </Link>
+            <Link href="/calls/new" className="ml-4 underline underline-offset-2">
+              Create a test call
+            </Link>
+          </>
         )}
       </p>
 

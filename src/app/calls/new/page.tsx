@@ -1,10 +1,14 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { db, schema } from "@/db";
+import { isAdmin } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 import { createCall } from "./actions";
 
 export default async function NewCallPage(props: PageProps<"/calls/new">) {
   const user = await requireUser();
+  // A testing tool: it lists every account and can pair any two people. Admins only.
+  if (!(await isAdmin(user.id))) notFound();
   const { error } = await props.searchParams;
   const people = await db
     .select({ id: schema.user.id, name: schema.user.name })

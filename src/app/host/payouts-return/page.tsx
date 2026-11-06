@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { withNotice } from "@/lib/notice";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
 import { requireUser } from "@/lib/session";
 
@@ -17,5 +18,5 @@ export default async function PayoutsReturnPage() {
     console.error("[payments] could not check a payout account with Stripe", error);
     notice = "We could not check your payout account with Stripe just now. Please try again in a minute.";
   }
-  redirect(`/host?notice=${encodeURIComponent(notice)}`);
+  redirect(withNotice("/host", notice));
 }

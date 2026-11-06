@@ -27,9 +27,15 @@ Stripe key. For Stripe to reach the app while developing, the app needs a public
 
 ## Test accounts
 
-Public sign-up is off. Four test accounts exist: a host, a customer, a stranger and an admin.
-Their emails and passwords are in `test-accounts.local.md` (also kept out of version history).
-To create them again on a fresh database: `npm run db:migrate` then `npm run seed`.
+Anyone can sign up at `/signup`. Four ready-made test accounts also exist: a host, a customer, a
+stranger and an admin. Their emails and passwords are in `test-accounts.local.md` (also kept out of
+version history). To create them again on a fresh database: `npm run db:migrate` then `npm run seed`.
+
+While developing, no real email is sent. Confirmation and password-reset emails appear on the
+"Sent emails (testing)" page, linked from the admin page. That page does not exist in the live app.
+
+Google sign-in is switched on by adding `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env.local`.
+Without them the Google button is simply not shown.
 
 ## Checking that it works
 
@@ -49,6 +55,9 @@ Testing tools:
   every result: holds, charges, refunds, cancelling, reviews, declined and foreign cards, two helpers
   charging at once, and recovery after a crash. Add `--payouts` to also check paying hosts (the test
   host must have finished payout setup on the Hosting settings page first).
+- `npx tsx scripts/accounts-check.ts` runs real sign-up and profile journeys against the app running
+  on this computer: confirming an email, resetting and changing a password, attempt limits, handles,
+  host approval, social media names, and closing an account. It removes the accounts it made.
 
 ## How changes get in
 
@@ -77,11 +86,19 @@ Every major module follows the same steps:
 | The four money actions (charge, release, refund, pay the host) | `src/lib/payments/actions.ts` |
 | The scheduled payment work and crash recovery | `src/lib/payments/jobs.ts` |
 | Stripe's message inbox | `src/app/api/stripe/webhook/route.ts` |
+| Login settings (sign-up, confirmation, Google, attempt limits) | `src/lib/auth.ts` |
+| The gate: who may use the app | `src/lib/session.ts` |
+| Sending email (saved, not sent, while developing) | `src/lib/email.ts` |
+| Handle rules and social media name rules | `src/lib/profiles/handles.ts`, `social.ts` |
+| Host profiles, approval, social proof, closing accounts | `src/lib/profiles/profiles.ts` |
+| A host's public page | `src/app/h/[handle]/page.tsx` |
 | Database tables | `src/db/schema.ts` |
 
 ## Not done yet
 
 - Real-device tests of the video call on phones, and with two people on camera.
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
-- The modules after payments: accounts and profiles, calendar and booking, safety, notifications,
-  "available now" calls, messaging and search.
+- Before real people sign up: a real email-sending service, real terms and privacy pages, and
+  Google sign-in tried with a real Google account.
+- The modules still to come: calendar and booking, safety, notifications, "available now" calls,
+  messaging and search.

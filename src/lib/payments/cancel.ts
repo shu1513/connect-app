@@ -11,13 +11,13 @@ import { MoneyError } from "./operations";
 import { cancellationOutcome } from "./rules";
 
 /**
- * Cancels a call on behalf of its host or its customer.
+ * Cancels a call on behalf of its host or its customer, or for the founder when an account is closed.
  * Free before the host's cut-off; after it, the customer is charged the booked price.
  */
 export async function cancelCall(input: {
   call: Call;
   payment: Payment | null;
-  by: "host" | "customer";
+  by: "host" | "customer" | "admin";
   now: Date;
 }): Promise<"free" | "late_charge"> {
   const { call, by, now } = input;
