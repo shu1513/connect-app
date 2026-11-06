@@ -37,13 +37,19 @@ export async function cancelCall(input: {
     payment = await syncHold(payment.id, now);
   }
 
-  const outcome = cancellationOutcome({
-    by,
-    now,
-    startsAt: call.startsAt,
-    freeCancelMinutes: call.freeCancelMinutes,
-    held: payment?.status === "held",
-  });
+  // A paid call whose money was never held: nobody could enter the room, so it can be
+  // cancelled by Connect even after its start time (an instant call's payment deadline
+  // is a minute after its start). Always free.
+  const neverPaid = by === "admin" && input.reason === "unpaid" && payment?.status === "awaiting_payment";
+  const outcome = neverPaid
+    ? "free"
+    : cancellationOutcome({
+        by,
+        now,
+        startsAt: call.startsAt,
+        freeCancelMinutes: call.freeCancelMinutes,
+        held: payment?.status === "held",
+      });
   if (outcome === "not_allowed") throw new MoneyError("This call has started, so it can no longer be cancelled.");
 
   // Mark the call cancelled first, so nobody can join it. Only the first cancel wins.
@@ -52,7 +58,7 @@ export async function cancelCall(input: {
     const marked = await tx
       .update(schema.calls)
       .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
-      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)))
+      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), neverPaid ? isNull(schema.calls.closedAt) : gt(schema.calls.startsAt, now)))
       .returning({ id: schema.calls.id });
     if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
     await releaseBookingOfCall(tx, call.id, by, input.reason);

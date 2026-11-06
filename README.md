@@ -77,6 +77,10 @@ Testing tools:
 - `npx tsx scripts/notifications-check.ts` runs the notification journeys with a pretend sending
   service: reminders before calls and about requests, the unsubscribe link, and sending (retries,
   failures, bounced addresses, two helpers at once).
+- `npx tsx scripts/now-check.ts` runs the "available now" journeys against the local database and the
+  Stripe sandbox: switching availability on and off, which lengths fit, a free call now asked and
+  accepted, time-outs, declines and the 24-hour rule, a paid call now with the money held at once,
+  and a refused card cancelled at the 2-minute deadline. Same cautions as `booking-check.ts`.
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call and report", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.

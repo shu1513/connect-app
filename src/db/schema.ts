@@ -311,6 +311,9 @@ export const hostCalendars = pgTable("host_calendars", {
   horizonWeeks: integer("horizon_weeks").notNull().default(4),
   /** Break kept free after each call, in minutes. */
   breakMinutes: integer("break_minutes").notNull().default(5),
+  /** "Available now": until when the host takes instant calls, and when their page last said they were there. */
+  availableUntil: timestamp("available_until", { withTimezone: true }),
+  availableSeenAt: timestamp("available_seen_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -374,7 +377,7 @@ export const bookings = pgTable(
     /** What the customer wants to talk about. Only the host sees it. */
     note: text("note").notNull().default(""),
     stage: text("stage").notNull(),
-    /** "customer" for a real request; "admin" for a call made on the admin test page. */
+    /** "customer" for a booked request; "now" for an instant call while the host is available; "admin" for the admin test page. */
     source: text("source").notNull().default("customer"),
     /** One key per press of the button, so a double click makes one request. */
     requestKey: text("request_key").notNull().unique(),
@@ -464,6 +467,8 @@ export const calls = pgTable(
     safetyEndedBy: text("safety_ended_by"),
     /** Price in cents per 15 minutes. Zero means a free call with no payment. */
     pricePer15Cents: integer("price_per_15_cents").notNull().default(0),
+    /** What time is paid for: "host" (the host's time in the room, booked calls) or "together" (time both were in, instant calls). Fixed at creation. */
+    billing: text("billing").notNull().default("host"),
     /** The host's cancelling rule when the call was created: minutes before the start that cancelling is free. */
     freeCancelMinutes: integer("free_cancel_minutes").notNull().default(0),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
