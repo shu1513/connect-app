@@ -9,10 +9,11 @@ import { blockedBy } from "@/lib/safety/blocks";
 import { requireUser } from "@/lib/session";
 import { unblockAction } from "../report/actions";
 import { timeZones } from "@/lib/time-zones";
-import { saveAccount } from "./actions";
+import { saveAccount, saveReminders } from "./actions";
 
 const NOTICES: Record<string, string> = {
   saved: "Your details were saved.",
+  reminders: "Your notification choice was saved.",
   name: "Your name must be 2 to 50 characters long.",
   zone: "Please choose your time zone from the list.",
 };
@@ -27,6 +28,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
     .from(schema.account)
     .where(and(eq(schema.account.userId, user.id), eq(schema.account.providerId, "credential")));
   const blocked = await blockedBy(user.id);
+  const [{ reminders }] = await db.select({ reminders: schema.user.reminderEmails }).from(schema.user).where(eq(schema.user.id, user.id));
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -81,6 +83,21 @@ export default async function AccountPage(props: PageProps<"/account">) {
             Your host profile and payout settings
           </Link>
         </p>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Notifications</h2>
+        <p className="mt-1 text-sm opacity-70">
+          Emails about things that happen (an answer to a request, a cancellation, money, a report) are always sent. Reminders are up to you.
+        </p>
+        <form action={saveReminders} className="mt-2 text-sm">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" name="reminders" defaultChecked={reminders} /> Email me reminders before my calls and about requests
+          </label>
+          <button type="submit" className="mt-2 rounded border border-neutral-500 px-3 py-1.5">
+            Save
+          </button>
+        </form>
       </section>
 
       <section className="mt-10">

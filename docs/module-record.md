@@ -19,8 +19,8 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 2. Payments | Built and merged (Stripe test area only). |
 | 3. Accounts and profiles | Built and merged. |
 | 4. Calendar and booking | Built and merged. |
-| 5. Safety | Built; in review. |
-| 6. Notifications | Not started. |
+| 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
+| 6. Notifications | Plan written; being checked. |
 | 7. "Available now" calls and extending a call | Not started. |
 | 8. Ratings, notes, contacts, search; messaging | Not started. |
 | Final pass: joining everything together | Not started. |
@@ -193,7 +193,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 
 ---
 
-## Module 5: Safety (approved, being built)
+## Module 5: Safety
 
 **Plan:** `plans/05-safety.md`
 
@@ -222,10 +222,12 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - Stripe Identity for hosts (ID plus matching selfie, three tries), required before approval; also required before a customer's first free call. The name on the ID is shown to the founder only.
 - Two emergency switches: "no new requests" and "nobody can join a call".
 
-**What the reviewers found:** to be filled in when the module is merged.
+**What the reviewers found**
+- Astra: 22 findings, 21 fixed. The most important: a second Google login path (a token sent by the browser) would have skipped the admin's second step; the clock did not stop at "End call and report" if the video service was slow; a block could leave future calls uncancelled when Stripe was down; backup codes failed because the form removed their hyphen. Not taken: handling Stripe's later deletion of a verified check (a retention-policy item for the lawyer).
+- CodeRabbit: 12 comments, 10 overlapping with Astra's; the rest fixed (for example the identity refresh running on its own rhythm so slow answers from Stripe never hold up the money jobs).
 
 **How it was checked**
-- About 40 checks over 7 real journeys (`scripts/safety-check.ts`), plus all earlier journeys and the 166 automatic tests.
+- 55 checks over 7 real journeys (`scripts/safety-check.ts`), including the real stop through the app, the door refusing re-entry and the clock stopping; plus all earlier journeys and the 166 automatic tests.
 
 **Still open**
 - A restricted Stripe key is needed to read "18 or older" from a passed check (the founder must be logged in to Stripe to create it); until then nobody passes the check.
