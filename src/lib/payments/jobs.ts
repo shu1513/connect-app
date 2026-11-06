@@ -148,6 +148,17 @@ export async function reconcileOperations(now: Date): Promise<void> {
             await giveUp("Stripe shows this charge did not happen.");
           }
         }
+      } else if (operation.kind === "hold") {
+        // The automatic try with a saved card. Asking Stripe how the hold stands is always safe.
+        const before = await syncHold(payment.id, now);
+        if (before.status === "held") {
+          await finishOperation(operation.id, payment.id, params.intentId, async () => undefined);
+        } else {
+          const intent = await stripe().paymentIntents.retrieve(params.intentId);
+          if (intent.status === "processing") continue; // Stripe has not decided yet
+          if (intent.status === "requires_capture") continue; // just placed: recorded on the next pass
+          await giveUp("The saved card could not be used.");
+        }
       } else if (operation.kind === "release") {
         const intentId = payment.stripePaymentIntentId!;
         let intent = await stripe().paymentIntents.retrieve(intentId);

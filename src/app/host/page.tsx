@@ -53,6 +53,14 @@ export default async function HostPage(props: PageProps<"/host">) {
         </Link>
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Hosting settings</h1>
+      <p className="mt-2 text-sm">
+        <Link href="/host/requests" className="underline underline-offset-2">
+          Requests for calls
+        </Link>
+        <Link href="/host/calendar" className="ml-4 underline underline-offset-2">
+          Your calendar (hours, time off, call lengths)
+        </Link>
+      </p>
 
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">

@@ -3,10 +3,19 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SignOutButton } from "@/components/sign-out-button";
 import { db, schema } from "@/db";
+import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
 import { formatMoney, isAdmin } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 
+const REQUEST_LABEL: Record<string, string> = {
+  card: "card details needed to send it",
+  waiting: "waiting for the host's answer",
+  declined: "the host could not take it",
+  passed_over: "the host accepted another request for that time",
+  ran_out: "ended without an answer",
+  taken_back: "you took it back",
+};
 const STATE_LABEL = { not_open_yet: "Not open yet", open: "Open now", closed: "Ended" } as const;
 
 export default async function HomePage() {
@@ -34,6 +43,7 @@ export default async function HomePage() {
   const paymentOf = new Map(payments.map((p) => [p.callId, p]));
   const admin = await isAdmin(user.id);
   const now = new Date();
+  const [requests, toAnswer] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id)]);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -62,6 +72,31 @@ export default async function HomePage() {
           </>
         )}
       </p>
+
+      {toAnswer.length > 0 && (
+        <p className="mt-6 rounded border border-blue-600 p-3 text-sm">
+          You have {toAnswer.length} {toAnswer.length === 1 ? "request" : "requests"} for a call waiting for your answer.{" "}
+          <Link href="/host/requests" className="underline underline-offset-2">
+            See {toAnswer.length === 1 ? "it" : "them"}
+          </Link>
+        </p>
+      )}
+
+      {requests.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold">Your requests</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {requests.map(({ booking, hostName }) => (
+              <li key={booking.id}>
+                <Link href={`/bookings/${booking.id}`} className="underline underline-offset-2">
+                  {hostName}, <LocalTime iso={booking.startsAt.toISOString()} />
+                </Link>
+                : {REQUEST_LABEL[booking.stage] ?? booking.stage}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {calls.length === 0 ? (
         <p className="mt-8 opacity-70">No calls yet.</p>

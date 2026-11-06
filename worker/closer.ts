@@ -23,6 +23,7 @@ async function main() {
   const { closeRoom, roomExists } = await import("../src/lib/video/livekit");
   const { stripeConfigured } = await import("../src/lib/payments/stripe");
   const { runPaymentJobs } = await import("../src/lib/payments/jobs");
+  const { runBookingJobs } = await import("../src/lib/booking/jobs");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -70,7 +71,10 @@ async function main() {
   /** One full pass: close rooms that are due, then do the payment work. */
   async function pass() {
     await tick();
-    if (stripeConfigured()) await runPaymentJobs(new Date());
+    const now = new Date();
+    // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
+    if (stripeConfigured()) await runPaymentJobs(now);
+    await runBookingJobs(now);
   }
 
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.

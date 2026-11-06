@@ -120,6 +120,8 @@ export async function decideProfile(input: {
 }
 
 export type PublicProfile = {
+  /** Used by the server to look up open times. Never put in a page. */
+  userId: string;
   handle: string;
   displayName: string;
   about: string;
@@ -163,6 +165,7 @@ export async function publicProfile(typedHandle: string): Promise<PublicProfile 
     .from(schema.socialAccounts)
     .where(and(eq(schema.socialAccounts.userId, row.userId), isNotNull(schema.socialAccounts.confirmedAt)));
   return {
+    userId: row.userId,
     handle: row.handle,
     displayName: row.displayName,
     about: row.about,

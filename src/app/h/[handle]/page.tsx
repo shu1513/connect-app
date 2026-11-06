@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
+import Link from "next/link";
+import { SlotPicker } from "@/components/slot-picker";
+import { offerOf, openTimes } from "@/lib/booking/bookings";
 import { formatMoney } from "@/lib/payments/access";
+import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
 
 // Always built fresh, so hiding or suspending a profile takes effect at once.
@@ -30,6 +34,12 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const { handle } = await props.params;
   const profile = await loadProfile(handle);
   if (!profile) notFound();
+
+  // What can be booked. Worked out fresh on every visit; nothing here says why a time is closed.
+  const offer = await offerOf(profile.userId);
+  const { length } = await props.searchParams;
+  const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : (offer?.lengths[0] ?? null);
+  const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">
@@ -67,9 +77,38 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           {profile.pricePer15Cents === 0 ? "Free private video call" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}
         </p>
         <p className="mt-1 text-sm opacity-70">A private one-to-one video call. {CANCEL_RULE[profile.freeCancelMinutes] ?? ""}</p>
-        <button type="button" disabled className="mt-4 rounded bg-blue-600 px-4 py-2 font-medium text-white opacity-50">
-          Book a call (coming soon)
-        </button>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Ask for a call</h2>
+        {!offer || !chosen ? (
+          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking bookings at the moment.</p>
+        ) : !offer.canTakePaid ? (
+          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking bookings yet.</p>
+        ) : (
+          <>
+            <p className="mt-2 text-sm">
+              This sends a request. It does not reserve the time: others may ask for it too, and {profile.displayName} chooses.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-sm">
+              {offer.lengths.map((minutes) => (
+                <Link
+                  key={minutes}
+                  href={`/h/${profile.handle}?length=${minutes}`}
+                  className={`rounded border px-3 py-1.5 ${minutes === chosen ? "border-blue-600 bg-blue-600 text-white" : "border-neutral-500"}`}
+                >
+                  {minutes} minutes
+                  {offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(offer.pricePer15Cents, minutes * 60))}` : ""}
+                </Link>
+              ))}
+            </div>
+            {starts.length === 0 ? (
+              <p className="mt-4 text-sm opacity-70">There are no open times for this length right now. Please look again later.</p>
+            ) : (
+              <SlotPicker starts={starts.map((s) => s.toISOString())} hrefBase={`/h/${profile.handle}/book?length=${chosen}`} />
+            )}
+          </>
+        )}
       </section>
     </main>
   );

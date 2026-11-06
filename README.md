@@ -55,6 +55,10 @@ Testing tools:
   every result: holds, charges, refunds, cancelling, reviews, declined and foreign cards, two helpers
   charging at once, and recovery after a crash. Add `--payouts` to also check paying hosts (the test
   host must have finished payout setup on the Hosting settings page first).
+- `npx tsx scripts/booking-check.ts` runs real booking journeys against the local database and the
+  Stripe sandbox: asking, several people asking for the same time, accepting, declining, time-outs,
+  the limits, "never two calls at once", the saved card, the automatic hold, a card that fails, and
+  the cut-off. Stop the helper first (it would do some of the steps itself).
 - `npx tsx scripts/accounts-check.ts` runs real sign-up and profile journeys against the app running
   on this computer: confirming an email, resetting and changing a password, attempt limits, handles,
   host approval, social media names, and closing an account. It removes the accounts it made.
@@ -92,7 +96,13 @@ Every major module follows the same steps:
 | Handle rules and social media name rules | `src/lib/profiles/handles.ts`, `social.ts` |
 | Host profiles, approval, social proof, closing accounts | `src/lib/profiles/profiles.ts` |
 | A host's public page | `src/app/h/[handle]/page.tsx` |
+| The rule for open times (weekly hours, breaks, clock changes) | `src/lib/booking/slots.ts` |
+| Booking deadlines, limits and stages | `src/lib/booking/rules.ts` |
+| Asking for a call, accepting, declining | `src/lib/booking/bookings.ts` |
+| The scheduled booking work (time-outs, holds, cut-off) | `src/lib/booking/jobs.ts` |
+| A host's calendar settings | `src/lib/booking/calendar.ts` |
 | Database tables | `src/db/schema.ts` |
+| The rule that refuses overlapping calls for one person | `drizzle/0010_busy_no_overlap.sql` |
 
 ## Not done yet
 
@@ -100,5 +110,4 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: calendar and booking, safety, notifications, "available now" calls,
-  messaging and search.
+- The modules still to come: safety, notifications, "available now" calls, messaging and search.

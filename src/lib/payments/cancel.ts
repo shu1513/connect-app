@@ -4,6 +4,7 @@
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
+import { releaseBookingOfCall } from "@/lib/booking/release";
 import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
 import { syncHold } from "./hold";
@@ -19,6 +20,8 @@ export async function cancelCall(input: {
   payment: Payment | null;
   by: "host" | "customer" | "admin";
   now: Date;
+  /** Why, when it is not simply one of the two people cancelling. Shown to nobody; decides which email goes out. */
+  reason?: string;
 }): Promise<"free" | "late_charge"> {
   const { call, by, now } = input;
   let { payment } = input;
@@ -43,12 +46,16 @@ export async function cancelCall(input: {
   if (outcome === "not_allowed") throw new MoneyError("This call has started, so it can no longer be cancelled.");
 
   // Mark the call cancelled first, so nobody can join it. Only the first cancel wins.
-  const marked = await db
-    .update(schema.calls)
-    .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
-    .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)))
-    .returning({ id: schema.calls.id });
-  if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
+  // In the same step the booking it came from ends and both people's time is free again.
+  await db.transaction(async (tx) => {
+    const marked = await tx
+      .update(schema.calls)
+      .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
+      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)))
+      .returning({ id: schema.calls.id });
+    if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
+    await releaseBookingOfCall(tx, call.id, by, input.reason);
+  });
 
   // People may already be in the room (it opens 5 minutes early). Put them out now
   // and cancel their entry passes. The always-on helper repeats this until it is confirmed.

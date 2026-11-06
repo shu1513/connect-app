@@ -19,11 +19,17 @@ function errorText(code: string): string {
   return "Signing in with Google did not work. Please try again.";
 }
 
+/** Where to go after logging in. Only a path on this site is accepted, never another site. */
+function safeNext(value: string | string[] | undefined): string {
+  return typeof value === "string" && /^\/(?![\/\\])[^\s]*$/.test(value) ? value : "/";
+}
+
 export default async function LoginPage(props: PageProps<"/login">) {
   const person = await getSignedIn();
   // Only someone who can get further is sent on. Anyone else stays here, so they can never be bounced back and forth.
-  if (person && !person.closed && person.emailVerified) redirect("/");
-  const { notice, error } = await props.searchParams;
+  const { notice, error, next: nextParam } = await props.searchParams;
+  const next = safeNext(nextParam);
+  if (person && !person.closed && person.emailVerified) redirect(next);
   const message = typeof error === "string" ? errorText(error) : typeof notice === "string" ? NOTICES[notice] : undefined;
 
   return (
@@ -34,7 +40,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
           {message}
         </p>
       )}
-      <LoginForm google={googleSignInConfigured} />
+      <LoginForm google={googleSignInConfigured} next={next} />
     </main>
   );
 }

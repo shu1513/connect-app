@@ -6,7 +6,8 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
-import { lockPayment, MoneyError, type Tx } from "./operations";
+import type Stripe from "stripe";
+import { lockPayment, MoneyError, runMoneyOperation, type Tx } from "./operations";
 import { bookedTotalCents, DEFAULT_FEE_TERMS, MIN_PRICE_PER_15_CENTS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
 import { stripe } from "./stripe";
@@ -33,7 +34,7 @@ export async function createPaymentForCall(tx: Tx, call: Pick<Call, "id" | "star
   });
 }
 
-async function stripeCustomerFor(user: { id: string; name: string; email: string }): Promise<string> {
+export async function stripeCustomerFor(user: { id: string; name: string; email: string }): Promise<string> {
   const [existing] = await db.select().from(schema.stripeCustomers).where(eq(schema.stripeCustomers.userId, user.id));
   if (existing) return existing.stripeCustomerId;
   const customer = await stripe().customers.create(
@@ -45,21 +46,27 @@ async function stripeCustomerFor(user: { id: string; name: string; email: string
   return saved.stripeCustomerId;
 }
 
+type Payer = { id: string; name: string; email: string };
+
 /**
- * Starts (or resumes) the hold for a paid call. Returns the secret the
- * browser needs to show Stripe's card form. The hold itself is placed when
- * the customer confirms in that form.
+ * The one hold a payment has at Stripe: finds it, or creates it. Both the
+ * customer's browser and the automatic try with a saved card come through
+ * here, with exactly the same request and the same label, so Stripe gives both
+ * the same hold and there can never be two.
+ *
+ * Nothing is held by this step: the hold only takes effect when a card is
+ * confirmed on it.
  */
-export async function startHold(input: {
+async function holdIntentFor(input: {
   payment: Payment;
   call: Call;
-  customer: { id: string; name: string; email: string };
+  customer: Payer;
   now: Date;
-}): Promise<{ clientSecret: string } | { alreadyHeld: true }> {
+}): Promise<{ held: true } | { held: false; intentId: string; clientSecret: string }> {
   const { payment, call, customer, now } = input;
   if (customer.id !== call.customerId) throw new MoneyError("Only the customer can pay for this call.");
   if (call.cancelledAt) throw new MoneyError("This call was cancelled.");
-  if (payment.status === "held") return { alreadyHeld: true };
+  if (payment.status === "held") return { held: true };
   if (payment.status !== "awaiting_payment") throw new MoneyError("This call can no longer be paid for.");
   const window = payWindow({ now, startsAt: call.startsAt, endsAt: call.endsAt });
   if (window === "too_early") throw new MoneyError("This call can be paid for from 2 days before it starts.");
@@ -70,9 +77,9 @@ export async function startHold(input: {
     const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId);
     if (intent.status === "requires_capture") {
       await syncHold(payment.id, now);
-      return { alreadyHeld: true };
+      return { held: true };
     }
-    if (intent.status !== "canceled" && intent.client_secret) return { clientSecret: intent.client_secret };
+    if (intent.status !== "canceled" && intent.client_secret) return { held: false, intentId: intent.id, clientSecret: intent.client_secret };
     previousIntentId = intent.id; // cancelled at Stripe: start a fresh one
   }
 
@@ -98,8 +105,8 @@ export async function startHold(input: {
     const [current] = await tx.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
     const open = locked.status === "awaiting_payment" && !current?.cancelledAt;
     if (locked.stripePaymentIntentId === intent.id) {
-      // A second request for the same hold (a double click, two tabs) got here first and Stripe
-      // gave both the same one. It belongs to this payment: never cancel it from here.
+      // A second request for the same hold (a double click, two tabs, the automatic try) got here
+      // first and Stripe gave both the same one. It belongs to this payment: never cancel it from here.
       if (locked.status === "held") return "held" as const;
       return open ? ("saved" as const) : ("closed" as const);
     }
@@ -114,11 +121,116 @@ export async function startHold(input: {
     await tx.update(schema.payments).set({ stripePaymentIntentId: intent.id, updatedAt: new Date() }).where(eq(schema.payments.id, payment.id));
     return "saved" as const;
   });
-  if (saved === "held") return { alreadyHeld: true };
+  if (saved === "held") return { held: true };
   if (saved === "unwanted") await stripe().paymentIntents.cancel(intent.id).catch(() => undefined);
   if (saved !== "saved") throw new MoneyError("This call can no longer be paid for.");
   if (!intent.client_secret) throw new MoneyError("Stripe did not return a way to pay. Please try again.");
-  return { clientSecret: intent.client_secret };
+  return { held: false, intentId: intent.id, clientSecret: intent.client_secret };
+}
+
+/**
+ * Starts (or resumes) the hold for a paid call. Returns the secret the
+ * browser needs to show Stripe's card form. The hold itself is placed when
+ * the customer confirms in that form.
+ */
+export async function startHold(input: {
+  payment: Payment;
+  call: Call;
+  customer: Payer;
+  now: Date;
+}): Promise<{ clientSecret: string } | { alreadyHeld: true }> {
+  const found = await holdIntentFor(input);
+  return found.held ? { alreadyHeld: true } : { clientSecret: found.clientSecret };
+}
+
+type HoldDetails = { intentId: string; captureBefore: number | null; cardCountry: string | null; chargeId: string | null; authorisedAt: number | null };
+
+function holdDetails(intent: Stripe.PaymentIntent): HoldDetails {
+  const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
+  const card = charge?.payment_method_details?.card;
+  return {
+    intentId: intent.id,
+    captureBefore: card?.capture_before ?? null,
+    cardCountry: card?.country ?? null,
+    chargeId: charge?.id ?? null,
+    authorisedAt: charge?.created ?? null,
+  };
+}
+
+/** Records that the money is now held. Does nothing unless the payment was still waiting for exactly this hold. */
+async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Date): Promise<void> {
+  if (payment.status !== "awaiting_payment" || payment.stripePaymentIntentId !== details.intentId) return;
+  const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
+  await tx
+    .update(schema.payments)
+    .set({
+      status: "held",
+      heldAt: now,
+      // Counted from when the card was authorised, not from when we happened to hear about it.
+      holdExpiresAt: holdExpiry({ heldAt: details.authorisedAt ? new Date(details.authorisedAt * 1000) : now, captureBefore }),
+      cardCountry: details.cardCountry,
+      stripeChargeId: details.chargeId,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.payments.id, payment.id));
+}
+
+/**
+ * Tries, once, to place the hold on a card the customer saved when they asked
+ * for the call. The customer is not there, so if the bank says no or wants
+ * them to approve it, nothing is held and they fix it later on the call page,
+ * on this same hold.
+ *
+ * Returns "held", or "not_held" after a clear no. Throws OutcomeUnknownError
+ * when Stripe's answer is not known yet; the helper then finds out.
+ */
+export async function placeHoldWithSavedCard(input: {
+  payment: Payment;
+  call: Call;
+  customer: Payer;
+  paymentMethodId: string;
+  now: Date;
+}): Promise<"held" | "not_held"> {
+  const found = await holdIntentFor(input);
+  if (found.held) return "held";
+  try {
+    await runMoneyOperation<{ intentId: string; paymentMethodId: string }, HoldDetails | null>({
+      paymentId: input.payment.id,
+      kind: "hold",
+      labelBase: `holdcard:${input.payment.id}`,
+      prepare: async (payment, tx) => {
+        if (payment.status !== "awaiting_payment") throw new MoneyError("This payment is not waiting for a hold.");
+        if (payment.stripePaymentIntentId !== found.intentId) throw new MoneyError("The hold changed. Nothing was tried.");
+        const [tried] = await tx
+          .select({ id: schema.moneyOperations.id })
+          .from(schema.moneyOperations)
+          .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.kind, "hold")))
+          .limit(1);
+        if (tried) throw new MoneyError("The saved card was already tried once.");
+        return { intentId: found.intentId, paymentMethodId: input.paymentMethodId };
+      },
+      execute: async (params, label) => {
+        const intent = await stripe().paymentIntents.confirm(
+          params.intentId,
+          { payment_method: params.paymentMethodId, off_session: true, expand: ["latest_charge"] },
+          { idempotencyKey: label },
+        );
+        return { stripeId: intent.id, result: intent.status === "requires_capture" ? holdDetails(intent) : null };
+      },
+      apply: async (payment, _params, outcome, tx) => {
+        if (outcome.result) await applyHeld(tx, payment, outcome.result, input.now);
+      },
+    });
+  } catch (error) {
+    if (error instanceof MoneyError) return (await paymentStatus(input.payment.id)) === "held" ? "held" : "not_held";
+    throw error;
+  }
+  return (await paymentStatus(input.payment.id)) === "held" ? "held" : "not_held";
+}
+
+async function paymentStatus(paymentId: string): Promise<string | undefined> {
+  const [payment] = await db.select({ status: schema.payments.status }).from(schema.payments).where(eq(schema.payments.id, paymentId));
+  return payment?.status;
 }
 
 /**
@@ -138,20 +250,7 @@ export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
     if (payment.stripePaymentIntentId !== intent.id) return;
 
     if (intent.status === "requires_capture" && payment.status === "awaiting_payment") {
-      const card = charge?.payment_method_details?.card;
-      const captureBefore = card?.capture_before ? new Date(card.capture_before * 1000) : null;
-      await tx
-        .update(schema.payments)
-        .set({
-          status: "held",
-          heldAt: now,
-          // Counted from when the card was authorised, not from when we happened to hear about it.
-          holdExpiresAt: holdExpiry({ heldAt: charge ? new Date(charge.created * 1000) : now, captureBefore }),
-          cardCountry: card?.country ?? null,
-          stripeChargeId: charge?.id ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.payments.id, paymentId));
+      await applyHeld(tx, payment, holdDetails(intent), now);
     } else if (intent.status === "canceled" && payment.status === "held") {
       // The hold ran out or was cancelled at Stripe. Nothing can be charged any more.
       await applyReleased(payment, "The hold ended at Stripe before a charge was made.", tx);

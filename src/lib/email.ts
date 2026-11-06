@@ -9,7 +9,7 @@
 import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
-export type EmailKind = "confirm" | "reset" | "notice";
+export type EmailKind = "confirm" | "reset" | "notice" | "booking";
 
 /**
  * How many emails of each kind one address can be sent, whoever asks. The
@@ -22,6 +22,8 @@ export const EMAIL_LIMITS: Record<EmailKind, { max: number; hours: number }> = {
   reset: { max: 5, hours: 1 },
   // "Someone tried to sign up with your address": once a day is enough.
   notice: { max: 1, hours: 24 },
+  // Emails about bookings are each written once per event (see queueEmail), so this is only a safety net.
+  booking: { max: 60, hours: 1 },
 };
 
 type Email = { to: string; kind: EmailKind; subject: string; text: string };
@@ -61,4 +63,26 @@ export async function sendEmail(message: Email): Promise<void> {
 /** For callers that must not wait for the email (so timing gives nothing away) or fail because of it. */
 export function sendEmailInBackground(message: Email): void {
   void sendEmail(message).catch((error) => console.error("[email] could not send", error));
+}
+
+type Writer = Pick<typeof db, "insert">;
+
+/**
+ * Writes an email about an event (a request was accepted, a call was
+ * cancelled) as part of the same database step as the event itself, so the
+ * email exists exactly when the event happened: never lost, never twice.
+ * `key` names the event, for example "accepted:<booking id>:customer".
+ */
+export async function queueEmail(tx: Writer, message: { to: string; subject: string; text: string; key: string }): Promise<void> {
+  const live = process.env.NODE_ENV === "production";
+  await tx
+    .insert(schema.emailOutbox)
+    .values({
+      to: message.to.trim().toLowerCase(),
+      kind: "booking",
+      subject: message.subject,
+      body: live ? "" : message.text,
+      dedupeKey: message.key,
+    })
+    .onConflictDoNothing();
 }

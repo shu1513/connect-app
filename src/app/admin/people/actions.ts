@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { endBookingsOfSuspendedHost } from "@/lib/booking/moderation";
 import { withNotice } from "@/lib/notice";
 import { isAdmin } from "@/lib/payments/access";
 import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
@@ -40,6 +41,13 @@ export async function decideProfileAction(formData: FormData) {
       seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? "") },
     });
     notice = { approved: "The profile is approved and public.", declined: "The profile was declined.", suspended: "The profile is suspended and no longer public." }[decision];
+    if (decision === "suspended") {
+      const failed = await endBookingsOfSuspendedHost(String(formData.get("userId") ?? ""), new Date());
+      notice +=
+        failed === 0
+          ? " Their waiting requests have ended and their future calls were cancelled at no charge."
+          : ` ${failed} of their future calls could not be cancelled automatically. Please cancel those by hand.`;
+    }
   } catch (error) {
     notice = problem(error);
   }
