@@ -1,4 +1,4 @@
-import { desc, eq, or } from "drizzle-orm";
+import { desc, eq, inArray, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -11,14 +11,21 @@ const STATE_LABEL = { not_open_yet: "Not open yet", open: "Open now", closed: "E
 export default async function HomePage() {
   const user = await requireUser();
 
-  const [calls, people] = await Promise.all([
-    db
-      .select()
-      .from(schema.calls)
-      .where(or(eq(schema.calls.hostId, user.id), eq(schema.calls.customerId, user.id)))
-      .orderBy(desc(schema.calls.startsAt)),
-    db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user),
-  ]);
+  const calls = await db
+    .select()
+    .from(schema.calls)
+    .where(or(eq(schema.calls.hostId, user.id), eq(schema.calls.customerId, user.id)))
+    .orderBy(desc(schema.calls.startsAt));
+
+  // Only the names of the people this person has calls with.
+  const otherIds = [...new Set(calls.map((c) => (c.hostId === user.id ? c.customerId : c.hostId)))];
+  const people =
+    otherIds.length > 0
+      ? await db
+          .select({ id: schema.user.id, name: schema.user.name })
+          .from(schema.user)
+          .where(inArray(schema.user.id, otherIds))
+      : [];
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const now = new Date();
 

@@ -1,0 +1,40 @@
+name: Checks
+
+# Runs on every pull request, and on main after a merge.
+# A pull request is only merged when this is green.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, types, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Placeholder settings so the app can be built. No real service is contacted.
+      DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      BETTER_AUTH_SECRET: placeholder-for-automatic-checks-only
+      BETTER_AUTH_URL: http://localhost:3000
+      LIVEKIT_URL: wss://placeholder.invalid
+      LIVEKIT_API_KEY: placeholder
+      LIVEKIT_API_SECRET: placeholder
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
