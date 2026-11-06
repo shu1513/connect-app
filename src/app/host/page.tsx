@@ -29,7 +29,7 @@ const RULE_LABEL: Record<number, string> = {
 
 export default async function HostPage(props: PageProps<"/host">) {
   const user = await requireUser();
-  const notice = readNotice(await props.searchParams);
+  const notice = readNotice("/host", await props.searchParams);
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
   const socials = profile
     ? await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, user.id)).orderBy(schema.socialAccounts.network)

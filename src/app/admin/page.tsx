@@ -23,7 +23,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   const user = await requireUser();
   // Someone who is not an admin sees the same "not found" as for any missing page.
   if (!(await isAdmin(user.id))) notFound();
-  const notice = readNotice(await props.searchParams);
+  const notice = readNotice("/admin", await props.searchParams);
 
   const rows = await db
     .select({ payment: schema.payments, call: schema.calls })

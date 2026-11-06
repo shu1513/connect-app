@@ -1,0 +1,1 @@
+ALTER TABLE "email_outbox" ADD COLUMN "kind" text DEFAULT 'confirm' NOT NULL;

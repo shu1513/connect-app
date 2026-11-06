@@ -57,7 +57,7 @@ export async function decideSocialAction(formData: FormData) {
       await confirmSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), code: String(formData.get("code") ?? ""), by: admin.id });
       notice = "The account is confirmed and now shown on the host's page.";
     } else {
-      await rejectSocialName(id);
+      await rejectSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), code: String(formData.get("code") ?? "") });
       notice = "Not confirmed. The host can try again.";
     }
   } catch (error) {
@@ -73,8 +73,11 @@ export async function closeAccountAction(formData: FormData) {
   try {
     const [person] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
     if (!person) throw new ProfileError("No account has that email address.");
-    await closeAccount({ userId: person.id, by: admin.id });
-    notice = "The account is closed. It is logged out everywhere and cannot log in. Its calls that had not started were cancelled at no charge.";
+    const { callsNotEnded } = await closeAccount({ userId: person.id, by: admin.id });
+    notice =
+      callsNotEnded === 0
+        ? "The account is closed. It is logged out everywhere and cannot log in. Its calls that had not started were cancelled at no charge."
+        : `The account is closed and cannot log in, but ${callsNotEnded > 0 ? `${callsNotEnded} of its calls` : "its calls"} could not be ended automatically. Please check that person's calls on the payments page and cancel or refund them by hand.`;
   } catch (error) {
     notice = problem(error);
   }

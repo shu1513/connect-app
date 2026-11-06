@@ -21,7 +21,8 @@ function errorText(code: string): string {
 
 export default async function LoginPage(props: PageProps<"/login">) {
   const person = await getSignedIn();
-  if (person && !person.closed) redirect("/");
+  // Only someone who can get further is sent on. Anyone else stays here, so they can never be bounced back and forth.
+  if (person && !person.closed && person.emailVerified) redirect("/");
   const { notice, error } = await props.searchParams;
   const message = typeof error === "string" ? errorText(error) : typeof notice === "string" ? NOTICES[notice] : undefined;
 

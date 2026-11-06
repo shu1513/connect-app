@@ -95,6 +95,8 @@ export const emailOutbox = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     to: text("to").notNull(),
+    /** confirm, reset or notice. Each kind has its own hourly or daily allowance per address. */
+    kind: text("kind").notNull().default("confirm"),
     subject: text("subject").notNull(),
     body: text("body").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -9,7 +9,7 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { requireLocalDatabase } from "./local-only";
 
 const BASE = "http://localhost:3000";
@@ -61,7 +61,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
-  const { sendEmail, MAX_EMAILS_PER_ADDRESS_PER_HOUR } = await import("../src/lib/email");
+  const { sendEmail, EMAIL_LIMITS } = await import("../src/lib/email");
   const { withNotice } = await import("../src/lib/notice");
   const profiles = await import("../src/lib/profiles/profiles");
   const closing = await import("../src/lib/profiles/closing");
@@ -252,14 +252,21 @@ async function main() {
       check("the sixth request for reset emails in an hour is refused", statuses.slice(0, 5).every((s) => s === 200) && statuses[5] === 429 && statuses[6] === 429, statuses.join(" "));
       await freshLimits();
 
+      const max = EMAIL_LIMITS.confirm.max;
       const target = address("mailbox");
-      for (let i = 0; i < MAX_EMAILS_PER_ADDRESS_PER_HOUR + 3; i++) await sendEmail({ to: target, subject: `Check ${i}`, text: "check" });
-      const received = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.to, target));
-      check(`one address gets at most ${MAX_EMAILS_PER_ADDRESS_PER_HOUR} emails an hour, whoever asks`, received.length === MAX_EMAILS_PER_ADDRESS_PER_HOUR, String(received.length));
+      for (let i = 0; i < max + 3; i++) await sendEmail({ to: target, kind: "confirm", subject: `Check ${i}`, text: "check" });
+      const sentTo = async (to: string, kind: string) =>
+        (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, to), eq(schema.emailOutbox.kind, kind)))).length;
+      check(`one address gets at most ${max} confirmation emails an hour, whoever asks`, (await sentTo(target, "confirm")) === max, String(await sentTo(target, "confirm")));
       const burst = address("burst");
-      await Promise.all(Array.from({ length: 12 }, (_, i) => sendEmail({ to: burst, subject: `Burst ${i}`, text: "check" })));
-      const burstReceived = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.to, burst));
-      check("also when many are asked for at the same moment", burstReceived.length === MAX_EMAILS_PER_ADDRESS_PER_HOUR, String(burstReceived.length));
+      await Promise.all(Array.from({ length: 12 }, (_, i) => sendEmail({ to: burst, kind: "confirm", subject: `Burst ${i}`, text: "check" })));
+      check("also when many are asked for at the same moment", (await sentTo(burst, "confirm")) === max, String(await sentTo(burst, "confirm")));
+
+      // Someone "signs up" with a known address again and again to flood it and use up its allowance.
+      for (let i = 0; i < 6; i++) await sendEmail({ to: target, kind: "notice", subject: "You already have an account", text: "check" });
+      check("the \"you already have an account\" notice goes out at most once a day", (await sentTo(target, "notice")) === EMAIL_LIMITS.notice.max, String(await sentTo(target, "notice")));
+      await sendEmail({ to: target, kind: "reset", subject: "Reset", text: "check" });
+      check("and none of that uses up the owner's password-reset emails", (await sentTo(target, "reset")) === 1);
     }
 
     // ----------------------------------------------------------------------
@@ -371,6 +378,8 @@ async function main() {
       check("a code that has run out cannot be confirmed, even from an admin page left open", await refused(profiles.confirmSocialName({ id: changed.id, nameKey: changed.nameKey, code: changed.code, by: host.id })));
       await db.update(schema.socialAccounts).set({ claimedAt: null }).where(eq(schema.socialAccounts.id, changed.id));
       check("a code that has run out cannot be used", await refused(profiles.markSocialNameReady(host.id, changed.id)));
+      check("a link to a post is not taken for an account", await refused(profiles.addSocialName(copycat.id, "instagram", "https://www.instagram.com/p/Cabc123/")));
+      check("saying \"the code is not there\" for an old request does not touch the new one", await refused(profiles.rejectSocialName({ id: changed.id, nameKey: name, code: first.code })));
     }
     // ----------------------------------------------------------------------
     console.log("\n7. Doors that must stay shut");
@@ -394,6 +403,8 @@ async function main() {
       const inMessageBox = (html: string) => new RegExp(`<p role="status"[^>]*>[^<]*${words}`).test(html);
       check("a message put in a link by someone else is not shown on our pages", forged.status === 200 && !inMessageBox(forged.text), String(forged.status));
       check("our own messages are shown", inMessageBox(genuine.text));
+      const moved = await send(withNotice("/admin", words).replace("/admin", "/host"), { jar: visitor.jar });
+      check("but not when moved from the page they were made for to another page", moved.status === 200 && !inMessageBox(moved.text));
     }
 
     // ----------------------------------------------------------------------
@@ -416,7 +427,8 @@ async function main() {
 
       const password = host.password;
       check("before: logged in, profile public", (await loggedIn(host.jar)) && (await page(handle)).status === 200);
-      await closing.closeAccount({ userId: host.id, by: admin.userId });
+      const closed = await closing.closeAccount({ userId: host.id, by: admin.userId });
+      check("the founder is told every call was ended", closed.callsNotEnded === 0, String(closed.callsNotEnded));
       check("logged out everywhere", await loggedOut(host.jar));
       check("the app sends them to the login page", ((await send("/", { jar: host.jar })).location ?? "").includes("/login"));
       const attempt = await api("/sign-in/email", { email: host.email, password }, new Map());
@@ -433,14 +445,17 @@ async function main() {
       check("but the profile stays suspended until approved again", (await page(handle)).status === 404);
     }
   } finally {
-    // Remove everything this run made.
+    // Remove everything this run made. Calls first: they point to two people each.
     const mine = await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, `check-${RUN}-%`));
-    for (const { id } of mine) {
-      const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.hostId, id));
+    const ids = mine.map((person) => person.id);
+    if (ids.length > 0) {
+      const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)));
       for (const call of calls) {
         await db.delete(schema.payments).where(eq(schema.payments.callId, call.id));
         await db.delete(schema.calls).where(eq(schema.calls.id, call.id));
       }
+    }
+    for (const id of ids) {
       await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
       await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));

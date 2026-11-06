@@ -27,7 +27,7 @@ const fromSeconds = (s: number) => new Date(s * 1000).toISOString();
 export default async function ResultsPage(props: PageProps<"/calls/[id]/results">) {
   const user = await requireUser();
   const { id } = await props.params;
-  const notice = readNotice(await props.searchParams);
+  const notice = readNotice(`/calls/${id}/results`, await props.searchParams);
   const access = await callForViewer(id, user.id);
   if (!access) notFound();
   const { call, payment, role } = access;

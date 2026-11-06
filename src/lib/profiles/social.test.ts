@@ -44,4 +44,14 @@ describe("readSocialName", () => {
   it("asks for the @name when given a YouTube channel-number link", () => {
     expect(readSocialName("youtube", "https://www.youtube.com/channel/UC1234567890")).toHaveProperty("problem");
   });
+
+  it("refuses links that lead to a post or another page of the site, not to an account", () => {
+    expect(readSocialName("instagram", "https://www.instagram.com/p/Cabc123/")).toHaveProperty("problem");
+    expect(readSocialName("instagram", "https://www.instagram.com/reel/Cabc123/")).toHaveProperty("problem");
+    expect(readSocialName("instagram", "https://www.instagram.com/")).toHaveProperty("problem");
+    expect(readSocialName("tiktok", "https://www.tiktok.com/video/123")).toHaveProperty("problem");
+    expect(readSocialName("youtube", "https://www.youtube.com/watch?v=abc")).toHaveProperty("problem");
+    expect(readSocialName("x", "https://x.com/home")).toHaveProperty("problem");
+    expect(readSocialName("x", "https://x.com/i/status/123")).toHaveProperty("problem");
+  });
 });

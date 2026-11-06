@@ -20,7 +20,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
   const user = await requireUser();
   // Someone who is not an admin sees the same "not found" as for any missing page.
   if (!(await isAdmin(user.id))) notFound();
-  const notice = readNotice(await props.searchParams);
+  const notice = readNotice("/admin/people", await props.searchParams);
 
   const [profiles, claims, closed] = await Promise.all([
     db

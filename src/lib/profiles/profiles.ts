@@ -274,10 +274,23 @@ export async function confirmSocialName(input: { id: string; nameKey: string; co
   }
 }
 
-/** The founder did not find the code. The host can try again with the same code until it runs out. */
-export async function rejectSocialName(id: string): Promise<void> {
-  await db
+/**
+ * The founder did not find the code. The host can try again with the same
+ * code until it runs out. Like confirming, this only applies to the request
+ * the founder was looking at.
+ */
+export async function rejectSocialName(input: { id: string; nameKey: string; code: string }): Promise<void> {
+  const changed = await db
     .update(schema.socialAccounts)
     .set({ claimedAt: null })
-    .where(and(eq(schema.socialAccounts.id, id), isNull(schema.socialAccounts.confirmedAt)));
+    .where(
+      and(
+        eq(schema.socialAccounts.id, input.id),
+        eq(schema.socialAccounts.nameKey, input.nameKey),
+        eq(schema.socialAccounts.code, input.code),
+        isNull(schema.socialAccounts.confirmedAt),
+      ),
+    )
+    .returning({ id: schema.socialAccounts.id });
+  if (changed.length === 0) throw new ProfileError("That request has changed or is no longer waiting. Nothing was changed.");
 }

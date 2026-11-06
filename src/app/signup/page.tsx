@@ -5,7 +5,8 @@ import { getSignedIn } from "@/lib/session";
 
 export default async function SignUpPage() {
   const person = await getSignedIn();
-  if (person && !person.closed) redirect("/");
+  // Only someone who can get further is sent on. Anyone else stays here, so they can never be bounced back and forth.
+  if (person && !person.closed && person.emailVerified) redirect("/");
   return (
     <main className="mx-auto w-full max-w-sm px-4 py-16">
       <h1 className="text-2xl font-semibold">Create your account</h1>

@@ -12,8 +12,11 @@ import { ProfileError } from "./profiles";
  * again, and its host profile is suspended. Its calls that have not started
  * are cancelled at no charge, and it is put out of any call in progress.
  * Nothing is deleted; records of paid calls must be kept.
+ *
+ * Returns how many of its calls could not be ended (-1 when they could not
+ * even be looked up), so the founder can be told to check them.
  */
-export async function closeAccount(input: { userId: string; by: string }): Promise<void> {
+export async function closeAccount(input: { userId: string; by: string }): Promise<{ callsNotEnded: number }> {
   const now = new Date();
   await db.transaction(async (tx) => {
     const [admin] = await tx.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
@@ -30,7 +33,13 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
       .set({ status: "suspended", decidedBy: input.by, decidedAt: now, updatedAt: now })
       .where(eq(schema.hostProfiles.userId, input.userId));
   });
-  await endCallsOf(input.userId, now);
+  // The account is closed from here on, whatever happens next.
+  try {
+    return { callsNotEnded: await endCallsOf(input.userId, now) };
+  } catch (error) {
+    console.error(`[accounts] could not look up the calls of closed account ${input.userId}`, error);
+    return { callsNotEnded: -1 };
+  }
 }
 
 /**
@@ -39,7 +48,7 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
  * closed person is put out and their entry pass stops working; the call is
  * then settled by the usual rule for the time that counted.
  */
-async function endCallsOf(userId: string, now: Date): Promise<void> {
+async function endCallsOf(userId: string, now: Date): Promise<number> {
   const open = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
@@ -52,15 +61,18 @@ async function endCallsOf(userId: string, now: Date): Promise<void> {
         gt(schema.calls.endsAt, now),
       ),
     );
+  let notEnded = 0;
   for (const { call, payment } of open) {
     try {
       if (call.startsAt > now) await cancelCall({ call, payment, by: "admin", now });
       else await removeFromRoom(call.roomName, userId);
     } catch (error) {
-      // The account is closed either way. This is shown in the helper's log for the founder to follow up.
+      // The account is closed either way. The founder is told how many calls need a look.
+      notEnded++;
       console.error(`[accounts] could not end call ${call.id} of closed account ${userId}`, error);
     }
   }
+  return notEnded;
 }
 
 /** Undoes a closure made by mistake. A host profile stays suspended until the founder approves it again. */

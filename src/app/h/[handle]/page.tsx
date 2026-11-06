@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { formatMoney } from "@/lib/payments/access";
 import { publicProfile } from "@/lib/profiles/profiles";
 
@@ -13,9 +14,12 @@ const CANCEL_RULE: Record<number, string> = {
   1440: "Free to cancel until 24 hours before the call starts.",
 };
 
+/** The page title and the page itself share one lookup per request. */
+const loadProfile = cache(publicProfile);
+
 export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise<Metadata> {
   const { handle } = await props.params;
-  const profile = await publicProfile(handle);
+  const profile = await loadProfile(handle);
   // The same title for every page that cannot be shown, so nothing is given away.
   if (!profile) return { title: "Not found — Connect" };
   return { title: `${profile.displayName} (@${profile.handle}) — Connect` };
@@ -24,7 +28,7 @@ export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise
 /** A host's public page. Anyone can open it, logged in or not. */
 export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const { handle } = await props.params;
-  const profile = await publicProfile(handle);
+  const profile = await loadProfile(handle);
   if (!profile) notFound();
 
   return (
@@ -34,7 +38,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           aria-hidden
           className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-2xl font-semibold text-neutral-800"
         >
-          {profile.displayName.charAt(0).toUpperCase()}
+          {(Array.from(profile.displayName)[0] ?? "").toUpperCase()}
         </div>
         <div>
           <h1 className="text-2xl font-semibold">{profile.displayName}</h1>

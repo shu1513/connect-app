@@ -56,6 +56,7 @@ export const auth = betterAuth({
     sendResetPassword: async ({ user, url }) => {
       sendEmailInBackground({
         to: user.email,
+        kind: "reset",
         subject: `Reset your ${APP_NAME} password`,
         text: `Someone asked to reset the password for this ${APP_NAME} account.\n\nTo choose a new password, open this link within one hour:\n${url}\n\nIf this was not you, ignore this email. Your password stays the same.`,
       });
@@ -65,6 +66,7 @@ export const auth = betterAuth({
     onExistingUserSignUp: async ({ user }) => {
       sendEmailInBackground({
         to: user.email,
+        kind: "notice",
         subject: `You already have a ${APP_NAME} account`,
         text: `Someone tried to create a ${APP_NAME} account with this email address, but it already has one.\n\nIf this was you, log in instead. If you forgot your password, or never finished signing up, use "Forgot password" on the login page.\n\nIf this was not you, you can ignore this email.`,
       });
@@ -80,6 +82,7 @@ export const auth = betterAuth({
     sendVerificationEmail: async ({ user, url }) => {
       sendEmailInBackground({
         to: user.email,
+        kind: "confirm",
         subject: `Confirm your email address for ${APP_NAME}`,
         text: `Welcome to ${APP_NAME}.\n\nTo confirm this email address, open this link within one hour:\n${url}\n\nIf you did not sign up, ignore this email.`,
       });
@@ -117,7 +120,7 @@ export const auth = betterAuth({
   },
 
   // Slows down repeated attempts, per network address. Kept in the database so it
-  // works with more than one server. (Emails are also limited per address, in email.ts.)
+  // works with more than one server. (Emails are also limited per address and kind, in email.ts.)
   rateLimit: {
     enabled: true,
     storage: "database",
