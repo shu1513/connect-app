@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
@@ -35,7 +35,10 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       .from(schema.attendanceEvents)
       .where(eq(schema.attendanceEvents.callId, call.id))
       .orderBy(asc(schema.attendanceEvents.providerTime), asc(schema.attendanceEvents.id)),
-    db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user),
+    db
+      .select({ id: schema.user.id, name: schema.user.name })
+      .from(schema.user)
+      .where(inArray(schema.user.id, [call.hostId, call.customerId])),
   ]);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const who = (identity: string | null) =>

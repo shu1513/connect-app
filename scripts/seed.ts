@@ -42,10 +42,11 @@ async function main() {
     const password = randomBytes(12).toString("base64url");
     await auth.api.signUpEmail({ body: { name: a.name, email: a.email, password } });
     lines.push(`| ${a.name} | ${a.email} | ${password} |`);
+    // Save straight away, so a later failure cannot lose this account's password.
+    writeFileSync(OUT_FILE, lines.join("\n").replace(/\n*$/, "\n"));
     created++;
   }
 
-  writeFileSync(OUT_FILE, lines.join("\n").replace(/\n*$/, "\n"));
   console.log(`Accounts created: ${created}. Existing: ${ACCOUNTS.length - created}. Details are in ${OUT_FILE}.`);
   process.exit(0);
 }
