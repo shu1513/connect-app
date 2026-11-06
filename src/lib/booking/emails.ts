@@ -6,6 +6,7 @@ import { eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
+import { SUPPORT_EMAIL } from "@/lib/terms";
 
 type Writer = Pick<typeof db, "insert" | "select">;
 type Person = { id: string; name: string; email: string; timeZone: string | null };
@@ -61,10 +62,11 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
   const hostShown = await hostName(tx, host.id, host.name);
   const length = `${booking.lengthMinutes}-minute`;
   const page = `${appUrl()}/bookings/${booking.id}`;
+  const footer = `—\nConnect · questions: ${SUPPORT_EMAIL}`;
   const toCustomer = (subject: string, lines: string[]) =>
-    queueEmail(tx, { to: customer.email, subject, text: [`Hi ${customer.name},`, "", ...lines, "", page].join("\n"), key: `${event}:${booking.id}:customer` });
+    queueEmail(tx, { to: customer.email, subject, text: [`Hi ${customer.name},`, "", ...lines, "", page, "", footer].join("\n"), key: `${event}:${booking.id}:customer` });
   const toHost = (subject: string, lines: string[]) =>
-    queueEmail(tx, { to: host.email, subject, text: [`Hi ${host.name},`, "", ...lines, "", page].join("\n"), key: `${event}:${booking.id}:host` });
+    queueEmail(tx, { to: host.email, subject, text: [`Hi ${host.name},`, "", ...lines, "", page, "", footer].join("\n"), key: `${event}:${booking.id}:host` });
   const whenC = whenFor(customer, booking.startsAt);
   const whenH = whenFor(host, booking.startsAt);
 
