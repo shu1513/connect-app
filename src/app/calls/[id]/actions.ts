@@ -40,6 +40,8 @@ export async function refundAction(formData: FormData) {
   const callId = String(formData.get("callId") ?? "");
   const dollars = Number(formData.get("amount"));
   const reason = String(formData.get("reason") ?? "").trim() || null;
+  // Made when the form was shown. Sending the same form twice cannot refund twice.
+  const requestId = String(formData.get("requestId") ?? "");
 
   const admin = await isAdmin(user.id);
   const access = await callForParticipant(callId, user.id);
@@ -63,7 +65,7 @@ export async function refundAction(formData: FormData) {
       throw new MoneyError("Only the host of this call can refund it.");
     }
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to refund.");
-    await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason });
+    await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
     notice = "The refund was sent.";
   } catch (error) {
     notice = message(error);

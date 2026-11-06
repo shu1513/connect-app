@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { asc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -254,6 +255,7 @@ function Receipt(props: {
       {canRefund && (
         <form action={refundAction} className="mt-4 flex flex-wrap items-end gap-3 border-t border-neutral-400/40 pt-4 text-sm">
           <input type="hidden" name="callId" value={props.callId} />
+          <input type="hidden" name="requestId" value={randomUUID()} />
           <label>
             Refund to the customer (US dollars, up to {formatMoney(paid)})
             <input

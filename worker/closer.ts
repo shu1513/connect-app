@@ -11,7 +11,7 @@
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
-import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { CLOSE_LATE_SECONDS } from "../src/lib/calls";
 
 const TICK_MS = 5_000;
@@ -36,7 +36,8 @@ async function main() {
       .from(schema.calls)
       .where(
         and(
-          lte(closesAt, now),
+          // Past its closing time, or cancelled (a cancelled call's room closes at once).
+          or(lte(closesAt, now), isNotNull(schema.calls.cancelledAt)),
           // Not yet confirmed closed, or closed recently and still being watched.
           or(isNull(schema.calls.closedAt), gt(watchUntil, now)),
         ),

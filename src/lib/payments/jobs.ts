@@ -1,6 +1,8 @@
 /**
  * The work the always-on helper does for payments, every few seconds:
  *   - check with Stripe on any action whose outcome is not known,
+ *   - handle saved Stripe messages that could not be handled when they arrived,
+ *   - finish the money side of cancelled calls,
  *   - charge calls that have finished, or queue them for review,
  *   - release holds nobody decided on in time,
  *   - flag calls whose record changed after they were charged,
@@ -8,7 +10,7 @@
  *
  * Each job is safe to run again and again, and safe to run on two helpers at once.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
@@ -17,23 +19,32 @@ import {
   applyRefundDone,
   applyReleased,
   applyTransferSent,
+  captureAtStripe,
   capturePayment,
-  currentSplit,
   markRefundFailed,
   releasePayment,
-  transferToHost,
+  sendHostShare,
+  transferAtStripe,
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
+import { refreshPayoutsReady } from "./hosts";
 import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError } from "./operations";
-import { attendanceChargeCents, PAYOUT_FEE_CENTS } from "./pricing";
-import { decisionDeadline } from "./rules";
+import { attendanceChargeCents } from "./pricing";
 import { syncHold } from "./hold";
-import { stripe } from "./stripe";
+import { decisionDeadline } from "./rules";
+import { isDefiniteRefusal, stripe, stripeErrorMessage } from "./stripe";
+import { handleStripeEvent } from "./stripe-events";
 
 /** An unfinished action is only checked once Stripe has had time to finish it. */
 const RECONCILE_AFTER_MS = 60_000;
-/** Stripe remembers an action's label for at least this long, so repeating it is safe. */
+/**
+ * Stripe remembers an action's label for at least 24 hours. Inside this
+ * window, sending the same request again is safe: Stripe returns the original
+ * result, or does it now if it never arrived.
+ */
 const LABEL_SAFE_MS = 23 * 3_600_000;
+/** How often a host's payout account is re-checked with Stripe while money is waiting for them. */
+const HOST_RECHECK_MS = 3_600_000;
 
 function log(message: string, error?: unknown) {
   // Expected refusals (already done, waiting, not allowed) are not errors.
@@ -65,25 +76,49 @@ export async function reconcileOperations(now: Date): Promise<void> {
     try {
       const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, operation.paymentId));
       const params = JSON.parse(operation.params);
-      const canRepeat = now.getTime() - operation.createdAt.getTime() < LABEL_SAFE_MS;
+      // Measured on the real clock, right before acting, so a slow pass can never repeat a request too late.
+      const canRepeat = () => Date.now() - operation.createdAt.getTime() < LABEL_SAFE_MS;
+      const giveUp = (why: string) => failOperation(operation.id, payment.id, why);
 
-      if (operation.kind === "capture" || operation.kind === "release") {
-        // For these two, the hold's own state at Stripe is the whole truth.
-        const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId!, { expand: ["latest_charge"] });
-        const chargeId = typeof intent.latest_charge === "object" ? (intent.latest_charge?.id ?? null) : intent.latest_charge;
-        if (intent.status === "succeeded" && operation.kind === "capture") {
-          await finishOperation(operation.id, payment.id, intent.id, (p, tx) => applyCaptured(p, params, chargeId, tx));
-        } else if (intent.status === "canceled") {
-          await finishOperation(operation.id, payment.id, intent.id, (p, tx) =>
-            applyReleased(p, params.note ?? "The hold ended at Stripe before a charge was made.", tx),
+      if (operation.kind === "capture") {
+        if (canRepeat() && Number.isInteger(params.amountCents)) {
+          // The original request may still be on its way, so "not charged yet" proves nothing.
+          // Sending it again under the same label is the only safe way to find out.
+          const outcome = await captureAtStripe(payment.stripePaymentIntentId!, params.amountCents, operation.label);
+          await finishOperation(operation.id, payment.id, outcome.stripeId, (p, tx) =>
+            applyCaptured(p, params, outcome.result.amountReceived, outcome.result.chargeId, tx),
           );
         } else {
-          await failOperation(operation.id, payment.id, "Stripe shows this did not happen.");
+          // Too old to repeat safely. By now the hold's own state at Stripe is settled.
+          const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId!);
+          const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
+          if (intent.status === "succeeded") {
+            await finishOperation(operation.id, payment.id, intent.id, (p, tx) => applyCaptured(p, params, intent.amount_received, chargeId, tx));
+          } else if (intent.status === "canceled") {
+            await finishOperation(operation.id, payment.id, intent.id, (p, tx) =>
+              applyReleased(p, "The hold ended at Stripe before a charge was made.", tx),
+            );
+          } else {
+            await giveUp("Stripe shows this charge did not happen.");
+          }
+        }
+      } else if (operation.kind === "release") {
+        const intentId = payment.stripePaymentIntentId!;
+        let intent = await stripe().paymentIntents.retrieve(intentId);
+        if (intent.status !== "canceled" && intent.status !== "succeeded") {
+          // Letting a hold go is always safe to do again.
+          intent = await stripe().paymentIntents.cancel(intentId);
+        }
+        if (intent.status === "canceled") {
+          await finishOperation(operation.id, payment.id, intent.id, (p, tx) =>
+            applyReleased(p, params.note ?? "The hold was released.", tx),
+          );
+        } else {
+          await giveUp("This payment was charged, so the hold could not be released.");
         }
       } else if (operation.kind === "refund") {
         let refund: { id: string; status: string | null } | undefined;
-        if (canRepeat) {
-          // Repeating under the same label returns the original result if it already went through.
+        if (canRepeat()) {
           refund = await stripe().refunds.create(
             { payment_intent: payment.stripePaymentIntentId!, amount: params.amountCents, metadata: { paymentId: payment.id, refundId: params.refundId } },
             { idempotencyKey: operation.label },
@@ -94,7 +129,7 @@ export async function reconcileOperations(now: Date): Promise<void> {
         }
         if (!refund || refund.status === "failed" || refund.status === "canceled") {
           await db.transaction((tx) => markRefundFailed(params.refundId, tx));
-          await failOperation(operation.id, payment.id, "Stripe shows this refund did not happen.");
+          await giveUp("Stripe shows this refund did not happen.");
         } else if (refund.status === "succeeded") {
           const found = refund;
           await finishOperation(operation.id, payment.id, found.id, (p, tx) => applyRefundDone(p, params.refundId, found.id, tx));
@@ -105,34 +140,35 @@ export async function reconcileOperations(now: Date): Promise<void> {
           });
         }
       } else if (operation.kind === "transfer") {
-        let transferId: string | undefined;
-        if (canRepeat) {
-          const transfer = await stripe().transfers.create(
-            {
-              amount: params.amountCents,
-              currency: payment.currency,
-              destination: params.destination,
-              source_transaction: payment.stripeChargeId!,
-              transfer_group: params.callId,
-              metadata: { paymentId: payment.id },
-            },
-            { idempotencyKey: operation.label },
-          );
-          transferId = transfer.id;
+        let transferId: string | null | undefined;
+        if (params.amountCents < 1) {
+          transferId = null; // nothing was ever sent to Stripe for this one
+        } else if (canRepeat()) {
+          transferId = await transferAtStripe(payment, params, operation.label);
         } else {
           const list = await stripe().transfers.list({ transfer_group: params.callId, limit: 100 });
           transferId = list.data.find((t) => t.metadata?.paymentId === payment.id)?.id;
         }
-        if (transferId) {
-          const found = transferId;
-          await finishOperation(operation.id, payment.id, found, (p, tx) => applyTransferSent(p, params, found, tx));
+        if (transferId === undefined) {
+          await giveUp("Stripe shows this transfer did not happen.");
         } else {
-          await failOperation(operation.id, payment.id, "Stripe shows this transfer did not happen.");
+          const found = transferId;
+          await finishOperation(operation.id, payment.id, found ?? "nothing-to-send", (p, tx) => applyTransferSent(p, params, found, tx));
         }
       }
       log(`checked unfinished ${operation.kind} on payment ${operation.paymentId}`);
     } catch (error) {
-      log(`could not check unfinished ${operation.kind} on payment ${operation.paymentId}; will retry`, error);
+      if (isDefiniteRefusal(error)) {
+        // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
+        const params = JSON.parse(operation.params);
+        if (operation.kind === "refund") await db.transaction((tx) => markRefundFailed(params.refundId, tx));
+        await failOperation(operation.id, operation.paymentId, stripeErrorMessage(error));
+        // A refused charge usually means the hold is gone. Record the hold's real state.
+        if (operation.kind === "capture") await syncHold(operation.paymentId, now).catch(() => undefined);
+        log(`unfinished ${operation.kind} on payment ${operation.paymentId} was refused by Stripe`);
+      } else {
+        log(`could not check unfinished ${operation.kind} on payment ${operation.paymentId}; will retry`, error);
+      }
     }
   }
 
@@ -159,7 +195,47 @@ export async function reconcileOperations(now: Date): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Charge finished calls, or queue them for review
+// 2. Handle saved Stripe messages that could not be handled when they arrived
+// ---------------------------------------------------------------------------
+
+export async function retrySavedStripeEvents(now: Date): Promise<void> {
+  const waiting = await db
+    .select()
+    .from(schema.stripeEvents)
+    .where(and(isNull(schema.stripeEvents.processedAt), lte(schema.stripeEvents.receivedAt, new Date(now.getTime() - RECONCILE_AFTER_MS))))
+    .limit(50);
+  for (const saved of waiting) {
+    try {
+      await handleStripeEvent(JSON.parse(saved.payload));
+      await db.update(schema.stripeEvents).set({ processedAt: new Date() }).where(eq(schema.stripeEvents.id, saved.id));
+    } catch (error) {
+      log(`could not handle saved Stripe message ${saved.id}; will retry`, error);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3. Finish the money side of cancelled calls
+// ---------------------------------------------------------------------------
+
+export async function settleCancelledCalls(): Promise<void> {
+  const open = await db
+    .select({ payment: schema.payments, call: schema.calls })
+    .from(schema.payments)
+    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .where(and(inArray(schema.payments.status, ["awaiting_payment", "held"]), isNotNull(schema.calls.cancelledAt)));
+  for (const { payment, call } of open) {
+    try {
+      await settleCancelledCall(call, payment);
+      log(`settled cancelled call ${call.id}`);
+    } catch (error) {
+      log(`could not settle cancelled call ${call.id}; will retry`, error);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Charge finished calls, or queue them for review
 // ---------------------------------------------------------------------------
 
 export async function settleFinishedCalls(now: Date): Promise<void> {
@@ -194,9 +270,10 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
     return;
   }
 
-  // A hold that has run out can no longer be charged. Stripe has the final word.
+  // A hold that has run out can no longer be charged. Close it, so the payment is never left hanging.
   if (payment.holdExpiresAt && payment.holdExpiresAt <= now) {
-    await syncHold(payment.id, now);
+    await releasePayment({ paymentId: payment.id, note: "The hold ran out before a charge could be made." });
+    log(`released payment ${payment.id}: the hold ran out`);
     return;
   }
 
@@ -211,10 +288,11 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
   }
 
   const attendance = await loadAttendance(call, now);
-  if (!attendance.final) {
-    // Still waiting for late messages. If that somehow lasts until the deadline, let the hold go.
+  // Charge only once the room is confirmed closed and late messages have had time to arrive.
+  if (!attendance.final || !call.closedAt) {
     if (now >= deadline) {
       await releasePayment({ paymentId: payment.id, note: "The call's record was not final in time, so the hold was released." });
+      log(`released payment ${payment.id}: record not final in time`);
     }
     return;
   }
@@ -230,7 +308,16 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
       await releasePayment({ paymentId: payment.id, note: "Nothing was owed for this call." });
       log(`released payment ${payment.id}: nothing owed`);
     } else {
-      await capturePayment({ paymentId: payment.id, amountCents, reason: "attendance", frozen: totals, callEndsAt: call.endsAt });
+      await capturePayment({
+        paymentId: payment.id,
+        amountCents,
+        reason: "attendance",
+        frozen: totals,
+        callEndsAt: call.endsAt,
+        // Remember which messages the amount was based on, so later ones can be noticed.
+        pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0),
+        now,
+      });
       log(`charged payment ${payment.id}: ${amountCents} cents`);
     }
     return;
@@ -240,6 +327,12 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
   await db.transaction(async (tx) => {
     const locked = await lockPayment(tx, payment.id);
     if (locked.status !== "held" || locked.needsReview) return;
+    // If a charge is already on its way, leave it alone. Step 5 will flag the changed record.
+    const [inFlight] = await tx
+      .select({ id: schema.moneyOperations.id })
+      .from(schema.moneyOperations)
+      .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started")));
+    if (inFlight) return;
     await tx
       .update(schema.payments)
       .set({ needsReview: true, reviewReason: attendance.result.reasons.join(" ") || "The call's record is incomplete.", updatedAt: new Date() })
@@ -249,11 +342,11 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
-// 3. Flag calls whose record changed after they were charged
+// 5. Flag calls whose record changed after they were charged
 // ---------------------------------------------------------------------------
 
 export async function flagChangedRecords(now: Date): Promise<void> {
-  // Only calls that received a message after they were charged can have changed.
+  // Only calls with a message newer than the ones the charge was based on can have changed.
   const candidates = await db
     .select({ payment: schema.payments, call: schema.calls })
     .from(schema.payments)
@@ -263,7 +356,8 @@ export async function flagChangedRecords(now: Date): Promise<void> {
         eq(schema.payments.status, "charged"),
         eq(schema.payments.chargeReason, "attendance"),
         eq(schema.payments.flaggedAfterCharge, false),
-        sql`exists (select 1 from ${schema.attendanceEvents} e where e.call_id = ${schema.calls.id} and e.received_at > ${schema.payments.chargedAt})`,
+        isNotNull(schema.payments.pricedThroughEventId),
+        sql`exists (select 1 from ${schema.attendanceEvents} e where e.call_id = ${schema.calls.id} and e.id > ${schema.payments.pricedThroughEventId})`,
       ),
     );
 
@@ -271,17 +365,24 @@ export async function flagChangedRecords(now: Date): Promise<void> {
     const attendance = await loadAttendance(call, now);
     const totals = attendance.result.totals;
     const changed = attendance.result.status !== "complete" || !totals || totals.hostSeconds !== payment.frozenHostSeconds;
-    if (!changed) continue;
-    await db
-      .update(schema.payments)
-      .set({ flaggedAfterCharge: true, reviewReason: "The call's record changed after it was charged. The charge was not changed.", updatedAt: new Date() })
-      .where(eq(schema.payments.id, payment.id));
-    log(`payment ${payment.id} flagged: record changed after the charge`);
+    if (changed) {
+      await db
+        .update(schema.payments)
+        .set({ flaggedAfterCharge: true, reviewReason: "The call's record changed after it was charged. The charge was not changed.", updatedAt: new Date() })
+        .where(eq(schema.payments.id, payment.id));
+      log(`payment ${payment.id} flagged: record changed after the charge`);
+    } else {
+      // New messages, same totals: move the marker forward so they are not looked at again.
+      await db
+        .update(schema.payments)
+        .set({ pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0) })
+        .where(eq(schema.payments.id, payment.id));
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// 4. The weekly payday
+// 6. The weekly payday
 // ---------------------------------------------------------------------------
 
 export async function runPayday(now: Date): Promise<void> {
@@ -296,73 +397,26 @@ export async function runPayday(now: Date): Promise<void> {
         inArray(schema.payments.transferStatus, ["not_due", "due"]),
         lte(schema.payments.transferDueAt, now),
         eq(schema.payments.disputeOpen, false),
-        eq(schema.hostSettings.payoutsReady, true),
         isNotNull(schema.hostSettings.stripeAccountId),
       ),
     );
   if (due.length === 0) return;
 
-  const byHost = new Map<string, typeof due>();
-  for (const row of due) byHost.set(row.call.hostId, [...(byHost.get(row.call.hostId) ?? []), row]);
-
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-
-  for (const [hostId, rows] of byHost) {
-    // The payout charge is taken once per host per payday, from the largest share.
-    const [alreadyCharged] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.payments)
-      .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-      .where(
-        and(
-          eq(schema.calls.hostId, hostId),
-          gt(schema.payments.payoutFeeCents, 0),
-          sql`${schema.payments.transferredAt} >= ${dayStart.toISOString()}::timestamptz`,
-        ),
-      );
-    let feeLeft = alreadyCharged.count > 0 ? 0 : PAYOUT_FEE_CENTS;
-
-    const sorted = [...rows].sort((a, b) => currentSplit(b.payment).hostShareCents - currentSplit(a.payment).hostShareCents);
-    for (const { payment, call, host } of sorted) {
-      try {
-        const share = currentSplit(payment).hostShareCents;
-        const fee = Math.min(feeLeft, share);
-        if (share - fee < 1) {
-          // The whole share (if any) went to the payout charge. Nothing to send.
-          await db.transaction(async (tx) => {
-            const locked = await lockPayment(tx, payment.id);
-            if (locked.transferStatus !== "not_due" && locked.transferStatus !== "due") return;
-            await applyTransferSent(locked, { amountCents: 0, payoutFeeCents: fee, destination: host.stripeAccountId!, callId: call.id }, null, tx);
-          });
-          feeLeft -= fee;
-          continue;
-        }
-        await transferToHost({ paymentId: payment.id, payoutFeeCents: fee, destination: host.stripeAccountId!, callId: call.id, now });
-        feeLeft -= fee;
-        log(`sent host share for payment ${payment.id}`);
-      } catch (error) {
-        log(`could not send host share for payment ${payment.id}; will retry`, error);
-      }
-    }
+  // Never trust the saved "ready" flag for a host who is owed money: ask Stripe, at most once an hour.
+  const ready = new Map<string, boolean>();
+  for (const { host } of due) {
+    if (ready.has(host.userId)) continue;
+    const stale = !host.payoutsCheckedAt || now.getTime() - host.payoutsCheckedAt.getTime() > HOST_RECHECK_MS;
+    ready.set(host.userId, stale ? await refreshPayoutsReady(host.userId).catch(() => false) : host.payoutsReady);
   }
-}
 
-// ---------------------------------------------------------------------------
-// 5. Finish the money side of cancelled calls
-// ---------------------------------------------------------------------------
-
-export async function settleCancelledCalls(): Promise<void> {
-  const open = await db
-    .select({ payment: schema.payments, call: schema.calls })
-    .from(schema.payments)
-    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(and(inArray(schema.payments.status, ["awaiting_payment", "held"]), isNotNull(schema.calls.cancelledAt)));
-  for (const { payment, call } of open) {
+  for (const { payment, call, host } of due) {
+    if (!ready.get(host.userId)) continue;
     try {
-      await settleCancelledCall(call, payment);
-      log(`settled cancelled call ${call.id}`);
+      await sendHostShare({ paymentId: payment.id, hostId: host.userId, destination: host.stripeAccountId!, callId: call.id, now });
+      log(`sent host share for payment ${payment.id}`);
     } catch (error) {
-      log(`could not settle cancelled call ${call.id}; will retry`, error);
+      log(`could not send host share for payment ${payment.id}; will retry`, error);
     }
   }
 }
@@ -370,6 +424,7 @@ export async function settleCancelledCalls(): Promise<void> {
 /** Everything the helper does for payments in one pass, in a safe order. */
 export async function runPaymentJobs(now: Date): Promise<void> {
   await reconcileOperations(now);
+  await retrySavedStripeEvents(now);
   await settleCancelledCalls();
   await settleFinishedCalls(now);
   await flagChangedRecords(now);

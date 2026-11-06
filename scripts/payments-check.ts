@@ -210,8 +210,24 @@ async function main() {
     check("charged the amount the founder chose", p.status === "charged" && p.chargedCents === 700 && p.chargeReason === "admin");
     const tooMuch = await newCall();
     await hold(tooMuch.call, tooMuch.payment.id, "pm_card_visa");
-    const refused = await capturePayment({ paymentId: tooMuch.payment.id, amountCents: 1334, reason: "admin", frozen: null, callEndsAt: tooMuch.call.endsAt }).catch((e) => e);
-    check("never more than the booked price", refused instanceof MoneyError);
+    const refused = await capturePayment({ paymentId: tooMuch.payment.id, amountCents: 1334, reason: "attendance", frozen: null, callEndsAt: tooMuch.call.endsAt }).catch((e) => e);
+    check("never more than the booked price", refused instanceof MoneyError && /more than the booked/.test(refused.message), refused?.message);
+    const notReview = await capturePayment({ paymentId: tooMuch.payment.id, amountCents: 700, reason: "admin", frozen: null, callEndsAt: tooMuch.call.endsAt }).catch((e) => e);
+    check("the founder cannot charge a call that is not waiting for review", notReview instanceof MoneyError && (await reload(tooMuch.payment.id)).status === "held");
+
+    const late = await newCall();
+    await hold(late.call, late.payment.id, "pm_card_visa");
+    await attend(late.call, [["host", 0, null]]);
+    await settleFinishedCalls(after(late.call, 5));
+    const tooLate = await capturePayment({
+      paymentId: late.payment.id,
+      amountCents: 700,
+      reason: "admin",
+      frozen: null,
+      callEndsAt: late.call.endsAt,
+      now: after(late.call, 60 * 24 * 3 + 1),
+    }).catch((e) => e);
+    check("the founder cannot charge after the deadline", tooLate instanceof MoneyError && (await reload(late.payment.id)).status === "held", tooLate?.message);
   }
 
   console.log("\n6. A declined card");
@@ -314,13 +330,16 @@ async function main() {
     const { call, payment } = await newCall();
     await hold(call, payment.id, "pm_card_visa");
     await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
-    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label: `capture:${payment.id}:1`, params: "{}", createdAt: new Date(Date.now() - 10 * 60_000) });
+    const params = { amountCents: 1333, reason: "attendance", frozen: { hostSeconds: 600, customerSeconds: 600, togetherSeconds: 600 }, callEndsAt: call.endsAt.toISOString(), pricedThroughEventId: null };
+    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label: `capture:${payment.id}:1`, params: JSON.stringify(params), createdAt: new Date(Date.now() - 10 * 60_000) });
+    check("before recovery: nothing charged at Stripe", (await stripeIntent(payment.id)).status === "requires_capture");
+    // "Not charged yet" does not prove the request is not still on its way, so recovery sends it again under the same label.
     await reconcileOperations(soon());
     const ops = await opsFor(payment.id);
-    check("recovery sees it never happened", ops.length === 1 && ops[0].status === "failed" && (await reload(payment.id)).status === "held");
-    await settleFinishedCalls(after(call, 5));
     const p = await reload(payment.id);
-    check("the next pass charges it, once", p.status === "charged" && (await stripeIntent(payment.id)).amount_received === 1333);
+    check("recovery finishes the charge itself", ops.length === 1 && ops[0].status === "succeeded" && p.status === "charged", `${ops[0]?.status} ${p.status}`);
+    await settleFinishedCalls(after(call, 5));
+    check("charged exactly once", (await stripeIntent(payment.id)).amount_received === 1333 && (await ledgerSum(payment.id, "customer_charge")) === 1333);
   }
 
   console.log("\n14. The app crashes right after Stripe made a refund");
@@ -343,6 +362,72 @@ async function main() {
     const refunded = (await stripe().refunds.list({ payment_intent: intentId, limit: 10 })).data;
     check("Stripe made exactly one refund of $4.00", refunded.length === 1 && refunded[0].amount === 400, `${refunded.length}`);
     check("money record adds up", (await ledgerSum(payment.id, "platform_fee")) + (await ledgerSum(payment.id, "host_share")) === 1333 - 400);
+  }
+
+  console.log("\n15. A charge that goes through late, after recovery already looked");
+  {
+    const { call, payment } = await newCall();
+    await hold(call, payment.id, "pm_card_visa");
+    await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
+    // The app's own record gave up on attempt 1 ("did not happen"), but the request then reached Stripe.
+    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label: `capture:${payment.id}:1`, params: "{}", status: "failed", finishedAt: new Date() });
+    await stripe().paymentIntents.capture((await reload(payment.id)).stripePaymentIntentId!, { amount_to_capture: 1333 }, { idempotencyKey: `capture:${payment.id}:1` });
+    await settleFinishedCalls(after(call, 5));
+    const p = await reload(payment.id);
+    check("the charge Stripe made is found and recorded, not lost", p.status === "charged" && p.chargedCents === 1333, `${p.status} ${p.chargedCents}`);
+    check("charged exactly once", (await stripeIntent(payment.id)).amount_received === 1333 && (await ledgerSum(payment.id, "customer_charge")) === 1333);
+  }
+
+  console.log("\n16. The refund button is pressed twice");
+  {
+    const { call, payment } = await newCall();
+    await hold(call, payment.id, "pm_card_visa");
+    await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
+    await settleFinishedCalls(after(call, 5));
+    const requestId = randomUUID();
+    const refund = () => refundPayment({ paymentId: payment.id, amountCents: 500, decidedBy: host.id, decidedAs: "host", reason: null, requestId });
+    await refund();
+    await refund().catch(() => undefined);
+    await Promise.allSettled([refund(), refund()]);
+    const p = await reload(payment.id);
+    const made = (await stripe().refunds.list({ payment_intent: p.stripePaymentIntentId!, limit: 10 })).data;
+    check("refunded once, not four times", p.refundedCents === 500 && made.length === 1 && made[0].amount === 500, `${p.refundedCents} ${made.length}`);
+  }
+
+  console.log("\n17. The customer pays and cancels late before our record has caught up");
+  {
+    const { call, payment } = await newCall();
+    await db.update(schema.calls).set({ freeCancelMinutes: 1440 }).where(eq(schema.calls.id, call.id));
+    // Place the hold at Stripe without telling our record (as if the page was closed straight after paying).
+    const [fresh] = await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
+    await startHold({ payment: fresh, call, customer, now: new Date() });
+    await stripe().paymentIntents.confirm((await reload(payment.id)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+    check("our record does not know about the hold yet", (await reload(payment.id)).status === "awaiting_payment");
+    const outcome = await cancelCall({ call: await reloadCall(call.id), payment: await reload(payment.id), by: "customer", now: new Date() });
+    const p = await reload(payment.id);
+    check("it is still treated as a late cancellation and charged", outcome === "late_charge" && p.status === "charged" && p.chargedCents === 1333, `${outcome} ${p.status}`);
+  }
+
+  console.log("\n18. Paying is started on a call that was just cancelled");
+  {
+    const { call, payment } = await newCall();
+    await cancelCall({ call, payment, by: "host", now: new Date() });
+    const [fresh] = await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
+    const refused = await startHold({ payment: fresh, call: await reloadCall(call.id), customer, now: new Date() }).catch((e) => e);
+    check("refused", refused instanceof MoneyError);
+    check("no hold is left behind", (await reload(payment.id)).status === "closed_uncharged" && (await reload(payment.id)).stripePaymentIntentId === null);
+  }
+
+  console.log("\n19. A declined card, then a second try with a good card");
+  {
+    const { call, payment } = await newCall();
+    await hold(call, payment.id, "pm_card_chargeDeclined");
+    const first = (await reload(payment.id)).stripePaymentIntentId!;
+    await stripe().paymentIntents.cancel(first);
+    await syncHold(payment.id, new Date());
+    const p = await hold(call, payment.id, "pm_card_visa");
+    check("a fresh hold is made and placed", p.status === "held" && p.stripePaymentIntentId !== first, `${p.status}`);
+    await cancelCall({ call, payment: p, by: "host", now: new Date() });
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

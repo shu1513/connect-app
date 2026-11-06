@@ -81,6 +81,10 @@ describe("the split between our fee and the host", () => {
     // $3.92 + 30 cents + $1.20
     expect(splitCharge(8000, DEFAULT_FEE_TERMS, true)).toEqual({ feeCents: 542, hostShareCents: 7458 });
   });
+  it("rounds the fee once, not once per percentage", () => {
+    // $5.00 with a foreign card: 6.4% = 32 cents exactly. Rounding 4.9% and 1.5% separately would give 33.
+    expect(splitCharge(500, DEFAULT_FEE_TERMS, true)).toEqual({ feeCents: 62, hostShareCents: 438 });
+  });
   it("is nothing and nothing when there is no charge", () => {
     expect(splitCharge(0, DEFAULT_FEE_TERMS, false)).toEqual({ feeCents: 0, hostShareCents: 0 });
   });

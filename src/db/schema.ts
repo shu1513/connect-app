@@ -207,6 +207,8 @@ export const payments = pgTable(
     frozenHostSeconds: integer("frozen_host_seconds"),
     frozenCustomerSeconds: integer("frozen_customer_seconds"),
     frozenTogetherSeconds: integer("frozen_together_seconds"),
+    /** The last attendance message that was known when the charge was worked out. Later ones mean the record changed. */
+    pricedThroughEventId: integer("priced_through_event_id"),
 
     chargedCents: integer("charged_cents"),
     /** attendance, late_cancel or admin. */
@@ -285,6 +287,25 @@ export const moneyOperations = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
   (t) => [index("money_operations_payment_idx").on(t.paymentId), index("money_operations_status_idx").on(t.status)],
+);
+
+/**
+ * The 25-cent payout charge is taken once per host per weekly payday.
+ * This row is what "once" means: only one payment can hold it.
+ */
+export const payoutFees = pgTable(
+  "payout_fees",
+  {
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    /** The weekly payday the share was due on (not the day it happened to be sent). */
+    payday: timestamp("payday", { withTimezone: true }).notNull(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id),
+  },
+  (t) => [uniqueIndex("payout_fees_host_payday_uq").on(t.hostId, t.payday)],
 );
 
 /** The money record. Only ever added to: a correction is a new line, never an edit. */

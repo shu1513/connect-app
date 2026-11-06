@@ -68,10 +68,9 @@ export type Split = { feeCents: number; hostShareCents: number };
 export function splitCharge(chargeCents: number, terms: FeeTerms, foreignCard: boolean): Split {
   assertWholeNonNegative("chargeCents", chargeCents);
   if (chargeCents === 0) return { feeCents: 0, hostShareCents: 0 };
-  const fee =
-    roundDiv(chargeCents * terms.percentBps, 10_000) +
-    terms.fixedCents +
-    (foreignCard ? roundDiv(chargeCents * terms.foreignCardBps, 10_000) : 0);
+  // The percentages are added together first, so the fee is rounded once.
+  const percentBps = terms.percentBps + (foreignCard ? terms.foreignCardBps : 0);
+  const fee = roundDiv(chargeCents * percentBps, 10_000) + terms.fixedCents;
   const feeCents = Math.min(chargeCents, fee);
   return { feeCents, hostShareCents: chargeCents - feeCents };
 }

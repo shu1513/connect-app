@@ -1,4 +1,5 @@
-import { desc, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, asc, desc, eq, or } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
@@ -32,8 +33,20 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   const people = await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
 
-  const waiting = rows.filter((r) => r.payment.status === "held" && r.payment.needsReview);
-  const flagged = rows.filter((r) => r.payment.flaggedAfterCharge || r.payment.disputeOpen);
+  // Looked up on their own, never cut off by the "latest 200" limit above.
+  const paymentsWithCalls = () =>
+    db
+      .select({ payment: schema.payments, call: schema.calls })
+      .from(schema.payments)
+      .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId));
+  const [waiting, flagged] = await Promise.all([
+    paymentsWithCalls()
+      .where(and(eq(schema.payments.status, "held"), eq(schema.payments.needsReview, true)))
+      .orderBy(asc(schema.calls.endsAt)),
+    paymentsWithCalls()
+      .where(or(eq(schema.payments.flaggedAfterCharge, true), eq(schema.payments.disputeOpen, true)))
+      .orderBy(desc(schema.calls.startsAt)),
+  ]);
   const field = "mt-1 block w-32 rounded border border-neutral-400 bg-transparent px-2 py-1";
 
   return (
@@ -174,6 +187,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                     {payment.status === "charged" && paid > 0 && payment.transferStatus !== "sent" && !payment.disputeOpen && (
                       <form action={refundAction}>
                         <input type="hidden" name="callId" value={call.id} />
+                        <input type="hidden" name="requestId" value={randomUUID()} />
                         <input type="hidden" name="amount" value={(paid / 100).toFixed(2)} />
                         <input type="hidden" name="reason" value="Full refund by the founder" />
                         <button type="submit" className="underline underline-offset-2">

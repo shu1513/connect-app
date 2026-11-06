@@ -4,7 +4,9 @@
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
+import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
+import { syncHold } from "./hold";
 import { MoneyError } from "./operations";
 import { cancellationOutcome } from "./rules";
 
@@ -18,8 +20,15 @@ export async function cancelCall(input: {
   by: "host" | "customer";
   now: Date;
 }): Promise<"free" | "late_charge"> {
-  const { call, payment, by, now } = input;
+  const { call, by, now } = input;
+  let { payment } = input;
   if (call.cancelledAt) throw new MoneyError("This call was already cancelled.");
+
+  // The customer may have paid a moment ago without our record knowing yet.
+  // Ask Stripe first, so a late cancellation cannot slip through as a free one.
+  if (payment?.status === "awaiting_payment" && payment.stripePaymentIntentId) {
+    payment = await syncHold(payment.id, now);
+  }
 
   const outcome = cancellationOutcome({
     by,
@@ -37,6 +46,12 @@ export async function cancelCall(input: {
     .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)))
     .returning({ id: schema.calls.id });
   if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
+
+  // People may already be in the room (it opens 5 minutes early). Put them out now
+  // and cancel their entry passes. The always-on helper repeats this until it is confirmed.
+  await closeRoom(call.roomName, [call.hostId, call.customerId]).catch((error) => {
+    console.error(`[calls] could not close the room of cancelled call ${call.id} yet; the helper will retry`, error);
+  });
 
   if (payment) {
     try {

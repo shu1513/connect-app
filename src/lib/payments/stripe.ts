@@ -36,10 +36,11 @@ export function stripePublishableKey(): string {
  * refusal may be recorded as a failure; anything else is checked with Stripe later.
  */
 export function isDefiniteRefusal(error: unknown): boolean {
+  // An idempotency error is deliberately NOT a refusal: it can mean the first
+  // request under this label is still running at Stripe.
   return (
     error instanceof Stripe.errors.StripeCardError ||
     error instanceof Stripe.errors.StripeInvalidRequestError ||
-    error instanceof Stripe.errors.StripeIdempotencyError ||
     error instanceof Stripe.errors.StripePermissionError
   );
 }

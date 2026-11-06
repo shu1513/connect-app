@@ -91,10 +91,19 @@ export async function startHold(input: {
     // One hold per payment. A new one is only made after the previous one was cancelled.
     { idempotencyKey: `hold:${payment.id}:${previousIntentId ?? "first"}` },
   );
-  await db
-    .update(schema.payments)
-    .set({ stripePaymentIntentId: intent.id, updatedAt: new Date() })
-    .where(eq(schema.payments.id, payment.id));
+  // Save it under the payment's lock. If the call was cancelled or closed while Stripe was
+  // answering, cancel what we just made, so no hold is ever left behind unnoticed.
+  const saved = await db.transaction(async (tx) => {
+    const locked = await lockPayment(tx, payment.id);
+    const [current] = await tx.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
+    if (locked.status !== "awaiting_payment" || current?.cancelledAt) return false;
+    await tx.update(schema.payments).set({ stripePaymentIntentId: intent.id, updatedAt: new Date() }).where(eq(schema.payments.id, payment.id));
+    return true;
+  });
+  if (!saved) {
+    await stripe().paymentIntents.cancel(intent.id).catch(() => undefined);
+    throw new MoneyError("This call can no longer be paid for.");
+  }
   if (!intent.client_secret) throw new MoneyError("Stripe did not return a way to pay. Please try again.");
   return { clientSecret: intent.client_secret };
 }
@@ -132,10 +141,8 @@ export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
     } else if (intent.status === "canceled" && payment.status === "held") {
       // The hold ran out or was cancelled at Stripe. Nothing can be charged any more.
       await applyReleased(payment, "The hold ended at Stripe before a charge was made.", tx);
-    } else if (intent.status === "canceled" && payment.status === "awaiting_payment") {
-      // Let the customer start again with a fresh hold.
-      await tx.update(schema.payments).set({ stripePaymentIntentId: null, updatedAt: new Date() }).where(eq(schema.payments.id, paymentId));
     }
+    // A cancelled hold on an unpaid call is left recorded: startHold() sees it and makes a fresh one.
   });
 
   const [after] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));

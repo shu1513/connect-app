@@ -144,7 +144,8 @@ Kept as three small, separate tracks, because one payment can be charged, partly
 The calendar and booking, saving a card for later, "available now" calls, extending a call, tips, taxes
 and invoices, other currencies, hosts outside the United States, refunds after the host has been paid,
 paying a host from company money, penalties for hosts who cancel, fighting disputed charges with
-evidence, and going live with real money.
+evidence, setting when Stripe pays each host's bank (we send once a week; Stripe's own bank timing
+is left at its default), and going live with real money.
 
 ## What the automatic checks cannot test
 

@@ -11,8 +11,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { addLedgerEntry, MoneyError, runMoneyOperation, type Tx } from "./operations";
-import { MIN_CHARGE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
-import { canMovePayment, transferDueAt } from "./rules";
+import { MIN_CHARGE_CENTS, PAYOUT_FEE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
+import { canMovePayment, decisionDeadline, transferDueAt } from "./rules";
 import { stripe } from "./stripe";
 
 export type FrozenTotals = { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
@@ -34,16 +34,28 @@ export function currentSplit(payment: Payment): { feeCents: number; hostShareCen
 // Charge
 // ---------------------------------------------------------------------------
 
-type CaptureParams = { amountCents: number; reason: ChargeReason; frozen: FrozenTotals | null; callEndsAt: string };
+export type CaptureParams = {
+  amountCents: number;
+  reason: ChargeReason;
+  frozen: FrozenTotals | null;
+  callEndsAt: string;
+  /** The last attendance message known when the amount was worked out. */
+  pricedThroughEventId: number | null;
+};
 
+/**
+ * Records a charge Stripe has made. `amountCents` is what Stripe actually
+ * received, which is the only number that counts.
+ */
 export async function applyCaptured(
   payment: Payment,
   params: CaptureParams,
+  amountCents: number,
   stripeChargeId: string | null,
   tx: Tx,
 ): Promise<void> {
   const { feeCents, hostShareCents } = splitCharge(
-    params.amountCents,
+    amountCents,
     { percentBps: payment.feePercentBps, fixedCents: payment.feeFixedCents, foreignCardBps: payment.feeForeignCardBps },
     isForeignCard(payment),
   );
@@ -52,7 +64,7 @@ export async function applyCaptured(
     .set({
       status: "charged",
       needsReview: false,
-      chargedCents: params.amountCents,
+      chargedCents: amountCents,
       chargeReason: params.reason,
       chargedAt: new Date(),
       stripeChargeId: stripeChargeId ?? payment.stripeChargeId,
@@ -61,15 +73,38 @@ export async function applyCaptured(
       frozenHostSeconds: params.frozen?.hostSeconds ?? null,
       frozenCustomerSeconds: params.frozen?.customerSeconds ?? null,
       frozenTogetherSeconds: params.frozen?.togetherSeconds ?? null,
+      pricedThroughEventId: params.pricedThroughEventId ?? null,
       transferStatus: hostShareCents > 0 ? "not_due" : "not_owed",
       transferDueAt: hostShareCents > 0 ? transferDueAt(new Date(params.callEndsAt)) : null,
       updatedAt: new Date(),
     })
     .where(eq(schema.payments.id, payment.id));
   const ref = stripeChargeId ?? payment.stripeChargeId;
-  await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_charge", amountCents: params.amountCents, stripeRef: ref, note: params.reason });
+  await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_charge", amountCents, stripeRef: ref, note: params.reason });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: feeCents, stripeRef: ref });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: hostShareCents, stripeRef: ref });
+}
+
+/**
+ * Asks Stripe to charge a held payment. If Stripe says the hold was already
+ * charged (an earlier attempt went through without us hearing back), that
+ * charge is reported instead, so it is recorded rather than lost.
+ */
+export async function captureAtStripe(
+  intentId: string,
+  amountCents: number,
+  label: string,
+): Promise<{ stripeId: string; result: { chargeId: string | null; amountReceived: number } }> {
+  let intent;
+  try {
+    intent = await stripe().paymentIntents.capture(intentId, { amount_to_capture: amountCents }, { idempotencyKey: label });
+  } catch (error) {
+    const current = await stripe().paymentIntents.retrieve(intentId);
+    if (current.status !== "succeeded") throw error;
+    intent = current;
+  }
+  const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
+  return { stripeId: intent.id, result: { chargeId, amountReceived: intent.amount_received } };
 }
 
 /** Charges a held payment once. The unused part of the hold is released by Stripe. */
@@ -79,16 +114,25 @@ export function capturePayment(input: {
   reason: ChargeReason;
   frozen: FrozenTotals | null;
   callEndsAt: Date;
+  pricedThroughEventId?: number | null;
+  now?: Date;
 }) {
-  return runMoneyOperation<CaptureParams, { chargeId: string | null }>({
+  return runMoneyOperation<CaptureParams, { chargeId: string | null; amountReceived: number }>({
     paymentId: input.paymentId,
     kind: "capture",
     labelBase: `capture:${input.paymentId}`,
     prepare: async (payment) => {
       if (!canMovePayment(payment.status as never, "charged")) throw new MoneyError("This payment is not being held.");
       if (!payment.stripePaymentIntentId) throw new MoneyError("This payment has no hold at Stripe.");
-      // A call waiting for the founder's decision is only ever charged by the founder.
-      if (payment.needsReview && input.reason !== "admin") throw new MoneyError("This payment is waiting for review.");
+      if (input.reason === "admin") {
+        // The founder only decides calls that are waiting for review, and only before the deadline.
+        if (!payment.needsReview) throw new MoneyError("This payment is not waiting for review.");
+        const deadline = decisionDeadline({ callEndsAt: input.callEndsAt, holdExpiresAt: payment.holdExpiresAt ?? input.callEndsAt });
+        if ((input.now ?? new Date()) >= deadline) throw new MoneyError("The deadline for deciding this call has passed.");
+      } else if (payment.needsReview) {
+        // A call waiting for the founder's decision is only ever charged by the founder.
+        throw new MoneyError("This payment is waiting for review.");
+      }
       if (!Number.isInteger(input.amountCents) || input.amountCents < MIN_CHARGE_CENTS) {
         throw new MoneyError("The amount is below the minimum that can be charged.");
       }
@@ -98,19 +142,15 @@ export function capturePayment(input: {
         reason: input.reason,
         frozen: input.frozen,
         callEndsAt: input.callEndsAt.toISOString(),
+        pricedThroughEventId: input.pricedThroughEventId ?? null,
       };
     },
     execute: async (params, label) => {
       const [payment] = await paymentById(input.paymentId);
-      const intent = await stripe().paymentIntents.capture(
-        payment.stripePaymentIntentId!,
-        { amount_to_capture: params.amountCents },
-        { idempotencyKey: label },
-      );
-      const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
-      return { stripeId: intent.id, result: { chargeId } };
+      return captureAtStripe(payment.stripePaymentIntentId!, params.amountCents, label);
     },
-    apply: (payment, params, outcome, tx) => applyCaptured(payment, params, outcome.result.chargeId, tx),
+    apply: (payment, params, outcome, tx) =>
+      applyCaptured(payment, params, outcome.result.amountReceived, outcome.result.chargeId, tx),
   });
 }
 
@@ -221,8 +261,16 @@ export async function refundPayment(input: {
   decidedBy: string;
   decidedAs: "host" | "admin";
   reason: string | null;
+  /**
+   * One ID per refund request, made when the form is shown. Sending the same
+   * request again (a double click, a retry after a lost answer) cannot refund twice.
+   */
+  requestId?: string;
 }): Promise<void> {
-  const refundId = randomUUID();
+  const refundId = input.requestId ?? randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(refundId)) {
+    throw new MoneyError("This refund request is not valid. Reload the page and try again.");
+  }
   await runMoneyOperation<RefundParams, { status: string | null }>({
     paymentId: input.paymentId,
     kind: "refund",
@@ -240,6 +288,8 @@ export async function refundPayment(input: {
       const available = payment.chargedCents - payment.refundedCents - pending.total;
       if (!Number.isInteger(input.amountCents) || input.amountCents < 1) throw new MoneyError("Enter an amount to refund.");
       if (input.amountCents > available) throw new MoneyError("That is more than what is left to refund.");
+      const [seen] = await tx.select({ id: schema.refunds.id }).from(schema.refunds).where(eq(schema.refunds.id, refundId));
+      if (seen) throw new MoneyError("This refund request did not go through. Reload the page to try again.");
       await tx.insert(schema.refunds).values({
         id: refundId,
         paymentId: payment.id,
@@ -280,7 +330,7 @@ export async function refundPayment(input: {
 // Send the host's share
 // ---------------------------------------------------------------------------
 
-type TransferParams = { amountCents: number; payoutFeeCents: number; destination: string; callId: string };
+export type TransferParams = { amountCents: number; payoutFeeCents: number; destination: string; callId: string };
 
 export async function applyTransferSent(payment: Payment, params: TransferParams, stripeTransferId: string | null, tx: Tx): Promise<void> {
   await tx
@@ -298,10 +348,32 @@ export async function applyTransferSent(payment: Payment, params: TransferParams
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "payout_fee", amountCents: params.payoutFeeCents, stripeRef: stripeTransferId });
 }
 
-/** Sends the host's share for one call to the host's Stripe account. */
-export async function transferToHost(input: {
+/** Asks Stripe to send a host's share. Nothing is asked when there is nothing to send. */
+export async function transferAtStripe(payment: Payment, params: TransferParams, label: string): Promise<string | null> {
+  if (params.amountCents < 1) return null;
+  const transfer = await stripe().transfers.create(
+    {
+      amount: params.amountCents,
+      currency: payment.currency,
+      destination: params.destination,
+      source_transaction: payment.stripeChargeId!,
+      transfer_group: params.callId,
+      metadata: { paymentId: payment.id },
+    },
+    { idempotencyKey: label },
+  );
+  return transfer.id;
+}
+
+/**
+ * Sends the host's share for one call to the host's Stripe account.
+ *
+ * The 25-cent payout charge is taken once per host per weekly payday: the
+ * first payment to claim that payday carries it, and no other payment can.
+ */
+export async function sendHostShare(input: {
   paymentId: string;
-  payoutFeeCents: number;
+  hostId: string;
   destination: string;
   callId: string;
   now: Date;
@@ -325,27 +397,27 @@ export async function transferToHost(input: {
       if (pending.count > 0) throw new MoneyError("A refund is still in progress on this call.");
 
       const { hostShareCents } = currentSplit(payment);
-      const payoutFeeCents = Math.min(input.payoutFeeCents, hostShareCents);
-      const amountCents = hostShareCents - payoutFeeCents;
-      if (amountCents < 1) throw new MoneyError("There is nothing to send for this call.");
-      return { amountCents, payoutFeeCents, destination: input.destination, callId: input.callId };
+
+      // Claim this host's payout charge for this payday, if no other payment has it.
+      await tx
+        .insert(schema.payoutFees)
+        .values({ hostId: input.hostId, payday: payment.transferDueAt, paymentId: payment.id })
+        .onConflictDoNothing();
+      const [holder] = await tx
+        .select()
+        .from(schema.payoutFees)
+        .where(and(eq(schema.payoutFees.hostId, input.hostId), eq(schema.payoutFees.payday, payment.transferDueAt)));
+      const payoutFeeCents = holder?.paymentId === payment.id ? Math.min(PAYOUT_FEE_CENTS, hostShareCents) : 0;
+
+      return { amountCents: hostShareCents - payoutFeeCents, payoutFeeCents, destination: input.destination, callId: input.callId };
     },
     execute: async (params, label) => {
       const [payment] = await paymentById(input.paymentId);
-      const transfer = await stripe().transfers.create(
-        {
-          amount: params.amountCents,
-          currency: payment.currency,
-          destination: params.destination,
-          source_transaction: payment.stripeChargeId!,
-          transfer_group: params.callId,
-          metadata: { paymentId: payment.id },
-        },
-        { idempotencyKey: label },
-      );
-      return { stripeId: transfer.id, result: null };
+      const transferId = await transferAtStripe(payment, params, label);
+      return { stripeId: transferId ?? "nothing-to-send", result: null };
     },
-    apply: (payment, params, outcome, tx) => applyTransferSent(payment, params, outcome.stripeId, tx),
+    apply: (payment, params, outcome, tx) =>
+      applyTransferSent(payment, params, params.amountCents < 1 ? null : outcome.stripeId, tx),
   });
 }
 

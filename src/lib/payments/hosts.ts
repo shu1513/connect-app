@@ -56,9 +56,9 @@ export async function payoutSetupLink(accountId: string, urls: { returnUrl: stri
     account: accountId,
     use_case: {
       type: "account_onboarding",
-      account_onboarding: { configurations: ["recipient"], return_url: urls.returnUrl, refresh_url: urls.refreshUrl },
+      account_onboarding: { return_url: urls.returnUrl, refresh_url: urls.refreshUrl },
     },
-  } as never)) as unknown as { url: string };
+  })) as unknown as { url: string };
   return link.url;
 }
 
