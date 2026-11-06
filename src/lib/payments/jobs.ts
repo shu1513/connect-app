@@ -23,6 +23,7 @@ import {
   releasePayment,
   transferToHost,
 } from "./actions";
+import { settleCancelledCall } from "./cancel";
 import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError } from "./operations";
 import { attendanceChargeCents, PAYOUT_FEE_CENTS } from "./pricing";
 import { decisionDeadline } from "./rules";
@@ -346,9 +347,30 @@ export async function runPayday(now: Date): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 5. Finish the money side of cancelled calls
+// ---------------------------------------------------------------------------
+
+export async function settleCancelledCalls(): Promise<void> {
+  const open = await db
+    .select({ payment: schema.payments, call: schema.calls })
+    .from(schema.payments)
+    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .where(and(inArray(schema.payments.status, ["awaiting_payment", "held"]), isNotNull(schema.calls.cancelledAt)));
+  for (const { payment, call } of open) {
+    try {
+      await settleCancelledCall(call, payment);
+      log(`settled cancelled call ${call.id}`);
+    } catch (error) {
+      log(`could not settle cancelled call ${call.id}; will retry`, error);
+    }
+  }
+}
+
 /** Everything the helper does for payments in one pass, in a safe order. */
 export async function runPaymentJobs(now: Date): Promise<void> {
   await reconcileOperations(now);
+  await settleCancelledCalls();
   await settleFinishedCalls(now);
   await flagChangedRecords(now);
   await runPayday(now);

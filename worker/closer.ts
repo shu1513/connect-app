@@ -1,5 +1,6 @@
 /**
- * The always-on helper that closes rooms.
+ * The always-on helper. It closes rooms, and does the payment work that has
+ * to happen on a schedule (see src/lib/payments/jobs.ts).
  *
  * Every few seconds it looks for calls past their closing time and makes sure
  * nobody is left in the room. It keeps watching each call for a while after
@@ -20,6 +21,8 @@ const WATCH_AFTER_CLOSE_SECONDS = 11 * 60;
 async function main() {
   const { db, schema } = await import("../src/db");
   const { closeRoom, roomExists } = await import("../src/lib/video/livekit");
+  const { stripeConfigured } = await import("../src/lib/payments/stripe");
+  const { runPaymentJobs } = await import("../src/lib/payments/jobs");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -63,9 +66,15 @@ async function main() {
     }
   }
 
+  /** One full pass: close rooms that are due, then do the payment work. */
+  async function pass() {
+    await tick();
+    if (stripeConfigured()) await runPaymentJobs(new Date());
+  }
+
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.
   if (process.argv.includes("--once")) {
-    await tick();
+    await pass();
     process.exit(0);
   }
 
@@ -76,9 +85,9 @@ async function main() {
 
   while (!stopping) {
     try {
-      await tick();
+      await pass();
     } catch (err) {
-      console.error("[closer] tick failed; will retry", err);
+      console.error("[closer] pass failed; will retry", err);
     }
     await new Promise((resolve) => setTimeout(resolve, TICK_MS));
   }

@@ -94,6 +94,8 @@ export const calls = pgTable(
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     /** "host" or "customer". */
     cancelledBy: text("cancelled_by"),
+    /** True when the customer cancelled after the free period, so the booked price is charged. */
+    cancelledLate: boolean("cancelled_late").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("calls_host_idx").on(t.hostId), index("calls_customer_idx").on(t.customerId)],

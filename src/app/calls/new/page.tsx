@@ -63,8 +63,13 @@ export default async function NewCallPage(props: PageProps<"/calls/new">) {
           Length (minutes)
           <input name="durationMinutes" type="number" min={1} max={240} step="any" defaultValue={15} required className={field} />
         </label>
+        <label className="block text-sm">
+          Price per 15 minutes, in US dollars (0 for a free call, otherwise at least 5)
+          <input name="pricePer15" type="number" min={0} step="0.01" defaultValue={0} required className={field} />
+        </label>
         <p className="text-sm opacity-70">
-          The room opens 5 minutes before the start and closes 1 minute after the end.
+          The room opens 5 minutes before the start and closes 1 minute after the end. A paid call needs a host
+          who has set up payouts, and the customer confirms and pays on the call&apos;s page.
         </p>
         <button type="submit" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
           Create call

@@ -130,6 +130,24 @@ export function decisionDeadline(input: { callEndsAt: Date; holdExpiresAt: Date 
   );
 }
 
+/** Why a paid call cannot be joined right now, or null if payment is in order. */
+export function paymentBlocksJoin(input: {
+  /** Null for a free call. */
+  payment: { status: string; holdExpiresAt: Date | null } | null;
+  callEndsAt: Date;
+  now: Date;
+}): "not_paid" | "hold_ended" | null {
+  if (!input.payment) return null;
+  if (input.payment.status !== "held") return "not_paid";
+  if (
+    !input.payment.holdExpiresAt ||
+    !holdCoversCall({ now: input.now, holdExpiresAt: input.payment.holdExpiresAt, callEndsAt: input.callEndsAt })
+  ) {
+    return "hold_ended";
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Paydays. Hosts are paid once a week, for calls that ended at least 7 days earlier.
 // ---------------------------------------------------------------------------

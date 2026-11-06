@@ -6,6 +6,7 @@ import {
   decisionDeadline,
   holdCoversCall,
   holdExpiry,
+  paymentBlocksJoin,
   payWindow,
   transferDueAt,
 } from "./rules";
@@ -162,5 +163,27 @@ describe("the weekly payday", () => {
   it("waits a week when the 7 days end partway through a Monday", () => {
     // Call ends Mon 11 Jan 10:00. Seven days later is Mon 18 Jan 10:00, after that payday began.
     expect(transferDueAt(at("2027-01-11T10:00:00Z"))).toEqual(at("2027-01-25T00:00:00Z"));
+  });
+});
+
+describe("whether payment allows joining", () => {
+  const base = { callEndsAt: END, now: at("2027-01-13T08:55:00Z") };
+  const goodHold = at("2027-01-16T00:00:00Z");
+
+  it("a free call can always be joined", () => {
+    expect(paymentBlocksJoin({ ...base, payment: null })).toBeNull();
+  });
+  it("a paid call with a good hold can be joined", () => {
+    expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: goodHold } })).toBeNull();
+  });
+  it("a paid call cannot be joined before the customer has paid", () => {
+    expect(paymentBlocksJoin({ ...base, payment: { status: "awaiting_payment", holdExpiresAt: null } })).toBe("not_paid");
+  });
+  it("a paid call cannot be joined after its payment was closed", () => {
+    expect(paymentBlocksJoin({ ...base, payment: { status: "closed_uncharged", holdExpiresAt: goodHold } })).toBe("not_paid");
+  });
+  it("a paid call cannot be joined when the hold has run out or will not last", () => {
+    expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: at("2027-01-13T12:00:00Z") } })).toBe("hold_ended");
+    expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: null } })).toBe("hold_ended");
   });
 });

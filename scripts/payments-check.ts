@@ -27,6 +27,8 @@ async function main() {
   const { capturePayment, refundPayment, currentSplit } = await import("../src/lib/payments/actions");
   const { settleFinishedCalls, reconcileOperations } = await import("../src/lib/payments/jobs");
   const { MoneyError } = await import("../src/lib/payments/operations");
+  const { cancelCall } = await import("../src/lib/payments/cancel");
+  const { settleCancelledCalls } = await import("../src/lib/payments/jobs");
 
   const [host] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
   const [customer] = await db.select().from(schema.user).where(eq(schema.user.email, "customer@test.local"));
@@ -231,6 +233,55 @@ async function main() {
     const p = await reload(payment.id);
     // 4.9% of $13.33 = 65 cents, + 30 cents, + 1.5% = 20 cents
     check("fee includes the foreign-card 1.5%", p.originalFeeCents === 115 && p.originalHostShareCents === 1218, `${p.originalFeeCents} ${p.originalHostShareCents}`);
+  }
+
+  const reloadCall = async (id: string) => (await db.select().from(schema.calls).where(eq(schema.calls.id, id)))[0];
+
+  console.log("\n8. The customer cancels inside the free period (default rule: any time before the start)");
+  {
+    const { call, payment } = await newCall();
+    const held = await hold(call, payment.id, "pm_card_visa");
+    const outcome = await cancelCall({ call, payment: held, by: "customer", now: new Date() });
+    check("cancelling is free", outcome === "free");
+    check("hold released, nothing charged", (await reload(payment.id)).status === "closed_uncharged");
+    check("Stripe shows the hold cancelled", (await stripeIntent(payment.id)).status === "canceled");
+    const again = await cancelCall({ call: await reloadCall(call.id), payment: await reload(payment.id), by: "customer", now: new Date() }).catch((e) => e);
+    check("cannot be cancelled twice", again instanceof MoneyError);
+  }
+
+  console.log("\n9. The customer cancels after the free period (host's rule: 24 hours)");
+  {
+    const { call, payment } = await newCall();
+    await db.update(schema.calls).set({ freeCancelMinutes: 1440 }).where(eq(schema.calls.id, call.id));
+    const held = await hold(call, payment.id, "pm_card_visa");
+    const outcome = await cancelCall({ call: await reloadCall(call.id), payment: held, by: "customer", now: new Date() });
+    check("cancelling is late", outcome === "late_charge");
+    const p = await reload(payment.id);
+    check("the full booked price is charged", p.status === "charged" && p.chargedCents === 1333 && p.chargeReason === "late_cancel", `${p.status} ${p.chargedCents}`);
+    check("Stripe received the full booked price", (await stripeIntent(payment.id)).amount_received === 1333);
+    await settleCancelledCalls();
+    await settleFinishedCalls(after(call, 30));
+    check("nothing more is charged afterwards", (await stripeIntent(payment.id)).amount_received === 1333);
+    await refundPayment({ paymentId: payment.id, amountCents: 1333, decidedBy: host.id, decidedAs: "host", reason: "goodwill" });
+    check("the host can still refund it in full", (await reload(payment.id)).refundedCents === 1333);
+  }
+
+  console.log("\n10. The host cancels, even late");
+  {
+    const { call, payment } = await newCall();
+    await db.update(schema.calls).set({ freeCancelMinutes: 1440 }).where(eq(schema.calls.id, call.id));
+    const held = await hold(call, payment.id, "pm_card_visa");
+    const outcome = await cancelCall({ call: await reloadCall(call.id), payment: held, by: "host", now: new Date() });
+    check("free for the customer", outcome === "free" && (await reload(payment.id)).status === "closed_uncharged");
+  }
+
+  console.log("\n11. Nobody can cancel once the call has started");
+  {
+    const { call, payment } = await newCall();
+    const held = await hold(call, payment.id, "pm_card_visa");
+    const refused = await cancelCall({ call, payment: held, by: "customer", now: new Date(call.startsAt.getTime() + 1000) }).catch((e) => e);
+    check("refused", refused instanceof MoneyError && (await reload(payment.id)).status === "held");
+    await cancelCall({ call, payment: held, by: "host", now: new Date() });
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
