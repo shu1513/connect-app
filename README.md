@@ -3,7 +3,7 @@
 A web app where a customer pays for a private one-to-one video call with a host.
 
 This is step 1 of the build: a private two-person video call with trustworthy time tracking.
-The full plan for this step is in [plan.md](plan.md).
+The full plan for this step is in [plans/01-video-call.md](plans/01-video-call.md).
 
 **License:** all rights reserved. This code is published to be read, not reused. See [LICENSE](LICENSE).
 
@@ -44,7 +44,7 @@ Testing tools:
 
 Every major module follows the same steps:
 
-1. A plan is written (`plan.md`), reviewed, and approved by the founder.
+1. A plan is written (in `plans/`), reviewed, and approved by the founder.
 2. The code is built on its own branch and opened as a pull request.
 3. An independent review of the code; only the valuable findings are taken.
 4. CodeRabbit reviews the pull request.

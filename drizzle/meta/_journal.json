@@ -15,6 +15,13 @@
       "when": 1793939738570,
       "tag": "0001_happy_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793944735125,
+      "tag": "0002_misty_wallflower",
+      "breakpoints": true
     }
   ]
 }
