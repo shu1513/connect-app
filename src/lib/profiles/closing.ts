@@ -3,18 +3,20 @@
  */
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
 import { removeFromRoom } from "@/lib/video/livekit";
 import { ProfileError } from "./profiles";
 
 /**
  * The founder closes an account: it is logged out everywhere, cannot log in
- * again, and its host profile is suspended. Its calls that have not started
- * are cancelled at no charge, and it is put out of any call in progress.
+ * again, and its host profile is suspended. Its waiting requests end, its
+ * calls that have not started are cancelled at no charge, and it is put out
+ * of any call in progress.
  * Nothing is deleted; records of paid calls must be kept.
  *
- * Returns how many of its calls could not be ended (-1 when they could not
- * even be looked up), so the founder can be told to check them.
+ * Returns how many of its calls could not be ended (-1 when its requests or
+ * calls could not be dealt with at all), so the founder can be told to check them.
  */
 export async function closeAccount(input: { userId: string; by: string }): Promise<{ callsNotEnded: number }> {
   const now = new Date();
@@ -34,8 +36,16 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
       .where(eq(schema.hostProfiles.userId, input.userId));
   });
   // The account is closed from here on, whatever happens next.
+  let requestsEnded = true;
   try {
-    return { callsNotEnded: await endCallsOf(input.userId, now) };
+    await endWaitingRequestsOf(input.userId, { asHost: true, asCustomer: true }, now);
+  } catch (error) {
+    requestsEnded = false;
+    console.error(`[accounts] could not end the waiting requests of closed account ${input.userId}`, error);
+  }
+  try {
+    const callsNotEnded = await endCallsOf(input.userId, now);
+    return { callsNotEnded: requestsEnded ? callsNotEnded : -1 };
   } catch (error) {
     console.error(`[accounts] could not look up the calls of closed account ${input.userId}`, error);
     return { callsNotEnded: -1 };

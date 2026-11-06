@@ -38,7 +38,7 @@ function Problem({ text }: { text: string | null }) {
   );
 }
 
-function GoogleButton() {
+function GoogleButton({ next = "/" }: { next?: string }) {
   const [busy, setBusy] = useState(false);
   return (
     <button
@@ -46,7 +46,7 @@ function GoogleButton() {
       disabled={busy}
       onClick={async () => {
         setBusy(true);
-        await authClient.signIn.social({ provider: "google", callbackURL: "/", errorCallbackURL: "/login" });
+        await authClient.signIn.social({ provider: "google", callbackURL: next, errorCallbackURL: "/login" });
         setBusy(false);
       }}
       className="w-full rounded border border-neutral-500 px-4 py-2 font-medium disabled:opacity-50"
@@ -60,7 +60,7 @@ function OrDivider() {
   return <p className="my-4 text-center text-sm opacity-60">or</p>;
 }
 
-export function LoginForm({ google }: { google: boolean }) {
+export function LoginForm({ google, next }: { google: boolean; next: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,8 +73,8 @@ export function LoginForm({ google }: { google: boolean }) {
     const result = await authClient.signIn.email({
       email: String(form.get("email") ?? ""),
       password: String(form.get("password") ?? ""),
-      // Where the confirmation link leads, if this address still has to be confirmed.
-      callbackURL: "/welcome",
+      // Where to go next. Also where the confirmation link leads, if this address still has to be confirmed.
+      callbackURL: next === "/" ? "/welcome" : next,
     });
     setBusy(false);
     if (result.error) {
@@ -86,7 +86,7 @@ export function LoginForm({ google }: { google: boolean }) {
       setError(result.error.status === 429 ? TOO_MANY : "That email and password did not match.");
       return;
     }
-    router.push("/");
+    router.push(next);
     router.refresh();
   }
 
@@ -94,7 +94,7 @@ export function LoginForm({ google }: { google: boolean }) {
     <div className="mt-6">
       {google && (
         <>
-          <GoogleButton />
+          <GoogleButton next={next} />
           <OrDivider />
         </>
       )}

@@ -30,7 +30,7 @@ import { settleCancelledCall } from "./cancel";
 import { refreshPayoutsReady } from "./hosts";
 import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError } from "./operations";
 import { attendanceChargeCents } from "./pricing";
-import { syncHold } from "./hold";
+import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
 import { isDefiniteRefusal, stripe, stripeErrorMessage } from "./stripe";
 import { handleStripeEvent } from "./stripe-events";
@@ -147,6 +147,23 @@ export async function reconcileOperations(now: Date): Promise<void> {
           } else {
             await giveUp("Stripe shows this charge did not happen.");
           }
+        }
+      } else if (operation.kind === "hold") {
+        // The automatic try with a saved card. Asking Stripe how the hold stands is always safe.
+        let current = await syncHold(payment.id, now);
+        if (current.status !== "held" && canRepeat()) {
+          // The first request may never have arrived, or may still be on its way. Sending the same
+          // request under the same label is the only safe way to find out: Stripe returns the first
+          // answer, or does it now. A clear "no" is thrown and handled below.
+          await confirmWithSavedCard({ intentId: params.intentId, paymentMethodId: params.paymentMethodId }, operation.label);
+          current = await syncHold(payment.id, now);
+        }
+        if (current.status === "held") {
+          await finishOperation(operation.id, payment.id, params.intentId, async () => undefined);
+        } else {
+          const intent = await stripe().paymentIntents.retrieve(params.intentId);
+          if (intent.status === "processing" || intent.status === "requires_capture") continue; // not settled yet: look again next pass
+          await giveUp("The saved card could not be used.");
         }
       } else if (operation.kind === "release") {
         const intentId = payment.stripePaymentIntentId!;

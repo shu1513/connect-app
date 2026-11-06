@@ -19,7 +19,7 @@ import type { Payment } from "@/db/schema";
 import { isDefiniteRefusal, stripeErrorMessage } from "./stripe";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export type OperationKind = "capture" | "release" | "refund" | "transfer";
+export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hold";
 
 /** An action was refused for a reason a person can read. Nothing was changed. */
 export class MoneyError extends Error {}

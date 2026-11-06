@@ -99,6 +99,8 @@ export const emailOutbox = pgTable(
     kind: text("kind").notNull().default("confirm"),
     subject: text("subject").notNull(),
     body: text("body").notNull(),
+    /** For emails about an event (a booking was accepted): one key per event, so it is written only once. */
+    dedupeKey: text("dedupe_key").unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("email_outbox_to_idx").on(t.to, t.createdAt)],
@@ -163,6 +165,150 @@ export const socialAccounts = pgTable(
     // The database itself guarantees one confirmed owner per name per network.
     uniqueIndex("social_accounts_confirmed_uq").on(t.network, t.nameKey).where(sql`${t.confirmedAt} is not null`),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Calendar and booking.
+// ---------------------------------------------------------------------------
+
+/** A host's calendar choices. */
+export const hostCalendars = pgTable("host_calendars", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id),
+  /** The time zone the weekly hours are written in, for example "America/New_York". */
+  timeZone: text("time_zone").notNull(),
+  /** Call lengths offered, in minutes, as a list like "15,30". */
+  lengths: text("lengths").notNull().default("30"),
+  /** Shortest notice, in hours. */
+  noticeHours: integer("notice_hours").notNull().default(24),
+  /** How far ahead the host can be booked, in weeks. */
+  horizonWeeks: integer("horizon_weeks").notNull().default(4),
+  /** Break kept free after each call, in minutes. */
+  breakMinutes: integer("break_minutes").notNull().default(5),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A stretch of a weekday the host is free, in the calendar's time zone. */
+export const weeklyHours = pgTable(
+  "weekly_hours",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    /** 1 = Monday ... 7 = Sunday. */
+    weekday: integer("weekday").notNull(),
+    /** Minutes from midnight. The end may be 1440 (midnight at the end of the day). */
+    startMinute: integer("start_minute").notNull(),
+    endMinute: integer("end_minute").notNull(),
+  },
+  (t) => [index("weekly_hours_host_idx").on(t.hostId)],
+);
+
+/** A stretch of time the host is not available. */
+export const timeOff = pgTable(
+  "time_off",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("time_off_host_idx").on(t.hostId)],
+);
+
+/**
+ * A request for a call, and what became of it. Stages:
+ *   card       the customer is entering a card (paid requests only)
+ *   waiting    sent; the host has not answered
+ *   accepted   it became a call (callId)
+ *   declined | passed_over | ran_out | taken_back   it ended without a call
+ *   cancelled  it was accepted and the call was later cancelled
+ * The price, cancelling rule and break are fixed when the request is made.
+ */
+export const bookings = pgTable(
+  "bookings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    lengthMinutes: integer("length_minutes").notNull(),
+    breakMinutes: integer("break_minutes").notNull(),
+    pricePer15Cents: integer("price_per_15_cents").notNull(),
+    totalCents: integer("total_cents").notNull(),
+    freeCancelMinutes: integer("free_cancel_minutes").notNull(),
+    /** What the customer wants to talk about. Only the host sees it. */
+    note: text("note").notNull().default(""),
+    stage: text("stage").notNull(),
+    /** "customer" for a real request; "admin" for a call made on the admin test page. */
+    source: text("source").notNull().default("customer"),
+    /** One key per press of the button, so a double click makes one request. */
+    requestKey: text("request_key").notNull().unique(),
+    /** When it was sent to the host. */
+    requestedAt: timestamp("requested_at", { withTimezone: true }),
+    /** The host must answer before this. */
+    respondBy: timestamp("respond_by", { withTimezone: true }),
+    /** Paid bookings: the money must be held before this, or the booking is cancelled for free. */
+    payBy: timestamp("pay_by", { withTimezone: true }),
+    /** What the customer agreed to about their card, and when. */
+    cardConsentVersion: text("card_consent_version"),
+    cardConsentAt: timestamp("card_consent_at", { withTimezone: true }),
+    stripeSetupIntentId: text("stripe_setup_intent_id"),
+    /** The saved card. Removed from Stripe, and cleared here, when it is no longer needed. */
+    stripePaymentMethodId: text("stripe_payment_method_id"),
+    callId: uuid("call_id")
+      .unique()
+      .references(() => calls.id),
+    /** When the "you have new requests" email covering this request was written. */
+    hostNotifiedAt: timestamp("host_notified_at", { withTimezone: true }),
+    /** The one automatic try to hold the money on the saved card. */
+    holdTriedAt: timestamp("hold_tried_at", { withTimezone: true }),
+    holdFailedAt: timestamp("hold_failed_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** How it ended, for stages that end it: who or what, in a few words. */
+    endedReason: text("ended_reason"),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("bookings_host_idx").on(t.hostId, t.stage),
+    index("bookings_customer_idx").on(t.customerId, t.stage),
+    index("bookings_stage_idx").on(t.stage),
+  ],
+);
+
+/**
+ * "This person is taken for this stretch of time." A customer has one for each
+ * request they are waiting on or call they have; a host has one for each call
+ * they accepted (the call plus the break after it).
+ *
+ * The database refuses two overlapping entries for the same person. That rule
+ * is not visible here: it is an exclusion constraint added by hand in the
+ * migration, because this library cannot describe one.
+ */
+export const busyEntries = pgTable(
+  "busy_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("busy_entries_booking_user_uq").on(t.bookingId, t.userId)],
 );
 
 // ---------------------------------------------------------------------------
@@ -440,6 +586,8 @@ export const stripeEvents = pgTable("stripe_events", {
 });
 
 export type Call = typeof calls.$inferSelect;
+export type Booking = typeof bookings.$inferSelect;
+export type HostCalendar = typeof hostCalendars.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
 export type AttendanceEvent = typeof attendanceEvents.$inferSelect;

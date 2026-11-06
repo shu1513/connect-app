@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth-forms";
 import { googleSignInConfigured } from "@/lib/auth";
+import { safeNext } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
 
 /** Fixed messages only. Text from the address bar is never shown as it is. */
@@ -22,8 +23,9 @@ function errorText(code: string): string {
 export default async function LoginPage(props: PageProps<"/login">) {
   const person = await getSignedIn();
   // Only someone who can get further is sent on. Anyone else stays here, so they can never be bounced back and forth.
-  if (person && !person.closed && person.emailVerified) redirect("/");
-  const { notice, error } = await props.searchParams;
+  const { notice, error, next: nextParam } = await props.searchParams;
+  const next = safeNext(nextParam);
+  if (person && !person.closed && person.emailVerified) redirect(next);
   const message = typeof error === "string" ? errorText(error) : typeof notice === "string" ? NOTICES[notice] : undefined;
 
   return (
@@ -34,7 +36,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
           {message}
         </p>
       )}
-      <LoginForm google={googleSignInConfigured} />
+      <LoginForm google={googleSignInConfigured} next={next} />
     </main>
   );
 }
