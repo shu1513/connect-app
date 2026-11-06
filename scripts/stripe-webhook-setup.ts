@@ -26,7 +26,7 @@ function setEnv(name: string, value: string) {
   let text = readFileSync(path, "utf8");
   const line = `${name}=${value}`;
   text = new RegExp(`^${name}=.*$`, "m").test(text)
-    ? text.replace(new RegExp(`^${name}=.*$`, "m"), line)
+    ? text.replace(new RegExp(`^${name}=.*$`, "m"), () => line)
     : `${text.replace(/\n*$/, "\n")}\n${line}\n`;
   writeFileSync(path, text);
 }

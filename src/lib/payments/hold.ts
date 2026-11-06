@@ -2,10 +2,10 @@
  * The hold: the customer confirms a paid call by having the full booked price
  * held on their card. Nothing is charged at this point.
  */
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
-import { applyReleased } from "./actions";
+import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import { lockPayment, MoneyError, type Tx } from "./operations";
 import { bookedTotalCents, DEFAULT_FEE_TERMS, MIN_PRICE_PER_15_CENTS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
@@ -96,14 +96,27 @@ export async function startHold(input: {
   const saved = await db.transaction(async (tx) => {
     const locked = await lockPayment(tx, payment.id);
     const [current] = await tx.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
-    if (locked.status !== "awaiting_payment" || current?.cancelledAt) return false;
+    const open = locked.status === "awaiting_payment" && !current?.cancelledAt;
+    if (locked.stripePaymentIntentId === intent.id) {
+      // A second request for the same hold (a double click, two tabs) got here first and Stripe
+      // gave both the same one. It belongs to this payment: never cancel it from here.
+      if (locked.status === "held") return "held" as const;
+      return open ? ("saved" as const) : ("closed" as const);
+    }
+    // Only replace what this request saw. Anything else means another request has moved on.
+    // And never while a money action (such as closing the payment) is under way.
+    const [inFlight] = await tx
+      .select({ id: schema.moneyOperations.id })
+      .from(schema.moneyOperations)
+      .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started")))
+      .limit(1);
+    if (!open || inFlight || locked.stripePaymentIntentId !== payment.stripePaymentIntentId) return "unwanted" as const;
     await tx.update(schema.payments).set({ stripePaymentIntentId: intent.id, updatedAt: new Date() }).where(eq(schema.payments.id, payment.id));
-    return true;
+    return "saved" as const;
   });
-  if (!saved) {
-    await stripe().paymentIntents.cancel(intent.id).catch(() => undefined);
-    throw new MoneyError("This call can no longer be paid for.");
-  }
+  if (saved === "held") return { alreadyHeld: true };
+  if (saved === "unwanted") await stripe().paymentIntents.cancel(intent.id).catch(() => undefined);
+  if (saved !== "saved") throw new MoneyError("This call can no longer be paid for.");
   if (!intent.client_secret) throw new MoneyError("Stripe did not return a way to pay. Please try again.");
   return { clientSecret: intent.client_secret };
 }
@@ -132,7 +145,8 @@ export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
         .set({
           status: "held",
           heldAt: now,
-          holdExpiresAt: holdExpiry({ heldAt: now, captureBefore }),
+          // Counted from when the card was authorised, not from when we happened to hear about it.
+          holdExpiresAt: holdExpiry({ heldAt: charge ? new Date(charge.created * 1000) : now, captureBefore }),
           cardCountry: card?.country ?? null,
           stripeChargeId: charge?.id ?? null,
           updatedAt: new Date(),
@@ -141,10 +155,50 @@ export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
     } else if (intent.status === "canceled" && payment.status === "held") {
       // The hold ran out or was cancelled at Stripe. Nothing can be charged any more.
       await applyReleased(payment, "The hold ended at Stripe before a charge was made.", tx);
+    } else if (intent.status === "succeeded" && payment.status === "held") {
+      await recordLateCharge(tx, payment, intent.amount_received, charge?.id ?? null);
     }
     // A cancelled hold on an unpaid call is left recorded: startHold() sees it and makes a fresh one.
   });
 
   const [after] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
   return after;
+}
+
+/**
+ * Stripe has charged this hold, but our record still says "held": an earlier
+ * attempt was written off as refused and then went through after all. Record
+ * the charge, so the customer's money is never left unaccounted for.
+ */
+async function recordLateCharge(tx: Tx, payment: Payment, amountReceived: number, chargeId: string | null): Promise<void> {
+  const attempts = await tx
+    .select()
+    .from(schema.moneyOperations)
+    .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.kind, "capture")))
+    .orderBy(desc(schema.moneyOperations.createdAt));
+  // An attempt whose outcome is still unknown is finished by the helper's own check.
+  if (attempts.some((attempt) => attempt.status === "started")) return;
+
+  // Use the details of the attempt that asked for exactly this amount.
+  let params: CaptureParams | null = null;
+  for (const attempt of attempts) {
+    const tried = JSON.parse(attempt.params) as Partial<CaptureParams>;
+    if (tried.amountCents === amountReceived && tried.reason && tried.callEndsAt) {
+      params = tried as CaptureParams;
+      break;
+    }
+  }
+  const explained = params !== null;
+  if (!params) {
+    const [call] = await tx.select({ endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId));
+    params = { amountCents: amountReceived, reason: "attendance", frozen: null, callEndsAt: call.endsAt.toISOString(), pricedThroughEventId: null };
+  }
+  await applyCaptured(payment, params, amountReceived, chargeId, tx);
+  if (!explained) {
+    // We cannot tell which request made this charge. Record it, and ask the founder to look.
+    await tx
+      .update(schema.payments)
+      .set({ flaggedAfterCharge: true, reviewReason: "Stripe charged this call, but our record cannot explain the amount. Please check it." })
+      .where(eq(schema.payments.id, payment.id));
+  }
 }

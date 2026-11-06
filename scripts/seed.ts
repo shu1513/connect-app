@@ -10,6 +10,7 @@ config({ path: ".env.local", quiet: true });
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
+import { requireLocalDatabase } from "./local-only";
 
 const ACCOUNTS = [
   { name: "Hana Host", email: "host@test.local" },
@@ -24,6 +25,7 @@ const ADMIN_EMAILS = ["admin@test.local"];
 const OUT_FILE = "test-accounts.local.md";
 
 async function main() {
+  requireLocalDatabase();
   const { createAuth } = await import("../src/lib/auth");
   const { db, schema } = await import("../src/db");
   const auth = createAuth({ allowSignUp: true });

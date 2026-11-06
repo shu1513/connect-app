@@ -227,18 +227,18 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
     originalHostShareCents: payment.originalHostShareCents!,
   });
 
+  const nothingOwedNow = after.hostShareCents === 0 && payment.transferStatus !== "sent";
   await tx
     .update(schema.refunds)
     .set({ status: "done", stripeRefundId, finishedAt: new Date() })
     .where(eq(schema.refunds.id, refundId));
   await tx
     .update(schema.payments)
-    .set({
-      refundedCents,
-      transferStatus: after.hostShareCents === 0 && payment.transferStatus !== "sent" ? "not_owed" : payment.transferStatus,
-      updatedAt: new Date(),
-    })
+    .set({ refundedCents, transferStatus: nothingOwedNow ? "not_owed" : payment.transferStatus, updatedAt: new Date() })
     .where(eq(schema.payments.id, payment.id));
+  // This payment will never be paid out. If it was holding the week's payout charge
+  // (from a payout attempt Stripe refused), give that up so the host's next payment carries it.
+  if (nothingOwedNow) await tx.delete(schema.payoutFees).where(eq(schema.payoutFees.paymentId, payment.id));
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_refund", amountCents: -refund.amountCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: stripeRefundId });
@@ -280,7 +280,7 @@ export async function refundPayment(input: {
       if (payment.transferStatus === "sent") {
         throw new MoneyError("The host has already been paid for this call. A refund now has to go through support.");
       }
-      if (payment.disputeOpen) throw new MoneyError("The customer's bank is disputing this charge, so it cannot be refunded as well.");
+      if (payment.disputeOpen) throw new MoneyError("The customer's bank has disputed this charge, so it cannot be refunded as well.");
       const [pending] = await tx
         .select({ total: sql<number>`coalesce(sum(${schema.refunds.amountCents}), 0)::int` })
         .from(schema.refunds)
@@ -388,7 +388,7 @@ export async function sendHostShare(input: {
         throw new MoneyError("The host's share has already been sent, or nothing is owed.");
       }
       if (!payment.transferDueAt || payment.transferDueAt > input.now) throw new MoneyError("The host's share is not due yet.");
-      if (payment.disputeOpen) throw new MoneyError("The customer's bank is disputing this charge.");
+      if (payment.disputeOpen) throw new MoneyError("The customer's bank has disputed this charge.");
       if (!payment.stripeChargeId) throw new MoneyError("This payment has no charge at Stripe.");
       const [pending] = await tx
         .select({ count: sql<number>`count(*)::int` })

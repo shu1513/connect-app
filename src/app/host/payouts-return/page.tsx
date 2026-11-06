@@ -8,9 +8,14 @@ import { requireUser } from "@/lib/session";
  */
 export default async function PayoutsReturnPage() {
   const user = await requireUser();
-  const ready = await refreshPayoutsReady(user.id).catch(() => false);
-  const notice = ready
-    ? "Your payout account is ready."
-    : "Stripe still needs some details before you can be paid. You can continue the setup below.";
+  let notice: string;
+  try {
+    notice = (await refreshPayoutsReady(user.id))
+      ? "Your payout account is ready."
+      : "Stripe still needs some details before you can be paid. You can continue the setup below.";
+  } catch (error) {
+    console.error("[payments] could not check a payout account with Stripe", error);
+    notice = "We could not check your payout account with Stripe just now. Please try again in a minute.";
+  }
   redirect(`/host?notice=${encodeURIComponent(notice)}`);
 }

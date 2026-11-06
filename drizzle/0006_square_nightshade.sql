@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ALTER COLUMN "priced_through_event_id" SET DATA TYPE bigint;

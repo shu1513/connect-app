@@ -24,6 +24,9 @@ export async function cancelCall(input: {
   let { payment } = input;
   if (call.cancelledAt) throw new MoneyError("This call was already cancelled.");
 
+  // Work from the payment as it is right now, not as it was when the page was loaded.
+  if (payment) [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
+
   // The customer may have paid a moment ago without our record knowing yet.
   // Ask Stripe first, so a late cancellation cannot slip through as a free one.
   if (payment?.status === "awaiting_payment" && payment.stripePaymentIntentId) {

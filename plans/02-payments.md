@@ -141,6 +141,8 @@ Kept as three small, separate tracks, because one payment can be charged, partly
 
 ## Not in this module
 
+- **A bank dispute we lose.** The call stays blocked: the host is not paid automatically and it cannot be refunded on top. The founder decides by hand what the host is owed.
+
 The calendar and booking, saving a card for later, "available now" calls, extending a call, tips, taxes
 and invoices, other currencies, hosts outside the United States, refunds after the host has been paid,
 paying a host from company money, penalties for hosts who cancel, fighting disputed charges with

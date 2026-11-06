@@ -12,6 +12,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
+import { requireLocalDatabase } from "./local-only";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -21,6 +22,8 @@ function check(label: string, ok: boolean, detail = "") {
 
 async function main() {
   if (!process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_")) throw new Error("This script only runs with a Stripe test key.");
+  // The jobs below act on every call in the database, with a pretend "now". Never run them on shared data.
+  requireLocalDatabase();
   const { db, schema } = await import("../src/db");
   const { stripe } = await import("../src/lib/payments/stripe");
   const { createPaymentForCall, startHold, syncHold } = await import("../src/lib/payments/hold");
@@ -37,9 +40,9 @@ async function main() {
   const PRICE = 2000; // $20 per 15 minutes
   const MINUTES = 10; // booked total: $13.33
 
-  /** Creates a paid call starting in 2 minutes, with its payment record. */
+  /** Creates a paid call starting in 10 minutes (so slow answers from Stripe cannot make it start mid-test), with its payment record. */
   async function newCall() {
-    const startsAt = new Date(Math.ceil((Date.now() + 120_000) / 1000) * 1000);
+    const startsAt = new Date(Math.ceil((Date.now() + 600_000) / 1000) * 1000);
     const endsAt = new Date(startsAt.getTime() + MINUTES * 60_000);
     return db.transaction(async (tx) => {
       const [call] = await tx
@@ -370,12 +373,32 @@ async function main() {
     await hold(call, payment.id, "pm_card_visa");
     await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
     // The app's own record gave up on attempt 1 ("did not happen"), but the request then reached Stripe.
-    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label: `capture:${payment.id}:1`, params: "{}", status: "failed", finishedAt: new Date() });
+    const params = JSON.stringify({
+      amountCents: 1333,
+      reason: "attendance",
+      frozen: { hostSeconds: 600, customerSeconds: 600, togetherSeconds: 600 },
+      callEndsAt: call.endsAt.toISOString(),
+      pricedThroughEventId: null,
+    });
+    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label: `capture:${payment.id}:1`, params, status: "failed", finishedAt: new Date() });
     await stripe().paymentIntents.capture((await reload(payment.id)).stripePaymentIntentId!, { amount_to_capture: 1333 }, { idempotencyKey: `capture:${payment.id}:1` });
     await settleFinishedCalls(after(call, 5));
     const p = await reload(payment.id);
     check("the charge Stripe made is found and recorded, not lost", p.status === "charged" && p.chargedCents === 1333, `${p.status} ${p.chargedCents}`);
+    check("with the times it was based on", p.frozenHostSeconds === 600 && p.chargeReason === "attendance" && !p.flaggedAfterCharge);
     check("charged exactly once", (await stripeIntent(payment.id)).amount_received === 1333 && (await ledgerSum(payment.id, "customer_charge")) === 1333);
+
+    console.log("   …and the same when, by then, the call's record says nothing is owed");
+    const other = await newCall();
+    await hold(other.call, other.payment.id, "pm_card_visa");
+    await attend(other.call, []); // nobody came
+    await db.insert(schema.moneyOperations).values({ paymentId: other.payment.id, kind: "capture", label: `capture:${other.payment.id}:1`, params: "{}", status: "failed", finishedAt: new Date() });
+    await stripe().paymentIntents.capture((await reload(other.payment.id)).stripePaymentIntentId!, { amount_to_capture: 1333 }, { idempotencyKey: `capture:${other.payment.id}:1` });
+    await settleFinishedCalls(after(other.call, 5));
+    await settleFinishedCalls(after(other.call, 6));
+    const q = await reload(other.payment.id);
+    check("the charge is still recorded, not left as a hold", q.status === "charged" && q.chargedCents === 1333 && (await ledgerSum(other.payment.id, "customer_charge")) === 1333, `${q.status} ${q.chargedCents}`);
+    check("and it is flagged for the founder, because our record cannot explain it", q.flaggedAfterCharge === true);
   }
 
   console.log("\n16. The refund button is pressed twice");
@@ -406,6 +429,15 @@ async function main() {
     const outcome = await cancelCall({ call: await reloadCall(call.id), payment: await reload(payment.id), by: "customer", now: new Date() });
     const p = await reload(payment.id);
     check("it is still treated as a late cancellation and charged", outcome === "late_charge" && p.status === "charged" && p.chargedCents === 1333, `${outcome} ${p.status}`);
+
+    console.log("   …and the same when the cancel request carries a copy of the payment from before paying began");
+    const other = await newCall();
+    await db.update(schema.calls).set({ freeCancelMinutes: 1440 }).where(eq(schema.calls.id, other.call.id));
+    await startHold({ payment: other.payment, call: other.call, customer, now: new Date() });
+    await stripe().paymentIntents.confirm((await reload(other.payment.id)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+    const second = await cancelCall({ call: await reloadCall(other.call.id), payment: other.payment, by: "customer", now: new Date() });
+    const q = await reload(other.payment.id);
+    check("still a late cancellation, and charged", second === "late_charge" && q.status === "charged" && q.chargedCents === 1333, `${second} ${q.status}`);
   }
 
   console.log("\n18. Paying is started on a call that was just cancelled");
@@ -416,6 +448,18 @@ async function main() {
     const refused = await startHold({ payment: fresh, call: await reloadCall(call.id), customer, now: new Date() }).catch((e) => e);
     check("refused", refused instanceof MoneyError);
     check("no hold is left behind", (await reload(payment.id)).status === "closed_uncharged" && (await reload(payment.id)).stripePaymentIntentId === null);
+
+    console.log("   …and a second, slow \"start paying\" request arrives after the customer has paid");
+    const other = await newCall();
+    await startHold({ payment: other.payment, call: other.call, customer, now: new Date() });
+    await stripe().paymentIntents.confirm((await reload(other.payment.id)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+    await syncHold(other.payment.id, new Date());
+    // The slow request still has the copy of the payment from before anything happened.
+    const slow = await startHold({ payment: other.payment, call: other.call, customer, now: new Date() }).catch((e) => e);
+    const q = await reload(other.payment.id);
+    check("it is told the call is already paid for", typeof slow === "object" && slow !== null && "alreadyHeld" in slow);
+    check("the customer's hold is untouched", q.status === "held" && (await stripeIntent(other.payment.id)).status === "requires_capture", q.status);
+    await cancelCall({ call: other.call, payment: q, by: "host", now: new Date() });
   }
 
   console.log("\n19. A declined card, then a second try with a good card");
@@ -508,7 +552,11 @@ async function main() {
       console.log("\n22. Payday after a full refund, and while a bank dispute is open");
       {
         const d = await chargedCall();
+        // As if Stripe had refused an earlier payout of this call, leaving it holding a week's 25-cent charge.
+        await db.insert(schema.payoutFees).values({ hostId: host.id, payday: new Date(Date.now() + 3650 * 24 * 3_600_000), paymentId: d.payment.id });
         await refundPayment({ paymentId: d.payment.id, amountCents: 1333, decidedBy: host.id, decidedAs: "host", reason: null });
+        const stillClaimed = await db.select().from(schema.payoutFees).where(eq(schema.payoutFees.paymentId, d.payment.id));
+        check("a fully refunded call gives up the payout charge it was holding", stillClaimed.length === 0);
         const e = await chargedCall();
         await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, e.payment.id));
         await runPayday(payday(e.call));
@@ -517,6 +565,58 @@ async function main() {
         await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, e.payment.id));
         await runPayday(payday(e.call));
         check("it is sent once the dispute is closed", (await reload(e.payment.id)).transferStatus === "sent");
+
+        console.log("   …and while a saved Stripe message about a dispute has not been handled yet");
+        const f = await chargedCall();
+        const messageId = `evt_check_${randomUUID()}`;
+        await db.insert(schema.stripeEvents).values({ id: messageId, type: "charge.dispute.created", payload: "{}" });
+        try {
+          await runPayday(payday(f.call));
+          check("payday waits", (await reload(f.payment.id)).transferStatus === "not_due" && (await transfersFor(f.call.id)).length === 0);
+        } finally {
+          await db.delete(schema.stripeEvents).where(eq(schema.stripeEvents.id, messageId));
+        }
+        await runPayday(payday(f.call));
+        check("and carries on once the message is handled", (await reload(f.payment.id)).transferStatus === "sent");
+      }
+
+      console.log("\n23. A real bank dispute at Stripe, which we then lose");
+      {
+        const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
+        const stranger = await handleStripeEvent({ type: "payment_intent.succeeded", data: { object: { metadata: { paymentId: randomUUID() } } } }).catch((e) => e);
+        check("a Stripe message about a payment that is not ours is ignored, not an error", stranger === undefined);
+
+        const g = await newCall();
+        await hold(g.call, g.payment.id, "pm_card_createDispute"); // Stripe's test card that is always disputed
+        await attend(g.call, [["host", 0, 600], ["customer", 0, 600]]);
+        await settleFinishedCalls(after(g.call, 5));
+        const intentId = (await reload(g.payment.id)).stripePaymentIntentId!;
+        const pause = () => new Promise((resolve) => setTimeout(resolve, 2000));
+        let disputeId: string | undefined;
+        for (let i = 0; i < 30 && !disputeId; i++) {
+          disputeId = (await stripe().disputes.list({ payment_intent: intentId, limit: 1 })).data[0]?.id;
+          if (!disputeId) await pause();
+        }
+        check("Stripe opened a dispute on the charge", Boolean(disputeId));
+        if (disputeId) {
+          const message = (type: string) => ({ type, data: { object: { id: disputeId } } });
+          await handleStripeEvent(message("charge.dispute.created"));
+          check("the dispute is recorded", (await reload(g.payment.id)).disputeOpen === true);
+
+          await stripe().disputes.update(disputeId, { evidence: { uncategorized_text: "losing_evidence" } });
+          let status = "";
+          for (let i = 0; i < 30 && status !== "lost"; i++) {
+            status = (await stripe().disputes.retrieve(disputeId)).status;
+            if (status !== "lost") await pause();
+          }
+          check("Stripe says the dispute was lost", status === "lost", status);
+          await handleStripeEvent(message("charge.dispute.closed"));
+          await runPayday(payday(g.call));
+          const p = await reload(g.payment.id);
+          check("the host is not paid automatically for it", p.disputeOpen === true && p.transferStatus === "not_due" && (await transfersFor(g.call.id)).length === 0, `${p.disputeOpen} ${p.transferStatus}`);
+          const refused = await refundPayment({ paymentId: g.payment.id, amountCents: 100, decidedBy: host.id, decidedAs: "host", reason: null }).catch((e) => e);
+          check("and it cannot be refunded on top", refused instanceof MoneyError);
+        }
       }
     }
   }

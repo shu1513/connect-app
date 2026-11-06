@@ -10,8 +10,13 @@ import { db, schema } from "@/db";
 import { syncHold } from "./hold";
 import { stripe } from "./stripe";
 
-/** Dispute states in which the customer's bank still has the charge under dispute. */
-const OPEN_DISPUTE = new Set([
+/**
+ * Dispute states that block paying the host and refunding: the customer's bank
+ * still has the charge under dispute, or we lost and the money has gone back to
+ * the customer. A lost dispute stays blocked; the founder settles it by hand.
+ */
+const BLOCKING_DISPUTE = new Set([
+  "lost",
   "warning_needs_response",
   "warning_under_review",
   "needs_response",
@@ -28,18 +33,27 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
   if (event.type.startsWith("payment_intent.")) {
     // The hold was placed, or ended. Ask Stripe for the real state and record it.
     const paymentId = (object.metadata as Record<string, string> | undefined)?.paymentId;
-    if (paymentId) await syncHold(paymentId, new Date());
+    // Not one of ours (for example made by another copy of the app in the same Stripe test area): nothing to do.
+    if (!paymentId || !/^[0-9a-f-]{36}$/i.test(paymentId)) return;
+    const [known] = await db.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.id, paymentId));
+    if (known) await syncHold(paymentId, new Date());
     return;
   }
 
   if (event.type.startsWith("charge.dispute.")) {
     // Messages can arrive out of order, so ask Stripe where the dispute stands now.
-    const dispute = await stripe().disputes.retrieve(String(object.id));
+    const dispute = await stripe()
+      .disputes.retrieve(String(object.id))
+      .catch((error: { code?: string }) => {
+        if (error?.code === "resource_missing") return null; // Stripe does not know it: not ours
+        throw error;
+      });
+    if (!dispute) return;
     const intentId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
     if (!intentId) return;
     await db
       .update(schema.payments)
-      .set({ disputeOpen: OPEN_DISPUTE.has(dispute.status), updatedAt: new Date() })
+      .set({ disputeOpen: BLOCKING_DISPUTE.has(dispute.status), updatedAt: new Date() })
       .where(eq(schema.payments.stripePaymentIntentId, intentId));
   }
 }

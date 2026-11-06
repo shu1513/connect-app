@@ -1,4 +1,5 @@
 import {
+  bigint,
   bigserial,
   boolean,
   index,
@@ -208,7 +209,7 @@ export const payments = pgTable(
     frozenCustomerSeconds: integer("frozen_customer_seconds"),
     frozenTogetherSeconds: integer("frozen_together_seconds"),
     /** The last attendance message that was known when the charge was worked out. Later ones mean the record changed. */
-    pricedThroughEventId: integer("priced_through_event_id"),
+    pricedThroughEventId: bigint("priced_through_event_id", { mode: "number" }),
 
     chargedCents: integer("charged_cents"),
     /** attendance, late_cancel or admin. */

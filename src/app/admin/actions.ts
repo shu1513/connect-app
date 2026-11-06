@@ -23,6 +23,7 @@ async function reviewedPayment(formData: FormData) {
   const user = await requireUser();
   if (!(await isAdmin(user.id))) redirect("/");
   const paymentId = String(formData.get("paymentId") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(paymentId)) back("Payment not found.");
   const [row] = await db
     .select({ payment: schema.payments, call: schema.calls })
     .from(schema.payments)
@@ -39,14 +40,14 @@ export async function chargeReviewed(formData: FormData) {
   let notice: string;
   try {
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to charge.");
-    await capturePayment({
+    const result = await capturePayment({
       paymentId: payment.id,
       amountCents: Math.round(dollars * 100),
       reason: "admin",
       frozen: null,
       callEndsAt: call.endsAt,
     });
-    notice = "The charge was made.";
+    notice = result === "already_done" ? "This call had already been charged. Nothing more was charged." : "The charge was made.";
   } catch (error) {
     notice = message(error);
   }

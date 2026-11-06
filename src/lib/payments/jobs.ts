@@ -10,7 +10,7 @@
  *
  * Each job is safe to run again and again, and safe to run on two helpers at once.
  */
-import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, like, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
@@ -68,6 +68,28 @@ async function recentlyRefused(paymentId: string, kind: string, now: Date): Prom
     )
     .limit(1);
   return Boolean(refused);
+}
+
+/**
+ * A charge attempt we wrote off as refused can still have gone through at
+ * Stripe. Before anything else is decided about a held payment with such an
+ * attempt, ask Stripe and record what it really shows. Returns the payment as
+ * it stands afterwards.
+ */
+async function afterCheckingRefusedCharge(payment: Payment, now: Date): Promise<Payment> {
+  if (payment.status !== "held") return payment;
+  const [refused] = await db
+    .select({ id: schema.moneyOperations.id })
+    .from(schema.moneyOperations)
+    .where(
+      and(
+        eq(schema.moneyOperations.paymentId, payment.id),
+        eq(schema.moneyOperations.kind, "capture"),
+        eq(schema.moneyOperations.status, "failed"),
+      ),
+    )
+    .limit(1);
+  return refused ? syncHold(payment.id, now) : payment;
 }
 
 function log(message: string, error?: unknown) {
@@ -227,6 +249,7 @@ export async function retrySavedStripeEvents(now: Date): Promise<void> {
     .select()
     .from(schema.stripeEvents)
     .where(and(isNull(schema.stripeEvents.processedAt), lte(schema.stripeEvents.receivedAt, new Date(now.getTime() - RECONCILE_AFTER_MS))))
+    .orderBy(schema.stripeEvents.receivedAt)
     .limit(50);
   for (const saved of waiting) {
     try {
@@ -242,7 +265,7 @@ export async function retrySavedStripeEvents(now: Date): Promise<void> {
 // 3. Finish the money side of cancelled calls
 // ---------------------------------------------------------------------------
 
-export async function settleCancelledCalls(): Promise<void> {
+export async function settleCancelledCalls(now: Date = new Date()): Promise<void> {
   const open = await db
     .select({ payment: schema.payments, call: schema.calls })
     .from(schema.payments)
@@ -250,7 +273,10 @@ export async function settleCancelledCalls(): Promise<void> {
     .where(and(inArray(schema.payments.status, ["awaiting_payment", "held"]), isNotNull(schema.calls.cancelledAt)));
   for (const { payment, call } of open) {
     try {
-      await settleCancelledCall(call, payment);
+      const current = await afterCheckingRefusedCharge(payment, now);
+      // Stripe refused the late-cancellation charge a short while ago: wait before trying again.
+      if (current.status === "held" && call.cancelledLate && (await recentlyRefused(payment.id, "capture", now))) continue;
+      await settleCancelledCall(call, current);
       log(`settled cancelled call ${call.id}`);
     } catch (error) {
       log(`could not settle cancelled call ${call.id}; will retry`, error);
@@ -284,7 +310,11 @@ export async function settleFinishedCalls(now: Date): Promise<void> {
   }
 }
 
-async function settleOne(payment: Payment, call: Call, now: Date): Promise<void> {
+async function settleOne(found: Payment, call: Call, now: Date): Promise<void> {
+  // If Stripe made a charge we had written off, it is recorded here and there is nothing left to settle.
+  const payment = await afterCheckingRefusedCharge(found, now);
+  if (payment.status !== "awaiting_payment" && payment.status !== "held") return;
+
   if (payment.status === "awaiting_payment") {
     // The customer may have paid in the last moments: ask Stripe before closing.
     const synced = await syncHold(payment.id, now);
@@ -332,14 +362,8 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
       await releasePayment({ paymentId: payment.id, note: "Nothing was owed for this call." });
       log(`released payment ${payment.id}: nothing owed`);
     } else {
-      if (await recentlyRefused(payment.id, "capture", now)) {
-        // Stripe refused this charge a short while ago. Record the hold's real state first.
-        const synced = await syncHold(payment.id, now);
-        if (synced.status !== "held") return; // the hold is gone and the payment is now closed
-        const intent = await stripe().paymentIntents.retrieve(synced.stripePaymentIntentId!);
-        // Still only held: wait before trying again. Already charged at Stripe: carry on, so it gets recorded.
-        if (intent.status !== "succeeded") return;
-      }
+      // Stripe refused this charge a short while ago (and it is confirmed above that it did not go through): wait.
+      if (await recentlyRefused(payment.id, "capture", now)) return;
       await capturePayment({
         paymentId: payment.id,
         amountCents,
@@ -434,6 +458,18 @@ export async function runPayday(now: Date): Promise<void> {
     );
   if (due.length === 0) return;
 
+  // A saved message about a bank dispute that is not handled yet may mean one of these
+  // payments must not be paid out. Wait until it is handled.
+  const [unhandled] = await db
+    .select({ id: schema.stripeEvents.id })
+    .from(schema.stripeEvents)
+    .where(and(isNull(schema.stripeEvents.processedAt), like(schema.stripeEvents.type, "charge.dispute.%")))
+    .limit(1);
+  if (unhandled) {
+    log(`payday is waiting: Stripe message ${unhandled.id} about a dispute has not been handled yet`);
+    return;
+  }
+
   // Never trust the saved "ready" flag for a host who is owed money: ask Stripe, at most once an hour.
   const ready = new Map<string, boolean>();
   for (const { host } of due) {
@@ -458,7 +494,7 @@ export async function runPayday(now: Date): Promise<void> {
 export async function runPaymentJobs(now: Date): Promise<void> {
   await reconcileOperations(now);
   await retrySavedStripeEvents(now);
-  await settleCancelledCalls();
+  await settleCancelledCalls(now);
   await settleFinishedCalls(now);
   await flagChangedRecords(now);
   await runPayday(now);

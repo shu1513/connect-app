@@ -215,7 +215,7 @@ function Receipt(props: {
           {role !== "customer" && (
             <>
               <Row
-                label={`Our fee${payment.cardCountry && payment.cardCountry !== "US" ? " (includes 1.5% for a card from outside the US)" : ""}`}
+                label={`Our fee${payment.cardCountry && payment.cardCountry !== "US" ? ` (includes ${payment.feeForeignCardBps / 100}% for a card from outside the US)` : ""}`}
                 value={formatMoney(split.feeCents)}
               />
               <Row label={role === "host" ? "Your share" : "Host's share"} value={formatMoney(split.hostShareCents)} />

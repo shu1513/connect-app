@@ -43,6 +43,13 @@
       "when": 1793947373851,
       "tag": "0005_flawless_union_jack",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793984930533,
+      "tag": "0006_square_nightshade",
+      "breakpoints": true
     }
   ]
 }
