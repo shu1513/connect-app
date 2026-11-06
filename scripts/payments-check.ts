@@ -284,6 +284,67 @@ async function main() {
     await cancelCall({ call, payment: held, by: "host", now: new Date() });
   }
 
+  const soon = () => new Date(Date.now() + 5 * 60_000); // old enough for the helper to check unfinished actions
+  const opsFor = async (id: string) => db.select().from(schema.moneyOperations).where(eq(schema.moneyOperations.paymentId, id));
+
+  console.log("\n12. The app crashes right after Stripe made the charge");
+  {
+    const { call, payment } = await newCall();
+    await hold(call, payment.id, "pm_card_visa");
+    await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
+    // Write the action down and ask Stripe, exactly as the app does, then "crash" before recording the result.
+    const label = `capture:${payment.id}:1`;
+    const params = { amountCents: 1333, reason: "attendance", frozen: { hostSeconds: 600, customerSeconds: 600, togetherSeconds: 600 }, callEndsAt: call.endsAt.toISOString() };
+    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label, params: JSON.stringify(params), createdAt: new Date(Date.now() - 10 * 60_000) });
+    await stripe().paymentIntents.capture((await reload(payment.id)).stripePaymentIntentId!, { amount_to_capture: 1333 }, { idempotencyKey: label });
+    check("before recovery: Stripe has the money, our record still says held", (await reload(payment.id)).status === "held");
+
+    const blocked = await capturePayment({ paymentId: payment.id, amountCents: 1333, reason: "attendance", frozen: null, callEndsAt: call.endsAt }).catch((e) => e);
+    check("nothing else may run on this payment until Stripe has been asked", blocked instanceof Error && (await reload(payment.id)).status === "held");
+
+    await reconcileOperations(soon());
+    const p = await reload(payment.id);
+    check("after recovery: recorded as charged, with the right split", p.status === "charged" && p.chargedCents === 1333 && p.originalFeeCents === 95, `${p.status} ${p.chargedCents} ${p.originalFeeCents}`);
+    await settleFinishedCalls(after(call, 5));
+    check("charged exactly once", (await stripeIntent(payment.id)).amount_received === 1333 && (await ledgerSum(payment.id, "customer_charge")) === 1333);
+  }
+
+  console.log("\n13. The app crashes before the charge ever reached Stripe");
+  {
+    const { call, payment } = await newCall();
+    await hold(call, payment.id, "pm_card_visa");
+    await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
+    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "capture", label: `capture:${payment.id}:1`, params: "{}", createdAt: new Date(Date.now() - 10 * 60_000) });
+    await reconcileOperations(soon());
+    const ops = await opsFor(payment.id);
+    check("recovery sees it never happened", ops.length === 1 && ops[0].status === "failed" && (await reload(payment.id)).status === "held");
+    await settleFinishedCalls(after(call, 5));
+    const p = await reload(payment.id);
+    check("the next pass charges it, once", p.status === "charged" && (await stripeIntent(payment.id)).amount_received === 1333);
+  }
+
+  console.log("\n14. The app crashes right after Stripe made a refund");
+  {
+    const { call, payment } = await newCall();
+    await hold(call, payment.id, "pm_card_visa");
+    await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
+    await settleFinishedCalls(after(call, 5));
+    const refundId = randomUUID();
+    const label = `refund:${refundId}:1`;
+    await db.insert(schema.refunds).values({ id: refundId, paymentId: payment.id, amountCents: 400, decidedBy: host.id, decidedAs: "host" });
+    await db.insert(schema.moneyOperations).values({ paymentId: payment.id, kind: "refund", label, params: JSON.stringify({ refundId, amountCents: 400 }), createdAt: new Date(Date.now() - 10 * 60_000) });
+    const intentId = (await reload(payment.id)).stripePaymentIntentId!;
+    await stripe().refunds.create({ payment_intent: intentId, amount: 400, metadata: { paymentId: payment.id, refundId } }, { idempotencyKey: label });
+
+    await reconcileOperations(soon());
+    await reconcileOperations(soon());
+    const p = await reload(payment.id);
+    check("after recovery: the refund is recorded once", p.refundedCents === 400, String(p.refundedCents));
+    const refunded = (await stripe().refunds.list({ payment_intent: intentId, limit: 10 })).data;
+    check("Stripe made exactly one refund of $4.00", refunded.length === 1 && refunded[0].amount === 400, `${refunded.length}`);
+    check("money record adds up", (await ledgerSum(payment.id, "platform_fee")) + (await ledgerSum(payment.id, "host_share")) === 1333 - 400);
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

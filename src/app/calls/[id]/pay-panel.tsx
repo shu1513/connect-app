@@ -115,7 +115,8 @@ function PayForm({ callId, bookedPrice }: { callId: string; bookedPrice: string 
 
   return (
     <form onSubmit={onSubmit}>
-      <PaymentElement />
+      {/* Cards only. Stripe's "Link" extras (pay by bank, Klarna) cannot be held and charged later. */}
+      <PaymentElement options={{ wallets: { link: "never" } }} />
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-600">
           {error}
