@@ -98,7 +98,8 @@ async function claimOne(now: Date, only?: Only): Promise<typeof schema.emailOutb
       .where(
         and(
           or(
-            and(eq(schema.emailOutbox.status, "queued"), lte(schema.emailOutbox.nextAttemptAt, now), or(isNull(schema.emailOutbox.leaseUntil), lte(schema.emailOutbox.leaseUntil, now))),
+            // (The database keeps microseconds and the clock passed in has milliseconds: compare at the same precision.)
+            and(eq(schema.emailOutbox.status, "queued"), sql`date_trunc('milliseconds', ${schema.emailOutbox.nextAttemptAt}) <= ${now.toISOString()}::timestamptz`, or(isNull(schema.emailOutbox.leaseUntil), lte(schema.emailOutbox.leaseUntil, now))),
             and(eq(schema.emailOutbox.status, "sending"), lte(schema.emailOutbox.leaseUntil, now)),
           ),
           only ? like(schema.emailOutbox.to, only.toLike) : undefined,
