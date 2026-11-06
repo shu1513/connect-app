@@ -1,0 +1,1 @@
+ALTER TABLE "calls" ADD COLUMN "cancelled_late" boolean DEFAULT false NOT NULL;

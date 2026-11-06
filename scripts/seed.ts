@@ -10,16 +10,22 @@ config({ path: ".env.local", quiet: true });
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
+import { requireLocalDatabase } from "./local-only";
 
 const ACCOUNTS = [
   { name: "Hana Host", email: "host@test.local" },
   { name: "Cory Customer", email: "customer@test.local" },
   { name: "Sam Stranger", email: "stranger@test.local" },
+  { name: "Ada Admin", email: "admin@test.local" },
 ];
+
+/** These accounts may use the admin page. */
+const ADMIN_EMAILS = ["admin@test.local"];
 
 const OUT_FILE = "test-accounts.local.md";
 
 async function main() {
+  requireLocalDatabase();
   const { createAuth } = await import("../src/lib/auth");
   const { db, schema } = await import("../src/db");
   const auth = createAuth({ allowSignUp: true });
@@ -45,6 +51,11 @@ async function main() {
     // Save straight away, so a later failure cannot lose this account's password.
     writeFileSync(OUT_FILE, lines.join("\n").replace(/\n*$/, "\n"));
     created++;
+  }
+
+  for (const email of ADMIN_EMAILS) {
+    const [admin] = await db.select().from(schema.user).where(eq(schema.user.email, email));
+    if (admin) await db.insert(schema.admins).values({ userId: admin.id }).onConflictDoNothing();
   }
 
   console.log(`Accounts created: ${created}. Existing: ${ACCOUNTS.length - created}. Details are in ${OUT_FILE}.`);

@@ -15,6 +15,41 @@
       "when": 1793939738570,
       "tag": "0001_happy_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793944735125,
+      "tag": "0002_misty_wallflower",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793945127635,
+      "tag": "0003_lethal_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793945503911,
+      "tag": "0004_opposite_lady_ursula",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793947373851,
+      "tag": "0005_flawless_union_jack",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793984930533,
+      "tag": "0006_square_nightshade",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "dispute_open" boolean DEFAULT false NOT NULL;

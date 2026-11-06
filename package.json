@@ -17,6 +17,8 @@
   "dependencies": {
     "@livekit/components-react": "^2.9.25",
     "@livekit/components-styles": "^1.2.0",
+    "@stripe/react-stripe-js": "^7.0.1",
+    "@stripe/stripe-js": "^10.2.1",
     "better-auth": "^1.7.18",
     "drizzle-orm": "^0.45.4",
     "livekit-client": "^2.23.0",
@@ -25,7 +27,8 @@
     "postgres": "^4.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "stripe": "^23.1.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
