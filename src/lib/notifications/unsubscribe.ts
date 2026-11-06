@@ -5,7 +5,7 @@
  * open links); a button on the page, or the one-click header, does.
  */
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 
@@ -15,15 +15,25 @@ function appUrl(): string {
   return (process.env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
-/** The person's unsubscribe secret, made on first use. */
+/** The person's unsubscribe secret, made on first use. Two helpers making it at once both get the one that was kept. */
 export async function unsubscribeTokenFor(userId: string): Promise<string> {
-  const token = randomBytes(24).toString("base64url");
-  await db.update(schema.user).set({ unsubscribeToken: token }).where(eq(schema.user.id, userId)).execute();
-  return token;
+  const fresh = randomBytes(24).toString("base64url");
+  const [row] = await db
+    .update(schema.user)
+    .set({ unsubscribeToken: sql`coalesce(${schema.user.unsubscribeToken}, ${fresh})` })
+    .where(eq(schema.user.id, userId))
+    .returning({ token: schema.user.unsubscribeToken });
+  return row?.token ?? fresh;
 }
 
+/** The page with the button (for the email's text). */
 export function unsubscribeUrl(person: Person): string {
   return `${appUrl()}/unsubscribe?token=${person.unsubscribeToken ?? ""}`;
+}
+
+/** The address mail programs POST to for one-click unsubscribe. */
+function oneClickUrl(person: Person): string {
+  return `${appUrl()}/api/unsubscribe?token=${person.unsubscribeToken ?? ""}`;
 }
 
 /** The last lines of every reminder email. */
@@ -33,7 +43,7 @@ export function reminderFooter(person: Person): string {
 
 /** The headers that let a mail program offer "unsubscribe" with one click (RFC 8058). */
 export function unsubscribeHeaders(person: Person): Record<string, string> {
-  return { "List-Unsubscribe": `<${unsubscribeUrl(person)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
+  return { "List-Unsubscribe": `<${oneClickUrl(person)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
 }
 
 /** Switches reminders off for the person the token belongs to. Returns false for an unknown token. */

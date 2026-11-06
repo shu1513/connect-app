@@ -81,16 +81,20 @@ async function main() {
     await runBookingJobs(now);
     await writeCallReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
     await writeRequestReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
-    // Emails are sent in small batches; a slow sending service never holds up the rest for long.
-    await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
     // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
     // Stripe never hold up closing rooms or the money jobs.
     if (stripeConfigured() && passes++ % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
   }
 
+  /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
+  async function sendPass() {
+    await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
+  }
+
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.
   if (process.argv.includes("--once")) {
     await pass();
+    await sendPass();
     process.exit(0);
   }
 
@@ -99,14 +103,18 @@ async function main() {
   process.on("SIGINT", () => (stopping = true));
   process.on("SIGTERM", () => (stopping = true));
 
-  while (!stopping) {
-    try {
-      await pass();
-    } catch (err) {
-      console.error("[closer] pass failed; will retry", err);
+  const sleep = () => new Promise((resolve) => setTimeout(resolve, TICK_MS));
+  async function loop(name: string, work: () => Promise<void>) {
+    while (!stopping) {
+      try {
+        await work();
+      } catch (err) {
+        console.error(`[${name}] pass failed; will retry`, err);
+      }
+      await sleep();
     }
-    await new Promise((resolve) => setTimeout(resolve, TICK_MS));
   }
+  await Promise.all([loop("closer", pass), loop("email", sendPass)]);
   process.exit(0);
 }
 

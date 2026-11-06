@@ -21,18 +21,21 @@ function appUrl(): string {
 
 export async function writeCallReminders(now: Date): Promise<number> {
   const soon = await db
-    .select({ call: schema.calls, payment: schema.payments })
+    .select({ call: schema.calls, payment: schema.payments, source: schema.bookings.source })
     .from(schema.calls)
     .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
+    .leftJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
     .where(and(gt(schema.calls.startsAt, now), lte(schema.calls.startsAt, new Date(now.getTime() + 24 * HOUR)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
   let written = 0;
-  for (const { call, payment } of soon) {
+  for (const { call, payment, source } of soon) {
+    // Test calls made by an admin are not real appointments.
+    if (source === "admin") continue;
     const kinds = dueReminders(call.startsAt, now);
     if (kinds.length === 0) continue;
     const people = await db.select().from(schema.user).where(inArray(schema.user.id, [call.hostId, call.customerId]));
     const [profile] = await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId));
     for (const found of people) {
-      if (!found.reminderEmails || found.closedAt) continue;
+      if (!found.reminderEmails || found.closedAt || found.pausedAt) continue;
       const person = { ...found, unsubscribeToken: found.unsubscribeToken ?? (await unsubscribeTokenFor(found.id)) };
       const other = people.find((p) => p.id !== person.id);
       const otherName = person.id === call.customerId ? (profile?.displayName ?? other?.name ?? "your host") : (other?.name ?? "your customer");
@@ -56,7 +59,8 @@ export async function writeCallReminders(now: Date): Promise<number> {
             subject,
             text: [`Hi ${person.name},`, "", lead + paidNote, "", `Join here: ${link}`, "", reminderFooter(person)].join("\n"),
             key: `reminder:${call.id}:${person.id}:${kind}`,
-            expiresAt: call.endsAt,
+            // A late "Tomorrow" or "In an hour" email would be wrong: each is dropped once its moment has passed.
+            expiresAt: kind === "day" ? new Date(call.startsAt.getTime() - 12 * HOUR) : kind === "hour" ? new Date(call.startsAt.getTime() - 5 * MINUTE) : call.endsAt,
             headers: unsubscribeHeaders(person),
           }),
         );
@@ -76,7 +80,7 @@ export async function writeRequestReminders(now: Date): Promise<number> {
     .where(and(eq(schema.bookings.stage, "waiting"), lte(schema.bookings.respondBy, new Date(now.getTime() + 2 * HOUR)), gt(schema.bookings.respondBy, new Date(now.getTime() + HOUR))));
   let written = 0;
   for (const { booking, host: found } of soon) {
-    if (!found.reminderEmails || found.closedAt) continue;
+    if (!found.reminderEmails || found.closedAt || found.pausedAt) continue;
     const host = { ...found, unsubscribeToken: found.unsubscribeToken ?? (await unsubscribeTokenFor(found.id)) };
     await db.transaction((tx) =>
       queueEmail(tx, {

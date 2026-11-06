@@ -34,6 +34,8 @@ async function main() {
   const { answerDeadline } = await import("../src/lib/booking/rules");
 
   const now = new Date();
+  // Sending touches only this run's emails, never other rows in the outbox.
+  const ONLY = { toLike: `notifycheck-${RUN}-%` };
   const made: string[] = [];
   async function person(name: string) {
     const id = `nt-${RUN}-${name}`;
@@ -63,7 +65,7 @@ async function main() {
       check("the day-before reminder is written once for each person", toCust.length === 1 && toHost.length === 1, `${toCust.length} ${toHost.length}`);
       check("it names the host by their display name, and says what counts for money", toCust[0].body.includes("Host One") && toCust[0].body.includes("5 minutes before the start are not counted"));
       check("it has an unsubscribe link and the one-click headers", toCust[0].body.includes("/unsubscribe?token=") && JSON.parse(toCust[0].headers ?? "{}")["List-Unsubscribe-Post"] === "List-Unsubscribe=One-Click");
-      check("it expires when the call ends", toCust[0].expiresAt?.getTime() === c.endsAt.getTime());
+      check("it is dropped if it has not gone 12 hours before the call (a late 'Tomorrow' would be wrong)", toCust[0].expiresAt?.getTime() === c.startsAt.getTime() - 12 * HOUR);
 
       await writeCallReminders(new Date(c.startsAt.getTime() - 45 * MINUTE));
       check("the hour-before reminder arrives in its window", (await rows(cust.email, "In an hour")).length === 1);
@@ -112,10 +114,22 @@ async function main() {
       check("opening the link changes nothing (scanners open links)", opened.status === 200 && (await db.select().from(schema.user).where(eq(schema.user.id, person1.id)))[0].reminderEmails === true);
       const bad = await fetch(`${BASE}/api/unsubscribe?token=not-a-real-token-at-all`, { method: "POST" });
       check("a made-up token is refused", bad.status === 404);
-      const clicked = await fetch(`${BASE}/api/unsubscribe?token=${token}`, { method: "POST" });
-      check("the one-click way switches reminders off for that person only", clicked.status === 200 && (await db.select().from(schema.user).where(eq(schema.user.id, person1.id)))[0].reminderEmails === false && (await db.select().from(schema.user).where(eq(schema.user.id, made[0])))[0].reminderEmails === true);
-      await writeCallReminders(new Date(now.getTime() + 22.6 * HOUR));
-      check("and no more reminders are written for them", (await rows(person1.email, "In an hour")).length === 1);
+      // The one-click address is the one advertised in the email's own header, posted the way mail programs do it.
+      const [reminder] = await rows(person1.email, "Tomorrow");
+      const oneClick = (JSON.parse(reminder.headers ?? "{}")["List-Unsubscribe"] as string).replace(/^<|>$/g, "");
+      const clicked = await fetch(oneClick, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "List-Unsubscribe=One-Click" });
+      check("the one-click way (the header's address) switches reminders off for that person only", oneClick.includes("/api/unsubscribe?token=") && clicked.status === 200 && (await db.select().from(schema.user).where(eq(schema.user.id, person1.id)))[0].reminderEmails === false && (await db.select().from(schema.user).where(eq(schema.user.id, made[0])))[0].reminderEmails === true);
+      // A new call, due for a reminder right now: nothing is written for the person who opted out, and the host still gets theirs.
+      const later = await call(made[0], person1.id, new Date(now.getTime() + 50 * MINUTE));
+      await writeCallReminders(now);
+      check("and no more reminders are written for them", (await rows(person1.email, "In an hour")).length === 1 && (await db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `reminder:${later.id}:%`))).length === 1);
+      // A reminder already waiting in the outbox when they opt out is not sent either.
+      const [queuedEarlier] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `reminder:${later.id}:${made[0]}:hour`));
+      await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.id, made[0]));
+      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "should-not-send" }), ONLY);
+      const afterOptOut = await row(queuedEarlier.id);
+      check("a reminder already written is dropped if the person opts out before it is sent", afterOptOut.status === "failed" && (afterOptOut.lastError ?? "").includes("switched off"), `${afterOptOut.status} ${afterOptOut.lastError}`);
+      await db.update(schema.user).set({ reminderEmails: true }).where(eq(schema.user.id, made[0]));
     }
 
     // ----------------------------------------------------------------------
@@ -135,53 +149,74 @@ async function main() {
 
       await sendEmail({ to: addr("link"), kind: "confirm", subject: "Confirm your email address for Connect", text: "http://localhost:3000/api/auth/verify-email?token=secret" });
       const [link] = await rows(addr("link"), "Confirm");
-      await deliverEmails(new Date(), fake("ok"));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
       const linkAfter = await row(link.id);
       check("a queued email is sent once, recorded with the service's reference, and its login link is purged", linkAfter.status === "sent" && Boolean(linkAfter.providerId?.startsWith("fake_")) && linkAfter.body === "" && idsSeen.includes(link.id), linkAfter.status);
       check("the email's own ID is what the service is given as the idempotency key", idsSeen.includes(link.id) && idsSeen.every((id) => /^[0-9a-f-]{36}$/.test(id)));
-      await deliverEmails(new Date(), fake("ok"));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
       check("sent emails are not sent again", sentTo.filter((t) => t === addr("link")).length === 1);
 
       await db.transaction((tx) => queueEmail(tx, { to: addr("flaky"), subject: "Flaky", text: "x", key: `flaky:${RUN}` }));
       const [flaky] = await rows(addr("flaky"), "Flaky");
-      await deliverEmails(new Date(), fake("temporary"));
+      await deliverEmails(new Date(), fake("temporary"), ONLY);
       const once = await row(flaky.id);
       check("a temporary failure is tried again later, not at once", once.status === "queued" && once.attempts === 1 && once.nextAttemptAt > now && once.leaseUntil === null, `${once.status} ${once.attempts}`);
-      await deliverEmails(new Date(), fake("ok"));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
       check("not before its time", (await row(flaky.id)).status === "queued");
-      await deliverEmails(new Date(once.nextAttemptAt.getTime() + 1000), fake("ok"));
+      await deliverEmails(new Date(once.nextAttemptAt.getTime() + 1000), fake("ok"), ONLY);
       check("then it goes", (await row(flaky.id)).status === "sent");
 
       await db.transaction((tx) => queueEmail(tx, { to: addr("dead"), subject: "Dead", text: "x", key: `dead:${RUN}` }));
       const [dead] = await rows(addr("dead"), "Dead");
-      await deliverEmails(new Date(), fake("permanent"));
+      await deliverEmails(new Date(), fake("permanent"), ONLY);
       check("a permanent refusal is recorded as failed, with the reason", (await row(dead.id)).status === "failed" && (await row(dead.id)).lastError === "permanent");
 
       await suppressAddress(addr("gone"), "bounced");
       await db.transaction((tx) => queueEmail(tx, { to: addr("gone"), subject: "Gone", text: "x", key: `gone:${RUN}` }));
       const [gone] = await rows(addr("gone"), "Gone");
-      await deliverEmails(new Date(), fake("ok"));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
       check("an address that bounced is never written to again", (await row(gone.id)).status === "failed" && !sentTo.includes(addr("gone")));
 
       await db.transaction((tx) => queueEmail(tx, { to: addr("old"), subject: "Old", text: "x", key: `old:${RUN}`, expiresAt: new Date(now.getTime() - 1000) }));
       const [old] = await rows(addr("old"), "Old");
-      await deliverEmails(new Date(), fake("ok"));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
       check("an email that has expired is not sent", (await row(old.id)).status === "failed" && !sentTo.includes(addr("old")));
 
       await db.transaction((tx) => queueEmail(tx, { to: addr("lost"), subject: "Lost", text: "x", key: `lost:${RUN}` }));
       const [lost] = await rows(addr("lost"), "Lost");
-      await db.update(schema.emailOutbox).set({ attempts: 2, lastError: "unknown or temporary: timeout", createdAt: new Date(now.getTime() - 25 * HOUR) }).where(eq(schema.emailOutbox.id, lost.id));
-      await deliverEmails(new Date(), fake("ok"));
+      await db.update(schema.emailOutbox).set({ attempts: 2, lastError: "unknown or temporary: timeout", firstTriedAt: new Date(now.getTime() - 25 * HOUR), createdAt: new Date(now.getTime() - 26 * HOUR) }).where(eq(schema.emailOutbox.id, lost.id));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
       check("a try whose answer was lost more than a day ago is not repeated blindly", (await row(lost.id)).status === "failed" && !sentTo.includes(addr("lost")));
+
+      // A helper that died mid-send: the row sits in "sending" with a lease that has run out. It is picked up again
+      // (the same ID goes to the service, which remembers it for a day), and the login link is not kept once it is out.
+      await db.transaction((tx) => queueEmail(tx, { to: addr("crashed"), subject: "Crashed", text: "x", key: `crashed:${RUN}` }));
+      const [crashed] = await rows(addr("crashed"), "Crashed");
+      await db.update(schema.emailOutbox).set({ status: "sending", attempts: 1, firstTriedAt: new Date(now.getTime() - 10 * MINUTE), leaseUntil: new Date(now.getTime() - 5 * MINUTE), lastError: "unknown: the sending service was asked and has not answered yet" }).where(eq(schema.emailOutbox.id, crashed.id));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
+      const recovered = await row(crashed.id);
+      check("an email left mid-send by a helper that died is picked up again with the same ID, once", recovered.status === "sent" && recovered.attempts === 2 && idsSeen.filter((id) => id === crashed.id).length === 1, `${recovered.status} ${recovered.attempts}`);
+      // The same, but the lost try is older than the service's memory: it is not repeated.
+      await db.update(schema.emailOutbox).set({ status: "sending", attempts: 1, firstTriedAt: new Date(now.getTime() - 26 * HOUR), leaseUntil: new Date(now.getTime() - 5 * MINUTE) }).where(eq(schema.emailOutbox.id, crashed.id));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
+      check("but not if that lost try is more than a day old", (await row(crashed.id)).status === "failed" && idsSeen.filter((id) => id === crashed.id).length === 1);
+
+      // Expired login emails lose their link text even when nothing is being sent.
+      await db.transaction((tx) => queueEmail(tx, { to: addr("stale"), subject: "Stale link", text: "secret-link", key: `stale:${RUN}`, expiresAt: new Date(now.getTime() - MINUTE) }));
+      const [stale] = await rows(addr("stale"), "Stale link");
+      await db.update(schema.emailOutbox).set({ kind: "confirm" }).where(eq(schema.emailOutbox.id, stale.id));
+      await delivery.expireStaleEmails(new Date());
+      check("an expired login email is closed and its link text purged, whether or not sending is set up", (await row(stale.id)).status === "failed" && (await row(stale.id)).body === "");
 
       // Two helpers at once: each email goes out once.
       for (let i = 0; i < 6; i++) await db.transaction((tx) => queueEmail(tx, { to: addr(`many${i}`), subject: "Many", text: "x", key: `many:${RUN}:${i}` }));
       // Batches are small and the outbox may hold older rows too, so keep going until nothing is left.
       for (let i = 0; i < 10; i++) {
-        const [a, b] = await Promise.all([deliverEmails(new Date(), fake("ok")), deliverEmails(new Date(), fake("ok"))]);
+        const [a, b] = await Promise.all([deliverEmails(new Date(), fake("ok"), ONLY), deliverEmails(new Date(), fake("ok"), ONLY)]);
         if (a + b === 0) break;
       }
-      check("two helpers sending at the same time send each email once", sentTo.filter((t) => t.includes("many")).length === 6, String(sentTo.filter((t) => t.includes("many")).length));
+      const manyIds = (await db.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `many:${RUN}:%`))).map((r) => r.id);
+      check("two helpers sending at the same time send each email exactly once", manyIds.length === 6 && manyIds.every((id) => idsSeen.filter((seen) => seen === id).length === 1), String(sentTo.filter((t) => t.includes("many")).length));
     }
   } finally {
     const ids = made.length ? made : ["-"];

@@ -128,6 +128,8 @@ export const emailOutbox = pgTable(
     /** queued, sending, sent or failed. */
     status: text("status").notNull().default("queued"),
     attempts: integer("attempts").notNull().default(0),
+    /** When the sending service was first asked. A try older than a day whose answer was lost is never repeated blindly. */
+    firstTriedAt: timestamp("first_tried_at", { withTimezone: true }),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     /** While a helper is sending it, nobody else touches it until this passes. */
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
