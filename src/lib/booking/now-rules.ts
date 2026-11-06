@@ -45,15 +45,17 @@ export function latestInstantStart(now: Date): Date {
 /**
  * The call lengths that fit right now: the whole call plus the host's break,
  * starting as late as it might, runs into nothing the host is taken for (as
- * host or as customer). The call must also start before the availability ends.
+ * host or as customer), and the call itself is over before the host's
+ * availability ends (they said how long they have).
  */
 export function fittingLengths(input: { lengths: number[]; breakMinutes: number; busy: Interval[]; now: Date; availableUntil: Date }): number[] {
   const start = latestInstantStart(input.now);
-  if (start > input.availableUntil) return [];
   // Anything the host is taken for from this moment on blocks a call that would overlap it.
   const from = input.now;
   return input.lengths.filter((length) => {
-    const end = new Date(start.getTime() + (length + input.breakMinutes) * MINUTE);
+    const callEnd = new Date(start.getTime() + length * MINUTE);
+    if (callEnd > input.availableUntil) return false;
+    const end = new Date(callEnd.getTime() + input.breakMinutes * MINUTE);
     return !input.busy.some((b) => b.start < end && b.end > from);
   });
 }

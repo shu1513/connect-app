@@ -123,7 +123,8 @@ async function placeHolds(now: Date): Promise<void> {
       isNull(schema.calls.cancelledAt),
       isNull(schema.bookings.holdTriedAt),
       isNotNull(schema.bookings.stripePaymentMethodId),
-      gt(schema.calls.startsAt, now),
+      // An instant call's payment deadline is a minute after its start; a booked call's is long before.
+      or(gt(schema.calls.startsAt, now), eq(schema.bookings.source, "now")),
       gt(schema.bookings.payBy, now),
     ),
   );
@@ -176,7 +177,8 @@ export async function tryHoldOnce(found: { booking: Booking; call: Call; payment
 /** Right after an instant call is accepted: the saved card is tried at once, the customer is waiting. */
 export async function tryHoldForAcceptedBooking(bookingId: string, now: Date): Promise<"held" | "not_held" | "unknown" | "already_tried" | "nothing_to_hold"> {
   if (!stripeConfigured()) return "nothing_to_hold";
-  const [found] = await unpaidBookings().where(and(eq(schema.bookings.id, bookingId), isNotNull(schema.bookings.stripePaymentMethodId)));
+  // Only instant calls are paid for at once; a booked call's one try comes 2 days before it.
+  const [found] = await unpaidBookings().where(and(eq(schema.bookings.id, bookingId), eq(schema.bookings.source, "now"), isNotNull(schema.bookings.stripePaymentMethodId), gt(schema.bookings.payBy, now)));
   if (!found) return "nothing_to_hold";
   if (!(await refreshPayoutsReady(found.call.hostId).catch(() => false))) return "nothing_to_hold";
   return tryHoldOnce(found, now);
