@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import Link from "next/link";
 import { SlotPicker } from "@/components/slot-picker";
-import { offerOf, openTimes } from "@/lib/booking/bookings";
+import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
@@ -44,6 +44,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const { length } = await props.searchParams;
   const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : (offer?.lengths[0] ?? null);
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
+  const now = offer ? await instantOffer(profile.userId, new Date()) : null;
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">
@@ -91,8 +92,29 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         <p className="mt-1 text-sm opacity-70">A private one-to-one video call. {CANCEL_RULE[profile.freeCancelMinutes] ?? ""}</p>
       </section>
 
+      {now && (
+        <section className="mt-8 rounded border-2 border-green-700 p-4">
+          <h2 className="text-lg font-semibold">
+            <span aria-hidden className="mr-2 inline-block h-3 w-3 rounded-full bg-green-600" />
+            Available now
+          </h2>
+          <p className="mt-1 text-sm">
+            {profile.displayName} can take a call right away. Choose a length; they answer within 3 minutes and the call starts a minute after they accept.
+            {now.offer.pricePer15Cents > 0 ? " You pay for the time you are both in the call." : ""}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-sm">
+            {now.lengths.map((minutes) => (
+              <Link key={minutes} href={`/h/${profile.handle}/now?length=${minutes}`} className="rounded bg-green-700 px-3 py-1.5 font-medium text-white">
+                Call now, {minutes} minutes
+                {now.offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(now.offer.pricePer15Cents, minutes * 60))}` : ""}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="mt-8">
-        <h2 className="text-lg font-semibold">Ask for a call</h2>
+        <h2 className="text-lg font-semibold">{now ? "Or ask for a call later" : "Ask for a call"}</h2>
         {!offer || !chosen ? (
           <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking bookings at the moment.</p>
         ) : !offer.canTakePaid ? (

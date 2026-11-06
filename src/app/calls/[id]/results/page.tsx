@@ -114,7 +114,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       )}
 
       {payment ? (
-        <Receipt payment={payment} role={role} callId={call.id} refunds={refunds} />
+        <Receipt payment={payment} role={role} callId={call.id} refunds={refunds} billing={call.billing} />
       ) : (
         <p className="mt-4 text-sm opacity-70">This was a free call. Nothing is charged.</p>
       )}
@@ -136,6 +136,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         </dl>
         <p className="mt-3 text-xs opacity-70">
           Connected time as reported by the video service, counted only inside the booked window.
+          {call.billing === "together" ? " This call charges the time together." : " This call charges the host's time."}
           {call.closedAt ? " Room confirmed closed." : " Room not confirmed closed yet."}
         </p>
       </section>
@@ -186,6 +187,7 @@ function Receipt(props: {
   role: "host" | "customer" | "admin";
   callId: string;
   refunds: Array<{ id: string; amountCents: number; status: string; decidedAs: string; createdAt: Date }>;
+  billing: string;
 }) {
   const { payment, role, refunds } = props;
   const split = currentSplit(payment);
@@ -221,7 +223,9 @@ function Receipt(props: {
                 ? "Cancelled after the free period: the booked price"
                 : payment.chargeReason === "admin"
                   ? "Decided after a review"
-                  : "The time the host was in the call"
+                  : props.billing === "together"
+                    ? "The time both people were in the call"
+                    : "The time the host was in the call"
             }
           />
           {frozenHost !== null && frozenTogether !== null && (

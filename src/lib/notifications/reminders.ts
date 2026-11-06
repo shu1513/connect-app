@@ -33,8 +33,8 @@ export async function writeCallReminders(now: Date): Promise<number> {
     .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
     .leftJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
     .where(and(gt(schema.calls.startsAt, now), lte(schema.calls.startsAt, new Date(now.getTime() + 24 * HOUR)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
-  // Test calls made by an admin are not real appointments.
-  const due = soon.filter(({ source }) => source !== "admin").map((row) => ({ ...row, kinds: dueReminders(row.call.startsAt, now) })).filter(({ kinds }) => kinds.length > 0);
+  // Test calls made by an admin are not real appointments; an instant call starts within a minute of being accepted.
+  const due = soon.filter(({ source }) => source !== "admin" && source !== "now").map((row) => ({ ...row, kinds: dueReminders(row.call.startsAt, now) })).filter(({ kinds }) => kinds.length > 0);
   const keyFor = (callId: string, userId: string, kind: string) => `reminder:${callId}:${userId}:${kind}`;
   // Most passes find every due reminder already written. One read says which, instead of a
   // conflicting insert (and the reads before it) for each one, on every pass of the helper.
@@ -54,7 +54,9 @@ export async function writeCallReminders(now: Date): Promise<number> {
       const link = `${appUrl()}/calls/${call.id}`;
       const paidNote =
         payment && person.id === call.customerId
-          ? ` You pay for the time ${otherName} is in the call during the booked time (up to ${formatMoney(payment.bookedCents)}), including time they spend waiting for you inside it; the 5 minutes before the start are not counted.`
+          ? call.billing === "together"
+            ? ` You pay for the time you and ${otherName} are both in the call during the booked time (up to ${formatMoney(payment.bookedCents)}).`
+            : ` You pay for the time ${otherName} is in the call during the booked time (up to ${formatMoney(payment.bookedCents)}), including time they spend waiting for you inside it; the 5 minutes before the start are not counted.`
           : "";
       for (const kind of missing(person.id)) {
         const when = whenFor(person, call.startsAt);

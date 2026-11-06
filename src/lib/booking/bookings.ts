@@ -8,7 +8,7 @@
  * "busy entries" rule), whatever this code does.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
 import { createPaymentForCall, stripeCustomerFor } from "@/lib/payments/hold";
@@ -18,6 +18,7 @@ import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
+import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
 import { answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, payCutoff, readLengths } from "./rules";
 import { isOpenStart, openStarts, type Interval } from "./slots";
 
@@ -64,6 +65,9 @@ export type Offer = {
   canTakePaid: boolean;
   weekly: Array<{ weekday: number; startMinute: number; endMinute: number }>;
   timeOff: Interval[];
+  /** "Available now", as the host set it. Whether it counts right now is isAvailableNow()'s call. */
+  availableUntil: Date | null;
+  availableSeenAt: Date | null;
 };
 
 /**
@@ -102,7 +106,28 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
     canTakePaid: !paid || (stripeConfigured() && Boolean(row.settings?.payoutsReady)),
     weekly: weekly.map((w) => ({ weekday: w.weekday, startMinute: w.startMinute, endMinute: w.endMinute })),
     timeOff: timeOff.map((t) => ({ start: t.startsAt, end: t.endsAt })),
+    availableUntil: row.calendar.availableUntil,
+    availableSeenAt: row.calendar.availableSeenAt,
   };
+}
+
+/**
+ * What a host offers for a call right now, or null: they must be bookable at
+ * all, have said they are available, still be on their page, have room for
+ * more instant requests, and have a length that fits before whatever they are
+ * taken for next (as host or as customer).
+ */
+export async function instantOffer(hostId: string, now: Date, reader: Pick<typeof db, "select"> = db): Promise<{ offer: Offer; lengths: number[]; availableUntil: Date } | null> {
+  const offer = await offerOf(hostId, reader);
+  if (!offer || !offer.canTakePaid || !isAvailableNow(offer, now)) return null;
+  const [{ waiting }] = await reader
+    .select({ waiting: sql<number>`count(*)::int` })
+    .from(schema.bookings)
+    .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.source, "now"), eq(schema.bookings.stage, "waiting")));
+  if (waiting >= NOW.waitingPerHost) return null;
+  const lengths = fittingLengths({ lengths: offer.lengths, breakMinutes: offer.breakMinutes, busy: await busyOf(reader, hostId, now), now, availableUntil: offer.availableUntil! });
+  if (lengths.length === 0) return null;
+  return { offer, lengths, availableUntil: offer.availableUntil! };
 }
 
 async function busyOf(reader: Pick<typeof db, "select">, userId: string, from: Date): Promise<Interval[]> {
@@ -147,13 +172,15 @@ export async function openTimes(offer: Offer, lengthMinutes: number, now: Date):
 type Person = { id: string; name: string; email: string };
 
 /** Checks, with both calendars locked, that this request may be sent right now. Throws BookingError if not. */
-async function checkMayAsk(tx: Tx, offer: Offer, booking: { customerId: string; startsAt: Date; lengthMinutes: number; totalCents: number }, now: Date) {
+async function checkMayAsk(tx: Tx, offer: Offer, booking: { id?: string; customerId: string; startsAt: Date; lengthMinutes: number; totalCents: number; source?: string }, now: Date) {
+  const instant = booking.source === "now";
   const [me] = await tx.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, booking.customerId));
   if (!me || me.closedAt || me.pausedAt) throw new BookingError("Your account cannot make requests at the moment.");
   if ((await switches()).requestsOff) throw new BookingError("Connect is not taking new requests right now. Please try again later.");
   // A block either way looks, from here, exactly like a time that is no longer open.
-  if (await isBlockedEitherWay(booking.customerId, offer.hostId, tx)) throw new BookingError("That time is no longer open. Please choose another.");
-  if (!isOpenStart(booking.startsAt, slotInput(offer, await busyOf(tx, offer.hostId, now), booking.lengthMinutes, now))) {
+  if (await isBlockedEitherWay(booking.customerId, offer.hostId, tx)) throw new BookingError(instant ? "This host is not available right now." : "That time is no longer open. Please choose another.");
+  if (instant) await checkMayAskNow(tx, offer, booking, now);
+  else if (!isOpenStart(booking.startsAt, slotInput(offer, await busyOf(tx, offer.hostId, now), booking.lengthMinutes, now))) {
     throw new BookingError("That time is no longer open. Please choose another.");
   }
   // Before a first free call, the customer confirms who they are (a paid call has a card behind it).
@@ -180,9 +207,11 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { customerId: string; 
     const upcomingFree = await count(mine, inArray(schema.bookings.stage, ["waiting", "accepted"]), eq(schema.bookings.totalCents, 0), gt(schema.bookings.startsAt, now));
     if (upcomingFree >= LIMITS.upcomingFree) throw new BookingError(`You can have at most ${LIMITS.upcomingFree} free calls coming up at a time.`);
   }
+  // (Declining a call *now* is not a rejection of the person: that has its own 24-hour rule, in checkMayAskNow.)
   const declinedLately = await count(
     mine,
     thisHost,
+    ne(schema.bookings.source, "now"),
     eq(schema.bookings.stage, "declined"),
     eq(schema.bookings.endedReason, DECLINED_BY_HOST),
     gt(schema.bookings.endedAt, new Date(now.getTime() - LIMITS.declineCooldownDays * DAY)),
@@ -193,19 +222,61 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { customerId: string; 
   }
 }
 
+/** The extra rules for an instant request: the host is really available, the length still fits, and the instant limits. */
+async function checkMayAskNow(tx: Tx, offer: Offer, booking: { id?: string; customerId: string; lengthMinutes: number }, now: Date) {
+  const open = await instantOffer(offer.hostId, now, tx);
+  if (!open || !open.lengths.includes(booking.lengthMinutes)) throw new BookingError("This host is not available right now.");
+  const count = async (...conditions: Parameters<typeof and>) =>
+    (await tx.select({ n: sql<number>`count(*)::int` }).from(schema.bookings).where(and(...conditions)))[0].n;
+  const mine = eq(schema.bookings.customerId, booking.customerId);
+  const instant = eq(schema.bookings.source, "now");
+  const notThis = booking.id ? ne(schema.bookings.id, booking.id) : undefined;
+  if ((await count(mine, instant, inArray(schema.bookings.stage, ["card", "waiting"]), notThis)) >= NOW.outstandingPerCustomer) {
+    throw new BookingError("You already have a request for a call now. Wait for the answer, or take it back.");
+  }
+  // Every try counts, including ones that never reached the host.
+  if ((await count(mine, instant, gt(schema.bookings.createdAt, new Date(now.getTime() - DAY)), notThis)) >= LIMITS.sentPerDay) {
+    throw new BookingError("You have asked for a lot of calls today. Please try again tomorrow.");
+  }
+  const declined = await count(
+    mine,
+    instant,
+    eq(schema.bookings.hostId, offer.hostId),
+    eq(schema.bookings.stage, "declined"),
+    eq(schema.bookings.endedReason, DECLINED_BY_HOST),
+    gt(schema.bookings.endedAt, new Date(now.getTime() - NOW.cooldownHours * 3_600_000)),
+  );
+  if (declined > 0) throw new BookingError("This host is not taking calls from you right now.");
+  const lastTries = await tx
+    .select({ holdFailedAt: schema.bookings.holdFailedAt })
+    .from(schema.bookings)
+    .where(and(mine, instant, eq(schema.bookings.stage, "cancelled"), notThis))
+    .orderBy(desc(schema.bookings.createdAt))
+    .limit(NOW.cardFailuresBeforePause);
+  const pauseSince = new Date(now.getTime() - NOW.cardFailurePauseMinutes * 60_000);
+  if (lastTries.length === NOW.cardFailuresBeforePause && lastTries.every((t) => t.holdFailedAt && t.holdFailedAt > pauseSince)) {
+    throw new BookingError("Your card could not be used for your last few calls. Please check it, and try again in an hour.");
+  }
+}
+
 /** Moves a request into "waiting": the customer is now taken for that time, and the host's clock starts. */
 async function sendToHost(tx: Tx, booking: Booking, now: Date, paymentMethodId: string | null): Promise<Booking> {
   const paid = booking.totalCents > 0;
+  const instant = booking.source === "now";
   const terms = { startsAt: booking.startsAt, paid, freeCancelMinutes: booking.freeCancelMinutes };
-  await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.customerId, startsAt: booking.startsAt, endsAt: booking.endsAt });
+  // An instant request takes the customer from now until the call could be over; the exact time is set when the host accepts.
+  await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.customerId, startsAt: instant ? now : booking.startsAt, endsAt: booking.endsAt });
   const [sent] = await tx
     .update(schema.bookings)
     .set({
       stage: "waiting",
       requestedAt: now,
-      respondBy: answerDeadline({ ...terms, requestedAt: now }),
-      payBy: paid ? payCutoff(booking.startsAt, booking.freeCancelMinutes) : null,
+      respondBy: instant ? instantAnswerBy(now) : answerDeadline({ ...terms, requestedAt: now }),
+      // An instant call's payment deadline is set when it is accepted.
+      payBy: paid && !instant ? payCutoff(booking.startsAt, booking.freeCancelMinutes) : null,
       stripePaymentMethodId: paymentMethodId,
+      // The host hears about an instant request at once (and sees it on their page), never in the hourly digest.
+      hostNotifiedAt: instant ? now : null,
     })
     .where(eq(schema.bookings.id, booking.id))
     .returning();
@@ -291,9 +362,90 @@ export async function askForCall(input: {
     if (isOverlap(error)) throw new BookingError("You already have a request or a call at that time.");
     throw error;
   }
+  return cardStepFor(booking, customer);
+}
+
+/**
+ * A customer asks a host who is available now for a call right away. The
+ * same path as a booked request (a card is saved first, then the host is
+ * asked), with the instant rules and the instant deadlines.
+ */
+export async function askNow(input: {
+  customer: Person;
+  hostId: string;
+  lengthMinutes: number;
+  requestKey: string;
+  agreedToCardTerms: boolean;
+  /** The price the customer was shown and agreed to. */
+  seen: { pricePer15Cents: number };
+  now: Date;
+}): Promise<{ booking: Booking; clientSecret: string | null }> {
+  const { customer, now } = input;
+  if (!/^[0-9a-f-]{36}$/i.test(input.requestKey)) throw new BookingError("This form is out of date. Please reload the page.");
+  if (customer.id === input.hostId) throw new BookingError("You cannot book a call with yourself.");
+  const open = await instantOffer(input.hostId, now);
+  if (!open || !open.lengths.includes(input.lengthMinutes)) throw new BookingError("This host is not available right now.");
+  const totalCents = bookedTotalCents(open.offer.pricePer15Cents, input.lengthMinutes * 60);
+  const paid = totalCents > 0;
+  if (paid && totalCents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be charged for.");
+  if (paid && !input.agreedToCardTerms) throw new BookingError("Please tick the box about your card to continue.");
+
+  let booking: Booking;
+  try {
+    booking = await db.transaction(async (tx) => {
+      await lockCalendars(tx, [input.hostId, customer.id]);
+      const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
+      if (again) {
+        if (again.customerId !== customer.id) throw new BookingError("This form is out of date. Please reload the page.");
+        return again;
+      }
+      const current = await offerOf(input.hostId, tx);
+      if (!current || !current.canTakePaid) throw new BookingError("This host is not available right now.");
+      if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.pricePer15Cents !== open.offer.pricePer15Cents) {
+        throw new BookingError("This host's price changed while you were looking. Please check the details again.");
+      }
+      // The nominal time: as late as the call could start if the host takes their full time to answer.
+      // The real time is set when the host accepts.
+      const startsAt = latestInstantStart(now);
+      const endsAt = new Date(startsAt.getTime() + input.lengthMinutes * 60_000);
+      await checkMayAsk(tx, current, { customerId: customer.id, startsAt, lengthMinutes: input.lengthMinutes, totalCents, source: "now" }, now);
+      const taken = (await busyOf(tx, customer.id, now)).some((b) => b.start < endsAt && b.end > now);
+      if (taken) throw new BookingError("You already have a request or a call at this time.");
+      const [draft] = await tx
+        .insert(schema.bookings)
+        .values({
+          hostId: input.hostId,
+          customerId: customer.id,
+          startsAt,
+          endsAt,
+          lengthMinutes: input.lengthMinutes,
+          breakMinutes: current.breakMinutes,
+          pricePer15Cents: current.pricePer15Cents,
+          totalCents,
+          // An instant call can be cancelled for free until it starts. Never a late-cancellation charge.
+          freeCancelMinutes: 0,
+          note: "",
+          stage: "card",
+          source: "now",
+          requestKey: input.requestKey,
+          cardConsentVersion: paid ? CARD_CONSENT_VERSION : null,
+          cardConsentAt: paid ? now : null,
+        })
+        .returning();
+      return paid ? draft : sendToHost(tx, draft, now, null);
+    });
+  } catch (error) {
+    if (isOverlap(error)) throw new BookingError("You already have a request or a call at this time.");
+    throw error;
+  }
+  return cardStepFor(booking, customer);
+}
+
+/** For a paid request still at the card step: Stripe keeps the card. Nothing is held or charged by this. */
+async function cardStepFor(found: Booking, customer: Person): Promise<{ booking: Booking; clientSecret: string | null }> {
+  let booking = found;
   if (booking.stage !== "card") return { booking, clientSecret: null };
 
-  // Paid: Stripe keeps the card. Nothing is held or charged by this.
   const setup = booking.stripeSetupIntentId
     ? await stripe().setupIntents.retrieve(booking.stripeSetupIntentId)
     : await stripe().setupIntents.create(
@@ -443,26 +595,41 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
         throw new BookingError("Your payout account is not ready, so you cannot accept paid requests yet. Finish the payout setup first.");
       }
 
+      const instant = booking.source === "now";
+      let { startsAt, endsAt } = booking;
+      if (instant) {
+        // The host must still be available (on their page), and the call is timed from this moment.
+        const offer = await offerOf(booking.hostId, tx);
+        if (!offer || !isAvailableNow(offer, input.now)) throw new BookingError("You are no longer available, so this request cannot be accepted.");
+        startsAt = instantStart(input.now);
+        endsAt = new Date(startsAt.getTime() + booking.lengthMinutes * 60_000);
+        await tx.update(schema.busyEntries).set({ startsAt, endsAt }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, booking.customerId)));
+        // One instant call at a time: being available ends with accepting.
+        await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, updatedAt: input.now }).where(eq(schema.hostCalendars.userId, booking.hostId));
+      }
+
       // The host is now taken for the call and the break after it. If they already are, the database refuses.
-      const busyUntil = new Date(booking.endsAt.getTime() + booking.breakMinutes * 60_000);
-      await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.hostId, startsAt: booking.startsAt, endsAt: busyUntil });
+      const busyUntil = new Date(endsAt.getTime() + booking.breakMinutes * 60_000);
+      await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.hostId, startsAt, endsAt: busyUntil });
 
       const [call] = await tx
         .insert(schema.calls)
         .values({
           hostId: booking.hostId,
           customerId: booking.customerId,
-          startsAt: booking.startsAt,
-          endsAt: booking.endsAt,
+          startsAt,
+          endsAt,
           roomName: `call-${randomUUID()}`,
           pricePer15Cents: booking.pricePer15Cents,
           freeCancelMinutes: booking.freeCancelMinutes,
+          // An instant call charges the time both people were in; a booked call the host's time.
+          billing: instant ? "together" : "host",
         })
         .returning();
       if (paid) await createPaymentForCall(tx, call);
       const [accepted] = await tx
         .update(schema.bookings)
-        .set({ stage: "accepted", callId: call.id, decidedAt: input.now })
+        .set({ stage: "accepted", callId: call.id, decidedAt: input.now, startsAt, endsAt, payBy: instant && paid ? instantPayBy(input.now) : booking.payBy })
         .where(eq(schema.bookings.id, booking.id))
         .returning();
       await queueBookingEmails(tx, accepted, "accepted");
@@ -474,7 +641,7 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
         and(
           eq(schema.bookings.hostId, booking.hostId),
           ne(schema.bookings.id, booking.id),
-          sql`tstzrange(${schema.bookings.startsAt}, ${schema.bookings.endsAt} + make_interval(mins => ${schema.bookings.breakMinutes}), '[)') && tstzrange(${booking.startsAt.toISOString()}::timestamptz, ${busyUntil.toISOString()}::timestamptz, '[)')`,
+          sql`tstzrange(${schema.bookings.startsAt}, ${schema.bookings.endsAt} + make_interval(mins => ${schema.bookings.breakMinutes}), '[)') && tstzrange(${startsAt.toISOString()}::timestamptz, ${busyUntil.toISOString()}::timestamptz, '[)')`,
         ),
         "passed_over",
         "the host accepted another request",
@@ -614,7 +781,7 @@ export async function requestsOfCustomer(customerId: string, now: Date) {
     .where(
       and(
         eq(schema.bookings.customerId, customerId),
-        eq(schema.bookings.source, "customer"),
+        inArray(schema.bookings.source, ["customer", "now"]),
         or(
           inArray(schema.bookings.stage, ["card", "waiting"]),
           and(isNull(schema.bookings.callId), gt(schema.bookings.endedAt, new Date(now.getTime() - 7 * DAY))),

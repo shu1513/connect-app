@@ -21,7 +21,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 4. Calendar and booking | Built and merged. |
 | 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
 | 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
-| 7. "Available now" calls and extending a call | Not started. |
+| 7. "Available now" calls | Built (in review). Extending a call deferred to module 7b. |
 | 8. Ratings, notes, contacts, search; messaging | Not started. |
 | Final pass: joining everything together | Not started. |
 
@@ -270,6 +270,41 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 
 **Still open**
 - Real delivery and inbox placement need the Resend account and the company's web address (founder).
+
+---
+
+## Module 7: "Available now" calls
+
+**Plan:** `plans/07-available-now.md`
+
+**What was recommended, what Astra said, and what was decided** (the builder decides after Astra's check)
+
+| # | Topic | Decided |
+| --- | --- | --- |
+| 1 | Switching "available now" on | 30, 60 or 120 minutes from a new "Available now" page under Hosting. The page sends a sign of life every 15 seconds; availability lapses 45 seconds after the last one (closing the tab switches it off). The public page shows only the lengths whose call plus break, starting as late as it might, ends before the host's next commitment in either role. Off when a call is accepted; never back on by itself. (Astra: the draft's "off 10 minutes before a call" was wrong, and presence was missing.) |
+| 2 | How a call now starts | The customer saves a card and sends the request; the host has 3 minutes. Accepting reserves both people and creates the call and its payment in one step, with the start 60 seconds later and a payment deadline 2 minutes later; the saved card is tried at once through the "never twice" money path; if the bank wants approval, the call page shows the usual card form on the same hold; nobody enters the room until the money is held; not held by the deadline means cancelled for free. (Astra: a saved card is not funds; reserve first, then ask the bank, with a bounded deadline and recovery. Adopted on the existing parts.) |
+| 3 | What is charged | `calls.billing`: "host" for booked calls (the host's time), "together" for instant calls (time both were in), fixed at creation and read by settlement, the later-records check, the pay form, the receipt and the reminder wording. |
+| 4 | Cancelling | Free until the start (an instant call carries a 0-minute free-cancel rule, so the late-cancel charge can never apply); after the start no cancelling, except by Connect for a call whose money was never held. |
+| 5 | Extending a call | **Deferred to module 7b.** Astra showed that separate rooms mean a visible reconnection and lost minutes, and one room needs segment-level payments, attendance and closing plus new card consent. To be designed after module 8. |
+| 6 | Limits | One instant request outstanding per customer; 5 waiting per host; 24 hours before asking the same host again after a decline (a booked-call decline keeps its 7-day rule; an instant decline does not trigger it); every try counts toward the 10-a-day limit; three refused cards in a row pause instant requests for an hour. |
+| 7 | Notifications | Polling is the channel: the host's page every 3 seconds, the customer's every 2 (with jitter, one request in flight, refresh on focus, stop when settled). One email to the host per instant request that expires with the 3-minute clock; one to the customer when accepted (with the call's link); the usual ones for a refused card or a cancellation; none for extensions (deferred). The hourly "new requests" digest ignores instant requests. |
+
+**What was built**
+- Availability on the host's calendar (until when, last sign of life); the "Available now" page with the switch, the countdown, the sign of life, the live list of requests with Accept and Decline, and a jump to the call on accepting.
+- The public page's "Available now" block with the lengths that fit; a "Call now" summary page with the card consent; the customer's waiting page that follows the request and moves to the call when accepted.
+- Instant requests as bookings with `source = "now"`: their own deadlines, the customer taken from the moment of asking, the real time set on acceptance, the hold tried from the page at once (the helper is the fallback), the 2-minute payment deadline, cancellation for free by Connect when the money is not held even though the start has passed (nobody could enter).
+- The billing rule on calls, applied in settlement and the later-records check (the frozen totals keep all three numbers).
+- Instant-call wording in emails, the pay form, the receipt and the results page.
+
+**What the reviewers found**
+- (filled in when the reviews return)
+
+**How it was checked**
+- 54 checks over 5 journeys (`scripts/now-check.ts`) against the local database and the Stripe sandbox, including the money held at once on acceptance, a refused card cancelled free at the deadline, the 24-hour rule and the lengths that fit; 6 automatic tests for the rules; all earlier journeys (payments, accounts, booking, safety, notifications) and the 175 automatic tests still pass. The host page and the public page were walked through in the browser.
+
+**What the automatic checks cannot test**
+- Two real people on two devices: the host accepting on their phone, the customer's page moving to the call, and the call starting a minute later; the bank's approval step on a real card.
+- A charge worked out from time together on a real call (the rule is applied in code and the price formula is unit-tested; a live call with real attendance messages is needed to see it end to end).
 
 ---
 

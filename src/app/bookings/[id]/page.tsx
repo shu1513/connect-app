@@ -10,6 +10,7 @@ import { stripe, stripePublishableKey } from "@/lib/payments/stripe";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction, takeBackAction } from "./actions";
 import { CardStep } from "./card-step";
+import { NowWaiting } from "./now-waiting";
 import { BlockButton } from "@/components/block-button";
 
 const STAGE_FOR_CUSTOMER: Record<string, string> = {
@@ -132,10 +133,14 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
 
       {role === "customer" && booking.stage === "waiting" && (
         <>
-          <p className="mt-6 text-sm opacity-70">
-            This is a request, not a reservation. Other people may ask for the same time, and the host chooses.
-            {paid ? " Nothing is held on your card unless you are accepted." : ""}
-          </p>
+          {booking.source === "now" && booking.respondBy ? (
+            <NowWaiting bookingId={booking.id} respondBy={booking.respondBy.toISOString()} hostName={otherName ?? "the host"} />
+          ) : (
+            <p className="mt-6 text-sm opacity-70">
+              This is a request, not a reservation. Other people may ask for the same time, and the host chooses.
+              {paid ? " Nothing is held on your card unless you are accepted." : ""}
+            </p>
+          )}
           <form action={takeBackAction} className="mt-4">
             <input type="hidden" name="id" value={booking.id} />
             <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 text-sm">
