@@ -2,11 +2,12 @@
 
 import { redirect } from "next/navigation";
 import { withNotice } from "@/lib/notice";
-import { callForParticipant, isAdmin } from "@/lib/payments/access";
+import { callForParticipant } from "@/lib/payments/access";
+import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
 import { cancelCall } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
-import { requireUser } from "@/lib/session";
+import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 
 function message(error: unknown): string {
   if (error instanceof MoneyError) return error.message;
@@ -44,7 +45,8 @@ export async function refundAction(formData: FormData) {
   // Made when the form was shown. Sending the same form twice cannot refund twice.
   const requestId = String(formData.get("requestId") ?? "");
 
-  const admin = await isAdmin(user.id);
+  // A refund by the founder needs a full admin login (second step included).
+  const admin = await isAdminSession(await getSignedIn());
   const access = await callForParticipant(callId, user.id);
   const back = admin && !access ? "/admin" : `/calls/${callId}/results`;
 
@@ -67,6 +69,7 @@ export async function refundAction(formData: FormData) {
     }
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to refund.");
     await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+    if (decidedAs === "admin") await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` });
     notice = "The refund was sent.";
   } catch (error) {
     notice = message(error);

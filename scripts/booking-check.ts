@@ -19,6 +19,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or } from "drizzle-orm";
+import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
 const RUN = randomUUID().slice(0, 8);
@@ -62,7 +63,7 @@ async function main() {
     const id = `bk-${RUN}-${name}`;
     const email = `bookcheck-${RUN}-${name}@example.test`;
     const stamp = new Date();
-    await db.insert(schema.user).values({ id, name: `Check ${name}`, email, emailVerified: true, adultConfirmedAt: stamp, termsAcceptedAt: stamp, termsVersion: "check", timeZone: "America/New_York" });
+    await db.insert(schema.user).values({ id, name: `Check ${name}`, email, emailVerified: true, adultConfirmedAt: stamp, termsAcceptedAt: stamp, termsVersion: TERMS_VERSION, timeZone: "America/New_York" });
     return { id, name: `Check ${name}`, email };
   }
   /** Gives a person an approved host profile that is free all week. */
@@ -104,6 +105,8 @@ async function main() {
   const customer = async (name: string) => {
     const p = await person(name);
     made.push(p.id);
+    // Test people have passed the identity check (a first free call needs it since the safety module).
+    await db.insert(schema.identityChecks).values({ userId: p.id, stripeSessionId: `vs_bookcheck_${randomUUID()}`, status: "verified", adult: true, verifiedName: p.name, checkedAt: new Date() });
     return p;
   };
   const freeHost = async (name: string, breakMinutes = 5) => {
@@ -519,6 +522,7 @@ async function main() {
       await db.delete(schema.bookings).where(inArray(schema.bookings.id, ids));
     }
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `bookcheck-${RUN}-%`));
+    if (made.length) await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, made));
     for (const id of made) {
       await db.update(schema.hostProfiles).set({ status: "suspended", hidden: true }).where(eq(schema.hostProfiles.userId, id));
     }

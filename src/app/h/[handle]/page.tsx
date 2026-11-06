@@ -7,6 +7,8 @@ import { offerOf, openTimes } from "@/lib/booking/bookings";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { getUser } from "@/lib/session";
 
 // Always built fresh, so hiding or suspending a profile takes effect at once.
 export const dynamic = "force-dynamic";
@@ -36,7 +38,9 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   if (!profile) notFound();
 
   // What can be booked. Worked out fresh on every visit; nothing here says why a time is closed.
-  const offer = await offerOf(profile.userId);
+  const viewer = await getUser();
+  const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
+  const offer = blocked ? null : await offerOf(profile.userId);
   const { length } = await props.searchParams;
   const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : (offer?.lengths[0] ?? null);
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
@@ -57,6 +61,14 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       </div>
 
       {profile.about && <p className="mt-6 whitespace-pre-line">{profile.about}</p>}
+
+      {viewer && viewer.id !== profile.userId && (
+        <p className="mt-4 text-sm">
+          <Link href={`/report?profile=${profile.handle}`} className="underline underline-offset-2 opacity-70">
+            Report this page
+          </Link>
+        </p>
+      )}
 
       {profile.socials.length > 0 && (
         <ul className="mt-6 space-y-1 text-sm">

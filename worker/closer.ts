@@ -24,6 +24,7 @@ async function main() {
   const { stripeConfigured } = await import("../src/lib/payments/stripe");
   const { runPaymentJobs } = await import("../src/lib/payments/jobs");
   const { runBookingJobs } = await import("../src/lib/booking/jobs");
+  const { refreshPendingIdentityChecks } = await import("../src/lib/safety/identity");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -37,8 +38,8 @@ async function main() {
       .from(schema.calls)
       .where(
         and(
-          // Past its closing time, or cancelled (a cancelled call's room closes at once).
-          or(lte(closesAt, now), isNotNull(schema.calls.cancelledAt)),
+          // Past its closing time, cancelled, or ended for safety (those rooms close at once).
+          or(lte(closesAt, now), isNotNull(schema.calls.cancelledAt), isNotNull(schema.calls.safetyEndedAt)),
           // Not yet confirmed closed, or closed recently and still being watched.
           or(isNull(schema.calls.closedAt), gt(watchUntil, now)),
         ),
@@ -75,6 +76,7 @@ async function main() {
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     if (stripeConfigured()) await runPaymentJobs(now);
     await runBookingJobs(now);
+    if (stripeConfigured()) await refreshPendingIdentityChecks();
   }
 
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.

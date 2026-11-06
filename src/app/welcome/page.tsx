@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { safeNext } from "@/lib/safe-next";
+import { db, schema } from "@/db";
 import { getSignedIn } from "@/lib/session";
+import { eq } from "drizzle-orm";
 import { timeZones } from "@/lib/time-zones";
 import { finishSignUp } from "./actions";
 
@@ -20,11 +22,16 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
     redirect(typeof error === "string" ? "/login?notice=link" : "/login");
   }
   if (person.welcomed) redirect(next);
+  // Someone who accepted an older version of the terms is asked again.
+  const [row] = await db.select({ termsAcceptedAt: schema.user.termsAcceptedAt }).from(schema.user).where(eq(schema.user.id, person.id));
+  const returning = Boolean(row?.termsAcceptedAt);
 
   return (
     <main className="mx-auto w-full max-w-sm px-4 py-16">
-      <h1 className="text-2xl font-semibold">One last step</h1>
-      <p className="mt-2 text-sm opacity-70">Welcome, {person.name}. Your email address is confirmed.</p>
+      <h1 className="text-2xl font-semibold">{returning ? "We have updated the rules" : "One last step"}</h1>
+      <p className="mt-2 text-sm opacity-70">
+        {returning ? `${person.name}, please read and accept the current rules to carry on.` : `Welcome, ${person.name}. Your email address is confirmed.`}
+      </p>
 
       {problem === "boxes" && (
         <p role="alert" className="mt-4 text-sm text-red-600">
@@ -47,6 +54,10 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
           <input type="checkbox" name="terms" required className="mt-1" />
           <span>
             I accept the{" "}
+            <Link href="/rules" target="_blank" className="underline underline-offset-2">
+              rules
+            </Link>
+            , the{" "}
             <Link href="/terms" target="_blank" className="underline underline-offset-2">
               terms
             </Link>{" "}

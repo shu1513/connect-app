@@ -8,8 +8,7 @@ import { priceProblem } from "@/lib/payments/hold";
 import { bookedTotalCents, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
 import { stripeConfigured } from "@/lib/payments/stripe";
-import { isAdmin } from "@/lib/payments/access";
-import { requireUser } from "@/lib/session";
+import { requireAdmin } from "@/lib/session";
 
 function fail(message: string): never {
   redirect(`/calls/new?error=${encodeURIComponent(message)}`);
@@ -17,8 +16,7 @@ function fail(message: string): never {
 
 /** Test-only way to create a call, until the calendar exists. Admins only. */
 export async function createCall(formData: FormData) {
-  const user = await requireUser();
-  if (!(await isAdmin(user.id))) redirect("/");
+  await requireAdmin();
 
   const hostId = String(formData.get("hostId") ?? "");
   const customerId = String(formData.get("customerId") ?? "");

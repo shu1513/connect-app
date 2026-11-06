@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
-import { haveIBeenPwned } from "better-auth/plugins";
+import { haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { outsideLoginProblem, UNUSED_LOGIN_PATHS } from "./auth-rules";
@@ -42,6 +42,7 @@ export const auth = betterAuth({
       account: schema.account,
       verification: schema.verification,
       rateLimit: schema.rateLimit,
+      twoFactor: schema.twoFactor,
     },
   }),
   trustedOrigins: developmentOrigins(),
@@ -139,13 +140,18 @@ export const auth = betterAuth({
   databaseHooks: {
     session: {
       create: {
-        // A closed account cannot log in, by any method.
-        before: async (session) => {
+        // A closed account cannot log in, by any method. An admin cannot log in with Google:
+        // Google would skip the second step, so admins use their password and their code.
+        before: async (session, ctx) => {
           const [owner] = await db
             .select({ closedAt: schema.user.closedAt })
             .from(schema.user)
             .where(eq(schema.user.id, session.userId));
           if (owner?.closedAt) return false;
+          if (ctx?.path?.startsWith("/callback")) {
+            const [admin] = await db.select().from(schema.admins).where(eq(schema.admins.userId, session.userId));
+            if (admin) return false;
+          }
         },
       },
     },
@@ -167,6 +173,9 @@ export const auth = betterAuth({
     haveIBeenPwned({
       customPasswordCompromisedMessage: "This password has appeared in a data leak, so it is not safe. Please choose a different one.",
     }),
+    // The second login step: a 6-digit code from an authenticator app. "Trust this device" is as good
+    // as off (one second), so the code is asked for at every login.
+    twoFactor({ issuer: "Connect", trustDeviceMaxAge: 1 }),
   ],
 
   // Problems during Google sign-in come back to the login page, which explains them.

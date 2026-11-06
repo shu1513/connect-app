@@ -9,7 +9,8 @@ config({ path: ".env.local", quiet: true });
 
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
 const ACCOUNTS = [
@@ -59,10 +60,16 @@ async function main() {
     // Test accounts skip the email confirmation and the welcome step.
     await db
       .update(schema.user)
-      .set({ emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: "test", timeZone: "America/New_York" })
+      .set({ emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: TERMS_VERSION, timeZone: "America/New_York" })
       .where(eq(schema.user.email, a.email));
     created++;
   }
+
+  // Test accounts always stand on the current terms, so a changed version does not stop them.
+  await db
+    .update(schema.user)
+    .set({ termsVersion: TERMS_VERSION, termsAcceptedAt: now, adultConfirmedAt: now })
+    .where(and(inArray(schema.user.email, ACCOUNTS.map((a) => a.email)), eq(schema.user.emailVerified, true)));
 
   for (const email of ADMIN_EMAILS) {
     const [admin] = await db.select().from(schema.user).where(eq(schema.user.email, email));

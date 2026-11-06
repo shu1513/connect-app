@@ -4,10 +4,10 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
-import { isAdmin } from "@/lib/payments/access";
 import { capturePayment, releasePayment } from "@/lib/payments/actions";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
-import { requireUser } from "@/lib/session";
+import { recordAdminAction } from "@/lib/safety/audit";
+import { requireAdmin } from "@/lib/session";
 
 function back(notice: string): never {
   redirect(withNotice("/admin", notice));
@@ -21,8 +21,7 @@ function message(error: unknown): string {
 }
 
 async function reviewedPayment(formData: FormData) {
-  const user = await requireUser();
-  if (!(await isAdmin(user.id))) redirect("/");
+  const admin = await requireAdmin();
   const paymentId = String(formData.get("paymentId") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(paymentId)) back("Payment not found.");
   const [row] = await db
@@ -31,16 +30,17 @@ async function reviewedPayment(formData: FormData) {
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
     .where(eq(schema.payments.id, paymentId));
   if (!row) back("Payment not found.");
-  return row;
+  return { ...row, admin };
 }
 
 /** The founder decides the amount for a call that needed review. */
 export async function chargeReviewed(formData: FormData) {
-  const { payment, call } = await reviewedPayment(formData);
+  const { payment, call, admin } = await reviewedPayment(formData);
   const dollars = Number(formData.get("amount"));
   let notice: string;
   try {
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to charge.");
+    await recordAdminAction({ adminId: admin.id, action: "payment charged after review", targetUserId: call.customerId, targetId: payment.id, detail: `$${dollars.toFixed(2)}` });
     const result = await capturePayment({
       paymentId: payment.id,
       amountCents: Math.round(dollars * 100),
@@ -57,9 +57,10 @@ export async function chargeReviewed(formData: FormData) {
 
 /** The founder releases the hold for a call that needed review. Nothing is charged. */
 export async function releaseReviewed(formData: FormData) {
-  const { payment } = await reviewedPayment(formData);
+  const { payment, call, admin } = await reviewedPayment(formData);
   let notice: string;
   try {
+    await recordAdminAction({ adminId: admin.id, action: "hold released after review", targetUserId: call.customerId, targetId: payment.id });
     await releasePayment({ paymentId: payment.id, note: "Released after a review. Nothing was charged." });
     notice = "The hold was released. Nothing was charged.";
   } catch (error) {

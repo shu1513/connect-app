@@ -8,6 +8,7 @@ import { getSignedIn } from "@/lib/session";
 const NOTICES: Record<string, string> = {
   reset: "Your password was changed. Log in with the new one.",
   link: "That link has expired or was already used. Log in to get a new one.",
+  secured: "Your second step is set up. Log in with your password and a code from your app.",
 };
 
 function errorText(code: string): string {

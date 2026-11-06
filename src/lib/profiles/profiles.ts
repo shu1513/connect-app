@@ -6,6 +6,7 @@ import { randomInt } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { priceProblem } from "@/lib/payments/hold";
+import { identityState } from "@/lib/safety/identity";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
 
@@ -103,6 +104,9 @@ export async function decideProfile(input: {
 }): Promise<void> {
   if (!["approved", "declined", "suspended"].includes(input.decision)) throw new ProfileError("Unknown decision.");
   if (input.decision === "approved" && !input.seen) throw new ProfileError("Open the profile again before approving it.");
+  if (input.decision === "approved" && !(await identityState(input.userId)).passed) {
+    throw new ProfileError("This host has not passed the identity check yet, so the profile cannot be approved.");
+  }
   const stillAsSeen =
     input.decision === "approved"
       ? and(eq(schema.hostProfiles.displayName, input.seen!.displayName), eq(schema.hostProfiles.about, input.seen!.about))

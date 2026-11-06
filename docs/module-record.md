@@ -19,7 +19,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 2. Payments | Built and merged (Stripe test area only). |
 | 3. Accounts and profiles | Built and merged. |
 | 4. Calendar and booking | Built and merged. |
-| 5. Safety | Plan approved. Being built. |
+| 5. Safety | Built; in review. |
 | 6. Notifications | Not started. |
 | 7. "Available now" calls and extending a call | Not started. |
 | 8. Ratings, notes, contacts, search; messaging | Not started. |
@@ -212,7 +212,24 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 | 9 | Admin account | Password plus a 6-digit code from an authenticator app. No Google login for admins. |
 | 10 | Stop switch | "No new requests" and "nobody can join a call". |
 
-**What was built:** to be filled in when the module is merged.
+**What was built**
+- Admin accounts log in with a password plus an authenticator code; Google login is refused for admins; only logins made after the second step was set up count; every admin page and action checks this; every admin action is written to a record.
+- The rules page, written once in code and shown at sign-up and on call pages; everyone is asked to accept again when the rules change.
+- Pausing an account (can log in and look, cannot book, host or join), with the reason and an appeal address.
+- Blocking in both directions, enforced wherever contact could start or continue; it ends requests between the two and cancels their future calls for free.
+- "End call and report" inside the call: ends it for both, nobody can rejoin, the charge goes to the founder's review list.
+- Reports from a host's page, a request or a call, with a reference number; urgent ones email the founder at once; a Reports page with warn, pause, suspend and close; reporters are told when a report is closed.
+- Stripe Identity for hosts (ID plus matching selfie, three tries), required before approval; also required before a customer's first free call. The name on the ID is shown to the founder only.
+- Two emergency switches: "no new requests" and "nobody can join a call".
+
+**What the reviewers found:** to be filled in when the module is merged.
+
+**How it was checked**
+- About 40 checks over 7 real journeys (`scripts/safety-check.ts`), plus all earlier journeys and the 166 automatic tests.
+
+**Still open**
+- A restricted Stripe key is needed to read "18 or older" from a passed check (the founder must be logged in to Stripe to create it); until then nobody passes the check.
+- Real IDs and faces can only be tried with Stripe's test documents.
 
 ---
 

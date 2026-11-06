@@ -4,7 +4,10 @@ import { ChangePasswordForm } from "@/components/auth-forms";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { db, schema } from "@/db";
+import { readNotice } from "@/lib/notice";
+import { blockedBy } from "@/lib/safety/blocks";
 import { requireUser } from "@/lib/session";
+import { unblockAction } from "../report/actions";
 import { timeZones } from "@/lib/time-zones";
 import { saveAccount } from "./actions";
 
@@ -16,11 +19,14 @@ const NOTICES: Record<string, string> = {
 
 export default async function AccountPage(props: PageProps<"/account">) {
   const user = await requireUser();
-  const { notice } = await props.searchParams;
+  const query = await props.searchParams;
+  const { notice } = query;
+  const signed = readNotice("/account", query);
   const [password] = await db
     .select({ id: schema.account.id })
     .from(schema.account)
     .where(and(eq(schema.account.userId, user.id), eq(schema.account.providerId, "credential")));
+  const blocked = await blockedBy(user.id);
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -32,9 +38,9 @@ export default async function AccountPage(props: PageProps<"/account">) {
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Your account</h1>
 
-      {typeof notice === "string" && NOTICES[notice] && (
+      {((typeof notice === "string" && NOTICES[notice]) || signed) && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
-          {NOTICES[notice]}
+          {signed ?? NOTICES[String(notice)]}
         </p>
       )}
 
@@ -75,6 +81,27 @@ export default async function AccountPage(props: PageProps<"/account">) {
             Your host profile and payout settings
           </Link>
         </p>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">People you have blocked</h2>
+        {blocked.length === 0 ? (
+          <p className="mt-2 text-sm opacity-70">Nobody. You can block someone from a request or a call&apos;s page.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-sm">
+            {blocked.map((person) => (
+              <li key={person.id} className="flex items-center gap-3">
+                <span>{person.name}</span>
+                <form action={unblockAction}>
+                  <input type="hidden" name="userId" value={person.id} />
+                  <button type="submit" className="underline underline-offset-2">
+                    Unblock
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="mt-10 text-sm">

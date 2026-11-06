@@ -64,6 +64,26 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [secondStep, setSecondStep] = useState(false);
+
+  // The second step: a code from the authenticator app, or a backup code.
+  async function onCode(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    const code = String(new FormData(event.currentTarget).get("code") ?? "").replace(/[\s-]/g, "");
+    const result =
+      code.length <= 8
+        ? await authClient.twoFactor.verifyTotp({ code, trustDevice: false })
+        : await authClient.twoFactor.verifyBackupCode({ code, trustDevice: false });
+    setBusy(false);
+    if (result.error) {
+      setError(result.error.status === 429 ? TOO_MANY : "That code did not work. Check the app and try again.");
+      return;
+    }
+    router.push(next);
+    router.refresh();
+  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,6 +97,10 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
       callbackURL: next === "/" ? "/welcome" : next,
     });
     setBusy(false);
+    if (!result.error && (result.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
+      setSecondStep(true);
+      return;
+    }
     if (result.error) {
       if (result.error.code === "EMAIL_NOT_VERIFIED") {
         // The password was right, but the address is not confirmed yet. A new link has been sent.
@@ -88,6 +112,22 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
     }
     router.push(next);
     router.refresh();
+  }
+
+  if (secondStep) {
+    return (
+      <form onSubmit={onCode} className="mt-6 space-y-4">
+        <p className="text-sm">One more step: enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
+        <label className="block text-sm">
+          Code
+          <input name="code" inputMode="numeric" autoComplete="one-time-code" required className={input} />
+        </label>
+        <Problem text={error} />
+        <button type="submit" disabled={busy} className={primary}>
+          {busy ? "Checking…" : "Continue"}
+        </button>
+      </form>
+    );
   }
 
   return (

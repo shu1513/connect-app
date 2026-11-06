@@ -5,6 +5,8 @@ import { getUser } from "@/lib/session";
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { roomState } from "@/lib/calls";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { switches } from "@/lib/safety/switches";
 import { createEntryPass, removeFromRoom, videoServerUrl } from "@/lib/video/livekit";
 
 /**
@@ -49,6 +51,10 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const { call, payment } = access;
 
   if (call.cancelledAt) return Response.json({ error: "This call was cancelled." }, { status: 409 });
+  if (call.safetyEndedAt) return Response.json({ error: MESSAGES.closed }, { status: 409 });
+  if (user.paused) return Response.json({ error: "Your account is paused, so you cannot join calls." }, { status: 403 });
+  if ((await switches()).joiningOff) return Response.json({ error: "Calls are paused across Connect right now. Please try again shortly." }, { status: 503 });
+  if (await isBlockedEitherWay(call.hostId, call.customerId)) return Response.json({ error: MESSAGES.closed }, { status: 409 });
 
   const now = new Date();
   const decision = canJoin(call, user.id, now);

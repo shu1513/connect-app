@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
-import { formatMoney, isAdmin } from "@/lib/payments/access";
+import { formatMoney } from "@/lib/payments/access";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
-import { requireUser } from "@/lib/session";
+import { identityState } from "@/lib/safety/identity";
+import { requireAdmin } from "@/lib/session";
 import { closeAccountAction, decideProfileAction, decideSocialAction, reopenAccountAction } from "./actions";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -17,9 +17,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function AdminPeoplePage(props: PageProps<"/admin/people">) {
-  const user = await requireUser();
-  // Someone who is not an admin sees the same "not found" as for any missing page.
-  if (!(await isAdmin(user.id))) notFound();
+  await requireAdmin();
   const notice = readNotice("/admin/people", await props.searchParams);
 
   const [profiles, claims, closed] = await Promise.all([
@@ -46,6 +44,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
       .where(isNotNull(schema.user.closedAt))
       .orderBy(desc(schema.user.closedAt)),
   ]);
+  const identity = new Map<string, Awaited<ReturnType<typeof identityState>>>();
+  for (const { profile } of profiles) identity.set(profile.userId, await identityState(profile.userId));
   const waiting = profiles.filter((p) => p.profile.status === "pending");
   const others = profiles.filter((p) => p.profile.status !== "pending");
   const button = "rounded border border-neutral-500 px-3 py-1.5";
@@ -81,6 +81,11 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
               </p>
               <p className="mt-1 opacity-80">
                 Account: {accountName}, {email}
+              </p>
+              <p className="mt-1">
+                {identity.get(profile.userId)?.passed
+                  ? `Identity confirmed. Name on the ID: ${identity.get(profile.userId)?.verifiedName ?? "(not given)"}.`
+                  : "Identity not confirmed yet: this profile cannot be approved until it is."}
               </p>
               <p className="mt-1">
                 {profile.pricePer15Cents === 0 ? "Free calls" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}
