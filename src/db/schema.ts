@@ -215,6 +215,8 @@ export const payments = pgTable(
     originalHostShareCents: integer("original_host_share_cents"),
     /** Total successfully refunded so far. */
     refundedCents: integer("refunded_cents").notNull().default(0),
+    /** True while the customer's bank is disputing the charge. Blocks refunds and the host's payout. */
+    disputeOpen: boolean("dispute_open").notNull().default(false),
 
     /** not_due, due, sent or not_owed. */
     transferStatus: text("transfer_status").notNull().default("not_due"),

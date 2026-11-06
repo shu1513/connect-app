@@ -22,6 +22,13 @@
       "when": 1793944735125,
       "tag": "0002_misty_wallflower",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793945127635,
+      "tag": "0003_lethal_naoko",
+      "breakpoints": true
     }
   ]
 }
