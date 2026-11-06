@@ -108,18 +108,26 @@ async function claimOne(now: Date, only?: Only): Promise<typeof schema.emailOutb
       .limit(1)
       .for("update", { skipLocked: true });
     if (!due) return undefined;
-    const [row] = await tx.update(schema.emailOutbox).set({ status: "sending", leaseUntil: new Date(now.getTime() + LEASE_MS) }).where(eq(schema.emailOutbox.id, due.id)).returning();
+    // The lease runs from the real clock, however long the batch has been going.
+    const [row] = await tx.update(schema.emailOutbox).set({ status: "sending", leaseUntil: new Date(Math.max(now.getTime(), Date.now()) + LEASE_MS) }).where(eq(schema.emailOutbox.id, due.id)).returning();
     return row;
   });
 }
 
-async function finish(id: string, values: Partial<typeof schema.emailOutbox.$inferInsert>): Promise<void> {
-  await db.update(schema.emailOutbox).set({ ...values, leaseUntil: null }).where(eq(schema.emailOutbox.id, id));
+type Claimed = Pick<typeof schema.emailOutbox.$inferSelect, "id" | "leaseUntil">;
+
+/** Only the helper holding the current lease may write; a helper whose lease ran out and was taken over writes nothing. */
+function ownedBy(email: Claimed) {
+  return and(eq(schema.emailOutbox.id, email.id), eq(schema.emailOutbox.status, "sending"), eq(schema.emailOutbox.leaseUntil, email.leaseUntil!));
+}
+
+async function finish(email: Claimed, values: Partial<typeof schema.emailOutbox.$inferInsert>): Promise<void> {
+  await db.update(schema.emailOutbox).set({ ...values, leaseUntil: null }).where(ownedBy(email));
 }
 
 async function fail(email: typeof schema.emailOutbox.$inferSelect, reason: string): Promise<void> {
   // A login link is not kept once the email will never go.
-  await finish(email.id, { status: "failed", lastError: reason, ...(isLoginEmail(email.kind) ? { body: "" } : {}) });
+  await finish(email, { status: "failed", lastError: reason, ...(isLoginEmail(email.kind) ? { body: "" } : {}) });
 }
 
 /**
@@ -186,7 +194,7 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
           .where(and(eq(schema.emailOutbox.to, email.to), eq(schema.emailOutbox.status, "sent"), sql`${schema.emailOutbox.sentAt} > ${new Date(at.getTime() - 24 * 3_600_000).toISOString()}::timestamptz`));
         if (today >= DAILY_CAP_PER_ADDRESS) {
           // Waiting is not a try: it does not count against the attempts.
-          await finish(email.id, { status: "queued", nextAttemptAt: new Date(at.getTime() + 3_600_000), lastError: "waiting: this address has had a lot of email today" });
+          await finish(email, { status: "queued", nextAttemptAt: new Date(at.getTime() + 3_600_000), lastError: "waiting: this address has had a lot of email today" });
           continue;
         }
       }
@@ -200,19 +208,21 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
       const [tried] = await db
         .update(schema.emailOutbox)
         .set({ attempts: sql`${schema.emailOutbox.attempts} + 1`, firstTriedAt: sql`coalesce(${schema.emailOutbox.firstTriedAt}, ${at.toISOString()}::timestamptz)`, lastError: "unknown: the sending service was asked and has not answered yet" })
-        .where(eq(schema.emailOutbox.id, email.id))
+        .where(ownedBy(email))
         .returning({ attempts: schema.emailOutbox.attempts });
+      // The lease was taken over by another helper (this one was too slow): it sends, not us.
+      if (!tried) continue;
       const outcome = await transport({ id: email.id, to: email.to, subject: email.subject, text: email.body, headers: email.headers ? (JSON.parse(email.headers) as Record<string, string>) : {} });
       if (outcome.ok) {
         // Login links are not kept once the email is out.
-        await finish(email.id, { status: "sent", sentAt: new Date(), providerId: outcome.providerId, lastError: null, ...(isLoginEmail(email.kind) ? { body: "" } : {}) });
+        await finish(email, { status: "sent", sentAt: new Date(), providerId: outcome.providerId, lastError: null, ...(isLoginEmail(email.kind) ? { body: "" } : {}) });
         sent++;
       } else if (outcome.permanent || tried.attempts >= MAX_ATTEMPTS) {
         await fail(email, outcome.error);
         console.error(`[email] could not send ${email.id} to ${email.to}: ${outcome.error}`);
       } else {
         const wait = BACKOFF_MS[Math.min(tried.attempts - 1, BACKOFF_MS.length - 1)];
-        await finish(email.id, { status: "queued", nextAttemptAt: new Date(at.getTime() + wait), lastError: `unknown or temporary: ${outcome.error}` });
+        await finish(email, { status: "queued", nextAttemptAt: new Date(at.getTime() + wait), lastError: `unknown or temporary: ${outcome.error}` });
       }
     } catch (error) {
       // Something went wrong on our side. The lease runs out and the email is claimed again.

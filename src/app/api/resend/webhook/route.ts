@@ -27,9 +27,14 @@ function verified(request: Request, raw: string): boolean {
 export async function POST(request: Request) {
   const raw = await request.text();
   if (!verified(request, raw)) return new Response("not verified", { status: 400 });
-  const event = JSON.parse(raw) as { type: string; data: { email_id?: string; to?: string[] } };
+  const event = JSON.parse(raw) as { type: string; data: { email_id?: string; to?: string[]; bounce?: { type?: string; subType?: string } } };
   const address = event.data.to?.[0];
-  if (event.type === "email.bounced" && address) await suppressAddress(address, "bounced");
+  // Only a bounce the receiving side calls permanent (no such mailbox) stops us writing to an address.
+  // A full mailbox or an undetermined bounce is temporary: the next email is tried as usual.
+  if (event.type === "email.bounced" && address) {
+    if (event.data.bounce?.type === "Permanent") await suppressAddress(address, `bounced (${event.data.bounce.subType ?? "permanent"})`);
+    else console.warn(`[email] temporary bounce for ${address}: ${event.data.bounce?.type ?? "unknown"} ${event.data.bounce?.subType ?? ""}`);
+  }
   if (event.type === "email.complained" && address) await suppressAddress(address, "complained");
   if (event.type === "email.delivered" && event.data.email_id) {
     await db.update(schema.emailOutbox).set({ lastError: null }).where(eq(schema.emailOutbox.providerId, event.data.email_id));

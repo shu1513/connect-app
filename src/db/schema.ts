@@ -43,7 +43,7 @@ export const user = pgTable("user", {
   /** Reminder emails before calls and about requests. Emails about things that happened are always sent. */
   reminderEmails: boolean("reminder_emails").notNull().default(true),
   /** The secret in this person's unsubscribe link. Only ever switches reminders off. */
-  unsubscribeToken: text("unsubscribe_token"),
+  unsubscribeToken: text("unsubscribe_token").unique(),
 });
 
 /** The login library's own table for the second login step (authenticator app and backup codes). */
