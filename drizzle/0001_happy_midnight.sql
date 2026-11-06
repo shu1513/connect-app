@@ -1,1 +1,0 @@
-ALTER TABLE "attendance_events" ALTER COLUMN "payload" SET DATA TYPE text;
