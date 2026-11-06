@@ -5,14 +5,8 @@ import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
 import { isAdmin } from "@/lib/payments/access";
-import {
-  closeAccount,
-  confirmSocialName,
-  decideProfile,
-  ProfileError,
-  rejectSocialName,
-  reopenAccount,
-} from "@/lib/profiles/profiles";
+import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
+import { confirmSocialName, decideProfile, ProfileError, rejectSocialName } from "@/lib/profiles/profiles";
 import { requireUser } from "@/lib/session";
 
 function back(text: string): never {
@@ -38,7 +32,13 @@ export async function decideProfileAction(formData: FormData) {
   let notice: string;
   try {
     if (decision !== "approved" && decision !== "declined" && decision !== "suspended") throw new ProfileError("Unknown decision.");
-    await decideProfile({ userId: String(formData.get("userId") ?? ""), decision, by: admin.id });
+    await decideProfile({
+      userId: String(formData.get("userId") ?? ""),
+      decision,
+      by: admin.id,
+      // What the founder had on screen when deciding.
+      seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? "") },
+    });
     notice = { approved: "The profile is approved and public.", declined: "The profile was declined.", suspended: "The profile is suspended and no longer public." }[decision];
   } catch (error) {
     notice = problem(error);
@@ -54,7 +54,7 @@ export async function decideSocialAction(formData: FormData) {
   try {
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ProfileError("Request not found.");
     if (formData.get("found") === "yes") {
-      await confirmSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), by: admin.id });
+      await confirmSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), code: String(formData.get("code") ?? ""), by: admin.id });
       notice = "The account is confirmed and now shown on the host's page.";
     } else {
       await rejectSocialName(id);
@@ -74,7 +74,7 @@ export async function closeAccountAction(formData: FormData) {
     const [person] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
     if (!person) throw new ProfileError("No account has that email address.");
     await closeAccount({ userId: person.id, by: admin.id });
-    notice = "The account is closed. It is logged out everywhere and cannot log in.";
+    notice = "The account is closed. It is logged out everywhere and cannot log in. Its calls that had not started were cancelled at no charge.";
   } catch (error) {
     notice = problem(error);
   }

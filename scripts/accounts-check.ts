@@ -64,6 +64,8 @@ async function main() {
   const { sendEmail, MAX_EMAILS_PER_ADDRESS_PER_HOUR } = await import("../src/lib/email");
   const { withNotice } = await import("../src/lib/notice");
   const profiles = await import("../src/lib/profiles/profiles");
+  const closing = await import("../src/lib/profiles/closing");
+  const { createPaymentForCall } = await import("../src/lib/payments/hold");
   const { ProfileError } = profiles;
 
   const up = await send("/login").catch(() => null);
@@ -105,7 +107,14 @@ async function main() {
       .where(eq(schema.user.id, row.id));
     return { ...person, id: row.id };
   }
-  const loggedIn = async (jar: Jar) => (await send("/api/auth/get-session", { jar })).json?.user !== undefined;
+  /** "in", "out", or "error" when the app did not give a clear answer. */
+  const sessionOf = async (jar: Jar) => {
+    const reply = await send("/api/auth/get-session", { jar });
+    if (reply.status !== 200) return "error";
+    return reply.json?.user ? "in" : "out";
+  };
+  const loggedIn = async (jar: Jar) => (await sessionOf(jar)) === "in";
+  const loggedOut = async (jar: Jar) => (await sessionOf(jar)) === "out";
 
   try {
     // ----------------------------------------------------------------------
@@ -189,11 +198,33 @@ async function main() {
       const next = strongPassword();
       const done = await api("/reset-password", { newPassword: next, token });
       check("the new password is saved", done.status === 200, String(done.status));
-      check("every device is logged out", !(await loggedIn(p.jar)) && !(await loggedIn(secondDevice)));
+      check("every device is logged out", (await loggedOut(p.jar)) && (await loggedOut(secondDevice)));
       check("the old password no longer works", (await api("/sign-in/email", { email: p.email, password: p.password }, new Map())).status === 401);
       check("the new one does", (await api("/sign-in/email", { email: p.email, password: next }, new Map())).status === 200);
       const reuse = await api("/reset-password", { newPassword: strongPassword(), token });
       check("the link cannot be used a second time", reuse.status === 400, String(reuse.status));
+
+      console.log("   …someone else registered your address first, with their own password, and never confirmed it");
+      const yours = address("yours");
+      const theirPassword = strongPassword();
+      await api("/sign-up/email", { name: "Somebody Else", email: yours, password: theirPassword });
+      // You cannot sign up (the address is taken), so you use "Forgot password", which only the owner of the address can finish.
+      await api("/request-password-reset", { email: yours, redirectTo: "/reset-password" });
+      const resetMail = await email(yours, "Reset your");
+      const yourToken = new URL((await send(resetMail!.link)).location ?? "", BASE).searchParams.get("token") ?? "";
+      const yourPassword = strongPassword();
+      check("the owner of the address can set their own password", (await api("/reset-password", { newPassword: yourPassword, token: yourToken })).status === 200);
+      check("the other person's password no longer works", (await api("/sign-in/email", { email: yours, password: theirPassword }, new Map())).status === 401);
+      const yourJar: Jar = new Map();
+      const first = await api("/sign-in/email", { email: yours, password: yourPassword, callbackURL: "/welcome" }, yourJar);
+      if (first.status === 403) {
+        // The address still has to be confirmed; logging in sent the link.
+        await pause(300);
+        const confirm = await email(yours, "Confirm your email");
+        await send(confirm!.link, { jar: yourJar });
+      }
+      check("the owner ends up logged in, with the address confirmed", (await loggedIn(yourJar)) && (await userByEmail(yours))?.emailVerified === true, String(first.status));
+      check("and the other person is still locked out", (await api("/sign-in/email", { email: yours, password: theirPassword }, new Map())).status === 401);
     }
 
     // ----------------------------------------------------------------------
@@ -209,7 +240,7 @@ async function main() {
       const changed = await api("/change-password", { currentPassword: p.password, newPassword: strongPassword(), revokeOtherSessions: false }, p.jar);
       check("the password is changed", changed.status === 200, String(changed.status));
       check("this device stays logged in", await loggedIn(p.jar));
-      check("the other device is logged out, whatever the browser asked", !(await loggedIn(other)));
+      check("the other device is logged out, whatever the browser asked", await loggedOut(other));
     }
 
     // ----------------------------------------------------------------------
@@ -225,6 +256,10 @@ async function main() {
       for (let i = 0; i < MAX_EMAILS_PER_ADDRESS_PER_HOUR + 3; i++) await sendEmail({ to: target, subject: `Check ${i}`, text: "check" });
       const received = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.to, target));
       check(`one address gets at most ${MAX_EMAILS_PER_ADDRESS_PER_HOUR} emails an hour, whoever asks`, received.length === MAX_EMAILS_PER_ADDRESS_PER_HOUR, String(received.length));
+      const burst = address("burst");
+      await Promise.all(Array.from({ length: 12 }, (_, i) => sendEmail({ to: burst, subject: `Burst ${i}`, text: "check" })));
+      const burstReceived = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.to, burst));
+      check("also when many are asked for at the same moment", burstReceived.length === MAX_EMAILS_PER_ADDRESS_PER_HOUR, String(burstReceived.length));
     }
 
     // ----------------------------------------------------------------------
@@ -233,6 +268,11 @@ async function main() {
     const refused = async (work: Promise<unknown>) => (await work.then(() => null).catch((e) => e)) instanceof ProfileError;
     const handle = `chk_${RUN}`;
     const page = (h: string) => send(`/h/${h}`);
+    /** Approves a profile the way the admin page does: naming what was on screen. */
+    const approve = async (userId: string) => {
+      const [seen] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId));
+      await profiles.decideProfile({ userId, decision: "approved", by: userId, seen: { displayName: seen.displayName, about: seen.about } });
+    };
     const host = await newPerson("host");
     const copycat = await newPerson("copycat");
     {
@@ -260,7 +300,7 @@ async function main() {
       check("two people grabbing look-alike handles at the same moment: exactly one gets it", raced.filter((r) => r.status === "fulfilled").length === 1);
 
       check("not public while waiting for approval", (await page(handle)).status === 404);
-      await profiles.decideProfile({ userId: host.id, decision: "approved", by: host.id });
+      await approve(host.id);
       const shown = await page(handle);
       check("public once approved, without logging in", shown.status === 200 && shown.text.includes("Check Host"), String(shown.status));
       check("the page never shows the email address", !shown.text.includes(host.email));
@@ -274,13 +314,15 @@ async function main() {
       check("editing the about text and price keeps it public", (await page(handle)).status === 200);
       await profiles.updateHostProfile(host.id, { displayName: "A Famous Person", about: "A new about text.", pricePer15Cents: 2500 });
       check("a new display name must be approved again", (await page(handle)).status === 404);
-      await profiles.decideProfile({ userId: host.id, decision: "approved", by: host.id });
+      const stale = profiles.decideProfile({ userId: host.id, decision: "approved", by: host.id, seen: { displayName: "Check Host", about: "A new about text." } });
+      check("approving the old name (an admin page left open) does not approve the new one", (await refused(stale)) && (await page(handle)).status === 404);
+      await approve(host.id);
 
       await profiles.decideProfile({ userId: host.id, decision: "suspended", by: host.id });
       await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "", pricePer15Cents: 2500 });
       await profiles.setProfileHidden(host.id, false);
       check("suspended: not found, and the host cannot undo it", (await page(handle)).status === 404);
-      await profiles.decideProfile({ userId: host.id, decision: "approved", by: host.id });
+      await approve(host.id);
 
       check("a handle nobody has: not found", (await page(`nobody_${RUN}`)).status === 404);
     }
@@ -299,10 +341,11 @@ async function main() {
       check("the name is cleaned up and the link is our own", first.nameKey === name && first.url === `https://www.instagram.com/${name}/`, `${first.nameKey} ${first.url}`);
       check("a code is given", /^connect-[a-z0-9]{10}$/.test(first.code));
       check("not shown publicly before it is confirmed", !(await page(handle)).text.includes(first.url));
-      check("cannot be confirmed before the host says the code is in place", await refused(profiles.confirmSocialName({ id: first.id, nameKey: name, by: host.id })));
+      check("cannot be confirmed before the host says the code is in place", await refused(profiles.confirmSocialName({ id: first.id, nameKey: name, code: first.code, by: host.id })));
 
       await profiles.markSocialNameReady(host.id, first.id);
-      check("cannot be confirmed under a different name than the one checked", await refused(profiles.confirmSocialName({ id: first.id, nameKey: "someone.else", by: host.id })));
+      check("cannot be confirmed under a different name than the one checked", await refused(profiles.confirmSocialName({ id: first.id, nameKey: "someone.else", code: first.code, by: host.id })));
+      check("nor with a code other than the one checked", await refused(profiles.confirmSocialName({ id: first.id, nameKey: name, code: "connect-aaaaaaaaaa", by: host.id })));
 
       // A second host claims the same name before anyone is confirmed.
       const rival = await newPerson("rival");
@@ -312,10 +355,10 @@ async function main() {
       await profiles.markSocialNameReady(rival.id, second.id);
       check("each host gets a different code", second.code !== first.code);
 
-      await profiles.confirmSocialName({ id: first.id, nameKey: name, by: host.id });
+      await profiles.confirmSocialName({ id: first.id, nameKey: name, code: first.code, by: host.id });
       const shown = await page(handle);
       check("once confirmed it is shown publicly", shown.text.includes(first.url) && shown.text.includes("account confirmed"));
-      check("the same name cannot be confirmed for a second host", await refused(profiles.confirmSocialName({ id: second.id, nameKey: name, by: host.id })));
+      check("the same name cannot be confirmed for a second host", await refused(profiles.confirmSocialName({ id: second.id, nameKey: name, code: second.code, by: host.id })));
       check("nor claimed afresh by anyone else", await refused(profiles.addSocialName(copycat.id, "instagram", name)));
 
       await profiles.addSocialName(host.id, "instagram", `other.${RUN}`);
@@ -323,7 +366,10 @@ async function main() {
       check("changing the name starts the proof again", changed.confirmedAt === null && changed.claimedAt === null && changed.code !== first.code);
       check("and the old name is no longer shown", !(await page(handle)).text.includes(first.url));
 
+      await profiles.markSocialNameReady(host.id, changed.id);
       await db.update(schema.socialAccounts).set({ codeExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.socialAccounts.id, changed.id));
+      check("a code that has run out cannot be confirmed, even from an admin page left open", await refused(profiles.confirmSocialName({ id: changed.id, nameKey: changed.nameKey, code: changed.code, by: host.id })));
+      await db.update(schema.socialAccounts).set({ claimedAt: null }).where(eq(schema.socialAccounts.id, changed.id));
       check("a code that has run out cannot be used", await refused(profiles.markSocialNameReady(host.id, changed.id)));
     }
     // ----------------------------------------------------------------------
@@ -337,6 +383,9 @@ async function main() {
       check("someone who is not logged in is sent to the login page", (stranger.location ?? "").includes("/login"), stranger.location ?? "");
       const token = await send(`/api/calls/${randomUUID()}/token`, { method: "POST", jar: new Map() });
       check("and cannot ask for a call entry pass", token.status === 401, String(token.status));
+
+      const rename = await api("/update-user", { name: "x".repeat(500) }, visitor.jar);
+      check("parts of the login tool we do not use are switched off", rename.status === 404 && (await userByEmail(visitor.email))?.name === visitor.name, String(rename.status));
 
       const words = `Words-from-a-stranger-${RUN}`;
       const forged = await send(`/host?notice=${words}&ns=aaaaaaaaaaaaaaaaaaaaaa`, { jar: visitor.jar });
@@ -352,19 +401,34 @@ async function main() {
     await freshLimits();
     {
       const [admin] = await db.select().from(schema.admins);
-      check("an admin account cannot be closed", !admin || (await refused(profiles.closeAccount({ userId: admin.userId, by: admin.userId }))));
+      if (!admin) throw new Error("No admin account. Run `npm run seed` first.");
+      check("an admin account cannot be closed", await refused(closing.closeAccount({ userId: admin.userId, by: admin.userId })));
+
+      // Two calls of this host that have not started: a free one, and a paid one not paid for yet.
+      const startsAt = new Date(Date.now() + 3_600_000);
+      const upcoming = { hostId: host.id, customerId: copycat.id, startsAt, endsAt: new Date(startsAt.getTime() + 600_000) };
+      const [freeCall] = await db.insert(schema.calls).values({ ...upcoming, roomName: `acctcheck-${randomUUID()}`, pricePer15Cents: 0 }).returning();
+      const paidCall = await db.transaction(async (tx) => {
+        const [call] = await tx.insert(schema.calls).values({ ...upcoming, roomName: `acctcheck-${randomUUID()}`, pricePer15Cents: 2000 }).returning();
+        await createPaymentForCall(tx, call);
+        return call;
+      });
 
       const password = host.password;
       check("before: logged in, profile public", (await loggedIn(host.jar)) && (await page(handle)).status === 200);
-      await profiles.closeAccount({ userId: host.id, by: host.id });
-      check("logged out everywhere", !(await loggedIn(host.jar)));
+      await closing.closeAccount({ userId: host.id, by: admin.userId });
+      check("logged out everywhere", await loggedOut(host.jar));
       check("the app sends them to the login page", ((await send("/", { jar: host.jar })).location ?? "").includes("/login"));
       const attempt = await api("/sign-in/email", { email: host.email, password }, new Map());
-      check("cannot log in again", attempt.status !== 200, String(attempt.status));
+      check("cannot log in again", attempt.status === 401 && attempt.json?.token === undefined, String(attempt.status));
       check("their page is gone", (await page(handle)).status === 404);
-      check("closing twice is refused", await refused(profiles.closeAccount({ userId: host.id, by: host.id })));
+      const after = await db.select().from(schema.calls).where(eq(schema.calls.hostId, host.id));
+      check("their calls that had not started are cancelled", after.length === 2 && after.every((c) => c.cancelledAt !== null && c.cancelledBy === "admin" && c.cancelledLate === false));
+      const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, paidCall.id));
+      check("and nobody is charged for them", payment.status === "closed_uncharged" && freeCall.pricePer15Cents === 0, payment.status);
+      check("closing twice is refused", await refused(closing.closeAccount({ userId: host.id, by: admin.userId })));
 
-      await profiles.reopenAccount(host.id);
+      await closing.reopenAccount(host.id);
       check("after opening it again they can log in", (await api("/sign-in/email", { email: host.email, password }, new Map())).status === 200);
       check("but the profile stays suspended until approved again", (await page(handle)).status === 404);
     }
@@ -372,6 +436,11 @@ async function main() {
     // Remove everything this run made.
     const mine = await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, `check-${RUN}-%`));
     for (const { id } of mine) {
+      const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.hostId, id));
+      for (const call of calls) {
+        await db.delete(schema.payments).where(eq(schema.payments.callId, call.id));
+        await db.delete(schema.calls).where(eq(schema.calls.id, call.id));
+      }
       await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
       await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));

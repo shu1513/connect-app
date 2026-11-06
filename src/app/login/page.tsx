@@ -13,6 +13,9 @@ function errorText(code: string): string {
   if (code === "account_not_linked") {
     return 'This email address already has an account that was never confirmed. Use "Forgot password" to make it yours, then log in.';
   }
+  if (code === "email_not_verified") {
+    return "Google says the email address of that account has not been confirmed. Confirm it with Google first, or sign up with a password.";
+  }
   return "Signing in with Google did not work. Please try again.";
 }
 

@@ -1,9 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { haveIBeenPwned } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { outsideLoginProblem, UNUSED_LOGIN_PATHS } from "./auth-rules";
 import { sendEmailInBackground } from "./email";
 
 const APP_NAME = "Connect";
@@ -96,6 +97,11 @@ export const auth = betterAuth({
       }
     : {},
 
+  user: {
+    // Checked before an account is created or joined, and on every later Google login.
+    validateUserInfo: async ({ user, source }) => outsideLoginProblem(user, source),
+  },
+
   account: {
     accountLinking: {
       enabled: true,
@@ -145,6 +151,8 @@ export const auth = betterAuth({
   hooks: {
     // Changing the password always logs out every other device, whatever the browser sends.
     before: createAuthMiddleware(async (ctx) => {
+      // Parts of the login tool this app does not use are switched off.
+      if (UNUSED_LOGIN_PATHS.some((path) => ctx.path === path || ctx.path.startsWith(`${path}/`))) throw new APIError("NOT_FOUND");
       if (ctx.path === "/change-password") {
         return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };
       }

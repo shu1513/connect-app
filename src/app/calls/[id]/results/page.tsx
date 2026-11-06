@@ -89,7 +89,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
 
       {call.cancelledAt && (
         <p className="mt-4 rounded border border-neutral-400 p-3 text-sm">
-          This call was cancelled by the {call.cancelledBy} on <LocalTime iso={call.cancelledAt.toISOString()} />
+          This call was cancelled by {call.cancelledBy === "admin" ? "Connect" : `the ${call.cancelledBy}`} on <LocalTime iso={call.cancelledAt.toISOString()} />
           {call.cancelledLate ? ", after the free cancelling period." : "."}
         </p>
       )}

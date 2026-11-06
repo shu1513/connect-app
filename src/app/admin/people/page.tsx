@@ -88,6 +88,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
               {profile.about && <p className="mt-1 whitespace-pre-line">{profile.about}</p>}
               <form action={decideProfileAction} className="mt-3 flex gap-3">
                 <input type="hidden" name="userId" value={profile.userId} />
+                <input type="hidden" name="seenName" value={profile.displayName} />
+                <input type="hidden" name="seenAbout" value={profile.about} />
                 <button type="submit" name="decision" value="approved" className={primary}>
                   Approve
                 </button>
@@ -126,6 +128,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
               <form action={decideSocialAction} className="mt-3 flex gap-3">
                 <input type="hidden" name="id" value={claim.id} />
                 <input type="hidden" name="nameKey" value={claim.nameKey} />
+                <input type="hidden" name="code" value={claim.code} />
                 <button type="submit" name="found" value="yes" className={primary}>
                   The code is there: confirm
                 </button>
@@ -164,6 +167,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                   <td className="py-1.5">
                     <form action={decideProfileAction}>
                       <input type="hidden" name="userId" value={profile.userId} />
+                <input type="hidden" name="seenName" value={profile.displayName} />
+                <input type="hidden" name="seenAbout" value={profile.about} />
                       {profile.status === "approved" ? (
                         <button type="submit" name="decision" value="suspended" className="underline underline-offset-2">
                           Suspend
@@ -184,8 +189,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
 
       <h2 className="mt-10 text-lg font-semibold">Close an account</h2>
       <p className="mt-1 text-sm opacity-70">
-        For fakes, abuse, or when a person asks. The account is logged out everywhere and cannot log in. Nothing is
-        deleted, and you can open it again below.
+        For fakes, abuse, or when a person asks. The account is logged out everywhere and cannot log in, and its calls
+        that have not started are cancelled at no charge. Nothing is deleted, and you can open the account again below.
       </p>
       <form action={closeAccountAction} className="mt-3 flex items-end gap-2 text-sm">
         <label>

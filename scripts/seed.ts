@@ -41,32 +41,32 @@ async function main() {
         "| --- | --- | --- |",
       ];
 
+  // Sign-up is public, so an address on this list could have been registered by someone else
+  // before this script ran. Only accounts made here (or already confirmed) are trusted.
+  const now = new Date();
   let created = 0;
   for (const a of ACCOUNTS) {
-    const existing = await db.select().from(schema.user).where(eq(schema.user.email, a.email));
-    if (existing.length > 0) continue;
+    const [existing] = await db.select().from(schema.user).where(eq(schema.user.email, a.email));
+    if (existing) {
+      if (!existing.emailVerified) console.warn(`Skipped ${a.email}: it already exists but was not made by this script. Remove it and run again.`);
+      continue;
+    }
     const password = randomBytes(12).toString("base64url");
     await auth.api.signUpEmail({ body: { name: a.name, email: a.email, password } });
     lines.push(`| ${a.name} | ${a.email} | ${password} |`);
     // Save straight away, so a later failure cannot lose this account's password.
     writeFileSync(OUT_FILE, lines.join("\n").replace(/\n*$/, "\n"));
-    created++;
-  }
-
-  // Test accounts skip the email confirmation and the welcome step.
-  const now = new Date();
-  for (const a of ACCOUNTS) {
-    const [account] = await db.select().from(schema.user).where(eq(schema.user.email, a.email));
-    if (!account || (account.emailVerified && account.termsAcceptedAt)) continue;
+    // Test accounts skip the email confirmation and the welcome step.
     await db
       .update(schema.user)
-      .set({ emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: "test", timeZone: account.timeZone ?? "America/New_York" })
-      .where(eq(schema.user.id, account.id));
+      .set({ emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: "test", timeZone: "America/New_York" })
+      .where(eq(schema.user.email, a.email));
+    created++;
   }
 
   for (const email of ADMIN_EMAILS) {
     const [admin] = await db.select().from(schema.user).where(eq(schema.user.email, email));
-    if (admin) await db.insert(schema.admins).values({ userId: admin.id }).onConflictDoNothing();
+    if (admin?.emailVerified) await db.insert(schema.admins).values({ userId: admin.id }).onConflictDoNothing();
   }
 
   console.log(`Accounts created: ${created}. Existing: ${ACCOUNTS.length - created}. Details are in ${OUT_FILE}.`);

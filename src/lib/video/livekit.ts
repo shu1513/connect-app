@@ -121,3 +121,16 @@ export async function closeRoom(roomName: string, userIds: string[]): Promise<bo
 
   return !(await roomExists(roomName));
 }
+
+/**
+ * Puts one person out of a room and makes their entry pass stop working. The
+ * room and the other person are left alone. Fine to call when they are not there.
+ */
+export async function removeFromRoom(roomName: string, userId: string): Promise<void> {
+  const cutoff = BigInt(Math.floor(Date.now() / 1000));
+  try {
+    await roomService().removeParticipant(roomName, userId, { revokeTokenTs: cutoff });
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+}

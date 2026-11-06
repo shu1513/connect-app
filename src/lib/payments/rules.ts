@@ -54,7 +54,8 @@ export type CancellationOutcome =
   | "not_allowed";
 
 export function cancellationOutcome(input: {
-  by: "host" | "customer";
+  /** "admin" is the founder closing an account: always free, like a host cancelling. */
+  by: "host" | "customer" | "admin";
   now: Date;
   startsAt: Date;
   /** The rule this call was created with. */
@@ -63,7 +64,7 @@ export function cancellationOutcome(input: {
   held: boolean;
 }): CancellationOutcome {
   if (input.now >= input.startsAt) return "not_allowed";
-  if (input.by === "host" || !input.held) return "free";
+  if (input.by !== "customer" || !input.held) return "free";
   const freeUntil = input.startsAt.getTime() - input.freeCancelMinutes * 60_000;
   return input.now.getTime() < freeUntil ? "free" : "late_charge";
 }

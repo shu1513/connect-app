@@ -1,6 +1,6 @@
 /**
- * Host profiles, social media names, and closing accounts: everything that
- * changes them goes through here, so the rules are in one place.
+ * Host profiles and social media names: everything that changes them goes
+ * through here, so the rules are in one place. (Closing accounts is in closing.ts.)
  */
 import { randomInt } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
@@ -90,15 +90,33 @@ export async function setProfileHidden(userId: string, hidden: boolean): Promise
   await db.update(schema.hostProfiles).set({ hidden, updatedAt: new Date() }).where(eq(schema.hostProfiles.userId, userId));
 }
 
-/** The founder approves, declines or suspends a profile. */
-export async function decideProfile(input: { userId: string; decision: Exclude<ProfileStatus, "pending">; by: string }): Promise<void> {
+/**
+ * The founder approves, declines or suspends a profile. An approval names
+ * what the founder was looking at: if the host changed the name or the text
+ * in the meantime, nothing is approved.
+ */
+export async function decideProfile(input: {
+  userId: string;
+  decision: Exclude<ProfileStatus, "pending">;
+  by: string;
+  seen?: { displayName: string; about: string };
+}): Promise<void> {
   if (!["approved", "declined", "suspended"].includes(input.decision)) throw new ProfileError("Unknown decision.");
+  if (input.decision === "approved" && !input.seen) throw new ProfileError("Open the profile again before approving it.");
+  const stillAsSeen =
+    input.decision === "approved"
+      ? and(eq(schema.hostProfiles.displayName, input.seen!.displayName), eq(schema.hostProfiles.about, input.seen!.about))
+      : undefined;
   const changed = await db
     .update(schema.hostProfiles)
     .set({ status: input.decision, decidedBy: input.by, decidedAt: new Date(), updatedAt: new Date() })
-    .where(eq(schema.hostProfiles.userId, input.userId))
+    .where(and(eq(schema.hostProfiles.userId, input.userId), stillAsSeen))
     .returning({ userId: schema.hostProfiles.userId });
-  if (changed.length === 0) throw new ProfileError("Profile not found.");
+  if (changed.length === 0) {
+    throw new ProfileError(
+      input.decision === "approved" ? "That profile was changed while you were looking at it. Check it again." : "Profile not found.",
+    );
+  }
 }
 
 export type PublicProfile = {
@@ -230,10 +248,10 @@ export async function removeSocialName(userId: string, id: string): Promise<void
 
 /**
  * The founder has seen the code in the bio and confirms the name. `nameKey`
- * is the name the founder was looking at: if the host changed it meanwhile,
- * nothing is confirmed.
+ * and `code` are what the founder was looking at: if the host changed the
+ * name, or the code was replaced or has run out, nothing is confirmed.
  */
-export async function confirmSocialName(input: { id: string; nameKey: string; by: string }): Promise<void> {
+export async function confirmSocialName(input: { id: string; nameKey: string; code: string; by: string }): Promise<void> {
   try {
     const changed = await db
       .update(schema.socialAccounts)
@@ -242,12 +260,14 @@ export async function confirmSocialName(input: { id: string; nameKey: string; by
         and(
           eq(schema.socialAccounts.id, input.id),
           eq(schema.socialAccounts.nameKey, input.nameKey),
+          eq(schema.socialAccounts.code, input.code),
+          gt(schema.socialAccounts.codeExpiresAt, new Date()),
           isNotNull(schema.socialAccounts.claimedAt),
           isNull(schema.socialAccounts.confirmedAt),
         ),
       )
       .returning({ id: schema.socialAccounts.id });
-    if (changed.length === 0) throw new ProfileError("That request has changed or is no longer waiting. Nothing was confirmed.");
+    if (changed.length === 0) throw new ProfileError("That request has changed, run out, or is no longer waiting. Nothing was confirmed.");
   } catch (error) {
     if (isTaken(error)) throw new ProfileError("That account is already confirmed for another host.");
     throw error;
@@ -260,36 +280,4 @@ export async function rejectSocialName(id: string): Promise<void> {
     .update(schema.socialAccounts)
     .set({ claimedAt: null })
     .where(and(eq(schema.socialAccounts.id, id), isNull(schema.socialAccounts.confirmedAt)));
-}
-
-// ---------------------------------------------------------------------------
-// Closing accounts
-// ---------------------------------------------------------------------------
-
-/**
- * The founder closes an account: it is logged out everywhere, cannot log in
- * again, and its host profile is suspended. Nothing is deleted; records of
- * paid calls must be kept.
- */
-export async function closeAccount(input: { userId: string; by: string }): Promise<void> {
-  await db.transaction(async (tx) => {
-    const [admin] = await tx.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
-    if (admin) throw new ProfileError("An admin account cannot be closed here.");
-    const closed = await tx
-      .update(schema.user)
-      .set({ closedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(schema.user.id, input.userId), isNull(schema.user.closedAt)))
-      .returning({ id: schema.user.id });
-    if (closed.length === 0) throw new ProfileError("That account was not found, or is already closed.");
-    await tx.delete(schema.session).where(eq(schema.session.userId, input.userId));
-    await tx
-      .update(schema.hostProfiles)
-      .set({ status: "suspended", decidedBy: input.by, decidedAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.hostProfiles.userId, input.userId));
-  });
-}
-
-/** Undoes a closure made by mistake. A host profile stays suspended until the founder approves it again. */
-export async function reopenAccount(userId: string): Promise<void> {
-  await db.update(schema.user).set({ closedAt: null, updatedAt: new Date() }).where(eq(schema.user.id, userId));
 }

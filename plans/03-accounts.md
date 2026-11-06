@@ -56,6 +56,7 @@ payout account at Stripe before taking paid calls. Booking a time on a host's ca
     Recommended:
     - A host can hide their own profile. That stops new people finding it; **calls already booked still happen**.
     - You can suspend a profile or close an account from the admin page (for fakes and abuse). A closed account is logged out everywhere and cannot log in.
+    - Closing an account also cancels its calls that have not started, at no charge to anyone, and puts the person out of any call under way.
     - A person who wants their account closed asks by email and you press the button. Records of paid calls are kept, as tax and dispute rules require. A self-service "close my account" button is added before launch.
 
 ## Decisions already made
@@ -157,5 +158,6 @@ Bookings, messages and everything later will point to the account, never to the 
 - Real terms of service and privacy policy.
 - A real email-sending service, with the app's own web address set up so emails are trusted.
 - Switching the Google sign-in screen from "testing" to "live" in Google's console.
+- Telling the login tool which network-address information to trust on the chosen hosting, so the attempt limits cannot be dodged by faking an address.
 - A protection against robots signing up in bulk (an "are you human" check), switched on if it becomes a problem.
 - The self-service "close my account" button.

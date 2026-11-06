@@ -14,18 +14,23 @@ export const MAX_EMAILS_PER_ADDRESS_PER_HOUR = 5;
 
 export async function sendEmail(message: { to: string; subject: string; text: string }): Promise<void> {
   const to = message.to.trim().toLowerCase();
-  const [recent] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(schema.emailOutbox)
-    .where(and(eq(schema.emailOutbox.to, to), gt(schema.emailOutbox.createdAt, new Date(Date.now() - 3_600_000))));
-  if (recent.count >= MAX_EMAILS_PER_ADDRESS_PER_HOUR) {
+  const live = process.env.NODE_ENV === "production";
+  const saved = await db.transaction(async (tx) => {
+    // One address at a time, so many requests at the same moment cannot slip past the limit together.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`email:${to}`}))`);
+    const [recent] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.emailOutbox)
+      .where(and(eq(schema.emailOutbox.to, to), gt(schema.emailOutbox.createdAt, new Date(Date.now() - 3_600_000))));
+    if (recent.count >= MAX_EMAILS_PER_ADDRESS_PER_HOUR) return false;
+    // Emails contain login links. In the live app only the fact that one was sent is kept, not its text.
+    await tx.insert(schema.emailOutbox).values({ to, subject: message.subject, body: live ? "" : message.text });
+    return true;
+  });
+  if (!saved) {
     console.warn("[email] not sent: this address has had too many emails in the last hour");
     return;
   }
-
-  const live = process.env.NODE_ENV === "production";
-  // Emails contain login links. In the live app only the fact that one was sent is kept, not its text.
-  await db.insert(schema.emailOutbox).values({ to, subject: message.subject, body: live ? "" : message.text });
   if (live) {
     // No sending service has been chosen yet. This must be filled in before real people sign up.
     console.error("[email] no email service is set up, so this message was not delivered");
