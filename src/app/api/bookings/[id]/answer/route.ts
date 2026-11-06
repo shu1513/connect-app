@@ -1,4 +1,4 @@
-import { accept, BookingError, decline } from "@/lib/booking/bookings";
+import { accept, BookingError, bookingFor, decline } from "@/lib/booking/bookings";
 import { tryHoldForAcceptedBooking } from "@/lib/booking/jobs";
 import { getUser } from "@/lib/session";
 
@@ -14,6 +14,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/bookings/[i
   if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: "Request not found." }, { status: 404 });
   const body = (await request.json().catch(() => ({}))) as { answer?: string };
   const now = new Date();
+  // Booked requests are answered on the Requests page; this endpoint is the live page's, for instant ones.
+  const found = await bookingFor(id, user.id);
+  if (!found || found.role !== "host" || found.booking.source !== "now") return Response.json({ error: "Request not found." }, { status: 404 });
   try {
     if (body.answer === "decline") {
       await decline({ bookingId: id, hostId: user.id, now });
