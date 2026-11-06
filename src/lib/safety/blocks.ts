@@ -10,7 +10,8 @@ import { cancelCall } from "@/lib/payments/cancel";
 
 export class BlockError extends Error {}
 
-export async function block(input: { blockerId: string; blockedId: string; now: Date }): Promise<void> {
+/** Returns how many future calls between the two could not be cancelled yet (the helper keeps trying through the usual settlement). */
+export async function block(input: { blockerId: string; blockedId: string; now: Date }): Promise<{ callsNotCancelled: number }> {
   const { blockerId, blockedId, now } = input;
   if (blockerId === blockedId) throw new BlockError("You cannot block yourself.");
   const [other] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.id, blockedId));
@@ -54,11 +55,14 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
         gt(schema.calls.startsAt, now),
       ),
     );
+  let callsNotCancelled = 0;
   for (const { call, payment } of upcoming) {
     await cancelCall({ call, payment, by: "admin", now }).catch((error) => {
+      callsNotCancelled++;
       console.error(`[safety] could not cancel call ${call.id} after a block`, error);
     });
   }
+  return { callsNotCancelled };
 }
 
 /** Allows new requests again. It does not bring back what the block ended. */

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { desc, eq, isNotNull } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
@@ -58,7 +59,11 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
       ) : (
         <ul className="mt-3 space-y-6">
           {reports.map(({ report, reporterName, reported, profile, earlierReports, callsTogether, actions }) => {
-            const snapshot = JSON.parse(report.snapshot) as { booking?: { note?: string }; call?: { safetyEndedAt?: string | null } };
+            const snapshot = JSON.parse(report.snapshot) as {
+              booking?: { id?: string; note?: string } | null;
+              call?: { id?: string; safetyEndedAt?: string | null } | null;
+              profile?: { displayName: string; handle: string; about: string } | null;
+            };
             return (
               <li key={report.id} className={`rounded border p-4 text-sm ${report.urgent ? "border-red-600" : "border-neutral-400"}`}>
                 <p className="font-medium">
@@ -77,7 +82,26 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 </p>
                 {report.text && <p className="mt-2 whitespace-pre-line rounded bg-neutral-800/40 p-2">&ldquo;{report.text}&rdquo;</p>}
                 {snapshot.booking?.note && <p className="mt-1 opacity-70">The request&apos;s note said: &ldquo;{snapshot.booking.note}&rdquo;</p>}
-                {snapshot.call?.safetyEndedAt && <p className="mt-1 opacity-70">The call was ended with &quot;End call and report&quot;; its charge is on your review list.</p>}
+                {snapshot.profile && (
+                  <p className="mt-1 opacity-70">
+                    Their page at the time: &ldquo;{snapshot.profile.displayName}&rdquo; (@{snapshot.profile.handle}){snapshot.profile.about ? `: "${snapshot.profile.about}"` : ""}
+                  </p>
+                )}
+                {snapshot.call?.id && (
+                  <p className="mt-1">
+                    <Link href={`/calls/${snapshot.call.id}/results`} className="underline underline-offset-2">
+                      See the call&apos;s record (who joined, when, for how long)
+                    </Link>
+                    {snapshot.call.safetyEndedAt ? ". It was ended with \"End call and report\"; its charge is on your review list." : ""}
+                  </p>
+                )}
+                {snapshot.booking?.id && !snapshot.call?.id && (
+                  <p className="mt-1">
+                    <Link href={`/bookings/${snapshot.booking.id}`} className="underline underline-offset-2">
+                      See the request
+                    </Link>
+                  </p>
+                )}
                 {actions.length > 0 && (
                   <p className="mt-1 opacity-70">
                     Earlier actions on this person: {actions.map((a) => `${a.action} (${a.createdAt.toISOString().slice(0, 10)})`).join("; ")}
@@ -87,6 +111,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <form action={warnAction} className="rounded border border-neutral-500 p-3">
                     <input type="hidden" name="userId" value={report.reportedId} />
+                    <input type="hidden" name="requestId" value={randomUUID()} />
                     <p className="font-medium">Send a warning</p>
                     <select name="rule" required className={`${field} block w-full`}>
                       {ruleOptions}
@@ -98,6 +123,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                   </form>
                   <form action={pauseAction} className="rounded border border-neutral-500 p-3">
                     <input type="hidden" name="userId" value={report.reportedId} />
+                    <input type="hidden" name="requestId" value={randomUUID()} />
                     <p className="font-medium">Pause the account</p>
                     <select name="rule" required className={`${field} block w-full`}>
                       {ruleOptions}

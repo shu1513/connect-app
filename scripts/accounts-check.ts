@@ -283,6 +283,8 @@ async function main() {
     };
     const host = await newPerson("host");
     const copycat = await newPerson("copycat");
+    // Approval needs a passed identity check (safety module); test people get one directly.
+    await db.insert(schema.identityChecks).values({ userId: host.id, stripeSessionId: `vs_acct_${RUN}`, status: "verified", adult: true, verifiedName: host.name, checkedAt: new Date() });
     {
       const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, usConfirmed: true };
       check("a blocked handle is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "admin" })));
@@ -457,6 +459,7 @@ async function main() {
       }
     }
     for (const id of ids) {
+      await db.delete(schema.identityChecks).where(eq(schema.identityChecks.userId, id));
       await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
       await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));

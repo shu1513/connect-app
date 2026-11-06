@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { readNotice } from "@/lib/notice";
-import { identityState, IDENTITY_TRIES } from "@/lib/safety/identity";
+import { identityState, IDENTITY_TRIES, refreshIdentity } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { startIdentity } from "./actions";
 
@@ -8,7 +8,8 @@ import { startIdentity } from "./actions";
 export default async function IdentityPage(props: PageProps<"/identity">) {
   const user = await requireUser();
   const notice = readNotice("/identity", await props.searchParams);
-  const state = await identityState(user.id);
+  let state = await identityState(user.id);
+  if (!state.passed && (state.pending || state.triesLeft < IDENTITY_TRIES)) state = await refreshIdentity(user.id).catch(() => state);
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">

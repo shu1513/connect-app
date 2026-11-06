@@ -95,6 +95,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                 <input type="hidden" name="userId" value={profile.userId} />
                 <input type="hidden" name="seenName" value={profile.displayName} />
                 <input type="hidden" name="seenAbout" value={profile.about} />
+                <input type="hidden" name="seenIdentity" value={identity.get(profile.userId)?.checkId ?? ""} />
                 <button type="submit" name="decision" value="approved" className={primary}>
                   Approve
                 </button>

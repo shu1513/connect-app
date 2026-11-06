@@ -72,10 +72,14 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   try {
     token = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`join:${user.id}`}))`);
+      // Read the call again under the lock: it may have been stopped or cancelled a moment ago.
+      const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
+      if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
       await leaveOtherCalls(user.id, call.id, now);
       return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: user.name });
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "ended") return Response.json({ error: MESSAGES.closed }, { status: 409 });
     console.error(`[calls] could not hand out an entry pass for call ${call.id}`, error);
     return Response.json({ error: "Could not connect you just now. Please try again." }, { status: 503 });
   }

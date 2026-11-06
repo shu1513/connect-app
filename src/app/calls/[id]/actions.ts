@@ -69,8 +69,13 @@ export async function refundAction(formData: FormData) {
     }
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to refund.");
     await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-    if (decidedAs === "admin") await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` });
     notice = "The refund was sent.";
+    if (decidedAs === "admin") {
+      await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` }).catch((error) => {
+        console.error("[admin] the refund went through but could not be written to the admin record", error);
+        notice = "The refund was sent, but it could not be written to the admin record. Please note it by hand.";
+      });
+    }
   } catch (error) {
     notice = message(error);
   }

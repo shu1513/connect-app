@@ -3,10 +3,11 @@
  * pause an account, lift a pause. (Suspending a host and closing an account
  * already exist and are used from the same page.)
  */
-import { and, desc, eq, gt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
+import { publicProfile } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
 
@@ -34,9 +35,13 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
   if (context === "call") {
     const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, contextId));
     if (!call || (call.hostId !== reporterId && call.customerId !== reporterId)) throw new ReportError("Call not found.");
+    const [booking] = await db.select({ note: schema.bookings.note, id: schema.bookings.id }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
     return {
       reportedId: call.hostId === reporterId ? call.customerId : call.hostId,
-      snapshot: { call: { startsAt: call.startsAt, endsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt, safetyEndedBy: call.safetyEndedBy } },
+      snapshot: {
+        call: { id: call.id, startsAt: call.startsAt, endsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt, safetyEndedBy: call.safetyEndedBy },
+        booking: booking ? { id: booking.id, note: booking.note } : null,
+      },
     };
   }
   if (context === "booking") {
@@ -44,11 +49,12 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
     if (!booking || (booking.hostId !== reporterId && booking.customerId !== reporterId)) throw new ReportError("Request not found.");
     return {
       reportedId: booking.hostId === reporterId ? booking.customerId : booking.hostId,
-      snapshot: { booking: { startsAt: booking.startsAt, lengthMinutes: booking.lengthMinutes, note: booking.note, stage: booking.stage } },
+      snapshot: { booking: { id: booking.id, startsAt: booking.startsAt, lengthMinutes: booking.lengthMinutes, note: booking.note, stage: booking.stage } },
     };
   }
   if (context === "profile") {
-    const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.handle, contextId.toLowerCase()));
+    // Only a page anyone can see can be reported from its address; a hidden or waiting profile gives nothing away.
+    const profile = await publicProfile(contextId);
     if (!profile) throw new ReportError("Profile not found.");
     return { reportedId: profile.userId, snapshot: {} };
   }
@@ -63,16 +69,17 @@ export async function createReport(input: { reporterId: string; context: string;
   if (text.length > TEXT_MAX) throw new ReportError(`Please keep it under ${TEXT_MAX} characters.`);
   const { reportedId, snapshot } = await reportedPersonFor(input.reporterId, input.context, input.contextId);
   if (reportedId === input.reporterId) throw new ReportError("You cannot report yourself.");
-  const [{ today }] = await db
-    .select({ today: sql<number>`count(*)::int` })
-    .from(schema.reports)
-    .where(and(eq(schema.reports.reporterId, input.reporterId), gt(schema.reports.createdAt, new Date(input.now.getTime() - 24 * 3_600_000))));
-  if (today >= REPORTS_PER_DAY) throw new ReportError("You have sent a lot of reports today. If something urgent is happening, write to " + SUPPORT_EMAIL + ".");
-
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, reportedId));
   const full = { ...snapshot, profile: profile ? { displayName: profile.displayName, handle: profile.handle, about: profile.about } : null };
 
   const report = await db.transaction(async (tx) => {
+    // One reporter at a time, so many reports sent at the same moment cannot slip past the daily limit together.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`reports:${input.reporterId}`}))`);
+    const [{ today }] = await tx
+      .select({ today: sql<number>`count(*)::int` })
+      .from(schema.reports)
+      .where(and(eq(schema.reports.reporterId, input.reporterId), gt(schema.reports.createdAt, new Date(input.now.getTime() - 24 * 3_600_000))));
+    if (today >= REPORTS_PER_DAY) throw new ReportError("You have sent a lot of reports today. If something urgent is happening, write to " + SUPPORT_EMAIL + ".");
     const [row] = await tx
       .insert(schema.reports)
       .values({ reporterId: input.reporterId, reportedId, context: input.context, contextId: input.contextId, reason: reason.key, text, urgent: reason.urgent, snapshot: JSON.stringify(full) })
@@ -139,7 +146,7 @@ export async function closeReport(input: { reportId: string; adminId: string; no
 }
 
 /** A reminder of the rules, by email. */
-export async function warn(input: { adminId: string; userId: string; ruleKey: string; note: string }): Promise<void> {
+export async function warn(input: { adminId: string; userId: string; ruleKey: string; note: string; requestId: string }): Promise<void> {
   const rule = RULES.find((r) => r.key === input.ruleKey);
   if (!rule) throw new ReportError("Choose a rule.");
   const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
@@ -149,14 +156,14 @@ export async function warn(input: { adminId: string; userId: string; ruleKey: st
       to: person.email,
       subject: "A reminder of the Connect rules",
       text: `Hi ${person.name},\n\nThis is a reminder of one of the rules of Connect:\n\n${rule.title}. ${rule.text}\n\n${input.note ? `${input.note}\n\n` : ""}Please keep to the rules. Breaking them again can mean a paused or closed account. The full rules are at ${appUrl()}/rules. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
-      key: `warning:${input.userId}:${Date.now()}`,
+      key: `warning:${input.userId}:${input.requestId}`,
     });
-    await recordAdminAction({ adminId: input.adminId, action: "warning sent", targetUserId: input.userId, detail: `${rule.title}. ${input.note}` }, tx);
+    await recordAdminAction({ adminId: input.adminId, action: "warning sent", targetUserId: input.userId, targetId: input.requestId, detail: `${rule.title}. ${input.note}` }, tx);
   });
 }
 
 /** Pauses an account: it may log in and look, but not book, host or join calls. The person is told which rule and where to appeal. */
-export async function pauseAccount(input: { adminId: string; userId: string; ruleKey: string; note: string }): Promise<void> {
+export async function pauseAccount(input: { adminId: string; userId: string; ruleKey: string; note: string; requestId: string }): Promise<void> {
   const rule = RULES.find((r) => r.key === input.ruleKey);
   if (!rule) throw new ReportError("Choose a rule.");
   const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
@@ -164,13 +171,14 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   const [admin] = await db.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
   if (admin) throw new ReportError("An admin account cannot be paused here.");
   const reason = `${rule.title}.${input.note ? ` ${input.note}` : ""}`;
+  if (person.pausedAt) throw new ReportError("This account is already paused.");
   await db.transaction(async (tx) => {
-    await tx.update(schema.user).set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() }).where(eq(schema.user.id, input.userId));
+    await tx.update(schema.user).set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() }).where(and(eq(schema.user.id, input.userId), isNull(schema.user.pausedAt)));
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
       text: `Hi ${person.name},\n\nYour account has been paused because of this rule:\n\n${reason}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
-      key: `paused:${input.userId}:${Date.now()}`,
+      key: `paused:${input.userId}:${input.requestId}`,
     });
     await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: input.userId, detail: reason }, tx);
   });

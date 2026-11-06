@@ -31,8 +31,10 @@ export async function loadAttendance(call: Call, now: Date = new Date()): Promis
   const settledFrom = Math.max(roomClosesAt(call).getTime(), call.closedAt?.getTime() ?? 0);
   const final = now.getTime() >= settledFrom + SETTLE_SECONDS * 1000;
 
+  // A call ended with "End call and report" stops counting at that moment.
+  const countedUntil = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
   const result = calculateAttendance(
-    { hostId: call.hostId, customerId: call.customerId, start: toSeconds(call.startsAt), end: toSeconds(call.endsAt) },
+    { hostId: call.hostId, customerId: call.customerId, start: toSeconds(call.startsAt), end: toSeconds(countedUntil) },
     events.map((e) => ({
       id: `${e.provider}:${e.providerEventId}`,
       type: e.type,
@@ -43,5 +45,5 @@ export async function loadAttendance(call: Call, now: Date = new Date()): Promis
     { final },
   );
 
-  return { result, events, final, bookedSeconds: toSeconds(call.endsAt) - toSeconds(call.startsAt) };
+  return { result, events, final, bookedSeconds: Math.max(0, toSeconds(countedUntil) - toSeconds(call.startsAt)) };
 }

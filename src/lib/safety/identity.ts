@@ -4,7 +4,7 @@
  * the ID; never the date of birth, the ID number or any picture. The result
  * is always read from Stripe, never from the browser.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { db, schema } from "@/db";
 import { stripe } from "@/lib/payments/stripe";
@@ -28,7 +28,7 @@ export class IdentityError extends Error {}
 
 export const IDENTITY_TRIES = 3;
 
-export type IdentityState = { passed: boolean; adult: boolean | null; verifiedName: string | null; triesLeft: number; pending: boolean };
+export type IdentityState = { passed: boolean; adult: boolean | null; verifiedName: string | null; triesLeft: number; pending: boolean; checkId: string | null };
 
 /** Where this person stands. */
 export async function identityState(userId: string): Promise<IdentityState> {
@@ -37,6 +37,7 @@ export async function identityState(userId: string): Promise<IdentityState> {
   const used = checks.filter((c) => c.status !== "canceled").length;
   return {
     passed: Boolean(passed),
+    checkId: passed?.id ?? null,
     adult: passed?.adult ?? null,
     verifiedName: passed?.verifiedName ?? null,
     triesLeft: Math.max(0, IDENTITY_TRIES - used),
@@ -56,7 +57,8 @@ export async function startIdentityCheck(user: { id: string; email: string }, re
       metadata: { userId: user.id },
       return_url: returnUrl,
     },
-    { idempotencyKey: `identity:${user.id}:${IDENTITY_TRIES - state.triesLeft + 1}` },
+    // Numbered by every check ever started for this person, so a key is never used twice.
+    { idempotencyKey: `identity:${user.id}:${(await db.select({ n: sql<number>`count(*)::int` }).from(schema.identityChecks).where(eq(schema.identityChecks.userId, user.id)))[0].n + 1}` },
   );
   await db.insert(schema.identityChecks).values({ userId: user.id, stripeSessionId: session.id, status: session.status === "requires_input" ? "started" : session.status }).onConflictDoNothing();
   if (!session.url) throw new IdentityError("Stripe did not return a page to go to. Please try again.");
@@ -70,7 +72,8 @@ export async function refreshIdentity(userId: string): Promise<IdentityState> {
     .from(schema.identityChecks)
     .where(and(eq(schema.identityChecks.userId, userId)));
   for (const check of open) {
-    if (check.status === "verified" || check.status === "canceled") continue;
+    // A passed check whose age could not be read yet (no restricted key at the time) is read again.
+    if ((check.status === "verified" && check.adult !== null) || check.status === "canceled") continue;
     const session = await identityResults().identity.verificationSessions.retrieve(check.stripeSessionId, identityResultsKeyConfigured() ? { expand: ["verified_outputs.dob"] } : {});
     if (session.metadata?.userId !== userId) continue; // not this person's: never record it for them
     let status = check.status;
@@ -101,10 +104,19 @@ export async function refreshIdentity(userId: string): Promise<IdentityState> {
 
 /** For the helper: finish checks that Stripe was still thinking about. */
 export async function refreshPendingIdentityChecks(): Promise<void> {
+  // Checks Stripe was still thinking about, and ones started in the last two days whose result never came back.
   const pending = await db
-    .selectDistinct({ userId: schema.identityChecks.userId })
+    .select({ userId: schema.identityChecks.userId })
     .from(schema.identityChecks)
-    .where(eq(schema.identityChecks.status, "processing"))
+    .where(
+      or(
+        eq(schema.identityChecks.status, "processing"),
+        and(eq(schema.identityChecks.status, "started"), gt(schema.identityChecks.createdAt, new Date(Date.now() - 2 * 24 * 3_600_000))),
+        and(eq(schema.identityChecks.status, "verified"), isNull(schema.identityChecks.adult)),
+      ),
+    )
+    .groupBy(schema.identityChecks.userId)
+    .orderBy(sql`min(${schema.identityChecks.checkedAt}) nulls first`)
     .limit(20);
   for (const { userId } of pending) await refreshIdentity(userId).catch((error) => console.error(`[identity] could not refresh checks of ${userId}`, error));
 }

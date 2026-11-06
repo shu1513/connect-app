@@ -150,15 +150,20 @@ async function main() {
       const cust = await person("cust3");
       await verified(cust.id);
       const [slot] = await slotsOf(host.id);
-      await R.pauseAccount({ adminId: adminUser.id, userId: cust.id, ruleKey: "harassment", note: "Check." });
+      await R.pauseAccount({ adminId: adminUser.id, userId: cust.id, ruleKey: "harassment", note: "Check.", requestId: randomUUID() });
       check("a paused customer cannot ask", await refused(ask(cust, host.id, slot)));
       check("and is told by email, with the rule", (await emails(cust.email, "is paused")) === 1 && Boolean((await reloadUser(cust.id)).pausedReason?.startsWith("No threats")));
       await R.liftPause({ adminId: adminUser.id, userId: cust.id });
       const asked = await ask(cust, host.id, slot);
       check("after the pause is lifted they can", asked.booking.stage === "waiting");
-      await R.pauseAccount({ adminId: adminUser.id, userId: host.id, ruleKey: "sexual", note: "" });
+      await R.pauseAccount({ adminId: adminUser.id, userId: host.id, ruleKey: "sexual", note: "", requestId: randomUUID() });
       check("a paused host cannot accept, and cannot be booked", (await refused(B.accept({ bookingId: asked.booking.id, hostId: host.id, now }))) && (await B.offerOf(host.id)) === null);
-      check("an admin account cannot be paused", await refused(R.pauseAccount({ adminId: adminUser.id, userId: adminUser.id, ruleKey: "scam", note: "" })));
+      check("an admin account cannot be paused", await refused(R.pauseAccount({ adminId: adminUser.id, userId: adminUser.id, ruleKey: "scam", note: "", requestId: randomUUID() })));
+      check("pausing an account that is already paused is refused", await refused(R.pauseAccount({ adminId: adminUser.id, userId: host.id, ruleKey: "scam", note: "", requestId: randomUUID() })));
+      const same = randomUUID();
+      await R.warn({ adminId: adminUser.id, userId: host.id, ruleKey: "scam", note: "Once.", requestId: same });
+      await R.warn({ adminId: adminUser.id, userId: host.id, ruleKey: "scam", note: "Once.", requestId: same });
+      check("sending the same warning form twice warns once", (await emails(host.email, "reminder of the Connect rules")) === 1);
       const actions = await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetUserId, cust.id));
       check("each action is written down", actions.map((a) => a.action).sort().join() === "account paused,pause lifted", actions.map((a) => a.action).join());
     }
@@ -216,6 +221,33 @@ async function main() {
       await endCallForSafety({ call, by: hana.id, now: new Date() });
       check("pressing it twice changes nothing", (await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].safetyEndedBy === cust.id);
 
+      console.log("   …and the same through the app, with the clock and the door");
+      const [cory] = await db.select().from(schema.user).where(eq(schema.user.email, "customer@test.local"));
+      const coryPassword = readFileSync("test-accounts.local.md", "utf8").split("\n").find((l) => l.includes("customer@test.local"))?.split("|").map((c) => c.trim())[3] ?? "";
+      const coryJar: Jar = new Map();
+      await api("/sign-in/email", { email: "customer@test.local", password: coryPassword }, coryJar);
+      const liveStart = new Date(Date.now() - 4 * 60_000);
+      const liveHost = await person("livehost5");
+      const live = await B.createTestCall({ hostId: liveHost.id, customerId: cory.id, startsAt: liveStart, endsAt: new Date(liveStart.getTime() + 10 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
+      const before = await send(`/api/calls/${live.callId}/token`, { method: "POST", jar: coryJar });
+      check("before the stop, the customer can get into the call", before.status === 200, String(before.status));
+      const stop = await send(`/api/calls/${live.callId}/end-for-safety`, { method: "POST", jar: coryJar });
+      check("the stop button's request is accepted", stop.status === 200, String(stop.status));
+      const after = await send(`/api/calls/${live.callId}/token`, { method: "POST", jar: coryJar });
+      check("after it, nobody gets back in", after.status === 409, String(after.status));
+      const strangerStop = await send(`/api/calls/${callId}/end-for-safety`, { method: "POST", jar: coryJar });
+      check("someone not on a call cannot stop it", strangerStop.status === 404, String(strangerStop.status));
+      // The clock: the host was connected the whole booked time, but only the time before the stop counts.
+      const [stopped] = await db.select().from(schema.calls).where(eq(schema.calls.id, live.callId));
+      const row = (identity: string, type: string, at: Date) => ({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: live.callId, type, roomSessionId: "RM_safety", participantIdentity: identity, participantSessionId: `PA_${identity}`, providerTime: at, payload: "{}" });
+      await db.insert(schema.attendanceEvents).values([row(liveHost.id, "participant_joined", liveStart), row(liveHost.id, "participant_left", stopped.endsAt), row(cory.id, "participant_joined", liveStart), row(cory.id, "participant_left", stopped.endsAt)]);
+      await db.update(schema.calls).set({ closedAt: new Date(stopped.endsAt.getTime() + 60_000) }).where(eq(schema.calls.id, live.callId));
+      const { loadAttendance } = await import("../src/lib/attendance/load");
+      const counted = await loadAttendance({ ...stopped }, new Date(stopped.endsAt.getTime() + 10 * 60_000));
+      // Whole seconds, the way the counting rule reads times.
+      const expected = Math.floor(stopped.safetyEndedAt!.getTime() / 1000) - Math.floor(liveStart.getTime() / 1000);
+      check("time after the stop is not counted", counted.result.totals?.hostSeconds === expected && counted.bookedSeconds === expected, `${counted.result.totals?.hostSeconds} vs ${expected}`);
+
       const { reference } = await R.createReport({ reporterId: cust.id, context: "call", contextId: callId, reason: "threats", text: "Check: shouting.", now: new Date() });
       const [report] = await db.select().from(schema.reports).where(eq(schema.reports.reference, reference));
       check("the report is about the other person on the call, worked out by the server", report.reportedId === hana.id && report.urgent === true);
@@ -225,11 +257,16 @@ async function main() {
 
       check("a report about a call you are not on is refused", await refused(R.createReport({ reporterId: (await person("nosy")).id, context: "call", contextId: callId, reason: "other", text: "", now: new Date() })));
       check("an unknown reason is refused", await refused(R.createReport({ reporterId: cust.id, context: "call", contextId: callId, reason: "made-up", text: "", now: new Date() })));
+      const hidden = await person("hidden5");
+      await makeHost(hidden, 0);
+      await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, hidden.id));
+      const [hiddenProfile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hidden.id));
+      check("a page nobody can see cannot be reported by its address either", await refused(R.createReport({ reporterId: cust.id, context: "profile", contextId: hiddenProfile.handle, reason: "other", text: "", now: new Date() })));
 
       await R.closeReport({ reportId: report.id, adminId: adminUser.id, note: "Checked." });
       check("closing tells the reporter, with the reference and no more", (await emails(cust.email, `R-${reference} has been looked at`)) === 1);
       check("closing twice is refused", await refused(R.closeReport({ reportId: report.id, adminId: adminUser.id, note: "Again." })));
-      await R.warn({ adminId: adminUser.id, userId: hana.id, ruleKey: "harassment", note: "Please be kind." });
+      await R.warn({ adminId: adminUser.id, userId: hana.id, ruleKey: "harassment", note: "Please be kind.", requestId: randomUUID() });
       check("a warning email names the rule", (await emails("host@test.local", "reminder of the Connect rules")) >= 1);
       const open = await R.openReports();
       check("the founder's list no longer shows it", !open.some((o) => o.report.id === report.id));
@@ -296,6 +333,13 @@ async function main() {
     if (bookingIds.length) {
       await db.delete(schema.busyEntries).where(inArray(schema.busyEntries.bookingId, bookingIds));
       await db.delete(schema.bookings).where(inArray(schema.bookings.id, bookingIds));
+    }
+    const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)));
+    for (const call of calls) {
+      const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
+      if (payment) continue; // paid test calls are left as test data, like the payments script does
+      await db.delete(schema.attendanceEvents).where(eq(schema.attendanceEvents.callId, call.id));
+      await db.delete(schema.calls).where(eq(schema.calls.id, call.id));
     }
     await db.delete(schema.reports).where(or(inArray(schema.reports.reporterId, ids), inArray(schema.reports.reportedId, ids)));
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));

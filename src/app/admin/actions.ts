@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
 import { capturePayment, releasePayment } from "@/lib/payments/actions";
+import { bookedTotalCents } from "@/lib/payments/pricing";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { requireAdmin } from "@/lib/session";
@@ -41,12 +42,16 @@ export async function chargeReviewed(formData: FormData) {
   try {
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to charge.");
     await recordAdminAction({ adminId: admin.id, action: "payment charged after review", targetUserId: call.customerId, targetId: payment.id, detail: `$${dollars.toFixed(2)}` });
+    // A call stopped with "End call and report" can only be charged for the time before the stop.
+    const countedUntil = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
+    const maxCents = bookedTotalCents(payment.pricePer15Cents, Math.max(0, Math.floor((countedUntil.getTime() - call.startsAt.getTime()) / 1000)));
     const result = await capturePayment({
       paymentId: payment.id,
       amountCents: Math.round(dollars * 100),
       reason: "admin",
       frozen: null,
       callEndsAt: call.endsAt,
+      maxCents,
     });
     notice = result === "already_done" ? "This call had already been charged. Nothing more was charged." : "The charge was made.";
   } catch (error) {

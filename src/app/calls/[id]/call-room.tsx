@@ -26,10 +26,35 @@ type Connection = { token: string; serverUrl: string };
  * can come back in, then goes to the report form. Time after this moment is
  * not counted, and the payment goes to the founder's review list.
  */
-function EndForSafety({ callId }: { callId: string }) {
+function EndForSafety({ callId, onLeave }: { callId: string; onLeave: () => void }) {
   const router = useRouter();
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function endNow() {
+    setBusy(true);
+    setFailed(false);
+    onLeave(); // this person leaves at once, whatever happens next
+    const ok = await fetch(`/api/calls/${callId}/end-for-safety`, { method: "POST" })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (ok) router.push(`/report?call=${callId}`);
+    else {
+      setFailed(true);
+      setBusy(false);
+    }
+  }
+  if (failed) {
+    return (
+      <span className="flex items-center gap-2 text-sm text-red-600">
+        <span>You have left, but the call could not be ended for the other person yet.</span>
+        <button type="button" onClick={endNow} className="rounded border border-red-600 px-3 py-1.5">
+          Try again
+        </button>
+      </span>
+    );
+  }
   if (!asking) {
     return (
       <button type="button" onClick={() => setAsking(true)} className="rounded border border-red-600 px-3 py-1.5 text-sm text-red-600">
@@ -40,16 +65,7 @@ function EndForSafety({ callId }: { callId: string }) {
   return (
     <span className="flex items-center gap-2 text-sm">
       <span>End this call for both of you and report what happened?</span>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          await fetch(`/api/calls/${callId}/end-for-safety`, { method: "POST" }).catch(() => undefined);
-          router.push(`/report?call=${callId}`);
-        }}
-        className="rounded bg-red-600 px-3 py-1.5 font-medium text-white disabled:opacity-50"
-      >
+      <button type="button" disabled={busy} onClick={endNow} className="rounded bg-red-600 px-3 py-1.5 font-medium text-white disabled:opacity-50">
         {busy ? "Ending…" : "Yes, end and report"}
       </button>
       <button type="button" onClick={() => setAsking(false)} className="underline underline-offset-2">
@@ -197,7 +213,7 @@ export function CallRoom(props: Props) {
         <p className="text-lg font-medium" aria-live="polite">
           {clock}
         </p>
-        <EndForSafety callId={props.callId} />
+        <EndForSafety callId={props.callId} onLeave={() => setConnection(null)} />
       </div>
       <div className="mt-3 h-[72vh] min-h-[320px] overflow-hidden rounded" data-lk-theme="default">
         <LiveKitRoom

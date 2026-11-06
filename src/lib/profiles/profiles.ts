@@ -100,12 +100,16 @@ export async function decideProfile(input: {
   userId: string;
   decision: Exclude<ProfileStatus, "pending">;
   by: string;
-  seen?: { displayName: string; about: string };
+  seen?: { displayName: string; about: string; identityCheckId?: string };
 }): Promise<void> {
   if (!["approved", "declined", "suspended"].includes(input.decision)) throw new ProfileError("Unknown decision.");
   if (input.decision === "approved" && !input.seen) throw new ProfileError("Open the profile again before approving it.");
-  if (input.decision === "approved" && !(await identityState(input.userId)).passed) {
-    throw new ProfileError("This host has not passed the identity check yet, so the profile cannot be approved.");
+  if (input.decision === "approved") {
+    const identity = await identityState(input.userId);
+    if (!identity.passed) throw new ProfileError("This host has not passed the identity check yet, so the profile cannot be approved.");
+    if (input.seen?.identityCheckId && identity.checkId !== input.seen.identityCheckId) {
+      throw new ProfileError("The identity result changed while you were looking at it. Check it again.");
+    }
   }
   const stillAsSeen =
     input.decision === "approved"

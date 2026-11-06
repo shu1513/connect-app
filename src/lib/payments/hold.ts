@@ -2,9 +2,10 @@
  * The hold: the customer confirms a paid call by having the full booked price
  * held on their card. Nothing is charged at this point.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import type Stripe from "stripe";
 import { lockPayment, MoneyError, runMoneyOperation, type Tx } from "./operations";
@@ -77,6 +78,12 @@ async function holdIntentFor(input: {
   if (call.cancelledAt) throw new MoneyError("This call was cancelled.");
   if (payment.status === "held") return { held: true };
   if (payment.status !== "awaiting_payment") throw new MoneyError("This call can no longer be paid for.");
+  if (call.safetyEndedAt) throw new MoneyError("This call was ended, so it can no longer be paid for.");
+  const [people] = await db
+    .select({ paused: sql<number>`count(*) filter (where ${schema.user.pausedAt} is not null)::int` })
+    .from(schema.user)
+    .where(inArray(schema.user.id, [call.hostId, call.customerId]));
+  if (people.paused > 0 || (await isBlockedEitherWay(call.hostId, call.customerId))) throw new MoneyError("This call can no longer be paid for.");
   const cutoff = await payCutoffOf(db, call.id);
   if (cutoff && now >= cutoff) throw new MoneyError("The time to pay for this call has passed.");
   const window = payWindow({ now, startsAt: call.startsAt, endsAt: call.endsAt });

@@ -71,11 +71,11 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
     event.preventDefault();
     setBusy(true);
     setError(null);
-    const code = String(new FormData(event.currentTarget).get("code") ?? "").replace(/[\s-]/g, "");
-    const result =
-      code.length <= 8
-        ? await authClient.twoFactor.verifyTotp({ code, trustDevice: false })
-        : await authClient.twoFactor.verifyBackupCode({ code, trustDevice: false });
+    const typed = String(new FormData(event.currentTarget).get("code") ?? "").replace(/\s/g, "");
+    // A 6-digit code is from the app; anything else is a backup code (which keeps its hyphen).
+    const result = /^\d{6}$/.test(typed)
+      ? await authClient.twoFactor.verifyTotp({ code: typed, trustDevice: false })
+      : await authClient.twoFactor.verifyBackupCode({ code: typed, trustDevice: false });
     setBusy(false);
     if (result.error) {
       setError(result.error.status === 429 ? TOO_MANY : "That code did not work. Check the app and try again.");

@@ -97,6 +97,9 @@ export const auth = betterAuth({
           clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
           // Only Google accounts whose email Google itself has confirmed.
           requireEmailVerification: true,
+          // Only the normal "go to Google and come back" login. The other way (a token sent by the
+          // browser) would skip the admin's second step.
+          disableIdTokenSignIn: true,
         },
       }
     : {},
@@ -173,9 +176,9 @@ export const auth = betterAuth({
     haveIBeenPwned({
       customPasswordCompromisedMessage: "This password has appeared in a data leak, so it is not safe. Please choose a different one.",
     }),
-    // The second login step: a 6-digit code from an authenticator app. "Trust this device" is as good
-    // as off (one second), so the code is asked for at every login.
-    twoFactor({ issuer: "Connect", trustDeviceMaxAge: 1 }),
+    // The second login step: a 6-digit code from an authenticator app. "Trust this device" is off,
+    // so the code is asked for at every login.
+    twoFactor({ issuer: "Connect", trustDeviceMaxAge: 0 }),
   ],
 
   // Problems during Google sign-in come back to the login page, which explains them.

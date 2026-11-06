@@ -15,7 +15,7 @@ import {
   setProfileHidden,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
-import { requireUser } from "@/lib/session";
+import { requireActiveUser } from "@/lib/session";
 
 function back(text: string): never {
   redirect(withNotice("/host", text));
@@ -29,7 +29,7 @@ function problem(error: unknown): string {
 
 /** Sends the host to Stripe's own form to set up (or finish setting up) their payout account. */
 export async function startPayoutSetup() {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let url: string;
   try {
     const accountId = await ensurePayoutAccount(user);
@@ -47,7 +47,7 @@ export async function startPayoutSetup() {
 
 /** The host chooses how long before the start cancelling is free. Applies to calls created from now on. */
 export async function saveCancelRule(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   const minutes = Number(formData.get("freeCancelMinutes"));
   if (!(FREE_CANCEL_CHOICES_MINUTES as readonly number[]).includes(minutes)) back("Choose one of the listed cancelling rules.");
   await getHostSettings(user.id);
@@ -65,7 +65,7 @@ function priceCents(formData: FormData): number {
 
 /** A person applies to host. The profile is not public until the founder approves it. */
 export async function createProfile(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     await createHostProfile(user.id, {
@@ -83,7 +83,7 @@ export async function createProfile(formData: FormData) {
 }
 
 export async function saveProfile(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     await updateHostProfile(user.id, {
@@ -99,14 +99,14 @@ export async function saveProfile(formData: FormData) {
 }
 
 export async function setHidden(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   const hidden = formData.get("hidden") === "yes";
   await setProfileHidden(user.id, hidden);
   back(hidden ? "Your profile is now hidden. Calls already booked still happen." : "Your profile is no longer hidden.");
 }
 
 export async function addSocial(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     await addSocialName(user.id, String(formData.get("network") ?? ""), String(formData.get("name") ?? ""));
@@ -118,7 +118,7 @@ export async function addSocial(formData: FormData) {
 }
 
 export async function socialReady(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     await markSocialNameReady(user.id, String(formData.get("id") ?? ""));
@@ -130,7 +130,7 @@ export async function socialReady(formData: FormData) {
 }
 
 export async function removeSocial(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   await removeSocialName(user.id, String(formData.get("id") ?? "")).catch(() => undefined);
   back("The account was removed from your profile.");
 }

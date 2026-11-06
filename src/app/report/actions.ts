@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { withNotice } from "@/lib/notice";
+import { safeNext } from "@/lib/safe-next";
 import { block, BlockError, unblock } from "@/lib/safety/blocks";
 import { createReport, ReportError } from "@/lib/safety/reports";
 import { requireUser } from "@/lib/session";
@@ -38,11 +39,12 @@ export async function blockAction(formData: FormData) {
   const back = String(formData.get("back") ?? "/account");
   let notice = "Blocked. They cannot ask you for calls any more, and any requests or future calls between you have ended.";
   try {
-    await block({ blockerId: user.id, blockedId, now: new Date() });
+    const { callsNotCancelled } = await block({ blockerId: user.id, blockedId, now: new Date() });
+    if (callsNotCancelled > 0) notice = `Blocked. ${callsNotCancelled} future ${callsNotCancelled === 1 ? "call" : "calls"} between you could not be cancelled just now; please cancel ${callsNotCancelled === 1 ? "it" : "them"} from your calls page, or try again in a minute.`;
   } catch (error) {
     notice = error instanceof BlockError ? error.message : "Something went wrong. Please try again.";
   }
-  redirect(withNotice(back.startsWith("/") && !back.startsWith("//") ? back : "/account", notice));
+  redirect(withNotice(back === "/" ? "/account" : safeNext(back), notice));
 }
 
 export async function unblockAction(formData: FormData) {

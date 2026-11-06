@@ -70,13 +70,16 @@ async function main() {
   }
 
   /** One full pass: close rooms that are due, then do the payment work. */
+  let passes = 0;
   async function pass() {
     await tick();
     const now = new Date();
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     if (stripeConfigured()) await runPaymentJobs(now);
     await runBookingJobs(now);
-    if (stripeConfigured()) await refreshPendingIdentityChecks();
+    // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
+    // Stripe never hold up closing rooms or the money jobs.
+    if (stripeConfigured() && passes++ % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
   }
 
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.

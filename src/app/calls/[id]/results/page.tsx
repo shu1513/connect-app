@@ -12,6 +12,7 @@ import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
+import { getSignedIn, isAdminSession } from "@/lib/session";
 import { requireUser } from "@/lib/session";
 import { refundAction } from "../actions";
 
@@ -29,7 +30,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   const user = await requireUser();
   const { id } = await props.params;
   const notice = readNotice(`/calls/${id}/results`, await props.searchParams);
-  const access = await callForViewer(id, user.id);
+  const access = await callForViewer(id, user.id, await isAdminSession(await getSignedIn()));
   if (!access) notFound();
   const { call, payment, role } = access;
 
@@ -96,13 +97,13 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       )}
 
       {role !== "admin" && (
-        <p className="mt-3 text-sm opacity-70">
+        <div className="mt-3 text-sm opacity-70">
           <Link href={`/report?call=${call.id}`} className="underline underline-offset-2">
             Report {nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person"}
           </Link>
           <span className="mx-2">·</span>
           <BlockButton userId={role === "host" ? call.customerId : call.hostId} name={nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "this person"} back={`/calls/${call.id}/results`} />
-        </p>
+        </div>
       )}
 
       {call.cancelledAt && (

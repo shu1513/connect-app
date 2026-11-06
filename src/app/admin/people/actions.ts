@@ -32,7 +32,7 @@ export async function decideProfileAction(formData: FormData) {
       decision,
       by: admin.id,
       // What the founder had on screen when deciding.
-      seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? "") },
+      seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? ""), identityCheckId: String(formData.get("seenIdentity") ?? "") || undefined },
     });
     await recordAdminAction({ adminId: admin.id, action: `profile ${decision}`, targetUserId: String(formData.get("userId") ?? "") });
     notice = { approved: "The profile is approved and public.", declined: "The profile was declined.", suspended: "The profile is suspended and no longer public." }[decision];
