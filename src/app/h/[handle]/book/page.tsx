@@ -5,6 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { offerOf, openTimes } from "@/lib/booking/bookings";
 import { whenFor } from "@/lib/booking/emails";
 import { answerDeadline, LIMITS, payCutoff } from "@/lib/booking/rules";
+import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
@@ -23,14 +24,17 @@ const CANCEL_RULE: Record<number, string> = {
 /** The summary a customer sees before sending a request. */
 export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   const { handle } = await props.params;
-  const { start, length, problem } = await props.searchParams;
+  const query = await props.searchParams;
+  const { start, length } = query;
   const profile = await publicProfile(handle);
   if (!profile) notFound();
   const here = `/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(String(start))}`;
   const person = await getSignedIn();
   if (!person || person.closed || !person.emailVerified) redirect(`/login?next=${encodeURIComponent(here)}`);
-  if (!person.welcomed) redirect("/welcome");
+  if (!person.welcomed) redirect(`/welcome?next=${encodeURIComponent(here)}`);
 
+  // Only a message this site made for this page is shown; words put in a link by someone else are not.
+  const problem = readNotice(`/h/${profile.handle}/book`, query);
   const offer = await offerOf(profile.userId);
   const minutes = Number(length);
   const startsAt = new Date(String(start));
@@ -75,7 +79,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Ask {profile.displayName} for a call</h1>
 
-      {typeof problem === "string" && (
+      {problem && (
         <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
           {problem}
         </p>
@@ -133,6 +137,9 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
         <input type="hidden" name="start" value={startsAt.toISOString()} />
         <input type="hidden" name="length" value={minutes} />
         <input type="hidden" name="requestKey" value={randomUUID()} />
+        {/* What this page showed. If the host has changed either since, the request is not sent. */}
+        <input type="hidden" name="seenPrice" value={offer.pricePer15Cents} />
+        <input type="hidden" name="seenFreeCancel" value={offer.freeCancelMinutes} />
         <label className="block">
           What would you like to talk about? (optional, up to {LIMITS.noteMax} characters; only {profile.displayName} sees it)
           <textarea name="note" rows={3} maxLength={LIMITS.noteMax} className="mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2" />

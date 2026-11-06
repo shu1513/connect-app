@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { askForCall, BookingError } from "@/lib/booking/bookings";
+import { withNotice } from "@/lib/notice";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { requireUser } from "@/lib/session";
 
@@ -24,13 +25,14 @@ export async function sendRequest(formData: FormData) {
       note: String(formData.get("note") ?? ""),
       requestKey: String(formData.get("requestKey") ?? ""),
       agreedToCardTerms: formData.get("cardTerms") === "on",
+      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")) },
       now: new Date(),
     });
     bookingId = booking.id;
   } catch (error) {
     const message = error instanceof BookingError ? error.message : "Something went wrong. Nothing was sent. Please try again.";
     if (!(error instanceof BookingError)) console.error("[bookings] request failed", error);
-    redirect(`/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(start)}&problem=${encodeURIComponent(message)}`);
+    redirect(withNotice(`/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(start)}`, message));
   }
   redirect(`/bookings/${bookingId}`);
 }

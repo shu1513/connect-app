@@ -36,7 +36,7 @@ function isOverlap(error: unknown): boolean {
  * Takes each person's calendar lock, always in the same order, so two steps
  * that involve the same people wait for each other instead of getting stuck.
  */
-async function lockCalendars(tx: Tx, userIds: string[]): Promise<void> {
+export async function lockCalendars(tx: Tx, userIds: string[]): Promise<void> {
   for (const id of [...new Set(userIds)].sort()) {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`calendar:${id}`}))`);
   }
@@ -217,6 +217,8 @@ export async function askForCall(input: {
   note: string;
   requestKey: string;
   agreedToCardTerms: boolean;
+  /** The price and cancelling rule the customer was shown and agreed to. If the host has changed them since, nothing is sent. */
+  seen: { pricePer15Cents: number; freeCancelMinutes: number };
   now: Date;
 }): Promise<{ booking: Booking; clientSecret: string | null }> {
   const { customer, now } = input;
@@ -242,10 +244,16 @@ export async function askForCall(input: {
       }
       // Read what the host offers again now that the calendars are locked.
       const current = await offerOf(input.hostId, tx);
-      if (!current || !current.canTakePaid || current.pricePer15Cents !== offer.pricePer15Cents) {
-        throw new BookingError("This host's details just changed. Please reload the page.");
+      if (!current || !current.canTakePaid) throw new BookingError("This host cannot be booked right now.");
+      if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.freeCancelMinutes !== input.seen.freeCancelMinutes || current.pricePer15Cents !== offer.pricePer15Cents) {
+        throw new BookingError("This host's price or cancelling rule changed while you were looking. Please check the details again.");
       }
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt: input.startsAt, lengthMinutes: input.lengthMinutes, totalCents }, now);
+      // Say so now, before a card is entered, if the customer is already taken at that time.
+      // (The database still has the last word when the request is finally sent.)
+      const endsAt = new Date(input.startsAt.getTime() + input.lengthMinutes * 60_000);
+      const taken = (await busyOf(tx, customer.id, input.startsAt)).some((b) => b.start < endsAt && b.end > input.startsAt);
+      if (taken) throw new BookingError("You already have a request or a call at that time.");
       const [draft] = await tx
         .insert(schema.bookings)
         .values({
@@ -323,8 +331,11 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
           .then((rows) => rows[0]);
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
+      // The deadlines come from the terms fixed on this request, so the time is checked against those
+      // same terms, not against whatever the host's settings are now.
+      const asAsked = { ...offer, pricePer15Cents: booking.pricePer15Cents, freeCancelMinutes: booking.freeCancelMinutes, breakMinutes: booking.breakMinutes };
       try {
-        await checkMayAsk(tx, offer, booking, input.now);
+        await checkMayAsk(tx, asAsked, booking, input.now);
       } catch (error) {
         if (error instanceof BookingError) return end(error.message);
         throw error;
@@ -533,8 +544,17 @@ export async function endWaitingRequestsOf(userId: string, roles: { asHost: bool
 
 /** Requests the host did not answer in time end by themselves. */
 export async function endUnanswered(now: Date): Promise<number> {
-  const ended = await db.transaction((tx) => endWaiting(tx, sql`${schema.bookings.respondBy} <= ${now.toISOString()}::timestamptz`, "ran_out", "not answered in time", now));
-  return ended.length;
+  const overdue = sql`${schema.bookings.respondBy} <= ${now.toISOString()}::timestamptz`;
+  const hosts = await db.selectDistinct({ hostId: schema.bookings.hostId }).from(schema.bookings).where(and(eq(schema.bookings.stage, "waiting"), overdue));
+  let ended = 0;
+  // One host at a time, holding that host's calendar lock, so this never crosses paths with the host accepting.
+  for (const { hostId } of hosts) {
+    ended += await db.transaction(async (tx) => {
+      await lockCalendars(tx, [hostId]);
+      return (await endWaiting(tx, and(eq(schema.bookings.hostId, hostId), overdue), "ran_out", "not answered in time", now)).length;
+    });
+  }
+  return ended;
 }
 
 /** A paid request whose card was never entered is dropped. It never reached the host. */

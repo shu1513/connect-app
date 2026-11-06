@@ -2,7 +2,7 @@ import { canJoin } from "@/lib/calls";
 import { callForParticipant } from "@/lib/payments/access";
 import { paymentBlocksJoin } from "@/lib/payments/rules";
 import { getUser } from "@/lib/session";
-import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { roomState } from "@/lib/calls";
 import { createEntryPass, removeFromRoom, videoServerUrl } from "@/lib/video/livekit";
@@ -10,25 +10,19 @@ import { createEntryPass, removeFromRoom, videoServerUrl } from "@/lib/video/liv
 /**
  * With short breaks between calls, the room of the next call opens while the
  * previous one may still be going. Nobody should be on camera in two calls at
- * once, so entering one room takes the person out of every other open room.
+ * once, so entering one room takes the person out of every other room they
+ * could still be in: any call of theirs whose room has opened and is not yet
+ * confirmed closed, including one that was cancelled or has just run out.
+ * Throws if the video service cannot confirm it.
  */
 async function leaveOtherCalls(userId: string, thisCallId: string, now: Date): Promise<void> {
   const others = await db
     .select()
     .from(schema.calls)
-    .where(
-      and(
-        or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)),
-        ne(schema.calls.id, thisCallId),
-        isNull(schema.calls.cancelledAt),
-        isNull(schema.calls.closedAt),
-      ),
-    );
+    .where(and(or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)), ne(schema.calls.id, thisCallId), isNull(schema.calls.closedAt)));
   for (const other of others) {
-    if (roomState(other, now) !== "open") continue;
-    await removeFromRoom(other.roomName, userId).catch((error) => {
-      console.error(`[calls] could not take ${userId} out of call ${other.id}`, error);
-    });
+    if (roomState(other, now) === "not_open_yet") continue;
+    await removeFromRoom(other.roomName, userId);
   }
 }
 
@@ -66,14 +60,19 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const blocked = paymentBlocksJoin({ payment, callEndsAt: call.endsAt, now });
   if (blocked) return Response.json({ error: MESSAGES[blocked] }, { status: 409 });
 
-  // One call at a time: joining this one puts the person out of any other call whose room is open.
-  await leaveOtherCalls(user.id, call.id, now);
-
-  const token = await createEntryPass({
-    roomName: call.roomName,
-    userId: user.id,
-    displayName: user.name,
-  });
+  // One call at a time. Taking the person out of other rooms and handing out this pass happen one
+  // after the other per person (also across servers), so two joins at once cannot both get through.
+  let token: string;
+  try {
+    token = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`join:${user.id}`}))`);
+      await leaveOtherCalls(user.id, call.id, now);
+      return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: user.name });
+    });
+  } catch (error) {
+    console.error(`[calls] could not hand out an entry pass for call ${call.id}`, error);
+    return Response.json({ error: "Could not connect you just now. Please try again." }, { status: 503 });
+  }
 
   return Response.json({
     token,

@@ -42,11 +42,17 @@ export async function decideProfileAction(formData: FormData) {
     });
     notice = { approved: "The profile is approved and public.", declined: "The profile was declined.", suspended: "The profile is suspended and no longer public." }[decision];
     if (decision === "suspended") {
-      const failed = await endBookingsOfSuspendedHost(String(formData.get("userId") ?? ""), new Date());
-      notice +=
-        failed === 0
-          ? " Their waiting requests have ended and their future calls were cancelled at no charge."
-          : ` ${failed} of their future calls could not be cancelled automatically. Please cancel those by hand.`;
+      // The profile is suspended from here on. What happens to its bookings is reported separately.
+      try {
+        const failed = await endBookingsOfSuspendedHost(String(formData.get("userId") ?? ""), new Date());
+        notice +=
+          failed === 0
+            ? " Their waiting requests have ended and their future calls were cancelled at no charge."
+            : ` ${failed} of their future calls could not be cancelled automatically. Please cancel those by hand.`;
+      } catch (error) {
+        console.error("[admin] could not end the bookings of a suspended host", error);
+        notice += " But their waiting requests and future calls could not be ended automatically. Please check them and end them by hand.";
+      }
     }
   } catch (error) {
     notice = problem(error);
@@ -85,7 +91,7 @@ export async function closeAccountAction(formData: FormData) {
     notice =
       callsNotEnded === 0
         ? "The account is closed. It is logged out everywhere and cannot log in. Its calls that had not started were cancelled at no charge."
-        : `The account is closed and cannot log in, but ${callsNotEnded > 0 ? `${callsNotEnded} of its calls` : "its calls"} could not be ended automatically. Please check that person's calls on the payments page and cancel or refund them by hand.`;
+        : `The account is closed and cannot log in, but ${callsNotEnded > 0 ? `${callsNotEnded} of its calls` : "its requests and calls"} could not be ended automatically. Please check that person's requests and calls and end them by hand.`;
   } catch (error) {
     notice = problem(error);
   }

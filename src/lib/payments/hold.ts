@@ -48,6 +48,15 @@ export async function stripeCustomerFor(user: { id: string; name: string; email:
 
 type Payer = { id: string; name: string; email: string };
 
+/** For a call that came from a customer's booking: the moment the money must be held by. */
+async function payCutoffOf(reader: Pick<typeof db, "select">, callId: string): Promise<Date | null> {
+  const [booking] = await reader
+    .select({ payBy: schema.bookings.payBy })
+    .from(schema.bookings)
+    .where(and(eq(schema.bookings.callId, callId), eq(schema.bookings.source, "customer")));
+  return booking?.payBy ?? null;
+}
+
 /**
  * The one hold a payment has at Stripe: finds it, or creates it. Both the
  * customer's browser and the automatic try with a saved card come through
@@ -68,6 +77,8 @@ async function holdIntentFor(input: {
   if (call.cancelledAt) throw new MoneyError("This call was cancelled.");
   if (payment.status === "held") return { held: true };
   if (payment.status !== "awaiting_payment") throw new MoneyError("This call can no longer be paid for.");
+  const cutoff = await payCutoffOf(db, call.id);
+  if (cutoff && now >= cutoff) throw new MoneyError("The time to pay for this call has passed.");
   const window = payWindow({ now, startsAt: call.startsAt, endsAt: call.endsAt });
   if (window === "too_early") throw new MoneyError("This call can be paid for from 2 days before it starts.");
   if (window === "call_over") throw new MoneyError("This call is over.");
@@ -160,6 +171,11 @@ function holdDetails(intent: Stripe.PaymentIntent): HoldDetails {
 /** Records that the money is now held. Does nothing unless the payment was still waiting for exactly this hold. */
 async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Date): Promise<void> {
   if (payment.status !== "awaiting_payment" || payment.stripePaymentIntentId !== details.intentId) return;
+  // A card authorised after the booking's cut-off (through a form left open, say) does not count:
+  // the payment stays unpaid, and the helper cancels the booking and lets that hold go.
+  const cutoff = await payCutoffOf(tx, payment.callId);
+  const authorisedAt = details.authorisedAt ? new Date(details.authorisedAt * 1000) : now;
+  if (cutoff && authorisedAt >= cutoff) return;
   const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
   await tx
     .update(schema.payments)
@@ -210,11 +226,7 @@ export async function placeHoldWithSavedCard(input: {
         return { intentId: found.intentId, paymentMethodId: input.paymentMethodId };
       },
       execute: async (params, label) => {
-        const intent = await stripe().paymentIntents.confirm(
-          params.intentId,
-          { payment_method: params.paymentMethodId, off_session: true, expand: ["latest_charge"] },
-          { idempotencyKey: label },
-        );
+        const intent = await confirmWithSavedCard(params, label);
         return { stripeId: intent.id, result: intent.status === "requires_capture" ? holdDetails(intent) : null };
       },
       apply: async (payment, _params, outcome, tx) => {
@@ -226,6 +238,19 @@ export async function placeHoldWithSavedCard(input: {
     throw error;
   }
   return (await paymentStatus(input.payment.id)) === "held" ? "held" : "not_held";
+}
+
+/**
+ * The one request that tries a saved card. Sent again under the same label
+ * (by the helper, when the first answer never arrived) Stripe returns the
+ * original result, or does it now if it never arrived. Never twice.
+ */
+export function confirmWithSavedCard(params: { intentId: string; paymentMethodId: string }, label: string): Promise<Stripe.PaymentIntent> {
+  return stripe().paymentIntents.confirm(
+    params.intentId,
+    { payment_method: params.paymentMethodId, off_session: true, expand: ["latest_charge"] },
+    { idempotencyKey: label },
+  );
 }
 
 async function paymentStatus(paymentId: string): Promise<string | undefined> {

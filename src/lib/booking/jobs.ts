@@ -18,7 +18,8 @@ import { placeHoldWithSavedCard, syncHold } from "@/lib/payments/hold";
 import { OutcomeUnknownError } from "@/lib/payments/operations";
 import { payOpensAt } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
-import { endUnanswered, endUnfinishedCardSteps } from "./bookings";
+import { refreshPayoutsReady } from "@/lib/payments/hosts";
+import { endUnanswered, endUnfinishedCardSteps, lockCalendars } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
 
 const HOUR = 3_600_000;
@@ -36,6 +37,9 @@ async function tellHostsAboutNewRequests(now: Date): Promise<void> {
     .where(and(eq(schema.bookings.stage, "waiting"), isNull(schema.bookings.hostNotifiedAt)));
   for (const { hostId } of hosts) {
     await db.transaction(async (tx) => {
+      // Under the host's calendar lock, so two helpers cannot both decide to send, and so this
+      // never crosses paths with the host accepting.
+      await lockCalendars(tx, [hostId]);
       const [recent] = await tx
         .select({ id: schema.emailOutbox.id })
         .from(schema.emailOutbox)
@@ -122,8 +126,17 @@ async function placeHolds(now: Date): Promise<void> {
       gt(schema.bookings.payBy, now),
     ),
   );
+  const payoutsReady = new Map<string, boolean>();
   for (const { booking, call, payment } of due) {
     if (payOpensAt(call.startsAt) > now) continue;
+    // Do not hold a customer's money for a host who can no longer be paid. The try is not used up:
+    // if the host sorts it out before the cut-off the hold is placed then; if not, the booking is
+    // cancelled for free at the cut-off.
+    if (!payoutsReady.has(call.hostId)) payoutsReady.set(call.hostId, await refreshPayoutsReady(call.hostId).catch(() => false));
+    if (!payoutsReady.get(call.hostId)) {
+      log(`no hold for booking ${booking.id}: the host's payout account is not ready`);
+      continue;
+    }
     // Claim the one try before making it, so two helpers cannot both make it.
     const claimed = await db
       .update(schema.bookings)

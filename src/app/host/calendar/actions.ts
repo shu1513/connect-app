@@ -12,7 +12,7 @@ function back(text: string): never {
 function problem(error: unknown): string {
   if (error instanceof CalendarError) return error.message;
   console.error("[calendar] action failed", error);
-  return "Something went wrong. Nothing was changed. Please try again.";
+  return "Something went wrong. Please reload the page to see what was saved, and try again.";
 }
 
 export async function saveChoices(formData: FormData) {
@@ -48,8 +48,13 @@ export async function addHours(formData: FormData) {
 
 export async function removeHours(formData: FormData) {
   const user = await requireUser();
-  await removeWeeklyHours(user.id, String(formData.get("id") ?? ""));
-  back("Those hours were removed. Calls already booked in them still happen.");
+  let notice = "Those hours were removed. Calls already booked in them still happen.";
+  try {
+    await removeWeeklyHours(user.id, String(formData.get("id") ?? ""));
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
 }
 
 export async function addOff(formData: FormData) {
@@ -67,6 +72,11 @@ export async function addOff(formData: FormData) {
 
 export async function removeOff(formData: FormData) {
   const user = await requireUser();
-  await removeTimeOff(user.id, String(formData.get("id") ?? ""));
-  back("That time off was removed.");
+  let notice = "That time off was removed.";
+  try {
+    await removeTimeOff(user.id, String(formData.get("id") ?? ""));
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
 }

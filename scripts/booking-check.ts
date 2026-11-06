@@ -7,6 +7,11 @@
  * journey has to wait days. It removes the bookings it made.
  *
  * Stop the always-on helper first (it would do some of these steps itself).
+ *
+ * Careful: it replaces the calendar and weekly hours of host@test.local, and it
+ * runs the booking jobs with a clock set days ahead. That ends or cancels any
+ * other open requests and unpaid bookings in the local database. Only run it
+ * on a database whose bookings you do not mind losing.
  * Usage: npx tsx scripts/booking-check.ts
  */
 import { config } from "dotenv";
@@ -37,6 +42,7 @@ async function main() {
   const { endBookingsOfSuspendedHost } = await import("../src/lib/booking/moderation");
   const { answerDeadline, payCutoff, LIMITS } = await import("../src/lib/booking/rules");
   const { startHold, syncHold } = await import("../src/lib/payments/hold");
+  const { MoneyError } = await import("../src/lib/payments/operations");
   const { cancelCall } = await import("../src/lib/payments/cancel");
   const { settleCancelledCalls, reconcileOperations } = await import("../src/lib/payments/jobs");
   const { refreshPayoutsReady } = await import("../src/lib/payments/hosts");
@@ -47,6 +53,9 @@ async function main() {
   const busyOf = async (userId: string) => db.select().from(schema.busyEntries).where(eq(schema.busyEntries.userId, userId));
   const emailsTo = async (email: string, subject: string) =>
     (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, email), like(schema.emailOutbox.subject, `%${subject}%`)))).length;
+
+  /** Whether the email for one event of one booking was written (each is written under its own key). */
+  const eventEmail = async (key: string) => (await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, key))).length === 1;
 
   /** A ready-to-use person: confirmed, welcomed. */
   async function person(name: string) {
@@ -64,8 +73,16 @@ async function main() {
     await db.delete(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, p.id));
     await db.insert(schema.weeklyHours).values([1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ hostId: p.id, weekday, startMinute: 0, endMinute: 1440 })));
   }
-  const ask = (customer: { id: string; name: string; email: string }, hostId: string, startsAt: Date, lengthMinutes = 30, at = now, requestKey = randomUUID()) =>
-    B.askForCall({ customer, hostId, startsAt, lengthMinutes, note: "check", requestKey, agreedToCardTerms: true, now: at });
+  /** Asks the way the summary page does: saying which price and cancelling rule were on screen. */
+  const ask = async (customer: { id: string; name: string; email: string }, hostId: string, startsAt: Date, lengthMinutes = 30, at = now, requestKey = randomUUID()) => {
+    const offer = await B.offerOf(hostId);
+    const seen = { pricePer15Cents: offer?.pricePer15Cents ?? -1, freeCancelMinutes: offer?.freeCancelMinutes ?? -1 };
+    return B.askForCall({ customer, hostId, startsAt, lengthMinutes, note: "check", requestKey, agreedToCardTerms: true, seen, now: at });
+  };
+  const stripeIntentsOf = async (userId: string) => {
+    const [row] = await db.select().from(schema.stripeCustomers).where(eq(schema.stripeCustomers.userId, userId));
+    return row ? (await stripe().paymentIntents.list({ customer: row.stripeCustomerId, limit: 10 })).data : [];
+  };
   /** Open times for a host, far enough ahead that nothing in this script is "soon". */
   async function times(hostId: string, length = 30, from = 72) {
     const offer = (await B.offerOf(hostId))!;
@@ -138,13 +155,14 @@ async function main() {
       const [a, b, c, d, e] = await Promise.all(["a2", "b2", "c2", "d2", "e2"].map(customer));
       const open = await times(host.id);
       const slot = open[0];
-      const inBreak = new Date(slot.getTime() + 32 * MINUTE); // not an offered time: used below through a nearby real one
       const later = open.find((t) => t.getTime() >= slot.getTime() + 35 * MINUTE)!;
       const asked = await Promise.all([a, b, c].map((p) => ask(p, host.id, slot)));
       check("all three requests are waiting", asked.every((r) => r.booking.stage === "waiting"));
-      const overlapping = await ask(d, host.id, open.find((t) => t.getTime() > slot.getTime() - 30 * MINUTE && t.getTime() < slot.getTime()) ?? slot, 15);
+      // A 15-minute request (those have their own times) that the 30-minute call, with its break, gets in the way of.
+      const fifteen = await times(host.id, 15);
+      const clashing = fifteen.find((t) => t.getTime() > slot.getTime() - 20 * MINUTE && t.getTime() < slot.getTime() + 35 * MINUTE)!;
+      const overlapping = await ask(d, host.id, clashing, 15);
       const clear = await ask(e, host.id, later);
-      void inBreak;
 
       const waiting = await B.waitingForHost(host.id);
       check("the host sees them all, the same time together", waiting.length === 5 && waiting.filter((w) => w.booking.startsAt.getTime() === slot.getTime()).length >= 3);
@@ -192,7 +210,7 @@ async function main() {
       await B.accept({ bookingId: forH2.booking.id, hostId: h2.id, now });
       check("a host with a call at that time cannot ask someone else for a call then", await refused(ask(h2, h3.id, slot)));
       // And the other way round: h3 has a request of their own waiting elsewhere; h3 then cannot accept a call at that time.
-      const mine = await ask(h3, h1.id, new Date(slot.getTime()), 15).catch(() => null);
+      const mine = await ask(h3, h1.id, slot).catch(() => null);
       const pat = await customer("pat");
       const forH3 = await ask(pat, h3.id, slot).catch(() => null);
       check("a host's own request elsewhere closes that time on their page", mine !== null && forH3 === null);
@@ -287,7 +305,10 @@ async function main() {
       const sent = await B.finishCardStep({ bookingId: booking.id, customerId: zoe.id, now });
       check("once Stripe confirms the card is saved, the request goes to the host", sent.stage === "waiting" && Boolean(sent.stripePaymentMethodId));
       check("the payment cut-off is the end of the host's free-cancelling period", sent.payBy?.getTime() === payCutoff(slot, 1440).getTime());
-      check("nothing has been held or charged", (await stripe().paymentIntents.search({ query: `metadata['bookingId']:'${booking.id}'` }).catch(() => ({ data: [] }))).data.length === 0);
+      check("nothing has been held or charged: Stripe has no payment for this customer", (await stripeIntentsOf(zoe.id)).length === 0);
+
+      const stale = B.askForCall({ customer: zoe, hostId: hana.id, startsAt: (await paidTimes())[40], lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: true, seen: { pricePer15Cents: 1500, freeCancelMinutes: 1440 }, now });
+      check("a request made from a page showing an old price is not sent", await refused(stale));
 
       // The host changes their price after the request was made.
       await db.update(schema.hostProfiles).set({ pricePer15Cents: 9000 }).where(eq(schema.hostProfiles.userId, hana.id));
@@ -379,7 +400,7 @@ async function main() {
       const p = await payment();
       check("at the cut-off the call is cancelled, as a free cancellation", call.cancelledAt !== null && call.cancelledLate === false && (await reload(booking.id)).stage === "cancelled");
       check("nothing was charged", p.status === "closed_uncharged" && p.chargedCents === null, p.status);
-      check("both people are told, and the time is open again", (await emailsTo(xia.email, "was cancelled")) === 1 && (await emailsTo(hana.email, `Check xia`)) >= 1 && (await times(hana.id, 30, 96)).some((t) => t.getTime() === slot.getTime()));
+      check("both people are told, and the time is open again", (await eventEmail(`cancelled_unpaid:${booking.id}:customer`)) && (await eventEmail(`cancelled_unpaid:${booking.id}:host`)) && (await times(hana.id, 30, 96)).some((t) => t.getTime() === slot.getTime()));
     }
 
     // ----------------------------------------------------------------------
@@ -399,8 +420,8 @@ async function main() {
       await reconcileOperations(new Date(Date.now() + 5 * MINUTE));
       const p = await payment();
       check("there is one hold, and the money is held once", p.status === "held" && (await stripe().paymentIntents.retrieve(p.stripePaymentIntentId!)).amount_capturable === 4000, `${p.status} ${browser.status}`);
-      const mine = await stripe().paymentIntents.search({ query: `metadata['paymentId']:'${p.id}'` }).catch(() => null);
-      check("Stripe has exactly one hold for this payment", mine === null || mine.data.length <= 1, String(mine?.data.length));
+      const mine = await stripeIntentsOf(wes.id);
+      check("Stripe has exactly one hold for this customer", mine.length === 1 && mine[0].id === p.stripePaymentIntentId && mine[0].status === "requires_capture", String(mine.length));
       await cancelCall({ call, payment: p, by: "host", now: at });
       await settleCancelledCalls();
     }
@@ -420,7 +441,72 @@ async function main() {
       check("saving the card too late does not bring the request back", late.stage === "ran_out" && (await busyOf(val.id)).length === 0);
       await runBookingJobs(now);
       check("and the card details are removed", (await reload(booking.id)).stripeSetupIntentId === null);
-      check("a paid request without agreeing to the card wording is refused", await refused(B.askForCall({ customer: val, hostId: hana.id, startsAt: slot, lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: false, now })));
+      check("a paid request without agreeing to the card wording is refused", await refused(B.askForCall({ customer: val, hostId: hana.id, startsAt: slot, lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: false, seen: { pricePer15Cents: 2000, freeCancelMinutes: 1440 }, now })));
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n11. The helper stops in the middle of trying the saved card");
+    {
+      const una = await customer("una");
+      const slot = await nextPaidSlot();
+      const { booking } = await ask(una, hana.id, slot);
+      await cardFor(booking.id, "pm_card_visa");
+      const sent = await B.finishCardStep({ bookingId: booking.id, customerId: una.id, now });
+      const { callId } = await B.accept({ bookingId: booking.id, hostId: hana.id, now });
+      const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
+      const payment = async () => (await db.select().from(schema.payments).where(eq(schema.payments.callId, callId)))[0];
+      const at = new Date(slot.getTime() - 47 * HOUR);
+      // The helper made the hold, wrote down "trying the saved card", and then stopped before hearing back.
+      await startHold({ payment: await payment(), call, customer: una, now: at });
+      const p0 = await payment();
+      await db.update(schema.bookings).set({ holdTriedAt: new Date(Date.now() - 10 * MINUTE) }).where(eq(schema.bookings.id, booking.id));
+      await db.insert(schema.moneyOperations).values({ paymentId: p0.id, kind: "hold", label: `holdcard:${p0.id}:1`, params: JSON.stringify({ intentId: p0.stripePaymentIntentId, paymentMethodId: sent.stripePaymentMethodId }), createdAt: new Date(Date.now() - 10 * MINUTE) });
+
+      await runBookingJobs(new Date(sent.payBy!.getTime() + MINUTE));
+      check("while the outcome is unknown, the booking is not cancelled at the cut-off and no \"card problem\" email goes out", (await reload(booking.id)).stage === "accepted" && (await emailsTo(una.email, "needs your attention")) === 0);
+      await reconcileOperations(new Date(Date.now() + 5 * MINUTE));
+      await reconcileOperations(new Date(Date.now() + 5 * MINUTE));
+      const held = await payment();
+      const intents = await stripeIntentsOf(una.id);
+      check("the helper finds out by asking Stripe again, and the money is held", held.status === "held", held.status);
+      check("exactly once", intents.length === 1 && intents[0].amount_capturable === 4000, String(intents.length));
+      await runBookingJobs(at);
+      check("the customer is never told their card failed", (await emailsTo(una.email, "needs your attention")) === 0 && (await reload(booking.id)).holdFailedAt === null);
+      await cancelCall({ call, payment: held, by: "host", now: at });
+      await settleCancelledCalls();
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n12. Paying after the cut-off does not count");
+    {
+      const tess = await customer("tess");
+      const slot = await nextPaidSlot();
+      const { booking } = await ask(tess, hana.id, slot);
+      await cardFor(booking.id, "pm_card_chargeCustomerFail");
+      await B.finishCardStep({ bookingId: booking.id, customerId: tess.id, now });
+      const { callId } = await B.accept({ bookingId: booking.id, hostId: hana.id, now });
+      const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
+      const payment = async () => (await db.select().from(schema.payments).where(eq(schema.payments.callId, callId)))[0];
+      const at = new Date(slot.getTime() - 47 * HOUR);
+      await runBookingJobs(at);
+      // The customer opens the pay form in time, but leaves it open.
+      const form = await startHold({ payment: await payment(), call, customer: tess, now: at });
+      check("in time, the customer is given the form to fix their card", "clientSecret" in form);
+      // The cut-off passes (the booking's cut-off is moved into the past to stand in for that).
+      await db.update(schema.bookings).set({ payBy: new Date(Date.now() - MINUTE) }).where(eq(schema.bookings.id, booking.id));
+      const late = await startHold({ payment: await payment(), call, customer: tess, now: new Date() }).catch((e) => e);
+      check("after the cut-off the pay form is no longer given out", late instanceof MoneyError);
+      // They pay anyway, through the form they had left open.
+      const intentId = (await payment()).stripePaymentIntentId!;
+      await stripe().paymentIntents.confirm(intentId, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+      await syncHold((await payment()).id, new Date());
+      check("a card authorised after the cut-off is not counted as paid", (await payment()).status === "awaiting_payment");
+      await runBookingJobs(new Date());
+      await reconcileOperations(new Date(Date.now() + 5 * MINUTE));
+      await settleCancelledCalls();
+      const p = await payment();
+      const intent = await stripe().paymentIntents.retrieve(intentId);
+      check("the booking is cancelled for free and that late hold is let go at Stripe", (await reload(booking.id)).stage === "cancelled" && p.status === "closed_uncharged" && intent.status === "canceled", `${p.status} ${intent.status}`);
     }
   } finally {
     // Remove the bookings this run made, so the hosts' calendars are clear for the next run.
@@ -428,6 +514,7 @@ async function main() {
     const mine = await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(inArray(schema.bookings.customerId, made.length ? made : ["-"]), inArray(schema.bookings.hostId, made.length ? made : ["-"])));
     const ids = mine.map((b) => b.id);
     if (ids.length) {
+      for (const id of ids) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `%:${id}:%`));
       await db.delete(schema.busyEntries).where(inArray(schema.busyEntries.bookingId, ids));
       await db.delete(schema.bookings).where(inArray(schema.bookings.id, ids));
     }

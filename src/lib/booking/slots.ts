@@ -16,12 +16,23 @@ export type Interval = { start: Date; end: Date };
 
 /** The exact moment of a wall-clock time on a date in a time zone. */
 function momentOf(date: Temporal.PlainDate, minuteOfDay: number, timeZone: string): number {
-  // "compatible": a time that does not exist (clocks go forward) moves forward by the gap;
-  // a time that happens twice (clocks go back) means the first one.
   const day = minuteOfDay >= 1440 ? date.add({ days: 1 }) : date;
   const minute = minuteOfDay >= 1440 ? 0 : minuteOfDay;
   const local = day.toPlainDateTime({ hour: Math.floor(minute / 60), minute: minute % 60 });
-  return local.toZonedDateTime(timeZone, { disambiguation: "compatible" }).epochMilliseconds;
+  const earlier = local.toZonedDateTime(timeZone, { disambiguation: "earlier" });
+  const later = local.toZonedDateTime(timeZone, { disambiguation: "later" });
+  if (earlier.epochMilliseconds === later.epochMilliseconds) return earlier.epochMilliseconds; // an ordinary time
+  // A time that happens twice (clocks go back) means the first one.
+  if (earlier.toPlainDateTime().equals(local)) return earlier.epochMilliseconds;
+  // A time that does not exist (clocks go forward) means the moment the clocks jump. So hours
+  // that lie wholly inside the missing hour come out empty, instead of sliding to an hour later.
+  return earlier.getTimeZoneTransition("next")!.epochMilliseconds;
+}
+
+/** True for a moment inside the second run of an hour that happens twice (the day the clocks go back). */
+function isRepeatOfAnHour(moment: number, timeZone: string): boolean {
+  const local = Temporal.Instant.fromEpochMilliseconds(moment).toZonedDateTimeISO(timeZone).toPlainDateTime();
+  return local.toZonedDateTime(timeZone, { disambiguation: "earlier" }).epochMilliseconds !== moment;
 }
 
 function merged(intervals: Array<[number, number]>): Array<[number, number]> {
@@ -118,7 +129,10 @@ export function openStarts(input: {
       if (start < from || start + length > to || start < earliest) continue;
       if (start % MINUTE !== 0) continue;
       const clash = busy.some(([b0, b1]) => start < b1 && start + padded > b0);
-      if (!clash) found.add(start);
+      if (clash || found.has(start)) continue;
+      // The hour that happens twice is offered once: the first time round.
+      if (isRepeatOfAnHour(start, input.timeZone)) continue;
+      found.add(start);
     }
   }
   return [...found].sort((a, b) => a - b).map((ms) => new Date(ms));

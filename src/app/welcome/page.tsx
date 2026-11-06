@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
+import { safeNext } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
 import { finishSignUp } from "./actions";
@@ -11,13 +12,14 @@ import { finishSignUp } from "./actions";
  * time zone. The link in the confirmation email lands here too.
  */
 export default async function WelcomePage(props: PageProps<"/welcome">) {
-  const { error, problem } = await props.searchParams;
+  const { error, problem, next: nextParam } = await props.searchParams;
+  const next = safeNext(nextParam);
   const person = await getSignedIn();
   if (!person || person.closed || !person.emailVerified) {
     // A confirmation link that has expired or was already used arrives here with an error.
     redirect(typeof error === "string" ? "/login?notice=link" : "/login");
   }
-  if (person.welcomed) redirect("/");
+  if (person.welcomed) redirect(next);
 
   return (
     <main className="mx-auto w-full max-w-sm px-4 py-16">
@@ -36,6 +38,7 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
       )}
 
       <form action={finishSignUp} className="mt-6 space-y-4">
+        <input type="hidden" name="next" value={next} />
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" name="adult" required className="mt-1" />
           <span>I am 18 or older.</span>

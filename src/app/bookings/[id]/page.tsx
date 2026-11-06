@@ -52,8 +52,13 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   // The card form, for a paid request that has not been sent yet.
   let clientSecret: string | null = null;
   if (role === "customer" && booking.stage === "card" && booking.stripeSetupIntentId) {
-    const setup = await stripe().setupIntents.retrieve(booking.stripeSetupIntentId);
-    clientSecret = setup.client_secret;
+    clientSecret = await stripe()
+      .setupIntents.retrieve(booking.stripeSetupIntentId)
+      .then((setup) => setup.client_secret)
+      .catch((error) => {
+        console.error(`[bookings] could not load the card form for booking ${booking.id}`, error);
+        return null;
+      });
   }
 
   return (
@@ -108,6 +113,19 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
             Nothing is held or charged now. Your card is kept by Stripe for this booking only. The request is sent as soon as the card is saved.
           </p>
           <CardStep bookingId={booking.id} clientSecret={clientSecret} publishableKey={stripePublishableKey()} />
+        </section>
+      )}
+
+      {role === "customer" && booking.stage === "card" && !clientSecret && (
+        <section className="mt-6 text-sm">
+          <p role="alert">The card form could not be loaded just now. Nothing was sent and nothing is held.</p>
+          <p className="mt-2">
+            Reload this page in a moment, or{" "}
+            <Link href={profile ? `/h/${profile.handle}` : "/"} className="underline underline-offset-2">
+              choose the time again
+            </Link>
+            . An unfinished request disappears by itself.
+          </p>
         </section>
       )}
 

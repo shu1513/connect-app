@@ -58,7 +58,12 @@ Testing tools:
 - `npx tsx scripts/booking-check.ts` runs real booking journeys against the local database and the
   Stripe sandbox: asking, several people asking for the same time, accepting, declining, time-outs,
   the limits, "never two calls at once", the saved card, the automatic hold, a card that fails, and
-  the cut-off. Stop the helper first (it would do some of the steps itself).
+  the cut-off. Before running it: stop the helper (it would do some of the steps itself); have
+  Stripe test keys in `.env.local`; and have `host@test.local` (from `npm run seed`) with payouts
+  set up. Be aware that it **replaces the calendar and weekly hours of `host@test.local`**, and
+  that it runs the booking jobs with a pretend clock set days ahead, which ends or cancels any
+  other open requests and unpaid bookings in the local database. Use it only on a database whose
+  bookings you do not mind losing.
 - `npx tsx scripts/accounts-check.ts` runs real sign-up and profile journeys against the app running
   on this computer: confirming an email, resetting and changing a password, attempt limits, handles,
   host approval, social media names, and closing an account. It removes the accounts it made.

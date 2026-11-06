@@ -54,6 +54,17 @@ describe("hoursAsStretches", () => {
     expect(stretch).toEqual({ start: at("2026-03-08T06:00:00Z"), end: at("2026-03-08T08:00:00Z") });
   });
 
+  it("hours that lie inside the missing hour give nothing, instead of sliding an hour later", () => {
+    // 2:00 to 2:30 does not exist on 8 March 2026 in New York.
+    const inside: WeeklyRange[] = [{ weekday: 7, startMinute: 120, endMinute: 150 }];
+    expect(hoursAsStretches({ timeZone: NY, weekly: inside, now: at("2026-03-07T14:00:00Z"), days: 2 })).toEqual([]);
+    // 2:30 to 4:00: what is left is 3:00 to 4:00.
+    const across: WeeklyRange[] = [{ weekday: 7, startMinute: 150, endMinute: 240 }];
+    expect(hoursAsStretches({ timeZone: NY, weekly: across, now: at("2026-03-07T14:00:00Z"), days: 2 })).toEqual([
+      { start: at("2026-03-08T07:00:00Z"), end: at("2026-03-08T08:00:00Z") },
+    ]);
+  });
+
   it("on the day the clocks go back, the repeated hour makes the stretch an hour longer", () => {
     // Sunday 1 November 2026: 1:00 to 2:00 happens twice in New York. Hours 0:00 to 3:00 are four real hours.
     const weekly: WeeklyRange[] = [{ weekday: 7, startMinute: 0, endMinute: 180 }];
@@ -139,6 +150,15 @@ describe("openStarts", () => {
     expect(fifteen.slice(0, 3)).toEqual(["2026-11-03T23:00", "2026-11-03T23:20", "2026-11-03T23:40"]);
     const sixty = times(openStarts({ ...base, weekly: TUESDAY_EVENING, lengthMinutes: 60 }));
     expect(sixty).toEqual(["2026-11-03T23:00", "2026-11-04T00:05"]);
+  });
+
+  it("offers the hour that happens twice only the first time round", () => {
+    // Sunday 1 November 2026 in New York: 1:00 to 2:00 happens twice (05:00Z and 06:00Z).
+    const weekly: WeeklyRange[] = [{ weekday: 7, startMinute: 0, endMinute: 180 }];
+    const now = at("2026-10-31T14:00:00Z");
+    const open = times(openStarts({ ...base, weekly, now, earliestStart: now, breakMinutes: 30, lengthMinutes: 30 }));
+    // Laid out an hour apart from midnight: 0:00, 1:00 (first time), then 1:00 again (skipped), then 2:00.
+    expect(open).toEqual(["2026-11-01T04:00", "2026-11-01T05:00", "2026-11-01T07:00"]);
   });
 
   it("gives nothing for a host with no hours", () => {

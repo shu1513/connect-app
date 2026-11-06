@@ -74,14 +74,15 @@ type Writer = Pick<typeof db, "insert">;
  * `key` names the event, for example "accepted:<booking id>:customer".
  */
 export async function queueEmail(tx: Writer, message: { to: string; subject: string; text: string; key: string }): Promise<void> {
-  const live = process.env.NODE_ENV === "production";
+  // These emails carry deadlines and instructions but no login links, so their text is always kept:
+  // it is what the sending service will deliver.
   await tx
     .insert(schema.emailOutbox)
     .values({
       to: message.to.trim().toLowerCase(),
       kind: "booking",
       subject: message.subject,
-      body: live ? "" : message.text,
+      body: message.text,
       dedupeKey: message.key,
     })
     .onConflictDoNothing();

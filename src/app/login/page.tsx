@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth-forms";
 import { googleSignInConfigured } from "@/lib/auth";
+import { safeNext } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
 
 /** Fixed messages only. Text from the address bar is never shown as it is. */
@@ -17,11 +18,6 @@ function errorText(code: string): string {
     return "Google says the email address of that account has not been confirmed. Confirm it with Google first, or sign up with a password.";
   }
   return "Signing in with Google did not work. Please try again.";
-}
-
-/** Where to go after logging in. Only a path on this site is accepted, never another site. */
-function safeNext(value: string | string[] | undefined): string {
-  return typeof value === "string" && /^\/(?![\/\\])[^\s]*$/.test(value) ? value : "/";
 }
 
 export default async function LoginPage(props: PageProps<"/login">) {
