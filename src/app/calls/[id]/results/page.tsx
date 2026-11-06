@@ -10,6 +10,7 @@ import { loadAttendance } from "@/lib/attendance/load";
 import { formatDuration } from "@/lib/format";
 import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
+import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { refundAction } from "../actions";
 
@@ -26,7 +27,7 @@ const fromSeconds = (s: number) => new Date(s * 1000).toISOString();
 export default async function ResultsPage(props: PageProps<"/calls/[id]/results">) {
   const user = await requireUser();
   const { id } = await props.params;
-  const { notice } = await props.searchParams;
+  const notice = readNotice(await props.searchParams);
   const access = await callForViewer(id, user.id);
   if (!access) notFound();
   const { call, payment, role } = access;
@@ -80,7 +81,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         <LocalTime iso={call.endsAt.toISOString()} seconds /> ({formatDuration(bookedSeconds)}).
       </p>
 
-      {typeof notice === "string" && (
+      {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
         </p>

@@ -25,10 +25,10 @@ const ADMIN_EMAILS = ["admin@test.local"];
 const OUT_FILE = "test-accounts.local.md";
 
 async function main() {
+  if (process.env.NODE_ENV === "production") throw new Error("The test accounts are never created in the live app.");
   requireLocalDatabase();
-  const { createAuth } = await import("../src/lib/auth");
+  const { auth } = await import("../src/lib/auth");
   const { db, schema } = await import("../src/db");
-  const auth = createAuth({ allowSignUp: true });
 
   const lines: string[] = existsSync(OUT_FILE)
     ? readFileSync(OUT_FILE, "utf8").split("\n")
@@ -51,6 +51,17 @@ async function main() {
     // Save straight away, so a later failure cannot lose this account's password.
     writeFileSync(OUT_FILE, lines.join("\n").replace(/\n*$/, "\n"));
     created++;
+  }
+
+  // Test accounts skip the email confirmation and the welcome step.
+  const now = new Date();
+  for (const a of ACCOUNTS) {
+    const [account] = await db.select().from(schema.user).where(eq(schema.user.email, a.email));
+    if (!account || (account.emailVerified && account.termsAcceptedAt)) continue;
+    await db
+      .update(schema.user)
+      .set({ emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: "test", timeZone: account.timeZone ?? "America/New_York" })
+      .where(eq(schema.user.id, account.id));
   }
 
   for (const email of ADMIN_EMAILS) {

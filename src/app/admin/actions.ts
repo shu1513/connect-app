@@ -3,13 +3,14 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { withNotice } from "@/lib/notice";
 import { isAdmin } from "@/lib/payments/access";
 import { capturePayment, releasePayment } from "@/lib/payments/actions";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { requireUser } from "@/lib/session";
 
 function back(notice: string): never {
-  redirect(`/admin?notice=${encodeURIComponent(notice)}`);
+  redirect(withNotice("/admin", notice));
 }
 
 function message(error: unknown): string {

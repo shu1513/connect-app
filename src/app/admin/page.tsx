@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
+import { readNotice } from "@/lib/notice";
 import { formatMoney, isAdmin } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { decisionDeadline } from "@/lib/payments/rules";
@@ -22,7 +23,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   const user = await requireUser();
   // Someone who is not an admin sees the same "not found" as for any missing page.
   if (!(await isAdmin(user.id))) notFound();
-  const { notice } = await props.searchParams;
+  const notice = readNotice(await props.searchParams);
 
   const rows = await db
     .select({ payment: schema.payments, call: schema.calls })
@@ -57,8 +58,18 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         </Link>
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Admin: payments</h1>
+      <p className="mt-2 text-sm">
+        <Link href="/admin/people" className="underline underline-offset-2">
+          Hosts and accounts
+        </Link>
+        {process.env.NODE_ENV !== "production" && (
+          <Link href="/admin/outbox" className="ml-4 underline underline-offset-2">
+            Sent emails (testing)
+          </Link>
+        )}
+      </p>
 
-      {typeof notice === "string" && (
+      {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
         </p>

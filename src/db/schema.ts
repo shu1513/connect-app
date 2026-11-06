@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
@@ -23,6 +24,17 @@ export const user = pgTable("user", {
   image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // The fields below are ours, not the login library's. They are written only by
+  // our own server code, never taken from what a browser sends.
+  /** The person's time zone, for example "America/New_York". */
+  timeZone: text("time_zone"),
+  /** When they ticked "I am 18 or older". */
+  adultConfirmedAt: timestamp("adult_confirmed_at", { withTimezone: true }),
+  /** When they accepted the terms, and which version. */
+  termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
+  termsVersion: text("terms_version"),
+  /** Set when the founder closes the account. A closed account cannot log in. */
+  closedAt: timestamp("closed_at", { withTimezone: true }),
 });
 
 export const session = pgTable("session", {
@@ -64,6 +76,92 @@ export const verification = pgTable("verification", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** The login library's own counter for slowing down repeated attempts. */
+export const rateLimit = pgTable("rate_limit", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Emails. Every email the app sends is written here first. While developing,
+// nothing is really sent: this table is the "sent emails" page.
+// ---------------------------------------------------------------------------
+
+export const emailOutbox = pgTable(
+  "email_outbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    to: text("to").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("email_outbox_to_idx").on(t.to, t.createdAt)],
+);
+
+// ---------------------------------------------------------------------------
+// Host profiles. One per account. Everything else points to the account, never
+// to the handle, so a handle can change without breaking anything.
+// ---------------------------------------------------------------------------
+
+export const hostProfiles = pgTable("host_profiles", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id),
+  /** The short address: /h/<handle>. Small letters, numbers and underscores. */
+  handle: text("handle").notNull().unique(),
+  /** The handle without underscores. Unique, so look-alikes cannot sit side by side. */
+  handleKey: text("handle_key").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  about: text("about").notNull().default(""),
+  /** Price in US cents per 15 minutes. Zero means free calls. */
+  pricePer15Cents: integer("price_per_15_cents").notNull(),
+  /** The host's own switch. Hidden profiles cannot be found; booked calls still happen. */
+  hidden: boolean("hidden").notNull().default(false),
+  /** The founder's decision: pending, approved, declined or suspended. The host cannot change it. */
+  status: text("status").notNull().default("pending"),
+  decidedBy: text("decided_by").references(() => user.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** When the host confirmed they are based in the United States. */
+  usConfirmedAt: timestamp("us_confirmed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A host's claim to a social media account, proven with a code in that account's bio. */
+export const socialAccounts = pgTable(
+  "social_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    /** instagram, tiktok, youtube or x. */
+    network: text("network").notNull(),
+    /** The name as the host typed it. */
+    nameTyped: text("name_typed").notNull(),
+    /** The cleaned-up name: no @, small letters. This is what is compared and shown. */
+    nameKey: text("name_key").notNull(),
+    /** The link to that account, built by us from the cleaned-up name. */
+    url: text("url").notNull(),
+    /** The code the host must put in the account's bio. Bound to this host, network and name. */
+    code: text("code").notNull(),
+    codeExpiresAt: timestamp("code_expires_at", { withTimezone: true }).notNull(),
+    /** When the host said the code is in the bio. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    confirmedBy: text("confirmed_by").references(() => user.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("social_accounts_user_network_uq").on(t.userId, t.network),
+    // The database itself guarantees one confirmed owner per name per network.
+    uniqueIndex("social_accounts_confirmed_uq").on(t.network, t.nameKey).where(sql`${t.confirmedAt} is not null`),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Calls. Host and customer are roles on the call, not on the account.

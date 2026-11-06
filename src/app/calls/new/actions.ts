@@ -8,15 +8,17 @@ import { createPaymentForCall, priceProblem } from "@/lib/payments/hold";
 import { bookedTotalCents, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
 import { stripeConfigured } from "@/lib/payments/stripe";
+import { isAdmin } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 
 function fail(message: string): never {
   redirect(`/calls/new?error=${encodeURIComponent(message)}`);
 }
 
-/** Test-only way to create a call, until the calendar exists. Requires login. */
+/** Test-only way to create a call, until the calendar exists. Admins only. */
 export async function createCall(formData: FormData) {
   const user = await requireUser();
+  if (!(await isAdmin(user.id))) redirect("/");
 
   const hostId = String(formData.get("hostId") ?? "");
   const customerId = String(formData.get("customerId") ?? "");
@@ -27,7 +29,6 @@ export async function createCall(formData: FormData) {
 
   if (!hostId || !customerId) fail("Choose a host and a customer.");
   if (hostId === customerId) fail("The host and the customer must be different people.");
-  if (user.id !== hostId && user.id !== customerId) fail("You can only create a call that you are part of.");
   if (!Number.isFinite(startsInMinutes) || startsInMinutes < 0 || startsInMinutes > 24 * 60) {
     fail("The start must be between 0 minutes and 24 hours from now.");
   }

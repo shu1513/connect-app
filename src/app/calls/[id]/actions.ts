@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { withNotice } from "@/lib/notice";
 import { callForParticipant, isAdmin } from "@/lib/payments/access";
 import { refundPayment } from "@/lib/payments/actions";
 import { cancelCall } from "@/lib/payments/cancel";
@@ -31,7 +32,7 @@ export async function cancelCallAction(formData: FormData) {
   } catch (error) {
     notice = message(error);
   }
-  redirect(`/calls/${callId}/results?notice=${encodeURIComponent(notice)}`);
+  redirect(withNotice(`/calls/${callId}/results`, notice));
 }
 
 /** The host refunds all or part of a charge on their own call. An admin can do the same on any call. */
@@ -70,5 +71,5 @@ export async function refundAction(formData: FormData) {
   } catch (error) {
     notice = message(error);
   }
-  redirect(`${back}?notice=${encodeURIComponent(notice)}`);
+  redirect(withNotice(back, notice));
 }

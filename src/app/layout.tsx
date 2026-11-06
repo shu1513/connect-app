@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Connect — call test",
-  description: "Step 1: video call with time tracking.",
+  title: "Connect",
+  description: "Private one-to-one video calls.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
