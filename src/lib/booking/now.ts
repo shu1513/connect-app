@@ -35,16 +35,22 @@ export async function setAvailableNow(input: { hostId: string; minutes: number |
   return stateOf(calendar, now);
 }
 
-/** The host's page saying "still here". Does nothing once the time has run out or availability was switched off. */
+/**
+ * The host's page saying "still here". Counts only while availability is on
+ * and the last sign of life is recent: after a lapse (the tab slept, the
+ * connection dropped) availability is over, and the host switches it on again.
+ */
 export async function stillHere(hostId: string, now: Date): Promise<AvailabilityState> {
+  const recent = new Date(now.getTime() - NOW.presenceSeconds * 1000);
   const [calendar] = await db
     .update(schema.hostCalendars)
     .set({ availableSeenAt: now })
-    .where(and(eq(schema.hostCalendars.userId, hostId), gt(schema.hostCalendars.availableUntil, now)))
+    .where(and(eq(schema.hostCalendars.userId, hostId), gt(schema.hostCalendars.availableUntil, now), gt(schema.hostCalendars.availableSeenAt, recent)))
     .returning();
   if (calendar) return stateOf(calendar, now);
-  const [current] = await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
-  return stateOf(current, now);
+  // Lapsed or over: make the switch-off explicit, so nothing later can revive it.
+  const [cleared] = await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hostId)).returning();
+  return stateOf(cleared, now);
 }
 
 /** What the host's live page shows: their availability and the instant requests waiting for them. */

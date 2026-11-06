@@ -264,11 +264,16 @@ async function sendToHost(tx: Tx, booking: Booking, now: Date, paymentMethodId: 
   const paid = booking.totalCents > 0;
   const instant = booking.source === "now";
   const terms = { startsAt: booking.startsAt, paid, freeCancelMinutes: booking.freeCancelMinutes };
-  // An instant request takes the customer from now until the call could be over; the exact time is set when the host accepts.
-  await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.customerId, startsAt: instant ? now : booking.startsAt, endsAt: booking.endsAt });
+  // An instant request takes the customer from now until the call could be over (the card step may have
+  // taken a while, so the nominal time is worked out again here); the exact time is set when the host accepts.
+  const nominalStart = instant ? latestInstantStart(now) : booking.startsAt;
+  const nominalEnd = instant ? new Date(nominalStart.getTime() + booking.lengthMinutes * 60_000) : booking.endsAt;
+  await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.customerId, startsAt: instant ? now : booking.startsAt, endsAt: nominalEnd });
   const [sent] = await tx
     .update(schema.bookings)
     .set({
+      startsAt: nominalStart,
+      endsAt: nominalEnd,
       stage: "waiting",
       requestedAt: now,
       respondBy: instant ? instantAnswerBy(now) : answerDeadline({ ...terms, requestedAt: now }),

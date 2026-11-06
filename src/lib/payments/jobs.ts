@@ -162,7 +162,13 @@ export async function reconcileOperations(now: Date): Promise<void> {
           await finishOperation(operation.id, payment.id, params.intentId, async () => undefined);
         } else {
           const intent = await stripe().paymentIntents.retrieve(params.intentId);
-          if (intent.status === "processing" || intent.status === "requires_capture") continue; // not settled yet: look again next pass
+          if (intent.status === "processing") continue; // not settled yet: look again next pass
+          if (intent.status === "requires_capture") {
+            // Authorised, but too late to count (after the booking's payment deadline). The try is over;
+            // the unpaid-at-the-cut-off job cancels the call and lets this hold go.
+            await finishOperation(operation.id, payment.id, params.intentId, async () => undefined);
+            continue;
+          }
           await giveUp("The saved card could not be used.");
         }
       } else if (operation.kind === "release") {
