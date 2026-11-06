@@ -47,7 +47,8 @@ Testing tools:
 - `npx tsx scripts/room-status.ts <call-id>` asks LiveKit who is in a call's room right now.
 - `npx tsx scripts/payments-check.ts` runs real payment journeys against the Stripe sandbox and checks
   every result: holds, charges, refunds, cancelling, reviews, declined and foreign cards, two helpers
-  charging at once, and recovery after a crash.
+  charging at once, and recovery after a crash. Add `--payouts` to also check paying hosts (the test
+  host must have finished payout setup on the Hosting settings page first).
 
 ## How changes get in
 

@@ -46,6 +46,30 @@ const LABEL_SAFE_MS = 23 * 3_600_000;
 /** How often a host's payout account is re-checked with Stripe while money is waiting for them. */
 const HOST_RECHECK_MS = 3_600_000;
 
+/** After Stripe refuses an action, wait this long before trying it again. */
+const RETRY_AFTER_REFUSAL_MS = 3_600_000;
+
+/**
+ * Whether Stripe refused this kind of action on this payment a short while ago.
+ * Without this, a payout Stripe keeps refusing (for example because our Stripe
+ * balance is short) would be tried again every few seconds.
+ */
+async function recentlyRefused(paymentId: string, kind: string, now: Date): Promise<boolean> {
+  const [refused] = await db
+    .select({ id: schema.moneyOperations.id })
+    .from(schema.moneyOperations)
+    .where(
+      and(
+        eq(schema.moneyOperations.paymentId, paymentId),
+        eq(schema.moneyOperations.kind, kind),
+        eq(schema.moneyOperations.status, "failed"),
+        sql`${schema.moneyOperations.finishedAt} > ${new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS).toISOString()}::timestamptz`,
+      ),
+    )
+    .limit(1);
+  return Boolean(refused);
+}
+
 function log(message: string, error?: unknown) {
   // Expected refusals (already done, waiting, not allowed) are not errors.
   if (error instanceof MoneyError || error instanceof OutcomeUnknownError) {
@@ -308,6 +332,14 @@ async function settleOne(payment: Payment, call: Call, now: Date): Promise<void>
       await releasePayment({ paymentId: payment.id, note: "Nothing was owed for this call." });
       log(`released payment ${payment.id}: nothing owed`);
     } else {
+      if (await recentlyRefused(payment.id, "capture", now)) {
+        // Stripe refused this charge a short while ago. Record the hold's real state first.
+        const synced = await syncHold(payment.id, now);
+        if (synced.status !== "held") return; // the hold is gone and the payment is now closed
+        const intent = await stripe().paymentIntents.retrieve(synced.stripePaymentIntentId!);
+        // Still only held: wait before trying again. Already charged at Stripe: carry on, so it gets recorded.
+        if (intent.status !== "succeeded") return;
+      }
       await capturePayment({
         paymentId: payment.id,
         amountCents,
@@ -412,6 +444,7 @@ export async function runPayday(now: Date): Promise<void> {
 
   for (const { payment, call, host } of due) {
     if (!ready.get(host.userId)) continue;
+    if (await recentlyRefused(payment.id, "transfer", now)) continue;
     try {
       await sendHostShare({ paymentId: payment.id, hostId: host.userId, destination: host.stripeAccountId!, callId: call.id, now });
       log(`sent host share for payment ${payment.id}`);

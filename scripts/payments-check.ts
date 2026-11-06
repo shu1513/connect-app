@@ -430,6 +430,97 @@ async function main() {
     await cancelCall({ call, payment: p, by: "host", now: new Date() });
   }
 
+  // ------------------------------------------------------------------------
+  // Paying hosts. These need Stripe's marketplace feature (Connect) and a test
+  // host whose payout account is ready. Run with --payouts once that is set up.
+  if (process.argv.includes("--payouts")) {
+    const { runPayday } = await import("../src/lib/payments/jobs");
+    const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");
+    const ready = await refreshPayoutsReady(host.id);
+    const settings = await getHostSettings(host.id);
+    check("the test host's payout account is ready", ready && Boolean(settings.stripeAccountId));
+    if (!ready || !settings.stripeAccountId) {
+      console.log("   Set up payouts for host@test.local on the Hosting settings page first.");
+    } else {
+      const account = settings.stripeAccountId;
+      const transfersFor = async (callId: string) => (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data;
+      /** A charged call for the test host: full 10 minutes, $13.33, host share $12.38. */
+      const chargedCall = async () => {
+        const made = await newCall();
+        await hold(made.call, made.payment.id, "pm_card_visa");
+        await attend(made.call, [["host", 0, 600], ["customer", 0, 600]]);
+        await settleFinishedCalls(after(made.call, 5));
+        return made;
+      };
+      const payday = (call: { endsAt: Date }) => new Date(call.endsAt.getTime() + 15 * 24 * 3_600_000);
+
+      console.log("\n20. Payday: two calls for one host");
+      {
+        const a = await chargedCall();
+        const b = await chargedCall();
+        const before = await reload(a.payment.id);
+        check("charged, with the host's share of $12.38 waiting", before.status === "charged" && before.originalHostShareCents === 1238 && before.transferStatus === "not_due", `${before.status} ${before.originalHostShareCents}`);
+
+        await runPayday(new Date(a.call.endsAt.getTime() + 6 * 24 * 3_600_000));
+        check("nothing is sent before 7 days have passed", (await reload(a.payment.id)).transferStatus === "not_due");
+
+        await Promise.all([runPayday(payday(b.call)), runPayday(payday(b.call))]); // two helpers at once
+        await reconcileOperations(soon());
+        await runPayday(payday(b.call));
+        const pa = await reload(a.payment.id);
+        const pb = await reload(b.payment.id);
+        check("both shares were sent", pa.transferStatus === "sent" && pb.transferStatus === "sent", `${pa.transferStatus} ${pb.transferStatus}`);
+        const sent = (pa.transferCents ?? 0) + (pb.transferCents ?? 0);
+        // Earlier journeys left other charged calls for this host on the same payday, so count the whole payday.
+        const [{ fees, paid }] = await db
+          .select({
+            fees: sql<number>`coalesce(sum(${schema.payments.payoutFeeCents}), 0)::int`,
+            paid: sql<number>`count(*)::int`,
+          })
+          .from(schema.payments)
+          .where(sql`${schema.payments.transferStatus} = 'sent' and ${schema.payments.transferDueAt} = ${pa.transferDueAt!.toISOString()}::timestamptz`);
+        check(`the 25-cent payout charge was taken once across the ${paid} calls paid that day`, fees === 25, String(fees));
+        check("each share was sent in full, less any payout charge it carried", (pa.transferCents ?? 0) + (pa.payoutFeeCents ?? 0) === 1238 && (pb.transferCents ?? 0) + (pb.payoutFeeCents ?? 0) === 1238);
+        const ta = await transfersFor(a.call.id);
+        const tb = await transfersFor(b.call.id);
+        check("Stripe made exactly one transfer per call", ta.length === 1 && tb.length === 1, `${ta.length} ${tb.length}`);
+        check("Stripe sent them to the host's account", ta[0]?.destination === account && ta[0].amount + tb[0].amount === sent);
+        check("the money record matches", (await ledgerSum(a.payment.id, "host_transfer")) + (await ledgerSum(b.payment.id, "host_transfer")) === -sent);
+
+        await runPayday(payday(b.call));
+        check("running payday again sends nothing more", (await transfersFor(a.call.id)).length === 1 && (await transfersFor(b.call.id)).length === 1);
+        const refused = await refundPayment({ paymentId: a.payment.id, amountCents: 100, decidedBy: host.id, decidedAs: "host", reason: null }).catch((e) => e);
+        check("no refund after the host has been paid", refused instanceof MoneyError);
+      }
+
+      console.log("\n21. Payday after a partial refund");
+      {
+        const c = await chargedCall();
+        await refundPayment({ paymentId: c.payment.id, amountCents: 667, decidedBy: host.id, decidedAs: "host", reason: null });
+        const share = currentSplit(await reload(c.payment.id)).hostShareCents;
+        await runPayday(payday(c.call));
+        const p = await reload(c.payment.id);
+        check("only the share that is left is sent", p.transferStatus === "sent" && (p.transferCents ?? 0) + (p.payoutFeeCents ?? 0) === share, `${p.transferCents} + ${p.payoutFeeCents} vs ${share}`);
+        const t = await transfersFor(c.call.id);
+        check("Stripe sent exactly that", t.length === 1 && t[0].amount === p.transferCents);
+      }
+
+      console.log("\n22. Payday after a full refund, and while a bank dispute is open");
+      {
+        const d = await chargedCall();
+        await refundPayment({ paymentId: d.payment.id, amountCents: 1333, decidedBy: host.id, decidedAs: "host", reason: null });
+        const e = await chargedCall();
+        await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, e.payment.id));
+        await runPayday(payday(e.call));
+        check("nothing is sent for a fully refunded call", (await reload(d.payment.id)).transferStatus === "not_owed" && (await transfersFor(d.call.id)).length === 0);
+        check("nothing is sent while a dispute is open", (await reload(e.payment.id)).transferStatus === "not_due" && (await transfersFor(e.call.id)).length === 0);
+        await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, e.payment.id));
+        await runPayday(payday(e.call));
+        check("it is sent once the dispute is closed", (await reload(e.payment.id)).transferStatus === "sent");
+      }
+    }
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }
