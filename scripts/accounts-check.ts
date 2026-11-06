@@ -10,6 +10,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
 const BASE = "http://localhost:3000";
@@ -103,7 +104,7 @@ async function main() {
     const now = new Date();
     await db
       .update(schema.user)
-      .set({ adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: "check", timeZone: "America/New_York" })
+      .set({ adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: TERMS_VERSION, timeZone: "America/New_York" })
       .where(eq(schema.user.id, row.id));
     return { ...person, id: row.id };
   }
@@ -148,7 +149,7 @@ async function main() {
 
       const row = await userByEmail(a.email);
       const now = new Date();
-      await db.update(schema.user).set({ adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: "check", timeZone: "America/New_York" }).where(eq(schema.user.id, row.id));
+      await db.update(schema.user).set({ adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: TERMS_VERSION, timeZone: "America/New_York" }).where(eq(schema.user.id, row.id));
       check("after the welcome step the app opens", (await send("/", { jar })).status === 200);
       const again = await api("/sign-in/email", { email: a.email, password: a.password }, new Map());
       check("and logging in with the password works", again.status === 200, String(again.status));
@@ -282,6 +283,8 @@ async function main() {
     };
     const host = await newPerson("host");
     const copycat = await newPerson("copycat");
+    // Approval needs a passed identity check (safety module); test people get one directly.
+    await db.insert(schema.identityChecks).values({ userId: host.id, stripeSessionId: `vs_acct_${RUN}`, status: "verified", adult: true, verifiedName: host.name, checkedAt: new Date() });
     {
       const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, usConfirmed: true };
       check("a blocked handle is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "admin" })));
@@ -456,6 +459,7 @@ async function main() {
       }
     }
     for (const id of ids) {
+      await db.delete(schema.identityChecks).where(eq(schema.identityChecks.userId, id));
       await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
       await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));

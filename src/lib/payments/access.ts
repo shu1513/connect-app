@@ -25,10 +25,12 @@ export async function callForParticipant(callId: string, userId: string): Promis
 export async function callForViewer(
   callId: string,
   userId: string,
+  /** Whether this is a full admin login (second step included). Only then may a non-participant look. */
+  adminLogin: boolean,
 ): Promise<{ call: Call; payment: Payment | null; role: "host" | "customer" | "admin" } | null> {
   const access = await callForParticipant(callId, userId);
   if (access) return access;
-  if (!UUID.test(callId) || !(await isAdmin(userId))) return null;
+  if (!UUID.test(callId) || !adminLogin) return null;
   const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
   if (!call) return null;
   const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, call.id));

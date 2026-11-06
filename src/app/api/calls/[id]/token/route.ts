@@ -5,6 +5,8 @@ import { getUser } from "@/lib/session";
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { roomState } from "@/lib/calls";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { switches } from "@/lib/safety/switches";
 import { createEntryPass, removeFromRoom, videoServerUrl } from "@/lib/video/livekit";
 
 /**
@@ -49,6 +51,10 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const { call, payment } = access;
 
   if (call.cancelledAt) return Response.json({ error: "This call was cancelled." }, { status: 409 });
+  if (call.safetyEndedAt) return Response.json({ error: MESSAGES.closed }, { status: 409 });
+  if (user.paused) return Response.json({ error: "Your account is paused, so you cannot join calls." }, { status: 403 });
+  if ((await switches()).joiningOff) return Response.json({ error: "Calls are paused across Connect right now. Please try again shortly." }, { status: 503 });
+  if (await isBlockedEitherWay(call.hostId, call.customerId)) return Response.json({ error: MESSAGES.closed }, { status: 409 });
 
   const now = new Date();
   const decision = canJoin(call, user.id, now);
@@ -66,10 +72,14 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   try {
     token = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`join:${user.id}`}))`);
+      // Read the call again under the lock: it may have been stopped or cancelled a moment ago.
+      const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
+      if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
       await leaveOtherCalls(user.id, call.id, now);
       return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: user.name });
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "ended") return Response.json({ error: MESSAGES.closed }, { status: 409 });
     console.error(`[calls] could not hand out an entry pass for call ${call.id}`, error);
     return Response.json({ error: "Could not connect you just now. Please try again." }, { status: 503 });
   }

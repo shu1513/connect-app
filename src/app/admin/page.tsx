@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
-import { formatMoney, isAdmin } from "@/lib/payments/access";
+import { formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { decisionDeadline } from "@/lib/payments/rules";
-import { requireUser } from "@/lib/session";
+import { requireAdmin } from "@/lib/session";
 import { refundAction } from "../calls/[id]/actions";
 import { chargeReviewed, releaseReviewed } from "./actions";
 
@@ -20,9 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function AdminPage(props: PageProps<"/admin">) {
-  const user = await requireUser();
-  // Someone who is not an admin sees the same "not found" as for any missing page.
-  if (!(await isAdmin(user.id))) notFound();
+  await requireAdmin();
   const notice = readNotice("/admin", await props.searchParams);
 
   const rows = await db
@@ -61,6 +58,9 @@ export default async function AdminPage(props: PageProps<"/admin">) {
       <p className="mt-2 text-sm">
         <Link href="/admin/people" className="underline underline-offset-2">
           Hosts and accounts
+        </Link>
+        <Link href="/admin/reports" className="ml-4 underline underline-offset-2">
+          Reports and safety
         </Link>
         {process.env.NODE_ENV !== "production" && (
           <Link href="/admin/outbox" className="ml-4 underline underline-offset-2">

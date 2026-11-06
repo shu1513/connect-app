@@ -14,6 +14,9 @@ import type { Booking } from "@/db/schema";
 import { createPaymentForCall, stripeCustomerFor } from "@/lib/payments/hold";
 import { bookedTotalCents, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { identityState } from "@/lib/safety/identity";
+import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, payCutoff, readLengths } from "./rules";
 import { isOpenStart, openStarts, type Interval } from "./slots";
@@ -70,13 +73,13 @@ export type Offer = {
  */
 export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> = db): Promise<Offer | null> {
   const [row] = await reader
-    .select({ profile: schema.hostProfiles, calendar: schema.hostCalendars, settings: schema.hostSettings, closedAt: schema.user.closedAt })
+    .select({ profile: schema.hostProfiles, calendar: schema.hostCalendars, settings: schema.hostSettings, closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt })
     .from(schema.hostProfiles)
     .innerJoin(schema.user, eq(schema.user.id, schema.hostProfiles.userId))
     .innerJoin(schema.hostCalendars, eq(schema.hostCalendars.userId, schema.hostProfiles.userId))
     .leftJoin(schema.hostSettings, eq(schema.hostSettings.userId, schema.hostProfiles.userId))
     .where(eq(schema.hostProfiles.userId, hostId));
-  if (!row || row.profile.status !== "approved" || row.profile.hidden || row.closedAt) return null;
+  if (!row || row.profile.status !== "approved" || row.profile.hidden || row.closedAt || row.pausedAt) return null;
   const lengths = readLengths(row.calendar.lengths);
   const weekly = await reader.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hostId));
   if (lengths.length === 0 || weekly.length === 0) return null;
@@ -145,8 +148,17 @@ type Person = { id: string; name: string; email: string };
 
 /** Checks, with both calendars locked, that this request may be sent right now. Throws BookingError if not. */
 async function checkMayAsk(tx: Tx, offer: Offer, booking: { customerId: string; startsAt: Date; lengthMinutes: number; totalCents: number }, now: Date) {
+  const [me] = await tx.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, booking.customerId));
+  if (!me || me.closedAt || me.pausedAt) throw new BookingError("Your account cannot make requests at the moment.");
+  if ((await switches()).requestsOff) throw new BookingError("Connect is not taking new requests right now. Please try again later.");
+  // A block either way looks, from here, exactly like a time that is no longer open.
+  if (await isBlockedEitherWay(booking.customerId, offer.hostId, tx)) throw new BookingError("That time is no longer open. Please choose another.");
   if (!isOpenStart(booking.startsAt, slotInput(offer, await busyOf(tx, offer.hostId, now), booking.lengthMinutes, now))) {
     throw new BookingError("That time is no longer open. Please choose another.");
+  }
+  // Before a first free call, the customer confirms who they are (a paid call has a card behind it).
+  if (booking.totalCents === 0 && !(await identityState(booking.customerId)).passed) {
+    throw new BookingError("Before your first free call, please confirm who you are on your account page.");
   }
   const count = async (...conditions: Parameters<typeof and>) =>
     (await tx.select({ n: sql<number>`count(*)::int` }).from(schema.bookings).where(and(...conditions)))[0].n;
@@ -421,9 +433,11 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
         .leftJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.user.id))
         .leftJoin(schema.hostSettings, eq(schema.hostSettings.userId, schema.user.id))
         .where(eq(schema.user.id, booking.hostId));
-      const [customer] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, booking.customerId));
-      if (!parties || parties.hostClosed || parties.status !== "approved") throw new BookingError("Your host profile is not active, so you cannot accept requests.");
-      if (!customer || customer.closedAt) throw new BookingError("This customer's account is no longer active.");
+      const [customer] = await tx.select({ closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, booking.customerId));
+      const [me] = await tx.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, booking.hostId));
+      if (!parties || parties.hostClosed || parties.status !== "approved" || me?.pausedAt) throw new BookingError("Your host profile is not active, so you cannot accept requests.");
+      if (!customer || customer.closedAt || customer.pausedAt) throw new BookingError("This customer's account is no longer active.");
+      if (await isBlockedEitherWay(booking.hostId, booking.customerId, tx)) throw new BookingError("This request can no longer be accepted.");
       const paid = booking.totalCents > 0;
       if (paid && !(stripeConfigured() && parties.payoutsReady)) {
         throw new BookingError("Your payout account is not ready, so you cannot accept paid requests yet. Finish the payout setup first.");

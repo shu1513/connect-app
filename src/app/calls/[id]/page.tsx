@@ -58,8 +58,11 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           <Link href="/" className="mr-4 underline underline-offset-2">
             Your calls
           </Link>
-          <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
+          <Link href={`/calls/${call.id}/results`} className="mr-4 underline underline-offset-2">
             Results
+          </Link>
+          <Link href="/rules" target="_blank" className="underline underline-offset-2 opacity-70">
+            The rules
           </Link>
         </p>
       </header>

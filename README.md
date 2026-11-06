@@ -37,6 +37,14 @@ While developing, no real email is sent. Confirmation and password-reset emails 
 Google sign-in is switched on by adding `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env.local`.
 Without them the Google button is simply not shown.
 
+The admin account logs in with a password plus a 6-digit code from an authenticator app. For the test
+admin, `npx tsx scripts/secure-test-admin.ts` sets that up once (with the app running) and saves the
+secret in `test-accounts.local.md`; `npx tsx scripts/admin-code.ts` then prints the current code.
+
+The identity check (Stripe Identity) needs a restricted Stripe key with the "sensitive verification
+results" permission in `STRIPE_IDENTITY_KEY`, so the app can read "18 or older". Without it the check
+runs but nobody passes. `SUPPORT_EMAIL` is the address people are told to write to.
+
 ## Checking that it works
 
 ```bash
@@ -64,6 +72,9 @@ Testing tools:
   that it runs the booking jobs with a pretend clock set days ahead, which ends or cancels any
   other open requests and unpaid bookings in the local database. Use it only on a database whose
   bookings you do not mind losing.
+- `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
+  blocking, "End call and report", reports and the founder's actions, the identity check, and the
+  stop switches. Needs the app running and the test admin set up as above.
 - `npx tsx scripts/accounts-check.ts` runs real sign-up and profile journeys against the app running
   on this computer: confirming an email, resetting and changing a password, attempt limits, handles,
   host approval, social media names, and closing an account. It removes the accounts it made.
@@ -106,6 +117,10 @@ Every major module follows the same steps:
 | Asking for a call, accepting, declining | `src/lib/booking/bookings.ts` |
 | The scheduled booking work (time-outs, holds, cut-off) | `src/lib/booking/jobs.ts` |
 | A host's calendar settings | `src/lib/booking/calendar.ts` |
+| What counts as an admin login | `src/lib/admin-gate.ts`, `src/lib/session.ts` |
+| Blocking, reports, the founder's actions, ending a call for safety | `src/lib/safety/` |
+| The identity check | `src/lib/safety/identity.ts` |
+| The rules of the site (one place) | `src/lib/terms.ts`, shown at `/rules` |
 | Database tables | `src/db/schema.ts` |
 | The rule that refuses overlapping calls for one person | `drizzle/0010_busy_no_overlap.sql` |
 
@@ -115,4 +130,4 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: safety, notifications, "available now" calls, messaging and search.
+- The modules still to come: notifications, "available now" calls, messaging and search.

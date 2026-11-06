@@ -12,6 +12,8 @@ export const UNUSED_LOGIN_PATHS = [
   "/revoke-session",
   "/revoke-sessions",
   "/revoke-other-sessions",
+  // The second login step, once set up, cannot be switched off from the app.
+  "/two-factor/disable",
 ];
 
 /**

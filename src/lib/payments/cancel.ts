@@ -32,7 +32,8 @@ export async function cancelCall(input: {
 
   // The customer may have paid a moment ago without our record knowing yet.
   // Ask Stripe first, so a late cancellation cannot slip through as a free one.
-  if (payment?.status === "awaiting_payment" && payment.stripePaymentIntentId) {
+  // (Only a customer's cancellation can be late; for a host or for Connect the outcome is free whatever Stripe says.)
+  if (by === "customer" && payment?.status === "awaiting_payment" && payment.stripePaymentIntentId) {
     payment = await syncHold(payment.id, now);
   }
 

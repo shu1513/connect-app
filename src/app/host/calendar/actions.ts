@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { addTimeOff, addWeeklyHours, CalendarError, calendarOf, removeTimeOff, removeWeeklyHours, saveCalendarChoices } from "@/lib/booking/calendar";
 import { withNotice } from "@/lib/notice";
-import { requireUser } from "@/lib/session";
+import { requireActiveUser } from "@/lib/session";
 
 function back(text: string): never {
   redirect(withNotice("/host/calendar", text));
@@ -16,7 +16,7 @@ function problem(error: unknown): string {
 }
 
 export async function saveChoices(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     await calendarOf(user.id, user.timeZone);
@@ -35,7 +35,7 @@ export async function saveChoices(formData: FormData) {
 }
 
 export async function addHours(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     await addWeeklyHours(user.id, { weekday: Number(formData.get("weekday")), from: String(formData.get("from") ?? ""), to: String(formData.get("to") ?? "") });
@@ -47,7 +47,7 @@ export async function addHours(formData: FormData) {
 }
 
 export async function removeHours(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice = "Those hours were removed. Calls already booked in them still happen.";
   try {
     await removeWeeklyHours(user.id, String(formData.get("id") ?? ""));
@@ -58,7 +58,7 @@ export async function removeHours(formData: FormData) {
 }
 
 export async function addOff(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice: string;
   try {
     const calendar = await calendarOf(user.id, user.timeZone);
@@ -71,7 +71,7 @@ export async function addOff(formData: FormData) {
 }
 
 export async function removeOff(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireActiveUser();
   let notice = "That time off was removed.";
   try {
     await removeTimeOff(user.id, String(formData.get("id") ?? ""));

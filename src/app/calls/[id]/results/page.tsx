@@ -10,7 +10,9 @@ import { loadAttendance } from "@/lib/attendance/load";
 import { formatDuration } from "@/lib/format";
 import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
+import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
+import { getSignedIn, isAdminSession } from "@/lib/session";
 import { requireUser } from "@/lib/session";
 import { refundAction } from "../actions";
 
@@ -28,7 +30,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   const user = await requireUser();
   const { id } = await props.params;
   const notice = readNotice(`/calls/${id}/results`, await props.searchParams);
-  const access = await callForViewer(id, user.id);
+  const access = await callForViewer(id, user.id, await isAdminSession(await getSignedIn()));
   if (!access) notFound();
   const { call, payment, role } = access;
 
@@ -85,6 +87,23 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
         </p>
+      )}
+
+      {call.safetyEndedAt && (
+        <p className="mt-4 rounded border border-red-600 p-3 text-sm">
+          This call was ended with &quot;End call and report&quot; on <LocalTime iso={call.safetyEndedAt.toISOString()} />. Time after that is not
+          counted, and the charge is decided by a person.
+        </p>
+      )}
+
+      {role !== "admin" && (
+        <div className="mt-3 text-sm opacity-70">
+          <Link href={`/report?call=${call.id}`} className="underline underline-offset-2">
+            Report {nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person"}
+          </Link>
+          <span className="mx-2">·</span>
+          <BlockButton userId={role === "host" ? call.customerId : call.hostId} name={nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "this person"} back={`/calls/${call.id}/results`} />
+        </div>
       )}
 
       {call.cancelledAt && (

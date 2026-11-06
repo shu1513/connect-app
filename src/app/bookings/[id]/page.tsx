@@ -10,6 +10,7 @@ import { stripe, stripePublishableKey } from "@/lib/payments/stripe";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction, takeBackAction } from "./actions";
 import { CardStep } from "./card-step";
+import { BlockButton } from "@/components/block-button";
 
 const STAGE_FOR_CUSTOMER: Record<string, string> = {
   card: "Almost there: enter your card to send the request.",
@@ -158,6 +159,16 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
               Decline
             </button>
           </form>
+        </div>
+      )}
+
+      {booking.stage !== "card" && (
+        <div className="mt-8 text-sm opacity-70">
+          <Link href={`/report?booking=${booking.id}`} className="underline underline-offset-2">
+            Report {otherName}
+          </Link>
+          <span className="mx-2">·</span>
+          <BlockButton userId={role === "host" ? booking.customerId : booking.hostId} name={otherName ?? "this person"} back={`/bookings/${booking.id}`} />
         </div>
       )}
 

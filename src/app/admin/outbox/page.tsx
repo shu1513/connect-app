@@ -3,8 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
-import { isAdmin } from "@/lib/payments/access";
-import { requireUser } from "@/lib/session";
+import { requireAdmin } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function OutboxPage() {
   if (process.env.NODE_ENV === "production") notFound();
-  const user = await requireUser();
-  if (!(await isAdmin(user.id))) notFound();
+  await requireAdmin();
 
   const emails = await db.select().from(schema.emailOutbox).orderBy(desc(schema.emailOutbox.createdAt)).limit(50);
 

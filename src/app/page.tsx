@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
+import { readNotice } from "@/lib/notice";
 import { formatMoney, isAdmin } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 
@@ -18,8 +19,9 @@ const REQUEST_LABEL: Record<string, string> = {
 };
 const STATE_LABEL = { not_open_yet: "Not open yet", open: "Open now", closed: "Ended" } as const;
 
-export default async function HomePage() {
+export default async function HomePage(props: PageProps<"/">) {
   const user = await requireUser();
+  const notice = readNotice("/", await props.searchParams);
 
   const calls = await db
     .select()
@@ -72,6 +74,21 @@ export default async function HomePage() {
           </>
         )}
       </p>
+
+      {notice && (
+        <p role="status" className="mt-6 rounded border border-neutral-400 p-3 text-sm">
+          {notice}
+        </p>
+      )}
+
+      {user.paused && (
+        <p className="mt-6 rounded border border-red-600 p-3 text-sm">
+          Your account is paused: you can look, but not book, host or join calls.{" "}
+          <Link href="/paused" className="underline underline-offset-2">
+            Why, and what to do
+          </Link>
+        </p>
+      )}
 
       {toAnswer.length > 0 && (
         <p className="mt-6 rounded border border-blue-600 p-3 text-sm">

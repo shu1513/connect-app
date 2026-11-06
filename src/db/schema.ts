@@ -35,6 +35,24 @@ export const user = pgTable("user", {
   termsVersion: text("terms_version"),
   /** Set when the founder closes the account. A closed account cannot log in. */
   closedAt: timestamp("closed_at", { withTimezone: true }),
+  /** Set when the founder pauses the account: it can log in and look, but not book, host or join calls. */
+  pausedAt: timestamp("paused_at", { withTimezone: true }),
+  pausedReason: text("paused_reason"),
+  /** Kept by the login library: whether this person logs in with a second step (admins must). */
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+});
+
+/** The login library's own table for the second login step (authenticator app and backup codes). */
+export const twoFactor = pgTable("two_factor", {
+  id: text("id").primaryKey(),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  verified: boolean("verified").notNull().default(true),
+  failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
 });
 
 export const session = pgTable("session", {
@@ -166,6 +184,87 @@ export const socialAccounts = pgTable(
     uniqueIndex("social_accounts_confirmed_uq").on(t.network, t.nameKey).where(sql`${t.confirmedAt} is not null`),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Safety: blocks, reports, identity checks, the stop switches.
+// ---------------------------------------------------------------------------
+
+/** One person has cut off another. Checked wherever contact could start or continue. */
+export const blocks = pgTable(
+  "blocks",
+  {
+    blockerId: text("blocker_id")
+      .notNull()
+      .references(() => user.id),
+    blockedId: text("blocked_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("blocks_pair_uq").on(t.blockerId, t.blockedId), index("blocks_blocked_idx").on(t.blockedId)],
+);
+
+/** A report about a person, made from a profile, a request or a call. */
+export const reports = pgTable(
+  "reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** A short number the reporter can quote, for example "R-1042". */
+    reference: bigserial("reference", { mode: "number" }).notNull().unique(),
+    reporterId: text("reporter_id")
+      .notNull()
+      .references(() => user.id),
+    reportedId: text("reported_id")
+      .notNull()
+      .references(() => user.id),
+    /** profile, booking or call. */
+    context: text("context").notNull(),
+    contextId: text("context_id").notNull(),
+    reason: text("reason").notNull(),
+    text: text("text").notNull(),
+    urgent: boolean("urgent").notNull().default(false),
+    /** The profile and request as they were at that moment, as text, so they can be read later even if changed. */
+    snapshot: text("snapshot").notNull().default("{}"),
+    /** open or closed. */
+    status: text("status").notNull().default("open"),
+    adminNote: text("admin_note"),
+    closedBy: text("closed_by").references(() => user.id),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("reports_status_idx").on(t.status, t.urgent), index("reports_reported_idx").on(t.reportedId)],
+);
+
+/**
+ * An identity check at Stripe: a photo of an ID and a matching selfie. We keep
+ * the outcome, "18 or older", and the name on the ID (for the founder only).
+ * Never the date of birth, the ID number or any picture.
+ */
+export const identityChecks = pgTable(
+  "identity_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    stripeSessionId: text("stripe_session_id").notNull().unique(),
+    /** started, processing, verified, failed or canceled. */
+    status: text("status").notNull().default("started"),
+    adult: boolean("adult"),
+    verifiedName: text("verified_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+  },
+  (t) => [index("identity_checks_user_idx").on(t.userId)],
+);
+
+/** The founder's emergency switches. One row. */
+export const siteSwitches = pgTable("site_switches", {
+  id: integer("id").primaryKey(),
+  requestsOff: boolean("requests_off").notNull().default(false),
+  joiningOff: boolean("joining_off").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // ---------------------------------------------------------------------------
 // Calendar and booking.
@@ -334,6 +433,9 @@ export const calls = pgTable(
     roomName: text("room_name").notNull().unique(),
     /** Set once the room has been confirmed empty after closing time. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    /** Set when someone pressed "End call and report": the call ended for both at that moment. */
+    safetyEndedAt: timestamp("safety_ended_at", { withTimezone: true }),
+    safetyEndedBy: text("safety_ended_by"),
     /** Price in cents per 15 minutes. Zero means a free call with no payment. */
     pricePer15Cents: integer("price_per_15_cents").notNull().default(0),
     /** The host's cancelling rule when the call was created: minutes before the start that cancelling is free. */
@@ -415,7 +517,29 @@ export const admins = pgTable("admins", {
   userId: text("user_id")
     .primaryKey()
     .references(() => user.id),
+  /** When this admin set up their second login step. Only logins made after this count as admin logins. */
+  securedAt: timestamp("secured_at", { withTimezone: true }),
 });
+
+/** Every action an admin takes, written down. Rows are only ever added. */
+export const adminActions = pgTable(
+  "admin_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminId: text("admin_id")
+      .notNull()
+      .references(() => user.id),
+    /** What was done, in a few words, for example "profile approved" or "account paused". */
+    action: text("action").notNull(),
+    /** Whom it was done to, when it was done to a person. */
+    targetUserId: text("target_user_id").references(() => user.id),
+    /** What it was done to otherwise (a payment, a report, a social account). */
+    targetId: text("target_id"),
+    detail: text("detail").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("admin_actions_target_idx").on(t.targetUserId), index("admin_actions_time_idx").on(t.createdAt)],
+);
 
 /** One record per paid call. */
 export const payments = pgTable(

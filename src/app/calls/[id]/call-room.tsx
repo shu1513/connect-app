@@ -4,6 +4,7 @@ import "@livekit/components-styles";
 import { LiveKitRoom, PreJoin, VideoConference, type LocalUserChoices } from "@livekit/components-react";
 import { DisconnectReason } from "livekit-client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { formatDuration } from "@/lib/format";
 
@@ -19,6 +20,60 @@ type Props = {
 };
 
 type Connection = { token: string; serverUrl: string };
+
+/**
+ * "End call and report": ends the call for both people at once, so nobody
+ * can come back in, then goes to the report form. Time after this moment is
+ * not counted, and the payment goes to the founder's review list.
+ */
+function EndForSafety({ callId, onLeave }: { callId: string; onLeave: () => void }) {
+  const router = useRouter();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function endNow() {
+    setBusy(true);
+    setFailed(false);
+    onLeave(); // this person leaves at once, whatever happens next
+    const ok = await fetch(`/api/calls/${callId}/end-for-safety`, { method: "POST" })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (ok) router.push(`/report?call=${callId}`);
+    else {
+      setFailed(true);
+      setBusy(false);
+    }
+  }
+  if (failed) {
+    return (
+      <span className="flex items-center gap-2 text-sm text-red-600">
+        <span>You have left, but the call could not be ended for the other person yet.</span>
+        <button type="button" onClick={endNow} className="rounded border border-red-600 px-3 py-1.5">
+          Try again
+        </button>
+      </span>
+    );
+  }
+  if (!asking) {
+    return (
+      <button type="button" onClick={() => setAsking(true)} className="rounded border border-red-600 px-3 py-1.5 text-sm text-red-600">
+        End call and report
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-2 text-sm">
+      <span>End this call for both of you and report what happened?</span>
+      <button type="button" disabled={busy} onClick={endNow} className="rounded bg-red-600 px-3 py-1.5 font-medium text-white disabled:opacity-50">
+        {busy ? "Ending…" : "Yes, end and report"}
+      </button>
+      <button type="button" onClick={() => setAsking(false)} className="underline underline-offset-2">
+        No
+      </button>
+    </span>
+  );
+}
 
 export function CallRoom(props: Props) {
   const startsAt = Date.parse(props.startsAt);
@@ -154,9 +209,12 @@ export function CallRoom(props: Props) {
 
   return (
     <section className="mt-4 flex flex-1 flex-col">
-      <p className="text-lg font-medium" aria-live="polite">
-        {clock}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-lg font-medium" aria-live="polite">
+          {clock}
+        </p>
+        <EndForSafety callId={props.callId} onLeave={() => setConnection(null)} />
+      </div>
       <div className="mt-3 h-[72vh] min-h-[320px] overflow-hidden rounded" data-lk-theme="default">
         <LiveKitRoom
           token={connection.token}

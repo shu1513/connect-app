@@ -5,10 +5,10 @@ import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { endBookingsOfSuspendedHost } from "@/lib/booking/moderation";
 import { withNotice } from "@/lib/notice";
-import { isAdmin } from "@/lib/payments/access";
 import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
 import { confirmSocialName, decideProfile, ProfileError, rejectSocialName } from "@/lib/profiles/profiles";
-import { requireUser } from "@/lib/session";
+import { recordAdminAction } from "@/lib/safety/audit";
+import { requireAdmin } from "@/lib/session";
 
 function back(text: string): never {
   redirect(withNotice("/admin/people", text));
@@ -18,12 +18,6 @@ function problem(error: unknown): string {
   if (error instanceof ProfileError) return error.message;
   console.error("[admin] action failed", error);
   return "Something went wrong. Nothing was changed. Please try again.";
-}
-
-async function requireAdmin() {
-  const user = await requireUser();
-  if (!(await isAdmin(user.id))) redirect("/");
-  return user;
 }
 
 /** Approve, decline or suspend a host profile. */
@@ -38,8 +32,9 @@ export async function decideProfileAction(formData: FormData) {
       decision,
       by: admin.id,
       // What the founder had on screen when deciding.
-      seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? "") },
+      seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? ""), identityCheckId: String(formData.get("seenIdentity") ?? "") || undefined },
     });
+    await recordAdminAction({ adminId: admin.id, action: `profile ${decision}`, targetUserId: String(formData.get("userId") ?? "") });
     notice = { approved: "The profile is approved and public.", declined: "The profile was declined.", suspended: "The profile is suspended and no longer public." }[decision];
     if (decision === "suspended") {
       // The profile is suspended from here on. What happens to its bookings is reported separately.
@@ -69,6 +64,7 @@ export async function decideSocialAction(formData: FormData) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ProfileError("Request not found.");
     if (formData.get("found") === "yes") {
       await confirmSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), code: String(formData.get("code") ?? ""), by: admin.id });
+      await recordAdminAction({ adminId: admin.id, action: "social account confirmed", targetId: id, detail: String(formData.get("nameKey") ?? "") });
       notice = "The account is confirmed and now shown on the host's page.";
     } else {
       await rejectSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), code: String(formData.get("code") ?? "") });
@@ -88,6 +84,7 @@ export async function closeAccountAction(formData: FormData) {
     const [person] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
     if (!person) throw new ProfileError("No account has that email address.");
     const { callsNotEnded } = await closeAccount({ userId: person.id, by: admin.id });
+    await recordAdminAction({ adminId: admin.id, action: "account closed", targetUserId: person.id });
     notice =
       callsNotEnded === 0
         ? "The account is closed. It is logged out everywhere and cannot log in. Its calls that had not started were cancelled at no charge."
@@ -99,7 +96,8 @@ export async function closeAccountAction(formData: FormData) {
 }
 
 export async function reopenAccountAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   await reopenAccount(String(formData.get("userId") ?? ""));
+  await recordAdminAction({ adminId: admin.id, action: "account reopened", targetUserId: String(formData.get("userId") ?? "") });
   back("The account is open again. If it had a host profile, that stays suspended until you approve it.");
 }

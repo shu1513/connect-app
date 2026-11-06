@@ -8,6 +8,7 @@ import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
+import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import {
   addSocial,
@@ -30,6 +31,7 @@ const RULE_LABEL: Record<number, string> = {
 export default async function HostPage(props: PageProps<"/host">) {
   const user = await requireUser();
   const notice = readNotice("/host", await props.searchParams);
+  const identity = await identityState(user.id);
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
   const socials = profile
     ? await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, user.id)).orderBy(schema.socialAccounts.network)
@@ -67,6 +69,22 @@ export default async function HostPage(props: PageProps<"/host">) {
           {notice}
         </p>
       )}
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Confirm who you are</h2>
+        {identity.passed ? (
+          <p className="mt-2 text-sm text-green-700">Done. Your identity is confirmed.</p>
+        ) : (
+          <p className="mt-2 text-sm">
+            Before your profile can be approved, confirm that you are a real adult with a photo of your ID and a selfie, on Stripe&apos;s own
+            pages.{" "}
+            <Link href="/identity" className="underline underline-offset-2">
+              Start here
+            </Link>
+            .
+          </p>
+        )}
+      </section>
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold">Your host profile</h2>

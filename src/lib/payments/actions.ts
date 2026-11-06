@@ -116,6 +116,8 @@ export function capturePayment(input: {
   callEndsAt: Date;
   pricedThroughEventId?: number | null;
   now?: Date;
+  /** The most that may be charged, when less than the booked price (a call stopped for safety). */
+  maxCents?: number;
 }) {
   return runMoneyOperation<CaptureParams, { chargeId: string | null; amountReceived: number }>({
     paymentId: input.paymentId,
@@ -137,6 +139,9 @@ export function capturePayment(input: {
         throw new MoneyError("The amount is below the minimum that can be charged.");
       }
       if (input.amountCents > payment.bookedCents) throw new MoneyError("The amount is more than the booked price.");
+      if (input.maxCents !== undefined && input.amountCents > input.maxCents) {
+        throw new MoneyError("The amount is more than the time before the call was stopped allows.");
+      }
       return {
         amountCents: input.amountCents,
         reason: input.reason,
