@@ -1,17 +1,22 @@
 /**
- * Sending what is in the outbox, through Resend when a key is set.
+ * Sending what is in the outbox, through Resend when a key and a sending
+ * address are set.
  *
  * The rules: a row is claimed before the network is touched, so two helpers
  * never send the same email; the row's own ID is the idempotency key, so a
  * retry after a lost answer cannot send twice; a try older than Resend's
  * 24-hour memory whose answer was lost is never repeated blindly; a helper that
  * died mid-send leaves a lease that runs out, after which the row is picked up
- * again; bounced or complaining addresses are not written to again; and nothing
- * is sent after it has expired, or once the person or the call it is about no
- * longer wants it.
+ * again; bounced addresses are not written to again, and complaining ones get
+ * nothing but the login links they ask for themselves; requests are paced, and
+ * "slow down" from the service is waited out rather than counted as a try; and
+ * nothing is sent after it has expired, or once the person or the call it is
+ * about no longer wants it.
  */
 import { and, eq, isNull, like, lte, or, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
+import { errorSummary } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 
 /** How many emails one call of deliverEmails sends at most. */
@@ -23,15 +28,19 @@ const BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_00
 const IDEMPOTENCY_MEMORY_MS = 24 * 3_600_000;
 /** A reasonable day's worth of event and reminder emails to one address. Login emails have their own limits. */
 const DAILY_CAP_PER_ADDRESS = 50;
+/** Resend allows two requests a second; a short pause between sends keeps under that. */
+const PACE_MS = 600;
 
 /** For test scripts only: touch nothing but emails to matching addresses, so a check never changes other rows. */
 export type Only = { toLike: string };
 
-export type Outcome = { ok: true; providerId: string } | { ok: false; permanent: boolean; error: string };
+/** `slowDown` is set when the service asked us to wait (it did not look at the email): how long, in milliseconds. */
+export type Outcome = { ok: true; providerId: string } | { ok: false; permanent: boolean; error: string; slowDown?: number };
 export type Transport = (email: { id: string; to: string; subject: string; text: string; headers: Record<string, string> }) => Promise<Outcome>;
 
+/** Both the key and the sending address are needed: with the key alone, every send would be refused for an unknown sender. */
 export function deliveryConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY);
+  return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
 }
 
 export function fromAddress(): string {
@@ -51,12 +60,18 @@ export const resendTransport: Transport = async (email) => {
     });
     const body = (await response.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
     if (response.ok && body.id) return { ok: true, providerId: body.id };
-    // Permanent: the request itself is bad (a bad address, a bad payload). Temporary: too many
-    // requests, an earlier try with this key still in progress (409), a key or domain that is
-    // not set up yet (401/403: fixed by configuration, so the retries give it time), or 5xx.
+    const error = `${response.status} ${body.name ?? ""} ${body.message ?? ""}`.trim();
+    // Too many requests: the service says how long to wait (a second if it does not).
+    if (response.status === 429) {
+      const seconds = Number(response.headers.get("retry-after"));
+      return { ok: false, permanent: false, error, slowDown: (Number.isFinite(seconds) && seconds > 0 ? seconds : 1) * 1000 };
+    }
+    // Permanent: the request itself is bad (a bad address, a bad payload). Temporary: an earlier try
+    // with this key still in progress (409), a key or domain that is not set up yet (401/403: fixed
+    // by configuration, so the retries give it time), or 5xx.
     const stillRunning = response.status === 409 && body.name === "concurrent_idempotent_requests";
-    const permanent = response.status >= 400 && response.status < 500 && ![401, 403, 429].includes(response.status) && !stillRunning;
-    return { ok: false, permanent, error: `${response.status} ${body.name ?? ""} ${body.message ?? ""}`.trim() };
+    const permanent = response.status >= 400 && response.status < 500 && ![401, 403].includes(response.status) && !stillRunning;
+    return { ok: false, permanent, error };
   } catch (error) {
     return { ok: false, permanent: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
@@ -75,11 +90,17 @@ const isLoginEmail = (kind: string) => kind === "confirm" || kind === "reset";
  * Expired emails are closed whether or not sending is set up, and login links
  * are never kept past their time.
  */
-export async function expireStaleEmails(now: Date): Promise<number> {
+export async function expireStaleEmails(now: Date, only?: Only): Promise<number> {
   const rows = await db
     .update(schema.emailOutbox)
     .set({ status: "failed", lastError: "expired before it could be sent", leaseUntil: null, body: sql`case when ${schema.emailOutbox.kind} in ('confirm', 'reset') then '' else ${schema.emailOutbox.body} end` })
-    .where(and(or(eq(schema.emailOutbox.status, "queued"), and(eq(schema.emailOutbox.status, "sending"), lte(schema.emailOutbox.leaseUntil, now))), lte(schema.emailOutbox.expiresAt, now)))
+    .where(
+      and(
+        or(eq(schema.emailOutbox.status, "queued"), and(eq(schema.emailOutbox.status, "sending"), lte(schema.emailOutbox.leaseUntil, now))),
+        lte(schema.emailOutbox.expiresAt, now),
+        only ? like(schema.emailOutbox.to, only.toLike) : undefined,
+      ),
+    )
     .returning({ id: schema.emailOutbox.id });
   return rows.length;
 }
@@ -121,7 +142,7 @@ function ownedBy(email: Claimed) {
   return and(eq(schema.emailOutbox.id, email.id), eq(schema.emailOutbox.status, "sending"), eq(schema.emailOutbox.leaseUntil, email.leaseUntil!));
 }
 
-async function finish(email: Claimed, values: Partial<typeof schema.emailOutbox.$inferInsert>): Promise<void> {
+async function finish(email: Claimed, values: PgUpdateSetSource<typeof schema.emailOutbox>): Promise<void> {
   await db.update(schema.emailOutbox).set({ ...values, leaseUntil: null }).where(ownedBy(email));
 }
 
@@ -163,7 +184,7 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
  * Returns how many were sent.
  */
 export async function deliverEmails(now: Date, transport: Transport = resendTransport, only?: Only): Promise<number> {
-  await expireStaleEmails(now);
+  await expireStaleEmails(now, only);
   if (transport === resendTransport && !deliveryConfigured()) return 0;
   let sent = 0;
   for (let i = 0; i < BATCH; i++) {
@@ -178,7 +199,9 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         continue;
       }
       const [bad] = await db.select().from(schema.emailSuppressions).where(eq(schema.emailSuppressions.address, email.to));
-      if (bad) {
+      // A bounce stops everything: the address does not work. A complaint (marked as spam) stops
+      // reminders and event emails, but not a login link the person has just asked for themselves.
+      if (bad && !(bad.reason === "complained" && isLoginEmail(email.kind))) {
         await fail(email, `address not written to: ${bad.reason}`);
         continue;
       }
@@ -203,6 +226,12 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         await fail(email, "an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service");
         continue;
       }
+      // A row that has used up its tries but was never closed (a helper died each time before it could
+      // record the outcome) is closed here, instead of being tried again on every lease.
+      if (email.attempts >= MAX_ATTEMPTS) {
+        await fail(email, `gave up after ${email.attempts} tries; the last one did not finish`);
+        continue;
+      }
 
       // Counted as a try right before the service is asked, so a crash from here on is treated as an unknown outcome.
       const [tried] = await db
@@ -217,16 +246,30 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         // Login links are not kept once the email is out.
         await finish(email, { status: "sent", sentAt: new Date(), providerId: outcome.providerId, lastError: null, ...(isLoginEmail(email.kind) ? { body: "" } : {}) });
         sent++;
+      } else if (outcome.slowDown !== undefined) {
+        // "Slow down" is not a try: the service did not look at the email. It is put back as it was,
+        // due again after the wait, and the rest of this batch waits for the next pass.
+        await finish(email, {
+          status: "queued",
+          attempts: sql`${schema.emailOutbox.attempts} - 1`,
+          ...(tried.attempts === 1 ? { firstTriedAt: null } : {}),
+          nextAttemptAt: new Date(at.getTime() + outcome.slowDown),
+          lastError: `waiting: the sending service asked us to slow down (${outcome.error})`,
+        });
+        break;
       } else if (outcome.permanent || tried.attempts >= MAX_ATTEMPTS) {
         await fail(email, outcome.error);
-        console.error(`[email] could not send ${email.id} to ${email.to}: ${outcome.error}`);
+        console.error(`[email] could not send ${email.id}: ${outcome.error}`);
       } else {
         const wait = BACKOFF_MS[Math.min(tried.attempts - 1, BACKOFF_MS.length - 1)];
         await finish(email, { status: "queued", nextAttemptAt: new Date(at.getTime() + wait), lastError: `unknown or temporary: ${outcome.error}` });
       }
+      // The service's own pace, kept between real sends only.
+      if (transport === resendTransport) await new Promise((resolve) => setTimeout(resolve, PACE_MS));
     } catch (error) {
-      // Something went wrong on our side. The lease runs out and the email is claimed again.
-      console.error(`[email] delivery of ${email.id} failed; will retry`, error);
+      // Something went wrong on our side. The lease runs out and the email is claimed again. The error
+      // itself is not written out: a database error can quote the query, address and link included.
+      console.error(`[email] delivery of ${email.id} failed; will retry (${errorSummary(error)})`);
     }
   }
   return sent;

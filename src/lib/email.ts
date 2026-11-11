@@ -66,7 +66,22 @@ export async function sendEmail(message: Email): Promise<void> {
 
 /** The same, for callers that must not fail because of it. The write is awaited: a lost write would be a lost link. */
 export async function sendEmailInBackground(message: Email): Promise<void> {
-  await sendEmail(message).catch((error) => console.error("[email] could not write", error));
+  // The error itself is not written out: a database error quotes the query, with the address and the link in it.
+  await sendEmail(message).catch((error) => console.error(`[email] could not write a "${message.kind}" email (${errorSummary(error)})`));
+}
+
+/**
+ * A short, safe description of an error for the log: its name and the database's
+ * error code, never its message. A failed query's message quotes the query and
+ * its values, which for an email means the address and any login link.
+ */
+export function errorSummary(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown error";
+  const own = (error as { code?: unknown }).code;
+  const cause = error.cause as { name?: unknown; code?: unknown } | undefined;
+  const code = [own, cause?.code].find((value) => typeof value === "string");
+  const parts = [error.name, typeof cause?.name === "string" ? cause.name : null, code].filter(Boolean);
+  return parts.join(" ");
 }
 
 type Writer = Pick<typeof db, "insert">;

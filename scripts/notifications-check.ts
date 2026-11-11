@@ -2,7 +2,11 @@
  * Testing tool: the notification journeys against the local app and database,
  * with a pretend sending service (nothing is really sent). Removes what it made.
  *
- * Needs the app running (npm run dev). Usage: npx tsx scripts/notifications-check.ts
+ * Needs the app running (npm run dev) and the helper stopped: the reminder
+ * writers are run here with a pretend clock, so they also write reminders for
+ * any other calls in the local database that fall in the shifted windows, and
+ * a running helper would send those (and this run's emails) if sending is on.
+ * Usage: npx tsx scripts/notifications-check.ts
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -13,6 +17,8 @@ import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
 const BASE = "http://localhost:3000";
+// The links in this run's emails point at the app on this computer, whatever .env.local says (it may name a tunnel).
+process.env.BETTER_AUTH_URL = BASE;
 const RUN = randomUUID().slice(0, 8);
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -108,8 +114,10 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log("\n3. Stopping reminder emails from a link");
     {
-      const [person1] = await db.select().from(schema.user).where(eq(schema.user.id, made[1]));
-      const token = person1.unsubscribeToken!;
+      const hostId = `nt-${RUN}-host1`;
+      const [person1] = await db.select().from(schema.user).where(eq(schema.user.id, `nt-${RUN}-cust1`));
+      if (!person1?.unsubscribeToken) throw new Error("the customer from journey 1 has no unsubscribe token; journey 1 should have made one");
+      const token = person1.unsubscribeToken;
       const opened = await fetch(`${BASE}/unsubscribe?token=${token}`, { redirect: "manual" });
       check("opening the link changes nothing (scanners open links)", opened.status === 200 && (await db.select().from(schema.user).where(eq(schema.user.id, person1.id)))[0].reminderEmails === true);
       const bad = await fetch(`${BASE}/api/unsubscribe?token=not-a-real-token-at-all`, { method: "POST" });
@@ -118,18 +126,18 @@ async function main() {
       const [reminder] = await rows(person1.email, "Tomorrow");
       const oneClick = (JSON.parse(reminder.headers ?? "{}")["List-Unsubscribe"] as string).replace(/^<|>$/g, "");
       const clicked = await fetch(oneClick, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "List-Unsubscribe=One-Click" });
-      check("the one-click way (the header's address) switches reminders off for that person only", oneClick.includes("/api/unsubscribe?token=") && clicked.status === 200 && (await db.select().from(schema.user).where(eq(schema.user.id, person1.id)))[0].reminderEmails === false && (await db.select().from(schema.user).where(eq(schema.user.id, made[0])))[0].reminderEmails === true);
+      check("the one-click way (the header's address) switches reminders off for that person only", oneClick.includes("/api/unsubscribe?token=") && clicked.status === 200 && (await db.select().from(schema.user).where(eq(schema.user.id, person1.id)))[0].reminderEmails === false && (await db.select().from(schema.user).where(eq(schema.user.id, hostId)))[0].reminderEmails === true);
       // A new call, due for a reminder right now: nothing is written for the person who opted out, and the host still gets theirs.
-      const later = await call(made[0], person1.id, new Date(now.getTime() + 50 * MINUTE));
+      const later = await call(hostId, person1.id, new Date(now.getTime() + 50 * MINUTE));
       await writeCallReminders(now);
       check("and no more reminders are written for them", (await rows(person1.email, "In an hour")).length === 1 && (await db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `reminder:${later.id}:%`))).length === 1);
       // A reminder already waiting in the outbox when they opt out is not sent either.
-      const [queuedEarlier] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `reminder:${later.id}:${made[0]}:hour`));
-      await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.id, made[0]));
+      const [queuedEarlier] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `reminder:${later.id}:${hostId}:hour`));
+      await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.id, hostId));
       await deliverEmails(new Date(), async () => ({ ok: true, providerId: "should-not-send" }), ONLY);
       const afterOptOut = await row(queuedEarlier.id);
       check("a reminder already written is dropped if the person opts out before it is sent", afterOptOut.status === "failed" && (afterOptOut.lastError ?? "").includes("switched off"), `${afterOptOut.status} ${afterOptOut.lastError}`);
-      await db.update(schema.user).set({ reminderEmails: true }).where(eq(schema.user.id, made[0]));
+      await db.update(schema.user).set({ reminderEmails: true }).where(eq(schema.user.id, hostId));
     }
 
     // ----------------------------------------------------------------------
@@ -177,6 +185,32 @@ async function main() {
       await deliverEmails(new Date(), fake("ok"), ONLY);
       check("an address that bounced is never written to again", (await row(gone.id)).status === "failed" && !sentTo.includes(addr("gone")));
 
+      // Someone who marked our email as spam gets no more reminders or event emails, but still the login link they ask for.
+      await suppressAddress(addr("spam"), "complained");
+      await db.transaction((tx) => queueEmail(tx, { to: addr("spam"), subject: "Spam event", text: "x", key: `spam:${RUN}` }));
+      await sendEmail({ to: addr("spam"), kind: "reset", subject: "Reset your Connect password", text: "http://localhost:3000/reset-password?token=secret" });
+      const [spamEvent] = await rows(addr("spam"), "Spam event");
+      const [spamReset] = await rows(addr("spam"), "Reset");
+      await deliverEmails(new Date(), fake("ok"), ONLY);
+      check("an address that complained gets no event email, but does get a password reset it asked for", (await row(spamEvent.id)).status === "failed" && (await row(spamReset.id)).status === "sent", `${(await row(spamEvent.id)).status} ${(await row(spamReset.id)).status}`);
+
+      // "Slow down" from the service is not a try: the email goes back as it was, due after the wait, and the batch stops.
+      await db.transaction((tx) => queueEmail(tx, { to: addr("busy"), subject: "Busy", text: "x", key: `busy:${RUN}` }));
+      const [busy] = await rows(addr("busy"), "Busy");
+      await deliverEmails(new Date(), async () => ({ ok: false, permanent: false, error: "429 rate_limit_exceeded", slowDown: 2000 }), ONLY);
+      const slowed = await row(busy.id);
+      check("being asked to slow down does not count as a try, and the email is due again shortly", slowed.status === "queued" && slowed.attempts === 0 && slowed.firstTriedAt === null && slowed.nextAttemptAt.getTime() - Date.now() > 1000 && slowed.nextAttemptAt.getTime() - Date.now() <= 2000, `${slowed.status} ${slowed.attempts}`);
+      await db.update(schema.emailOutbox).set({ nextAttemptAt: new Date() }).where(eq(schema.emailOutbox.id, busy.id));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
+      check("and then it goes", (await row(busy.id)).status === "sent");
+
+      // A row that used up its tries without ever recording an outcome (a helper died each time) is closed, not tried again.
+      await db.transaction((tx) => queueEmail(tx, { to: addr("worn"), subject: "Worn out", text: "x", key: `worn:${RUN}` }));
+      const [worn] = await rows(addr("worn"), "Worn out");
+      await db.update(schema.emailOutbox).set({ status: "sending", attempts: 6, firstTriedAt: new Date(now.getTime() - HOUR), leaseUntil: new Date(now.getTime() - 5 * MINUTE) }).where(eq(schema.emailOutbox.id, worn.id));
+      await deliverEmails(new Date(), fake("ok"), ONLY);
+      check("an email that used up its tries without an outcome is closed, not tried for ever", (await row(worn.id)).status === "failed" && !idsSeen.includes(worn.id), (await row(worn.id)).lastError ?? "");
+
       await db.transaction((tx) => queueEmail(tx, { to: addr("old"), subject: "Old", text: "x", key: `old:${RUN}`, expiresAt: new Date(now.getTime() - 1000) }));
       const [old] = await rows(addr("old"), "Old");
       await deliverEmails(new Date(), fake("ok"), ONLY);
@@ -205,7 +239,7 @@ async function main() {
       await db.transaction((tx) => queueEmail(tx, { to: addr("stale"), subject: "Stale link", text: "secret-link", key: `stale:${RUN}`, expiresAt: new Date(now.getTime() - MINUTE) }));
       const [stale] = await rows(addr("stale"), "Stale link");
       await db.update(schema.emailOutbox).set({ kind: "confirm" }).where(eq(schema.emailOutbox.id, stale.id));
-      await delivery.expireStaleEmails(new Date());
+      await delivery.expireStaleEmails(new Date(), ONLY);
       check("an expired login email is closed and its link text purged, whether or not sending is set up", (await row(stale.id)).status === "failed" && (await row(stale.id)).body === "");
 
       // Two helpers at once: each email goes out once.

@@ -11,13 +11,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * The outbox: every email the app has written, with whether it was sent.
- * While developing the full text is shown (nothing is really sent). In the
- * live app only the status is shown, never the text, and a test email can be
- * sent to the admin's own address.
+ * While nothing is really sent, the full text is shown here. As soon as
+ * sending is set up, or in the live app, only the status is shown, never the
+ * text, and a test email can be sent to the admin's own address.
  */
 export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
   const admin = await requireAdmin();
-  const live = process.env.NODE_ENV === "production";
+  const live = process.env.NODE_ENV === "production" || deliveryConfigured();
   const notice = readNotice("/admin/outbox", await props.searchParams);
   const emails = await db.select().from(schema.emailOutbox).orderBy(desc(schema.emailOutbox.createdAt)).limit(50);
   const [counts] = await db
@@ -38,7 +38,7 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
       <p className="mt-2 text-sm opacity-70">
         {deliveryConfigured()
           ? `Sending is on. Waiting to be sent: ${counts.queued}. Failed in the last 7 days: ${counts.failed}.`
-          : "No sending service is set up (no RESEND_API_KEY), so nothing is really sent. The latest 50 messages are shown here instead."}
+          : "No sending service is set up (both RESEND_API_KEY and EMAIL_FROM are needed), so nothing is really sent. The latest 50 messages are shown here instead."}
       </p>
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
