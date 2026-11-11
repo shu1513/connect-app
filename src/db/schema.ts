@@ -40,6 +40,10 @@ export const user = pgTable("user", {
   pausedReason: text("paused_reason"),
   /** Kept by the login library: whether this person logs in with a second step (admins must). */
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  /** Reminder emails before calls and about requests. Emails about things that happened are always sent. */
+  reminderEmails: boolean("reminder_emails").notNull().default(true),
+  /** The secret in this person's unsubscribe link. Only ever switches reminders off. */
+  unsubscribeToken: text("unsubscribe_token").unique(),
 });
 
 /** The login library's own table for the second login step (authenticator app and backup codes). */
@@ -119,10 +123,32 @@ export const emailOutbox = pgTable(
     body: text("body").notNull(),
     /** For emails about an event (a booking was accepted): one key per event, so it is written only once. */
     dedupeKey: text("dedupe_key").unique(),
+    /** Extra headers for the sending service, as JSON (the one-click unsubscribe headers on reminders). */
+    headers: text("headers"),
+    /** queued, sending, sent or failed. */
+    status: text("status").notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    /** When the sending service was first asked. A try older than a day whose answer was lost is never repeated blindly. */
+    firstTriedAt: timestamp("first_tried_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    /** While a helper is sending it, nobody else touches it until this passes. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    /** After this, an unsent email is no longer worth sending (a reminder for a call that has passed). */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    providerId: text("provider_id"),
+    lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("email_outbox_to_idx").on(t.to, t.createdAt)],
+  (t) => [index("email_outbox_to_idx").on(t.to, t.createdAt), index("email_outbox_due_idx").on(t.status, t.nextAttemptAt)],
 );
+
+/** Addresses we must not write to again: the sending service told us they bounce or complained. */
+export const emailSuppressions = pgTable("email_suppressions", {
+  address: text("address").primaryKey(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // ---------------------------------------------------------------------------
 // Host profiles. One per account. Everything else points to the account, never

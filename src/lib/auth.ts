@@ -55,7 +55,7 @@ export const auth = betterAuth({
     // A reset logs out every device, so whoever knew the old password is out.
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
-      sendEmailInBackground({
+      await sendEmailInBackground({
         to: user.email,
         kind: "reset",
         subject: `Reset your ${APP_NAME} password`,
@@ -65,7 +65,7 @@ export const auth = betterAuth({
     // Someone tried to sign up with an address that already has an account. The screen
     // says nothing; the owner of the address is told here.
     onExistingUserSignUp: async ({ user }) => {
-      sendEmailInBackground({
+      await sendEmailInBackground({
         to: user.email,
         kind: "notice",
         subject: `You already have a ${APP_NAME} account`,
@@ -81,7 +81,7 @@ export const auth = betterAuth({
     autoSignInAfterVerification: true,
     expiresIn: ONE_HOUR,
     sendVerificationEmail: async ({ user, url }) => {
-      sendEmailInBackground({
+      await sendEmailInBackground({
         to: user.email,
         kind: "confirm",
         subject: `Confirm your email address for ${APP_NAME}`,

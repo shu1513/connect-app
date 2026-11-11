@@ -31,8 +31,11 @@ Anyone can sign up at `/signup`. Four ready-made test accounts also exist: a hos
 stranger and an admin. Their emails and passwords are in `test-accounts.local.md` (also kept out of
 version history). To create them again on a fresh database: `npm run db:migrate` then `npm run seed`.
 
-While developing, no real email is sent. Confirmation and password-reset emails appear on the
-"Sent emails (testing)" page, linked from the admin page. That page does not exist in the live app.
+Emails go into an outbox. With both `RESEND_API_KEY` (a Resend account) and `EMAIL_FROM` (the sending
+address, on the company's own domain set up at Resend) in `.env.local`, the helper sends them; without
+either, nothing is really sent and the full text is shown on the admin "Emails" page.
+`RESEND_WEBHOOK_SECRET` lets Resend tell us about bounces and complaints, so bad addresses are never
+written to again.
 
 Google sign-in is switched on by adding `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env.local`.
 Without them the Google button is simply not shown.
@@ -72,6 +75,12 @@ Testing tools:
   that it runs the booking jobs with a pretend clock set days ahead, which ends or cancels any
   other open requests and unpaid bookings in the local database. Use it only on a database whose
   bookings you do not mind losing.
+- `npx tsx scripts/notifications-check.ts` runs the notification journeys with a pretend sending
+  service: reminders before calls and about requests, the unsubscribe link, and sending (retries,
+  failures, bounced addresses, two helpers at once). Needs the app running. Stop the helper first:
+  the script runs the reminder writers with a pretend clock, which also writes reminders for any
+  other calls in the local database that fall in the shifted windows, and a running helper would
+  send those (and this run's emails) if sending is on.
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call and report", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.
@@ -121,6 +130,8 @@ Every major module follows the same steps:
 | Blocking, reports, the founder's actions, ending a call for safety | `src/lib/safety/` |
 | The identity check | `src/lib/safety/identity.ts` |
 | The rules of the site (one place) | `src/lib/terms.ts`, shown at `/rules` |
+| Sending emails (the outbox, retries, bounces) | `src/lib/notifications/delivery.ts` |
+| Reminder emails and the unsubscribe link | `src/lib/notifications/reminders.ts`, `unsubscribe.ts` |
 | Database tables | `src/db/schema.ts` |
 | The rule that refuses overlapping calls for one person | `drizzle/0010_busy_no_overlap.sql` |
 
@@ -130,4 +141,4 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: notifications, "available now" calls, messaging and search.
+- The modules still to come: "available now" calls, messaging and search.

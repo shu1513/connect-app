@@ -28,10 +28,15 @@ export const EMAIL_LIMITS: Record<EmailKind, { max: number; hours: number }> = {
 
 type Email = { to: string; kind: EmailKind; subject: string; text: string };
 
+/**
+ * Writes an email to the outbox. The helper's delivery job sends what is in
+ * the outbox when a sending service is set up; until then it just sits there
+ * (and shows on the test page). Login links are purged from the row once the
+ * email is sent, or after they have expired.
+ */
 export async function sendEmail(message: Email): Promise<void> {
   const to = message.to.trim().toLowerCase();
   const limit = EMAIL_LIMITS[message.kind];
-  const live = process.env.NODE_ENV === "production";
   const saved = await db.transaction(async (tx) => {
     // One address at a time, so many requests at the same moment cannot slip past the limit together.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`email:${to}`}))`);
@@ -46,23 +51,37 @@ export async function sendEmail(message: Email): Promise<void> {
         ),
       );
     if (recent.count >= limit.max) return false;
-    // Emails contain login links. In the live app only the fact that one was sent is kept, not its text.
-    await tx.insert(schema.emailOutbox).values({ to, kind: message.kind, subject: message.subject, body: live ? "" : message.text });
+    await tx.insert(schema.emailOutbox).values({
+      to,
+      kind: message.kind,
+      subject: message.subject,
+      body: message.text,
+      // A link that has expired is not worth sending any more.
+      expiresAt: message.kind === "confirm" || message.kind === "reset" ? new Date(Date.now() + 3_600_000) : null,
+    });
     return true;
   });
-  if (!saved) {
-    console.warn(`[email] not sent: this address has had too many "${message.kind}" emails recently`);
-    return;
-  }
-  if (live) {
-    // No sending service has been chosen yet. This must be filled in before real people sign up.
-    console.error("[email] no email service is set up, so this message was not delivered");
-  }
+  if (!saved) console.warn(`[email] not sent: this address has had too many "${message.kind}" emails recently`);
 }
 
-/** For callers that must not wait for the email (so timing gives nothing away) or fail because of it. */
-export function sendEmailInBackground(message: Email): void {
-  void sendEmail(message).catch((error) => console.error("[email] could not send", error));
+/** The same, for callers that must not fail because of it. The write is awaited: a lost write would be a lost link. */
+export async function sendEmailInBackground(message: Email): Promise<void> {
+  // The error itself is not written out: a database error quotes the query, with the address and the link in it.
+  await sendEmail(message).catch((error) => console.error(`[email] could not write a "${message.kind}" email (${errorSummary(error)})`));
+}
+
+/**
+ * A short, safe description of an error for the log: its name and the database's
+ * error code, never its message. A failed query's message quotes the query and
+ * its values, which for an email means the address and any login link.
+ */
+export function errorSummary(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown error";
+  const own = (error as { code?: unknown }).code;
+  const cause = error.cause as { name?: unknown; code?: unknown } | undefined;
+  const code = [own, cause?.code].find((value) => typeof value === "string");
+  const parts = [error.name, typeof cause?.name === "string" ? cause.name : null, code].filter(Boolean);
+  return parts.join(" ");
 }
 
 type Writer = Pick<typeof db, "insert">;
@@ -73,9 +92,12 @@ type Writer = Pick<typeof db, "insert">;
  * email exists exactly when the event happened: never lost, never twice.
  * `key` names the event, for example "accepted:<booking id>:customer".
  */
-export async function queueEmail(tx: Writer, message: { to: string; subject: string; text: string; key: string }): Promise<void> {
-  // These emails carry deadlines and instructions but no login links, so their text is always kept:
-  // it is what the sending service will deliver.
+export async function queueEmail(
+  tx: Writer,
+  message: { to: string; subject: string; text: string; key: string; expiresAt?: Date; headers?: Record<string, string> },
+): Promise<void> {
+  // These emails carry deadlines and instructions but no login links, so their text is kept:
+  // it is what the sending service delivers.
   await tx
     .insert(schema.emailOutbox)
     .values({
@@ -84,6 +106,8 @@ export async function queueEmail(tx: Writer, message: { to: string; subject: str
       subject: message.subject,
       body: message.text,
       dedupeKey: message.key,
+      expiresAt: message.expiresAt ?? null,
+      headers: message.headers ? JSON.stringify(message.headers) : null,
     })
     .onConflictDoNothing();
 }
