@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
@@ -175,6 +176,8 @@ export const hostProfiles = pgTable("host_profiles", {
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   /** When the host confirmed they are based in the United States. */
   usConfirmedAt: timestamp("us_confirmed_at", { withTimezone: true }).notNull(),
+  /** "Available now": calls may be started with this host until this moment. Empty when they are not available. */
+  availableUntil: timestamp("available_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -374,7 +377,11 @@ export const bookings = pgTable(
     /** What the customer wants to talk about. Only the host sees it. */
     note: text("note").notNull().default(""),
     stage: text("stage").notNull(),
-    /** "customer" for a real request; "admin" for a call made on the admin test page. */
+    /**
+     * "customer" for a real request; "admin" for a call made on the admin test page;
+     * "instant" for a call started from "available now"; "extension" for a part 2.
+     * The last two are created already accepted.
+     */
     source: text("source").notNull().default("customer"),
     /** One key per press of the button, so a double click makes one request. */
     requestKey: text("request_key").notNull().unique(),
@@ -471,9 +478,16 @@ export const calls = pgTable(
     cancelledBy: text("cancelled_by"),
     /** True when the customer cancelled after the free period, so the booked price is charged. */
     cancelledLate: boolean("cancelled_late").notNull().default(false),
+    /** Set on a "part 2": more time agreed during the call it points to, as a call of its own that starts when that one ends. */
+    continuesCallId: uuid("continues_call_id").references((): AnyPgColumn => calls.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("calls_host_idx").on(t.hostId), index("calls_customer_idx").on(t.customerId)],
+  (t) => [
+    index("calls_host_idx").on(t.hostId),
+    index("calls_customer_idx").on(t.customerId),
+    // A call has at most one part 2 that is not cancelled. The database guarantees it.
+    uniqueIndex("calls_next_part_uq").on(t.continuesCallId).where(sql`${t.cancelledAt} is null`),
+  ],
 );
 
 // ---------------------------------------------------------------------------

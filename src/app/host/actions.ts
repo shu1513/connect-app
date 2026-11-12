@@ -3,6 +3,8 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { BookingError } from "@/lib/booking/bookings";
+import { setAvailableNow } from "@/lib/booking/instant";
 import { withNotice } from "@/lib/notice";
 import { ensurePayoutAccount, getHostSettings, payoutSetupLink, publicAppUrl } from "@/lib/payments/hosts";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
@@ -56,6 +58,25 @@ export async function saveCancelRule(formData: FormData) {
     .set({ freeCancelMinutes: minutes, updatedAt: new Date() })
     .where(eq(schema.hostSettings.userId, user.id));
   back("Your cancelling rule was saved. It applies to calls created from now on.");
+}
+
+/** The host says they are available now, for a while. */
+export async function setAvailable(formData: FormData) {
+  const user = await requireActiveUser();
+  let notice: string;
+  try {
+    await setAvailableNow(user.id, Number(formData.get("minutes")), new Date());
+    notice = "You are available now. People can start a call with you from your page. Keep Connect open: your calls page refreshes itself.";
+  } catch (error) {
+    notice = error instanceof BookingError ? error.message : problem(error);
+  }
+  back(notice);
+}
+
+export async function stopAvailable() {
+  const user = await requireActiveUser();
+  await setAvailableNow(user.id, null, new Date());
+  back("You are no longer shown as available now. Calls already started still happen.");
 }
 
 function priceCents(formData: FormData): number {

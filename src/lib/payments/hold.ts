@@ -2,7 +2,7 @@
  * The hold: the customer confirms a paid call by having the full booked price
  * held on their card. Nothing is charged at this point.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
@@ -49,12 +49,12 @@ export async function stripeCustomerFor(user: { id: string; name: string; email:
 
 type Payer = { id: string; name: string; email: string };
 
-/** For a call that came from a customer's booking: the moment the money must be held by. */
+/** For a call a customer asked for (a booking, an instant call, a part 2): the moment the money must be held by. Test calls have none. */
 async function payCutoffOf(reader: Pick<typeof db, "select">, callId: string): Promise<Date | null> {
   const [booking] = await reader
     .select({ payBy: schema.bookings.payBy })
     .from(schema.bookings)
-    .where(and(eq(schema.bookings.callId, callId), eq(schema.bookings.source, "customer")));
+    .where(and(eq(schema.bookings.callId, callId), ne(schema.bookings.source, "admin")));
   return booking?.payBy ?? null;
 }
 

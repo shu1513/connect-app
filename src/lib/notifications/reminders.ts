@@ -33,8 +33,12 @@ export async function writeCallReminders(now: Date): Promise<number> {
     .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
     .leftJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
     .where(and(gt(schema.calls.startsAt, now), lte(schema.calls.startsAt, new Date(now.getTime() + 24 * HOUR)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
-  // Test calls made by an admin are not real appointments.
-  const due = soon.filter(({ source }) => source !== "admin").map((row) => ({ ...row, kinds: dueReminders(row.call.startsAt, now) })).filter(({ kinds }) => kinds.length > 0);
+  // Test calls made by an admin are not real appointments; calls started just now, and more time agreed
+  // during a call, need no reminding: both people are already there.
+  const due = soon
+    .filter(({ source }) => source !== "admin" && source !== "instant" && source !== "extension")
+    .map((row) => ({ ...row, kinds: dueReminders(row.call.startsAt, now) }))
+    .filter(({ kinds }) => kinds.length > 0);
   const keyFor = (callId: string, userId: string, kind: string) => `reminder:${callId}:${userId}:${kind}`;
   // Most passes find every due reminder already written. One read says which, instead of a
   // conflicting insert (and the reads before it) for each one, on every pass of the helper.

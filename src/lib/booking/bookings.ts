@@ -27,10 +27,10 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export class BookingError extends Error {}
 
 const DAY = 24 * 3_600_000;
-const DECLINED_BY_HOST = "declined by the host";
+export const DECLINED_BY_HOST = "declined by the host";
 
 /** True when the database refused a row because the person is already taken at that time. */
-function isOverlap(error: unknown): boolean {
+export function isOverlap(error: unknown): boolean {
   const e = error as { code?: string; cause?: { code?: string } };
   return e?.code === "23P01" || e?.cause?.code === "23P01";
 }
@@ -105,7 +105,8 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
   };
 }
 
-async function busyOf(reader: Pick<typeof db, "select">, userId: string, from: Date): Promise<Interval[]> {
+/** Everything a person is taken for from `from` on: their calls (with the break, for a host) and their own waiting requests. */
+export async function busyOf(reader: Pick<typeof db, "select">, userId: string, from: Date): Promise<Interval[]> {
   const rows = await reader
     .select({ start: schema.busyEntries.startsAt, end: schema.busyEntries.endsAt })
     .from(schema.busyEntries)

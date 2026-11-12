@@ -22,6 +22,11 @@ describe("when the room can be entered", () => {
   it("closes exactly 1 minute after the end", () => {
     expect(roomState(call, at("2026-01-01T10:01:00Z"))).toBe("closed");
   });
+  it("a part 2 (more time agreed during a call) opens at its start, not early", () => {
+    const part2 = { ...call, continuesCallId: "call-before" };
+    expect(roomState(part2, at("2026-01-01T08:59:59Z"))).toBe("not_open_yet");
+    expect(roomState(part2, at("2026-01-01T09:00:00Z"))).toBe("open");
+  });
 });
 
 describe("who may enter", () => {

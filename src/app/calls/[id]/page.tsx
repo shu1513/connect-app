@@ -1,10 +1,14 @@
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
+import { nextPartOf } from "@/lib/booking/instant";
+import { readLengths } from "@/lib/booking/rules";
 import { roomClosesAt, roomOpensAt } from "@/lib/calls";
 import { callForParticipant, formatMoney } from "@/lib/payments/access";
+import { bookedTotalCents } from "@/lib/payments/pricing";
 import { syncHold } from "@/lib/payments/hold";
 import { cancellationOutcome, paymentBlocksJoin, payOpensAt, payWindow } from "@/lib/payments/rules";
 import { requireUser } from "@/lib/session";
@@ -38,6 +42,14 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
   const [other] = await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, otherId));
   const bookedPrice = payment ? formatMoney(payment.bookedCents) : null;
 
+  // A call started just now, or more time agreed during a call, must be paid before its start.
+  const [booking] = await db.select({ source: schema.bookings.source, payBy: schema.bookings.payBy }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
+  const startsNow = booking?.source === "instant" || booking?.source === "extension";
+  // More time, offered during the call: what the host can offer, and the part 2 if there is one.
+  const [calendar] = role === "host" ? await db.select({ lengths: schema.hostCalendars.lengths }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, call.hostId)) : [];
+  const offerLengths = role === "host" ? readLengths(calendar?.lengths ?? "30").map((minutes) => ({ minutes, price: call.pricePer15Cents > 0 ? formatMoney(bookedTotalCents(call.pricePer15Cents, minutes * 60)) : null })) : [];
+  const next = await nextPartOf(call.id);
+
   const cancel = cancellationOutcome({
     by: role,
     now,
@@ -51,7 +63,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6">
       <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <h1 className="text-xl font-semibold">
-          Call with {other?.name ?? "Unknown"}{" "}
+          {call.continuesCallId ? "More time with" : "Call with"} {other?.name ?? "Unknown"}{" "}
           <span className="text-sm font-normal opacity-70">(you are the {role})</span>
         </h1>
         <p className="text-sm">
@@ -67,10 +79,18 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
         </p>
       </header>
       <p className="mt-1 text-sm opacity-70">
-        Booked: <LocalTime iso={call.startsAt.toISOString()} /> to <LocalTime iso={call.endsAt.toISOString()} />
+        {startsNow ? "Starts" : "Booked"}: <LocalTime iso={call.startsAt.toISOString()} /> to <LocalTime iso={call.endsAt.toISOString()} />
         {payment
           ? ` · ${formatMoney(payment.pricePer15Cents)} per 15 minutes, up to ${bookedPrice}`
           : " · Free call"}
+        {call.continuesCallId && (
+          <>
+            {" · "}
+            <Link href={`/calls/${call.continuesCallId}`} className="underline underline-offset-2">
+              the part before this
+            </Link>
+          </>
+        )}
       </p>
 
       {call.cancelledAt ? (
@@ -92,17 +112,35 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
               <p className="mt-2 text-sm opacity-70">That is 2 days before it starts.</p>
             </section>
           ) : (
-            <PayPanel
-              callId={call.id}
-              bookedPrice={bookedPrice!}
-              pricePer15={formatMoney(payment.pricePer15Cents)}
-              cancelRule={cancelRuleSentence(call.freeCancelMinutes, bookedPrice!)}
-            />
+            <>
+              {startsNow && booking?.payBy && (
+                <p className="mt-6 rounded border border-amber-600 p-3 text-sm">
+                  Please confirm your card before the call starts, at <LocalTime iso={booking.payBy.toISOString()} seconds />. If the money is not
+                  held by then, the call is cancelled and nothing is charged.
+                </p>
+              )}
+              <PayPanel
+                callId={call.id}
+                bookedPrice={bookedPrice!}
+                pricePer15={formatMoney(payment.pricePer15Cents)}
+                cancelRule={cancelRuleSentence(call.freeCancelMinutes, bookedPrice!)}
+              />
+            </>
           )
         ) : (
           <section className="mt-10">
             <p className="text-lg">Waiting for {other?.name ?? "the customer"} to confirm and pay.</p>
-            <p className="mt-2 text-sm opacity-70">The call can only start once {bookedPrice} is held on their card.</p>
+            <p className="mt-2 text-sm opacity-70">
+              The call can only start once {bookedPrice} is held on their card.
+              {startsNow && booking?.payBy && (
+                <>
+                  {" "}
+                  If that has not happened by <LocalTime iso={booking.payBy.toISOString()} seconds />, the call is cancelled and your time is free
+                  again. This page updates by itself.
+                </>
+              )}
+            </p>
+            {startsNow && <AutoRefresh everySeconds={10} />}
           </section>
         )
       ) : blocked ? (
@@ -118,11 +156,16 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
         <CallRoom
           callId={call.id}
           userName={user.name}
+          otherName={other?.name ?? "the other person"}
+          role={role}
           startsAt={call.startsAt.toISOString()}
           endsAt={call.endsAt.toISOString()}
           opensAt={roomOpensAt(call).toISOString()}
           closesAt={roomClosesAt(call).toISOString()}
           serverNow={new Date().toISOString()}
+          offerLengths={offerLengths}
+          pricePer15={payment ? formatMoney(payment.pricePer15Cents) : null}
+          next={next ? { id: next.id, startsAt: next.startsAt.toISOString(), lengthMinutes: next.lengthMinutes, price: next.bookedCents > 0 ? formatMoney(next.bookedCents) : null, status: next.status } : null}
         />
       )}
 

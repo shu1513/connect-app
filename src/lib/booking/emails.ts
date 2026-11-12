@@ -51,7 +51,8 @@ export type BookingEvent =
   | "cancelled_unpaid"
   | "cancelled_by_host"
   | "cancelled_by_customer"
-  | "cancelled_by_connect";
+  | "cancelled_by_connect"
+  | "instant_started";
 
 /** Writes the emails for one thing that happened to a booking. */
 export async function queueBookingEmails(tx: Writer, booking: Booking, event: BookingEvent): Promise<void> {
@@ -111,11 +112,30 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
       ]);
       break;
     case "cancelled_unpaid":
+      if (booking.source === "instant" || booking.source === "extension") {
+        // A call started just now, or more time offered during a call: the card was not confirmed before the start.
+        await toCustomer(`Your call with ${hostShown} was cancelled`, [
+          `Your card was not confirmed before your ${length} call with ${hostShown} was due to start, so the call was cancelled. Nothing was charged.`,
+        ]);
+        await toHost(`Your call with ${customer.name} was cancelled`, [
+          `${customer.name} did not confirm their card before the ${length} call was due to start, so it was cancelled. Your time is free again.`,
+        ]);
+        break;
+      }
       await toCustomer(`Your call with ${hostShown} was cancelled`, [
         `The hold for your call on ${whenC} could not be placed in time, so the booking was cancelled. Nothing was charged.`,
       ]);
       await toHost(`Your call with ${customer.name} was cancelled`, [
         `The customer's payment for the call on ${whenH} could not be held in time, so the booking was cancelled. That time is open again.`,
+      ]);
+      break;
+    case "instant_started":
+      await toHost(`${customer.name} is calling you now`, [
+        `${customer.name} has started a ${length} call with you. It begins at ${whenH}, about 5 minutes after they pressed the button, and the room is open now.`,
+        booking.totalCents > 0
+          ? `It is a paid call: the room lets you both in once $${(booking.totalCents / 100).toFixed(2)} is held on their card. If that does not happen before the start, the call is cancelled and your time is free again.`
+          : "It is a free call.",
+        `Join here: ${appUrl()}/calls/${booking.callId}`,
       ]);
       break;
     case "cancelled_by_host":

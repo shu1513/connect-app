@@ -1,3 +1,4 @@
+import { nextPartOf } from "@/lib/booking/instant";
 import { canJoin } from "@/lib/calls";
 import { callForParticipant } from "@/lib/payments/access";
 import { paymentBlocksJoin } from "@/lib/payments/rules";
@@ -61,6 +62,13 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   if (!decision.allowed) {
     if (decision.reason === "not_on_call") return Response.json({ error: "Call not found." }, { status: 404 });
     return Response.json({ error: MESSAGES[decision.reason] }, { status: 409 });
+  }
+  // Once this part's time is up and more time follows, the place to be is the next part: entering this room again
+  // would take the person out of that one.
+  if (now >= call.endsAt) {
+    const next = await nextPartOf(call.id);
+    // (An unpaid next part is about to be cancelled, so it does not count.)
+    if (next?.status === "ready") return Response.json({ error: "This part of the call is over. Join the next part.", nextCallId: next.id }, { status: 409 });
   }
 
   const blocked = paymentBlocksJoin({ payment, callEndsAt: call.endsAt, now });

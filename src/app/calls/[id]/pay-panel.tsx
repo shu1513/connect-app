@@ -13,6 +13,8 @@ type Props = {
   pricePer15: string;
   /** Plain sentence describing the host's cancelling rule for this call. */
   cancelRule: string;
+  /** Inside a running call (paying for more time): the explanation is already on screen, so only the form is shown. */
+  compact?: boolean;
 };
 
 /** The customer's confirm-and-pay step. The card is entered in Stripe's own form. */
@@ -41,23 +43,27 @@ export function PayPanel(props: Props) {
   }, [props.callId, router]);
 
   return (
-    <section className="mt-6 max-w-xl rounded border border-neutral-400 p-4">
-      <h2 className="text-lg font-semibold">Confirm and pay</h2>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-        <li>
-          This call costs {props.pricePer15} per 15 minutes, up to <strong>{props.bookedPrice}</strong> in total.
-        </li>
-        <li>
-          {props.bookedPrice} is held on your card now. Nothing is charged until after the call, and you are never charged
-          more than that.
-        </li>
-        <li>
-          You pay for the time the host is in the call during the booked time.{" "}
-          <strong>That includes time the host spends waiting if you are late or do not join.</strong>
-        </li>
-        <li>If the host is late, leaves early or does not show up, you do not pay for that time.</li>
-        <li>{props.cancelRule}</li>
-      </ul>
+    <section className={props.compact ? "mt-2 max-w-xl" : "mt-6 max-w-xl rounded border border-neutral-400 p-4"}>
+      {!props.compact && (
+        <>
+          <h2 className="text-lg font-semibold">Confirm and pay</h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            <li>
+              This call costs {props.pricePer15} per 15 minutes, up to <strong>{props.bookedPrice}</strong> in total.
+            </li>
+            <li>
+              {props.bookedPrice} is held on your card now. Nothing is charged until after the call, and you are never charged
+              more than that.
+            </li>
+            <li>
+              You pay for the time the host is in the call during the booked time.{" "}
+              <strong>That includes time the host spends waiting if you are late or do not join.</strong>
+            </li>
+            <li>If the host is late, leaves early or does not show up, you do not pay for that time.</li>
+            <li>{props.cancelRule}</li>
+          </ul>
+        </>
+      )}
 
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-600">

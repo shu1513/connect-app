@@ -73,7 +73,7 @@ async function tellHostsAboutNewRequests(now: Date): Promise<void> {
   }
 }
 
-/** Accepted, paid bookings whose money is not held yet, joined with their call and payment. */
+/** Accepted, paid bookings whose money is not held yet, joined with their call and payment. Each job narrows this further. */
 function unpaidBookings() {
   return db
     .select({ booking: schema.bookings, call: schema.calls, payment: schema.payments })
@@ -83,7 +83,7 @@ function unpaidBookings() {
     .where(
       and(
         eq(schema.bookings.stage, "accepted"),
-        eq(schema.bookings.source, "customer"),
+        ne(schema.bookings.source, "admin"),
         eq(schema.payments.status, "awaiting_payment"),
         isNull(schema.calls.cancelledAt),
       ),
@@ -179,12 +179,17 @@ async function noteUnsettledTries(now: Date): Promise<void> {
   }
 }
 
-/** Money not held by the cut-off: the booking is cancelled for free and both people are told. */
+/**
+ * Money not held by the cut-off: the booking is cancelled for free and both
+ * people are told. For a booking the cut-off is hours before the call; for an
+ * instant call or a part 2 it is the start itself, and the cancellation is
+ * allowed after the start too (nobody can be inside an unpaid call).
+ */
 async function cancelUnpaidAtCutoff(now: Date): Promise<void> {
   const late = await unpaidBookings().where(
     and(
       eq(schema.bookings.stage, "accepted"),
-      eq(schema.bookings.source, "customer"),
+      ne(schema.bookings.source, "admin"),
       eq(schema.payments.status, "awaiting_payment"),
       isNull(schema.calls.cancelledAt),
       lte(schema.bookings.payBy, now),

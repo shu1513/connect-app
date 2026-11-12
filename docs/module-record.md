@@ -21,7 +21,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 4. Calendar and booking | Built and merged. |
 | 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
 | 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
-| 7. "Available now" calls and extending a call | Not started. |
+| 7. "Available now" calls and extending a call | Built; in review. |
 | 8. Ratings, notes, contacts, search; messaging | Not started. |
 | Final pass: joining everything together | Not started. |
 
@@ -270,6 +270,43 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 
 **Still open**
 - Real delivery and inbox placement need the Resend account and the company's web address (founder).
+
+---
+
+## Module 7: "Available now" calls and more time during a call
+
+**Plan:** `plans/07-available-now.md`
+
+**What was recommended, and what was decided** (the builder decides after Astra's check; the founder asked for everything to be documented)
+
+| # | Topic | Decided |
+| --- | --- | --- |
+| 1 | The switch | On the Hosting page: "Take calls that start in the next 30 minutes / 1 hour / 2 hours". It switches itself off; the host can stop it early. Needs an approved, visible profile and, for a paid host, a payout account Stripe confirms is ready. Weekly hours do not matter while it is on; booked calls still come first (a length that would run into one is not offered). |
+| 2 | How a call starts | The customer picks a length on the host's page, reads a summary, presses the button. The call exists at once and starts 5 minutes later; the room is open right away; the minutes before the start are not counted. A paid call must be paid (the usual hold, on the call page) before the start, or the helper cancels it for free. Because nobody can be inside an unpaid call, that one kind of cancellation is allowed even after the start (Astra's finding: the helper can be late). Instant calls are free to cancel until they start, whatever the host's rule for booked calls. |
+| 3 | Gates and limits | The booking gates, checked explicitly under both calendar locks: approved and visible host, nobody paused or closed, no block, both stop switches off, identity before a first free call, at most 3 free calls coming up, the 7-day cooling-off after a decline, payout readiness re-checked with Stripe before a paid call. At most 3 instant starts with one host and 10 in total per customer per day, cancelled or unpaid ones included. The database's overlap rule settles two customers pressing the button at once. |
+| 4 | Telling the host | An email at once with the link; the home page refreshes itself every half minute while the host is available; the call page refreshes itself while it waits for the payment. No sounds or phone notifications (module 6). |
+| 5 | More time during a call | A second part, not a longer first part: the host offers 15/30/45/60 minutes (from their lengths) while at least 5 minutes remain; a part 2 is a call of its own between the same two people at the same price, starting exactly when part 1 ends, with its own hold, charge, receipt and payout (so the fixed 30 cents of our fee applies to each paid part). The customer pays for it inside the call page, under the video. A paid part 2 unpaid at its start is cancelled for free; a free part 2 is a real call at once and the customer can decline it with one click. Either person can withdraw or decline before it starts. One pending part 2 per call, guaranteed by the database. "End call and report" on part 1 cancels a pending part 2. |
+| 6 | Changing rooms | A part 2 is a new room. Its room opens at its start, not 5 minutes early, so joining it never pulls anyone out of part 1 while it is still being counted; once part 1's time is up and a part 2 follows, part 1 cannot be re-entered. Both people are taken to part 2's page when part 1's time is up and join with one click. Part 2's reservation of the host's time begins where part 1's break ends, so nothing is shortened or put back. |
+| 7 | Why not stretch the call | A card hold cannot be raised reliably (Stripe's incremental authorisation only works for some cards and businesses), and every money rule assumes one hold per call. Astra's check reached the same conclusion. |
+| 8 | Not now | Customers proposing an extension (they ask out loud), a queue for a busy host, extending within the same room, sounds and phone notifications, "accept automatically" for bookings. |
+
+**Astra's check of the plan** (11 November 2026): 12 findings; verdict "build with changes". Taken: the unpaid-after-start cancellation; no early opening and no re-entry around a part 2; "End call and report" ending a pending part 2; offers only while 5 minutes remain so a part 2 always starts at part 1's end; one pending part per call in the database; explicit gates and limits with `requestedAt` set on instant bookings; payout readiness re-checked before money is held; the source-dependent code paths named one by one; a bank's approval step handled by checking part 2's hold whenever the call page asks for it. Simplified: instead of shortening and restoring the host's break around an extension, part 2's reservation starts where part 1's break ends. Not taken: a separate "accept" step for a free extension (the customer can decline with one click; a separate offer state is more machinery than the problem needs).
+
+**What was built**
+- The plain rules (`src/lib/booking/instant-rules.ts`, tested on their own): when an instant call starts, which lengths fit around what both people are taken for, when more time may be offered; a part 2's room opens at its start (`src/lib/calls.ts`).
+- Tables: "available until" on the host profile; "continues call" on calls with the rule "one pending part 2 per call"; booking sources "instant" and "extension".
+- One function makes a call that starts now (`src/lib/booking/instant.ts`): the gates, the call, its payment, the booking (already accepted, pay-by at the start) and both busy entries, under both calendar locks. The switch; what a host offers right now; the host's offer of more time; the pending part 2 of a call.
+- The pay cut-off, the unpaid-at-the-cut-off job and the booking emails know the new sources; cancelling an unpaid call is allowed after its start; reminders skip calls that start now; the join check sends people on to the next part once this one's time is up; "End call and report" cancels a pending part 2.
+- Screens: the Hosting page section; "Available now" on the host's public page with the lengths that fit; the summary page; the host's email; the self-refreshing home page and waiting screen; the pay-by time on the call page; inside the call, the host's "offer more time" buttons, the customer's accept-and-pay panel with the card form under the video, withdraw and decline, the move to the next part; the parts linked on the results page. Three small endpoints behind it (offer, the pending part, cancel from inside the call).
+
+**What the reviewers found:** to be filled in when the module is merged.
+
+**How it was checked**
+- 55 checks over 7 real journeys (`scripts/instant-check.ts`) against the local database and Stripe's test area; 12 new automatic tests (181 in total); all earlier journeys.
+
+**Still open**
+- Moving from one room to the next on two real devices, and whether LiveKit Cloud's cancellation of entry passes stays within one room (the two-device test already on the list).
+- A card whose bank asks for its own approval step while a part 2 is paid for inside a call.
 
 ---
 

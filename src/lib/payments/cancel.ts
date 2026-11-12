@@ -37,13 +37,19 @@ export async function cancelCall(input: {
     payment = await syncHold(payment.id, now);
   }
 
-  const outcome = cancellationOutcome({
-    by,
-    now,
-    startsAt: call.startsAt,
-    freeCancelMinutes: call.freeCancelMinutes,
-    held: payment?.status === "held",
-  });
+  // An unpaid call is cleared away by the helper even after its start: nobody can be inside a call whose
+  // money is not held, so there is nothing to protect, and the host's time should not stay taken.
+  const unpaid = input.reason === "unpaid";
+  if (unpaid && payment?.status !== "awaiting_payment") throw new MoneyError("This call has been paid for, so it is not cancelled as unpaid.");
+  const outcome = unpaid
+    ? "free"
+    : cancellationOutcome({
+        by,
+        now,
+        startsAt: call.startsAt,
+        freeCancelMinutes: call.freeCancelMinutes,
+        held: payment?.status === "held",
+      });
   if (outcome === "not_allowed") throw new MoneyError("This call has started, so it can no longer be cancelled.");
 
   // Mark the call cancelled first, so nobody can join it. Only the first cancel wins.
@@ -52,7 +58,7 @@ export async function cancelCall(input: {
     const marked = await tx
       .update(schema.calls)
       .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
-      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)))
+      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), unpaid ? undefined : gt(schema.calls.startsAt, now)))
       .returning({ id: schema.calls.id });
     if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
     await releaseBookingOfCall(tx, call.id, by, input.reason);

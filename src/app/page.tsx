@@ -1,5 +1,6 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
 import Link from "next/link";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { LocalTime } from "@/components/local-time";
 import { SignOutButton } from "@/components/sign-out-button";
 import { db, schema } from "@/db";
@@ -45,7 +46,12 @@ export default async function HomePage(props: PageProps<"/">) {
   const paymentOf = new Map(payments.map((p) => [p.callId, p]));
   const admin = await isAdmin(user.id);
   const now = new Date();
-  const [requests, toAnswer] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id)]);
+  const [requests, toAnswer, [hosting]] = await Promise.all([
+    requestsOfCustomer(user.id, now),
+    waitingForHost(user.id),
+    db.select({ availableUntil: schema.hostProfiles.availableUntil }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id)),
+  ]);
+  const availableNow = Boolean(hosting?.availableUntil && hosting.availableUntil > now);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -87,6 +93,17 @@ export default async function HomePage(props: PageProps<"/">) {
           <Link href="/paused" className="underline underline-offset-2">
             Why, and what to do
           </Link>
+        </p>
+      )}
+
+      {availableNow && (
+        <p className="mt-6 rounded border border-green-700 p-3 text-sm">
+          You are available now, until <LocalTime iso={hosting!.availableUntil!.toISOString()} />. A call someone starts with you appears
+          below by itself; this page refreshes every half minute.{" "}
+          <Link href="/host" className="underline underline-offset-2">
+            Change
+          </Link>
+          <AutoRefresh everySeconds={30} />
         </p>
       )}
 

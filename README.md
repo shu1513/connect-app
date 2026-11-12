@@ -75,6 +75,12 @@ Testing tools:
   that it runs the booking jobs with a pretend clock set days ahead, which ends or cancels any
   other open requests and unpaid bookings in the local database. Use it only on a database whose
   bookings you do not mind losing.
+- `npx tsx scripts/instant-check.ts` runs the "available now" and "more time during a call" journeys
+  against the local database and the Stripe sandbox: the switch, free and paid calls that start now,
+  one that is never paid for (cancelled even after its start), two customers at the same moment, the
+  gates and the daily limit, a part 2 offered, paid, declined, withdrawn, never paid for, and ended by
+  "End call and report". Stop the helper first; like `booking-check.ts` it uses `host@test.local` as
+  the paid host and replaces that host's calendar.
 - `npx tsx scripts/notifications-check.ts` runs the notification journeys with a pretend sending
   service: reminders before calls and about requests, the unsubscribe link, and sending (retries,
   failures, bounced addresses, two helpers at once). Needs the app running. Stop the helper first:
@@ -126,6 +132,7 @@ Every major module follows the same steps:
 | Asking for a call, accepting, declining | `src/lib/booking/bookings.ts` |
 | The scheduled booking work (time-outs, holds, cut-off) | `src/lib/booking/jobs.ts` |
 | A host's calendar settings | `src/lib/booking/calendar.ts` |
+| Calls that start now ("available now") and more time during a call (a part 2) | `src/lib/booking/instant.ts`; the plain rules in `instant-rules.ts` |
 | What counts as an admin login | `src/lib/admin-gate.ts`, `src/lib/session.ts` |
 | Blocking, reports, the founder's actions, ending a call for safety | `src/lib/safety/` |
 | The identity check | `src/lib/safety/identity.ts` |
@@ -141,4 +148,4 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: "available now" calls, messaging and search.
+- The modules still to come: ratings, messaging and search.

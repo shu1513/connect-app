@@ -45,6 +45,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
   ]);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  // More time agreed during this call, each part a call of its own.
+  const laterParts = await db.select({ id: schema.calls.id, cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.continuesCallId, call.id)).orderBy(asc(schema.calls.createdAt));
   const who = (identity: string | null) =>
     identity === call.hostId
       ? `${nameOf.get(identity) ?? "Host"} (host)`
@@ -110,6 +112,29 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         <p className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           This call was cancelled by {call.cancelledBy === "admin" ? "Connect" : `the ${call.cancelledBy}`} on <LocalTime iso={call.cancelledAt.toISOString()} />
           {call.cancelledLate ? ", after the free cancelling period." : "."}
+        </p>
+      )}
+
+      {(call.continuesCallId || laterParts.length > 0) && (
+        <p className="mt-4 text-sm opacity-80">
+          {call.continuesCallId && (
+            <>
+              This was more time agreed during{" "}
+              <Link href={`/calls/${call.continuesCallId}/results`} className="underline underline-offset-2">
+                the part before it
+              </Link>
+              .{" "}
+            </>
+          )}
+          {laterParts.map((part) => (
+            <span key={part.id}>
+              More time was agreed after it:{" "}
+              <Link href={`/calls/${part.id}/results`} className="underline underline-offset-2">
+                the next part
+              </Link>
+              {part.cancelledAt ? " (cancelled)" : ""}.{" "}
+            </span>
+          ))}
         </p>
       )}
 

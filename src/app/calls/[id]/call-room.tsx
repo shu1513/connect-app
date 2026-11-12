@@ -5,21 +5,42 @@ import { LiveKitRoom, PreJoin, VideoConference, type LocalUserChoices } from "@l
 import { DisconnectReason } from "livekit-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format";
+import { PayPanel } from "./pay-panel";
+
+/** More time agreed during this call: the part 2 that starts when this one ends. */
+export type NextPartView = {
+  id: string;
+  startsAt: string;
+  lengthMinutes: number;
+  /** "$20.00", or null for a free part. */
+  price: string | null;
+  status: "unpaid" | "ready";
+};
 
 type Props = {
   callId: string;
   userName: string;
+  otherName: string;
+  role: "host" | "customer";
   startsAt: string;
   endsAt: string;
   opensAt: string;
   closesAt: string;
   /** The server's clock when the page was made. Used to correct a wrong device clock. */
   serverNow: string;
+  /** For the host: the lengths they can offer as more time, with the price of each (null when free). */
+  offerLengths: Array<{ minutes: number; price: string | null }>;
+  /** "$20.00" per 15 minutes, or null for a free call. */
+  pricePer15: string | null;
+  next: NextPartView | null;
 };
 
 type Connection = { token: string; serverUrl: string };
+
+/** More time may be offered while at least this long remains (the same rule as on the server). */
+const OFFER_WHILE_LEFT_MS = 5 * 60_000;
 
 /**
  * "End call and report": ends the call for both people at once, so nobody
@@ -75,7 +96,115 @@ function EndForSafety({ callId, onLeave }: { callId: string; onLeave: () => void
   );
 }
 
+const clockText = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+/**
+ * More time: the host offers it, the customer confirms a card for it (a paid
+ * call) right here, and both are taken to the next part when this one ends.
+ */
+function MoreTime(props: { callId: string; role: "host" | "customer"; otherName: string; now: number; endsAt: number; offerLengths: Props["offerLengths"]; next: NextPartView | null; onChange: (next: NextPartView | null) => void }) {
+  const { next, now, endsAt } = props;
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const canOffer = props.role === "host" && !next && endsAt - now >= OFFER_WHILE_LEFT_MS && props.offerLengths.length > 0;
+  const partStarted = next ? now >= Date.parse(next.startsAt) : false;
+
+  async function call(path: string, body?: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const response = await fetch(path, { method: "POST", headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+      const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) setProblem(typeof json.error === "string" ? json.error : "Something went wrong. Please try again.");
+      return { ok: response.ok, body: json };
+    } catch {
+      setProblem("Could not reach the server. Check your internet connection and try again.");
+      return { ok: false, body: {} };
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function offer(minutes: number) {
+    const { ok, body } = await call(`/api/calls/${props.callId}/extend`, { lengthMinutes: minutes });
+    if (ok) await refresh();
+    void body;
+  }
+  async function refresh() {
+    const response = await fetch(`/api/calls/${props.callId}/next`).catch(() => null);
+    if (response?.ok) props.onChange(((await response.json()) as { next: NextPartView | null }).next);
+  }
+  async function cancelNext() {
+    if (!next) return;
+    const { ok } = await call(`/api/calls/${next.id}/cancel`);
+    if (ok) props.onChange(null);
+  }
+
+  if (!next && !canOffer) return null;
+  const buttons = "rounded border border-neutral-500 px-3 py-1.5 text-sm disabled:opacity-50";
+  return (
+    <section className="mt-3 rounded border border-neutral-400 p-3 text-sm">
+      {problem && (
+        <p role="alert" className="mb-2 text-red-600">
+          {problem}
+        </p>
+      )}
+      {!next ? (
+        <>
+          <p className="font-medium">Offer more time?</p>
+          <p className="mt-1 opacity-70">A second part that starts when this one ends, at the same price. {props.otherName} confirms it on their screen.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {props.offerLengths.map(({ minutes, price }) => (
+              <button key={minutes} type="button" disabled={busy} onClick={() => offer(minutes)} className={buttons}>
+                {minutes} more minutes{price ? ` (${price})` : ""}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : props.role === "host" ? (
+        <>
+          <p className="font-medium">
+            {next.lengthMinutes} more minutes from {clockText(next.startsAt)}
+            {next.price ? ` (${next.price})` : ""}:{" "}
+            {next.status === "unpaid" ? `waiting for ${props.otherName} to confirm their card.` : "confirmed. You will both be taken to the next part when this one ends."}
+          </p>
+          {!partStarted && (
+            <button type="button" disabled={busy} onClick={cancelNext} className={`${buttons} mt-2`}>
+              Withdraw the offer
+            </button>
+          )}
+        </>
+      ) : next.status === "unpaid" ? (
+        <>
+          <p className="font-medium">
+            {props.otherName} offers {next.lengthMinutes} more minutes{next.price ? ` for ${next.price}` : ""}, starting when this part ends at {clockText(next.startsAt)}.
+          </p>
+          <p className="mt-1 opacity-70">
+            To accept, confirm your card below: {next.price} is held, nothing is charged until after, and you pay only for the time {props.otherName} is in the
+            next part. It must be held before {clockText(next.startsAt)}, or the extra time is cancelled and nothing is charged.
+          </p>
+          <PayPanel callId={next.id} bookedPrice={next.price ?? "$0.00"} pricePer15={next.price ?? "$0.00"} cancelRule="You can cancel the extra time for free at any time before it starts." compact />
+          <button type="button" disabled={busy} onClick={cancelNext} className={`${buttons} mt-2`}>
+            No thanks
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="font-medium">
+            {next.lengthMinutes} more minutes from {clockText(next.startsAt)}, confirmed. You will both be taken to the next part when this one ends.
+          </p>
+          {!partStarted && (
+            <button type="button" disabled={busy} onClick={cancelNext} className={`${buttons} mt-2`}>
+              Cancel the extra time
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function CallRoom(props: Props) {
+  const router = useRouter();
   const startsAt = Date.parse(props.startsAt);
   const endsAt = Date.parse(props.endsAt);
   const opensAt = Date.parse(props.opensAt);
@@ -100,6 +229,32 @@ export function CallRoom(props: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [takenOver, setTakenOver] = useState(false);
 
+  // More time: kept fresh from the server every few seconds while the room is open, so both people see
+  // the offer, the payment and the move to the next part without reloading.
+  const [next, setNext] = useState<NextPartView | null>(props.next);
+  // After the page's data is reloaded (for example once a payment went through), start from what the server says.
+  const [fromServer, setFromServer] = useState(props.next);
+  if (props.next !== fromServer) {
+    setFromServer(props.next);
+    setNext(props.next);
+  }
+  const live = now !== null && now < closesAt;
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(async () => {
+      const response = await fetch(`/api/calls/${props.callId}/next`).catch(() => null);
+      if (response?.ok) setNext(((await response.json()) as { next: NextPartView | null }).next);
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [props.callId, live]);
+  // When this part's time is up and the next part is ready, both people move on to it (once).
+  const moved = useRef(false);
+  useEffect(() => {
+    if (moved.current || now === null || !next || next.status !== "ready" || now < endsAt) return;
+    moved.current = true;
+    router.push(`/calls/${next.id}`);
+  }, [now, next, endsAt, router]);
+
   async function join(values: LocalUserChoices) {
     setJoining(true);
     setNotice(null);
@@ -109,6 +264,8 @@ export function CallRoom(props: Props) {
       const receivedAt = Date.now();
       const body = await response.json();
       if (!response.ok) {
+        // This part is over and more time follows: go there.
+        if (typeof body.nextCallId === "string") return router.push(`/calls/${body.nextCallId}`);
         setNotice(body.error ?? "Could not join the call.");
         return;
       }
@@ -139,6 +296,20 @@ export function CallRoom(props: Props) {
       See the results
     </Link>
   );
+  const moreTime = <MoreTime callId={props.callId} role={props.role} otherName={props.otherName} now={now} endsAt={endsAt} offerLengths={props.offerLengths} next={next} onChange={setNext} />;
+
+  if (next && next.status === "ready" && now >= endsAt) {
+    return (
+      <section className="mt-10">
+        <p className="text-lg">This part is over. Taking you to the next part…</p>
+        <p className="mt-2">
+          <Link href={`/calls/${next.id}`} className="underline underline-offset-2">
+            Open it now
+          </Link>
+        </p>
+      </section>
+    );
+  }
 
   if (now >= closesAt) {
     return (
@@ -153,7 +324,10 @@ export function CallRoom(props: Props) {
     return (
       <section className="mt-10">
         <p className="text-lg">The room opens in {formatDuration((opensAt - now) / 1000)}.</p>
-        <p className="mt-2 text-sm opacity-70">It opens 5 minutes before the booked start. This page will update by itself.</p>
+        <p className="mt-2 text-sm opacity-70">
+          {props.opensAt === props.startsAt ? "This part opens at its start, when the part before it ends." : "It opens 5 minutes before the booked start."} This page will
+          update by itself.
+        </p>
       </section>
     );
   }
@@ -192,6 +366,7 @@ export function CallRoom(props: Props) {
             {notice}
           </p>
         )}
+        {moreTime}
         <p className="mt-2 text-sm opacity-70">Check your camera and microphone, then join.</p>
         <div className="mt-4 max-w-xl" data-lk-theme="default">
           <PreJoin
@@ -233,6 +408,7 @@ export function CallRoom(props: Props) {
           <VideoConference />
         </LiveKitRoom>
       </div>
+      {moreTime}
     </section>
   );
 }

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
+import { AVAILABLE_CHOICES_MINUTES } from "@/lib/booking/instant-rules";
 import { readNotice } from "@/lib/notice";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
@@ -16,10 +17,14 @@ import {
   removeSocial,
   saveCancelRule,
   saveProfile,
+  setAvailable,
   setHidden,
   socialReady,
   startPayoutSetup,
+  stopAvailable,
 } from "./actions";
+
+const AVAILABLE_LABEL: Record<number, string> = { 30: "the next 30 minutes", 60: "the next hour", 120: "the next 2 hours" };
 
 const RULE_LABEL: Record<number, string> = {
   0: "Any time before the start (our default)",
@@ -166,6 +171,38 @@ export default async function HostPage(props: PageProps<"/host">) {
           </>
         )}
       </section>
+
+      {profile && profile.status === "approved" && (
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold">Available now</h2>
+          <p className="mt-2 text-sm opacity-70">
+            Let people start a call with you right away, without booking ahead. The call starts 5 minutes after they press the
+            button; a paid one only once the money is held on their card. Your weekly hours do not matter while this is on, and
+            calls you already have still come first.
+          </p>
+          {profile.availableUntil && profile.availableUntil > now ? (
+            <>
+              <p className="mt-3 text-sm text-green-700">
+                You are available now, for calls that start until <LocalTime iso={profile.availableUntil.toISOString()} />. Keep Connect open:
+                your calls page refreshes itself, and you also get an email when someone calls.
+              </p>
+              <form action={stopAvailable} className="mt-2">
+                <button type="submit" className={smallButton}>
+                  Stop
+                </button>
+              </form>
+            </>
+          ) : (
+            <form action={setAvailable} className="mt-3 flex flex-wrap gap-2">
+              {AVAILABLE_CHOICES_MINUTES.map((minutes) => (
+                <button key={minutes} type="submit" name="minutes" value={minutes} className={smallButton}>
+                  Take calls that start in {AVAILABLE_LABEL[minutes]}
+                </button>
+              ))}
+            </form>
+          )}
+        </section>
+      )}
 
       {profile && (
         <section className="mt-10">

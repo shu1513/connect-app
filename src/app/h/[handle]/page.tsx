@@ -4,6 +4,8 @@ import { cache } from "react";
 import Link from "next/link";
 import { SlotPicker } from "@/components/slot-picker";
 import { offerOf, openTimes } from "@/lib/booking/bookings";
+import { instantOfferOf } from "@/lib/booking/instant";
+import { LocalTime } from "@/components/local-time";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
@@ -41,6 +43,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const viewer = await getUser();
   const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
   const offer = blocked ? null : await offerOf(profile.userId);
+  // "Available now": a call that starts in 5 minutes. Not shown to the host on their own page.
+  const now = blocked || viewer?.id === profile.userId ? null : await instantOfferOf(profile.userId, new Date(), viewer?.id ?? null);
   const { length } = await props.searchParams;
   const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : (offer?.lengths[0] ?? null);
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
@@ -90,6 +94,35 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         </p>
         <p className="mt-1 text-sm opacity-70">A private one-to-one video call. {CANCEL_RULE[profile.freeCancelMinutes] ?? ""}</p>
       </section>
+
+      {now && (
+        <section className="mt-8 rounded border border-green-700 p-4">
+          <h2 className="text-lg font-semibold">Available now</h2>
+          {now.inCall ? (
+            <p className="mt-2 text-sm opacity-70">{profile.displayName} is in a call right now. Check back in a few minutes.</p>
+          ) : now.lengths.length === 0 ? (
+            <p className="mt-2 text-sm opacity-70">No call fits right now: one of you has a call coming up. Check back later.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm">
+                Start a call that begins in 5 minutes.
+                {now.pricePer15Cents > 0 ? " You confirm your card first; nothing is charged until after the call." : ""}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                {now.lengths.map((minutes) => (
+                  <Link key={minutes} href={`/h/${profile.handle}/now?length=${minutes}`} className="rounded border border-green-700 px-3 py-1.5 hover:bg-green-700 hover:text-white">
+                    {minutes} minutes
+                    {now.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(now.pricePer15Cents, minutes * 60))}` : ""}
+                  </Link>
+                ))}
+              </div>
+              <p className="mt-2 text-sm opacity-70">
+                Available for calls that start until <LocalTime iso={now.availableUntil.toISOString()} />.
+              </p>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold">Ask for a call</h2>

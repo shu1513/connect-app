@@ -10,10 +10,13 @@ export const CLOSE_LATE_SECONDS = 60;
 /** After closing, wait this long for late messages before calling totals final. */
 export const SETTLE_SECONDS = 120;
 
-export type CallTimes = { startsAt: Date; endsAt: Date };
+/** `continuesCallId` is set on a "part 2": more time agreed during a call, as a call of its own that starts when the first ends. */
+export type CallTimes = { startsAt: Date; endsAt: Date; continuesCallId?: string | null };
 export type CallPeople = { hostId: string; customerId: string };
 
 export function roomOpensAt(call: CallTimes): Date {
+  // A part 2 opens at its start, not early: entering it would pull a person out of part 1 while that is still being counted.
+  if (call.continuesCallId) return call.startsAt;
   return new Date(call.startsAt.getTime() - OPEN_EARLY_SECONDS * 1000);
 }
 
