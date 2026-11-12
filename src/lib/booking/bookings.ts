@@ -247,14 +247,16 @@ async function checkMayAskNow(tx: Tx, offer: Offer, booking: { id?: string; cust
     gt(schema.bookings.endedAt, new Date(now.getTime() - NOW.cooldownMinutes * 60_000)),
   );
   if (declined > 0) throw new BookingError(`This host is not taking calls from you right now. You can ask again ${NOW.cooldownMinutes} minutes after they declined.`);
+  // "In a row" means the last few calls that were accepted, whatever became of them: one that went
+  // ahead in between breaks the run.
   const lastTries = await tx
-    .select({ holdFailedAt: schema.bookings.holdFailedAt })
+    .select({ stage: schema.bookings.stage, holdFailedAt: schema.bookings.holdFailedAt })
     .from(schema.bookings)
-    .where(and(mine, instant, eq(schema.bookings.stage, "cancelled"), notThis))
+    .where(and(mine, instant, inArray(schema.bookings.stage, ["accepted", "cancelled"]), notThis))
     .orderBy(desc(schema.bookings.createdAt))
     .limit(NOW.cardFailuresBeforePause);
   const pauseSince = new Date(now.getTime() - NOW.cardFailurePauseMinutes * 60_000);
-  if (lastTries.length === NOW.cardFailuresBeforePause && lastTries.every((t) => t.holdFailedAt && t.holdFailedAt > pauseSince)) {
+  if (lastTries.length === NOW.cardFailuresBeforePause && lastTries.every((t) => t.stage === "cancelled" && t.holdFailedAt && t.holdFailedAt > pauseSince)) {
     throw new BookingError("Your card could not be used for your last few calls. Please check it, and try again in an hour.");
   }
 }

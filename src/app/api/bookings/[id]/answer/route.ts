@@ -21,9 +21,23 @@ export async function POST(request: Request, ctx: RouteContext<"/api/bookings/[i
   if (!found || found.role !== "host" || found.booking.source !== "now") return Response.json({ error: "Request not found." }, { status: 404 });
   try {
     if (body.answer === "decline" || body.answer === "block") {
-      await decline({ bookingId: id, hostId: user.id, now });
+      const blocking = body.answer === "block";
+      try {
+        await decline({ bookingId: id, hostId: user.id, now });
+      } catch (error) {
+        // "Decline and block" asked for again after the decline went through (or the request ended
+        // some other way): the block is what is left to do. A plain decline reports the problem.
+        if (!(blocking && error instanceof BookingError)) throw error;
+      }
       // The decline is the answer the customer sees; the block itself is silent, as everywhere else.
-      if (body.answer === "block") await block({ blockerId: user.id, blockedId: found.booking.customerId, now });
+      if (blocking) {
+        try {
+          await block({ blockerId: user.id, blockedId: found.booking.customerId, now });
+        } catch (error) {
+          console.error(`[now] booking ${id} was declined but the block did not go through`, error);
+          return Response.json({ error: "The call was declined, but the block did not go through.", retryBlock: true }, { status: 500 });
+        }
+      }
       return Response.json({ ok: true });
     }
     if (body.answer !== "accept") return Response.json({ error: "Say accept, decline or block." }, { status: 400 });

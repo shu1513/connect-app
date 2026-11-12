@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { BookingError, endInstantRequestsOfAbsentHosts, offerOf } from "./bookings";
+import { BookingError, endInstantRequestsOfAbsentHosts, lockCalendars, offerOf } from "./bookings";
 import { isAvailableNow, NOW } from "./now-rules";
 
 export type AvailabilityState = { availableUntil: string | null; on: boolean };
@@ -27,11 +27,17 @@ export async function setAvailableNow(input: { hostId: string; minutes: number |
     if (!offer.canTakePaid) throw new BookingError("Finish your payout setup before you can be available now.");
   }
   const until = input.minutes === null ? null : new Date(now.getTime() + input.minutes * 60_000);
-  const [calendar] = await db
-    .update(schema.hostCalendars)
-    .set({ availableUntil: until, availableSeenAt: until ? now : null, updatedAt: now })
-    .where(eq(schema.hostCalendars.userId, hostId))
-    .returning();
+  // Every change to a host's availability is made under their calendar lock, one after the other,
+  // so a late sign of life can never undo a switch-on, and the clean-up below sees a settled state.
+  const calendar = await db.transaction(async (tx) => {
+    await lockCalendars(tx, [hostId]);
+    const [row] = await tx
+      .update(schema.hostCalendars)
+      .set({ availableUntil: until, availableSeenAt: until ? now : null, updatedAt: now })
+      .where(eq(schema.hostCalendars.userId, hostId))
+      .returning();
+    return row;
+  });
   // Switched off (the button, or the page closing): anyone still waiting for an answer is told at once.
   if (!until) await endInstantRequestsOfAbsentHosts(now, hostId);
   return stateOf(calendar, now);
@@ -44,16 +50,22 @@ export async function setAvailableNow(input: { hostId: string; minutes: number |
  */
 export async function stillHere(hostId: string, now: Date): Promise<AvailabilityState> {
   const recent = new Date(now.getTime() - NOW.presenceSeconds * 1000);
-  const [calendar] = await db
-    .update(schema.hostCalendars)
-    .set({ availableSeenAt: now })
-    .where(and(eq(schema.hostCalendars.userId, hostId), gt(schema.hostCalendars.availableUntil, now), gt(schema.hostCalendars.availableSeenAt, recent)))
-    .returning();
-  if (calendar) return stateOf(calendar, now);
-  // Lapsed or over: make the switch-off explicit, so nothing later can revive it.
-  const [cleared] = await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hostId)).returning();
-  await endInstantRequestsOfAbsentHosts(now, hostId);
-  return stateOf(cleared, now);
+  // Renewing, or finding it lapsed and clearing it, is one step under the host's calendar lock:
+  // a switch-on that lands in between is either seen (and renewed) or comes wholly after.
+  const { calendar, lapsed } = await db.transaction(async (tx) => {
+    await lockCalendars(tx, [hostId]);
+    const [renewed] = await tx
+      .update(schema.hostCalendars)
+      .set({ availableSeenAt: now })
+      .where(and(eq(schema.hostCalendars.userId, hostId), gt(schema.hostCalendars.availableUntil, now), gt(schema.hostCalendars.availableSeenAt, recent)))
+      .returning();
+    if (renewed) return { calendar: renewed, lapsed: false };
+    // Lapsed or over: make the switch-off explicit, so nothing later can revive it.
+    const [cleared] = await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hostId)).returning();
+    return { calendar: cleared, lapsed: true };
+  });
+  if (lapsed) await endInstantRequestsOfAbsentHosts(now, hostId);
+  return stateOf(calendar, now);
 }
 
 /** What the host's live page shows: their availability and the instant requests waiting for them. */
