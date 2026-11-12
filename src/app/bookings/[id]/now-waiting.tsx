@@ -25,6 +25,8 @@ export function NowWaiting(props: { bookingId: string; respondBy: string; hostNa
 
   useEffect(() => {
     let stopped = false;
+    // Set when this page is left: an answer still on its way must not move the person anywhere.
+    let left = false;
     let timer: ReturnType<typeof setTimeout>;
     const ask = async () => {
       if (inFlight.current) return;
@@ -33,6 +35,7 @@ export function NowWaiting(props: { bookingId: string; respondBy: string; hostNa
         const response = await fetch(`/api/bookings/${props.bookingId}/live`, { cache: "no-store" });
         if (response.ok) {
           const next = (await response.json()) as Live;
+          if (left) return;
           setLive(next);
           if (next.stage === "accepted" && next.callId) {
             stopped = true;
@@ -60,6 +63,7 @@ export function NowWaiting(props: { bookingId: string; respondBy: string; hostNa
     window.addEventListener("focus", onFocus);
     return () => {
       stopped = true;
+      left = true;
       clearTimeout(timer);
       window.removeEventListener("focus", onFocus);
     };

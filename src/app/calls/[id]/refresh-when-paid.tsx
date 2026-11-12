@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 const POLL_MS = 2_000;
-const GIVE_UP_MS = 5 * 60_000;
 
 /**
  * While a call's money is being held (an instant call right after acceptance,
@@ -13,12 +12,12 @@ const GIVE_UP_MS = 5 * 60_000;
  * the Join button instead of a card form that is no longer needed, and the
  * host stops seeing "waiting for the customer to pay".
  */
-export function RefreshWhenPaid(props: { callId: string; paymentStatus: string }) {
+export function RefreshWhenPaid(props: { callId: string; paymentStatus: string; /** The end of the call: a payment can land until then. */ until: string }) {
   const router = useRouter();
   useEffect(() => {
     let stopped = false;
     let inFlight = false;
-    const started = Date.now();
+    const until = new Date(props.until).getTime();
     let timer: ReturnType<typeof setTimeout>;
     const ask = async () => {
       if (inFlight || stopped) return;
@@ -27,6 +26,7 @@ export function RefreshWhenPaid(props: { callId: string; paymentStatus: string }
         const response = await fetch(`/api/calls/${props.callId}/live`, { cache: "no-store" });
         if (response.ok) {
           const live = (await response.json()) as { paymentStatus: string | null; cancelled: boolean; safetyEnded: boolean };
+          if (stopped) return; // the page was left while the answer was on its way
           if (live.cancelled || live.safetyEnded || (live.paymentStatus && live.paymentStatus !== props.paymentStatus)) {
             stopped = true;
             router.refresh();
@@ -41,7 +41,7 @@ export function RefreshWhenPaid(props: { callId: string; paymentStatus: string }
     };
     const tick = async () => {
       await ask();
-      if (!stopped && Date.now() - started < GIVE_UP_MS) timer = setTimeout(tick, POLL_MS + Math.random() * 400);
+      if (!stopped && Date.now() < until) timer = setTimeout(tick, POLL_MS + Math.random() * 400);
     };
     timer = setTimeout(tick, POLL_MS);
     const onFocus = () => void ask();
@@ -51,6 +51,6 @@ export function RefreshWhenPaid(props: { callId: string; paymentStatus: string }
       clearTimeout(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [props.callId, props.paymentStatus, router]);
+  }, [props.callId, props.paymentStatus, props.until, router]);
   return null;
 }

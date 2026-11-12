@@ -5,7 +5,7 @@
  * request is in bookings.ts; this file is the switch, the sign of life, and
  * what the live pages read.
  */
-import { and, asc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { BookingError, endInstantRequestsOfAbsentHosts, lockCalendars, offerOf } from "./bookings";
 import { isAvailableNow, NOW } from "./now-rules";
@@ -17,8 +17,13 @@ function stateOf(calendar: { availableUntil: Date | null; availableSeenAt: Date 
   return { availableUntil: on ? calendar!.availableUntil!.toISOString() : null, on };
 }
 
-/** Switches "available now" on for a while, or off. Only a host who can be booked at all can switch it on. */
-export async function setAvailableNow(input: { hostId: string; minutes: number | null; now: Date }): Promise<AvailabilityState> {
+/**
+ * Switches "available now" on for a while, or off. Only a host who can be booked at all can switch it on.
+ * `onlyPeriodUntil` is for the page saying "gone" as it closes: that message may arrive late, after the
+ * host has reloaded and switched on again, so it ends only the availability period it came from
+ * (a period is known by the moment it runs until).
+ */
+export async function setAvailableNow(input: { hostId: string; minutes: number | null; now: Date; onlyPeriodUntil?: Date }): Promise<AvailabilityState> {
   const { hostId, now } = input;
   if (input.minutes !== null) {
     if (!(NOW.durations as readonly number[]).includes(input.minutes)) throw new BookingError("Choose one of the offered durations.");
@@ -34,10 +39,15 @@ export async function setAvailableNow(input: { hostId: string; minutes: number |
     const [row] = await tx
       .update(schema.hostCalendars)
       .set({ availableUntil: until, availableSeenAt: until ? now : null, updatedAt: now })
-      .where(eq(schema.hostCalendars.userId, hostId))
+      .where(and(eq(schema.hostCalendars.userId, hostId), !until && input.onlyPeriodUntil ? eq(schema.hostCalendars.availableUntil, input.onlyPeriodUntil) : undefined))
       .returning();
     return row;
   });
+  if (!calendar) {
+    // A late "gone" from a period that is already over: nothing to end. Say how things stand now.
+    const [current] = await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
+    return stateOf(current, now);
+  }
   // Switched off (the button, or the page closing): anyone still waiting for an answer is told at once.
   if (!until) await endInstantRequestsOfAbsentHosts(now, hostId);
   return stateOf(calendar, now);
@@ -56,7 +66,8 @@ export async function stillHere(hostId: string, now: Date): Promise<Availability
     await lockCalendars(tx, [hostId]);
     const [renewed] = await tx
       .update(schema.hostCalendars)
-      .set({ availableSeenAt: now })
+      // Never moved back: this sign of life may have waited for the lock behind a newer one (or a switch-on).
+      .set({ availableSeenAt: sql`greatest(${schema.hostCalendars.availableSeenAt}, ${now.toISOString()}::timestamptz)` })
       .where(and(eq(schema.hostCalendars.userId, hostId), gt(schema.hostCalendars.availableUntil, now), gt(schema.hostCalendars.availableSeenAt, recent)))
       .returning();
     if (renewed) return { calendar: renewed, lapsed: false };

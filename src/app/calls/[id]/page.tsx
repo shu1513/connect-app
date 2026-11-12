@@ -86,7 +86,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
       ) : payment && blocked === "not_paid" && payment.status === "awaiting_payment" ? (
         <>
           {/* The hold may land any second (an instant call's saved card, a booked call about to start): follow it. */}
-          {(call.billing === "together" || call.startsAt.getTime() - now.getTime() < 10 * 60_000) && <RefreshWhenPaid callId={call.id} paymentStatus={payment.status} />}
+          {(call.billing === "together" || call.startsAt.getTime() - now.getTime() < 10 * 60_000) && <RefreshWhenPaid callId={call.id} paymentStatus={payment.status} until={call.endsAt.toISOString()} />}
           {role === "customer" ? (
           payWindow({ now, startsAt: call.startsAt, endsAt: call.endsAt }) === "too_early" ? (
             <section className="mt-10">

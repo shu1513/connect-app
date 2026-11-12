@@ -108,11 +108,25 @@ async function main() {
       await db.update(schema.hostCalendars).set({ availableSeenAt: new Date(now.getTime() - 10 * 1000) }).where(eq(schema.hostCalendars.userId, host.id));
       check("a sign of life in time keeps it on", (await N.stillHere(host.id, now)).on && (await B.instantOffer(host.id, now)) !== null);
       check("once the time is up it is over, and a sign of life does not revive it", !(await N.stillHere(host.id, new Date(now.getTime() + 61 * MINUTE))).on && (await B.instantOffer(host.id, new Date(now.getTime() + 61 * MINUTE))) === null);
+      // The page says "gone" as it closes, naming the period it was showing. After a reload and a fresh
+      // switch-on, a "gone" that arrives late must not end the new period.
+      const first = await N.setAvailableNow({ hostId: host.id, minutes: 60, now });
+      const second = await N.setAvailableNow({ hostId: host.id, minutes: 30, now: new Date(now.getTime() + 1000) });
+      const late = await N.setAvailableNow({ hostId: host.id, minutes: null, now: new Date(now.getTime() + 2000), onlyPeriodUntil: new Date(first.availableUntil!) });
+      check("a late \"gone\" from an earlier period does not end the new one", late.on && late.availableUntil === second.availableUntil && (await B.instantOffer(host.id, new Date(now.getTime() + 2000))) !== null);
+      const gone = await N.setAvailableNow({ hostId: host.id, minutes: null, now: new Date(now.getTime() + 3000), onlyPeriodUntil: new Date(second.availableUntil!) });
+      check("the \"gone\" of the current period ends it", !gone.on && (await B.instantOffer(host.id, new Date(now.getTime() + 3000))) === null);
+      await N.setAvailableNow({ hostId: host.id, minutes: 60, now });
+      // A sign of life that waited behind a newer one never moves the clock back.
+      await keptOpen(host.id, new Date(now.getTime() + 8000));
+      await N.stillHere(host.id, new Date(now.getTime() + 2000));
+      check("an older sign of life arriving late does not move the last one back", (await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, host.id)))[0].availableSeenAt?.getTime() === now.getTime() + 8000);
       await N.setAvailableNow({ hostId: host.id, minutes: 60, now });
       const off = await N.setAvailableNow({ hostId: host.id, minutes: null, now });
       check("switched off by hand", !off.on && (await B.instantOffer(host.id, now)) === null);
       await N.setAvailableNow({ hostId: host.id, minutes: 30, now });
       check("with 30 minutes of availability only a call that is over by then is offered (the 30-minute one is not)", (await B.instantOffer(host.id, now))?.lengths.join() === "15");
+      await keptOpen(host.id, new Date(now.getTime() + 20 * MINUTE)); // the page is still open; only the time left decides
       check("with 20 minutes left nothing is offered any more", (await B.instantOffer(host.id, new Date(now.getTime() + 20 * MINUTE))) === null);
 
       console.log("   …only lengths that fit before the next commitment are offered");
@@ -266,6 +280,16 @@ async function main() {
       const { booking, clientSecret } = await askNow(dan, hana.id, 15, now, 2000);
       check("a paid instant request first needs a card", booking.stage === "card" && Boolean(clientSecret) && booking.totalCents === 2000);
       check("a request from a page showing an old price is refused", await refusedWith(askNow(dan, hana.id, 15, now, 1500), "price changed"));
+      {
+        // Someone who left the card form (or never got one) and asks again is not told "you already have a request":
+        // the unfinished one, which never reached the host, is replaced.
+        const redo = await person("redo");
+        const { booking: abandoned } = await askNow(redo, hana.id, 15, now, 2000);
+        const { booking: fresh } = await askNow(redo, hana.id, 15, now, 2000);
+        const old = await reload(abandoned.id);
+        check("asking again replaces a request left at the card step", fresh.id !== abandoned.id && fresh.stage === "card" && old.stage === "ran_out" && old.endedReason === "replaced by a newer request");
+        check("a refused retry (an old price) leaves the unfinished request as it was", (await refusedWith(askNow(redo, hana.id, 15, now, 1500), "price changed")) && (await reload(fresh.id)).stage === "card");
+      }
       await cardFor(booking.id, "pm_card_visa");
       // The customer took 20 minutes over the card: the request still goes, timed from when it is sent.
       const cardDone = new Date(now.getTime() + 20 * MINUTE);

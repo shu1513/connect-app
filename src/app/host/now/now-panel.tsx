@@ -11,9 +11,13 @@ const HEARTBEAT_MS = 5_000;
 /** With no confirmation from the server for this long, the page warns that availability may be over (the server's own limit). */
 const STALE_MS = 15_000;
 
-/** Says "I am gone" in a way the browser still delivers while the page is closing. */
-function sayGone() {
-  navigator.sendBeacon("/api/host/now", new Blob([JSON.stringify({ minutes: null })], { type: "application/json" }));
+/**
+ * Says "I am gone" in a way the browser still delivers while the page is closing. It names the
+ * availability period it is ending (by the moment that period runs until): the message can arrive
+ * late, after a reload and a fresh switch-on, and must not end that new period.
+ */
+function sayGone(until: string) {
+  navigator.sendBeacon("/api/host/now", new Blob([JSON.stringify({ minutes: null, until })], { type: "application/json" }));
 }
 
 /** The device's clock, read when something happens (never while drawing). */
@@ -112,14 +116,14 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
 
   // Leaving ends availability at once. `pagehide` is the tab closing, reloading or going to another
   // site; the cleanup is moving to another page inside Connect, where the browser fires nothing.
-  const on = useRef(live.on);
+  const on = useRef(live.on ? live.availableUntil : null);
   useEffect(() => {
-    on.current = live.on;
-  }, [live.on]);
+    on.current = live.on ? live.availableUntil : null;
+  }, [live.on, live.availableUntil]);
   const shown = useRef(false);
   useEffect(() => {
     const leaving = () => {
-      if (on.current) sayGone();
+      if (on.current) sayGone(on.current);
     };
     shown.current = true;
     window.addEventListener("pagehide", leaving);

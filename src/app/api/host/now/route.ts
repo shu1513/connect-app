@@ -11,19 +11,23 @@ export async function GET() {
 
 /**
  * Switching "available now" on (`{ minutes }`) or off (`{ minutes: null }`),
- * or the page saying it is still open (`{ heartbeat: true }`).
+ * or the page saying it is still open (`{ heartbeat: true }`). A page that is
+ * closing says `{ minutes: null, until }`: off, but only for the availability
+ * period it was showing.
  */
 export async function POST(request: Request) {
   const user = await getUser();
   if (!user) return Response.json({ error: "Please log in." }, { status: 401 });
   if (user.paused) return Response.json({ error: "Your account is paused." }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { minutes?: number | null; heartbeat?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { minutes?: number | null; heartbeat?: boolean; until?: string };
   const now = new Date();
   try {
     if (body.heartbeat) return Response.json(await stillHere(user.id, now));
     const minutes = body.minutes === null ? null : Number(body.minutes);
     if (minutes !== null && !Number.isInteger(minutes)) return Response.json({ error: "Choose one of the offered durations." }, { status: 400 });
-    return Response.json(await setAvailableNow({ hostId: user.id, minutes, now }));
+    const period = minutes === null && typeof body.until === "string" ? new Date(body.until) : undefined;
+    const onlyPeriodUntil = period && !Number.isNaN(period.getTime()) ? period : undefined;
+    return Response.json(await setAvailableNow({ hostId: user.id, minutes, now, onlyPeriodUntil }));
   } catch (error) {
     if (error instanceof BookingError) return Response.json({ error: error.message }, { status: 409 });
     console.error("[now] could not change availability", error);

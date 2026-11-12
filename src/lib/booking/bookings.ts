@@ -406,6 +406,13 @@ export async function askNow(input: {
         if (again.customerId !== customer.id) throw new BookingError("This form is out of date. Please reload the page.");
         return again;
       }
+      // Asking again replaces an instant request of theirs that never got past the card step (the form
+      // was abandoned, or could not be shown): it never reached a host, and without this the person
+      // would be told they "already have a request" until it timed out. It still counts as a try today.
+      await tx
+        .update(schema.bookings)
+        .set({ stage: "ran_out", endedReason: "replaced by a newer request", endedAt: now })
+        .where(and(eq(schema.bookings.customerId, customer.id), eq(schema.bookings.source, "now"), eq(schema.bookings.stage, "card")));
       const current = await offerOf(input.hostId, tx);
       if (!current || !current.canTakePaid) throw new BookingError("This host is not available right now.");
       if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.pricePer15Cents !== open.offer.pricePer15Cents) {

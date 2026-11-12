@@ -113,6 +113,8 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
             `Please pay on the call's page before ${whenFor(customer, booking.payBy ?? booking.startsAt)}. If the money is not held by then, the call is cancelled at no cost to you.`,
           ],
           `${appUrl()}/calls/${booking.callId}`,
+          // Dropped by itself if it is not out before that deadline.
+          booking.payBy ?? undefined,
         );
         break;
       case "cancelled_unpaid":
