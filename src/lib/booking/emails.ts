@@ -63,12 +63,79 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
   const length = `${booking.lengthMinutes}-minute`;
   const page = `${appUrl()}/bookings/${booking.id}`;
   const footer = `—\nConnect · questions: ${SUPPORT_EMAIL}`;
-  const toCustomer = (subject: string, lines: string[]) =>
-    queueEmail(tx, { to: customer.email, subject, text: [`Hi ${customer.name},`, "", ...lines, "", page, "", footer].join("\n"), key: `${event}:${booking.id}:customer` });
-  const toHost = (subject: string, lines: string[]) =>
-    queueEmail(tx, { to: host.email, subject, text: [`Hi ${host.name},`, "", ...lines, "", page, "", footer].join("\n"), key: `${event}:${booking.id}:host` });
+  const toCustomer = (subject: string, lines: string[], link = page, expiresAt?: Date) =>
+    queueEmail(tx, { to: customer.email, subject, text: [`Hi ${customer.name},`, "", ...lines, "", link, "", footer].join("\n"), key: `${event}:${booking.id}:customer`, expiresAt });
+  const toHost = (subject: string, lines: string[], link = page, expiresAt?: Date) =>
+    queueEmail(tx, { to: host.email, subject, text: [`Hi ${host.name},`, "", ...lines, "", link, "", footer].join("\n"), key: `${event}:${booking.id}:host`, expiresAt });
   const whenC = whenFor(customer, booking.startsAt);
   const whenH = whenFor(host, booking.startsAt);
+
+  if (booking.source === "now") {
+    // Instant calls: short emails, and only where they help. The live pages carry the rest.
+    const price = booking.totalCents > 0 ? ` ($${(booking.totalCents / 100).toFixed(2)})` : "";
+    switch (event) {
+      case "sent":
+        // Dropped by itself if it is not out before the host's time to answer is up.
+        await toHost(
+          `${customer.name} wants a call with you now`,
+          [`${customer.name} is asking for a ${length} call right now${price}. You have until ${whenFor(host, booking.respondBy ?? booking.startsAt)} to answer on your "Available now" page.`],
+          `${appUrl()}/host/now`,
+          booking.respondBy ?? undefined,
+        );
+        break;
+      case "accepted":
+        await toCustomer(
+          `${hostShown} is ready for your call now`,
+          [
+            `${hostShown} accepted. Your ${length} call starts at ${whenC}, in about a minute.`,
+            booking.totalCents > 0
+              ? `The booked price of $${(booking.totalCents / 100).toFixed(2)} is being held on your card. You are charged after the call, for the time you were both in it.`
+              : "This call is free.",
+          ],
+          `${appUrl()}/calls/${booking.callId}`,
+        );
+        break;
+      case "declined":
+      case "ran_out":
+        await toCustomer(`${hostShown} could not take your call now`, [
+          event === "declined"
+            ? `${hostShown} could not take your call right now. Nothing was held or charged, and your card details have been removed.`
+            : booking.endedReason === "the host is no longer available"
+              ? `${hostShown} is no longer available, so your request has ended. Nothing was held or charged, and your card details have been removed.`
+              : `${hostShown} did not answer in time, so your request has ended. Nothing was held or charged, and your card details have been removed.`,
+        ]);
+        break;
+      case "card_problem":
+        await toCustomer(
+          "Your card needs your attention",
+          [
+            `We could not place the hold for your call with ${hostShown}. Your bank may have refused it, or may want you to approve it.`,
+            `Please pay on the call's page before ${whenFor(customer, booking.payBy ?? booking.startsAt)}. If the money is not held by then, the call is cancelled at no cost to you.`,
+          ],
+          `${appUrl()}/calls/${booking.callId}`,
+          // Dropped by itself if it is not out before that deadline.
+          booking.payBy ?? undefined,
+        );
+        break;
+      case "cancelled_unpaid":
+        await toCustomer(`Your call with ${hostShown} was cancelled`, ["The hold for your call now could not be placed in time, so the call was cancelled. Nothing was charged."]);
+        await toHost(`Your call with ${customer.name} was cancelled`, ["The customer's payment could not be held in time, so the call was cancelled."]);
+        break;
+      case "cancelled_by_host":
+        await toCustomer(`${hostShown} cancelled your call`, [`Your call now with ${hostShown} was cancelled by ${hostShown}. You pay nothing.`]);
+        break;
+      case "cancelled_by_customer":
+        await toHost(`${customer.name} cancelled their call`, [`The call now with ${customer.name} was cancelled by ${customer.name}.`]);
+        break;
+      case "cancelled_by_connect":
+        await toCustomer("Your call was cancelled", [`Your call now with ${hostShown} was cancelled by Connect. You pay nothing.`]);
+        await toHost("Your call was cancelled", [`Your call now with ${customer.name} was cancelled by Connect.`]);
+        break;
+      default:
+        break;
+    }
+    return;
+  }
 
   switch (event) {
     case "sent":

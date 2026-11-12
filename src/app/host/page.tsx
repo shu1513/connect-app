@@ -62,6 +62,9 @@ export default async function HostPage(props: PageProps<"/host">) {
         <Link href="/host/calendar" className="ml-4 underline underline-offset-2">
           Your calendar (hours, time off, call lengths)
         </Link>
+        <Link href="/host/now" className="ml-4 underline underline-offset-2">
+          Available now
+        </Link>
       </p>
 
       {notice && (

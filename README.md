@@ -81,6 +81,11 @@ Testing tools:
   the script runs the reminder writers with a pretend clock, which also writes reminders for any
   other calls in the local database that fall in the shifted windows, and a running helper would
   send those (and this run's emails) if sending is on.
+- `npx tsx scripts/now-check.ts` runs the "available now" journeys against the local database and the
+  Stripe sandbox: switching availability on and off, which lengths fit, a free call now asked and
+  accepted, time-outs, declines and the 15-minute rule, decline and block, a host who leaves while
+  someone is waiting, a paid call now with the money held at once,
+  and a refused card cancelled at the 2-minute deadline. Same cautions as `booking-check.ts`.
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call and report", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.
@@ -141,4 +146,4 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: "available now" calls, messaging and search.
+- The modules still to come: extending a call, ratings, messaging and search.

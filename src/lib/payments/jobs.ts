@@ -162,7 +162,13 @@ export async function reconcileOperations(now: Date): Promise<void> {
           await finishOperation(operation.id, payment.id, params.intentId, async () => undefined);
         } else {
           const intent = await stripe().paymentIntents.retrieve(params.intentId);
-          if (intent.status === "processing" || intent.status === "requires_capture") continue; // not settled yet: look again next pass
+          if (intent.status === "processing") continue; // not settled yet: look again next pass
+          if (intent.status === "requires_capture") {
+            // Authorised, but too late to count (after the booking's payment deadline). The try is over;
+            // the unpaid-at-the-cut-off job cancels the call and lets this hold go.
+            await finishOperation(operation.id, payment.id, params.intentId, async () => undefined);
+            continue;
+          }
           await giveUp("The saved card could not be used.");
         }
       } else if (operation.kind === "release") {
@@ -327,6 +333,11 @@ export async function settleFinishedCalls(now: Date): Promise<void> {
   }
 }
 
+/** The seconds a call is charged for, by the rule fixed on the call: the host's time (booked) or the time both were in (instant). */
+export function countedSeconds(call: Pick<Call, "billing">, totals: { hostSeconds: number; togetherSeconds: number }): number {
+  return call.billing === "together" ? totals.togetherSeconds : totals.hostSeconds;
+}
+
 async function settleOne(found: Payment, call: Call, now: Date): Promise<void> {
   // If Stripe made a charge we had written off, it is recorded here and there is nothing left to settle.
   const payment = await afterCheckingRefusedCharge(found, now);
@@ -373,7 +384,7 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<void> {
     const amountCents = attendanceChargeCents({
       pricePer15Cents: payment.pricePer15Cents,
       bookedSeconds: attendance.bookedSeconds,
-      hostSeconds: totals.hostSeconds,
+      countedSeconds: countedSeconds(call, totals),
     });
     if (amountCents === 0) {
       await releasePayment({ paymentId: payment.id, note: "Nothing was owed for this call." });
@@ -437,7 +448,7 @@ export async function flagChangedRecords(now: Date): Promise<void> {
   for (const { payment, call } of candidates) {
     const attendance = await loadAttendance(call, now);
     const totals = attendance.result.totals;
-    const changed = attendance.result.status !== "complete" || !totals || totals.hostSeconds !== payment.frozenHostSeconds;
+    const changed = attendance.result.status !== "complete" || !totals || countedSeconds(call, totals) !== countedSeconds(call, { hostSeconds: payment.frozenHostSeconds ?? -1, togetherSeconds: payment.frozenTogetherSeconds ?? -1 });
     if (changed) {
       await db
         .update(schema.payments)

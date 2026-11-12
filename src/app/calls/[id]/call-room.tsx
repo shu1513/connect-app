@@ -5,7 +5,7 @@ import { LiveKitRoom, PreJoin, VideoConference, type LocalUserChoices } from "@l
 import { DisconnectReason } from "livekit-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format";
 
 type Props = {
@@ -74,6 +74,31 @@ function EndForSafety({ callId, onLeave }: { callId: string; onLeave: () => void
     </span>
   );
 }
+
+const alwaysValid = () => true;
+
+/**
+ * The camera and microphone check before joining. Kept apart, and given the
+ * same settings every time, because the page around it redraws every second
+ * for the clock: handed fresh settings each second, the video library would
+ * switch the camera off and on again each time.
+ */
+const Lobby = memo(function Lobby(props: { userName: string; joining: boolean; onJoin: (values: LocalUserChoices) => void; onProblem: (text: string) => void }) {
+  const { onJoin, onProblem } = props;
+  // The newest handlers, without changing what the video library is given.
+  const handlers = useRef({ onJoin, onProblem });
+  useEffect(() => {
+    handlers.current = { onJoin, onProblem };
+  });
+  const defaults = useMemo(() => ({ username: props.userName, videoEnabled: true, audioEnabled: true }), [props.userName]);
+  const submit = useCallback((values: LocalUserChoices) => handlers.current.onJoin(values), []);
+  const problem = useCallback((error: Error) => handlers.current.onProblem(`Camera or microphone problem: ${error.message}`), []);
+  return (
+    <div className="mt-4 max-w-xl" data-lk-theme="default">
+      <PreJoin defaults={defaults} persistUserChoices={false} onValidate={alwaysValid} onSubmit={submit} onError={problem} joinLabel={props.joining ? "Joining…" : "Join call"} />
+    </div>
+  );
+});
 
 export function CallRoom(props: Props) {
   const startsAt = Date.parse(props.startsAt);
@@ -193,16 +218,7 @@ export function CallRoom(props: Props) {
           </p>
         )}
         <p className="mt-2 text-sm opacity-70">Check your camera and microphone, then join.</p>
-        <div className="mt-4 max-w-xl" data-lk-theme="default">
-          <PreJoin
-            defaults={{ username: props.userName, videoEnabled: true, audioEnabled: true }}
-            persistUserChoices={false}
-            onValidate={() => true}
-            onSubmit={join}
-            onError={(error) => setNotice(`Camera or microphone problem: ${error.message}`)}
-            joinLabel={joining ? "Joining…" : "Join call"}
-          />
-        </div>
+        <Lobby userName={props.userName} joining={joining} onJoin={join} onProblem={setNotice} />
       </section>
     );
   }

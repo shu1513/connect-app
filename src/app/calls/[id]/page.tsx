@@ -11,6 +11,7 @@ import { requireUser } from "@/lib/session";
 import { cancelCallAction } from "./actions";
 import { CallRoom } from "./call-room";
 import { PayPanel } from "./pay-panel";
+import { RefreshWhenPaid } from "./refresh-when-paid";
 
 function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): string {
   if (freeCancelMinutes === 0) return "You can cancel for free at any time before the call starts.";
@@ -83,7 +84,10 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           </p>
         </section>
       ) : payment && blocked === "not_paid" && payment.status === "awaiting_payment" ? (
-        role === "customer" ? (
+        <>
+          {/* The hold may land any second (an instant call's saved card, a booked call about to start): follow it. */}
+          {(call.billing === "together" || call.startsAt.getTime() - now.getTime() < 10 * 60_000) && <RefreshWhenPaid callId={call.id} paymentStatus={payment.status} until={call.endsAt.toISOString()} />}
+          {role === "customer" ? (
           payWindow({ now, startsAt: call.startsAt, endsAt: call.endsAt }) === "too_early" ? (
             <section className="mt-10">
               <p className="text-lg">
@@ -97,14 +101,16 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
               bookedPrice={bookedPrice!}
               pricePer15={formatMoney(payment.pricePer15Cents)}
               cancelRule={cancelRuleSentence(call.freeCancelMinutes, bookedPrice!)}
+              billing={call.billing}
             />
           )
         ) : (
           <section className="mt-10">
             <p className="text-lg">Waiting for {other?.name ?? "the customer"} to confirm and pay.</p>
-            <p className="mt-2 text-sm opacity-70">The call can only start once {bookedPrice} is held on their card.</p>
+            <p className="mt-2 text-sm opacity-70">The call can only start once {bookedPrice} is held on their card.{call.billing === "together" ? " This page updates by itself." : ""}</p>
           </section>
-        )
+        )}
+        </>
       ) : blocked ? (
         <section className="mt-10">
           <p className="text-lg">This call cannot go ahead because its payment is no longer in place.</p>

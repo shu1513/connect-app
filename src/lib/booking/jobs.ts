@@ -12,6 +12,7 @@
  */
 import { and, eq, gt, inArray, isNotNull, isNull, like, lte, ne, or } from "drizzle-orm";
 import { db, schema } from "@/db";
+import type { Booking, Call, Payment } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
 import { cancelCall } from "@/lib/payments/cancel";
 import { placeHoldWithSavedCard, syncHold } from "@/lib/payments/hold";
@@ -19,7 +20,7 @@ import { OutcomeUnknownError } from "@/lib/payments/operations";
 import { payOpensAt } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
-import { endUnanswered, endUnfinishedCardSteps, lockCalendars } from "./bookings";
+import { endUnanswered, endUnfinishedCardSteps, lockCalendars, endInstantRequestsOfAbsentHosts } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
 
 const HOUR = 3_600_000;
@@ -83,7 +84,7 @@ function unpaidBookings() {
     .where(
       and(
         eq(schema.bookings.stage, "accepted"),
-        eq(schema.bookings.source, "customer"),
+        inArray(schema.bookings.source, ["customer", "now"]),
         eq(schema.payments.status, "awaiting_payment"),
         isNull(schema.calls.cancelledAt),
       ),
@@ -117,12 +118,13 @@ async function placeHolds(now: Date): Promise<void> {
   const due = await unpaidBookings().where(
     and(
       eq(schema.bookings.stage, "accepted"),
-      eq(schema.bookings.source, "customer"),
+      inArray(schema.bookings.source, ["customer", "now"]),
       eq(schema.payments.status, "awaiting_payment"),
       isNull(schema.calls.cancelledAt),
       isNull(schema.bookings.holdTriedAt),
       isNotNull(schema.bookings.stripePaymentMethodId),
-      gt(schema.calls.startsAt, now),
+      // An instant call's payment deadline is a minute after its start; a booked call's is long before.
+      or(gt(schema.calls.startsAt, now), eq(schema.bookings.source, "now")),
       gt(schema.bookings.payBy, now),
     ),
   );
@@ -137,27 +139,49 @@ async function placeHolds(now: Date): Promise<void> {
       log(`no hold for booking ${booking.id}: the host's payout account is not ready`);
       continue;
     }
-    // Claim the one try before making it, so two helpers cannot both make it.
-    const claimed = await db
-      .update(schema.bookings)
-      .set({ holdTriedAt: now })
-      .where(and(eq(schema.bookings.id, booking.id), isNull(schema.bookings.holdTriedAt)))
-      .returning({ id: schema.bookings.id });
-    if (claimed.length === 0) continue;
-    try {
-      const [customer] = await db.select().from(schema.user).where(eq(schema.user.id, booking.customerId));
-      const result = await placeHoldWithSavedCard({ payment, call, customer, paymentMethodId: booking.stripePaymentMethodId!, now });
-      if (result === "held") log(`hold placed for booking ${booking.id}`);
-      else {
-        await noteHoldFailed(booking.id, now);
-        log(`the saved card did not work for booking ${booking.id}; the customer was told`);
-      }
-    } catch (error) {
-      // Not known yet whether it worked. The payments helper finds out; noteUnsettledTries() follows up.
-      if (error instanceof OutcomeUnknownError) log(`hold for booking ${booking.id} is being checked with Stripe`);
-      else log(`could not try the saved card for booking ${booking.id}`, error);
-    }
+    await tryHoldOnce({ booking, call, payment }, now);
   }
+}
+
+/**
+ * The one try with the saved card, for one booking. Claimed before it is made,
+ * so two helpers (or the helper and the page that accepted an instant call)
+ * cannot both make it. Returns what happened, for the page that is waiting.
+ */
+export async function tryHoldOnce(found: { booking: Booking; call: Call; payment: Payment }, now: Date): Promise<"held" | "not_held" | "unknown" | "already_tried"> {
+  const { booking, call, payment } = found;
+  const claimed = await db
+    .update(schema.bookings)
+    .set({ holdTriedAt: now })
+    .where(and(eq(schema.bookings.id, booking.id), isNull(schema.bookings.holdTriedAt)))
+    .returning({ id: schema.bookings.id });
+  if (claimed.length === 0) return "already_tried";
+  try {
+    const [customer] = await db.select().from(schema.user).where(eq(schema.user.id, booking.customerId));
+    const result = await placeHoldWithSavedCard({ payment, call, customer, paymentMethodId: booking.stripePaymentMethodId!, now });
+    if (result === "held") {
+      log(`hold placed for booking ${booking.id}`);
+      return "held";
+    }
+    await noteHoldFailed(booking.id, now);
+    log(`the saved card did not work for booking ${booking.id}; the customer was told`);
+    return "not_held";
+  } catch (error) {
+    // Not known yet whether it worked. The payments helper finds out; noteUnsettledTries() follows up.
+    if (error instanceof OutcomeUnknownError) log(`hold for booking ${booking.id} is being checked with Stripe`);
+    else log(`could not try the saved card for booking ${booking.id}`, error);
+    return "unknown";
+  }
+}
+
+/** Right after an instant call is accepted: the saved card is tried at once, the customer is waiting. */
+export async function tryHoldForAcceptedBooking(bookingId: string, now: Date): Promise<"held" | "not_held" | "unknown" | "already_tried" | "nothing_to_hold"> {
+  if (!stripeConfigured()) return "nothing_to_hold";
+  // Only instant calls are paid for at once; a booked call's one try comes 2 days before it.
+  const [found] = await unpaidBookings().where(and(eq(schema.bookings.id, bookingId), eq(schema.bookings.source, "now"), isNotNull(schema.bookings.stripePaymentMethodId), gt(schema.bookings.payBy, now)));
+  if (!found) return "nothing_to_hold";
+  if (!(await refreshPayoutsReady(found.call.hostId).catch(() => false))) return "nothing_to_hold";
+  return tryHoldOnce(found, now);
 }
 
 /** A try whose outcome was unknown at first, and has since turned out not to have worked. */
@@ -165,7 +189,7 @@ async function noteUnsettledTries(now: Date): Promise<void> {
   const tried = await unpaidBookings().where(
     and(
       eq(schema.bookings.stage, "accepted"),
-      eq(schema.bookings.source, "customer"),
+      inArray(schema.bookings.source, ["customer", "now"]),
       eq(schema.payments.status, "awaiting_payment"),
       isNull(schema.calls.cancelledAt),
       isNull(schema.bookings.holdFailedAt),
@@ -184,7 +208,7 @@ async function cancelUnpaidAtCutoff(now: Date): Promise<void> {
   const late = await unpaidBookings().where(
     and(
       eq(schema.bookings.stage, "accepted"),
-      eq(schema.bookings.source, "customer"),
+      inArray(schema.bookings.source, ["customer", "now"]),
       eq(schema.payments.status, "awaiting_payment"),
       isNull(schema.calls.cancelledAt),
       lte(schema.bookings.payBy, now),
@@ -245,6 +269,7 @@ export async function runBookingJobs(now: Date): Promise<void> {
   const jobs: Array<[string, () => Promise<unknown>]> = [
     ["unfinished card steps", () => endUnfinishedCardSteps(now)],
     ["unanswered requests", () => endUnanswered(now)],
+    ["instant requests for hosts who have gone", () => endInstantRequestsOfAbsentHosts(now)],
     ["telling hosts", () => tellHostsAboutNewRequests(now)],
   ];
   if (stripeConfigured()) {

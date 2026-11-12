@@ -13,6 +13,8 @@ type Props = {
   pricePer15: string;
   /** Plain sentence describing the host's cancelling rule for this call. */
   cancelRule: string;
+  /** What this call charges for: "host" (the host's time) or "together" (time both were in). */
+  billing: string;
 };
 
 /** The customer's confirm-and-pay step. The card is entered in Stripe's own form. */
@@ -51,11 +53,20 @@ export function PayPanel(props: Props) {
           {props.bookedPrice} is held on your card now. Nothing is charged until after the call, and you are never charged
           more than that.
         </li>
-        <li>
-          You pay for the time the host is in the call during the booked time.{" "}
-          <strong>That includes time the host spends waiting if you are late or do not join.</strong>
-        </li>
-        <li>If the host is late, leaves early or does not show up, you do not pay for that time.</li>
+        {props.billing === "together" ? (
+          <li>
+            You pay for the time <strong>you and the host are both in the call</strong> during the booked time. Time only one of you was in is
+            not charged.
+          </li>
+        ) : (
+          <>
+            <li>
+              You pay for the time the host is in the call during the booked time.{" "}
+              <strong>That includes time the host spends waiting if you are late or do not join.</strong>
+            </li>
+            <li>If the host is late, leaves early or does not show up, you do not pay for that time.</li>
+          </>
+        )}
         <li>{props.cancelRule}</li>
       </ul>
 
