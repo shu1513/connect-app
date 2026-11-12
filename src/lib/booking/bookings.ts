@@ -207,7 +207,7 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { id?: string; custome
     const upcomingFree = await count(mine, inArray(schema.bookings.stage, ["waiting", "accepted"]), eq(schema.bookings.totalCents, 0), gt(schema.bookings.startsAt, now));
     if (upcomingFree >= LIMITS.upcomingFree) throw new BookingError(`You can have at most ${LIMITS.upcomingFree} free calls coming up at a time.`);
   }
-  // (Declining a call *now* is not a rejection of the person: that has its own 24-hour rule, in checkMayAskNow.)
+  // (Declining a call *now* is not a rejection of the person: that has its own 15-minute rule, in checkMayAskNow.)
   const declinedLately = await count(
     mine,
     thisHost,
@@ -244,9 +244,9 @@ async function checkMayAskNow(tx: Tx, offer: Offer, booking: { id?: string; cust
     eq(schema.bookings.hostId, offer.hostId),
     eq(schema.bookings.stage, "declined"),
     eq(schema.bookings.endedReason, DECLINED_BY_HOST),
-    gt(schema.bookings.endedAt, new Date(now.getTime() - NOW.cooldownHours * 3_600_000)),
+    gt(schema.bookings.endedAt, new Date(now.getTime() - NOW.cooldownMinutes * 60_000)),
   );
-  if (declined > 0) throw new BookingError("This host is not taking calls from you right now.");
+  if (declined > 0) throw new BookingError(`This host is not taking calls from you right now. You can ask again ${NOW.cooldownMinutes} minutes after they declined.`);
   const lastTries = await tx
     .select({ holdFailedAt: schema.bookings.holdFailedAt })
     .from(schema.bookings)
@@ -738,6 +738,34 @@ export async function endUnanswered(now: Date): Promise<number> {
     ended += await db.transaction(async (tx) => {
       await lockCalendars(tx, [hostId]);
       return (await endWaiting(tx, and(eq(schema.bookings.hostId, hostId), overdue), "ran_out", "not answered in time", now)).length;
+    });
+  }
+  return ended;
+}
+
+/**
+ * Instant requests still waiting for a host who is no longer available (they
+ * closed their page, switched off, accepted another call, or their connection
+ * dropped) end at once, so no customer waits out the clock for someone who
+ * has gone. Pass a host to do it for that host only.
+ */
+export async function endInstantRequestsOfAbsentHosts(now: Date, onlyHostId?: string): Promise<number> {
+  const waitingNow = and(eq(schema.bookings.stage, "waiting"), eq(schema.bookings.source, "now"));
+  const hosts = await db
+    .selectDistinct({ hostId: schema.bookings.hostId, availableUntil: schema.hostCalendars.availableUntil, availableSeenAt: schema.hostCalendars.availableSeenAt })
+    .from(schema.bookings)
+    .leftJoin(schema.hostCalendars, eq(schema.hostCalendars.userId, schema.bookings.hostId))
+    .where(and(waitingNow, onlyHostId ? eq(schema.bookings.hostId, onlyHostId) : undefined));
+  let ended = 0;
+  for (const host of hosts) {
+    if (isAvailableNow(host, now)) continue;
+    ended += await db.transaction(async (tx) => {
+      // Under the host's calendar lock, like every other answer, and looked at again there:
+      // the host may have come back, or accepted, a moment ago.
+      await lockCalendars(tx, [host.hostId]);
+      const [calendar] = await tx.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, host.hostId));
+      if (calendar && isAvailableNow(calendar, now)) return 0;
+      return (await endWaiting(tx, and(eq(schema.bookings.hostId, host.hostId), eq(schema.bookings.source, "now")), "ran_out", "the host is no longer available", now)).length;
     });
   }
   return ended;

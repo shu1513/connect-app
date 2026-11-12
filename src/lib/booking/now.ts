@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { BookingError, offerOf } from "./bookings";
+import { BookingError, endInstantRequestsOfAbsentHosts, offerOf } from "./bookings";
 import { isAvailableNow, NOW } from "./now-rules";
 
 export type AvailabilityState = { availableUntil: string | null; on: boolean };
@@ -32,6 +32,8 @@ export async function setAvailableNow(input: { hostId: string; minutes: number |
     .set({ availableUntil: until, availableSeenAt: until ? now : null, updatedAt: now })
     .where(eq(schema.hostCalendars.userId, hostId))
     .returning();
+  // Switched off (the button, or the page closing): anyone still waiting for an answer is told at once.
+  if (!until) await endInstantRequestsOfAbsentHosts(now, hostId);
   return stateOf(calendar, now);
 }
 
@@ -50,6 +52,7 @@ export async function stillHere(hostId: string, now: Date): Promise<Availability
   if (calendar) return stateOf(calendar, now);
   // Lapsed or over: make the switch-off explicit, so nothing later can revive it.
   const [cleared] = await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hostId)).returning();
+  await endInstantRequestsOfAbsentHosts(now, hostId);
   return stateOf(cleared, now);
 }
 

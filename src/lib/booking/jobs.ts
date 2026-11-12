@@ -20,7 +20,7 @@ import { OutcomeUnknownError } from "@/lib/payments/operations";
 import { payOpensAt } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
-import { endUnanswered, endUnfinishedCardSteps, lockCalendars } from "./bookings";
+import { endUnanswered, endUnfinishedCardSteps, lockCalendars, endInstantRequestsOfAbsentHosts } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
 
 const HOUR = 3_600_000;
@@ -269,6 +269,7 @@ export async function runBookingJobs(now: Date): Promise<void> {
   const jobs: Array<[string, () => Promise<unknown>]> = [
     ["unfinished card steps", () => endUnfinishedCardSteps(now)],
     ["unanswered requests", () => endUnanswered(now)],
+    ["instant requests for hosts who have gone", () => endInstantRequestsOfAbsentHosts(now)],
     ["telling hosts", () => tellHostsAboutNewRequests(now)],
   ];
   if (stripeConfigured()) {

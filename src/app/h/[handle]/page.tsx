@@ -4,6 +4,7 @@ import { cache } from "react";
 import Link from "next/link";
 import { SlotPicker } from "@/components/slot-picker";
 import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
+import { NOW } from "@/lib/booking/now-rules";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
@@ -99,7 +100,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             Available now
           </h2>
           <p className="mt-1 text-sm">
-            {profile.displayName} can take a call right away. Choose a length; they answer within 3 minutes and the call starts a minute after they accept.
+            {profile.displayName} can take a call right away. Choose a length; they answer within {NOW.answerMinutes} minutes and the call starts a minute after they accept.
             {now.offer.pricePer15Cents > 0 ? " You pay for the time you are both in the call." : ""}
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-sm">

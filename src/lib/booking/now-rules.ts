@@ -10,16 +10,20 @@ const MINUTE = 60_000;
 export const NOW = {
   /** How long a host can say they are available for, in minutes. */
   durations: [30, 60, 120] as const,
-  /** The host's page says "still here" this often; after `presenceSeconds` without it, the host is not available. */
-  heartbeatSeconds: 15,
-  presenceSeconds: 45,
+  /**
+   * The host's page says "still here" this often; after `presenceSeconds` without it, the host is not available.
+   * Closing the page says "gone" at once; this is only the fallback for a page that could not say so
+   * (the browser crashed, the connection dropped).
+   */
+  heartbeatSeconds: 5,
+  presenceSeconds: 15,
   /** The host has this long to answer an instant request. */
-  answerMinutes: 3,
+  answerMinutes: 2,
   /** After accepting: the call starts this many seconds later, and the money must be held within `payMinutes`. */
   startAfterSeconds: 60,
   payMinutes: 2,
   /** After a host declines an instant request, that customer cannot ask them for an instant call for this long. */
-  cooldownHours: 24,
+  cooldownMinutes: 15,
   /** Instant requests one host can have waiting at a time, and a customer may have outstanding (card step or waiting). */
   waitingPerHost: 5,
   outstandingPerCustomer: 1,

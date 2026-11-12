@@ -21,27 +21,28 @@ describe("fittingLengths", () => {
     expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(90) })).toEqual([15, 30, 60]);
   });
   it("drops lengths that would run into something the host is taken for, counting the break and the latest start", () => {
-    // Latest start is now + 4 minutes. A 30-minute call plus a 5-minute break ends at now + 39.
-    const busy = [{ start: at(38), end: at(68) }];
+    // Latest start is now + 3 minutes. A 30-minute call plus a 5-minute break ends at now + 38.
+    const busy = [{ start: at(37), end: at(68) }];
     expect(fittingLengths({ lengths, breakMinutes: 5, busy, now, availableUntil: at(90) })).toEqual([15]);
-    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [{ start: at(40), end: at(68) }], now, availableUntil: at(90) })).toEqual([15, 30]);
+    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [{ start: at(38), end: at(68) }], now, availableUntil: at(90) })).toEqual([15, 30]);
   });
   it("offers nothing while the host is in something right now", () => {
     expect(fittingLengths({ lengths, breakMinutes: 5, busy: [{ start: at(-10), end: at(2) }], now, availableUntil: at(90) })).toEqual([]);
   });
   it("offers only lengths whose call is over before the availability ends", () => {
     expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(3) })).toEqual([]);
-    // Latest start now + 4: a 15-minute call ends at +19, a 30-minute one at +34, a 60-minute one at +64.
-    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(19) })).toEqual([15]);
-    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(34) })).toEqual([15, 30]);
-    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(64) })).toEqual([15, 30, 60]);
+    // Latest start now + 3: a 15-minute call ends at +18, a 30-minute one at +33, a 60-minute one at +63.
+    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(18) })).toEqual([15]);
+    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(17) })).toEqual([]);
+    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(33) })).toEqual([15, 30]);
+    expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(63) })).toEqual([15, 30, 60]);
   });
 });
 
 describe("instant deadlines", () => {
   it("are fixed offsets", () => {
-    expect(latestInstantStart(now).getTime()).toBe(at(4).getTime());
-    expect(instantAnswerBy(now).getTime()).toBe(at(3).getTime());
+    expect(latestInstantStart(now).getTime()).toBe(at(3).getTime());
+    expect(instantAnswerBy(now).getTime()).toBe(at(2).getTime());
     expect(instantStart(now).getTime()).toBe(now.getTime() + 60_000);
     expect(instantPayBy(now).getTime()).toBe(at(2).getTime());
   });

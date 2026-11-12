@@ -7,7 +7,12 @@ type Request = { id: string; customerName: string; lengthMinutes: number; totalC
 type Live = { on: boolean; availableUntil: string | null; requests: Request[] };
 
 const POLL_MS = 3_000;
-const HEARTBEAT_MS = 15_000;
+const HEARTBEAT_MS = 5_000;
+
+/** Says "I am gone" in a way the browser still delivers while the page is closing. */
+function sayGone() {
+  navigator.sendBeacon("/api/host/now", new Blob([JSON.stringify({ minutes: null })], { type: "application/json" }));
+}
 
 function money(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -19,9 +24,11 @@ function secondsLeft(iso: string, now: number): number {
 
 /**
  * The host's live "Available now" panel. While it is open and availability is
- * on, it tells the server every 15 seconds that the host is still here, and
- * asks every 3 seconds whether anyone is waiting. Closing the tab ends
- * availability by itself (the sign of life stops).
+ * on, it tells the server every 5 seconds that the host is still here, and
+ * asks every 3 seconds whether anyone is waiting. Closing the tab, reloading
+ * or leaving this page ends availability at once (the page says so as it
+ * goes); if it cannot say so (a crash, a lost connection), the missing sign
+ * of life ends it within 15 seconds.
  */
 export function NowPanel(props: { initial: Live; durations: readonly number[] }) {
   const router = useRouter();
@@ -30,7 +37,6 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
-
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -79,6 +85,29 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
     return () => clearInterval(timer);
   }, [live.on]);
 
+  // Leaving ends availability at once. `pagehide` is the tab closing, reloading or going to another
+  // site; the cleanup is moving to another page inside Connect, where the browser fires nothing.
+  const on = useRef(live.on);
+  useEffect(() => {
+    on.current = live.on;
+  }, [live.on]);
+  const shown = useRef(false);
+  useEffect(() => {
+    const leaving = () => {
+      if (on.current) sayGone();
+    };
+    shown.current = true;
+    window.addEventListener("pagehide", leaving);
+    return () => {
+      window.removeEventListener("pagehide", leaving);
+      shown.current = false;
+      // Looked at a moment later: while developing, React takes a page down and puts it straight back once.
+      setTimeout(() => {
+        if (!shown.current) leaving();
+      }, 0);
+    };
+  }, []);
+
   async function setAvailability(minutes: number | null) {
     setBusy("availability");
     setProblem(null);
@@ -94,7 +123,8 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
     }
   }
 
-  async function answer(id: string, what: "accept" | "decline") {
+  async function answer(id: string, what: "accept" | "decline" | "block") {
+    if (what === "block" && !window.confirm("Decline this call and block this person? They will not be able to ask you for a call again. You can undo a block on your account page.")) return;
     setBusy(id);
     setProblem(null);
     try {
@@ -134,7 +164,7 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
               You are available now
             </p>
             <p className="mt-1 text-sm opacity-80">
-              For another {Math.floor(left / 60)} min {left % 60} s. Keep this page open: closing it switches this off.
+              For another {Math.floor(left / 60)} min {left % 60} s. Keep this page open: closing or leaving it switches this off at once.
             </p>
             <button type="button" onClick={() => setAvailability(null)} disabled={busy === "availability"} className="mt-3 rounded border border-neutral-500 px-3 py-1.5 text-sm">
               I am no longer available
@@ -178,6 +208,9 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
                     </button>
                     <button type="button" onClick={() => answer(request.id, "decline")} disabled={busy !== null} className="rounded border border-neutral-500 px-4 py-2">
                       Decline
+                    </button>
+                    <button type="button" onClick={() => answer(request.id, "block")} disabled={busy !== null} className="rounded border border-red-600 px-4 py-2 text-red-600">
+                      Decline and block
                     </button>
                   </div>
                 </li>

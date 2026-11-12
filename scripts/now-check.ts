@@ -19,7 +19,6 @@ import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
 const RUN = randomUUID().slice(0, 8);
-const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
 let failures = 0;
@@ -40,6 +39,7 @@ async function main() {
   const { runBookingJobs, tryHoldForAcceptedBooking } = await import("../src/lib/booking/jobs");
   const { cancelCall } = await import("../src/lib/payments/cancel");
   const { refreshPayoutsReady } = await import("../src/lib/payments/hosts");
+  const { block } = await import("../src/lib/safety/blocks");
 
   const now = new Date();
   const refusedWith = async (work: Promise<unknown>, words: string) => {
@@ -105,7 +105,7 @@ async function main() {
       await N.stillHere(host.id, now);
       check("a sign of life after a lapse does not bring it back: availability is over until the host switches it on again", !(await N.stillHere(host.id, now)).on && (await B.instantOffer(host.id, now)) === null && (await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, host.id)))[0].availableUntil === null);
       await N.setAvailableNow({ hostId: host.id, minutes: 60, now });
-      await db.update(schema.hostCalendars).set({ availableSeenAt: new Date(now.getTime() - 20 * 1000) }).where(eq(schema.hostCalendars.userId, host.id));
+      await db.update(schema.hostCalendars).set({ availableSeenAt: new Date(now.getTime() - 10 * 1000) }).where(eq(schema.hostCalendars.userId, host.id));
       check("a sign of life in time keeps it on", (await N.stillHere(host.id, now)).on && (await B.instantOffer(host.id, now)) !== null);
       check("once the time is up it is over, and a sign of life does not revive it", !(await N.stillHere(host.id, new Date(now.getTime() + 61 * MINUTE))).on && (await B.instantOffer(host.id, new Date(now.getTime() + 61 * MINUTE))) === null);
       await N.setAvailableNow({ hostId: host.id, minutes: 60, now });
@@ -140,9 +140,9 @@ async function main() {
       await N.setAvailableNow({ hostId: host.id, minutes: 60, now });
       const { booking, clientSecret } = await askNow(ann, host.id, 30);
       check("a free instant request goes straight to the host", booking.stage === "waiting" && booking.source === "now" && clientSecret === null);
-      check("the host has 3 minutes to answer; no payment deadline yet", booking.respondBy?.getTime() === now.getTime() + 3 * MINUTE && booking.payBy === null);
+      check("the host has 2 minutes to answer; no payment deadline yet", booking.respondBy?.getTime() === now.getTime() + 2 * MINUTE && booking.payBy === null);
       const annBusy = await busyOf(ann.id);
-      check("the customer is taken from now until the call could be over", annBusy.length === 1 && annBusy[0].startsAt.getTime() === now.getTime() && annBusy[0].endsAt.getTime() === now.getTime() + 34 * MINUTE);
+      check("the customer is taken from now until the call could be over", annBusy.length === 1 && annBusy[0].startsAt.getTime() === now.getTime() && annBusy[0].endsAt.getTime() === now.getTime() + 33 * MINUTE);
       check("the host's live page shows it", (await N.liveForHost(host.id, now)).requests.some((r) => r.id === booking.id && r.customerName === ann.name));
       check("the customer's waiting page sees it waiting", (await N.liveForCustomer(booking.id, ann.id))?.stage === "waiting");
       check("someone else cannot read it", (await N.liveForCustomer(booking.id, host.id)) === null);
@@ -152,6 +152,7 @@ async function main() {
       check("the customer is free of the 1-an-hour digest: the host was told at once", (await reload(booking.id)).hostNotifiedAt !== null);
 
       const acceptedAt = new Date(now.getTime() + 40 * 1000);
+      await keptOpen(host.id, acceptedAt); // the host's page has been open all along
       const { callId } = await B.accept({ bookingId: booking.id, hostId: host.id, now: acceptedAt });
       const call = await callOf(callId);
       check("accepting times the call 60 seconds from that moment", call.startsAt.getTime() === acceptedAt.getTime() + 60 * 1000 && call.endsAt.getTime() === call.startsAt.getTime() + 30 * MINUTE);
@@ -183,10 +184,12 @@ async function main() {
       await N.setAvailableNow({ hostId: host.id, minutes: 120, now });
 
       const { booking: unanswered } = await askNow(bea, host.id, 15);
-      await runBookingJobs(new Date(now.getTime() + 2 * MINUTE));
-      check("still waiting after 2 minutes", (await reload(unanswered.id)).stage === "waiting");
-      await runBookingJobs(new Date(now.getTime() + 3 * MINUTE + 1000));
-      check("not answered in 3 minutes: it ends by itself and the customer is free", (await reload(unanswered.id)).stage === "ran_out" && (await busyOf(bea.id)).length === 0);
+      await keptOpen(host.id, new Date(now.getTime() + MINUTE)); // the host's page is open all along; they just do not answer
+      await runBookingJobs(new Date(now.getTime() + MINUTE));
+      check("still waiting after 1 minute", (await reload(unanswered.id)).stage === "waiting");
+      await keptOpen(host.id, new Date(now.getTime() + 2 * MINUTE));
+      await runBookingJobs(new Date(now.getTime() + 2 * MINUTE + 1000));
+      check("not answered in 2 minutes: it ends by itself and the customer is free", (await reload(unanswered.id)).stage === "ran_out" && (await busyOf(bea.id)).length === 0);
       check("the customer is told", (await emailsTo(bea.email, "could not take your call now")).length === 1);
       check("the host can no longer accept it", await refusedWith(B.accept({ bookingId: unanswered.id, hostId: host.id, now }), "no longer waiting"));
 
@@ -195,13 +198,49 @@ async function main() {
       const { booking: declined } = await askNow(bea, host.id, 15, later);
       await B.decline({ bookingId: declined.id, hostId: host.id, now: later });
       check("declined: ended, customer free, told once", (await reload(declined.id)).stage === "declined" && (await busyOf(bea.id)).length === 0 && (await emailsTo(bea.email, "could not take your call now")).length === 2);
-      check("that customer cannot ask this host for a call now for 24 hours", await refusedWith(askNow(bea, host.id, 15, later), "not taking calls from you"));
+      check("that customer cannot ask this host for a call now for 15 minutes", await refusedWith(askNow(bea, host.id, 15, later), "not taking calls from you"));
       check("but another customer can", (await askNow(cal, host.id, 15, later)).booking.stage === "waiting");
-      await db.update(schema.bookings).set({ endedAt: new Date(later.getTime() - 25 * HOUR) }).where(eq(schema.bookings.id, declined.id));
+      await db.update(schema.bookings).set({ endedAt: new Date(later.getTime() - 16 * MINUTE) }).where(eq(schema.bookings.id, declined.id));
       const { booking: again } = await askNow(bea, host.id, 15, later);
-      check("after 24 hours they can ask again", again.stage === "waiting");
+      check("after 15 minutes they can ask again", again.stage === "waiting");
       await B.takeBack({ bookingId: again.id, customerId: bea.id, now: later });
       check("taking it back frees the customer and sends no email", (await reload(again.id)).stage === "taken_back" && (await busyOf(bea.id)).length === 0 && (await emailsTo(bea.email, "could not take your call now")).length === 2);
+
+      console.log("   …decline and block; and a host who goes away while someone is waiting");
+      {
+        const hostB = await person("host3b");
+        await makeHost(hostB, 0);
+        const eve = await person("blk");
+        const fay = await person("wtg");
+        await N.setAvailableNow({ hostId: hostB.id, minutes: 120, now });
+        const { booking: unwanted } = await askNow(eve, hostB.id, 15);
+        // What the "Decline and block" button does: the decline is the answer, the block is silent.
+        await B.decline({ bookingId: unwanted.id, hostId: hostB.id, now });
+        await block({ blockerId: hostB.id, blockedId: eve.id, now });
+        check("declined and blocked: the customer is told only that the host could not take the call", (await reload(unwanted.id)).stage === "declined" && (await emailsTo(eve.email, "could not take your call now")).length === 1);
+        const muchLater = new Date(now.getTime() + 20 * MINUTE);
+        await keptOpen(hostB.id, muchLater);
+        check("after the 15 minutes they still cannot ask: to them the host is simply not available", await refusedWith(askNow(eve, hostB.id, 15, muchLater), "not available right now"));
+
+        await keptOpen(hostB.id, now);
+        const { booking: waiting1 } = await askNow(fay, hostB.id, 15);
+        // The host closes the page: it says "gone" as it closes, which is the same as switching off.
+        await N.setAvailableNow({ hostId: hostB.id, minutes: null, now });
+        const ended = await reload(waiting1.id);
+        check("the host closes their page: the waiting request ends at once, not after 2 minutes", ended.stage === "ran_out" && ended.endedReason === "the host is no longer available" && (await busyOf(fay.id)).length === 0);
+        const told = await emailsTo(fay.email, "could not take your call now");
+        check("the customer is told the host is no longer available", told.length === 1 && told[0].body.includes("is no longer available"));
+        check("and nobody can ask a host who has gone", (await B.instantOffer(hostB.id, now)) === null);
+
+        // The page vanished without saying so (a crash, a lost connection): the sign of life stops, and the helper ends what was waiting.
+        const gus = await person("crs");
+        await N.setAvailableNow({ hostId: hostB.id, minutes: 120, now });
+        const { booking: waiting2 } = await askNow(gus, hostB.id, 15);
+        await runBookingJobs(new Date(now.getTime() + 10 * 1000));
+        check("10 seconds without a sign of life: still counted as there", (await reload(waiting2.id)).stage === "waiting");
+        await runBookingJobs(new Date(now.getTime() + (NOW.presenceSeconds + 1) * 1000));
+        check("after 15 seconds without one the host counts as gone, and the waiting request ends", (await reload(waiting2.id)).stage === "ran_out" && (await reload(waiting2.id)).endedReason === "the host is no longer available");
+      }
       // Every try counts toward the daily limit, including ones taken back: bea has made 3; seven more taken back make 10.
       // (At most 3 requests to one host a day, as for booked calls, so these go to other hosts.)
       const otherHost = async (name: string) => {
@@ -232,11 +271,12 @@ async function main() {
       const cardDone = new Date(now.getTime() + 20 * MINUTE);
       await keptOpen(hana.id, cardDone);
       const sent = await B.finishCardStep({ bookingId: booking.id, customerId: dan.id, now: cardDone });
-      check("once the card is saved the host is asked, with 3 minutes to answer from then", sent.stage === "waiting" && Boolean(sent.stripePaymentMethodId) && sent.respondBy!.getTime() === cardDone.getTime() + 3 * MINUTE);
+      check("once the card is saved the host is asked, with 2 minutes to answer from then", sent.stage === "waiting" && Boolean(sent.stripePaymentMethodId) && sent.respondBy!.getTime() === cardDone.getTime() + 2 * MINUTE);
       const danBusy = await busyOf(dan.id);
-      check("the customer is taken from that moment until the call could be over", danBusy.length === 1 && danBusy[0].startsAt.getTime() === cardDone.getTime() && danBusy[0].endsAt.getTime() === cardDone.getTime() + 19 * MINUTE);
+      check("the customer is taken from that moment until the call could be over", danBusy.length === 1 && danBusy[0].startsAt.getTime() === cardDone.getTime() && danBusy[0].endsAt.getTime() === cardDone.getTime() + 18 * MINUTE);
 
       const acceptedAt = new Date(cardDone.getTime() + 30 * 1000);
+      await keptOpen(hana.id, acceptedAt); // the host's page has been open all along
       const { callId } = await B.accept({ bookingId: booking.id, hostId: hana.id, now: acceptedAt });
       const accepted = await reload(booking.id);
       check("accepting sets a 2-minute payment deadline", accepted.payBy?.getTime() === acceptedAt.getTime() + 2 * MINUTE);
@@ -270,6 +310,7 @@ async function main() {
       await cardFor(booking.id, "pm_card_chargeCustomerFail"); // saving works; using it is refused
       await B.finishCardStep({ bookingId: booking.id, customerId: eve.id, now: at });
       const acceptedAt = new Date(at.getTime() + 20 * 1000);
+      await keptOpen(hana.id, acceptedAt); // the host's page has been open all along
       const { callId } = await B.accept({ bookingId: booking.id, hostId: hana.id, now: acceptedAt });
       const hold = await tryHoldForAcceptedBooking(booking.id, acceptedAt);
       check("the refusal is known at once and the customer is told how to fix it", hold === "not_held" && (await reload(booking.id)).holdFailedAt !== null && (await emailsTo(eve.email, "needs your attention")).some((m) => m.body.includes(`/calls/${callId}`)));

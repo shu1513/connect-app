@@ -100,7 +100,9 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
         await toCustomer(`${hostShown} could not take your call now`, [
           event === "declined"
             ? `${hostShown} could not take your call right now. Nothing was held or charged, and your card details have been removed.`
-            : `${hostShown} did not answer in time, so your request has ended. Nothing was held or charged, and your card details have been removed.`,
+            : booking.endedReason === "the host is no longer available"
+              ? `${hostShown} is no longer available, so your request has ended. Nothing was held or charged, and your card details have been removed.`
+              : `${hostShown} did not answer in time, so your request has ended. Nothing was held or charged, and your card details have been removed.`,
         ]);
         break;
       case "card_problem":
