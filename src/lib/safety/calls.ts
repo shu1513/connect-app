@@ -40,9 +40,15 @@ export async function endCallForSafety(input: { call: Call; by: string; now: Dat
     if (next) {
       const [part] = await db.select().from(schema.calls).where(eq(schema.calls.id, next.id));
       const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, next.id));
-      await cancelCall({ call: part, payment: payment ?? null, by: "admin", now }).catch((error) => {
-        console.error(`[safety] could not cancel part 2 ${next.id} of stopped call ${call.id}`, error);
-      });
+      if (part.startsAt <= now) {
+        // It has already started (the stop came in the first part's last minute): stop it the same way,
+        // which also takes care of any more time agreed after it.
+        await endCallForSafety({ call: part, by, now });
+      } else {
+        await cancelCall({ call: part, payment: payment ?? null, by: "admin", now }).catch((error) => {
+          console.error(`[safety] could not cancel part 2 ${next.id} of stopped call ${call.id}`, error);
+        });
+      }
     }
   }
 }

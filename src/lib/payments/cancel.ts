@@ -55,6 +55,11 @@ export async function cancelCall(input: {
   // Mark the call cancelled first, so nobody can join it. Only the first cancel wins.
   // In the same step the booking it came from ends and both people's time is free again.
   await db.transaction(async (tx) => {
+    if (unpaid && payment) {
+      // Under the payment's lock: a hold recorded a moment ago means this call is paid, and it stands.
+      const [fresh] = await tx.select({ status: schema.payments.status }).from(schema.payments).where(eq(schema.payments.id, payment.id)).for("update");
+      if (fresh?.status !== "awaiting_payment") throw new MoneyError("This call has been paid for, so it is not cancelled as unpaid.");
+    }
     const marked = await tx
       .update(schema.calls)
       .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })

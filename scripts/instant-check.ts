@@ -259,7 +259,18 @@ async function main() {
       console.log("   …\"End call and report\" on part 1");
       await endCallForSafety({ call: part1, by: ann.id, now });
       check("ends the pending part 2 too, for free", (await callOf(second.callId)).cancelledAt !== null && (await callOf(second.callId)).cancelledLate === false && (await I.nextPartOf(part1.id)) === null);
-      check("and nothing more can be offered on it", await refused(I.offerMoreTime({ call: await callOf(part1.id), hostId: host.id, lengthMinutes: 15, now })));
+      {
+        // The stop comes in part 1's last minute, when part 2 has already started: part 2 is stopped too, not left running.
+        const hostL = await freeHost("host6l");
+        const custL = await customer("cust6l");
+        await I.setAvailableNow(hostL.id, 60, now);
+        const l1 = await start(custL, hostL.id, 15);
+        const { callId: l2 } = await I.offerMoreTime({ call: l1, hostId: hostL.id, lengthMinutes: 15, now });
+        calls.push(l2);
+        await endCallForSafety({ call: l1, by: custL.id, now: new Date(l1.endsAt.getTime() + 30_000) });
+        check("a part 2 that has already started is stopped the same way", (await callOf(l2)).safetyEndedAt !== null);
+      }
+      check("and nothing more can be offered on it",await refused(I.offerMoreTime({ call: await callOf(part1.id), hostId: host.id, lengthMinutes: 15, now })));
 
       console.log("   …a booked call right after part 1");
       const host7 = await freeHost("host6b");

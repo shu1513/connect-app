@@ -227,7 +227,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - CodeRabbit: 12 comments, 10 overlapping with Astra's; the rest fixed (for example the identity refresh running on its own rhythm so slow answers from Stripe never hold up the money jobs).
 
 **How it was checked**
-- 55 checks over 7 real journeys (`scripts/safety-check.ts`), including the real stop through the app, the door refusing re-entry and the clock stopping; plus all earlier journeys and the 166 automatic tests.
+- 56 checks over 7 real journeys (`scripts/safety-check.ts`), including the real stop through the app, the door refusing re-entry and the clock stopping; plus all earlier journeys and the 166 automatic tests.
 
 **Still open**
 - A restricted Stripe key is needed to read "18 or older" from a passed check (the founder must be logged in to Stripe to create it); until then nobody passes the check.
@@ -299,10 +299,11 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - The pay cut-off, the unpaid-at-the-cut-off job and the booking emails know the new sources; cancelling an unpaid call is allowed after its start; reminders skip calls that start now; the join check sends people on to the next part once this one's time is up; "End call and report" cancels a pending part 2.
 - Screens: the Hosting page section; "Available now" on the host's public page with the lengths that fit; the summary page; the host's email; the self-refreshing home page and waiting screen; the pay-by time on the call page; inside the call, the host's "offer more time" buttons, the customer's accept-and-pay panel with the card form under the video, withdraw and decline, the move to the next part; the parts linked on the results page. Three small endpoints behind it (offer, the pending part, cancel from inside the call).
 
-**What the reviewers found:** to be filled in when the module is merged.
+**What the reviewers found:** to be filled in when the module is merged. Found while building: the automatic security check on the first commit raised two points, both fixed (a part 2 that has already started is stopped, not just cancelled, when "End call and report" is pressed in part 1's last minute; cancelling an unpaid call re-checks the payment under its lock in the same step). The browser walk-through found a bug that has been there since module 1: the camera check before joining restarted the camera several times a second (the founder saw the camera light flashing), because the page redraws every second for the clock and handed the video library fresh settings each time. The camera check now sits in its own piece with settings that do not change; measured before and after (28 camera requests in 8 seconds, then none).
 
 **How it was checked**
-- 55 checks over 7 real journeys (`scripts/instant-check.ts`) against the local database and Stripe's test area; 12 new automatic tests (181 in total); all earlier journeys.
+- In a browser, with two accounts: the host switches on, the customer starts a paid call, the host offers 15 more minutes, the customer pays for them in the real card form under the call, joins with camera and microphone, and is carried to part 2 when part 1's time is up.
+- 56 checks over 7 real journeys (`scripts/instant-check.ts`) against the local database and Stripe's test area; 12 new automatic tests (181 in total); all earlier journeys.
 
 **Still open**
 - Moving from one room to the next on two real devices, and whether LiveKit Cloud's cancellation of entry passes stays within one room (the two-device test already on the list).
