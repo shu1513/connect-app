@@ -22,7 +22,7 @@ export type Contact = {
   name: string;
   calls: number;
   lastCallAt: Date;
-  /** Their host page, only when it is public right now. */
+  /** Their host page: only for someone who was this person's host, and only when it is public right now. */
   hostHandle: string | null;
   /** True when they were this person's customer at least once: a note can be kept about them. */
   wasMyCustomer: boolean;
@@ -48,14 +48,15 @@ export async function contactsOf(userId: string, now: Date): Promise<Contact[]> 
         joined(schema.calls.customerId),
       ),
     );
-  const byPerson = new Map<string, { calls: number; lastCallAt: Date; wasMyCustomer: boolean }>();
+  const byPerson = new Map<string, { calls: number; lastCallAt: Date; wasMyCustomer: boolean; wasMyHost: boolean }>();
   for (const call of calls) {
     const iWasHost = call.hostId === userId;
     const other = iWasHost ? call.customerId : call.hostId;
-    const entry = byPerson.get(other) ?? { calls: 0, lastCallAt: call.startsAt, wasMyCustomer: false };
+    const entry = byPerson.get(other) ?? { calls: 0, lastCallAt: call.startsAt, wasMyCustomer: false, wasMyHost: false };
     entry.calls++;
     if (call.startsAt > entry.lastCallAt) entry.lastCallAt = call.startsAt;
     if (iWasHost) entry.wasMyCustomer = true;
+    else entry.wasMyHost = true;
     byPerson.set(other, entry);
   }
   if (byPerson.size === 0) return [];
@@ -95,11 +96,13 @@ export async function contactsOf(userId: string, now: Date): Promise<Contact[]> 
       const publicHost = person.status === "approved" && person.hidden === false;
       return {
         userId: person.id,
-        // A public host is known by their display name; anyone else by their own name.
-        name: publicHost ? person.displayName! : person.name,
+        // Each person as they were met. Someone who was this person's host is known by their host name,
+        // the one shown when booking them, never their account name. Someone who was only their customer
+        // is known by their own name: that they are a host too is theirs to tell.
+        name: entry.wasMyHost ? (person.displayName ?? person.name) : person.name,
         calls: entry.calls,
         lastCallAt: entry.lastCallAt,
-        hostHandle: publicHost ? person.handle : null,
+        hostHandle: entry.wasMyHost && publicHost ? person.handle : null,
         wasMyCustomer: entry.wasMyCustomer,
         note: noteOf.get(person.id) ?? null,
       };

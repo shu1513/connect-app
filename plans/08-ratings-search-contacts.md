@@ -12,7 +12,7 @@ Nothing here touches money, the call room or the booking rules.
 ## What this module must prove
 
 1. After a call that really happened, each person can rate the other once, from 1 to 5 stars, and nobody can rate a call they were not in or that did not happen.
-2. A rating cannot be used to hit back: neither person learns what the other gave, and a rating only starts to count once both have rated or the time to rate is over.
+2. A rating cannot be used to hit back: neither person learns what the other gave, and a rating only starts to count once the 7 days to rate that call are over.
 3. A host's average is shown on their page and in search; a customer's average is shown to a host who is deciding on their request. A single rating can never be read off an average.
 4. A customer can find a host by name, by handle, or by a confirmed social media name, and never finds a host who is hidden, not approved, paused, closed, or blocked either way.
 5. Each person can see the people they have had calls with. A host can keep a private note about a customer that nobody else can ever see.
@@ -43,7 +43,7 @@ Nothing here touches money, the call room or the booking rules.
    No browsing without typing, and no filters, in this module.
 
 6. **Contacts.**
-   Decided: a page "People you have talked to", worked out from calls that are over, were not cancelled, did not come from the admin test page, and that both people joined. Nothing new is stored for it. One line per person, whichever role each had: their name, how many calls, when the last one was, and a link to their host page only if that page is public right now (so a hidden or unapproved page is never revealed). People blocked either way, and closed accounts, are not listed. A person's email is never shown.
+   Decided: a page "People you have talked to", worked out from calls that are over, were not cancelled, did not come from the admin test page, and that both people joined. Nothing new is stored for it. One line per person, whichever role each had, shown as you met them: someone who was your host by their host name, with a link to their page only if it is public right now (so a hidden or unapproved page is never revealed); someone who was only your customer by their own name, with no link, even if they are a host too (they never told you so). With how many calls, and when the last one was. People blocked either way, and closed accounts, are not listed. A person's email is never shown.
 
 7. **Host notes.**
    Decided: on the contacts page, and on a request from that customer, a host can write and edit one private note per customer (up to 1,000 characters, plain text). Only that host can ever read it: not the customer, not other hosts, and there is no admin screen for it. It is shown to the host again when that customer asks for a call. The rule is one-way and lives in the shared server code: a note can be written only by someone about a person who was their customer in a call, or who really sent them a request (not a request abandoned at the card step, not a test call). While either has blocked the other, or the customer's account is closed, the note is kept but cannot be read or changed.
@@ -54,7 +54,7 @@ Nothing here touches money, the call room or the booking rules.
 ## Decisions already made (carried over)
 
 - Hosts and customers are roles on a call, not kinds of account. One account can have both averages.
-- Nothing is deleted when an account is closed; its ratings keep counting, and it no longer appears in search or contacts links.
+- Nothing is deleted when an account is closed. While it is closed, the group of 3 its rating is in does not count, and it does not appear in search or in contacts.
 - The founder's emergency switches, payments, the call room and the booking rules are untouched.
 
 ## How it works
@@ -87,7 +87,7 @@ Nothing here touches money, the call room or the booking rules.
 ## How we test it
 
 - **Automatic tests** for the plain rules in step 1.
-- **A script of real journeys** (`scripts/ratings-check.ts`) against the local database: a call both joined can be rated by each once and not twice; a stranger cannot rate it; a cancelled call, a call only one person joined, and a call ended with "End call and report" cannot be rated; not before the call is over, not after 7 days; a rating does not count until the other person rates or the 7 days pass; an average appears only from 3 counted ratings; host and customer averages are separate; search by name, handle, social name, with @ and capitals, and never a hidden, pending, paused, closed or blocked host; an unconfirmed social name does not match; contacts lists only people from calls that happened and hides blocked ones; a note can be written only by a host about their own customer, and nobody else can read it.
+- **A script of real journeys** (`scripts/ratings-check.ts`) against the local database: a call both joined can be rated by each once and not twice; a stranger cannot rate it; a cancelled call, a call only one person joined, and a call ended with "End call and report" cannot be rated; not before the call is over, not after 7 days; a rating does not count until the 7 days are over, even when both have rated; each person counts once; an average appears only from 3 people's ratings and moves 3 people at a time; closing an account never brings another person's rating into view; host and customer averages are separate; search by name, handle, social name, with @ and capitals, and never a hidden, pending, paused, closed or blocked host; an unconfirmed social name does not match; contacts lists only people from calls that happened and hides blocked ones; a note can be written only by a host about their own customer, and nobody else can read it.
 - **All earlier journeys and tests still pass.**
 - **In a browser:** rate a call from both sides; search; write a note.
 

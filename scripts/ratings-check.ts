@@ -226,6 +226,12 @@ async function main() {
       const waiting = await call({ hostId: kai.id, customerId: fans[3].id, endedMinutesAgo: 8 });
       const toRate = await R.callsToRate(fans[3].id, now);
       check("the home page lists a call waiting for this person's rating, and not ones already rated", toRate.length === 1 && toRate[0].callId === waiting.id && toRate[0].otherName === "Kai Average", String(toRate.length));
+      // An older call that can be rated, then eleven newer ones the customer never joined.
+      const busy = await person("busy");
+      const older = await call({ hostId: kai.id, customerId: busy.id, endedMinutesAgo: 600 });
+      for (let i = 0; i < 11; i++) await call({ hostId: kai.id, customerId: busy.id, endedMinutesAgo: 20 + i, customer: null });
+      const stillListed = await R.callsToRate(busy.id, now);
+      check("newer calls that cannot be rated never hide an older one that can", stillListed.length === 1 && stillListed[0].callId === older.id, String(stillListed.length));
     }
 
     // ----------------------------------------------------------------------
@@ -293,7 +299,14 @@ async function main() {
 
       const mine = await P.contactsOf(cust.id, now);
       check("a customer sees the hosts they talked to, most recent first, with how many calls", mine.length === 2 && mine[0].name === "Host Alpha" && mine[0].calls === 2 && mine[1].calls === 1, mine.map((c) => `${c.name}:${c.calls}`).join(" "));
-      check("a public host is linked; a hidden host's page is not revealed, and they are shown by their own name", mine[0].hostHandle === hostA.handle && mine[1].hostHandle === null && mine[1].name === "Check hostb");
+      check("a public host is linked; a hidden host's page is not revealed, and they are still shown by their host name, never their account name", mine[0].hostHandle === hostA.handle && mine[1].hostHandle === null && mine[1].name === "Host Beta");
+      // A customer who happens to be a public host too: their host never learns that from the contacts page.
+      const dual = await host("dual", "Dual Persona", `rt${RUN}dual`);
+      await call({ hostId: hostB.id, customerId: dual.id, endedMinutesAgo: 50 });
+      const ofBeta = (await P.contactsOf(hostB.id, now)).find((c) => c.userId === dual.id);
+      const ofDual = await P.contactsOf(dual.id, now);
+      check("a customer who is a host too is shown to their host by their own name, with no link to their page", ofBeta?.name === "Check dual" && ofBeta.hostHandle === null && ofBeta.wasMyCustomer);
+      check("and sees that host by their host name", ofDual.length === 1 && ofDual[0].name === "Host Beta" && ofDual[0].hostHandle === null);
       check("a customer cannot keep notes about hosts", mine.every((c) => !c.wasMyCustomer && c.note === null));
       const theirs = await P.contactsOf(hostA.id, now);
       check("a host sees only customers from calls that happened: not a cancelled call, one nobody joined, or a test call", theirs.length === 1 && theirs[0].userId === cust.id && theirs[0].wasMyCustomer, theirs.map((c) => c.name).join(" "));
@@ -306,7 +319,10 @@ async function main() {
       check("it shows on the host's contacts", (await P.contactsOf(hostA.id, now))[0].note === note.text);
       check("the customer cannot read it, nor another host, and the customer has none about the host", (await P.contactsOf(cust.id, now)).every((c) => c.note === null) && (await P.hostNoteAbout(hostB.id, cust.id)).text === null && !(await P.hostNoteAbout(cust.id, hostA.id)).allowed);
       check("a customer cannot write a note about their host", await noteRefused(P.saveHostNote({ hostId: cust.id, customerId: hostA.id, text: "x", now })));
-      check("nor can a host about someone who never asked them for a call, or only had a test call", (await noteRefused(P.saveHostNote({ hostId: hostB.id, customerId: other.id, text: "x", now }))) && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: never.id, text: "x", now }))) === false);
+      const testOnly = await person("testonly");
+      await call({ hostId: hostA.id, customerId: testOnly.id, source: "admin" });
+      check("nor can a host about someone who never asked them for a call, or whose only call with them was a test call", (await noteRefused(P.saveHostNote({ hostId: hostB.id, customerId: other.id, text: "x", now }))) && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: testOnly.id, text: "x", now }))));
+      check("but a host can about someone who asked and then never joined", (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: never.id, text: "x", now }))) === false);
       check("a note longer than 1,000 characters is refused", await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "a".repeat(1001), now })));
       await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "Changed.", now });
       check("a note can be changed; there is one per customer", (await P.hostNoteAbout(hostA.id, cust.id)).text === "Changed." && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, hostA.id))).length === 2);

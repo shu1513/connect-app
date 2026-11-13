@@ -95,7 +95,11 @@ export async function averagesFor(ids: string[], as: "host" | "customer", now: D
     .where(and(inArray(schema.ratings.ratedId, ids), eq(schema.ratings.ratedAs, as), lte(schema.calls.endsAt, countedUpTo(now))))
     .orderBy(schema.calls.endsAt, schema.ratings.id);
   const perPerson = new Map<string, CountedRating[]>();
-  for (const row of rows) perPerson.set(row.ratedId, [...(perPerson.get(row.ratedId) ?? []), row]);
+  for (const row of rows) {
+    const list = perPerson.get(row.ratedId);
+    if (list) list.push(row);
+    else perPerson.set(row.ratedId, [row]);
+  }
   for (const [id, ratings] of perPerson) shown.set(id, shownAverage(ratings));
   return shown;
 }
@@ -107,8 +111,10 @@ export async function averageFor(id: string, as: "host" | "customer", now: Date)
 
 /**
  * This person's calls that are waiting for their rating, newest first, for
- * the home page. Only a handful of recent calls can qualify, so each one's
- * record is looked at properly.
+ * the home page. Only calls from the last 7 days can qualify, and each one's
+ * record is looked at properly, newest first, until enough are found. The
+ * number shown is cut after that look, so recent calls that cannot be rated
+ * (a no-show, say) never hide an older one that can.
  */
 export async function callsToRate(userId: string, now: Date, limit = 5): Promise<Array<{ callId: string; otherName: string; endsAt: Date }>> {
   const mine = alias(schema.ratings, "mine");
@@ -130,8 +136,7 @@ export async function callsToRate(userId: string, now: Date, limit = 5): Promise
         isNull(mine.id),
       ),
     )
-    .orderBy(desc(schema.calls.endsAt))
-    .limit(limit * 2);
+    .orderBy(desc(schema.calls.endsAt));
   const open: Call[] = [];
   for (const { call } of candidates) {
     if (open.length >= limit) break;
