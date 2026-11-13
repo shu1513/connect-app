@@ -104,7 +104,8 @@ Every major module follows the same steps:
 1. A plan is written (in `plans/`), reviewed, and approved by the founder.
 2. The code is built on its own branch and opened as a pull request.
 3. An independent review of the code; only the valuable findings are taken.
-4. CodeRabbit reviews the pull request.
+4. CodeRabbit reviews the pull request. It starts when someone writes the comment `@coderabbitai full review`
+   on the pull request; this is done right after the pull request is opened.
 5. The automatic checks (`.github/workflows/checks.yml`: lint, types, tests, build) must be green.
 6. Only then is it merged into `main`.
 
