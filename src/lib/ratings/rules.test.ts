@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { averageText, rateState, ratingDeadline, shownAverage, validStars } from "./rules";
+import { averageText, countedUpTo, rateState, ratingDeadline, shownAverage, validStars, type CountedRating } from "./rules";
 
 const endsAt = new Date("2026-11-10T20:00:00Z");
 const after = (minutes: number) => new Date(endsAt.getTime() + minutes * 60_000);
@@ -18,6 +18,11 @@ describe("which calls can be rated, and when", () => {
     expect(rateState({ ...good, now: new Date(ratingDeadline(endsAt).getTime() - 1) })).toBe("open");
     expect(rateState({ ...good, now: ratingDeadline(endsAt) })).toBe("too_late");
   });
+  it("a call's ratings count from the very moment it can no longer be rated", () => {
+    const deadline = ratingDeadline(endsAt);
+    expect(endsAt <= countedUpTo(deadline)).toBe(true);
+    expect(endsAt <= countedUpTo(new Date(deadline.getTime() - 1))).toBe(false);
+  });
   it("never a cancelled call, one ended with End call and report, or a test call", () => {
     expect(rateState({ ...good, cancelled: true })).toBe("never");
     expect(rateState({ ...good, safetyEnded: true })).toBe("never");
@@ -32,21 +37,38 @@ describe("which calls can be rated, and when", () => {
   });
 });
 
+/** Ratings in the order their calls ended: "a5" is 5 stars from person a; a capital letter is a closed account. */
+const from = (...list: string[]): CountedRating[] => list.map((r) => ({ raterId: r[0].toLowerCase(), stars: Number(r.slice(1)), raterClosed: r[0] !== r[0].toLowerCase() }));
+
 describe("what an average may show", () => {
-  it("nothing until ratings from 3 different people count", () => {
-    expect(shownAverage([], 0)).toBeNull();
-    expect(shownAverage([5, 5], 2)).toBeNull();
-    expect(shownAverage([5, 5, 5, 5], 2)).toBeNull(); // four ratings, but from two people
-    expect(shownAverage([5, 4, 3], 3)).toEqual({ average: 4, count: 3 });
+  it("nothing until 3 different people's ratings count", () => {
+    expect(shownAverage([])).toBeNull();
+    expect(shownAverage(from("a5", "b5"))).toBeNull();
+    expect(shownAverage(from("a5", "b4", "c3"))).toEqual({ average: 4, count: 3 });
   });
-  it("moves only in steps of 3, so one new rating never changes what is shown", () => {
-    const three = shownAverage([5, 5, 5], 3);
-    expect(shownAverage([5, 5, 5, 1], 4)).toEqual(three);
-    expect(shownAverage([5, 5, 5, 1, 1], 5)).toEqual(three);
-    expect(shownAverage([5, 5, 5, 1, 1, 1], 6)).toEqual({ average: 3, count: 6 });
+  it("each person counts once, with their first rating", () => {
+    expect(shownAverage(from("a5", "a5", "a5", "a5"))).toBeNull();
+    // Three from one regular, then two others: never an average made of the regular's ratings alone.
+    expect(shownAverage(from("a1", "a5", "a5", "b5", "c5"))).toEqual({ average: 3.7, count: 3 });
+    // A second group must be three new people too.
+    expect(shownAverage(from("a5", "b5", "c5", "a1", "b1", "c1"))).toEqual({ average: 5, count: 3 });
+  });
+  it("moves only a whole group of 3 people at a time", () => {
+    const three = shownAverage(from("a5", "b5", "c5"));
+    expect(shownAverage(from("a5", "b5", "c5", "d1"))).toEqual(three);
+    expect(shownAverage(from("a5", "b5", "c5", "d1", "e1"))).toEqual(three);
+    expect(shownAverage(from("a5", "b5", "c5", "d1", "e1", "f1"))).toEqual({ average: 3, count: 6 });
+  });
+  it("a closed account takes its whole group out, and the group is never refilled", () => {
+    // Without this, closing a would turn "5.0 from 3" into the average of b, c and d, and give d's rating away.
+    expect(shownAverage(from("A5", "b5", "c5", "d1"))).toBeNull();
+    expect(shownAverage(from("A5", "b5", "c5", "d1", "e1", "f1"))).toEqual({ average: 1, count: 3 });
+    expect(shownAverage(from("a5", "b5", "c5", "D1", "e1", "f1"))).toEqual({ average: 5, count: 3 });
+    // A closed account whose rating is not in a whole group yet changes nothing.
+    expect(shownAverage(from("a5", "b5", "c5", "D1"))).toEqual({ average: 5, count: 3 });
   });
   it("is rounded to one decimal", () => {
-    expect(shownAverage([5, 5, 4], 3)).toEqual({ average: 4.7, count: 3 });
+    expect(shownAverage(from("a5", "b5", "c4"))).toEqual({ average: 4.7, count: 3 });
   });
   it("is written out plainly", () => {
     expect(averageText(null)).toBe("New");

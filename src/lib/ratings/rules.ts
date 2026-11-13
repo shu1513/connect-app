@@ -10,10 +10,8 @@ export const RATING = {
   windowDays: 7,
   /** Both people must have been in the call together at least this long. */
   minTogetherSeconds: 120,
-  /** An average is shown only once ratings from this many different people count. */
-  minPeople: 3,
-  /** The shown average moves only in steps of this many ratings, so it never changes because of one rating alone. */
-  step: 3,
+  /** Ratings count toward an average in whole groups of this many, each from a different person, so it never changes because of one person alone. */
+  groupSize: 3,
 } as const;
 
 /** The last moment a call can be rated, and the moment its ratings start to count toward the averages. */
@@ -54,20 +52,41 @@ export function rateState(input: {
   return "open";
 }
 
+/** A call that ended at or before this moment has had its time to rate, so its ratings count. Later ones can still be rated. */
+export function countedUpTo(now: Date): Date {
+  return new Date(now.getTime() - RATING.windowDays * DAY);
+}
+
 export type ShownAverage = { average: number; count: number };
+export type CountedRating = { raterId: string; stars: number; raterClosed: boolean };
 
 /**
- * What may be shown of a person's ratings, or null ("New").
- * `stars` are the ratings that count, in the order their calls ended;
- * `people` is how many different people gave them. The average is taken over
- * whole steps only (the first 3, the first 6, ...), and the count shown is that
- * same number, so one new rating never moves what is shown.
+ * What may be shown of a person's ratings, or null ("New"). `ratings` are the
+ * ones whose time to rate is over, in the order their calls ended.
+ *
+ * Each person counts once: their first rating stands, so someone who calls
+ * often cannot be picked out. Those are taken in whole groups of 3 (the first
+ * 3 people, the next 3, ...), so what is shown never moves because of one
+ * person. A group is fixed once it is formed: if an account in it is closed,
+ * that whole group is left out while it is closed, and is never refilled with
+ * a later rating (which would give that later rating away).
  */
-export function shownAverage(stars: number[], people: number): ShownAverage | null {
-  if (people < RATING.minPeople) return null;
-  const count = Math.floor(stars.length / RATING.step) * RATING.step;
+export function shownAverage(ratings: CountedRating[]): ShownAverage | null {
+  const seen = new Set<string>();
+  const once = ratings.filter((rating) => {
+    if (seen.has(rating.raterId)) return false;
+    seen.add(rating.raterId);
+    return true;
+  });
+  let sum = 0;
+  let count = 0;
+  for (let start = 0; start + RATING.groupSize <= once.length; start += RATING.groupSize) {
+    const group = once.slice(start, start + RATING.groupSize);
+    if (group.some((rating) => rating.raterClosed)) continue;
+    sum += group.reduce((total, rating) => total + rating.stars, 0);
+    count += group.length;
+  }
   if (count === 0) return null;
-  const sum = stars.slice(0, count).reduce((total, s) => total + s, 0);
   return { average: Math.round((sum / count) * 10) / 10, count };
 }
 

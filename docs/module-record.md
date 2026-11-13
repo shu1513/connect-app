@@ -325,7 +325,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 | 2 | What a rating is | 1 to 5 stars and nothing else. No written review. |
 | 3 | Who sees what | Nobody ever sees the rating one particular person gave them, or whether the other has rated. Each person sees their own rating of the other, and averages. |
 | 4 | When a rating counts | **When the 7 days to rate that call are over, never earlier**, taken in the order the calls ended. This departs from the founder's brief ("hidden until both have rated or a short window closes"): the first build also counted a rating as soon as both had rated, and the automatic security check on that commit pointed out that this lets the person being rated choose when a rating starts to count, and so put one customer's rating in a group with two they are sure of. Counting only at the end of the 7 days closes that and is simpler; the cost is that ratings show up a week after the call. **The founder can reverse this.** |
-| 5 | What an average shows | Nothing ("New") until ratings from 3 different people count. Then it moves only in steps of 3 ratings (the first 3, the first 6, ...), and the number beside it is that same 3 or 6, so one rating can never be read off it. (Astra: "5.0 from 3" becoming "4.8 from 4" would have given the fourth away.) Ratings given by an account the founder has closed do not count while it is closed. Host and customer averages are separate. |
+| 5 | What an average shows | Each person counts once, with their first rating of that person. Nothing ("New") until 3 people's ratings count. Then it moves only 3 people at a time (the first 3, the first 6, ...), and the number beside it is that same 3 or 6, so one person's rating can never be read off it. (Astra on the plan: "5.0 from 3" becoming "4.8 from 4" would have given the fourth away.) A group of 3 is fixed once formed: while an account in it is closed the whole group does not count, and it is never refilled. Host and customer averages are separate. **"Each person counts once" was added after Astra's review of the code and the founder can reverse it**; the cost is that a regular customer's later ratings are saved but do not move the average. |
 | 6 | Where averages appear | The host's on their public page and in search. The customer's next to their name wherever a host answers them (the request page, the requests list, the live "Available now" panel). Each person's own two on their account page. |
 | 7 | Search | One page, open to anyone like the host pages. Finds hosts by display name, handle or confirmed social media name; capitals, a leading @, spaces and underscores do not matter; special characters are plain text; 2 to 50 characters; 20 results, best match first, no total and no further pages. Never a host who is hidden, not approved, paused or closed, or blocked either way for someone logged in; these rules are inside the query, before ordering and the cut to 20. |
 | 8 | Contacts | "People you have talked to", worked out from calls that are over, not cancelled, not test calls, and that both joined. One line per person. A link to their host page only if it is public right now. Never an email, a blocked person or a closed account. Nothing new is stored. |
@@ -341,15 +341,25 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - Screens: the rating question on a call's results page; "Waiting for your rating", a search box and a contacts link on the home page; the search page; the contacts page with a note box per customer; the average on the host's page; the customer's average and the host's note on a request, the customer's average in the requests list and the live panel; "Your ratings" on the account page.
 - Also fixed, from the founder's live test: the countdowns on the host's "Available now" page and the customer's waiting page were worked out once on the server and again in the browser a moment later, which made the development tools complain; they now appear once the page is running in the browser.
 
-**What the reviewers found:** to be filled in when the module is merged.
+**What the reviewers found**
+- The automatic security check on the first commit: the person being rated could choose when a rating starts to count. Fixed (decision 4).
+- Astra's review of the code (13 November 2026): 7 findings, nothing run against the database. Taken:
+  - An average could be made only of one regular customer's ratings (three from the same person, then two others), and a later group of 3 could be one person's too. Now each person counts once.
+  - Closing an account pulled the next person's rating into a group already shown, which gave that rating away. Now a group is fixed and is left out whole.
+  - The 7 days were counted as 168 hours in one place and as 7 calendar days by the database in another, an hour apart when the clocks change. Now one rule (168 hours) in both.
+  - In search, 20 hosts whose display name is exactly what was typed could push out the host whose handle is exactly that. The database now ranks in the same four steps as the plain rule.
+  - A host who had the address of a request that was given up at the card step (never sent) could open it and see the customer's name and average. Such a request is now "not found" for the host, and admin test calls do not show the customer's average.
+- Not taken: matching a display name typed in unusual Unicode forms (rare; the right fix is tidying names when they are saved, in the profiles module); taking a lock so a note cannot be saved in the same instant as a block (the note is private to the host and nothing is shown to anyone).
+- A known limit, kept: when exactly 3 people's ratings make an average of 5.0 or 1.0, the person rated knows all three gave that. Raising the group size (one number in `src/lib/ratings/rules.ts`) narrows it.
+- CodeRabbit: to be filled in when the module is merged.
 
 **How it was checked**
-- 66 checks over 5 journeys (`scripts/ratings-check.ts`); 19 new automatic tests (194 in total).
+- 69 checks over 5 journeys (`scripts/ratings-check.ts`); 22 new automatic tests (197 in total).
 - In a browser, with two spare test accounts: the home page prompt, rating a call, the host's average on their page and in search, contacts, and a host saving a private note.
 - The earlier journey scripts (booking, payments, "call now", safety, accounts, notifications) could not be run while the founder's live two-device test was using the test host; they are to be run before merging.
 
 **Still open**
-- Whether a week's wait before a rating counts feels right (decision 4).
+- Whether a week's wait before a rating counts feels right (decision 4), and whether each person counting once is right (decision 5).
 - Search has no rate limit yet (the app has no general one).
 
 **Noted from the founder's live test of "call now" (13 November), for a later change**

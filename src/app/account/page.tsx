@@ -71,8 +71,8 @@ export default async function AccountPage(props: PageProps<"/account">) {
         <h2 className="text-lg font-semibold">Your ratings</h2>
         <p className="mt-1 text-sm opacity-70">
           After a call, each person rates the other. You never see what one particular person gave you, only your averages. A rating starts
-          to count a week after the call; an average appears once three different people&apos;s ratings count, and then moves in steps of
-          three ratings.
+          to count a week after the call. Each person counts once, with their first rating of you. An average appears once three
+          people&apos;s ratings count, and then moves three people at a time.
         </p>
         <p className="mt-2 text-sm">
           As a host: <Rating shown={asHost} newText="not enough ratings yet" />

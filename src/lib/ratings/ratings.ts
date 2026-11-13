@@ -12,7 +12,7 @@ import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
 import { roleOnCall } from "@/lib/calls";
-import { RATING, rateState, shownAverage, validStars, type RateState, type ShownAverage } from "./rules";
+import { RATING, countedUpTo, rateState, shownAverage, validStars, type CountedRating, type RateState, type ShownAverage } from "./rules";
 
 /** A problem the person can understand. Its message is safe to show them. */
 export class RatingError extends Error {}
@@ -77,37 +77,26 @@ export async function rateCall(input: { callId: string; raterId: string; stars: 
 /**
  * What may be shown of the ratings several people received in one role, in
  * one query. A rating counts once the time to rate its call is over (7 days
- * after the booked end), never earlier, and only while the account that gave
- * it is not closed. Ratings are taken in the order their calls ended. So the
- * person being rated cannot choose when a rating starts to count or which
- * ratings it is grouped with, and a rating that starts to count is always
- * added at the end. Null means "New".
+ * after the booked end), never earlier. Ratings are taken in the order their
+ * calls ended. So the person being rated cannot choose when a rating starts
+ * to count or which ratings it is grouped with, and a rating that starts to
+ * count is always added at the end. How they are grouped, and what a closed
+ * account does, is in rules.ts. Null means "New".
  */
 export async function averagesFor(ids: string[], as: "host" | "customer", now: Date, reader: Reader = db): Promise<Map<string, ShownAverage | null>> {
   const shown = new Map<string, ShownAverage | null>(ids.map((id) => [id, null]));
   if (ids.length === 0) return shown;
   const rows = await reader
-    .select({ ratedId: schema.ratings.ratedId, raterId: schema.ratings.raterId, stars: schema.ratings.stars })
+    .select({ ratedId: schema.ratings.ratedId, raterId: schema.ratings.raterId, stars: schema.ratings.stars, raterClosed: sql<boolean>`${schema.user.closedAt} is not null` })
     .from(schema.ratings)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.ratings.callId))
     .innerJoin(schema.user, eq(schema.user.id, schema.ratings.raterId))
-    .where(
-      and(
-        inArray(schema.ratings.ratedId, ids),
-        eq(schema.ratings.ratedAs, as),
-        isNull(schema.user.closedAt),
-        sql`${schema.calls.endsAt} + make_interval(days => ${RATING.windowDays}) <= ${now.toISOString()}::timestamptz`,
-      ),
-    )
+    // The same 7 days, counted the same way, as the rule that closes a call for rating.
+    .where(and(inArray(schema.ratings.ratedId, ids), eq(schema.ratings.ratedAs, as), lte(schema.calls.endsAt, countedUpTo(now))))
     .orderBy(schema.calls.endsAt, schema.ratings.id);
-  const perPerson = new Map<string, { stars: number[]; people: Set<string> }>();
-  for (const row of rows) {
-    const entry = perPerson.get(row.ratedId) ?? { stars: [], people: new Set<string>() };
-    entry.stars.push(row.stars);
-    entry.people.add(row.raterId);
-    perPerson.set(row.ratedId, entry);
-  }
-  for (const [id, entry] of perPerson) shown.set(id, shownAverage(entry.stars, entry.people.size));
+  const perPerson = new Map<string, CountedRating[]>();
+  for (const row of rows) perPerson.set(row.ratedId, [...(perPerson.get(row.ratedId) ?? []), row]);
+  for (const [id, ratings] of perPerson) shown.set(id, shownAverage(ratings));
   return shown;
 }
 
@@ -137,7 +126,7 @@ export async function callsToRate(userId: string, now: Date, limit = 5): Promise
         isNotNull(schema.calls.closedAt),
         lte(schema.calls.endsAt, now),
         // Still inside the time to rate.
-        gt(schema.calls.endsAt, new Date(now.getTime() - RATING.windowDays * 24 * 3_600_000)),
+        gt(schema.calls.endsAt, countedUpTo(now)),
         isNull(mine.id),
       ),
     )

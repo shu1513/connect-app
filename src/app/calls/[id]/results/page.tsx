@@ -100,7 +100,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         <section className="mt-4 rounded border border-blue-600 p-4 text-sm">
           {rating.mine !== null ? (
             <p>
-              You gave {otherName} {rating.mine} {rating.mine === 1 ? "star" : "stars"}. They never see what you gave; it counts toward their average a week after the call.
+              You gave {otherName} {rating.mine} {rating.mine === 1 ? "star" : "stars"}. They never see what you gave. Ratings start to count a week after the call, and each person counts once in an average.
             </p>
           ) : rating.state === "open" ? (
             <form action={rateCallAction}>

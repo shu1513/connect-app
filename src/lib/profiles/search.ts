@@ -52,10 +52,10 @@ export async function searchHosts(typed: string, viewerId: string | null, now: D
     loose ? ilike(schema.hostProfiles.handleKey, containsPattern(key)) : undefined,
     loose ? confirmedSocial(sql`replace(s.name_key, '_', '') ilike ${containsPattern(key)}`) : undefined,
   );
-  const exact = or(
-    eq(schema.hostProfiles.handle, text),
+  // The same four steps as matchRank in search-rules.ts.
+  const exact = or(eq(schema.hostProfiles.handle, text), confirmedSocial(sql`s.name_key = ${text}`));
+  const nearlyExact = or(
     sql`lower(${schema.hostProfiles.displayName}) = ${text}`,
-    confirmedSocial(sql`s.name_key = ${text}`),
     loose ? eq(schema.hostProfiles.handleKey, key) : undefined,
     loose ? confirmedSocial(sql`replace(s.name_key, '_', '') = ${key}`) : undefined,
   );
@@ -80,7 +80,7 @@ export async function searchHosts(typed: string, viewerId: string | null, now: D
     .from(schema.hostProfiles)
     .innerJoin(schema.user, eq(schema.user.id, hostId))
     .where(and(canBeFound, contains))
-    .orderBy(sql`case when ${exact} then 0 when ${startsWith} then 1 else 2 end`, schema.hostProfiles.displayName, schema.hostProfiles.handle)
+    .orderBy(sql`case when ${exact} then 0 when ${nearlyExact} then 1 when ${startsWith} then 2 else 3 end`, schema.hostProfiles.displayName, schema.hostProfiles.handle)
     .limit(SEARCH.results);
   if (hosts.length === 0) return [];
 

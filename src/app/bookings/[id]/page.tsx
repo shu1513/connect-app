@@ -42,9 +42,11 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   const user = await requireUser();
   const { id } = await props.params;
   const found = await bookingFor(id, user.id);
-  // A host never sees a request that has not been sent to them yet.
-  if (!found || (found.role === "host" && found.booking.stage === "card")) notFound();
+  if (!found) notFound();
   const { booking, role } = found;
+  // A host never sees a request that was not sent to them: one still at the card step, or given up there.
+  const testCall = booking.source === "admin";
+  if (role === "host" && (booking.stage === "card" || (!booking.requestedAt && !testCall))) notFound();
   const notice = readNotice(`/bookings/${id}`, await props.searchParams);
 
   const [other] = await db
@@ -55,7 +57,8 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   const otherName = role === "host" ? other?.name : (profile?.displayName ?? other?.name);
   const paid = booking.totalCents > 0;
   // For the host deciding: how other hosts have rated this customer, and the host's own private note about them.
-  const customerRating = role === "host" ? await averageFor(booking.customerId, "customer", new Date()) : null;
+  const showRating = role === "host" && !testCall;
+  const customerRating = showRating ? await averageFor(booking.customerId, "customer", new Date()) : null;
   const note = role === "host" ? await hostNoteAbout(booking.hostId, booking.customerId) : null;
 
   // The card form, for a paid request that has not been sent yet.
@@ -99,7 +102,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
           <dt className="opacity-70">Price</dt>
           <dd className="font-medium">{paid ? `${formatMoney(booking.totalCents)} at most` : "Free"}</dd>
         </div>
-        {role === "host" && (
+        {showRating && (
           <div>
             <dt className="opacity-70">Their rating as a customer</dt>
             <dd className="font-medium">

@@ -177,10 +177,15 @@ async function main() {
       check("a fourth rating, of 1 star, changes nothing that is shown: one rating can never be read off", (await hostAverage(kai.id, nextWeek)) === "5.0 from 3 ratings");
       check("and it makes no difference that the host never rated that call back", (await R.myRating(unanswered.id, kai.id)) === null);
       for (const fan of [fans[0], fans[1]]) {
+        const c = await call({ hostId: kai.id, customerId: fan.id, endedMinutesAgo: 15 });
+        await R.rateCall({ callId: c.id, raterId: fan.id, stars: 1, now });
+      }
+      check("two of the first three rate a later call 1 star: nothing moves, each person counts once", (await hostAverage(kai.id, nextWeek)) === "5.0 from 3 ratings", await hostAverage(kai.id, nextWeek));
+      for (const fan of await Promise.all(["f5", "f6"].map(person))) {
         const c = await call({ hostId: kai.id, customerId: fan.id, endedMinutesAgo: 9 });
         await R.rateCall({ callId: c.id, raterId: fan.id, stars: 1, now });
       }
-      check("with six the shown average moves, as one step of three", (await hostAverage(kai.id, nextWeek)) === "3.0 from 6 ratings", await hostAverage(kai.id, nextWeek));
+      check("with six people the shown average moves, three people at a time", (await hostAverage(kai.id, nextWeek)) === "3.0 from 6 ratings", await hostAverage(kai.id, nextWeek));
 
       check("each customer has been rated by one host: New to other hosts", (await customerAverage(fans[2].id, nextWeek)) === "New");
       const regular = await person("regular");
@@ -209,8 +214,13 @@ async function main() {
       check("ratings given by an account the founder closed stop counting", (await hostAverage(zed.id, nextWeek)) === "New", await hostAverage(zed.id, nextWeek));
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, fans[2].id));
       check("and count again if the account is reopened", (await hostAverage(zed.id, nextWeek)) === "5.0 from 3 ratings");
+      const fourth = await call({ hostId: zed.id, customerId: fans[3].id, endedMinutesAgo: 11 });
+      await R.rateCall({ callId: fourth.id, raterId: fans[3].id, stars: 1, now });
+      await db.update(schema.user).set({ closedAt: now }).where(eq(schema.user.id, fans[0].id));
+      check("closing one of the three does not pull a fourth person's rating into view", (await hostAverage(zed.id, nextWeek)) === "New", await hostAverage(zed.id, nextWeek));
+      await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, fans[0].id));
 
-      // Kai now has seven that count (5,5,5,1,1,1 and the regular's 5, whose call ended last): six are shown.
+      // Seven people's ratings of Kai now count (5,5,5,1,1,1 and the regular's 5, whose call ended last): six are shown.
       const many = await R.averagesFor([kai.id, one.id, hana.id], "host", nextWeek);
       check("several people's averages come from one question to the database, each right", averageText(many.get(kai.id) ?? null) === "3.0 from 6 ratings" && many.get(one.id) === null && many.get(hana.id) === null);
       const waiting = await call({ hostId: kai.id, customerId: fans[3].id, endedMinutesAgo: 8 });
@@ -259,6 +269,11 @@ async function main() {
       for (let i = 0; i < 22; i++) await host(`bulk${i}`, `Bulk ${tag} ${String(i).padStart(2, "0")}`, `${tag}bulk${i}`);
       const capped = await find(tag);
       check("at most 20 results, and an exact match is never pushed out by looser ones", capped.length === 20 && (await find(`${tag}bulk21`))[0] === `${tag}bulk21`, String(capped.length));
+      // Twenty hosts whose display name is exactly what is typed, and one whose handle is.
+      for (let i = 0; i < 20; i++) await host(`same${i}`, `dup${tag}`, `${tag}same${i}`);
+      await host("exact", "Zzz Last", `dup${tag}`);
+      const crowded = await find(`dup${tag}`);
+      check("an exact handle comes first even when 20 display names match exactly too", crowded.length === 20 && crowded[0] === `dup${tag}`, crowded[0]);
     }
 
     // ----------------------------------------------------------------------
