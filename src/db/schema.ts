@@ -3,9 +3,11 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   index,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -479,6 +481,60 @@ export const calls = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("calls_host_idx").on(t.hostId), index("calls_customer_idx").on(t.customerId)],
+);
+
+// ---------------------------------------------------------------------------
+// After a call: ratings, and a host's private notes about a customer.
+// ---------------------------------------------------------------------------
+
+/**
+ * One person's rating of the other after a call. Nobody is ever shown the
+ * rating one particular person gave them; only averages are shown (see
+ * src/lib/ratings/rules.ts for when a rating counts and what an average shows).
+ */
+export const ratings = pgTable(
+  "ratings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    callId: uuid("call_id")
+      .notNull()
+      .references(() => calls.id),
+    /** Who gave it. */
+    raterId: text("rater_id")
+      .notNull()
+      .references(() => user.id),
+    /** Who received it, and in which role on that call: "host" or "customer". */
+    ratedId: text("rated_id")
+      .notNull()
+      .references(() => user.id),
+    ratedAs: text("rated_as").notNull(),
+    /** 1 to 5. */
+    stars: integer("stars").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One rating per person per call. The database guarantees it; the first one stands.
+    uniqueIndex("ratings_call_rater_uq").on(t.callId, t.raterId),
+    index("ratings_rated_idx").on(t.ratedId, t.ratedAs),
+    check("ratings_stars_range", sql`${t.stars} between 1 and 5`),
+    check("ratings_rated_as", sql`${t.ratedAs} in ('host', 'customer')`),
+  ],
+);
+
+/** A host's private note about one customer. Only that host can ever read it. */
+export const hostNotes = pgTable(
+  "host_notes",
+  {
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id),
+    text: text("text").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.hostId, t.customerId] })],
 );
 
 // ---------------------------------------------------------------------------
