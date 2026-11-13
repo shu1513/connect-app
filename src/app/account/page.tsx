@@ -5,6 +5,8 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
+import { Rating } from "@/components/rating";
+import { averageFor } from "@/lib/ratings/ratings";
 import { blockedBy } from "@/lib/safety/blocks";
 import { requireUser } from "@/lib/session";
 import { unblockAction } from "../report/actions";
@@ -29,6 +31,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
     .where(and(eq(schema.account.userId, user.id), eq(schema.account.providerId, "credential")));
   const blocked = await blockedBy(user.id);
   const [{ reminders }] = await db.select({ reminders: schema.user.reminderEmails }).from(schema.user).where(eq(schema.user.id, user.id));
+  const [asHost, asCustomer] = await Promise.all([averageFor(user.id, "host", new Date()), averageFor(user.id, "customer", new Date())]);
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -62,6 +65,21 @@ export default async function AccountPage(props: PageProps<"/account">) {
             Save
           </button>
         </form>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Your ratings</h2>
+        <p className="mt-1 text-sm opacity-70">
+          After a call, each person rates the other. You never see what one particular person gave you, only your averages. A rating starts
+          to count a week after the call; an average appears once three different people&apos;s ratings count, and then moves in steps of
+          three ratings.
+        </p>
+        <p className="mt-2 text-sm">
+          As a host: <Rating shown={asHost} newText="not enough ratings yet" />
+        </p>
+        <p className="mt-1 text-sm">
+          As a customer: <Rating shown={asCustomer} newText="not enough ratings yet" />
+        </p>
       </section>
 
       <section className="mt-10">

@@ -86,6 +86,10 @@ Testing tools:
   accepted, time-outs, declines and the 15-minute rule, decline and block, a host who leaves while
   someone is waiting, a paid call now with the money held at once,
   and a refused card cancelled at the 2-minute deadline. Same cautions as `booking-check.ts`.
+- `npx tsx scripts/ratings-check.ts` runs the ratings, search, contacts and host-notes journeys against the
+  local database: which calls can be rated and when, when a rating counts and what an average shows,
+  search by name, handle and confirmed social name (and who is never found), contacts, and private
+  notes. It makes and removes its own people and calls, and needs neither Stripe nor the app running.
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call and report", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.
@@ -137,6 +141,11 @@ Every major module follows the same steps:
 | The rules of the site (one place) | `src/lib/terms.ts`, shown at `/rules` |
 | Sending emails (the outbox, retries, bounces) | `src/lib/notifications/delivery.ts` |
 | Reminder emails and the unsubscribe link | `src/lib/notifications/reminders.ts`, `unsubscribe.ts` |
+| Which calls can be rated, when a rating counts, what an average shows | `src/lib/ratings/rules.ts` |
+| Giving a rating, and the averages | `src/lib/ratings/ratings.ts` |
+| Search: cleaning what was typed, ordering results | `src/lib/profiles/search-rules.ts` |
+| Search: who can be found | `src/lib/profiles/search.ts` |
+| People you have talked to, and a host's private notes | `src/lib/people/contacts.ts` |
 | Database tables | `src/db/schema.ts` |
 | The rule that refuses overlapping calls for one person | `drizzle/0010_busy_no_overlap.sql` |
 
@@ -146,4 +155,4 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: extending a call, ratings, messaging and search.
+- The modules still to come: messaging (after its research round), then the final pass that joins everything together. Extending a call is parked.

@@ -6,7 +6,7 @@
 const DAY = 24 * 3_600_000;
 
 export const RATING = {
-  /** A call can be rated for this long after its booked end. After that, a rating that is alone starts to count. */
+  /** A call can be rated for this long after its booked end. Its ratings start to count when that time is over, never earlier. */
   windowDays: 7,
   /** Both people must have been in the call together at least this long. */
   minTogetherSeconds: 120,
@@ -16,7 +16,7 @@ export const RATING = {
   step: 3,
 } as const;
 
-/** The last moment a call can be rated. From then on, a rating whose counterpart never came counts. */
+/** The last moment a call can be rated, and the moment its ratings start to count toward the averages. */
 export function ratingDeadline(endsAt: Date): Date {
   return new Date(endsAt.getTime() + RATING.windowDays * DAY);
 }
@@ -58,7 +58,7 @@ export type ShownAverage = { average: number; count: number };
 
 /**
  * What may be shown of a person's ratings, or null ("New").
- * `stars` are the ratings that count, in the order they started to count;
+ * `stars` are the ratings that count, in the order their calls ended;
  * `people` is how many different people gave them. The average is taken over
  * whole steps only (the first 3, the first 6, ...), and the count shown is that
  * same number, so one new rating never moves what is shown.

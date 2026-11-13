@@ -76,33 +76,30 @@ export async function rateCall(input: { callId: string; raterId: string; stars: 
 
 /**
  * What may be shown of the ratings several people received in one role, in
- * one query. A rating counts once the other person has rated the same call or
- * the time to rate is over, and only while the account that gave it is not
- * closed. Null means "New".
+ * one query. A rating counts once the time to rate its call is over (7 days
+ * after the booked end), never earlier, and only while the account that gave
+ * it is not closed. Ratings are taken in the order their calls ended. So the
+ * person being rated cannot choose when a rating starts to count or which
+ * ratings it is grouped with, and a rating that starts to count is always
+ * added at the end. Null means "New".
  */
 export async function averagesFor(ids: string[], as: "host" | "customer", now: Date, reader: Reader = db): Promise<Map<string, ShownAverage | null>> {
   const shown = new Map<string, ShownAverage | null>(ids.map((id) => [id, null]));
   if (ids.length === 0) return shown;
-  const theirs = alias(schema.ratings, "theirs");
-  const deadline = sql<Date>`${schema.calls.endsAt} + make_interval(days => ${RATING.windowDays})`;
-  // When this rating started to count: when the second of the two was given, or at the deadline.
-  const countedAt = sql<string>`coalesce(greatest(${schema.ratings.createdAt}, ${theirs.createdAt}), ${deadline})`;
   const rows = await reader
     .select({ ratedId: schema.ratings.ratedId, raterId: schema.ratings.raterId, stars: schema.ratings.stars })
     .from(schema.ratings)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.ratings.callId))
     .innerJoin(schema.user, eq(schema.user.id, schema.ratings.raterId))
-    // The other person's rating of the same call, if they gave one.
-    .leftJoin(theirs, and(eq(theirs.callId, schema.ratings.callId), eq(theirs.raterId, schema.ratings.ratedId)))
     .where(
       and(
         inArray(schema.ratings.ratedId, ids),
         eq(schema.ratings.ratedAs, as),
         isNull(schema.user.closedAt),
-        or(isNotNull(theirs.id), sql`${deadline} <= ${now.toISOString()}::timestamptz`),
+        sql`${schema.calls.endsAt} + make_interval(days => ${RATING.windowDays}) <= ${now.toISOString()}::timestamptz`,
       ),
     )
-    .orderBy(countedAt, schema.ratings.id);
+    .orderBy(schema.calls.endsAt, schema.ratings.id);
   const perPerson = new Map<string, { stars: number[]; people: Set<string> }>();
   for (const row of rows) {
     const entry = perPerson.get(row.ratedId) ?? { stars: [], people: new Set<string>() };

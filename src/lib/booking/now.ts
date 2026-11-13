@@ -8,6 +8,8 @@
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { BookingError, endInstantRequestsOfAbsentHosts, lockCalendars, offerOf } from "./bookings";
+import { averagesFor } from "@/lib/ratings/ratings";
+import { averageText } from "@/lib/ratings/rules";
 import { isAvailableNow, NOW } from "./now-rules";
 
 export type AvailabilityState = { availableUntil: string | null; on: boolean };
@@ -88,11 +90,15 @@ export async function liveForHost(hostId: string, now: Date) {
     .innerJoin(schema.user, eq(schema.user.id, schema.bookings.customerId))
     .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.source, "now"), eq(schema.bookings.stage, "waiting")))
     .orderBy(asc(schema.bookings.requestedAt));
+  // How other hosts have rated these customers (at most a handful of requests wait at once): one indexed question.
+  const ratings = await averagesFor([...new Set(waiting.map(({ booking }) => booking.customerId))], "customer", now);
   return {
     ...stateOf(calendar, now),
     requests: waiting.map(({ booking, customerName }) => ({
       id: booking.id,
       customerName,
+      /** "4.9 from 12 ratings", or "New". */
+      customerRating: averageText(ratings.get(booking.customerId) ?? null),
       lengthMinutes: booking.lengthMinutes,
       totalCents: booking.totalCents,
       respondBy: booking.respondBy!.toISOString(),

@@ -7,7 +7,9 @@ import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
 import { NOW } from "@/lib/booking/now-rules";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
+import { Rating } from "@/components/rating";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { averageFor } from "@/lib/ratings/ratings";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { getUser } from "@/lib/session";
 
@@ -46,6 +48,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : (offer?.lengths[0] ?? null);
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
   const now = offer ? await instantOffer(profile.userId, new Date()) : null;
+  const rating = await averageFor(profile.userId, "host", new Date());
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">
@@ -59,6 +62,9 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         <div>
           <h1 className="text-2xl font-semibold">{profile.displayName}</h1>
           <p className="text-sm opacity-70">@{profile.handle}</p>
+          <p className="text-sm">
+            <Rating shown={rating} newText="New on Connect" />
+          </p>
         </div>
       </div>
 

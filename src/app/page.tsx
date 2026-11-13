@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
 import { readNotice } from "@/lib/notice";
+import { callsToRate } from "@/lib/ratings/ratings";
 import { formatMoney, isAdmin } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 
@@ -45,7 +46,7 @@ export default async function HomePage(props: PageProps<"/">) {
   const paymentOf = new Map(payments.map((p) => [p.callId, p]));
   const admin = await isAdmin(user.id);
   const now = new Date();
-  const [requests, toAnswer] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id)]);
+  const [requests, toAnswer, toRate] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now)]);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -63,6 +64,9 @@ export default async function HomePage(props: PageProps<"/">) {
         <Link href="/account" className="ml-4 underline underline-offset-2">
           Your account
         </Link>
+        <Link href="/contacts" className="ml-4 underline underline-offset-2">
+          People you have talked to
+        </Link>
         {admin && (
           <>
             <Link href="/admin" className="ml-4 underline underline-offset-2">
@@ -75,10 +79,38 @@ export default async function HomePage(props: PageProps<"/">) {
         )}
       </p>
 
+      <form action="/search" method="get" className="mt-6 flex max-w-md gap-2">
+        <label className="flex-1 text-sm">
+          <span className="sr-only">Find a host by name, handle or social media name</span>
+          <input name="q" type="search" maxLength={50} placeholder="Find a host: name, @handle or social media name" className="w-full rounded border border-neutral-400 bg-transparent px-3 py-2" />
+        </label>
+        <button type="submit" className="rounded border border-neutral-500 px-3 py-2 text-sm">
+          Search
+        </button>
+      </form>
+
       {notice && (
         <p role="status" className="mt-6 rounded border border-neutral-400 p-3 text-sm">
           {notice}
         </p>
+      )}
+
+      {toRate.length > 0 && (
+        <section className="mt-6 rounded border border-blue-600 p-3 text-sm">
+          <h2 className="font-semibold">Waiting for your rating</h2>
+          <ul className="mt-1 space-y-1">
+            {toRate.map((call) => (
+              <li key={call.callId}>
+                <Link href={`/calls/${call.callId}/results`} className="underline underline-offset-2">
+                  Rate your call with {call.otherName}
+                </Link>{" "}
+                <span className="opacity-70">
+                  (<LocalTime iso={call.endsAt.toISOString()} />)
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {user.paused && (
