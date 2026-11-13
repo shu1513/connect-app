@@ -362,7 +362,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 **How it was checked**
 - 73 checks over 5 journeys (`scripts/ratings-check.ts`); 22 new automatic tests (197 in total).
 - In a browser, with two spare test accounts: the home page prompt, rating a call, the host's average on their page and in search, contacts, and a host saving a private note.
-- The earlier journey scripts (booking, payments, "call now", safety, accounts, notifications) could not be run while the founder's live two-device test was using the test host; they are to be run before merging.
+- All earlier journey scripts, run on this branch after the founder's live two-device test was over (13 November): accounts 99 checks, safety 55, notifications 33, booking 93, "call now" 72, payments 71. All pass.
 
 **Still open**
 - Whether a week's wait before a rating counts feels right (decision 4), and whether each person counting once is right (decision 5).
