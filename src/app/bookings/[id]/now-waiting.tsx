@@ -14,12 +14,15 @@ const POLL_MS = 2_000;
  */
 export function NowWaiting(props: { bookingId: string; respondBy: string; hostName: string }) {
   const router = useRouter();
-  const [now, setNow] = useState(() => Date.now());
+  // Empty until the page is running in the browser, so the server and the browser draw the same thing first.
+  const [now, setNow] = useState<number | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const inFlight = useRef(false);
 
   useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 1000);
+    const update = () => setNow(Date.now());
+    update();
+    const clock = setInterval(update, 1000);
     return () => clearInterval(clock);
   }, []);
 
@@ -69,12 +72,12 @@ export function NowWaiting(props: { bookingId: string; respondBy: string; hostNa
     };
   }, [props.bookingId, router]);
 
-  const seconds = Math.max(0, Math.round((new Date(live?.respondBy ?? props.respondBy).getTime() - now) / 1000));
+  const seconds = now === null ? null : Math.max(0, Math.round((new Date(live?.respondBy ?? props.respondBy).getTime() - now) / 1000));
   return (
     <section className="mt-6 rounded border-2 border-green-700 p-4" aria-live="polite">
       <p className="text-lg font-semibold">Asking {props.hostName}…</p>
       <p className="mt-1 text-sm">
-        {seconds > 0 ? `They have ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} to answer.` : "Their time to answer is up; this request is ending."}{" "}
+        {seconds === null ? "" : seconds > 0 ? `They have ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} to answer. ` : "Their time to answer is up; this request is ending. "}
         Keep this page open: when they accept, it takes you to the call, which starts about a minute later.
       </p>
     </section>

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Request = { id: string; customerName: string; lengthMinutes: number; totalCents: number; respondBy: string };
+type Request = { id: string; customerName: string; customerRating: string; lengthMinutes: number; totalCents: number; respondBy: string };
 type Live = { on: boolean; availableUntil: string | null; requests: Request[] };
 
 const POLL_MS = 3_000;
@@ -44,7 +44,9 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
   const [live, setLive] = useState<Live>(props.initial);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  // The clock for the countdowns. Empty until the page is running in the browser: a time worked out on the
+  // server and again in the browser would differ by a moment, and the page must be drawn the same in both.
+  const [now, setNow] = useState<number | null>(null);
   const inFlight = useRef(false);
   // Counts the host's own switches on and off. An answer to a question asked before the latest one is out of date.
   const switches = useRef(0);
@@ -69,7 +71,9 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
 
   // The clock for the countdowns.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const update = () => setNow(Date.now());
+    update();
+    const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -181,7 +185,7 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
     }
   }
 
-  const left = live.availableUntil ? secondsLeft(live.availableUntil, now) : 0;
+  const left = live.availableUntil && now !== null ? secondsLeft(live.availableUntil, now) : null;
 
   return (
     <div>
@@ -204,10 +208,10 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
               You are available now
             </p>
             <p className="mt-1 text-sm opacity-80">
-              For another {Math.floor(left / 60)} min {left % 60} s. Keep this page open and in view: closing or leaving it switches this off at
+              {left !== null && `For another ${Math.floor(left / 60)} min ${left % 60} s. `}Keep this page open and in view: closing or leaving it switches this off at
               once, and so does leaving it hidden behind other tabs for a few minutes.
             </p>
-            {now - confirmedAt > STALE_MS && (
+            {now !== null && now - confirmedAt > STALE_MS && (
               <p role="alert" className="mt-2 text-sm text-red-600">
                 Connect has not heard from this page for a while. Check your internet connection: you may no longer be shown as available.
               </p>
@@ -238,14 +242,15 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
         ) : (
           <ul className="mt-3 space-y-3">
             {live.requests.map((request) => {
-              const seconds = secondsLeft(request.respondBy, now);
+              const seconds = now === null ? null : secondsLeft(request.respondBy, now);
               return (
                 <li key={request.id} className="rounded border-2 border-green-700 p-4">
                   <p className="text-lg font-semibold">
                     {request.customerName} — {request.lengthMinutes} minutes{request.totalCents > 0 ? `, ${money(request.totalCents)}` : ", free"}
                   </p>
+                  <p className="mt-1 text-sm">As a customer: {request.customerRating === "New" ? "new, not enough ratings yet" : `★ ${request.customerRating}`}</p>
                   <p className="mt-1 text-sm opacity-80">
-                    {seconds > 0 ? `Answer within ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}. ` : "Time is up; this request is ending. "}
+                    {seconds === null ? "" : seconds > 0 ? `Answer within ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}. ` : "Time is up; this request is ending. "}
                     Accepting starts the call in about a minute and takes you to it.
                   </p>
                   <div className="mt-3 flex gap-3 text-sm">

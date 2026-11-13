@@ -127,6 +127,13 @@
       "when": 1794506340985,
       "tag": "0017_available_now",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794602779486,
+      "tag": "0018_ratings_and_notes",
+      "breakpoints": true
     }
   ]
 }

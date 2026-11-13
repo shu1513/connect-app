@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { waitingForHost } from "@/lib/booking/bookings";
+import { Rating } from "@/components/rating";
 import { readNotice } from "@/lib/notice";
+import { averagesFor } from "@/lib/ratings/ratings";
 import { formatMoney } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
@@ -11,6 +13,8 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   const user = await requireUser();
   const notice = readNotice("/host/requests", await props.searchParams);
   const waiting = await waitingForHost(user.id);
+  // How other hosts have rated each of these customers: one question to the database for all of them.
+  const ratings = await averagesFor([...new Set(waiting.map((row) => row.booking.customerId))], "customer", new Date());
 
   // Group by start time, so the host can compare people who asked for the same time.
   const groups = new Map<string, typeof waiting>();
@@ -52,7 +56,8 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
                 {rows.map(({ booking, customerName }) => (
                   <li key={booking.id} className="text-sm">
                     <p>
-                      <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"}
+                      <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"} ·{" "}
+                      <Rating shown={ratings.get(booking.customerId) ?? null} newText="new customer" />
                     </p>
                     {booking.note && <p className="mt-1 opacity-80">&ldquo;{booking.note}&rdquo;</p>}
                     {booking.respondBy && (

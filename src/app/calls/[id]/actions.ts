@@ -7,6 +7,7 @@ import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
 import { cancelCall } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
+import { rateCall, RatingError } from "@/lib/ratings/ratings";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 
 function message(error: unknown): string {
@@ -32,6 +33,20 @@ export async function cancelCallAction(formData: FormData) {
         : "The call was cancelled. Nothing is charged.";
   } catch (error) {
     notice = message(error);
+  }
+  redirect(withNotice(`/calls/${callId}/results`, notice));
+}
+
+/** One person rates the other after a call. Only the call and the stars come from the browser; the rest is worked out on the server. */
+export async function rateCallAction(formData: FormData) {
+  const user = await requireUser();
+  const callId = String(formData.get("callId") ?? "");
+  let notice = "Thank you. Your rating was saved. The other person never sees what you gave.";
+  try {
+    await rateCall({ callId, raterId: user.id, stars: Number(formData.get("stars")), now: new Date() });
+  } catch (error) {
+    if (!(error instanceof RatingError)) console.error("[ratings] could not save a rating", error);
+    notice = error instanceof RatingError ? error.message : "Something went wrong. Your rating was not saved. Please try again.";
   }
   redirect(withNotice(`/calls/${callId}/results`, notice));
 }

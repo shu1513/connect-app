@@ -14,7 +14,9 @@ import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
 import { getSignedIn, isAdminSession } from "@/lib/session";
 import { requireUser } from "@/lib/session";
-import { refundAction } from "../actions";
+import { myRating, ratingStateOf } from "@/lib/ratings/ratings";
+import { RATING } from "@/lib/ratings/rules";
+import { rateCallAction, refundAction } from "../actions";
 
 const EVENT_LABEL: Record<string, string> = {
   participant_joined: "Connected",
@@ -45,6 +47,11 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
   ]);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  // Rating: for the two people on the call only. Each sees their own rating, never the other's.
+  // A host is known by the display name on their page; a customer by their own name.
+  const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
+  const otherName = role === "admin" ? "" : (hostProfile?.displayName ?? nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
+  const rating = role === "admin" ? null : { state: await ratingStateOf(call, new Date()), mine: await myRating(call.id, user.id) };
   const who = (identity: string | null) =>
     identity === call.hostId
       ? `${nameOf.get(identity) ?? "Host"} (host)`
@@ -87,6 +94,39 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
         </p>
+      )}
+
+      {rating && (rating.mine !== null || rating.state === "open" || rating.state === "not_yet") && (
+        <section className="mt-4 rounded border border-blue-600 p-4 text-sm">
+          {rating.mine !== null ? (
+            <p>
+              You gave {otherName} {rating.mine} {rating.mine === 1 ? "star" : "stars"}. They never see what you gave. Ratings start to count a week after the call, and each person counts once in an average.
+            </p>
+          ) : rating.state === "open" ? (
+            <form action={rateCallAction}>
+              <input type="hidden" name="callId" value={call.id} />
+              <fieldset>
+                <legend className="text-base font-semibold">How was your call with {otherName}?</legend>
+                <p className="mt-1 opacity-70">
+                  {otherName} never sees what you gave, and you never see what they gave. A rating cannot be changed afterwards. You have {RATING.windowDays}{" "}
+                  days from the call.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-4">
+                  {[1, 2, 3, 4, 5].map((stars) => (
+                    <label key={stars} className="flex items-center gap-1">
+                      <input type="radio" name="stars" value={stars} required /> {stars} {stars === 1 ? "star" : "stars"}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <button type="submit" className="mt-3 rounded bg-blue-600 px-4 py-2 font-medium text-white">
+                Send rating
+              </button>
+            </form>
+          ) : (
+            <p className="opacity-80">You can rate this call a few minutes after its booked end, once its record is final. Refresh this page then.</p>
+          )}
+        </section>
       )}
 
       {call.safetyEndedAt && (
