@@ -9,6 +9,9 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const { id } = await ctx.params;
   const access = await callForParticipant(id, user.id);
   if (!access) return Response.json({ error: "Call not found." }, { status: 404 });
-  await endCallForSafety({ call: access.call, by: user.id, now: new Date() });
+  const state = await endCallForSafety({ call: access.call, by: user.id, now: new Date() });
+  // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already
+  // over needs no ending: the person goes on to the report form as usual.
+  if (state === "not_open_yet") return Response.json({ error: "This call has not started yet." }, { status: 409 });
   return Response.json({ ok: true });
 }

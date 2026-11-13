@@ -47,10 +47,12 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
   ]);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  // Rating: for the two people on the call only. Each sees their own rating, never the other's.
-  // A host is known by the display name on their page; a customer by their own name.
+  // A customer knows their host by the display name on the host's page, never by the host's account name:
+  // everywhere on this page. (A host sees a customer, and an admin sees both, by their own names.)
   const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
-  const otherName = role === "admin" ? "" : (hostProfile?.displayName ?? nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
+  if (hostProfile) nameOf.set(call.hostId, hostProfile.displayName);
+  // Rating: for the two people on the call only. Each sees their own rating, never the other's.
+  const otherName = role === "admin" ? "" : (nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
   const rating = role === "admin" ? null : { state: await ratingStateOf(call, new Date()), mine: await myRating(call.id, user.id) };
   const who = (identity: string | null) =>
     identity === call.hostId

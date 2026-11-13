@@ -40,6 +40,10 @@ export default async function HomePage(props: PageProps<"/">) {
           .where(inArray(schema.user.id, otherIds))
       : [];
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  // A customer knows their host by the display name on the host's page, never by the host's account name.
+  const myHostIds = [...new Set(calls.filter((c) => c.customerId === user.id).map((c) => c.hostId))];
+  const hostProfiles = myHostIds.length > 0 ? await db.select({ userId: schema.hostProfiles.userId, displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, myHostIds)) : [];
+  const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
 
   const callIds = calls.map((c) => c.id);
   const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [];
@@ -181,12 +185,12 @@ export default async function HomePage(props: PageProps<"/">) {
                     <td className="py-2 pr-4">
                       <LocalTime iso={call.startsAt.toISOString()} />
                     </td>
-                    <td className="py-2 pr-4">{nameOf.get(isHost ? call.customerId : call.hostId) ?? "Unknown"}</td>
+                    <td className="py-2 pr-4">{(isHost ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown"}</td>
                     <td className="py-2 pr-4">{isHost ? "Host" : "Customer"}</td>
-                    <td className="py-2 pr-4">{call.cancelledAt ? "Cancelled" : STATE_LABEL[state]}</td>
+                    <td className="py-2 pr-4">{call.cancelledAt ? "Cancelled" : call.safetyEndedAt ? "Ended" : STATE_LABEL[state]}</td>
                     <td className="py-2 pr-4">{paymentText}</td>
                     <td className="py-2 whitespace-nowrap">
-                      {state !== "closed" && !call.cancelledAt && (
+                      {state !== "closed" && !call.cancelledAt && !call.safetyEndedAt && (
                         <Link href={`/calls/${call.id}`} className="mr-4 underline underline-offset-2">
                           Open
                         </Link>

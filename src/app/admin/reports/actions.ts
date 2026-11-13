@@ -47,9 +47,12 @@ export async function warnAction(formData: FormData) {
 
 export async function pauseAction(formData: FormData) {
   const admin = await requireAdmin();
-  let notice = "The account is paused and the person has been told.";
+  let notice = "The account is paused and the person has been told. Their waiting requests have ended and their calls that had not started were cancelled at no charge.";
   try {
-    await pauseAccount({ adminId: admin.id, userId: String(formData.get("userId") ?? ""), ruleKey: String(formData.get("rule") ?? ""), note: String(formData.get("note") ?? "").trim(), requestId: requestIdOf(formData) });
+    const { callsNotEnded } = await pauseAccount({ adminId: admin.id, userId: String(formData.get("userId") ?? ""), ruleKey: String(formData.get("rule") ?? ""), note: String(formData.get("note") ?? "").trim(), requestId: requestIdOf(formData) });
+    if (callsNotEnded !== 0) {
+      notice = `The account is paused and the person has been told, but ${callsNotEnded > 0 ? `${callsNotEnded} of its calls` : "its requests and calls"} could not be ended automatically. Please check that person's requests and calls and end them by hand.`;
+    }
   } catch (error) {
     notice = problem(error);
   }

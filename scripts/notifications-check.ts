@@ -197,9 +197,12 @@ async function main() {
       // "Slow down" from the service is not a try: the email goes back as it was, due after the wait, and the batch stops.
       await db.transaction((tx) => queueEmail(tx, { to: addr("busy"), subject: "Busy", text: "x", key: `busy:${RUN}` }));
       const [busy] = await rows(addr("busy"), "Busy");
+      // Measured against the moments around the delivery itself, so a slow computer cannot fail this check.
+      const before = Date.now();
       await deliverEmails(new Date(), async () => ({ ok: false, permanent: false, error: "429 rate_limit_exceeded", slowDown: 2000 }), ONLY);
+      const after = Date.now();
       const slowed = await row(busy.id);
-      check("being asked to slow down does not count as a try, and the email is due again shortly", slowed.status === "queued" && slowed.attempts === 0 && slowed.firstTriedAt === null && slowed.nextAttemptAt.getTime() - Date.now() > 1000 && slowed.nextAttemptAt.getTime() - Date.now() <= 2000, `${slowed.status} ${slowed.attempts}`);
+      check("being asked to slow down does not count as a try, and the email is due again shortly", slowed.status === "queued" && slowed.attempts === 0 && slowed.firstTriedAt === null && slowed.nextAttemptAt.getTime() >= before + 2000 && slowed.nextAttemptAt.getTime() <= after + 2000, `${slowed.status} ${slowed.attempts}`);
       await db.update(schema.emailOutbox).set({ nextAttemptAt: new Date() }).where(eq(schema.emailOutbox.id, busy.id));
       await deliverEmails(new Date(), fake("ok"), ONLY);
       check("and then it goes", (await row(busy.id)).status === "sent");

@@ -3,7 +3,7 @@
  * two, cancels their future calls with each other for free, and stops new
  * requests either way. The blocked person is not told.
  */
-import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { lockCalendars } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
@@ -70,11 +70,21 @@ export async function unblock(blockerId: string, blockedId: string): Promise<voi
   await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, blockerId), eq(schema.blocks.blockedId, blockedId)));
 }
 
-/** The people this person has blocked, for their account page. */
+/**
+ * The people this person has blocked, for their account page. Each under the name this person knew
+ * them by: someone they asked for a call, or whose host page they reported, by their host display
+ * name (never the host's account name); anyone else by their own name.
+ */
 export async function blockedBy(blockerId: string) {
-  return db
-    .select({ id: schema.user.id, name: schema.user.name, since: schema.blocks.createdAt })
+  const knownAsHost = sql<boolean>`(
+    exists (select 1 from ${schema.bookings} b where b.host_id = ${schema.blocks.blockedId} and b.customer_id = ${blockerId})
+    or exists (select 1 from ${schema.reports} r where r.reporter_id = ${blockerId} and r.reported_id = ${schema.blocks.blockedId} and r.context = 'profile')
+  )`;
+  const rows = await db
+    .select({ id: schema.user.id, name: schema.user.name, displayName: schema.hostProfiles.displayName, knownAsHost, since: schema.blocks.createdAt })
     .from(schema.blocks)
     .innerJoin(schema.user, eq(schema.user.id, schema.blocks.blockedId))
+    .leftJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.blocks.blockedId))
     .where(eq(schema.blocks.blockerId, blockerId));
+  return rows.map((row) => ({ id: row.id, name: row.knownAsHost && row.displayName ? row.displayName : row.name, since: row.since }));
 }

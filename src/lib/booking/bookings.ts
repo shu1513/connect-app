@@ -727,13 +727,13 @@ export async function createTestCall(input: {
 
 /**
  * Ends everything a person has waiting: used when the founder suspends a host
- * (their requests as a host) or closes an account (as host and as customer).
+ * (their requests as a host) or closes or pauses an account (as host and as customer).
  * Calls that were already accepted are cancelled by the caller.
  */
 export async function endWaitingRequestsOf(userId: string, roles: { asHost: boolean; asCustomer: boolean }, now: Date): Promise<void> {
   await db.transaction(async (tx) => {
     if (roles.asHost) await endWaiting(tx, eq(schema.bookings.hostId, userId), "declined", "the host is no longer available", now);
-    if (roles.asCustomer) await endWaiting(tx, eq(schema.bookings.customerId, userId), "taken_back", "the customer's account was closed", now);
+    if (roles.asCustomer) await endWaiting(tx, eq(schema.bookings.customerId, userId), "taken_back", "the customer's account was closed or paused", now);
   });
 }
 

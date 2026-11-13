@@ -6,10 +6,19 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
+import { roomState, type RoomState } from "@/lib/calls";
 import { closeRoom } from "@/lib/video/livekit";
 
-export async function endCallForSafety(input: { call: Call; by: string; now: Date }): Promise<void> {
+/**
+ * Only while the room is open (from 5 minutes before the start until a minute
+ * after the end): that is when there is a call to end. Before that a call is
+ * cancelled, with the host's cancelling rule; after it, a person reports from
+ * the results page. Returns where the room stood; nothing is changed unless it was "open".
+ */
+export async function endCallForSafety(input: { call: Call; by: string; now: Date }): Promise<RoomState> {
   const { call, by, now } = input;
+  const state = roomState(call, now);
+  if (state !== "open") return state;
   await db.transaction(async (tx) => {
     const marked = await tx
       .update(schema.calls)
@@ -30,4 +39,5 @@ export async function endCallForSafety(input: { call: Call; by: string; now: Dat
   await closeRoom(call.roomName, [call.hostId, call.customerId]).catch((error) => {
     console.error(`[safety] could not close the room of call ${call.id} yet; the helper will retry`, error);
   });
+  return state;
 }

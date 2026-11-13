@@ -53,12 +53,12 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
 }
 
 /**
- * The closed person's calls. One that has not started is cancelled for free,
+ * The calls of a person whose account was closed or paused. One that has not started is cancelled for free,
  * so the other person is never charged for it. In one that is under way, the
  * closed person is put out and their entry pass stops working; the call is
  * then settled by the usual rule for the time that counted.
  */
-async function endCallsOf(userId: string, now: Date): Promise<number> {
+export async function endCallsOf(userId: string, now: Date): Promise<number> {
   const open = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
