@@ -560,6 +560,26 @@ async function endWaiting(
   return ended;
 }
 
+/**
+ * Every other waiting request for this host that a call taking this time (its break included)
+ * gets in the way of, or that would run into it with its own break, can no longer be accepted.
+ * They end with "the host accepted another request". Used when a host accepts a request, and
+ * when a host adds time to a call that is under way.
+ */
+export async function endRequestsInTheWay(tx: Tx, input: { hostId: string; exceptBookingId: string; from: Date; until: Date; now: Date }): Promise<void> {
+  await endWaiting(
+    tx,
+    and(
+      eq(schema.bookings.hostId, input.hostId),
+      ne(schema.bookings.id, input.exceptBookingId),
+      sql`tstzrange(${schema.bookings.startsAt}, ${schema.bookings.endsAt} + make_interval(mins => ${schema.bookings.breakMinutes}), '[)') && tstzrange(${input.from.toISOString()}::timestamptz, ${input.until.toISOString()}::timestamptz, '[)')`,
+    ),
+    "passed_over",
+    "the host accepted another request",
+    input.now,
+  );
+}
+
 /** The customer takes a request back before it is answered. Always free. */
 export async function takeBack(input: { bookingId: string; customerId: string; now: Date }): Promise<void> {
   const ended = await db.transaction((tx) =>
@@ -648,19 +668,7 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
         .returning();
       await queueBookingEmails(tx, accepted, "accepted");
 
-      // Every other waiting request this call (with its break) gets in the way of, or that would
-      // run into this call with its own break, can no longer be accepted. End them now.
-      await endWaiting(
-        tx,
-        and(
-          eq(schema.bookings.hostId, booking.hostId),
-          ne(schema.bookings.id, booking.id),
-          sql`tstzrange(${schema.bookings.startsAt}, ${schema.bookings.endsAt} + make_interval(mins => ${schema.bookings.breakMinutes}), '[)') && tstzrange(${startsAt.toISOString()}::timestamptz, ${busyUntil.toISOString()}::timestamptz, '[)')`,
-        ),
-        "passed_over",
-        "the host accepted another request",
-        input.now,
-      );
+      await endRequestsInTheWay(tx, { hostId: booking.hostId, exceptBookingId: booking.id, from: startsAt, until: busyUntil, now: input.now });
       return { callId: call.id };
     });
   } catch (error) {

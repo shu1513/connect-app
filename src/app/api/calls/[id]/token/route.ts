@@ -63,7 +63,9 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
     return Response.json({ error: MESSAGES[decision.reason] }, { status: 409 });
   }
 
-  const blocked = paymentBlocksJoin({ payment, callEndsAt: call.endsAt, now });
+  // The call's own hold is compared with the stretch it pays for, not with the call's end: the end
+  // moves when time is added, and that extra time has a hold of its own (checked when the host accepted).
+  const blocked = paymentBlocksJoin({ payment, callEndsAt: payment?.coversUntil ?? call.endsAt, now });
   if (blocked) return Response.json({ error: MESSAGES[blocked] }, { status: 409 });
 
   // The name the other person sees on the video: a host's display name, as on their page, not their account name.

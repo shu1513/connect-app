@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateAttendance, JOINED, LEFT, type AttendanceInput, type CallWindow } from "./calc";
+import { calculateAttendance, countedWindow, JOINED, LEFT, type AttendanceInput, type CallWindow } from "./calc";
 
 // A 15-minute booked call, from second 1000 to second 1900.
 const START = 1000;
@@ -284,5 +284,58 @@ describe("while the call is still running", () => {
     expect(r.status).toBe("in_progress");
     expect(r.stillConnected).toBe(false);
     expect(r.totals).toEqual({ hostSeconds: 100, customerSeconds: 0, togetherSeconds: 0 });
+  });
+});
+
+describe("the part of a call each payment pays for", () => {
+  const t = (iso: string) => new Date(`2026-01-01T${iso}Z`);
+  const secs = (iso: string) => Math.floor(t(iso).getTime() / 1000);
+  // Booked 09:00 to 09:15, then 10 minutes were added: the call now ends at 09:25.
+  const call = { startsAt: t("09:00:00"), endsAt: t("09:25:00"), safetyEndedAt: null as Date | null };
+  const own = { from: t("09:00:00"), until: t("09:15:00") };
+  const extra = { from: t("09:15:00"), until: t("09:25:00") };
+  const people = { hostId: "host", customerId: "customer" };
+  const visit = (who: string, session: string, from: string, to: string): AttendanceInput[] => [
+    { id: `${session}-in`, type: JOINED, identity: who, sessionId: session, time: secs(from) },
+    { id: `${session}-out`, type: LEFT, identity: who, sessionId: session, time: secs(to) },
+  ];
+  const hostSecondsIn = (stretch: { from: Date; until: Date } | undefined, events: AttendanceInput[], stopped: Date | null = null) =>
+    calculateAttendance({ ...people, ...countedWindow({ ...call, safetyEndedAt: stopped }, stretch) }, events, { final: true }).totals?.hostSeconds;
+
+  it("without a stretch is the whole call", () => {
+    expect(countedWindow(call)).toEqual({ start: secs("09:00:00"), end: secs("09:25:00") });
+  });
+  it("is exactly each payment's own minutes, with no second counted twice", () => {
+    const events = [...visit("host", "h1", "08:58:00", "09:25:00"), ...visit("customer", "c1", "09:00:00", "09:25:00")];
+    expect(hostSecondsIn(own, events)).toBe(15 * 60);
+    expect(hostSecondsIn(extra, events)).toBe(10 * 60);
+    expect(hostSecondsIn(undefined, events)).toBe(25 * 60);
+  });
+  it("a host who was late is late in the call's own time only", () => {
+    const events = [...visit("host", "h1", "09:03:00", "09:25:00"), ...visit("customer", "c1", "09:00:00", "09:25:00")];
+    expect(hostSecondsIn(own, events)).toBe(12 * 60);
+    expect(hostSecondsIn(extra, events)).toBe(10 * 60);
+  });
+  it("a host who leaves during the added time is only missing there", () => {
+    const events = [...visit("host", "h1", "09:00:00", "09:21:00"), ...visit("customer", "c1", "09:00:00", "09:25:00")];
+    expect(hostSecondsIn(own, events)).toBe(15 * 60);
+    expect(hostSecondsIn(extra, events)).toBe(6 * 60);
+  });
+  it("a call stopped during the added time counts the added time only up to the stop", () => {
+    const events = [...visit("host", "h1", "09:00:00", "09:19:00"), ...visit("customer", "c1", "09:00:00", "09:19:00")];
+    expect(countedWindow({ ...call, safetyEndedAt: t("09:19:00") }, extra)).toEqual({ start: secs("09:15:00"), end: secs("09:19:00") });
+    expect(hostSecondsIn(own, events, t("09:19:00"))).toBe(15 * 60);
+    expect(hostSecondsIn(extra, events, t("09:19:00"))).toBe(4 * 60);
+  });
+  it("a call stopped before the added time counts nothing for it", () => {
+    const events = [...visit("host", "h1", "09:00:00", "09:10:00"), ...visit("customer", "c1", "09:00:00", "09:10:00")];
+    expect(countedWindow({ ...call, safetyEndedAt: t("09:10:00") }, extra)).toEqual({ start: secs("09:15:00"), end: secs("09:15:00") });
+    expect(hostSecondsIn(extra, events, t("09:10:00"))).toBe(0);
+    expect(hostSecondsIn(own, events, t("09:10:00"))).toBe(10 * 60);
+  });
+  it("an incomplete record is incomplete for every payment of the call", () => {
+    const events: AttendanceInput[] = [{ id: "h-in", type: JOINED, identity: "host", sessionId: "h1", time: secs("09:00:00") }, ...visit("customer", "c1", "09:00:00", "09:25:00")];
+    expect(calculateAttendance({ ...people, ...countedWindow(call, own) }, events, { final: true }).status).toBe("needs_review");
+    expect(calculateAttendance({ ...people, ...countedWindow(call, extra) }, events, { final: true }).status).toBe("needs_review");
   });
 });

@@ -63,6 +63,23 @@ export function attendanceChargeCents(input: {
   return charge < MIN_CHARGE_CENTS ? 0 : charge;
 }
 
+/**
+ * The most the founder may charge on one payment after a review: the price of
+ * the stretch of the call that payment pays for, and for a call stopped with
+ * "End call and report" only the part of it before the stop.
+ */
+export function reviewChargeLimitCents(input: {
+  pricePer15Cents: number;
+  coversFrom: Date;
+  coversUntil: Date;
+  callEndsAt: Date;
+  safetyEndedAt: Date | null;
+}): number {
+  const stoppedAt = input.safetyEndedAt && input.safetyEndedAt < input.callEndsAt ? input.safetyEndedAt : input.callEndsAt;
+  const until = stoppedAt < input.coversUntil ? stoppedAt : input.coversUntil;
+  return bookedTotalCents(input.pricePer15Cents, Math.max(0, Math.floor((until.getTime() - input.coversFrom.getTime()) / 1000)));
+}
+
 export type Split = { feeCents: number; hostShareCents: number };
 
 /** Splits a charge into our fee and the host's share. The two always add up to the charge. */

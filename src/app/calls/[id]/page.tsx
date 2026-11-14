@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
-import { roomClosesAt, roomOpensAt } from "@/lib/calls";
+import { roomOpensAt } from "@/lib/calls";
 import { callForParticipant, formatMoney } from "@/lib/payments/access";
 import { syncHold } from "@/lib/payments/hold";
 import { cancellationOutcome, paymentBlocksJoin, payOpensAt, payWindow } from "@/lib/payments/rules";
@@ -49,7 +49,8 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
     freeCancelMinutes: call.freeCancelMinutes,
     held: payment?.status === "held",
   });
-  const blocked = paymentBlocksJoin({ payment, callEndsAt: call.endsAt, now });
+  // The call's own hold against its own stretch (see the join check): the call's end moves when time is added.
+  const blocked = paymentBlocksJoin({ payment, callEndsAt: payment?.coversUntil ?? call.endsAt, now });
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6">
@@ -130,8 +131,10 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           startsAt={call.startsAt.toISOString()}
           endsAt={call.endsAt.toISOString()}
           opensAt={roomOpensAt(call).toISOString()}
-          closesAt={roomClosesAt(call).toISOString()}
           serverNow={new Date().toISOString()}
+          role={role}
+          otherName={other?.name ?? (role === "host" ? "The customer" : "The host")}
+          pricePer15Cents={call.pricePer15Cents}
         />
       )}
 

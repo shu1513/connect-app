@@ -7,7 +7,7 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { AttendanceEvent, Call } from "@/db/schema";
 import { roomClosesAt, SETTLE_SECONDS } from "@/lib/calls";
-import { calculateAttendance, type AttendanceResult } from "./calc";
+import { calculateAttendance, countedWindow, type AttendanceResult } from "./calc";
 
 const toSeconds = (date: Date) => Math.floor(date.getTime() / 1000);
 
@@ -41,10 +41,7 @@ export async function loadAttendance(call: Call, now: Date = new Date(), stretch
   const final = now.getTime() >= settledFrom + SETTLE_SECONDS * 1000;
 
   // A call ended with "End call and report" stops counting at that moment.
-  const callCountedUntil = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
-  const start = toSeconds(stretch && stretch.from > call.startsAt ? stretch.from : call.startsAt);
-  // Never before the start, so a stretch that begins after the call was stopped simply counts nothing.
-  const end = Math.max(start, toSeconds(stretch && stretch.until < callCountedUntil ? stretch.until : callCountedUntil));
+  const { start, end } = countedWindow(call, stretch);
   const result = calculateAttendance(
     { hostId: call.hostId, customerId: call.customerId, start, end },
     events.map((e) => ({

@@ -26,6 +26,7 @@ async function main() {
   const { stripeConfigured } = await import("../src/lib/payments/stripe");
   const { runPaymentJobs } = await import("../src/lib/payments/jobs");
   const { runBookingJobs } = await import("../src/lib/booking/jobs");
+  const { closeFinishedExtensions } = await import("../src/lib/extend/extend");
   const { refreshPendingIdentityChecks } = await import("../src/lib/safety/identity");
   const { writeCallReminders, writeRequestReminders } = await import("../src/lib/notifications/reminders");
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
@@ -77,6 +78,8 @@ async function main() {
     const now = new Date();
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     if (stripeConfigured()) await runPaymentJobs(now);
+    // Requests for more time that nobody answered, and holds of requests that were not accepted.
+    await closeFinishedExtensions(now).catch((error) => console.error("[more time] closing requests failed; will retry", error));
     await runBookingJobs(now);
     // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
     // Stripe never hold up closing rooms or the money jobs.

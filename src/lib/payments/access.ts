@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { roleOnCall } from "@/lib/calls";
-import { ownPaymentOf } from "./own";
+import { ownPaymentOf, paymentsOfCall } from "./own";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,6 +35,21 @@ export async function callForViewer(
   const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
   if (!call) return null;
   return { call, payment: await ownPaymentOf(call.id), role: "admin" };
+}
+
+/**
+ * The payment a refund form names, but only if it is one of that call's payments and this person
+ * may refund it: the host of that very call, or the founder (with a full admin login). A call can
+ * have several payments (its own, and one for each time more time was added), so the form says
+ * which. A host can never reach a payment of somebody else's call by naming it with a call of their own.
+ */
+export async function paymentToRefund(input: { callId: string; paymentId: string; userId: string; adminLogin: boolean }): Promise<{ payment: Payment; decidedAs: "host" | "admin" } | "not_allowed" | "not_found"> {
+  if (!UUID.test(input.callId) || !UUID.test(input.paymentId)) return "not_found";
+  const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, input.callId));
+  const decidedAs = call && call.hostId === input.userId ? "host" : input.adminLogin ? "admin" : null;
+  if (!decidedAs) return "not_allowed";
+  const payment = call ? (await paymentsOfCall(call.id)).find((p) => p.id === input.paymentId) : undefined;
+  return payment ? { payment, decidedAs } : "not_found";
 }
 
 export async function isAdmin(userId: string): Promise<boolean> {

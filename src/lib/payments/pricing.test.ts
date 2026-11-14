@@ -4,6 +4,7 @@ import {
   bookedTotalCents,
   DEFAULT_FEE_TERMS,
   payoutAfterFee,
+  reviewChargeLimitCents,
   splitAfterRefunds,
   splitCharge,
 } from "./pricing";
@@ -158,5 +159,25 @@ describe("bad inputs are refused, not guessed", () => {
   it("refuses negative numbers", () => {
     expect(() => bookedTotalCents(-1, 900)).toThrow();
     expect(() => splitCharge(-5, DEFAULT_FEE_TERMS, false)).toThrow();
+  });
+});
+
+describe("the most the founder may charge on one payment after a review", () => {
+  const t = (iso: string) => new Date(`2026-01-01T${iso}Z`);
+  // Booked 09:00 to 09:15 at $20 per 15 minutes, then 10 minutes were added.
+  const own = { pricePer15Cents: 2000, coversFrom: t("09:00:00"), coversUntil: t("09:15:00"), callEndsAt: t("09:25:00") };
+  const extra = { pricePer15Cents: 2000, coversFrom: t("09:15:00"), coversUntil: t("09:25:00"), callEndsAt: t("09:25:00") };
+
+  it("is the price of the payment's own stretch", () => {
+    expect(reviewChargeLimitCents({ ...own, safetyEndedAt: null })).toBe(2000);
+    expect(reviewChargeLimitCents({ ...extra, safetyEndedAt: null })).toBe(1333);
+  });
+  it("for a call stopped during the added time, the added time counts only up to the stop", () => {
+    expect(reviewChargeLimitCents({ ...own, safetyEndedAt: t("09:21:00") })).toBe(2000);
+    expect(reviewChargeLimitCents({ ...extra, safetyEndedAt: t("09:21:00") })).toBe(800);
+  });
+  it("for a call stopped before the added time, nothing can be charged for it", () => {
+    expect(reviewChargeLimitCents({ ...own, safetyEndedAt: t("09:06:00") })).toBe(800);
+    expect(reviewChargeLimitCents({ ...extra, safetyEndedAt: t("09:06:00") })).toBe(0);
   });
 });
