@@ -10,6 +10,7 @@ import { db, schema } from "@/db";
 import { BookingError, endInstantRequestsOfAbsentHosts, lockCalendars, offerOf } from "./bookings";
 import { averagesFor } from "@/lib/ratings/ratings";
 import { averageText } from "@/lib/ratings/rules";
+import { verifiedAmong } from "@/lib/safety/identity";
 import { isAvailableNow, NOW } from "./now-rules";
 
 export type AvailabilityState = { availableUntil: string | null; on: boolean };
@@ -91,7 +92,9 @@ export async function liveForHost(hostId: string, now: Date) {
     .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.source, "now"), eq(schema.bookings.stage, "waiting")))
     .orderBy(asc(schema.bookings.requestedAt));
   // How other hosts have rated these customers (at most a handful of requests wait at once): one indexed question.
-  const ratings = await averagesFor([...new Set(waiting.map(({ booking }) => booking.customerId))], "customer", now);
+  const customers = [...new Set(waiting.map(({ booking }) => booking.customerId))];
+  const ratings = await averagesFor(customers, "customer", now);
+  const idConfirmed = await verifiedAmong(customers);
   return {
     ...stateOf(calendar, now),
     requests: waiting.map(({ booking, customerName }) => ({
@@ -99,6 +102,8 @@ export async function liveForHost(hostId: string, now: Date) {
       customerName,
       /** "4.9 from 12 ratings", or "New". */
       customerRating: averageText(ratings.get(booking.customerId) ?? null),
+      /** Only a yes or no leaves the server: never the ID or the name on it. */
+      idConfirmed: idConfirmed.has(booking.customerId),
       lengthMinutes: booking.lengthMinutes,
       totalCents: booking.totalCents,
       respondBy: booking.respondBy!.toISOString(),

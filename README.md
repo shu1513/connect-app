@@ -93,6 +93,11 @@ Testing tools:
   request is being paid for. Stop the helper first, and be aware that it runs the helper's jobs with a
   pretend clock set hours ahead, which can end other open requests in the local database. It puts the
   calendar and weekly hours of `host@test.local` back as it found them.
+- `npx tsx scripts/verified-check.ts` runs the "only people who have confirmed their ID" journeys
+  against the local database and the Stripe sandbox: the host's switch on and off, who can ask for a
+  booked call and a call now, a blocked customer, the switch turned on while a request is waiting or
+  at the card step, a free host, and the "ID confirmed" mark. Stop the helper first. It puts the
+  settings of `host@test.local` back as it found them.
 - `npx tsx scripts/ratings-check.ts` runs the ratings, search, contacts and host-notes journeys against the
   local database: which calls can be rated and when, when a rating counts and what an average shows,
   search by name, handle and confirmed social name (and who is never found), contacts, and private
@@ -125,6 +130,8 @@ Every major module follows the same steps:
 | Adding time during a call: the timing rules, what fits, the price | `src/lib/extend/rules.ts` |
 | Adding time during a call: asking, accepting, declining, the helper's clean-up | `src/lib/extend/extend.ts` |
 | "The payment of this call" when a call has several payments | `src/lib/payments/own.ts` |
+| The identity check, and which customers have passed it (the "ID confirmed" mark) | `src/lib/safety/identity.ts` |
+| The host's "only people who have confirmed their ID" switch, and the rule every request passes | `setVerifiedOnly` and `checkMayAsk` in `src/lib/booking/bookings.ts` |
 | Everything that talks to LiveKit | `src/lib/video/livekit.ts` |
 | The join check (hands out entry passes) | `src/app/api/calls/[id]/token/route.ts` |
 | The attendance log (receives LiveKit's messages) | `src/app/api/livekit/webhook/route.ts` |

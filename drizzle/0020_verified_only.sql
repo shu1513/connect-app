@@ -1,0 +1,1 @@
+ALTER TABLE "host_settings" ADD COLUMN "verified_only" boolean DEFAULT false NOT NULL;

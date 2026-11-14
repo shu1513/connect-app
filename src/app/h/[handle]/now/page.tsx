@@ -7,6 +7,8 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { ConfirmIdFirst } from "@/components/confirm-id-first";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { getSignedIn } from "@/lib/session";
 import { sendNowRequest } from "./actions";
@@ -27,7 +29,8 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   const problem = readNotice(`/h/${profile.handle}/now`, query);
   const open = await instantOffer(profile.userId, new Date());
 
-  if (!open || !open.lengths.includes(minutes)) {
+  // A block either way looks, from here, exactly like a host who is not available.
+  if (!open || !open.lengths.includes(minutes) || (await isBlockedEitherWay(person.id, profile.userId))) {
     return (
       <main className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">{profile.displayName} is not available right now</h1>
@@ -50,22 +53,8 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   }
   const total = bookedTotalCents(open.offer.pricePer15Cents, minutes * 60);
   const paid = total > 0;
-  if (!paid && !(await identityState(person.id)).passed) {
-    return (
-      <main className="mx-auto w-full max-w-xl px-4 py-12">
-        <h1 className="text-2xl font-semibold">One thing first</h1>
-        <p className="mt-4 text-sm">
-          Before your first free call, please confirm who you are: a photo of your ID and a selfie on Stripe&apos;s own pages, which we never
-          see. It takes a couple of minutes and is needed once.
-        </p>
-        <p className="mt-4 text-sm">
-          <Link href="/identity" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
-            Confirm who I am
-          </Link>
-        </p>
-      </main>
-    );
-  }
+  const idConfirmed = (await identityState(person.id)).passed;
+  if ((!paid || open.offer.verifiedOnly) && !idConfirmed) return <ConfirmIdFirst reason={paid ? "host" : "free"} hostName={profile.displayName} next={here} />;
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">
@@ -134,6 +123,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
             </span>
           </label>
         )}
+        {idConfirmed && <p className="opacity-70">{profile.displayName} can see that your ID is confirmed, never your ID or the name on it.</p>}
         <button type="submit" className="rounded bg-green-700 px-4 py-2 font-medium text-white">
           {paid ? "Save my card and ask now" : "Ask now"}
         </button>

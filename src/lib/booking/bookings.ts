@@ -63,6 +63,8 @@ export type Offer = {
   horizonWeeks: number;
   /** False when the host charges but cannot be paid yet (or payments are switched off). */
   canTakePaid: boolean;
+  /** The host's switch: only people who have passed the identity check can send a new request. */
+  verifiedOnly: boolean;
   weekly: Array<{ weekday: number; startMinute: number; endMinute: number }>;
   timeOff: Interval[];
   /** "Available now", as the host set it. Whether it counts right now is isAvailableNow()'s call. */
@@ -104,11 +106,27 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
     noticeHours: row.calendar.noticeHours,
     horizonWeeks: row.calendar.horizonWeeks,
     canTakePaid: !paid || (stripeConfigured() && Boolean(row.settings?.payoutsReady)),
+    verifiedOnly: row.settings?.verifiedOnly ?? false,
     weekly: weekly.map((w) => ({ weekday: w.weekday, startMinute: w.startMinute, endMinute: w.endMinute })),
     timeOff: timeOff.map((t) => ({ start: t.startsAt, end: t.endsAt })),
     availableUntil: row.calendar.availableUntil,
     availableSeenAt: row.calendar.availableSeenAt,
   };
+}
+
+/**
+ * The host's "only people who have confirmed their ID" switch. Saved while holding the host's
+ * calendar lock, the lock every request takes before it reads what the host offers: a request
+ * can never read "off" and still arrive after the host has saved "on".
+ */
+export async function setVerifiedOnly(hostId: string, on: boolean): Promise<void> {
+  await db.transaction(async (tx) => {
+    await lockCalendars(tx, [hostId]);
+    await tx
+      .insert(schema.hostSettings)
+      .values({ userId: hostId, verifiedOnly: on })
+      .onConflictDoUpdate({ target: schema.hostSettings.userId, set: { verifiedOnly: on, updatedAt: new Date() } });
+  });
 }
 
 /**
@@ -176,7 +194,7 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { id?: string; custome
   const instant = booking.source === "now";
   const [me] = await tx.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, booking.customerId));
   if (!me || me.closedAt || me.pausedAt) throw new BookingError("Your account cannot make requests at the moment.");
-  if ((await switches()).requestsOff) throw new BookingError("Connect is not taking new requests right now. Please try again later.");
+  if ((await switches(tx)).requestsOff) throw new BookingError("Connect is not taking new requests right now. Please try again later.");
   // A block either way looks, from here, exactly like a time that is no longer open.
   if (await isBlockedEitherWay(booking.customerId, offer.hostId, tx)) throw new BookingError(instant ? "This host is not available right now." : "That time is no longer open. Please choose another.");
   if (instant) await checkMayAskNow(tx, offer, booking, now);
@@ -184,8 +202,14 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { id?: string; custome
     throw new BookingError("That time is no longer open. Please choose another.");
   }
   // Before a first free call, the customer confirms who they are (a paid call has a card behind it).
-  if (booking.totalCents === 0 && !(await identityState(booking.customerId)).passed) {
-    throw new BookingError("Before your first free call, please confirm who you are on your account page.");
+  // A host can ask the same of everyone. Only the customer's own passed check counts.
+  const free = booking.totalCents === 0;
+  if ((free || offer.verifiedOnly) && !(await identityState(booking.customerId, tx)).passed) {
+    throw new BookingError(
+      free
+        ? "Before your first free call, please confirm who you are on your account page."
+        : "This host only takes calls from people who have confirmed their ID. Please confirm who you are on your account page.",
+    );
   }
   const count = async (...conditions: Parameters<typeof and>) =>
     (await tx.select({ n: sql<number>`count(*)::int` }).from(schema.bookings).where(and(...conditions)))[0].n;

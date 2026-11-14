@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { setVerifiedOnly } from "@/lib/booking/bookings";
 import { withNotice } from "@/lib/notice";
 import { ensurePayoutAccount, getHostSettings, payoutSetupLink, publicAppUrl } from "@/lib/payments/hosts";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
@@ -56,6 +57,14 @@ export async function saveCancelRule(formData: FormData) {
     .set({ freeCancelMinutes: minutes, updatedAt: new Date() })
     .where(eq(schema.hostSettings.userId, user.id));
   back("Your cancelling rule was saved. It applies to calls created from now on.");
+}
+
+/** The host chooses whether only people who have confirmed their ID can ask for a call. Applies to new requests. */
+export async function saveVerifiedOnly(formData: FormData) {
+  const user = await requireActiveUser();
+  const on = formData.get("verifiedOnly") === "on";
+  await setVerifiedOnly(user.id, on);
+  back(on ? "Saved. From now on, only people who have confirmed their ID can ask you for a call." : "Saved. Anyone can ask you for a call again.");
 }
 
 function priceCents(formData: FormData): number {

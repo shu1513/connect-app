@@ -16,6 +16,7 @@ import {
   removeSocial,
   saveCancelRule,
   saveProfile,
+  saveVerifiedOnly,
   setHidden,
   socialReady,
   startPayoutSetup,
@@ -296,6 +297,25 @@ export default async function HostPage(props: PageProps<"/host">) {
           ))}
           <button type="submit" className="mt-2 rounded border border-neutral-500 px-3 py-1.5 text-sm">
             Save rule
+          </button>
+        </form>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Who can ask you for a call</h2>
+        <form action={saveVerifiedOnly} className="mt-3 space-y-2">
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="verifiedOnly" defaultChecked={settings.verifiedOnly} className="mt-1" />
+            <span>Only people who have confirmed their ID can ask me for a call.</span>
+          </label>
+          <p className="text-sm opacity-70">
+            We check a photo ID and a matching selfie through Stripe. You see only that the check was passed (&quot;ID confirmed&quot; next
+            to the person&apos;s name), never the ID or the name on it. Fewer people may ask you for calls. Requests already waiting stay;
+            you can decline them.
+            {profile?.pricePer15Cents === 0 ? " Your calls are free, so everyone who asks already has to confirm their ID." : ""}
+          </p>
+          <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 text-sm">
+            Save
           </button>
         </form>
       </section>

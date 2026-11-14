@@ -5,6 +5,7 @@ import { Rating } from "@/components/rating";
 import { readNotice } from "@/lib/notice";
 import { averagesFor } from "@/lib/ratings/ratings";
 import { formatMoney } from "@/lib/payments/access";
+import { verifiedAmong } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
 
@@ -14,7 +15,9 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   const notice = readNotice("/host/requests", await props.searchParams);
   const waiting = await waitingForHost(user.id);
   // How other hosts have rated each of these customers: one question to the database for all of them.
-  const ratings = await averagesFor([...new Set(waiting.map((row) => row.booking.customerId))], "customer", new Date());
+  const customers = [...new Set(waiting.map((row) => row.booking.customerId))];
+  const ratings = await averagesFor(customers, "customer", new Date());
+  const idConfirmed = await verifiedAmong(customers);
 
   // Group by start time, so the host can compare people who asked for the same time.
   const groups = new Map<string, typeof waiting>();
@@ -58,6 +61,7 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
                     <p>
                       <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"} ·{" "}
                       <Rating shown={ratings.get(booking.customerId) ?? null} newText="new customer" />
+                      {idConfirmed.has(booking.customerId) && <span className="text-green-700"> · ID confirmed</span>}
                     </p>
                     {booking.note && <p className="mt-1 opacity-80">&ldquo;{booking.note}&rdquo;</p>}
                     {booking.respondBy && (
