@@ -1,6 +1,6 @@
 # Plan: Module 7b — Adding time during a call
 
-**Status: final, 13 November 2026. Astra checked the second draft the same day (verdict: build with changes; 8 findings, all taken; they are in "Rules from Astra's second check" below). Not built yet.**
+**Status: built, 13 November 2026 (pull request open). Astra checked the plan twice and then the code; what was found and decided is in `docs/module-record.md`.**
 
 **History.** The first draft paid for extra time by replacing the call's hold with a bigger one. Astra checked that draft (verdict: build with changes; 8 findings). The founder then decided two things: the option to add time appears when **1 minute 30 seconds** are left (the draft said 5 minutes), and each extension gets **its own hold** instead of a replaced one, so the customer's bank never shows more than what they agreed to. This draft follows the founder. What still applies from Astra's first check is kept: the host can accept until 5 seconds before the end and a screen with an open request asks the server once more before it ends the call; asking and accepting re-check paused and closed accounts, blocks and the founder's stop switch; closing rooms gets its own loop in the helper; the card is kept until the call is over only for bookings made under the new wording; the break is the one fixed on the booking; the card used is the one on the call's own hold. The changed money design is to be checked by Astra again.
 

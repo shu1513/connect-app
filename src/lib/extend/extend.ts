@@ -69,7 +69,7 @@ async function whyNot(reader: Reader, call: Call, now: Date): Promise<string | n
     .from(schema.user)
     .where(inArray(schema.user.id, [call.hostId, call.customerId]));
   if (people.out > 0 || (await isBlockedEitherWay(call.hostId, call.customerId, reader))) return NO_LONGER;
-  if ((await switches()).joiningOff) return "Calls are paused across Connect right now, so time cannot be added.";
+  if ((await switches(reader)).joiningOff) return "Calls are paused across Connect right now, so time cannot be added.";
   return null;
 }
 
@@ -334,7 +334,9 @@ export async function answerExtension(input: { extensionId: string; hostId: stri
       const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, seen.call.id)).for("update");
       const [extension] = await tx.select().from(schema.callExtensions).where(eq(schema.callExtensions.id, seen.extension.id)).for("update");
       const [payment] = await tx.select().from(schema.payments).where(eq(schema.payments.extensionId, extension.id)).for("update");
-      // The clock is read only now, with everything locked: nothing can have changed since.
+      const [booking] = await tx.select().from(schema.bookings).where(eq(schema.bookings.callId, call.id)).for("update");
+      // The clock is read only now, with everything this step needs locked: nothing here can make it
+      // wait any more, so a yes given in time can never land after the call's end.
       const now = clock();
 
       if (extension.status !== "open" || extension.oldEndsAt.getTime() !== call.endsAt.getTime()) throw new ExtendError(gone);
@@ -347,15 +349,17 @@ export async function answerExtension(input: { extensionId: string; hostId: stri
         // longer call, and not be on its way out.
         const held = payment?.status === "held" && payment.holdExpiresAt !== null && holdCoversCall({ now, holdExpiresAt: payment.holdExpiresAt, callEndsAt: extension.newEndsAt });
         if (!payment || !held) throw new ExtendError("The payment for the extra time is not in place, so it cannot be accepted.");
+        // Nothing else may be under way on it (a release, say). The one exception is the hold itself:
+        // when the bank's answer to it was lost but the hold is on record as held (Stripe told us in
+        // its own message), the money is there, and the host must not be kept waiting for the helper's check.
         const [inFlight] = await tx
           .select({ id: schema.moneyOperations.id })
           .from(schema.moneyOperations)
-          .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started")))
+          .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started"), ne(schema.moneyOperations.kind, "hold")))
           .limit(1);
         if (inFlight) throw new ExtendError("The payment for the extra time is still being confirmed. Try again in a moment.");
       }
 
-      const [booking] = await tx.select().from(schema.bookings).where(eq(schema.bookings.callId, call.id)).for("update");
       if (!booking) throw new ExtendError(NO_LONGER);
       const busyUntil = new Date(extension.newEndsAt.getTime() + booking.breakMinutes * 60_000);
 

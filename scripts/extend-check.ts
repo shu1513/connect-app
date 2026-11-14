@@ -346,7 +346,13 @@ async function main() {
       await allJobs(during);
       check("with the request waiting for the host, the jobs leave everything alone", (await callOf(callId)).cancelledAt === null && (await own()).status === "held" && (await extra()).status === "held" && (await extensionOf(asked.extensionId)).status === "open");
 
-      check("the host accepts", (await answer(asked.extensionId, callId, hana, true, 40)) === "accepted");
+      // The bank's answer to the hold was lost (its action is still written down as "started"), but the
+      // hold is on record as held. The host must be able to accept. Anything else under way must stop them.
+      const [letGo] = await db.insert(schema.moneyOperations).values({ paymentId: (await extra()).id, kind: "release", label: `release:${(await extra()).id}:check`, params: "{}" }).returning();
+      check("while a release is under way on the extra hold, the host cannot accept", await refusedWith(answer(asked.extensionId, callId, hana, true, 45), "still being confirmed"));
+      await db.delete(schema.moneyOperations).where(eq(schema.moneyOperations.id, letGo.id));
+      await db.insert(schema.moneyOperations).values({ paymentId: (await extra()).id, kind: "hold", label: `holdcard:${(await extra()).id}:lost`, params: JSON.stringify({ intentId: (await extra()).stripePaymentIntentId, paymentMethodId: savedCard }) });
+      check("the host accepts, even though the bank's answer to the hold was lost: the hold itself is on record", (await answer(asked.extensionId, callId, hana, true, 40)) === "accepted");
       const longer = await callOf(callId);
       const booking = await bookingOf(callId);
       check("the call ends 10 minutes later and the booking's total is the two prices added up", longer.endsAt.getTime() === booked.endsAt.getTime() + 10 * MINUTE && booking.lengthMinutes === 25 && booking.totalCents === 3333);

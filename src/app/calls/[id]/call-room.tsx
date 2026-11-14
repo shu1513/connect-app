@@ -31,12 +31,13 @@ type Connection = { token: string; serverUrl: string };
 /** What the server says about the call near its end (see /api/calls/[id]/live). */
 type Live = {
   endsAt: string;
+  serverNow: string;
   cancelled: boolean;
   safetyEnded: boolean;
   /** The request for more time that is waiting. Not `ready` while its money is still being held. */
   extension: { id: string; minutes: number; priceCents: number; ready: boolean } | null;
   lastExtension: { id: string; minutes: number; status: string } | null;
-  /** For the customer: how many more minutes fit. */
+  /** For the customer, while the server's clock says asking is open: how many more minutes fit. */
   addTime: { fits: number; pricePer15Cents: number } | null;
 };
 
@@ -210,18 +211,28 @@ export function CallRoom(props: Props) {
   const [myRequest, setMyRequest] = useState<string | null>(null);
   const [extendNotice, setExtendNotice] = useState<string | null>(null);
 
-  /** Asks the server where the call stands. A later end is taken over; the end never moves back. */
-  const refresh = useCallback(async () => {
+  /** Asks the server where the call stands. A later end is taken over; the end never moves back. Returns the server's answer, or null when there was none. */
+  const refresh = useCallback(async (): Promise<Live | null> => {
     const control = new AbortController();
     const giveUp = setTimeout(() => control.abort(), 4_000);
     try {
+      const sentAt = Date.now();
       const response = await fetch(`/api/calls/${props.callId}/live`, { cache: "no-store", signal: control.signal });
-      if (!response.ok) return;
+      const receivedAt = Date.now();
+      if (!response.ok) return null;
       const body = (await response.json()) as Live;
+      // A quick answer is also the best reading of the server's clock there is: keep this screen's clock on it,
+      // so the countdown and the last seconds for asking and accepting match what the server will allow.
+      if (receivedAt - sentAt < 1_000) {
+        const measured = Date.parse(body.serverNow) - receivedAt;
+        setClockOffset((known) => (known !== null && Math.abs(known - measured) < 300 ? known : measured));
+      }
       setLive(body);
       followEnd(Date.parse(body.endsAt));
+      return body;
     } catch {
       // The next ask tries again.
+      return null;
     } finally {
       clearTimeout(giveUp);
     }
@@ -247,8 +258,15 @@ export function CallRoom(props: Props) {
     if (!timeUp || lastCheck.current === endsAt) return;
     lastCheck.current = endsAt;
     const asked = endsAt;
-    // Asked exactly once per end, and never cancelled: without its answer the call would not end on screen.
-    setTimeout(() => void refresh().finally(() => setCheckedEnd(asked)), 0);
+    // Asked once per end, and never cancelled: without an answer the call would not end on screen.
+    // The call only ends on screen when the server has answered (a later end in that answer is taken
+    // over above, and the call goes on). A server that cannot be reached is asked again for about half
+    // a minute; only then is the call taken to be over.
+    const settle = async () => {
+      for (let tries = 0; tries < 20 && !(await refresh()); tries++) await new Promise((resolve) => setTimeout(resolve, 1_500));
+      setCheckedEnd(asked);
+    };
+    setTimeout(() => void settle(), 0);
   }, [timeUp, endsAt, refresh]);
 
   // "10 minutes added." is news for a moment, not for the rest of the call.
@@ -293,7 +311,6 @@ export function CallRoom(props: Props) {
     setJoining(true);
     setNotice(null);
     try {
-      const sentAt = Date.now();
       const response = await fetch(`/api/calls/${props.callId}/token`, { method: "POST" });
       const receivedAt = Date.now();
       const body = await response.json();
@@ -301,8 +318,9 @@ export function CallRoom(props: Props) {
         setNotice(body.error ?? "Could not join the call.");
         return;
       }
-      // The server's answer carries its clock. Assume it was read halfway through the round trip.
-      setClockOffset(Date.parse(body.serverNow) - (sentAt + receivedAt) / 2);
+      // The server's answer carries its clock, read just before the answer was sent. (Not "halfway through
+      // the round trip": the join check can take many seconds, and the clock would then run that much ahead.)
+      setClockOffset(Date.parse(body.serverNow) - receivedAt);
       // The join check knows the call's end as it is now (time may have been added since the page was made).
       followEnd(Date.parse(body.endsAt));
       setChoices(values);

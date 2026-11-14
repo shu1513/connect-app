@@ -1,5 +1,5 @@
 import { addTimeChoices, extensionView } from "@/lib/extend/extend";
-import { WATCH_SECONDS } from "@/lib/extend/rules";
+import { askWindow, WATCH_SECONDS } from "@/lib/extend/rules";
 import { callForParticipant } from "@/lib/payments/access";
 import { getUser } from "@/lib/session";
 
@@ -23,7 +23,9 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/calls/[id]/
   const running = !call.cancelledAt && !call.safetyEndedAt && now >= call.startsAt;
   const nearEnd = running && call.endsAt.getTime() - now.getTime() <= (WATCH_SECONDS + 30) * 1000;
   const requests = nearEnd ? await extensionView(call.id) : { open: null, last: null };
-  const addTime = nearEnd && role === "customer" && now < call.endsAt ? await addTimeChoices(call) : null;
+  // The customer's choices are only sent while this server's clock says asking is open, so the
+  // buttons never show on a screen whose own clock runs a little ahead or behind.
+  const addTime = nearEnd && role === "customer" && askWindow({ now, endsAt: call.endsAt }) === "open" ? await addTimeChoices(call) : null;
 
   return Response.json(
     {

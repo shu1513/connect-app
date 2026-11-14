@@ -2,8 +2,13 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 
-export async function switches(): Promise<{ requestsOff: boolean; joiningOff: boolean }> {
-  const [row] = await db.select().from(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
+/**
+ * Code that is inside a database step of its own passes that step as the reader, so it never
+ * waits for a second connection while holding the first (with every connection busy that way,
+ * nothing could finish).
+ */
+export async function switches(reader: Pick<typeof db, "select"> = db): Promise<{ requestsOff: boolean; joiningOff: boolean }> {
+  const [row] = await reader.select().from(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
   return { requestsOff: row?.requestsOff ?? false, joiningOff: row?.joiningOff ?? false };
 }
 

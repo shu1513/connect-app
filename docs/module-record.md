@@ -21,7 +21,8 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 4. Calendar and booking | Built and merged. |
 | 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
 | 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
-| 7. "Available now" calls | Built and merged. Extending a call deferred to module 7b. Two-device test done by the founder on 13 November. |
+| 7. "Available now" calls | Built and merged. Two-device test done by the founder on 13 November. |
+| 7b. Adding time during a call | Built; pull request open. Two-device test still needed. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
 | 8b. Messaging | Not started. Begins with a research round (the builder and Astra separately, then compared). |
 | Final pass: joining everything together | Not started. |
@@ -286,7 +287,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 | 2 | How a call now starts | The customer saves a card and sends the request; the host has 2 minutes **(founder's change; was 3)**, and can accept, decline, or decline and block **(founder's change)**. Accepting reserves both people and creates the call and its payment in one step, with the start 60 seconds later and a payment deadline 2 minutes later; the saved card is tried at once through the "never twice" money path; if the bank wants approval, the call page shows the usual card form on the same hold; nobody enters the room until the money is held; not held by the deadline means cancelled for free. (Astra: a saved card is not funds; reserve first, then ask the bank, with a bounded deadline and recovery. Adopted on the existing parts.) |
 | 3 | What is charged | `calls.billing`: "host" for booked calls (the host's time), "together" for instant calls (time both were in), fixed at creation and read by settlement, the later-records check, the pay form, the receipt and the reminder wording. |
 | 4 | Cancelling | Free until the start (an instant call carries a 0-minute free-cancel rule, so the late-cancel charge can never apply); after the start no cancelling, except by Connect for a call whose money was never held. |
-| 5 | Extending a call | **Deferred to module 7b.** Astra showed that separate rooms mean a visible reconnection and lost minutes, and one room needs segment-level payments, attendance and closing plus new card consent. To be designed after module 8. |
+| 5 | Extending a call | **Deferred to module 7b (built since; see below).** Astra showed that separate rooms mean a visible reconnection and lost minutes, and one room needs segment-level payments, attendance and closing plus new card consent. To be designed after module 8. |
 | 6 | Limits | One instant request outstanding per customer; 5 waiting per host; 15 minutes before asking the same host again after a decline **(founder's change; was 24 hours)** (a booked-call decline keeps its 7-day rule; an instant decline does not trigger it); every try counts toward the 10-a-day limit; three refused cards in a row pause instant requests for an hour. |
 | 7 | Notifications | Polling is the channel: the host's page every 3 seconds, the customer's every 2 (with jitter, one request in flight, refresh on focus, stop when settled). One email to the host per instant request that expires with the 2-minute clock; one to the customer when accepted (with the call's link); the usual ones for a refused card or a cancellation; none for extensions (deferred). The hourly "new requests" digest ignores instant requests. |
 
@@ -310,6 +311,62 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 **What the automatic checks cannot test**
 - Two real people on two devices: the host accepting on their phone, the customer's page moving to the call, and the call starting a minute later; the bank's approval step on a real card.
 - A charge worked out from time together on a real call (the rule is applied in code and the price formula is unit-tested; a live call with real attendance messages is needed to see it end to end).
+
+---
+
+## Module 7b: Adding time during a call
+
+**Plan:** `plans/09-more-time.md`
+
+**The founder's brief (13 November 2026):** a call ends at its booked end, not a minute later. In the last minute both people see a countdown. The customer can ask for more time (5, 10 or 15 minutes, or a number they type), at the same price, and the host accepts or declines right there. The customer can never ask for more than fits before the host's next appointment.
+
+**What was recommended, what Astra said, and what was decided**
+
+| # | Topic | Decided |
+| --- | --- | --- |
+| 1 | When a call ends | At its booked end. The minute of grace is gone (one number, 60 seconds to 0); the join check, "End call and report" and the moment the record becomes final all move with it. Closing rooms now runs in its own loop in the helper, and the helper locks the call and looks at its end again before closing, so a call that was just made longer is never closed. |
+| 2 | When the customer can ask | **Founder's decision: when 1 minute 30 seconds are left** (the draft said 5 minutes). Asking stops 15 seconds before the end; the host can accept until 5 seconds before it. Both people see a large countdown in the last 60 seconds. |
+| 3 | How the extra time is paid for | **Founder's decision: each extension gets its own hold**, so the bank never shows more than what the customer agreed to. (The first draft replaced the call's hold with a bigger one, which shows two near-full amounts for a few days.) Each extension is a payment of its own, of exactly the same kind as the call's payment: its own hold, charge, refund button and payout, through the money code that already exists. |
+| 4 | The smallest extension and the fee | **Founder's decisions: 5 minutes at least, and the usual fee (4.9% plus 30 cents) on each extension.** At most 60 minutes per request; a call can be made longer again later. |
+| 5 | The order of steps | Money first, then the host. The price of the extra minutes is held on the card that already holds the money for the call before the host is asked; accepting is then one step in our own database. A declined or unanswered request has its hold let go. One request can be open per call (the database guarantees it), and at most 5 per call. |
+| 6 | What fits | The new end plus the break fixed on the booking must come before the host's next thing, and the new end before the customer's next thing. The database itself checks it again when the host accepts. Weekly hours and time off do not limit it: the host is there and says yes themselves. Other people's waiting requests for those minutes end, as when a host accepts any call. |
+| 7 | Which time each payment pays for | Each payment covers its own stretch of the call (two new fields). After the call each is charged for the time that counted inside its own stretch, by the call's usual rule, and never more than its own hold. |
+| 8 | The saved card | Kept until the call is over (it was removed as soon as the first hold landed), under a new wording the customer agrees to. Bookings made under the earlier wording keep the earlier treatment. |
+
+**What Astra found in the plan** (two rounds; all taken)
+- Round 1 (the replace-the-hold draft): 8 findings. What survived the change of design: the host's 5-second limit and the screen asking the server once more before ending; re-checking paused and closed accounts, blocks and the founder's stop switch; closing rooms in its own loop; the card kept only under the new wording; the break fixed on the booking; the card of the call's own hold.
+- Round 2 (a payment per extension; verdict "build with changes"): 8 findings. The three that mattered most: (1) the job that cancels calls whose money was not held in time could have mistaken an extension's unpaid payment for the call's own and cancelled a call under way, because the booking jobs build their questions from one shared piece and then replace its conditions, so a filter added there would silently vanish (the filter now sits in the join, and the "never paid" cancellation only works for a call's own payment); (2) a declined request whose hold was slow to let go could have been charged for minutes a later, accepted request also covered (only an accepted request can ever be charged, checked at the moment of charging); (3) the existing hold code refuses a hold after the booking's pay-by time, which is always before the call starts, so every extension would have been refused (each payment now has its own limit). The others: a refund names its payment and the server checks it belongs to that call; the join check compares the call's own hold with its own stretch; a request is ready for the host as soon as its hold is on record, by whichever way; a 10-second limit on the bank's answer; the booking's new total is the old total plus the extension's price.
+
+**Every place that looks up a call's payment** (Astra's list; the rule is "say which you mean")
+- The call's own payment only: who may see a call (`payments/access.ts`), the booking jobs (`booking/jobs.ts`: unpaid bookings, placing holds, the cut-off, removing saved cards), cancelling (`payments/cancel.ts`), suspending a host, closing or pausing an account, blocking, reminders, the home page's status line, the pay form and the join check.
+- Every payment of the call: "End call and report" (all go to review), finishing cancelled calls (an extension's payment is only ever let go), charging finished calls and the later-records check (each by its own stretch), payday, the results page, the admin lists, refunds (by payment).
+- Not affected: the money actions themselves, Stripe's messages and crash recovery (they work on one payment by its own number).
+
+**What was built**
+- The timing rules as plain logic (`src/lib/extend/rules.ts`); asking, answering and the helper's clean-up (`src/lib/extend/extend.ts`); two new addresses the call screen uses, and the existing "live" address now also gives the call's end and the open request.
+- The call screen: the countdown; the customer's choices with prices and a box for another number; "Checking your card…" and "Waiting for…"; the host's Accept and Decline box; the new end taken over without anyone reconnecting; one last question to the server before the call ends on screen.
+- `call_extensions` (the lasting record of who asked for what, and what became of it); on payments: the extension it belongs to and the stretch it covers; "one payment per call" became "one own payment per call, and one per extension", enforced by the database.
+- The results page shows the call's own payment and each extension as its own block, each with its own refund form for the host; the admin lists mark extension payments.
+
+**Known limits of this first version**
+- A paid call can only be made longer if its money is held on the card saved with the booking. If the customer typed a different card on the call page, or the booking was made under the earlier card wording, the customer is told that time cannot be added.
+- If the customer's bank wants its own approval step for the extra hold, the request fails and the call ends as booked. (Rare for US cards, common for European ones. To be decided before launch.)
+- The host cannot offer more time; the customer asks.
+
+**What the reviewers found in the code**
+- Astra (code review; verdict "ship with changes"): 4 findings, all taken. It found no way to be charged twice, to be charged for a request that was not accepted, or for an extension's payment to be mistaken for a call's own, and no remaining lookup of a call's payment that does not say which it means; the migration is safe for existing payments. The four: (1) if the screen's last question to the server went unanswered, the call ended on screen even though the host might just have added time (the call now only ends on screen once the server has answered; a server that cannot be reached is asked again for about half a minute); (2) the "is joining switched off" check inside the asking and accepting steps used a second database connection while holding the first, so with many such steps at once all connections could be busy waiting for each other (it now uses the step's own connection); (3) when the bank's answer to the extra hold was lost but Stripe's own message had put the hold on record, the host still could not accept until the helper's check a minute later, by which time the call was over (a hold that is on record as held no longer blocks; anything else under way on it still does); (4) accepting read the clock before taking its last lock, so a yes given in time could, after a wait, land after the call's end (every lock is now taken before the clock is read).
+- In a browser (Chrome, with the two test accounts on a free call): the customer's buttons appeared in the last minute and a half, "+10 min" showed "Asked for 10 more minutes. Waiting for Hana Host.", and when the host accepted the clock jumped from under a minute to over ten with "10 minutes added." and nobody disconnected; on the host's side the box "Cory Customer asks for 5 more minutes. Accept / Decline" appeared and Accept added the time; a call left to run showed the red countdown and then "This call has ended." exactly at its end. This found one real mistake: the screen set its clock from the join check assuming the answer took no time to prepare, so after a slow join the screen ran about 12 seconds ahead of the server and offered the buttons before the server would take them. The screen now reads the server's clock from every answer near the end of the call, and the server only sends the customer's choices while its own clock says asking is open.
+
+**How it was checked**
+- 107 checks over 10 journeys (`scripts/extend-check.ts`) against the local database and the Stripe sandbox: a free call made longer twice; declined, unanswered and too-late requests; two requests at once; the sixth request; what fits before the host's next call (with the break) and the customer's; more time and another booking for the same minutes at the same moment; a waiting request of someone else in the way; a paused customer, a block, the founder's stop switch, a stopped call; the room closing at the booked end and not closing a call that was just made longer; a paid call with two holds at Stripe on the same card, two charges that each match their own minutes, the usual fee on each, a refund of the extension only, who may refund which payment, and one transfer each on payday; a declined request that cannot be charged while its hold is still there; a refused card; a hold that lands after its request ended; accepting at the moment a request runs out; a card that was not saved; a booking under the earlier card wording; "End call and report" with a request waiting and after one was accepted.
+- **Every helper job run while an extension's money is still being held, while it waits for the host, and after it was accepted, with the call untouched each time.** To prove this check has teeth, the safeguard was taken out on purpose: the check then failed (the call under way was cancelled), and passed again with it back.
+- 39 new automatic tests (the timing rules, what fits, the price, counting by stretch for a late host, a host who leaves during the added time and a call stopped during it, the most the founder may charge per payment); 236 automatic tests in all, lint, types and the build pass.
+- The seven earlier journey scripts: booking 94, "call now" 73, ratings 73, notifications 33, safety 60 and accounts 99 all pass. Payments: 95 of 96. The one that fails ("the 25-cent payout charge was taken once") fails because of old test data on this computer, not because of this module: nine test charges from 6 November can no longer be paid out in Stripe's test area, one of them was the first to claim that week's payout charge, and it keeps it while it is stuck. (That is how it has always worked: a payment whose payout is refused keeps the week's payout charge until it goes through, so the host is never charged it twice.)
+
+**What the automatic checks cannot test**
+- Two real people on two devices: that nobody is disconnected when time is added, and how the last 90 seconds feel with sound and video. (The browser check used one browser at a time, with the other person's step made from outside it.)
+- How a real bank shows the two holds, and a card whose bank wants its own approval step.
+- A paid extension through the screens with a real saved card (the money path was run against Stripe's test area by the script; the screens were tried on a free call).
 
 ---
 
@@ -404,8 +461,9 @@ Also fixed: one check in the notifications script depended on how fast the compu
 ## Things that need the founder or outside help before launch
 
 - **Stripe:** a live account owned by the company, and Stripe's written approval for this kind of business and for the identity check.
-- **A lawyer:** terms of service, privacy policy, the rules page, the wording customers agree to when saving a card, duties around reports involving children, how long records are kept, and which countries must not be served.
+- **A lawyer:** terms of service, privacy policy, the rules page, the wording customers agree to when saving a card (which now also covers keeping the card until the call is over and using it when the customer asks for more time), duties around reports involving children, how long records are kept, and which countries must not be served.
 - **Email:** a real sending service and the app's own web address.
-- **Real-device tests** of the video call (two people, phones, a 60-minute call).
+- **Real-device tests** of the video call (two people, phones, a 60-minute call), including adding time during a paid call.
+- **Adding time when the bank wants its own approval step:** not possible inside a call in the first version (the request fails and the call ends as booked). Decide before launch whether it is needed; it matters most for customers outside the US.
 - **Google sign-in:** move from "testing" to "live", ideally on the company's own Google account.
 - **Hosting:** where the app runs, where photos are stored, and making the founder's own account the admin there.
