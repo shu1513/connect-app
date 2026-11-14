@@ -7,8 +7,7 @@ import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
-import { endWaitingRequestsOf } from "@/lib/booking/bookings";
-import { endCallsOf } from "@/lib/profiles/closing";
+import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
@@ -186,20 +185,13 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
-      text: `Hi ${person.name},\n\nYour account has been paused because of this rule:\n\n${reason}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. Requests of yours that were waiting have ended, and your calls that had not started are cancelled; nobody is charged for them. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
+      text: `Hi ${person.name},\n\nYour account has been paused because of this rule:\n\n${reason}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. We are ending your requests that were waiting and cancelling your calls that have not started, at no charge to anyone. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
       key: `paused:${input.userId}:${input.requestId}`,
     });
     await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: input.userId, detail: reason }, tx);
   });
   // The account is paused from here on, whatever happens next.
-  const now = new Date();
-  try {
-    await endWaitingRequestsOf(input.userId, { asHost: true, asCustomer: true }, now);
-    return { callsNotEnded: await endCallsOf(input.userId, now) };
-  } catch (error) {
-    console.error(`[safety] could not end the requests and calls of paused account ${input.userId}`, error);
-    return { callsNotEnded: -1 };
-  }
+  return { callsNotEnded: await endRequestsAndCallsOf(input.userId, new Date()) };
 }
 
 export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {

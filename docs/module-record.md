@@ -395,6 +395,10 @@ Also fixed: one check in the notifications script depended on how fast the compu
 
 **How it was checked:** lint, types, 197 automatic tests, the build, and all seven journey scripts (accounts 99 checks, safety 60 with 5 new ones for these fixes, notifications 33, booking 93, "call now" 72, payments 71, ratings 73). The changed pages were loaded as a logged-in customer. The video name and the two call-screen changes were not tried in a real two-person call.
 
+**CodeRabbit's review (pull request 13):** two comments, both about the new pause step, both right and both fixed.
+- If ending the paused person's waiting requests failed, their calls were never looked at, so they could stay in a call under way. Closing an account already tried the two separately; pausing now uses the very same code, so the two cannot drift apart again.
+- The pause email said the requests "have ended" and the calls "are cancelled" before that work had been done. It now says Connect is ending and cancelling them. The email still goes out in the same step as the pause itself, so a paused person is always told.
+
 ---
 
 ## Things that need the founder or outside help before launch
