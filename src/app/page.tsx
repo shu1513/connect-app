@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { desc, eq, inArray, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SignOutButton } from "@/components/sign-out-button";
 import { db, schema } from "@/db";
+import type { Payment } from "@/db/schema";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
 import { readNotice } from "@/lib/notice";
@@ -19,6 +20,23 @@ const REQUEST_LABEL: Record<string, string> = {
   taken_back: "you took it back",
 };
 const STATE_LABEL = { not_open_yet: "Not open yet", open: "Open now", closed: "Ended" } as const;
+
+/**
+ * What the list says about a call's money. Whether the call is free or still unpaid is read from
+ * its own payment; what is held and what was charged are added up over every payment of the call,
+ * each on its own (the call's own payment can end uncharged while added time was charged).
+ */
+function paymentLine(all: Payment[]): string {
+  const own = all.find((p) => p.extensionId === null);
+  if (!own) return "Free";
+  if (own.status === "awaiting_payment") return `${formatMoney(own.bookedCents)}, not paid yet`;
+  const charged = all.filter((p) => p.status === "charged");
+  const held = all.filter((p) => p.status === "held");
+  const parts: string[] = [];
+  if (charged.length > 0) parts.push(`Charged ${formatMoney(charged.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0))}`);
+  if (held.length > 0) parts.push(`${formatMoney(held.reduce((sum, p) => sum + p.bookedCents, 0))} held${held.some((p) => p.needsReview) ? ", needs review" : ""}`);
+  return parts.length > 0 ? parts.join(", ") : "Not charged";
+}
 
 export default async function HomePage(props: PageProps<"/">) {
   const user = await requireUser();
@@ -46,9 +64,10 @@ export default async function HomePage(props: PageProps<"/">) {
   const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
 
   const callIds = calls.map((c) => c.id);
-  // Each call's own payment (a request for more time has a payment of its own, shown on the call's results page).
-  const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(and(inArray(schema.payments.callId, callIds), isNull(schema.payments.extensionId))) : [];
-  const paymentOf = new Map(payments.map((p) => [p.callId, p]));
+  // Every payment of each call: its own, and one for each time more time was added during it.
+  const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [];
+  const paymentsOf = new Map<string, Payment[]>();
+  for (const p of payments) paymentsOf.set(p.callId, [...(paymentsOf.get(p.callId) ?? []), p]);
   const admin = await isAdmin(user.id);
   const now = new Date();
   const [requests, toAnswer, toRate] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now)]);
@@ -171,16 +190,7 @@ export default async function HomePage(props: PageProps<"/">) {
               {calls.map((call) => {
                 const isHost = call.hostId === user.id;
                 const state = roomState(call, now);
-                const payment = paymentOf.get(call.id);
-                const paymentText = !payment
-                  ? "Free"
-                  : payment.status === "awaiting_payment"
-                    ? `${formatMoney(payment.bookedCents)}, not paid yet`
-                    : payment.status === "held"
-                      ? `${formatMoney(payment.bookedCents)} held${payment.needsReview ? ", needs review" : ""}`
-                      : payment.status === "charged"
-                        ? `Charged ${formatMoney((payment.chargedCents ?? 0) - payment.refundedCents)}`
-                        : "Not charged";
+                const paymentText = paymentLine(paymentsOf.get(call.id) ?? []);
                 return (
                   <tr key={call.id} className="border-b border-neutral-300/40">
                     <td className="py-2 pr-4">

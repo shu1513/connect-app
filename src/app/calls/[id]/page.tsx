@@ -41,6 +41,10 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
   const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
   const other = hostProfile ? { name: hostProfile.displayName } : person;
   const bookedPrice = payment ? formatMoney(payment.bookedCents) : null;
+  // The most the whole call can cost. The booking's total grows when time is added during the call;
+  // the call's own payment (the figure above, used for paying and cancelling before the call) does not.
+  const [booking] = payment ? await db.select({ totalCents: schema.bookings.totalCents }).from(schema.bookings).where(eq(schema.bookings.callId, call.id)) : [];
+  const upTo = payment ? formatMoney(booking?.totalCents ?? payment.bookedCents) : null;
 
   const cancel = cancellationOutcome({
     by: role,
@@ -74,7 +78,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
       <p className="mt-1 text-sm opacity-70">
         Booked: <LocalTime iso={call.startsAt.toISOString()} /> to <LocalTime iso={call.endsAt.toISOString()} />
         {payment
-          ? ` · ${formatMoney(payment.pricePer15Cents)} per 15 minutes, up to ${bookedPrice}`
+          ? ` · ${formatMoney(payment.pricePer15Cents)} per 15 minutes, up to ${upTo}`
           : " · Free call"}
       </p>
 

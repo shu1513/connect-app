@@ -211,8 +211,15 @@ export function CallRoom(props: Props) {
   const [myRequest, setMyRequest] = useState<string | null>(null);
   const [extendNotice, setExtendNotice] = useState<string | null>(null);
 
+  // Answers can arrive out of order. One that was asked for before an answer already on screen is
+  // dropped: otherwise a slow, older answer could put a request back on screen after it was accepted,
+  // and it would stay there, because the screen stops asking once the end has moved.
+  const asked = useRef(0);
+  const shown = useRef(0);
+
   /** Asks the server where the call stands. A later end is taken over; the end never moves back. Returns the server's answer, or null when there was none. */
   const refresh = useCallback(async (): Promise<Live | null> => {
+    const order = ++asked.current;
     const control = new AbortController();
     const giveUp = setTimeout(() => control.abort(), 4_000);
     try {
@@ -221,6 +228,8 @@ export function CallRoom(props: Props) {
       const receivedAt = Date.now();
       if (!response.ok) return null;
       const body = (await response.json()) as Live;
+      if (order < shown.current) return body;
+      shown.current = order;
       // A quick answer is also the best reading of the server's clock there is: keep this screen's clock on it,
       // so the countdown and the last seconds for asking and accepting match what the server will allow.
       if (receivedAt - sentAt < 1_000) {
@@ -257,7 +266,7 @@ export function CallRoom(props: Props) {
   useEffect(() => {
     if (!timeUp || lastCheck.current === endsAt) return;
     lastCheck.current = endsAt;
-    const asked = endsAt;
+    const checking = endsAt;
     // Asked once per end, and never cancelled: without an answer the call would not end on screen.
     // The call only ends on screen when the server has answered (a later end in that answer is taken
     // over above, and the call goes on). A server that cannot be reached is asked again for half a
@@ -265,7 +274,7 @@ export function CallRoom(props: Props) {
     const settle = async () => {
       const giveUpAt = Date.now() + 30_000;
       while (!(await refresh()) && Date.now() < giveUpAt) await new Promise((resolve) => setTimeout(resolve, 1_500));
-      setCheckedEnd(asked);
+      setCheckedEnd(checking);
     };
     setTimeout(() => void settle(), 0);
   }, [timeUp, endsAt, refresh]);
