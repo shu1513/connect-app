@@ -1,6 +1,6 @@
 # Plan: Module 9 — Verified customers only
 
-**Status: draft, 14 November 2026. Not built yet. Astra has checked it (verdict: build with changes; 10 findings, all taken in below). Waiting for the founder's two decisions.**
+**Status: built, 14 November 2026 (pull request open). Astra checked the plan (verdict: build with changes; 10 findings, all taken in below) and then the code. The founder decided both questions as recommended: the company pays for the check, and the switch is off for a new host. What was found and decided is in `docs/module-record.md`.**
 
 The founder's brief (14 November 2026): "a person can verify himself with his ID. hosts can choose
 to only accept calls from customers who have verified his identity."

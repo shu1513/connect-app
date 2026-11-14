@@ -5,7 +5,8 @@
  *
  * It makes its own customers and free hosts, and uses host@test.local (whose
  * payout account is ready) as the paid host. It removes the bookings it made
- * and puts that host's settings back.
+ * and puts that host's settings, calendar and weekly hours back. It refuses to
+ * start while that host has requests waiting, because it would end them.
  *
  * Stop the always-on helper first (it would do some of these steps itself).
  * Usage: npx tsx scripts/verified-check.ts
@@ -60,7 +61,8 @@ async function main() {
         stripeSessionId: `vs_verifiedcheck_${randomUUID()}`,
         status: id === "still checking" ? "processing" : "verified",
         adult: id === "passed" ? true : id === "under 18" ? false : null,
-        verifiedName: id === "passed" ? `Check ${name}` : null,
+        // Not the name the person shows: a host must never be sent it.
+        verifiedName: id === "passed" ? `Legal ${name}` : null,
         checkedAt: stamp,
       });
     }
@@ -84,9 +86,9 @@ async function main() {
   const [profileBefore] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hana.id));
   const [calendarBefore] = await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hana.id));
   const [settingsBefore] = await db.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, hana.id));
-  if (!profileBefore) await db.insert(schema.hostProfiles).values({ userId: hana.id, handle: "hana_host", handleKey: "hanahost", displayName: "Hana Host", pricePer15Cents: 2000, status: "approved", usConfirmedAt: new Date() });
-  await db.update(schema.hostProfiles).set({ pricePer15Cents: 2000, status: "approved", hidden: false }).where(eq(schema.hostProfiles.userId, hana.id));
-  await makeHost(hana, 2000);
+  const hoursBefore = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hana.id));
+  // Switching this host's availability off (journey 3) ends every instant request waiting for them.
+  if ((await B.waitingForHost(hana.id)).length > 0) throw new Error("host@test.local has requests waiting. Answer or take them back first: this script would end them.");
   const freeCancelMinutes = settingsBefore?.freeCancelMinutes ?? 0;
 
   // Each request gets a time of its own, so they never get in each other's way.
@@ -108,6 +110,10 @@ async function main() {
   };
 
   try {
+    if (!profileBefore) await db.insert(schema.hostProfiles).values({ userId: hana.id, handle: "hana_host", handleKey: "hanahost", displayName: "Hana Host", pricePer15Cents: 2000, status: "approved", usConfirmedAt: new Date() });
+    await db.update(schema.hostProfiles).set({ pricePer15Cents: 2000, status: "approved", hidden: false }).where(eq(schema.hostProfiles.userId, hana.id));
+    await makeHost(hana, 2000);
+
     // ----------------------------------------------------------------------
     console.log("\n1. The switch");
     {
@@ -155,7 +161,10 @@ async function main() {
       const live = await N.liveForHost(hana.id, now);
       const shown = live.requests.find((request) => request.id === booking.id);
       check("a confirmed customer's request reaches the host's live page with the mark", sent.stage === "waiting" && shown?.idConfirmed === true);
-      check("the live page is sent a yes or no and nothing else about the ID", shown !== undefined && !JSON.stringify(shown).includes("verifiedName") && typeof shown.idConfirmed === "boolean");
+      check(
+        "the live page is sent a yes or no and nothing else about the ID",
+        shown !== undefined && Object.keys(shown).sort().join() === "customerName,customerRating,id,idConfirmed,lengthMinutes,respondBy,totalCents" && !JSON.stringify(live).includes("Legal"),
+      );
       await B.takeBack({ bookingId: booking.id, customerId: ann.id, now });
       await N.setAvailableNow({ hostId: hana.id, minutes: null, now });
     }
@@ -231,11 +240,13 @@ async function main() {
     for (const id of made) await db.update(schema.hostProfiles).set({ status: "suspended", hidden: true }).where(eq(schema.hostProfiles.userId, id));
     // The test host is put back as it was.
     await db.update(schema.hostSettings).set({ verifiedOnly: settingsBefore?.verifiedOnly ?? false }).where(eq(schema.hostSettings.userId, hana.id));
-    await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hana.id));
     if (profileBefore) await db.update(schema.hostProfiles).set({ pricePer15Cents: profileBefore.pricePer15Cents, status: profileBefore.status, hidden: profileBefore.hidden }).where(eq(schema.hostProfiles.userId, hana.id));
     if (calendarBefore) {
-      await db.update(schema.hostCalendars).set({ timeZone: calendarBefore.timeZone, lengths: calendarBefore.lengths, noticeHours: calendarBefore.noticeHours, horizonWeeks: calendarBefore.horizonWeeks, breakMinutes: calendarBefore.breakMinutes }).where(eq(schema.hostCalendars.userId, hana.id));
-    }
+      const { timeZone, lengths, noticeHours, horizonWeeks, breakMinutes, availableUntil, availableSeenAt } = calendarBefore;
+      await db.update(schema.hostCalendars).set({ timeZone, lengths, noticeHours, horizonWeeks, breakMinutes, availableUntil, availableSeenAt }).where(eq(schema.hostCalendars.userId, hana.id));
+    } else await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hana.id));
+    await db.delete(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hana.id));
+    if (hoursBefore.length) await db.insert(schema.weeklyHours).values(hoursBefore);
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
