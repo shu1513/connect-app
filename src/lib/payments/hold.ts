@@ -22,11 +22,13 @@ export function priceProblem(pricePer15Cents: number): string | null {
   return null;
 }
 
-/** Creates the payment record for a paid call, fixing its terms at this moment. */
+/** Creates the payment record for a paid call (the call's own payment, for the whole booked time), fixing its terms at this moment. */
 export async function createPaymentForCall(tx: Tx, call: Pick<Call, "id" | "startsAt" | "endsAt" | "pricePer15Cents">): Promise<void> {
   const bookedSeconds = Math.floor((call.endsAt.getTime() - call.startsAt.getTime()) / 1000);
   await tx.insert(schema.payments).values({
     callId: call.id,
+    coversFrom: call.startsAt,
+    coversUntil: call.endsAt,
     pricePer15Cents: call.pricePer15Cents,
     bookedCents: bookedTotalCents(call.pricePer15Cents, bookedSeconds),
     feePercentBps: DEFAULT_FEE_TERMS.percentBps,
@@ -49,14 +51,30 @@ export async function stripeCustomerFor(user: { id: string; name: string; email:
 
 type Payer = { id: string; name: string; email: string };
 
-/** For a call that came from a customer's booking: the moment the money must be held by. */
-async function payCutoffOf(reader: Pick<typeof db, "select">, callId: string): Promise<Date | null> {
+/**
+ * Whether a hold placed at this moment comes too late to count.
+ *
+ * Each payment has its own limit. For a call's own payment it is the booking's
+ * pay-by time (calls that came from a customer's booking only). For the payment
+ * of a request for more time it is the request itself: it must still be open.
+ */
+async function tooLateToHold(reader: Pick<typeof db, "select">, payment: Pick<Payment, "callId" | "extensionId">, at: Date): Promise<boolean> {
+  if (payment.extensionId) {
+    const [extension] = await reader.select({ status: schema.callExtensions.status }).from(schema.callExtensions).where(eq(schema.callExtensions.id, payment.extensionId));
+    return extension?.status !== "open";
+  }
   const [booking] = await reader
     .select({ payBy: schema.bookings.payBy })
     .from(schema.bookings)
-    .where(and(eq(schema.bookings.callId, callId), inArray(schema.bookings.source, ["customer", "now"])));
-  return booking?.payBy ?? null;
+    .where(and(eq(schema.bookings.callId, payment.callId), inArray(schema.bookings.source, ["customer", "now"])));
+  return Boolean(booking?.payBy && at >= booking.payBy);
 }
+
+/**
+ * A request for more time is paid for with about a minute of the call left, so
+ * Stripe gets 10 seconds to answer instead of the usual 80, and is not asked twice.
+ */
+const IN_CALL_REQUEST = { timeout: 10_000, maxNetworkRetries: 0 } as const;
 
 /**
  * The one hold a payment has at Stripe: finds it, or creates it. Both the
@@ -72,6 +90,8 @@ async function holdIntentFor(input: {
   call: Call;
   customer: Payer;
   now: Date;
+  /** True for a request for more time: the customer is in the call, waiting. */
+  inCall?: boolean;
 }): Promise<{ held: true } | { held: false; intentId: string; clientSecret: string }> {
   const { payment, call, customer, now } = input;
   if (customer.id !== call.customerId) throw new MoneyError("Only the customer can pay for this call.");
@@ -84,8 +104,9 @@ async function holdIntentFor(input: {
     .from(schema.user)
     .where(inArray(schema.user.id, [call.hostId, call.customerId]));
   if (people.paused > 0 || (await isBlockedEitherWay(call.hostId, call.customerId))) throw new MoneyError("This call can no longer be paid for.");
-  const cutoff = await payCutoffOf(db, call.id);
-  if (cutoff && now >= cutoff) throw new MoneyError("The time to pay for this call has passed.");
+  if (await tooLateToHold(db, payment, now)) {
+    throw new MoneyError(payment.extensionId ? "This request for more time is no longer open." : "The time to pay for this call has passed.");
+  }
   const window = payWindow({ now, startsAt: call.startsAt, endsAt: call.endsAt });
   if (window === "too_early") throw new MoneyError("This call can be paid for from 2 days before it starts.");
   if (window === "call_over") throw new MoneyError("This call is over.");
@@ -110,11 +131,11 @@ async function holdIntentFor(input: {
       capture_method: "manual",
       allowed_payment_method_types: ["card"],
       transfer_group: call.id,
-      description: `Call ${call.id}`,
-      metadata: { paymentId: payment.id, callId: call.id },
+      description: payment.extensionId ? `More time on call ${call.id}` : `Call ${call.id}`,
+      metadata: { paymentId: payment.id, callId: call.id, ...(payment.extensionId ? { extensionId: payment.extensionId } : {}) },
     },
     // One hold per payment. A new one is only made after the previous one was cancelled.
-    { idempotencyKey: `hold:${payment.id}:${previousIntentId ?? "first"}` },
+    { idempotencyKey: `hold:${payment.id}:${previousIntentId ?? "first"}`, ...(input.inCall ? IN_CALL_REQUEST : {}) },
   );
   // Save it under the payment's lock. If the call was cancelled or closed while Stripe was
   // answering, cancel what we just made, so no hold is ever left behind unnoticed.
@@ -180,9 +201,9 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   if (payment.status !== "awaiting_payment" || payment.stripePaymentIntentId !== details.intentId) return;
   // A card authorised after the booking's cut-off (through a form left open, say) does not count:
   // the payment stays unpaid, and the helper cancels the booking and lets that hold go.
-  const cutoff = await payCutoffOf(tx, payment.callId);
+  // The same for a request for more time that has ended: its hold never counts, and the helper lets it go.
   const authorisedAt = details.authorisedAt ? new Date(details.authorisedAt * 1000) : now;
-  if (cutoff && authorisedAt >= cutoff) return;
+  if (await tooLateToHold(tx, payment, authorisedAt)) return;
   const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
   await tx
     .update(schema.payments)
@@ -213,6 +234,8 @@ export async function placeHoldWithSavedCard(input: {
   customer: Payer;
   paymentMethodId: string;
   now: Date;
+  /** True for a request for more time: the customer is in the call, waiting. */
+  inCall?: boolean;
 }): Promise<"held" | "not_held"> {
   const found = await holdIntentFor(input);
   if (found.held) return "held";
@@ -233,7 +256,7 @@ export async function placeHoldWithSavedCard(input: {
         return { intentId: found.intentId, paymentMethodId: input.paymentMethodId };
       },
       execute: async (params, label) => {
-        const intent = await confirmWithSavedCard(params, label);
+        const intent = await confirmWithSavedCard(params, label, input.inCall);
         return { stripeId: intent.id, result: intent.status === "requires_capture" ? holdDetails(intent) : null };
       },
       apply: async (payment, _params, outcome, tx) => {
@@ -252,11 +275,11 @@ export async function placeHoldWithSavedCard(input: {
  * (by the helper, when the first answer never arrived) Stripe returns the
  * original result, or does it now if it never arrived. Never twice.
  */
-export function confirmWithSavedCard(params: { intentId: string; paymentMethodId: string }, label: string): Promise<Stripe.PaymentIntent> {
+export function confirmWithSavedCard(params: { intentId: string; paymentMethodId: string }, label: string, inCall = false): Promise<Stripe.PaymentIntent> {
   return stripe().paymentIntents.confirm(
     params.intentId,
     { payment_method: params.paymentMethodId, off_session: true, expand: ["latest_charge"] },
-    { idempotencyKey: label },
+    { idempotencyKey: label, ...(inCall ? IN_CALL_REQUEST : {}) },
   );
 }
 

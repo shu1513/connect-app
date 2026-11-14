@@ -17,6 +17,7 @@ import { cancellationOutcome } from "./rules";
  */
 export async function cancelCall(input: {
   call: Call;
+  /** The call's own payment (null for a free call). */
   payment: Payment | null;
   by: "host" | "customer" | "admin";
   now: Date;
@@ -39,8 +40,9 @@ export async function cancelCall(input: {
 
   // A paid call whose money was never held: nobody could enter the room, so it can be
   // cancelled by Connect even after its start time (an instant call's payment deadline
-  // is a minute after its start). Always free.
-  const neverPaid = by === "admin" && input.reason === "unpaid" && payment?.status === "awaiting_payment";
+  // is a minute after its start). Always free. This only ever works for the call's own payment:
+  // the unpaid payment of a request for more time must never cancel a call that is under way.
+  const neverPaid = by === "admin" && input.reason === "unpaid" && payment?.status === "awaiting_payment" && payment.extensionId === null;
   const outcome = neverPaid
     ? "free"
     : cancellationOutcome({
@@ -84,10 +86,13 @@ export async function cancelCall(input: {
 /**
  * The money side of a cancelled call: charge the booked price after a late
  * cancellation, otherwise let the hold go. Safe to run again.
+ *
+ * The late-cancellation charge is for the call's own payment only. The payment
+ * of a request for more time (which a cancelled call should never have) is only ever let go.
  */
 export async function settleCancelledCall(call: Call, payment: Payment): Promise<void> {
   if (payment.status !== "awaiting_payment" && payment.status !== "held") return;
-  if (call.cancelledLate && payment.status === "held") {
+  if (call.cancelledLate && payment.status === "held" && payment.extensionId === null) {
     await capturePayment({
       paymentId: payment.id,
       amountCents: payment.bookedCents,

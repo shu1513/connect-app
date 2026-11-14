@@ -63,7 +63,7 @@ async function main() {
       const cust = await person("cust1");
       await db.insert(schema.hostProfiles).values({ userId: host.id, handle: `nt${RUN}h1`, handleKey: `nt${RUN}h1`, displayName: "Host One", pricePer15Cents: 2000, status: "approved", usConfirmedAt: now });
       const c = await call(host.id, cust.id, new Date(now.getTime() + 23.5 * HOUR), true);
-      await db.insert(schema.payments).values({ callId: c.id, pricePer15Cents: 2000, bookedCents: 4000, feePercentBps: 490, feeFixedCents: 30, feeForeignCardBps: 150 });
+      await db.insert(schema.payments).values({ callId: c.id, coversFrom: c.startsAt, coversUntil: c.endsAt, pricePer15Cents: 2000, bookedCents: 4000, feePercentBps: 490, feeFixedCents: 30, feeForeignCardBps: 150 });
       await writeCallReminders(now);
       await writeCallReminders(now);
       const toCust = await rows(cust.email, "Tomorrow");

@@ -11,6 +11,7 @@ import { queueEmail } from "@/lib/email";
 import { formatMoney } from "@/lib/payments/access";
 import { dueReminders } from "./reminder-rules";
 import { reminderFooter, unsubscribeHeaders, unsubscribeTokenFor } from "./unsubscribe";
+import { ownPaymentOn } from "@/lib/payments/own";
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -30,7 +31,7 @@ export async function writeCallReminders(now: Date): Promise<number> {
   const soon = await db
     .select({ call: schema.calls, payment: schema.payments, source: schema.bookings.source })
     .from(schema.calls)
-    .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
+    .leftJoin(schema.payments, ownPaymentOn(schema.calls.id))
     .leftJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
     .where(and(gt(schema.calls.startsAt, now), lte(schema.calls.startsAt, new Date(now.getTime() + 24 * HOUR)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
   // Test calls made by an admin are not real appointments; an instant call starts within a minute of being accepted.

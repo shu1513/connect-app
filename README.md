@@ -86,6 +86,13 @@ Testing tools:
   accepted, time-outs, declines and the 15-minute rule, decline and block, a host who leaves while
   someone is waiting, a paid call now with the money held at once,
   and a refused card cancelled at the 2-minute deadline. Same cautions as `booking-check.ts`.
+- `npx tsx scripts/extend-check.ts` runs the "adding time during a call" journeys against the local
+  database and the Stripe sandbox: a free and a paid call made longer, the two separate holds and
+  charges, declined and unanswered requests, what fits before the next call, a refused card, a card
+  that was not saved, "End call and report" with a request waiting, and every helper job run while a
+  request is being paid for. Stop the helper first, and be aware that it runs the helper's jobs with a
+  pretend clock set hours ahead, which can end other open requests in the local database. It puts the
+  calendar and weekly hours of `host@test.local` back as it found them.
 - `npx tsx scripts/ratings-check.ts` runs the ratings, search, contacts and host-notes journeys against the
   local database: which calls can be rated and when, when a rating counts and what an average shows,
   search by name, handle and confirmed social name (and who is never found), contacts, and private
@@ -115,10 +122,13 @@ Every major module follows the same steps:
 | --- | --- |
 | The counting rule (host time, customer time, time together) | `src/lib/attendance/calc.ts` |
 | When a room is open, and who may enter | `src/lib/calls.ts` |
+| Adding time during a call: the timing rules, what fits, the price | `src/lib/extend/rules.ts` |
+| Adding time during a call: asking, accepting, declining, the helper's clean-up | `src/lib/extend/extend.ts` |
+| "The payment of this call" when a call has several payments | `src/lib/payments/own.ts` |
 | Everything that talks to LiveKit | `src/lib/video/livekit.ts` |
 | The join check (hands out entry passes) | `src/app/api/calls/[id]/token/route.ts` |
 | The attendance log (receives LiveKit's messages) | `src/app/api/livekit/webhook/route.ts` |
-| The always-on helper (closes rooms, runs the payment jobs) | `worker/closer.ts` |
+| The always-on helper (closes rooms, runs the payment jobs) | `worker/closer.ts`, `src/lib/video/closing.ts` |
 | The pricing rule (charge, fee split, refunds) | `src/lib/payments/pricing.ts` |
 | Payment stages and timing rules (cancelling, holds, paydays) | `src/lib/payments/rules.ts` |
 | How "never twice" is guaranteed | `src/lib/payments/operations.ts` |
@@ -156,4 +166,6 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: messaging (after its research round), then the final pass that joins everything together. Extending a call is parked.
+- The modules still to come: messaging (after its research round), then the final pass that joins everything together.
+- Adding time during a call, first version: a paid call can only be made longer if its money is held on the
+  card saved with the booking, and a bank that wants its own approval step makes the request fail.

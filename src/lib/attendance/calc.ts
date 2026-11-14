@@ -169,6 +169,24 @@ export function calculateAttendance(
   };
 }
 
+/**
+ * The part of a call in which time counts, in whole seconds: from its start to
+ * its end, or to the moment it was stopped with "End call and report" if that
+ * came first. With a stretch (the part of the call one payment pays for), only
+ * the part inside that stretch. A stretch that begins after the call was
+ * stopped counts nothing (start and end are then the same).
+ */
+export function countedWindow(
+  call: { startsAt: Date; endsAt: Date; safetyEndedAt: Date | null },
+  stretch?: { from: Date; until: Date },
+): { start: number; end: number } {
+  const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
+  const stoppedAt = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
+  const start = seconds(stretch && stretch.from > call.startsAt ? stretch.from : call.startsAt);
+  const end = seconds(stretch && stretch.until < stoppedAt ? stretch.until : stoppedAt);
+  return { start, end: Math.max(start, end) };
+}
+
 /** Cut every period down to the part inside [start, end). Empty ones are dropped. */
 export function clip(intervals: Interval[], start: number, end: number): Interval[] {
   const out: Interval[] = [];

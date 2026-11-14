@@ -33,8 +33,23 @@ export const LIMITS = {
   cardStepMinutes: 30,
 } as const;
 
-/** The wording version a customer agrees to when saving a card. Change it when the wording changes. */
-export const CARD_CONSENT_VERSION = "2026-11-a";
+/**
+ * The wording version a customer agrees to when saving a card. Change it when the wording changes.
+ * The wording itself is the tick box on the two pages where a paid request is made
+ * (src/app/h/[handle]/book/page.tsx and src/app/h/[handle]/now/page.tsx); the version is recorded
+ * with the request when that box is sent. Other pages must not restate it in a way that only
+ * holds for one version.
+ */
+export const CARD_CONSENT_VERSION = "2026-11-b";
+/**
+ * The wording versions that say the card is kept until the call is over, so it
+ * can also pay for more time the customer asks for during the call. A booking
+ * made under an earlier wording ("for this booking only", removed as soon as
+ * the money is held) is still treated as its customer was told.
+ */
+export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b"];
+/** Under those wordings the card is removed this long after the call's end, when nothing more can be asked of it. */
+export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
 
 type Terms = { startsAt: Date; paid: boolean; freeCancelMinutes: number };
 

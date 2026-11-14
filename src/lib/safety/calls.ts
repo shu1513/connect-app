@@ -1,7 +1,7 @@
 /**
  * "End call and report": the call ends for both people at once, nobody can
- * come back in, time after that moment is not counted, and the payment goes
- * to the founder's review list instead of being charged automatically.
+ * come back in, time after that moment is not counted, and every payment of
+ * the call goes to the founder's review list instead of being charged automatically.
  */
 import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -10,8 +10,8 @@ import { roomState, type RoomState } from "@/lib/calls";
 import { closeRoom } from "@/lib/video/livekit";
 
 /**
- * Only while the room is open (from 5 minutes before the start until a minute
- * after the end): that is when there is a call to end. Before that a call is
+ * Only while the room is open (from 5 minutes before the start until the
+ * end): that is when there is a call to end. Before that a call is
  * cancelled, with the host's cancelling rule; after it, a person reports from
  * the results page. Returns where the room stood; nothing is changed unless it was "open".
  */
@@ -27,8 +27,10 @@ export async function endCallForSafety(input: { call: Call; by: string; now: Dat
       .returning({ id: schema.calls.id });
     if (marked.length === 0) return;
     // Never charged automatically: the founder decides the amount after looking at the report.
-    const [payment] = await tx.select().from(schema.payments).where(eq(schema.payments.callId, call.id)).for("update");
-    if (payment && (payment.status === "held" || payment.status === "awaiting_payment")) {
+    // That goes for every payment of the call: its own, and the one of each request for more time.
+    const payments = await tx.select().from(schema.payments).where(eq(schema.payments.callId, call.id)).orderBy(schema.payments.createdAt).for("update");
+    for (const payment of payments) {
+      if (payment.status !== "held" && payment.status !== "awaiting_payment") continue;
       await tx
         .update(schema.payments)
         .set({ needsReview: true, reviewReason: "The call was ended with \"End call and report\". Decide the amount after reading the report.", updatedAt: new Date() })

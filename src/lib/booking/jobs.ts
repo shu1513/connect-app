@@ -10,11 +10,12 @@
  *
  * Each job is safe to run again and again, and on two helpers at once.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, like, lte, ne, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, like, lte, ne, notInArray, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking, Call, Payment } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
 import { cancelCall } from "@/lib/payments/cancel";
+import { ownPaymentOn } from "@/lib/payments/own";
 import { placeHoldWithSavedCard, syncHold } from "@/lib/payments/hold";
 import { OutcomeUnknownError } from "@/lib/payments/operations";
 import { payOpensAt } from "@/lib/payments/rules";
@@ -22,6 +23,7 @@ import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
 import { endUnanswered, endUnfinishedCardSteps, lockCalendars, endInstantRequestsOfAbsentHosts } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
+import { CARD_KEPT_FOR_THE_CALL, CARD_REMOVED_AFTER_END_MS } from "./rules";
 
 const HOUR = 3_600_000;
 
@@ -74,13 +76,19 @@ async function tellHostsAboutNewRequests(now: Date): Promise<void> {
   }
 }
 
-/** Accepted, paid bookings whose money is not held yet, joined with their call and payment. */
+/**
+ * Accepted, paid bookings whose money is not held yet, joined with their call and its own payment.
+ *
+ * "Its own payment" is said in the join, not in the where(): the jobs below replace the where()
+ * with their own, and a filter there would silently vanish. Without it, the unpaid payment of a
+ * request for more time would look like an unpaid call, and a call under way could be cancelled.
+ */
 function unpaidBookings() {
   return db
     .select({ booking: schema.bookings, call: schema.calls, payment: schema.payments })
     .from(schema.bookings)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.bookings.callId))
-    .innerJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
+    .innerJoin(schema.payments, ownPaymentOn(schema.calls.id))
     .where(
       and(
         eq(schema.bookings.stage, "accepted"),
@@ -228,18 +236,37 @@ async function cancelUnpaidAtCutoff(now: Date): Promise<void> {
   }
 }
 
-/** A saved card is for one booking only. Once the booking no longer needs it, it is removed from Stripe. */
-async function removeSavedCards(): Promise<void> {
+/**
+ * A saved card is for one booking only. Once the booking no longer needs it, it is removed from Stripe.
+ *
+ * A booking that became a call needs it until the money is held and, under the current wording,
+ * until the call is over: the same card pays for more time the customer asks for during the call.
+ * A booking made under the earlier wording loses its card as soon as the money is held, as its
+ * customer was told (so more time cannot be added to that call).
+ */
+async function removeSavedCards(now: Date): Promise<void> {
   const done = await db
     .select({ booking: schema.bookings, paymentStatus: schema.payments.status })
     .from(schema.bookings)
-    .leftJoin(schema.payments, eq(schema.payments.callId, schema.bookings.callId))
+    .leftJoin(schema.calls, eq(schema.calls.id, schema.bookings.callId))
+    .leftJoin(schema.payments, ownPaymentOn(schema.bookings.callId))
     .where(
       and(
         isNotNull(schema.bookings.stripeSetupIntentId),
         or(
           inArray(schema.bookings.stage, ["declined", "passed_over", "ran_out", "taken_back", "cancelled"]),
-          and(eq(schema.bookings.stage, "accepted"), ne(schema.payments.status, "awaiting_payment")),
+          and(
+            eq(schema.bookings.stage, "accepted"),
+            ne(schema.payments.status, "awaiting_payment"),
+            or(
+              isNull(schema.bookings.cardConsentVersion),
+              notInArray(schema.bookings.cardConsentVersion, [...CARD_KEPT_FOR_THE_CALL]),
+              // The call is over: stopped, confirmed closed, or well past its end (which moves when time is added).
+              isNotNull(schema.calls.safetyEndedAt),
+              isNotNull(schema.calls.closedAt),
+              lte(schema.calls.endsAt, new Date(now.getTime() - CARD_REMOVED_AFTER_END_MS)),
+            ),
+          ),
         ),
       ),
     )
@@ -277,7 +304,7 @@ export async function runBookingJobs(now: Date): Promise<void> {
       ["placing holds", () => placeHolds(now)],
       ["checking tries", () => noteUnsettledTries(now)],
       ["unpaid at the cut-off", () => cancelUnpaidAtCutoff(now)],
-      ["removing saved cards", () => removeSavedCards()],
+      ["removing saved cards", () => removeSavedCards(now)],
     );
   }
   for (const [name, job] of jobs) {

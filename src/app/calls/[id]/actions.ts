@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { withNotice } from "@/lib/notice";
-import { callForParticipant } from "@/lib/payments/access";
+import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
 import { cancelCall } from "@/lib/payments/cancel";
@@ -51,10 +51,15 @@ export async function rateCallAction(formData: FormData) {
   redirect(withNotice(`/calls/${callId}/results`, notice));
 }
 
-/** The host refunds all or part of a charge on their own call. An admin can do the same on any call. */
+/**
+ * The host refunds all or part of a charge on their own call. An admin can do the same on any call.
+ * A call can have more than one payment (its own, and one for each time more time was added), so the
+ * form names the payment, and the server checks that it belongs to this call.
+ */
 export async function refundAction(formData: FormData) {
   const user = await requireUser();
   const callId = String(formData.get("callId") ?? "");
+  const paymentId = String(formData.get("paymentId") ?? "");
   const dollars = Number(formData.get("amount"));
   const reason = String(formData.get("reason") ?? "").trim() || null;
   // Made when the form was shown. Sending the same form twice cannot refund twice.
@@ -67,21 +72,11 @@ export async function refundAction(formData: FormData) {
 
   let notice: string;
   try {
-    let paymentId: string;
-    let decidedAs: "host" | "admin";
-    if (access?.role === "host" && access.payment) {
-      paymentId = access.payment.id;
-      decidedAs = "host";
-    } else if (admin) {
-      const { db, schema } = await import("@/db");
-      const { eq } = await import("drizzle-orm");
-      const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, callId));
-      if (!payment) throw new MoneyError("Payment not found.");
-      paymentId = payment.id;
-      decidedAs = "admin";
-    } else {
-      throw new MoneyError("Only the host of this call can refund it.");
-    }
+    // The host of this very call, or the founder, and only for a payment that belongs to this call.
+    const found = await paymentToRefund({ callId, paymentId, userId: user.id, adminLogin: admin });
+    if (found === "not_allowed") throw new MoneyError("Only the host of this call can refund it.");
+    if (found === "not_found") throw new MoneyError("Payment not found.");
+    const { decidedAs } = found;
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to refund.");
     await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
     notice = "The refund was sent.";

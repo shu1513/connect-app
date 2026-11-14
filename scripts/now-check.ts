@@ -312,7 +312,7 @@ async function main() {
       check("the one try is not made twice", (await tryHoldForAcceptedBooking(booking.id, acceptedAt)) === "already_tried");
       check("the hold is counted from the real call, 60 seconds after accepting", (await callOf(callId)).startsAt.getTime() === acceptedAt.getTime() + 60 * 1000 && (await callOf(callId)).billing === "together");
       await runBookingJobs(acceptedAt);
-      check("the saved card is removed once the money is held", (await reload(booking.id)).stripePaymentMethodId === null && (await reload(booking.id)).stripeSetupIntentId === null);
+      check("with the money held, the saved card is kept for the call", (await reload(booking.id)).stripePaymentMethodId !== null && (await reload(booking.id)).stripeSetupIntentId !== null);
       check("the customer's email says the money is being held for the time together", (await emailsTo(dan.email, "ready for your call now")).some((m) => m.body.includes("time you were both in it")));
 
       // The customer cancels before the start: free, and the hold is let go.
@@ -322,6 +322,8 @@ async function main() {
       check("cancelling before the start is free and releases the hold", outcome === "free" && payment.status === "closed_uncharged" && payment.chargedCents === null, payment.status);
       const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId!);
       check("Stripe shows the hold cancelled, nothing captured", intent.status === "canceled" && intent.amount_received === 0);
+      await runBookingJobs(call.startsAt);
+      check("the saved card is removed once the call is cancelled", (await reload(booking.id)).stripePaymentMethodId === null && (await reload(booking.id)).stripeSetupIntentId === null);
     }
 
     // ----------------------------------------------------------------------

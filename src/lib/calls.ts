@@ -5,8 +5,12 @@
 
 /** The room can be entered this long before the booked start. */
 export const OPEN_EARLY_SECONDS = 5 * 60;
-/** The room stays usable this long after the booked end. */
-export const CLOSE_LATE_SECONDS = 60;
+/**
+ * The room stays usable this long after the booked end. Zero: a call ends at its
+ * booked end. (Until November 2026 there was a minute of grace here. To make a
+ * call longer, the customer asks for more time; see src/lib/extend.)
+ */
+export const CLOSE_LATE_SECONDS = 0;
 /** After closing, wait this long for late messages before calling totals final. */
 export const SETTLE_SECONDS = 120;
 

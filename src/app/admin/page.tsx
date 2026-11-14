@@ -99,7 +99,10 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                 </strong>
                 .
               </p>
-              <p className="mt-1 opacity-80">{payment.reviewReason}</p>
+              <p className="mt-1 opacity-80">
+                {payment.reviewReason}
+                {payment.extensionId ? " This is the payment for more time that was added during the call; the call's own payment is decided separately." : ""}
+              </p>
               <p className="mt-1">
                 <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
                   See the call&apos;s record
@@ -179,6 +182,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                   <td className="py-1.5 pr-3">
                     {STATUS_LABEL[payment.status] ?? payment.status}
                     {payment.needsReview ? " (needs review)" : ""}
+                    {payment.extensionId ? " · more time" : ""}
                   </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{formatMoney(payment.bookedCents)}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{payment.chargedCents === null ? "—" : formatMoney(payment.chargedCents)}</td>
@@ -198,6 +202,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                     {payment.status === "charged" && paid > 0 && payment.transferStatus !== "sent" && !payment.disputeOpen && (
                       <form action={refundAction}>
                         <input type="hidden" name="callId" value={call.id} />
+                        <input type="hidden" name="paymentId" value={payment.id} />
                         <input type="hidden" name="requestId" value={randomUUID()} />
                         <input type="hidden" name="amount" value={(paid / 100).toFixed(2)} />
                         <input type="hidden" name="reason" value="Full refund by the founder" />

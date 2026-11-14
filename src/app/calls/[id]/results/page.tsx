@@ -10,6 +10,7 @@ import { loadAttendance } from "@/lib/attendance/load";
 import { formatDuration } from "@/lib/format";
 import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
+import { paymentsOfCall } from "@/lib/payments/own";
 import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
 import { getSignedIn, isAdminSession } from "@/lib/session";
@@ -36,16 +37,21 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   if (!access) notFound();
   const { call, payment, role } = access;
 
-  const [{ result, events, bookedSeconds }, people, refunds] = await Promise.all([
+  // Every payment of the call: its own, then one for each request for more time. Each is its own line.
+  const payments = payment ? await paymentsOfCall(call.id) : [];
+  const [{ result, events, bookedSeconds }, people, refunds, extensions] = await Promise.all([
     loadAttendance(call),
     db
       .select({ id: schema.user.id, name: schema.user.name })
       .from(schema.user)
       .where(inArray(schema.user.id, [call.hostId, call.customerId])),
-    payment
-      ? db.select().from(schema.refunds).where(eq(schema.refunds.paymentId, payment.id)).orderBy(asc(schema.refunds.createdAt))
+    payments.length > 0
+      ? db.select().from(schema.refunds).where(inArray(schema.refunds.paymentId, payments.map((p) => p.id))).orderBy(asc(schema.refunds.createdAt))
       : [],
+    db.select().from(schema.callExtensions).where(eq(schema.callExtensions.callId, call.id)).orderBy(asc(schema.callExtensions.createdAt)),
   ]);
+  const extensionOf = new Map(extensions.map((e) => [e.id, e]));
+  const addedMinutes = extensions.filter((e) => e.status === "accepted").reduce((sum, e) => sum + e.minutes, 0);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   // A customer knows their host by the display name on the host's page, never by the host's account name:
   // everywhere on this page. (A host sees a customer, and an admin sees both, by their own names.)
@@ -90,6 +96,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       <p className="mt-1 text-sm opacity-70">
         {who(call.hostId)} and {who(call.customerId)}. Booked <LocalTime iso={call.startsAt.toISOString()} seconds /> to{" "}
         <LocalTime iso={call.endsAt.toISOString()} seconds /> ({formatDuration(bookedSeconds)}).
+        {addedMinutes > 0 ? ` That includes ${addedMinutes} minutes added during the call.` : ""}
       </p>
 
       {notice && (
@@ -155,8 +162,18 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         </p>
       )}
 
-      {payment ? (
-        <Receipt payment={payment} role={role} callId={call.id} refunds={refunds} billing={call.billing} />
+      {payments.length > 0 ? (
+        payments.map((p) => (
+          <Receipt
+            key={p.id}
+            payment={p}
+            role={role}
+            callId={call.id}
+            refunds={refunds.filter((r) => r.paymentId === p.id)}
+            billing={call.billing}
+            addedMinutes={p.extensionId ? (extensionOf.get(p.extensionId)?.minutes ?? 0) : null}
+          />
+        ))
       ) : (
         <p className="mt-4 text-sm opacity-70">This was a free call. Nothing is charged.</p>
       )}
@@ -223,13 +240,18 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   );
 }
 
-/** What was paid and why. The customer sees the charge; the host also sees the split and their payout. */
+/**
+ * What was paid and why, for one payment: the call's own, or the one for more time added during
+ * the call. The customer sees the charge; the host also sees the split and their payout.
+ */
 function Receipt(props: {
   payment: Payment;
   role: "host" | "customer" | "admin";
   callId: string;
   refunds: Array<{ id: string; amountCents: number; status: string; decidedAs: string; createdAt: Date }>;
   billing: string;
+  /** Null for the call's own payment. Otherwise the minutes this payment was asked for. */
+  addedMinutes: number | null;
 }) {
   const { payment, role, refunds } = props;
   const split = currentSplit(payment);
@@ -238,20 +260,23 @@ function Receipt(props: {
   const frozenTogether = payment.frozenTogetherSeconds;
   const canRefund = role === "host" && payment.status === "charged" && payment.transferStatus !== "sent" && paid > 0 && !payment.disputeOpen;
 
+  const extra = props.addedMinutes !== null;
   const headline =
     payment.status === "awaiting_payment"
-      ? "Waiting for the customer to confirm and pay."
+      ? extra
+        ? "The customer's card is being checked."
+        : "Waiting for the customer to confirm and pay."
       : payment.status === "held"
         ? payment.needsReview
           ? `${formatMoney(payment.bookedCents)} is held. This call's record needs review, so nothing is charged until the review is decided.`
           : `${formatMoney(payment.bookedCents)} is held on the customer's card. The charge is worked out after the call.`
         : payment.status === "closed_uncharged"
-          ? "Nothing was charged for this call."
-          : `Charged ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} booked.`;
+          ? `Nothing was charged for ${extra ? "this extra time" : "this call"}.`
+          : `Charged ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} ${extra ? "held" : "booked"}.`;
 
   return (
     <section className="mt-6 rounded border border-neutral-400 p-4">
-      <h2 className="text-lg font-semibold">Payment</h2>
+      <h2 className="text-lg font-semibold">{extra ? `Payment for ${props.addedMinutes} more minutes` : "Payment"}</h2>
       <p className="mt-1">{headline}</p>
       {payment.status === "closed_uncharged" && payment.reviewReason && <p className="mt-1 text-sm opacity-70">{payment.reviewReason}</p>}
 
@@ -265,9 +290,7 @@ function Receipt(props: {
                 ? "Cancelled after the free period: the booked price"
                 : payment.chargeReason === "admin"
                   ? "Decided after a review"
-                  : props.billing === "together"
-                    ? "The time both people were in the call"
-                    : "The time the host was in the call"
+                  : `${props.billing === "together" ? "The time both people were in the call" : "The time the host was in the call"}${extra ? ", during these extra minutes" : ""}`
             }
           />
           {frozenHost !== null && frozenTogether !== null && (
@@ -321,6 +344,7 @@ function Receipt(props: {
       {canRefund && (
         <form action={refundAction} className="mt-4 flex flex-wrap items-end gap-3 border-t border-neutral-400/40 pt-4 text-sm">
           <input type="hidden" name="callId" value={props.callId} />
+          <input type="hidden" name="paymentId" value={payment.id} />
           <input type="hidden" name="requestId" value={randomUUID()} />
           <label>
             Refund to the customer (US dollars, up to {formatMoney(paid)})

@@ -7,6 +7,7 @@ import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
 import { removeFromRoom } from "@/lib/video/livekit";
 import { ProfileError } from "./profiles";
+import { ownPaymentOn } from "@/lib/payments/own";
 
 /**
  * The founder closes an account: it is logged out everywhere, cannot log in
@@ -72,7 +73,7 @@ async function endCallsOf(userId: string, now: Date): Promise<number> {
   const open = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
-    .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
+    .leftJoin(schema.payments, ownPaymentOn(schema.calls.id))
     .where(
       and(
         or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)),
