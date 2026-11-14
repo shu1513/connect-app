@@ -260,10 +260,11 @@ export function CallRoom(props: Props) {
     const asked = endsAt;
     // Asked once per end, and never cancelled: without an answer the call would not end on screen.
     // The call only ends on screen when the server has answered (a later end in that answer is taken
-    // over above, and the call goes on). A server that cannot be reached is asked again for about half
-    // a minute; only then is the call taken to be over.
+    // over above, and the call goes on). A server that cannot be reached is asked again for half a
+    // minute by the clock (however long each try takes to give up); only then is the call taken to be over.
     const settle = async () => {
-      for (let tries = 0; tries < 20 && !(await refresh()); tries++) await new Promise((resolve) => setTimeout(resolve, 1_500));
+      const giveUpAt = Date.now() + 30_000;
+      while (!(await refresh()) && Date.now() < giveUpAt) await new Promise((resolve) => setTimeout(resolve, 1_500));
       setCheckedEnd(asked);
     };
     setTimeout(() => void settle(), 0);

@@ -166,7 +166,8 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
             <input type="checkbox" name="cardTerms" required className="mt-1" />
             <span>
               I allow Connect to save my card for this booking only and, if my request is accepted, to hold up to {formatMoney(total)} on it
-              without my being present, and to charge it after the call as described above. The card is removed once this booking is over.
+              without my being present, and to charge it after the call as described above. If I ask for more time during the call, the
+              price of that extra time is held on the same card and charged in the same way. The card is removed once the call is over.
             </span>
           </label>
         )}

@@ -130,8 +130,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
         <section className="mt-6">
           <h2 className="text-lg font-semibold">Your card</h2>
           <p className="mt-1 text-sm opacity-70">
-            Nothing is held or charged now. Your card is kept by Stripe for this booking only, until the call is over. It is used to hold the
-            price before the call and, if you ask for more time during the call, the price of that extra time. The request is sent as soon as the card is saved.
+            Nothing is held or charged now. Your card is kept by Stripe for this booking only. The request is sent as soon as the card is saved.
           </p>
           <CardStep bookingId={booking.id} clientSecret={clientSecret} publishableKey={stripePublishableKey()} />
         </section>

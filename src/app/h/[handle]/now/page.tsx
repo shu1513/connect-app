@@ -129,7 +129,8 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
             <input type="checkbox" name="cardTerms" required className="mt-1" />
             <span>
               I agree that Connect keeps my card for this call, holds up to {formatMoney(total)} on it when the host accepts, and charges it
-              after the call for the time we were both in it.
+              after the call for the time we were both in it. If I ask for more time during the call, the price of that extra time is held
+              on the same card and charged in the same way. The card is removed once the call is over.
             </span>
           </label>
         )}

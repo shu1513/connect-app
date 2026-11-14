@@ -90,7 +90,9 @@ Testing tools:
   database and the Stripe sandbox: a free and a paid call made longer, the two separate holds and
   charges, declined and unanswered requests, what fits before the next call, a refused card, a card
   that was not saved, "End call and report" with a request waiting, and every helper job run while a
-  request is being paid for. Same cautions as `booking-check.ts`.
+  request is being paid for. Stop the helper first, and be aware that it runs the helper's jobs with a
+  pretend clock set hours ahead, which can end other open requests in the local database. It puts the
+  calendar and weekly hours of `host@test.local` back as it found them.
 - `npx tsx scripts/ratings-check.ts` runs the ratings, search, contacts and host-notes journeys against the
   local database: which calls can be rated and when, when a rating counts and what an average shows,
   search by name, handle and confirmed social name (and who is never found), contacts, and private

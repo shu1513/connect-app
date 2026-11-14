@@ -136,6 +136,7 @@ async function main() {
   if (!(await refreshPayoutsReady(hana.id))) throw new Error("Set up payouts for host@test.local on the Hosting page first.");
   const [hanaProfileBefore] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hana.id));
   const [hanaCalendarBefore] = await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hana.id));
+  const hanaHoursBefore = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hana.id));
   if (!hanaProfileBefore) await db.insert(schema.hostProfiles).values({ userId: hana.id, handle: "hana_host", handleKey: "hanahost", displayName: "Hana Host", pricePer15Cents: 2000, status: "approved", usConfirmedAt: new Date() });
   await db.update(schema.hostProfiles).set({ pricePer15Cents: 2000, status: "approved", hidden: false }).where(eq(schema.hostProfiles.userId, hana.id));
   await makeHost(hana, 2000);
@@ -561,7 +562,10 @@ async function main() {
     for (const id of made) await db.update(schema.hostProfiles).set({ status: "suspended", hidden: true }).where(eq(schema.hostProfiles.userId, id));
     await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(inArray(schema.hostCalendars.userId, [...people, hana.id]));
     if (hanaProfileBefore) await db.update(schema.hostProfiles).set({ pricePer15Cents: hanaProfileBefore.pricePer15Cents, status: hanaProfileBefore.status, hidden: hanaProfileBefore.hidden }).where(eq(schema.hostProfiles.userId, hana.id));
-    if (hanaCalendarBefore) await db.update(schema.hostCalendars).set({ lengths: hanaCalendarBefore.lengths, noticeHours: hanaCalendarBefore.noticeHours, horizonWeeks: hanaCalendarBefore.horizonWeeks, breakMinutes: hanaCalendarBefore.breakMinutes }).where(eq(schema.hostCalendars.userId, hana.id));
+    // The test host gets their own calendar back: its settings, its time zone and its weekly hours.
+    if (hanaCalendarBefore) await db.update(schema.hostCalendars).set({ timeZone: hanaCalendarBefore.timeZone, lengths: hanaCalendarBefore.lengths, noticeHours: hanaCalendarBefore.noticeHours, horizonWeeks: hanaCalendarBefore.horizonWeeks, breakMinutes: hanaCalendarBefore.breakMinutes }).where(eq(schema.hostCalendars.userId, hana.id));
+    await db.delete(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hana.id));
+    if (hanaHoursBefore.length) await db.insert(schema.weeklyHours).values(hanaHoursBefore);
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

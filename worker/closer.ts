@@ -77,9 +77,15 @@ async function main() {
   async function pass() {
     const now = new Date();
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
-    if (stripeConfigured()) await runPaymentJobs(now);
-    // Requests for more time that nobody answered, and holds of requests that were not accepted.
-    await closeFinishedExtensions(now).catch((error) => console.error("[more time] closing requests failed; will retry", error));
+    // If the payment work fails, the booking work waits for a pass in which it went through.
+    try {
+      if (stripeConfigured()) await runPaymentJobs(now);
+    } finally {
+      // Requests for more time that nobody answered, and holds of requests that were not accepted.
+      // This does not depend on the payment work, so it runs whether or not that went through:
+      // a hold on a customer's card is never kept waiting behind an unrelated failure.
+      await closeFinishedExtensions(now).catch((error) => console.error("[more time] closing requests failed; will retry", error));
+    }
     await runBookingJobs(now);
     // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
     // Stripe never hold up closing rooms or the money jobs.

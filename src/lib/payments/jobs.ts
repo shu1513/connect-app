@@ -452,21 +452,26 @@ export async function flagChangedRecords(now: Date): Promise<void> {
     );
 
   for (const { payment, call } of candidates) {
-    const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
-    const totals = attendance.result.totals;
-    const changed = attendance.result.status !== "complete" || !totals || countedSeconds(call, totals) !== countedSeconds(call, { hostSeconds: payment.frozenHostSeconds ?? -1, togetherSeconds: payment.frozenTogetherSeconds ?? -1 });
-    if (changed) {
-      await db
-        .update(schema.payments)
-        .set({ flaggedAfterCharge: true, reviewReason: "The call's record changed after it was charged. The charge was not changed.", updatedAt: new Date() })
-        .where(eq(schema.payments.id, payment.id));
-      log(`payment ${payment.id} flagged: record changed after the charge`);
-    } else {
-      // New messages, same totals: move the marker forward so they are not looked at again.
-      await db
-        .update(schema.payments)
-        .set({ pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0) })
-        .where(eq(schema.payments.id, payment.id));
+    // One record that cannot be checked must not stop the others, or the payday that comes after this step.
+    try {
+      const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
+      const totals = attendance.result.totals;
+      const changed = attendance.result.status !== "complete" || !totals || countedSeconds(call, totals) !== countedSeconds(call, { hostSeconds: payment.frozenHostSeconds ?? -1, togetherSeconds: payment.frozenTogetherSeconds ?? -1 });
+      if (changed) {
+        await db
+          .update(schema.payments)
+          .set({ flaggedAfterCharge: true, reviewReason: "The call's record changed after it was charged. The charge was not changed.", updatedAt: new Date() })
+          .where(eq(schema.payments.id, payment.id));
+        log(`payment ${payment.id} flagged: record changed after the charge`);
+      } else {
+        // New messages, same totals: move the marker forward so they are not looked at again.
+        await db
+          .update(schema.payments)
+          .set({ pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0) })
+          .where(eq(schema.payments.id, payment.id));
+      }
+    } catch (error) {
+      log(`could not check the record of charged payment ${payment.id}; will retry`, error);
     }
   }
 }

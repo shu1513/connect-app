@@ -33,7 +33,13 @@ export const LIMITS = {
   cardStepMinutes: 30,
 } as const;
 
-/** The wording version a customer agrees to when saving a card. Change it when the wording changes. */
+/**
+ * The wording version a customer agrees to when saving a card. Change it when the wording changes.
+ * The wording itself is the tick box on the two pages where a paid request is made
+ * (src/app/h/[handle]/book/page.tsx and src/app/h/[handle]/now/page.tsx); the version is recorded
+ * with the request when that box is sent. Other pages must not restate it in a way that only
+ * holds for one version.
+ */
 export const CARD_CONSENT_VERSION = "2026-11-b";
 /**
  * The wording versions that say the card is kept until the call is over, so it
