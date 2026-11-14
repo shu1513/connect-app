@@ -10,7 +10,7 @@
  *
  * Each job is safe to run again and again, and safe to run on two helpers at once.
  */
-import { and, eq, inArray, isNotNull, isNull, like, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
@@ -316,11 +316,16 @@ export async function settleFinishedCalls(now: Date): Promise<void> {
     .select({ payment: schema.payments, call: schema.calls })
     .from(schema.payments)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .leftJoin(schema.callExtensions, eq(schema.callExtensions.id, schema.payments.extensionId))
     .where(
       and(
         inArray(schema.payments.status, ["awaiting_payment", "held"]),
         lte(schema.calls.endsAt, now),
         isNull(schema.calls.cancelledAt),
+        // The call's own payment, and the payment of each request for more time the host accepted.
+        // A request that was not accepted is never settled here: its hold is only ever let go
+        // (see closeFinishedExtensions in src/lib/extend/extend.ts).
+        or(isNull(schema.payments.extensionId), eq(schema.callExtensions.status, "accepted")),
       ),
     );
 
@@ -369,7 +374,8 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<void> {
     return;
   }
 
-  const attendance = await loadAttendance(call, now);
+  // Each payment is charged for the time that counted inside the stretch of the call it pays for.
+  const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
   // Charge only once the room is confirmed closed and late messages have had time to arrive.
   if (!attendance.final || !call.closedAt) {
     if (now >= deadline) {
@@ -446,7 +452,7 @@ export async function flagChangedRecords(now: Date): Promise<void> {
     );
 
   for (const { payment, call } of candidates) {
-    const attendance = await loadAttendance(call, now);
+    const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
     const totals = attendance.result.totals;
     const changed = attendance.result.status !== "complete" || !totals || countedSeconds(call, totals) !== countedSeconds(call, { hostSeconds: payment.frozenHostSeconds ?? -1, togetherSeconds: payment.frozenTogetherSeconds ?? -1 });
     if (changed) {

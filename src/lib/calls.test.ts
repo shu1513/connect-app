@@ -16,11 +16,14 @@ describe("when the room can be entered", () => {
   it("opens exactly 5 minutes before the start", () => {
     expect(roomState(call, at("2026-01-01T08:55:00Z"))).toBe("open");
   });
-  it("is still open in the last minute after the end", () => {
-    expect(roomState(call, at("2026-01-01T10:00:59Z"))).toBe("open");
+  it("is still open in the last second before the end", () => {
+    expect(roomState(call, at("2026-01-01T09:59:59Z"))).toBe("open");
   });
-  it("closes exactly 1 minute after the end", () => {
-    expect(roomState(call, at("2026-01-01T10:01:00Z"))).toBe("closed");
+  it("closes exactly at the booked end", () => {
+    expect(roomState(call, at("2026-01-01T10:00:00Z"))).toBe("closed");
+  });
+  it("stays open when the call is made longer", () => {
+    expect(roomState({ ...call, endsAt: at("2026-01-01T10:10:00Z") }, at("2026-01-01T10:00:00Z"))).toBe("open");
   });
 });
 
@@ -40,7 +43,7 @@ describe("who may enter", () => {
     expect(canJoin(call, "host-1", at("2026-01-01T08:00:00Z"))).toEqual({ allowed: false, reason: "not_open_yet" });
   });
   it("refuses the customer after the room closes", () => {
-    expect(canJoin(call, "customer-1", at("2026-01-01T10:01:00Z"))).toEqual({ allowed: false, reason: "closed" });
+    expect(canJoin(call, "customer-1", at("2026-01-01T10:00:00Z"))).toEqual({ allowed: false, reason: "closed" });
   });
   it("does not tell a stranger whether the room is open or closed", () => {
     expect(canJoin(call, "stranger-9", at("2026-01-01T12:00:00Z"))).toEqual({ allowed: false, reason: "not_on_call" });

@@ -42,9 +42,11 @@ export async function chargeReviewed(formData: FormData) {
   try {
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to charge.");
     await recordAdminAction({ adminId: admin.id, action: "payment charged after review", targetUserId: call.customerId, targetId: payment.id, detail: `$${dollars.toFixed(2)}` });
-    // A call stopped with "End call and report" can only be charged for the time before the stop.
-    const countedUntil = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
-    const maxCents = bookedTotalCents(payment.pricePer15Cents, Math.max(0, Math.floor((countedUntil.getTime() - call.startsAt.getTime()) / 1000)));
+    // A call stopped with "End call and report" can only be charged for the time before the stop,
+    // and each payment only for the stretch of the call it pays for.
+    const stoppedAt = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
+    const countedUntil = stoppedAt < payment.coversUntil ? stoppedAt : payment.coversUntil;
+    const maxCents = bookedTotalCents(payment.pricePer15Cents, Math.max(0, Math.floor((countedUntil.getTime() - payment.coversFrom.getTime()) / 1000)));
     const result = await capturePayment({
       paymentId: payment.id,
       amountCents: Math.round(dollars * 100),

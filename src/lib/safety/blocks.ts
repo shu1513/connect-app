@@ -7,6 +7,7 @@ import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { lockCalendars } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
+import { ownPaymentOn } from "@/lib/payments/own";
 
 export class BlockError extends Error {}
 
@@ -44,7 +45,7 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
   const upcoming = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
-    .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
+    .leftJoin(schema.payments, ownPaymentOn(schema.calls.id))
     .where(
       and(
         or(

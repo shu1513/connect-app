@@ -7,6 +7,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { cancelCall } from "@/lib/payments/cancel";
 import { endWaitingRequestsOf } from "./bookings";
+import { ownPaymentOn } from "@/lib/payments/own";
 
 /** Returns how many calls could not be cancelled, so the founder can be told. */
 export async function endBookingsOfSuspendedHost(hostId: string, now: Date): Promise<number> {
@@ -14,7 +15,7 @@ export async function endBookingsOfSuspendedHost(hostId: string, now: Date): Pro
   const upcoming = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
-    .leftJoin(schema.payments, eq(schema.payments.callId, schema.calls.id))
+    .leftJoin(schema.payments, ownPaymentOn(schema.calls.id))
     .where(and(eq(schema.calls.hostId, hostId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
   let failed = 0;
   for (const { call, payment } of upcoming) {

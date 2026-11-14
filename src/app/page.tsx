@@ -1,4 +1,4 @@
-import { desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -46,7 +46,8 @@ export default async function HomePage(props: PageProps<"/">) {
   const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
 
   const callIds = calls.map((c) => c.id);
-  const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [];
+  // Each call's own payment (a request for more time has a payment of its own, shown on the call's results page).
+  const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(and(inArray(schema.payments.callId, callIds), isNull(schema.payments.extensionId))) : [];
   const paymentOf = new Map(payments.map((p) => [p.callId, p]));
   const admin = await isAdmin(user.id);
   const now = new Date();

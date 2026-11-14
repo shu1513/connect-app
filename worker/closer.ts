@@ -1,7 +1,7 @@
 /**
- * The always-on helper. It closes rooms, and does the payment and booking work
- * that has to happen on a schedule (see src/lib/payments/jobs.ts). Beside that,
- * in loops of their own, it writes reminders and sends what is in the outbox.
+ * The always-on helper. It closes rooms. Beside that, in loops of their own, it
+ * does the payment and booking work that has to happen on a schedule (see
+ * src/lib/payments/jobs.ts), writes reminders and sends what is in the outbox.
  *
  * Every few seconds it looks for calls past their closing time and makes sure
  * nobody is left in the room. It keeps watching each call for a while after
@@ -12,7 +12,7 @@
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
-import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { CLOSE_LATE_SECONDS } from "../src/lib/calls";
 
 const TICK_MS = 5_000;
@@ -22,6 +22,7 @@ const WATCH_AFTER_CLOSE_SECONDS = 11 * 60;
 async function main() {
   const { db, schema } = await import("../src/db");
   const { closeRoom, roomExists } = await import("../src/lib/video/livekit");
+  const { closeCallIfDue } = await import("../src/lib/video/closing");
   const { stripeConfigured } = await import("../src/lib/payments/stripe");
   const { runPaymentJobs } = await import("../src/lib/payments/jobs");
   const { runBookingJobs } = await import("../src/lib/booking/jobs");
@@ -48,34 +49,31 @@ async function main() {
         ),
       );
 
-    for (const call of due) {
+    for (const found of due) {
       try {
         // Already closed and only being watched: one quick look is enough
         // unless someone has slipped back in.
-        if (call.closedAt) {
-          if (!(await roomExists(call.roomName))) continue;
-          console.warn(`[closer] someone re-entered call ${call.id} after closing; removing them`);
+        if (found.closedAt) {
+          if (!(await roomExists(found.roomName))) continue;
+          console.warn(`[closer] someone re-entered call ${found.id} after closing; removing them`);
+          if (!(await closeRoom(found.roomName, [found.hostId, found.customerId]))) console.warn(`[closer] call ${found.id} still has people in the room; will retry`);
+          continue;
         }
-        const empty = await closeRoom(call.roomName, [call.hostId, call.customerId]);
-        if (empty && !call.closedAt) {
-          await db
-            .update(schema.calls)
-            .set({ closedAt: new Date() })
-            .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.closedAt)));
-          console.log(`[closer] closed call ${call.id}`);
-        } else if (!empty) {
-          console.warn(`[closer] call ${call.id} still has people in the room; will retry`);
-        }
+        const outcome = await closeCallIfDue(found.id);
+        if (outcome === "closed") console.log(`[closer] closed call ${found.id}`);
+        else if (outcome === "not empty") console.warn(`[closer] call ${found.id} still has people in the room; will retry`);
       } catch (err) {
-        console.error(`[closer] could not close call ${call.id}; will retry`, err);
+        console.error(`[closer] could not close call ${found.id}; will retry`, err);
       }
     }
   }
 
-  /** One full pass: close rooms that are due, then do the payment work. */
+  /**
+   * The payment and booking work. Closing rooms (tick, above) runs in a loop of its own, so that
+   * slow money work can never keep a room open past its end.
+   */
   let passes = 0;
   async function pass() {
-    await tick();
     const now = new Date();
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     if (stripeConfigured()) await runPaymentJobs(now);
@@ -102,6 +100,7 @@ async function main() {
 
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.
   if (process.argv.includes("--once")) {
+    await tick();
     await pass();
     await remindPass();
     await sendPass();
@@ -124,7 +123,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", pass), loop("reminders", remindPass), loop("email", sendPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass)]);
   process.exit(0);
 }
 

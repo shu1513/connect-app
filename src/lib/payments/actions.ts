@@ -123,9 +123,15 @@ export function capturePayment(input: {
     paymentId: input.paymentId,
     kind: "capture",
     labelBase: `capture:${input.paymentId}`,
-    prepare: async (payment) => {
+    prepare: async (payment, tx) => {
       if (!canMovePayment(payment.status as never, "charged")) throw new MoneyError("This payment is not being held.");
       if (!payment.stripePaymentIntentId) throw new MoneyError("This payment has no hold at Stripe.");
+      // The payment of a request for more time can only be charged if the host accepted that request.
+      // One that was declined or ran out is only ever let go, whoever asks and for whatever reason.
+      if (payment.extensionId) {
+        const [extension] = await tx.select({ status: schema.callExtensions.status }).from(schema.callExtensions).where(eq(schema.callExtensions.id, payment.extensionId));
+        if (extension?.status !== "accepted") throw new MoneyError("This request for more time was not accepted, so it cannot be charged.");
+      }
       if (input.reason === "admin") {
         // The founder only decides calls that are waiting for review, and only before the deadline.
         if (!payment.needsReview) throw new MoneyError("This payment is not waiting for review.");

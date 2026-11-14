@@ -483,6 +483,43 @@ export const calls = pgTable(
   (t) => [index("calls_host_idx").on(t.hostId), index("calls_customer_idx").on(t.customerId)],
 );
 
+/**
+ * One request for more time during a call: the customer asks, the host answers.
+ * Where it stands:
+ *   open      asked; for a paid call the host sees it once its money is held
+ *   accepted  the host said yes and the call's end moved to newEndsAt
+ *   declined | ran_out | failed   it ended without adding time
+ * A request changes state only with its call locked, and a request that has
+ * ended can never become accepted. A paid request has a payment of its own
+ * (payments.extensionId), which only an accepted request can ever be charged on.
+ */
+export const callExtensions = pgTable(
+  "call_extensions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    callId: uuid("call_id")
+      .notNull()
+      .references(() => calls.id),
+    minutes: integer("minutes").notNull(),
+    /** The call's end when the request was made. Accepting needs it to be unchanged. */
+    oldEndsAt: timestamp("old_ends_at", { withTimezone: true }).notNull(),
+    newEndsAt: timestamp("new_ends_at", { withTimezone: true }).notNull(),
+    /** The price of the extra minutes, at the call's own price. Zero for a free call. */
+    priceCents: integer("price_cents").notNull(),
+    /** open, accepted, declined, ran_out or failed. */
+    status: text("status").notNull().default("open"),
+    /** How it ended when it was not accepted, in a few words. */
+    endedReason: text("ended_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("call_extensions_call_idx").on(t.callId),
+    // One open request per call at a time.
+    uniqueIndex("call_extensions_one_open_uq").on(t.callId).where(sql`${t.status} = 'open'`),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // After a call: ratings, and a host's private notes about a customer.
 // ---------------------------------------------------------------------------
@@ -628,15 +665,29 @@ export const adminActions = pgTable(
   (t) => [index("admin_actions_target_idx").on(t.targetUserId), index("admin_actions_time_idx").on(t.createdAt)],
 );
 
-/** One record per paid call. */
+/**
+ * One record per paid call (the call's own payment), and one more for each
+ * paid request for more time on that call. Every payment is held, charged,
+ * refunded and paid out on its own, for its own stretch of the call.
+ *
+ * Code that means "the payment of this call" must say "extensionId is null"
+ * (see ownPaymentOn in src/lib/payments/own.ts). The database refuses a second
+ * own payment for a call.
+ */
 export const payments = pgTable(
   "payments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     callId: uuid("call_id")
       .notNull()
-      .unique()
       .references(() => calls.id),
+    /** Null for the call's own payment. Otherwise the request for more time this payment is for. */
+    extensionId: uuid("extension_id")
+      .unique()
+      .references(() => callExtensions.id),
+    /** The stretch of the call this payment pays for. Only time that counted inside it is charged. */
+    coversFrom: timestamp("covers_from", { withTimezone: true }).notNull(),
+    coversUntil: timestamp("covers_until", { withTimezone: true }).notNull(),
 
     // Terms fixed when the call was created. Later changes to settings never reprice it.
     currency: text("currency").notNull().default("usd"),
@@ -693,7 +744,13 @@ export const payments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("payments_status_idx").on(t.status), index("payments_transfer_idx").on(t.transferStatus)],
+  (t) => [
+    index("payments_status_idx").on(t.status),
+    index("payments_transfer_idx").on(t.transferStatus),
+    index("payments_call_idx").on(t.callId),
+    // One own payment per call.
+    uniqueIndex("payments_own_call_uq").on(t.callId).where(sql`${t.extensionId} is null`),
+  ],
 );
 
 /** Each refund is its own record. */
@@ -800,5 +857,6 @@ export type Call = typeof calls.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
 export type HostCalendar = typeof hostCalendars.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+export type CallExtension = typeof callExtensions.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
 export type AttendanceEvent = typeof attendanceEvents.$inferSelect;

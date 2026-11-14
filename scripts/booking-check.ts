@@ -334,9 +334,7 @@ async function main() {
 
       const savedCard = sent.stripePaymentMethodId!;
       await runBookingJobs(twoDaysBefore);
-      const cleaned = await reload(booking.id);
-      const card = await stripe().paymentMethods.retrieve(savedCard);
-      check("once the money is held, the saved card is removed from Stripe", cleaned.stripePaymentMethodId === null && card.customer === null);
+      check("with the money held, the saved card is kept for the call (it can pay for more time during it)", (await reload(booking.id)).stripePaymentMethodId === savedCard && (await stripe().paymentMethods.retrieve(savedCard)).customer !== null);
 
       console.log("   …the customer cancels late, with the money held");
       const outcome = await cancelCall({ call, payment: held, by: "customer", now: new Date(slot.getTime() - 10 * HOUR) });
@@ -344,6 +342,10 @@ async function main() {
       const charged = await payment();
       check("it is a late cancellation and the booked price is charged, as in the payments module", outcome === "late_charge" && charged.status === "charged" && charged.chargedCents === 4000, `${outcome} ${charged.status}`);
       check("the booking ends and both people are free again", (await reload(booking.id)).stage === "cancelled" && (await busyOf(zoe.id)).length === 0);
+      await runBookingJobs(new Date(slot.getTime() - 10 * HOUR));
+      const cleaned = await reload(booking.id);
+      const card = await stripe().paymentMethods.retrieve(savedCard);
+      check("once the call is cancelled, the saved card is removed from Stripe", cleaned.stripePaymentMethodId === null && card.customer === null);
     }
 
     // ----------------------------------------------------------------------

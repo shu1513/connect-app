@@ -16,10 +16,19 @@ export type LoadedAttendance = {
   events: AttendanceEvent[];
   /** True once the room's closing time has passed and late messages have had time to arrive. */
   final: boolean;
+  /** The length of the time that could count: the call (or the stretch asked for), up to where it was stopped. */
   bookedSeconds: number;
 };
 
-export async function loadAttendance(call: Call, now: Date = new Date()): Promise<LoadedAttendance> {
+/** A part of a call: the time one payment pays for. */
+export type Stretch = { from: Date; until: Date };
+
+/**
+ * With a stretch, only the time inside that part of the call is counted (for
+ * the payment that pays for it). The whole log is still read, and whether the
+ * record is final and consistent is still judged for the whole call.
+ */
+export async function loadAttendance(call: Call, now: Date = new Date(), stretch?: Stretch): Promise<LoadedAttendance> {
   const events = await db
     .select()
     .from(schema.attendanceEvents)
@@ -32,9 +41,12 @@ export async function loadAttendance(call: Call, now: Date = new Date()): Promis
   const final = now.getTime() >= settledFrom + SETTLE_SECONDS * 1000;
 
   // A call ended with "End call and report" stops counting at that moment.
-  const countedUntil = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
+  const callCountedUntil = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
+  const start = toSeconds(stretch && stretch.from > call.startsAt ? stretch.from : call.startsAt);
+  // Never before the start, so a stretch that begins after the call was stopped simply counts nothing.
+  const end = Math.max(start, toSeconds(stretch && stretch.until < callCountedUntil ? stretch.until : callCountedUntil));
   const result = calculateAttendance(
-    { hostId: call.hostId, customerId: call.customerId, start: toSeconds(call.startsAt), end: toSeconds(countedUntil) },
+    { hostId: call.hostId, customerId: call.customerId, start, end },
     events.map((e) => ({
       id: `${e.provider}:${e.providerEventId}`,
       type: e.type,
@@ -45,5 +57,5 @@ export async function loadAttendance(call: Call, now: Date = new Date()): Promis
     { final },
   );
 
-  return { result, events, final, bookedSeconds: Math.max(0, toSeconds(countedUntil) - toSeconds(call.startsAt)) };
+  return { result, events, final, bookedSeconds: end - start };
 }

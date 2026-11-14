@@ -34,7 +34,16 @@ export const LIMITS = {
 } as const;
 
 /** The wording version a customer agrees to when saving a card. Change it when the wording changes. */
-export const CARD_CONSENT_VERSION = "2026-11-a";
+export const CARD_CONSENT_VERSION = "2026-11-b";
+/**
+ * The wording versions that say the card is kept until the call is over, so it
+ * can also pay for more time the customer asks for during the call. A booking
+ * made under an earlier wording ("for this booking only", removed as soon as
+ * the money is held) is still treated as its customer was told.
+ */
+export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b"];
+/** Under those wordings the card is removed this long after the call's end, when nothing more can be asked of it. */
+export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
 
 type Terms = { startsAt: Date; paid: boolean; freeCancelMinutes: number };
 

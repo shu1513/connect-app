@@ -5,20 +5,21 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { roleOnCall } from "@/lib/calls";
+import { ownPaymentOf } from "./own";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `payment` is the call's own payment. The payments of requests for more time are looked up with paymentsOfCall(). */
 export type CallAccess = { call: Call; payment: Payment | null; role: "host" | "customer" };
 
-/** The call and its payment, but only if this person is its host or its customer. */
+/** The call and its own payment, but only if this person is its host or its customer. */
 export async function callForParticipant(callId: string, userId: string): Promise<CallAccess | null> {
   if (!UUID.test(callId)) return null;
   const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
   if (!call) return null;
   const role = roleOnCall(call, userId);
   if (!role) return null;
-  const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
-  return { call, payment: payment ?? null, role };
+  return { call, payment: await ownPaymentOf(call.id), role };
 }
 
 /** Like callForParticipant, but an admin may also look at any call (to review it). */
@@ -33,8 +34,7 @@ export async function callForViewer(
   if (!UUID.test(callId) || !adminLogin) return null;
   const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
   if (!call) return null;
-  const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
-  return { call, payment: payment ?? null, role: "admin" };
+  return { call, payment: await ownPaymentOf(call.id), role: "admin" };
 }
 
 export async function isAdmin(userId: string): Promise<boolean> {
