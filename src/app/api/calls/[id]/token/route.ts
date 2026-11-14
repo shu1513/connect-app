@@ -66,6 +66,10 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const blocked = paymentBlocksJoin({ payment, callEndsAt: call.endsAt, now });
   if (blocked) return Response.json({ error: MESSAGES[blocked] }, { status: 409 });
 
+  // The name the other person sees on the video: a host's display name, as on their page, not their account name.
+  const [hostProfile] = decision.role === "host" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id)) : [];
+  const shownName = hostProfile?.displayName ?? user.name;
+
   // One call at a time. Taking the person out of other rooms and handing out this pass happen one
   // after the other per person (also across servers), so two joins at once cannot both get through.
   let token: string;
@@ -76,7 +80,7 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
       const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
       if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
       await leaveOtherCalls(user.id, call.id, now);
-      return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: user.name });
+      return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: shownName });
     });
   } catch (error) {
     if (error instanceof Error && error.message === "ended") return Response.json({ error: MESSAGES.closed }, { status: 409 });

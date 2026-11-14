@@ -7,6 +7,7 @@ import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
+import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
@@ -162,8 +163,15 @@ export async function warn(input: { adminId: string; userId: string; ruleKey: st
   });
 }
 
-/** Pauses an account: it may log in and look, but not book, host or join calls. The person is told which rule and where to appeal. */
-export async function pauseAccount(input: { adminId: string; userId: string; ruleKey: string; note: string; requestId: string }): Promise<void> {
+/**
+ * Pauses an account: it may log in and look, but not book, host or join calls. The person is told which rule and where to appeal.
+ * Like closing an account, it ends the person's waiting requests, cancels their calls that have not started at no charge
+ * (so nobody waits for, or pays for, a call the paused person may not join), and puts them out of a call in progress.
+ *
+ * Returns how many of their calls could not be ended (-1 when their requests or calls could not be dealt with at all),
+ * so the founder can be told to check them.
+ */
+export async function pauseAccount(input: { adminId: string; userId: string; ruleKey: string; note: string; requestId: string }): Promise<{ callsNotEnded: number }> {
   const rule = RULES.find((r) => r.key === input.ruleKey);
   if (!rule) throw new ReportError("Choose a rule.");
   const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
@@ -177,11 +185,13 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
-      text: `Hi ${person.name},\n\nYour account has been paused because of this rule:\n\n${reason}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
+      text: `Hi ${person.name},\n\nYour account has been paused because of this rule:\n\n${reason}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. We are ending your requests that were waiting and cancelling your calls that have not started, at no charge to anyone. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
       key: `paused:${input.userId}:${input.requestId}`,
     });
     await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: input.userId, detail: reason }, tx);
   });
+  // The account is paused from here on, whatever happens next.
+  return { callsNotEnded: await endRequestsAndCallsOf(input.userId, new Date()) };
 }
 
 export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {

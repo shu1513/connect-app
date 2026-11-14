@@ -22,7 +22,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
 | 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
 | 7. "Available now" calls | Built and merged. Extending a call deferred to module 7b. Two-device test done by the founder on 13 November. |
-| 8. Ratings, search, contacts, host notes | Built; in review. |
+| 8. Ratings, search, contacts, host notes | Built and merged. |
 | 8b. Messaging | Not started. Begins with a research round (the builder and Astra separately, then compared). |
 | Final pass: joining everything together | Not started. |
 
@@ -372,6 +372,32 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - After a call is accepted, both people stay "taken" for its whole booked length (and the host for the break after it) even when both have hung up. A host who ends a call early cannot take another, and "Call now" disappears from their page with no explanation. Ending a call early should free both people, and the page should say "in a call, check back soon".
 - A host has to find the "Available now" page through Hosting; it needs a link on the home page.
 - A customer may send one host 3 requests a day; fine for real use, quickly reached when testing.
+
+---
+
+## Whole-code read-through (13 November 2026, after module 8)
+
+The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.
+
+| # | What was wrong | What it could do | The fix |
+| --- | --- | --- | --- |
+| 1 | "End call and report" could be sent for a call at any time, not only during it (the button is only inside the call, but the server did not check). | Before a call: a customer past the host's free-cancelling period could "end" the call instead of cancelling it and pay nothing. After a call: it could push a finished call's charge into manual review, or stop the other person from rating the call. | It only works while the room is open (from 5 minutes before the start until a minute after the end). Before that it is refused; after that nothing is changed and the person goes on to the report form. |
+| 2 | Pausing an account left its requests and upcoming calls in place. | A paused customer whose money was already held could not join, but the host could, and the customer was then charged for the host's waiting time. A paused host's customers were not told. | Pausing now does what closing an account does: waiting requests end, calls that have not started are cancelled at no charge (both people are told), and the person is put out of a call in progress. The pause email says so, and the founder is told if anything could not be ended. Lifting a pause does not bring cancelled calls back. |
+| 3 | A customer was shown the host's account name instead of the host's display name on the call page, the results page, the list of calls on the home page, the video itself, and the list of blocked people. | A host who uses a display name had their account name (possibly their legal name) shown to customers. | In all five places a customer now sees the host's display name. A host still sees a customer by the customer's own name, and someone who is only known as a customer is never shown as a host. |
+| 4 | (Astra) If "End call and report" failed to end the call for the other person, the warning and its "Try again" button disappeared, because the person had already left the call screen. | The other person could stay connected with no warning to the one who pressed the button. | The warning and "Try again" are now shown after leaving. |
+| 5 | (Astra) A call ended with "End call and report" still showed as "Open now" on the home page, and its page still offered to join. | Confusing: joining was refused anyway. | Both now say the call has ended. |
+
+Also fixed: one check in the notifications script depended on how fast the computer was, and failed once under load; it now measures against the moments around the step itself.
+
+**Left as it is, on purpose**
+- "End call and report" pressed in the 5 minutes before the start, inside the room, still ends the call with nothing to charge. That is a real use (someone behaving badly before the start), and each one lands on the founder's review list.
+- When the founder pauses or closes someone during a call, only that person is put out; the call is then charged by the usual rule.
+
+**How it was checked:** lint, types, 197 automatic tests, the build, and all seven journey scripts (accounts 99 checks, safety 60 with 5 new ones for these fixes, notifications 33, booking 93, "call now" 72, payments 71, ratings 73). The changed pages were loaded as a logged-in customer. The video name and the two call-screen changes were not tried in a real two-person call.
+
+**CodeRabbit's review (pull request 13):** two comments, both about the new pause step, both right and both fixed.
+- If ending the paused person's waiting requests failed, their calls were never looked at, so they could stay in a call under way. Closing an account already tried the two separately; pausing now uses the very same code, so the two cannot drift apart again.
+- The pause email said the requests "have ended" and the calls "are cancelled" before that work had been done. It now says Connect is ending and cancelling them. The email still goes out in the same step as the pause itself, so a paused person is always told.
 
 ---
 

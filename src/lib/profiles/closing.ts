@@ -36,24 +36,34 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
       .where(eq(schema.hostProfiles.userId, input.userId));
   });
   // The account is closed from here on, whatever happens next.
+  return { callsNotEnded: await endRequestsAndCallsOf(input.userId, now) };
+}
+
+/**
+ * Ends the waiting requests and the calls of a person whose account was just closed or paused.
+ * The two are tried separately: a problem with the requests must not leave the person in a call.
+ * Never throws. Returns how many calls could not be ended, or -1 when the requests or the calls
+ * could not be dealt with at all.
+ */
+export async function endRequestsAndCallsOf(userId: string, now: Date): Promise<number> {
   let requestsEnded = true;
   try {
-    await endWaitingRequestsOf(input.userId, { asHost: true, asCustomer: true }, now);
+    await endWaitingRequestsOf(userId, { asHost: true, asCustomer: true }, now);
   } catch (error) {
     requestsEnded = false;
-    console.error(`[accounts] could not end the waiting requests of closed account ${input.userId}`, error);
+    console.error(`[accounts] could not end the waiting requests of closed or paused account ${userId}`, error);
   }
   try {
-    const callsNotEnded = await endCallsOf(input.userId, now);
-    return { callsNotEnded: requestsEnded ? callsNotEnded : -1 };
+    const callsNotEnded = await endCallsOf(userId, now);
+    return requestsEnded ? callsNotEnded : -1;
   } catch (error) {
-    console.error(`[accounts] could not look up the calls of closed account ${input.userId}`, error);
-    return { callsNotEnded: -1 };
+    console.error(`[accounts] could not look up the calls of closed or paused account ${userId}`, error);
+    return -1;
   }
 }
 
 /**
- * The closed person's calls. One that has not started is cancelled for free,
+ * The calls of a person whose account was closed or paused. One that has not started is cancelled for free,
  * so the other person is never charged for it. In one that is under way, the
  * closed person is put out and their entry pass stops working; the call is
  * then settled by the usual rule for the time that counted.
@@ -77,9 +87,9 @@ async function endCallsOf(userId: string, now: Date): Promise<number> {
       if (call.startsAt > now) await cancelCall({ call, payment, by: "admin", now });
       else await removeFromRoom(call.roomName, userId);
     } catch (error) {
-      // The account is closed either way. The founder is told how many calls need a look.
+      // The account is closed or paused either way. The founder is told how many calls need a look.
       notEnded++;
-      console.error(`[accounts] could not end call ${call.id} of closed account ${userId}`, error);
+      console.error(`[accounts] could not end call ${call.id} of closed or paused account ${userId}`, error);
     }
   }
   return notEnded;

@@ -26,35 +26,8 @@ type Connection = { token: string; serverUrl: string };
  * can come back in, then goes to the report form. Time after this moment is
  * not counted, and the payment goes to the founder's review list.
  */
-function EndForSafety({ callId, onLeave }: { callId: string; onLeave: () => void }) {
-  const router = useRouter();
+function EndForSafety({ onEnd }: { onEnd: () => void }) {
   const [asking, setAsking] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function endNow() {
-    setBusy(true);
-    setFailed(false);
-    onLeave(); // this person leaves at once, whatever happens next
-    const ok = await fetch(`/api/calls/${callId}/end-for-safety`, { method: "POST" })
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (ok) router.push(`/report?call=${callId}`);
-    else {
-      setFailed(true);
-      setBusy(false);
-    }
-  }
-  if (failed) {
-    return (
-      <span className="flex items-center gap-2 text-sm text-red-600">
-        <span>You have left, but the call could not be ended for the other person yet.</span>
-        <button type="button" onClick={endNow} className="rounded border border-red-600 px-3 py-1.5">
-          Try again
-        </button>
-      </span>
-    );
-  }
   if (!asking) {
     return (
       <button type="button" onClick={() => setAsking(true)} className="rounded border border-red-600 px-3 py-1.5 text-sm text-red-600">
@@ -65,8 +38,8 @@ function EndForSafety({ callId, onLeave }: { callId: string; onLeave: () => void
   return (
     <span className="flex items-center gap-2 text-sm">
       <span>End this call for both of you and report what happened?</span>
-      <button type="button" disabled={busy} onClick={endNow} className="rounded bg-red-600 px-3 py-1.5 font-medium text-white disabled:opacity-50">
-        {busy ? "Ending…" : "Yes, end and report"}
+      <button type="button" onClick={onEnd} className="rounded bg-red-600 px-3 py-1.5 font-medium text-white">
+        Yes, end and report
       </button>
       <button type="button" onClick={() => setAsking(false)} className="underline underline-offset-2">
         No
@@ -124,6 +97,20 @@ export function CallRoom(props: Props) {
   const [joining, setJoining] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [takenOver, setTakenOver] = useState(false);
+  // "End call and report": this person leaves at once, whatever happens next. Kept here, not inside the
+  // call screen, so that if the call could not be ended for the other person, that is still shown (with
+  // a way to try again) after this person is out of the room.
+  const router = useRouter();
+  const [ending, setEnding] = useState<"no" | "busy" | "failed">("no");
+  async function endForSafety() {
+    setEnding("busy");
+    setConnection(null);
+    const ok = await fetch(`/api/calls/${props.callId}/end-for-safety`, { method: "POST" })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (ok) router.push(`/report?call=${props.callId}`);
+    else setEnding("failed");
+  }
 
   async function join(values: LocalUserChoices) {
     setJoining(true);
@@ -206,6 +193,23 @@ export function CallRoom(props: Props) {
     );
   }
 
+  if (ending !== "no") {
+    return (
+      <section className="mt-10">
+        {ending === "busy" ? (
+          <p className="text-lg">Ending the call…</p>
+        ) : (
+          <p role="alert" className="text-red-600">
+            You have left, but the call could not be ended for the other person yet.{" "}
+            <button type="button" onClick={endForSafety} className="ml-2 rounded border border-red-600 px-3 py-1.5 text-sm">
+              Try again
+            </button>
+          </p>
+        )}
+      </section>
+    );
+  }
+
   if (!connection || !choices) {
     return (
       <section className="mt-6">
@@ -229,7 +233,7 @@ export function CallRoom(props: Props) {
         <p className="text-lg font-medium" aria-live="polite">
           {clock}
         </p>
-        <EndForSafety callId={props.callId} onLeave={() => setConnection(null)} />
+        <EndForSafety onEnd={endForSafety} />
       </div>
       <div className="mt-3 h-[72vh] min-h-[320px] overflow-hidden rounded" data-lk-theme="default">
         <LiveKitRoom

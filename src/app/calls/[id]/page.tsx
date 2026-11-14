@@ -36,7 +36,10 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
   }
 
   const otherId = role === "host" ? call.customerId : call.hostId;
-  const [other] = await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, otherId));
+  const [person] = await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, otherId));
+  // A customer knows their host by the display name on the host's page, never by the host's account name.
+  const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
+  const other = hostProfile ? { name: hostProfile.displayName } : person;
   const bookedPrice = payment ? formatMoney(payment.bookedCents) : null;
 
   const cancel = cancellationOutcome({
@@ -74,9 +77,9 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           : " · Free call"}
       </p>
 
-      {call.cancelledAt ? (
+      {call.cancelledAt || call.safetyEndedAt ? (
         <section className="mt-10">
-          <p className="text-lg">This call was cancelled.</p>
+          <p className="text-lg">{call.cancelledAt ? "This call was cancelled." : "This call has ended."}</p>
           <p className="mt-2">
             <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
               See the details
@@ -132,7 +135,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
         />
       )}
 
-      {!call.cancelledAt && cancel !== "not_allowed" && (
+      {!call.cancelledAt && !call.safetyEndedAt && cancel !== "not_allowed" && (
         <form action={cancelCallAction} className="mt-10 border-t border-neutral-400/40 pt-4 text-sm">
           <input type="hidden" name="callId" value={call.id} />
           <p className="opacity-80">

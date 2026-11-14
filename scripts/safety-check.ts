@@ -55,7 +55,7 @@ async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
   const B = await import("../src/lib/booking/bookings");
-  const { block, unblock } = await import("../src/lib/safety/blocks");
+  const { block, blockedBy, unblock } = await import("../src/lib/safety/blocks");
   const { isBlockedEitherWay } = await import("../src/lib/safety/block-check");
   const R = await import("../src/lib/safety/reports");
   const { endCallForSafety } = await import("../src/lib/safety/calls");
@@ -150,13 +150,20 @@ async function main() {
       const cust = await person("cust3");
       await verified(cust.id);
       const [slot] = await slotsOf(host.id);
-      await R.pauseAccount({ adminId: adminUser.id, userId: cust.id, ruleKey: "harassment", note: "Check.", requestId: randomUUID() });
+      // A call of theirs that has not started: pausing must cancel it, so nobody waits for (or pays for) a call they may not join.
+      const other3 = await person("other3");
+      const soon = new Date(Date.now() + 5 * 3_600_000);
+      const upcoming = await B.createTestCall({ hostId: other3.id, customerId: cust.id, startsAt: soon, endsAt: new Date(soon.getTime() + 15 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
+      const paused = await R.pauseAccount({ adminId: adminUser.id, userId: cust.id, ruleKey: "harassment", note: "Check.", requestId: randomUUID() });
+      const [cancelled] = await db.select().from(schema.calls).where(eq(schema.calls.id, upcoming.callId));
+      check("pausing cancels their calls that have not started, at no charge", paused.callsNotEnded === 0 && cancelled.cancelledAt !== null && cancelled.cancelledBy === "admin" && cancelled.cancelledLate === false);
       check("a paused customer cannot ask", await refused(ask(cust, host.id, slot)));
       check("and is told by email, with the rule", (await emails(cust.email, "is paused")) === 1 && Boolean((await reloadUser(cust.id)).pausedReason?.startsWith("No threats")));
       await R.liftPause({ adminId: adminUser.id, userId: cust.id });
       const asked = await ask(cust, host.id, slot);
       check("after the pause is lifted they can", asked.booking.stage === "waiting");
       await R.pauseAccount({ adminId: adminUser.id, userId: host.id, ruleKey: "sexual", note: "", requestId: randomUUID() });
+      check("pausing a host ends the requests waiting for them", (await db.select().from(schema.bookings).where(eq(schema.bookings.id, asked.booking.id)))[0].stage === "declined");
       check("a paused host cannot accept, and cannot be booked", (await refused(B.accept({ bookingId: asked.booking.id, hostId: host.id, now }))) && (await B.offerOf(host.id)) === null);
       check("an admin account cannot be paused", await refused(R.pauseAccount({ adminId: adminUser.id, userId: adminUser.id, ruleKey: "scam", note: "", requestId: randomUUID() })));
       check("pausing an account that is already paused is refused", await refused(R.pauseAccount({ adminId: adminUser.id, userId: host.id, ruleKey: "scam", note: "", requestId: randomUUID() })));
@@ -194,6 +201,11 @@ async function main() {
       const bensAgain = await ask(ben, host.id, (await slotsOf(host.id))[6]);
       await block({ blockerId: ben.id, blockedId: host.id, now });
       check("a customer's block stops the host accepting their request", (await refused(B.accept({ bookingId: bensAgain.booking.id, hostId: host.id, now }))) && (await db.select().from(schema.bookings).where(eq(schema.bookings.id, bensAgain.booking.id)))[0].stage === "ran_out");
+      // Each list of blocked people shows a name its owner already knew: a host by their display name
+      // (never their account name), a customer by their own name.
+      const bensList = await blockedBy(ben.id);
+      const hostsList = await blockedBy(host.id);
+      check("a customer's blocked list shows the host by their display name; a host's shows the customer by their own name", bensList.length === 1 && bensList[0].name === `Host ${host.id.slice(-4)}` && hostsList.length === 1 && hostsList[0].name === amy.name, `${bensList[0]?.name} / ${hostsList[0]?.name}`);
       await unblock(host.id, amy.id);
       check("after unblocking, Amy can ask again, but what ended stays ended", (await ask(amy, host.id, s1)).booking.stage === "waiting" && (await db.select().from(schema.bookings).where(eq(schema.bookings.id, acceptedReq.booking.id)))[0].stage === "cancelled");
       check("nobody can block themselves", await refused(block({ blockerId: amy.id, blockedId: amy.id, now })));
@@ -237,6 +249,16 @@ async function main() {
       check("after it, nobody gets back in", after.status === 409, String(after.status));
       const strangerStop = await send(`/api/calls/${callId}/end-for-safety`, { method: "POST", jar: coryJar });
       check("someone not on a call cannot stop it", strangerStop.status === 404, String(strangerStop.status));
+      // Only a call that is going on can be ended this way: not one that has yet to open (that would dodge
+      // the host's cancelling rule), and not one that is over (that would stop it being charged or rated as usual).
+      const later = new Date(Date.now() + 3 * 3_600_000);
+      const future = await B.createTestCall({ hostId: liveHost.id, customerId: cory.id, startsAt: later, endsAt: new Date(later.getTime() + 10 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
+      const early = await send(`/api/calls/${future.callId}/end-for-safety`, { method: "POST", jar: coryJar });
+      check("a call that has not opened yet cannot be ended this way", early.status === 409 && (await db.select().from(schema.calls).where(eq(schema.calls.id, future.callId)))[0].safetyEndedAt === null, String(early.status));
+      const earlier = new Date(Date.now() - 30 * 60_000);
+      const over = await B.createTestCall({ hostId: liveHost.id, customerId: cory.id, startsAt: earlier, endsAt: new Date(earlier.getTime() + 10 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
+      const late = await send(`/api/calls/${over.callId}/end-for-safety`, { method: "POST", jar: coryJar });
+      check("and a call that is already over is left as it is", late.status === 200 && (await db.select().from(schema.calls).where(eq(schema.calls.id, over.callId)))[0].safetyEndedAt === null, String(late.status));
       // The clock: the host was connected the whole booked time, but only the time before the stop counts.
       const [stopped] = await db.select().from(schema.calls).where(eq(schema.calls.id, live.callId));
       const row = (identity: string, type: string, at: Date) => ({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: live.callId, type, roomSessionId: "RM_safety", participantIdentity: identity, participantSessionId: `PA_${identity}`, providerTime: at, payload: "{}" });
