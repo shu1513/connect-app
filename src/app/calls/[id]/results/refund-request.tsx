@@ -30,10 +30,12 @@ function Grades({ label, times }: { label: string; times: GradeTimes }) {
   );
 }
 
-function Person({ name, other, quality }: { name: string; other: string; quality: PersonQuality }) {
+function Person({ name, part, other, quality }: { name: string; part: "host" | "customer"; other: string; quality: PersonQuality }) {
   return (
     <div className="mt-3">
-      <p className="font-medium">{name}</p>
+      <p className="font-medium">
+        {name} ({part})
+      </p>
       {quality.connections.length === 0 ? (
         <p className="opacity-80">The video service recorded no connection inside the call&apos;s time.</p>
       ) : (
@@ -86,8 +88,8 @@ export function QualityRecord({ summary, names }: { summary: QualitySummary; nam
         do not show that a connection worked, and nothing here shows whose fault a problem was or what was said or seen on the call.
       </p>
       {!summary.anyNotes && <p className="mt-2 font-medium">No connection reports; quality unknown.</p>}
-      <Person name={`${names.host} (host)`} other={names.customer} quality={summary.host} />
-      <Person name={`${names.customer} (customer)`} other={names.host} quality={summary.customer} />
+      <Person name={names.host} part="host" other={names.customer} quality={summary.host} />
+      <Person name={names.customer} part="customer" other={names.host} quality={summary.customer} />
     </div>
   );
 }
