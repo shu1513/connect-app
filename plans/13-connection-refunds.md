@@ -178,7 +178,10 @@ and sends it to both browsers, for both people. Today the app keeps no history o
   below) is saved with a request when it is made, and brought up to date when it is answered. This
   is a new rule for the privacy page; it is not something the app already promises.
 
-**The record shown with a request**, to the host and the customer of that call and to the founder.
+**The record shown with a request**, to the host of that call and to the founder. **The customer
+does not see it** (the founder's decision): the host's answer is final for now, so the record is
+there for the person who decides. If a customer is later given a way to pass a "no" on to Connect,
+that is the time to show it to them too.
 The server works out a short summary and sends only that: names as each person already knows the
 other, times, plain reasons and grades. The saved messages themselves, which also hold a person's
 region, are never shown.
@@ -232,7 +235,7 @@ approved rule**:
 | --- | --- | --- |
 | A nudge for the host | A clear time in the email, one reminder halfway, and the hold on that call's money. No automatic bad review. | Reviews come from customers. A host who was on a plane should not be marked down by a machine. If hosts still answer late, a stronger measure can follow. |
 | Where requests are stored | A small table of their own, one per call, not the safety reports. | Sending a safety report also blocks the other person and counts against them. |
-| Who sees the record | The two people on the call and the founder, only once a refund was asked for, and the server checks it, not just the page. | Each should see what the other sees. |
+| Who sees the record | The host of the call and the founder, only once a refund was asked for. Never the customer. The server checks this, not just the page. | The founder's decision. |
 | The two short texts | The customer's sentence when asking and the host's message when answering are plain text with a length limit, each shown only to the other person and the founder. They are one note each way about one call, not a conversation: messaging was left out of the first version on purpose. The existing "Report" link on the page covers a text that breaks the rules. | The founder asked for a message with every refund. |
 | Emails | To the host when a request arrives, and the one reminder; to the customer for each answer, including when the founder closes it. Each is written in the same step as the change it reports. | Through the existing email queue, so none is lost or sent twice. |
 | Switching on | The new timing, asking, the hold and the founder's list go live together. A call whose money was already taken under the old timing is not touched. | Any one without the others would leave a gap. |
@@ -260,7 +263,7 @@ host answers before the money is taken. It is still lost on a refund made after 
 That the charge for a call is taken about a day after it; that a customer can ask for a refund for
 a connection problem within 24 hours of the call; that the host decides; that a host cannot collect
 the money for a call with a request they have not answered; and that the app keeps a grade of each
-person's connection during a call for 60 days and shows a summary to the two people and to Connect
+person's connection during a call for 60 days and shows a summary to the host and to Connect
 when a refund is asked for.
 
 ## How it will be checked
@@ -278,7 +281,7 @@ when a refund is asked for.
   taken in full; a late decline, a late refund in full and in part, one on its way and one that
   failed, a refund started before the request, the founder's refund and the founder closing; two
   answers at once; a call with added time; a call in review; the hold on collecting and its
-  release; what each person and the founder can see; notes refused from someone not on the call,
+  release; the record is shown to the host and the founder and never to the customer; notes refused from someone not on the call,
   outside its time, about anyone else, from another site, or beyond that person's limit.
 - By hand, with two browsers against the real video service: grades arriving, a deliberately
   limited connection, closing a tab in the middle, and a request from asking to the charge.
