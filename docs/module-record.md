@@ -24,9 +24,9 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 7. "Available now" calls | Built and merged. Two-device test done by the founder on 13 November. |
 | 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
-| 9. Verified customers only | Built; pull request open. The real ID check in a browser needs the restricted Stripe key (founder). |
-| 8b. Messaging | Not started. Begins with a research round (the builder and Astra separately, then compared). |
-| Final pass: joining everything together | Not started. |
+| 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
+| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
+| Final pass: joining everything together | Built; pull request open. |
 
 ---
 
@@ -495,6 +495,95 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 
 ---
 
+## Module 8b: Messaging (researched, not built)
+
+The founder had asked for two separate studies before anything was built: one by the builder and one by Astra, neither seeing the other's work. Both were done on 14 November 2026 and set side by side in `docs/research/messaging/compared.md` (the builder's full report is `our-research.md` in the same folder, with its notes).
+
+**What both studies said**
+- Build it ourselves in the app's own database; do not rent a chat service (roughly $280 to $500 a month at 10,000 users, and it would repeat the accounts, blocking, reporting and admin screen the app already has).
+- Text only, tied to a booked call, nobody can write to a stranger, and hosts cannot write to customers out of the blue.
+- The conversation opens once the host has accepted, stays open until 7 days after the call, and opens again with the next booking.
+- A report button on messages, blocking both ways, and the founder reads a conversation only through a report.
+- Size: about 8 to 15 days of building, plus ongoing work for the founder (reading reports, the reporting paperwork, more for the lawyer).
+
+**What the founder decided (14 November 2026)**
+
+| Question | Recommended | Decided |
+| --- | --- | --- |
+| A note with a request | Keep the note that already travels with a request, separate from messaging | Agreed. Nothing to build; it has been there since module 4. |
+| Must a customer pass the ID check to message | No, the same rule as for the call (Astra recommended yes) | No. |
+| Open for good, like Airbnb, or closed 7 days after the call | 7 days. An Airbnb host sells a room; a host here sells their time, and a line that never closes gives that away and piles up on the host | Not decided; overtaken by the next row. |
+| Build messaging for the first version at all | **No.** The note, the reminders and the one-tap link cover the main need; what is left ("I'm running late", a short follow-up) is nice to have; similar paid-call products mostly do without chat; and the cost is ongoing, not only the build | **Agreed: left out for launch.** To be looked at again if real hosts ask for it. |
+
+**If it is built later:** start from `docs/research/messaging/compared.md`. The plan would use the points above, plus Astra's limits on sending, an emergency switch that stops all sending, new written rules that mention messages, and deleting messages 12 months after they were sent (a lawyer to confirm).
+
+---
+
+## Final pass: joining everything together
+
+Plan: `plans/11-final-pass.md`. Every module had been built and checked on its own; this pass looked at the app as one thing, the way a new customer and a new host meet it. It adds no new product feature. Before planning, every page, link, piece of wording and email was surveyed.
+
+**What was found, and what was done**
+
+| Found | Done |
+| --- | --- |
+| No way around the app: each page drew its own "back" link (eight different labels), and five screens had no link out at all. | One top bar on every page: Your calls, Find a host, Hosting, Your account (and Admin for the founder), the person's name and Log out; for a visitor: Find a host, Log in, Create an account. A small footer with Rules, Terms and Privacy. The live call page keeps only its one small link, so nobody leaves a call by accident; the sign-up steps show only the name "Connect". |
+| A visitor saw a login form and nothing that explains Connect. | A small front page: what Connect is in three steps, the search box, Create an account and Log in. Logged-in people still get "Your calls" at the same address. |
+| Signing up lost your place: a visitor who picked a time and created an account ended up on an empty home page. | The page travels through "Create an account", the confirmation email, "send it again", Google, and the welcome step. The same was done for the links in emails the app already sends (a request, a call, results, "requests waiting"): someone who has to log in first comes back to that page. |
+| A new host was not told the steps, and got no email when the founder decided about their profile. | A "Getting started" list at the top of Hosting: profile, ID check, approval, payouts (only for a host who charges), calendar; each marked done or not, with its link. An email when a profile is approved, declined or suspended. |
+| A test-only page ("Create a test call") was still there. | Removed. The helper behind it stays for the check scripts. |
+| The results page showed developer data to the two people on a call. | The raw record from the video service, the "room closed" line and the detailed reasons a record needs review are for the founder only. The totals and the list of connected periods stay, because they explain the charge. A customer also gets "Book another call with ..." (not across a block, and not when the host's page is hidden or closed), and the host's payday is written as a normal date. |
+| The same thing had different names. | "Call", "request", "customer", "host", "Hosting", "log in" everywhere people read. The card wording a customer agrees to was left alone on purpose: it is on the lawyer's list. |
+| Every browser tab said "Connect". | Each page has its own title. |
+
+**Decisions (the builder's, as from module 5 on)**
+
+| Question | Decided | Why |
+| --- | --- | --- |
+| Where the top bar is drawn | With each page, not in the one frame around all pages | A shared frame would have to be told to redraw at every place the answer can change (log in, log out, finishing sign-up, a new name). Drawn with the page it is always right. Astra preferred the shared frame; both work. |
+| Time zone | The label now says what it does ("used for the times in your emails"); screens keep using the device's time zone | Changing how every time is shown is a risk for no gain. |
+| A hidden or paused host | The approval email does not say "public" when the host has hidden their page; Hosting shows a notice when the account is paused | Found by Astra: the page could look fully set up while nobody could book. |
+| Left for later, on purpose | How the app looks (it stays plain); a receipt by email (Stripe sends its own once switched on in the live account); a page listing all of a host's earnings; an email reminding people to rate | Each is either a setting, a matter of taste, or a new feature, not a join. |
+
+**Astra's check of the plan** (15 November 2026): approve with changes, 13 points; each is listed with what was done at the end of the plan. Taken: a stricter "come back here" rule; every branch of sign-up; the front page chosen by "nobody is logged in"; the decision and its email saved together, emailed only when the answer changes; emailed links keeping their place; the detailed review reasons for the founder only; the title and time-zone wording. Not taken: the bar in the shared frame (above). One point was checked and found not to be so: hosts are already emailed when a booked request arrives.
+
+**Astra's review of the code**: ship with changes, 9 points, all taken.
+- The journey script could change things it had not made (must): its paid part is now skipped while the test host has requests waiting, and the top of the script says plainly what else it touches.
+- The "come back here" rule could be slipped past with a cleverly written address such as `/x/../api/...` (must; an automatic security check on the commit found the same thing first). It now judges the address a browser would really open, with tests.
+- "Book another call" ignored blocks and closed accounts. Fixed, and checked by the script.
+- A founder who was in a call themselves lost the raw record. Fixed.
+- A paused host could look fully set up with no explanation. Hosting now says so.
+- The page walk accepted any redirect. It now compares exactly and follows each link to where it ends; three more pages were added.
+- The approval email said "public" even for a hidden page. Fixed.
+- Two small ones: each decision email has its own name, and a missing profile is reported as missing.
+
+**How it was checked**
+- A new script, `scripts/journey-check.ts`, 58 checks. One story across every module: a host signs up, sets up and is approved (and gets the email); a visitor finds them, picks a time, creates an account and lands back on that time; asks with a note; the host accepts; the call happens; both rate; each is in the other's contacts; then a paid call with the sandbox host from the saved card to the hold, the charge and the host's payday. Then every page as a visitor, a customer, a host and the founder: it answers as it should, has the right top bar and its own tab title, and every link on it leads somewhere. The top of the script says what is real and what is pretended (the ID check, who was connected, the passing of days).
+- To prove the script has teeth, two things were broken on purpose (the "book again" rule, and the top bar on one page): 4 checks failed, and all passed again with them back.
+- 248 automatic tests (6 new for the "come back here" rule, 4 for the host emails), lint, types and the build pass.
+- The nine earlier journey scripts all pass: accounts 100, safety 60, notifications 33, booking 94, "call now" 73, adding time 107, ratings 73, verified customers 30, payments 71.
+- By hand in a browser, as a visitor with a throwaway account: the front page, a host's page, picking a time, "Create an account", the confirmation link, the welcome step, and landing back on the chosen time with the full top bar. Also looked at on a phone-width screen.
+
+**CodeRabbit's review (pull request 16):** 12 comments. Each was checked against the code or the source before anything was changed; all 12 held up and all were taken, each as a small change.
+- In the app (3):
+  - The new sentence on the host's "Requests for calls" page said that requests for a call right now are not listed there. They are, and they can be answered there. The sentence now says so, and that they need an answer within 2 minutes and show up live on "Available now".
+  - The suspension email said waiting requests "have ended" while that work is done a moment later and can fail. It now says they are being ended.
+  - The journey script stopped with an error if the test host had no free time more than 4 days ahead, before it reached the walk over every page. It now skips only the paid part, with a note (tried by pretending there was no such time: 48 checks ran and passed).
+- In the messaging research notes (9), which are what a later build would start from:
+  - The reason given against end-to-end encryption was wrong ("reports could not be reviewed"). A reporter's own device can hand messages over. The real reasons: we could see only what a reporter hands over, could not save a whole conversation as evidence ourselves, and the build would be far larger. Corrected in the comparison page and the safety note. (The builder's main report did not make the claim.)
+  - Three points on how messages would be ordered and counted: do not use time-based ids as the "what is new" marker; take the conversation's lock before a message gets its number, not after; and a person's own message must not show them an "unread" dot.
+  - The one-year keeping of evidence for a report to the national hotline (NCMEC) runs from the day our report is submitted, not from the user's report.
+  - Two sentences claimed too much: booking-only messaging narrows abuse, it does not remove it, and it does nothing about abuse inside a booking.
+  - One price summary included a service whose price at 10,000 users could not be found.
+
+**A second look (15 November 2026), asked for by the founder:** the builder read the whole change again and tried the "come back here" rule on a set of real and hostile addresses; nothing new was found. Astra reviewed the branch a second time: eight of its nine earlier points confirmed fixed, and two points left.
+- Taken: when a call's record needs review, the two people were told that Connect looks at it "before anything is charged". That is not always true: a call can be charged and its record turn out wrong afterwards. The sentence now only says a person at Connect looks at it; the receipt above it says what happened to the money.
+- Not taken: Astra asked again that the journey script charge only its own call, by adding a "this call only" option to the charging step. The script runs that step with the real clock, so it does exactly what the always-on helper does every minute anyway, and only on this computer's test database. Adding a test-only option to the money code is not worth that. The script's header says what the step does.
+
+**What the checks cannot cover:** a real two-person video call, the real ID check at Stripe and real email delivery, as before. The words on the front page are a first draft for the founder to change.
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.
@@ -530,3 +619,6 @@ Also fixed: one check in the notifications script depended on how fast the compu
 - **Adding time when the bank wants its own approval step:** not possible inside a call in the first version (the request fails and the call ends as booked). Decide before launch whether it is needed; it matters most for customers outside the US.
 - **Google sign-in:** move from "testing" to "live", ideally on the company's own Google account.
 - **Hosting:** where the app runs, where photos are stored, and making the founder's own account the admin there.
+- **Receipts by email:** switch on Stripe's own emailed receipts and refund notices in the live account (a setting, no code).
+- **The front page and the look:** the words on the visitor's front page are a first draft, and the app is plain on purpose. Both are the founder's to shape.
+- **Messaging:** left out of the first version; look again if real hosts ask (`docs/research/messaging/`).

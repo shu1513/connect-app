@@ -28,7 +28,7 @@ export function ratingDeadline(endsAt: Date): Date {
 export type RateState = "open" | "not_yet" | "too_late" | "never";
 
 export function rateState(input: {
-  /** Where the call came from: "customer" (a request), "now" (a call now), "admin" (the test page), or null for a call with no booking. */
+  /** Where the call came from: "customer" (a request), "now" (a call now), "admin" (a call made by a check script), or null for a call with no booking. */
   source: string | null;
   cancelled: boolean;
   /** Ended with "End call and report": that goes to the founder as a report, not into stars. */

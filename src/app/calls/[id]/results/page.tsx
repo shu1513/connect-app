@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import { asc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
@@ -17,7 +18,12 @@ import { getSignedIn, isAdminSession } from "@/lib/session";
 import { requireUser } from "@/lib/session";
 import { myRating, ratingStateOf } from "@/lib/ratings/ratings";
 import { RATING } from "@/lib/ratings/rules";
+import { publicProfile } from "@/lib/profiles/profiles";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { rateCallAction, refundAction } from "../actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Call results" };
 
 const EVENT_LABEL: Record<string, string> = {
   participant_joined: "Connected",
@@ -30,10 +36,13 @@ const EVENT_LABEL: Record<string, string> = {
 const fromSeconds = (s: number) => new Date(s * 1000).toISOString();
 
 export default async function ResultsPage(props: PageProps<"/calls/[id]/results">) {
-  const user = await requireUser();
   const { id } = await props.params;
+  const user = await requireUser(`/calls/${id}/results`);
   const notice = readNotice(`/calls/${id}/results`, await props.searchParams);
-  const access = await callForViewer(id, user.id, await isAdminSession(await getSignedIn()));
+  // The founder's login. Kept apart from the role below: a founder who was in the call is "host" or
+  // "customer" there (for the rating and the receipt), and still sees the raw record.
+  const founder = await isAdminSession(await getSignedIn());
+  const access = await callForViewer(id, user.id, founder);
   if (!access) notFound();
   const { call, payment, role } = access;
 
@@ -55,8 +64,17 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   // A customer knows their host by the display name on the host's page, never by the host's account name:
   // everywhere on this page. (A host sees a customer, and an admin sees both, by their own names.)
-  const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
+  const [hostProfile] =
+    role === "customer"
+      ? await db
+          .select({ displayName: schema.hostProfiles.displayName, handle: schema.hostProfiles.handle })
+          .from(schema.hostProfiles)
+          .where(eq(schema.hostProfiles.userId, call.hostId))
+      : [];
   if (hostProfile) nameOf.set(call.hostId, hostProfile.displayName);
+  // For a customer, the way back to the host's page: only while that page can really be opened
+  // (approved, not hidden, account open), and never across a block in either direction.
+  const bookAgain = hostProfile && (await publicProfile(hostProfile.handle)) && !(await isBlockedEitherWay(user.id, call.hostId)) ? `/h/${hostProfile.handle}` : null;
   // Rating: for the two people on the call only. Each sees their own rating, never the other's.
   const otherName = role === "admin" ? "" : (nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
   const rating = role === "admin" ? null : { state: await ratingStateOf(call, new Date()), mine: await myRating(call.id, user.id) };
@@ -86,7 +104,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   }[result.status];
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
       <p className="text-sm">
         <Link href="/" className="underline underline-offset-2">
           ← Your calls
@@ -145,6 +163,14 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         </p>
       )}
 
+      {bookAgain && !call.safetyEndedAt && (
+        <p className="mt-4 text-sm">
+          <Link href={bookAgain} className="underline underline-offset-2">
+            Book another call with {nameOf.get(call.hostId)}
+          </Link>
+        </p>
+      )}
+
       {role !== "admin" && (
         <div className="mt-3 text-sm opacity-70">
           <Link href={`/report?call=${call.id}`} className="underline underline-offset-2">
@@ -181,7 +207,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       <section className="mt-6 rounded border border-neutral-400 p-4">
         <p className={`text-lg font-semibold ${status.tone}`}>{status.label}</p>
         <p className="text-sm opacity-80">{status.note}</p>
-        {result.reasons.length > 0 && (
+        {result.reasons.length > 0 && !founder && <p className="mt-2 text-sm">A person at Connect looks at records like this one by hand.</p>}
+        {result.reasons.length > 0 && founder && (
           <ul className="mt-2 list-disc pl-5 text-sm">
             {result.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -196,19 +223,20 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         <p className="mt-3 text-xs opacity-70">
           Connected time as reported by the video service, counted only inside the booked window.
           {call.billing === "together" ? " This call charges the time together." : " This call charges the host's time."}
-          {call.closedAt ? " Room confirmed closed." : " Room not confirmed closed yet."}
+          {founder ? (call.closedAt ? " Room confirmed closed." : " Room not confirmed closed yet.") : ""}
         </p>
       </section>
 
-      <h2 className="mt-8 text-lg font-semibold">Finished connected periods inside the booked window</h2>
+      <h2 className="mt-8 text-lg font-semibold">When each of you was connected, inside the booked time</h2>
       <div className="mt-2 grid gap-4 sm:grid-cols-3">
         <Periods title="Host" intervals={result.hostIntervals} />
         <Periods title="Customer" intervals={result.customerIntervals} />
         <Periods title="Together" intervals={result.togetherIntervals} />
       </div>
 
-      <h2 className="mt-8 text-lg font-semibold">Messages received from the video service</h2>
-      {events.length === 0 ? (
+      {/* The raw record, with connection codes: for the founder only. The two people see the totals and the periods above. */}
+      {founder && <h2 className="mt-8 text-lg font-semibold">Messages received from the video service</h2>}
+      {!founder ? null : events.length === 0 ? (
         <p className="mt-2 text-sm opacity-70">None yet.</p>
       ) : (
         <div className="mt-2 overflow-x-auto">
@@ -236,7 +264,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           </table>
         </div>
       )}
-    </main>
+    </SitePage>
   );
 }
 
@@ -316,7 +344,7 @@ function Receipt(props: {
                     : payment.transferStatus === "not_owed"
                       ? "Nothing to pay out"
                       : payment.transferDueAt
-                        ? `On the weekly payday of ${payment.transferDueAt.toISOString().slice(0, 10)}`
+                        ? `On the weekly payday of ${payment.transferDueAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`
                         : "Not scheduled yet"
                 }
               />

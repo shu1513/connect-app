@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,6 +14,8 @@ import { CallRoom } from "./call-room";
 import { PayPanel } from "./pay-panel";
 import { RefreshWhenPaid } from "./refresh-when-paid";
 
+export const metadata: Metadata = { title: "Call" };
+
 function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): string {
   if (freeCancelMinutes === 0) return "You can cancel for free at any time before the call starts.";
   const hours = freeCancelMinutes / 60;
@@ -21,8 +24,9 @@ function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): str
 }
 
 export default async function CallPage(props: PageProps<"/calls/[id]">) {
-  const user = await requireUser();
   const { id } = await props.params;
+  // Reminders link here: someone who has to log in first comes back to this call.
+  const user = await requireUser(`/calls/${id}`);
   const access = await callForParticipant(id, user.id);
   // A stranger sees the same "not found" whether or not the call exists.
   if (!access) notFound();

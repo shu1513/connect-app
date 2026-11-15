@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import { desc, eq, isNotNull } from "drizzle-orm";
 import Link from "next/link";
@@ -10,6 +11,9 @@ import { RULES } from "@/lib/terms";
 import { requireAdmin } from "@/lib/session";
 import { decideProfileAction, closeAccountAction } from "../people/actions";
 import { closeReportAction, liftPauseAction, pauseAction, switchesAction, warnAction } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Reports and safety" };
 
 const CONTEXT_LABEL: Record<string, string> = { call: "a call", booking: "a request", profile: "a host's page" };
 
@@ -36,10 +40,10 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
   ));
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
       <p className="text-sm">
         <Link href="/admin" className="underline underline-offset-2">
-          ← Admin: payments
+          ← Admin
         </Link>
         <Link href="/admin/people" className="ml-4 underline underline-offset-2">
           Hosts and accounts
@@ -208,6 +212,6 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
           </li>
         ))}
       </ul>
-    </main>
+    </SitePage>
   );
 }

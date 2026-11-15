@@ -40,7 +40,7 @@ export async function contactsOf(userId: string, now: Date): Promise<Contact[]> 
     .where(
       and(
         or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)),
-        // Calls that are over, were not cancelled, did not come from the admin test page, and that both people joined.
+        // Calls that are over, were not cancelled, were not made by a check script, and that both people joined.
         ne(schema.bookings.source, "admin"),
         isNull(schema.calls.cancelledAt),
         lte(schema.calls.endsAt, now),

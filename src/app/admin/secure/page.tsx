@@ -1,8 +1,12 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { getSignedIn, isAdminSession } from "@/lib/session";
 import { SecureForm } from "./secure-form";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Protect the admin account" };
 
 /** Where an admin sets up the second login step. Reachable with an ordinary login; nothing else admin is. */
 export default async function SecureAdminPage() {
@@ -16,7 +20,7 @@ export default async function SecureAdminPage() {
   const alreadySetUp = Boolean(factor?.verified && admin.securedAt);
 
   return (
-    <main className="mx-auto w-full max-w-md px-4 py-16">
+    <SitePage className="mx-auto w-full max-w-md px-4 py-16">
       <h1 className="text-2xl font-semibold">Protect the admin account</h1>
       {alreadySetUp ? (
         <p className="mt-4 text-sm">
@@ -32,6 +36,6 @@ export default async function SecureAdminPage() {
           <SecureForm />
         </>
       )}
-    </main>
+    </SitePage>
   );
 }

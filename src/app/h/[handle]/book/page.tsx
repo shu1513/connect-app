@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -14,6 +15,9 @@ import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { getSignedIn } from "@/lib/session";
 import { sendRequest } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Ask for a call" };
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +35,8 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   const { start, length } = query;
   const profile = await publicProfile(handle);
   if (!profile) notFound();
-  const here = `/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(String(start))}`;
+  // This page's own address, to come back to after logging in or signing up. Opened without a time, that is the host's page.
+  const here = typeof start === "string" && typeof length === "string" ? `/h/${profile.handle}/book?length=${encodeURIComponent(length)}&start=${encodeURIComponent(start)}` : `/h/${profile.handle}`;
   const person = await getSignedIn();
   if (!person || person.closed || !person.emailVerified) redirect(`/login?next=${encodeURIComponent(here)}`);
   if (!person.welcomed) redirect(`/welcome?next=${encodeURIComponent(here)}`);
@@ -49,22 +54,22 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   // A block either way looks, from here, exactly like a time that is no longer open.
   if (!offer || !stillOpen || (await isBlockedEitherWay(person.id, profile.userId))) {
     return (
-      <main className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">That time is no longer open</h1>
         <p className="mt-4 text-sm">
           <Link href={back} className="underline underline-offset-2">
             Choose another time
           </Link>
         </p>
-      </main>
+      </SitePage>
     );
   }
   if (person.id === profile.userId) {
     return (
-      <main className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">This is your own page</h1>
         <p className="mt-4 text-sm">You cannot book a call with yourself.</p>
-      </main>
+      </SitePage>
     );
   }
 
@@ -77,7 +82,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   const hostZoneTime = whenFor({ timeZone: offer.timeZone }, startsAt);
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
         <Link href={back} className="underline underline-offset-2">
           ← Other times
@@ -130,7 +135,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
               <li>{CANCEL_RULE[offer.freeCancelMinutes]}</li>
               <li>
                 If your card cannot be held, we email you and you can fix it until <LocalTime iso={payCutoff(startsAt, offer.freeCancelMinutes).toISOString()} />.
-                After that an unpaid booking is cancelled at no cost.
+                After that an unpaid call is cancelled at no cost.
               </li>
             </>
           )}
@@ -165,6 +170,6 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
           {paid ? "Continue to card details" : "Send request"}
         </button>
       </form>
-    </main>
+    </SitePage>
   );
 }

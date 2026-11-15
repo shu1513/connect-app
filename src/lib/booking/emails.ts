@@ -141,7 +141,7 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
     case "sent":
       await toCustomer(`Your request to ${hostShown} was sent`, [
         `You asked ${hostShown} for a ${length} call on ${whenC}.`,
-        `This is a request, not a booking yet. Other people may ask for the same time, and ${hostShown} chooses. You will hear by ${whenFor(customer, booking.respondBy ?? booking.startsAt)}.`,
+        `This is a request: the call is not agreed yet. Other people may ask for the same time, and ${hostShown} chooses. You will hear by ${whenFor(customer, booking.respondBy ?? booking.startsAt)}.`,
         "Nothing is held on your card unless your request is accepted. You can take the request back for free until then.",
       ]);
       break;
@@ -174,15 +174,15 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
     case "card_problem":
       await toCustomer("Your card needs your attention", [
         `We could not place the hold for your call with ${hostShown} on ${whenC}. Your bank may have refused it, or may want you to approve it.`,
-        `Please open the call's page and pay there before ${whenFor(customer, booking.payBy ?? booking.startsAt)}. If the money is not held by then, the booking is cancelled at no cost to you.`,
+        `Please open the call's page and pay there before ${whenFor(customer, booking.payBy ?? booking.startsAt)}. If the money is not held by then, the call is cancelled at no cost to you.`,
       ]);
       break;
     case "cancelled_unpaid":
       await toCustomer(`Your call with ${hostShown} was cancelled`, [
-        `The hold for your call on ${whenC} could not be placed in time, so the booking was cancelled. Nothing was charged.`,
+        `The hold for your call on ${whenC} could not be placed in time, so the call was cancelled. Nothing was charged.`,
       ]);
       await toHost(`Your call with ${customer.name} was cancelled`, [
-        `The customer's payment for the call on ${whenH} could not be held in time, so the booking was cancelled. That time is open again.`,
+        `The customer's payment for the call on ${whenH} could not be held in time, so the call was cancelled. That time is open again.`,
       ]);
       break;
     case "cancelled_by_host":

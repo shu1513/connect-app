@@ -1,26 +1,25 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { NoteForm } from "@/components/note-form";
 import { readNotice } from "@/lib/notice";
 import { contactsOf } from "@/lib/people/contacts";
 import { requireUser } from "@/lib/session";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "People you have talked to" };
 
 export const dynamic = "force-dynamic";
 
 /** The people this person has had calls with. A host can keep a private note about each customer. */
 export default async function ContactsPage(props: PageProps<"/contacts">) {
-  const user = await requireUser();
+  const user = await requireUser("/contacts");
   const notice = readNotice("/contacts", await props.searchParams);
   const contacts = await contactsOf(user.id, new Date());
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      <p className="text-sm">
-        <Link href="/" className="underline underline-offset-2">
-          ← Your calls
-        </Link>
-      </p>
-      <h1 className="mt-4 text-2xl font-semibold">People you have talked to</h1>
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">People you have talked to</h1>
       <p className="mt-2 text-sm opacity-70">Everyone you have had a call with. Someone you have blocked, or who has blocked you, is not listed.</p>
 
       {notice && (
@@ -51,6 +50,6 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
           ))}
         </ul>
       )}
-    </main>
+    </SitePage>
   );
 }

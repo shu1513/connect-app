@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SitePage } from "./site-page";
 
 /**
  * Shown in place of a booking form when the customer must pass the identity check first: before a
@@ -7,7 +8,7 @@ import Link from "next/link";
  */
 export function ConfirmIdFirst({ reason, hostName, next }: { reason: "free" | "host"; hostName: string; next: string }) {
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <h1 className="text-2xl font-semibold">One thing first</h1>
       <p className="mt-4 text-sm">
         {reason === "free" ? "Before your first free call, please confirm who you are" : `${hostName} only takes calls from people who have confirmed their ID. Please confirm who you are`}
@@ -19,6 +20,6 @@ export function ConfirmIdFirst({ reason, hostName, next }: { reason: "free" | "h
           Confirm who I am
         </Link>
       </p>
-    </main>
+    </SitePage>
   );
 }

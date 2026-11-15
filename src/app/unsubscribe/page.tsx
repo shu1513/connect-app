@@ -1,4 +1,8 @@
+import type { Metadata } from "next";
 import { unsubscribeWithToken } from "@/lib/notifications/unsubscribe";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Email choices" };
 
 /**
  * The page behind the "stop reminder emails" link. Opening it does nothing;
@@ -14,7 +18,7 @@ export default async function UnsubscribePage(props: PageProps<"/unsubscribe">) 
     redirect(`/unsubscribe?done=${ok ? "yes" : "no"}`);
   }
   return (
-    <main className="mx-auto w-full max-w-md px-4 py-16">
+    <SitePage className="mx-auto w-full max-w-md px-4 py-16">
       <h1 className="text-2xl font-semibold">Reminder emails</h1>
       {done === "yes" ? (
         <p className="mt-4 text-sm">Done. You will not get reminder emails any more. You can switch them back on from your account page.</p>
@@ -29,6 +33,6 @@ export default async function UnsubscribePage(props: PageProps<"/unsubscribe">) 
           </button>
         </form>
       )}
-    </main>
+    </SitePage>
   );
 }

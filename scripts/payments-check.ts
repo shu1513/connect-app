@@ -484,7 +484,7 @@ async function main() {
     const settings = await getHostSettings(host.id);
     check("the test host's payout account is ready", ready && Boolean(settings.stripeAccountId));
     if (!ready || !settings.stripeAccountId) {
-      console.log("   Set up payouts for host@test.local on the Hosting settings page first.");
+      console.log("   Set up payouts for host@test.local on the Hosting page first.");
     } else {
       const account = settings.stripeAccountId;
       const transfersFor = async (callId: string) => (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data;

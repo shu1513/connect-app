@@ -1,8 +1,12 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth-forms";
 import { googleSignInConfigured } from "@/lib/auth";
 import { safeNext } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Log in" };
 
 /** Fixed messages only. Text from the address bar is never shown as it is. */
 const NOTICES: Record<string, string> = {
@@ -18,7 +22,7 @@ function errorText(code: string): string {
   if (code === "email_not_verified") {
     return "Google says the email address of that account has not been confirmed. Confirm it with Google first, or sign up with a password.";
   }
-  return "Signing in with Google did not work. Please try again.";
+  return "Logging in with Google did not work. Please try again.";
 }
 
 export default async function LoginPage(props: PageProps<"/login">) {
@@ -30,7 +34,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
   const message = typeof error === "string" ? errorText(error) : typeof notice === "string" ? NOTICES[notice] : undefined;
 
   return (
-    <main className="mx-auto w-full max-w-sm px-4 py-16">
+    <SitePage bare className="mx-auto w-full max-w-sm px-4 py-16">
       <h1 className="text-2xl font-semibold">Log in</h1>
       {message && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
@@ -38,6 +42,6 @@ export default async function LoginPage(props: PageProps<"/login">) {
         </p>
       )}
       <LoginForm google={googleSignInConfigured} next={next} />
-    </main>
+    </SitePage>
   );
 }

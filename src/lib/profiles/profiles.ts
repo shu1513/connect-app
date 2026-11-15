@@ -7,6 +7,7 @@ import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { priceProblem } from "@/lib/payments/hold";
 import { identityState } from "@/lib/safety/identity";
+import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
 
@@ -115,16 +116,25 @@ export async function decideProfile(input: {
     input.decision === "approved"
       ? and(eq(schema.hostProfiles.displayName, input.seen!.displayName), eq(schema.hostProfiles.about, input.seen!.about))
       : undefined;
-  const changed = await db
-    .update(schema.hostProfiles)
-    .set({ status: input.decision, decidedBy: input.by, decidedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(schema.hostProfiles.userId, input.userId), stillAsSeen))
-    .returning({ userId: schema.hostProfiles.userId });
-  if (changed.length === 0) {
-    throw new ProfileError(
-      input.decision === "approved" ? "That profile was changed while you were looking at it. Check it again." : "Profile not found.",
-    );
-  }
+  const decidedAt = new Date();
+  // The decision and the email that tells the host about it are saved together, or not at all.
+  await db.transaction(async (tx) => {
+    // Read under a lock, so two presses of the same button are two steps, one after the other.
+    const [before] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.userId)).for("update");
+    if (!before) throw new ProfileError("Profile not found.");
+    const changed = await tx
+      .update(schema.hostProfiles)
+      .set({ status: input.decision, decidedBy: input.by, decidedAt, updatedAt: decidedAt })
+      .where(and(eq(schema.hostProfiles.userId, input.userId), stillAsSeen))
+      .returning({ userId: schema.hostProfiles.userId });
+    if (changed.length === 0) {
+      throw new ProfileError(
+        input.decision === "approved" ? "That profile was changed while you were looking at it. Check it again." : "Profile not found.",
+      );
+    }
+    // The host is told when the answer changes, not when the same answer is given again.
+    if (before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision });
+  });
 }
 
 export type PublicProfile = {

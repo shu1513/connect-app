@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { calendarOf, clockText, hoursAndTimeOff, inZone } from "@/lib/booking/calendar";
@@ -6,11 +7,14 @@ import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
 import { addHours, addOff, removeHours, removeOff, saveChoices } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Your calendar" };
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export default async function HostCalendarPage(props: PageProps<"/host/calendar">) {
-  const user = await requireUser();
+  const user = await requireUser("/host/calendar");
   const notice = readNotice("/host/calendar", await props.searchParams);
   const calendar = await calendarOf(user.id, user.timeZone);
   const { hours, off } = await hoursAndTimeOff(user.id, new Date());
@@ -19,7 +23,7 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
   const button = "rounded border border-neutral-500 px-3 py-1.5 text-sm";
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
       <p className="text-sm">
         <Link href="/host" className="underline underline-offset-2">
           ← Hosting
@@ -176,7 +180,7 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
               ))}
             </select>
             <span className="mt-1 block opacity-70">
-              With a short break, your next caller may already be waiting in their room while you finish. Their waiting is
+              With a short break, your next customer may already be waiting in their room while you finish. Their waiting is
               never counted.
             </span>
           </label>
@@ -185,6 +189,6 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
           </button>
         </form>
       </section>
-    </main>
+    </SitePage>
   );
 }

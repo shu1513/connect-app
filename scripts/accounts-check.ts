@@ -389,10 +389,12 @@ async function main() {
     await freshLimits();
     {
       const visitor = await newPerson("visitor");
-      const statuses = await Promise.all(["/calls/new", "/admin", "/admin/people", "/admin/outbox"].map(async (path) => (await send(path, { jar: visitor.jar })).status));
-      check("a normal user cannot open the test-call page, the admin pages or the sent emails", statuses.every((s) => s === 404), statuses.join(" "));
-      const stranger = await send("/", { jar: new Map() });
-      check("someone who is not logged in is sent to the login page", (stranger.location ?? "").includes("/login"), stranger.location ?? "");
+      const statuses = await Promise.all(["/calls/new", "/admin", "/admin/people", "/admin/reports", "/admin/outbox"].map(async (path) => (await send(path, { jar: visitor.jar })).status));
+      check("a normal user cannot open the admin pages or the sent emails, and the old test-call page is gone", statuses.every((s) => s === 404), statuses.join(" "));
+      const stranger = await send("/account", { jar: new Map() });
+      check("someone who is not logged in is sent to the login page, with the way back", (stranger.location ?? "").includes("/login?next=%2Faccount"), stranger.location ?? "");
+      const front = await send("/", { jar: new Map() });
+      check("at the front address they see the visitor's page, not anyone's calls", front.status === 200 && front.text.includes("Create an account") && !front.text.includes("Your calls"), String(front.status));
       const token = await send(`/api/calls/${randomUUID()}/token`, { method: "POST", jar: new Map() });
       check("and cannot ask for a call entry pass", token.status === 401, String(token.status));
 
@@ -433,7 +435,7 @@ async function main() {
       const closed = await closing.closeAccount({ userId: host.id, by: admin.userId });
       check("the founder is told every call was ended", closed.callsNotEnded === 0, String(closed.callsNotEnded));
       check("logged out everywhere", await loggedOut(host.jar));
-      check("the app sends them to the login page", ((await send("/", { jar: host.jar })).location ?? "").includes("/login"));
+      check("the app sends them to the login page", ((await send("/account", { jar: host.jar })).location ?? "").includes("/login"));
       const attempt = await api("/sign-in/email", { email: host.email, password }, new Map());
       check("cannot log in again", attempt.status === 401 && attempt.json?.token === undefined, String(attempt.status));
       check("their page is gone", (await page(handle)).status === 404);

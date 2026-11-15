@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readNotice } from "@/lib/notice";
@@ -5,6 +6,9 @@ import { REPORT_REASONS } from "@/lib/safety/reports";
 import { callForParticipant } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 import { sendReport } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Report" };
 
 /** The report form. Reached from a host's page, a request, a call's page, or "End call and report". */
 export default async function ReportPage(props: PageProps<"/report">) {
@@ -19,7 +23,7 @@ export default async function ReportPage(props: PageProps<"/report">) {
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <h1 className="text-2xl font-semibold">Report</h1>
       {stopped && (
         <p className="mt-2 text-sm">
@@ -64,6 +68,6 @@ export default async function ReportPage(props: PageProps<"/report">) {
         </button>
       </form>
       <p className="mt-6 text-sm opacity-70">If someone is in danger right now, contact your local emergency services first.</p>
-    </main>
+    </SitePage>
   );
 }

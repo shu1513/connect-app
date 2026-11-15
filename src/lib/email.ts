@@ -1,10 +1,9 @@
 /**
  * The one place the app sends email from.
  *
- * While developing, nothing is really sent: each message is saved to the
- * email_outbox table and can be read on the admin-only "sent emails" page.
- * When a real sending service is chosen, it is called from here and nothing
- * else changes.
+ * Every message is saved to the email_outbox table first. The always-on helper sends what is
+ * there through the sending service (see notifications/delivery.ts); while no service is set
+ * up, nothing leaves, and the messages can be read on the founder's "Emails" page.
  */
 import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -31,7 +30,7 @@ type Email = { to: string; kind: EmailKind; subject: string; text: string };
 /**
  * Writes an email to the outbox. The helper's delivery job sends what is in
  * the outbox when a sending service is set up; until then it just sits there
- * (and shows on the test page). Login links are purged from the row once the
+ * (and shows on the founder's "Emails" page). Login links are purged from the row once the
  * email is sent, or after they have expired.
  */
 export async function sendEmail(message: Email): Promise<void> {

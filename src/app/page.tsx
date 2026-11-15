@@ -1,15 +1,15 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
-import { SignOutButton } from "@/components/sign-out-button";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
 import { readNotice } from "@/lib/notice";
 import { callsToRate } from "@/lib/ratings/ratings";
-import { formatMoney, isAdmin } from "@/lib/payments/access";
-import { requireUser } from "@/lib/session";
+import { formatMoney } from "@/lib/payments/access";
+import { getSignedIn, requireUser } from "@/lib/session";
+import { SitePage } from "@/components/site-page";
 
 const REQUEST_LABEL: Record<string, string> = {
   card: "card details needed to send it",
@@ -38,7 +38,55 @@ function paymentLine(all: Payment[]): string {
   return parts.length > 0 ? parts.join(", ") : "Not charged";
 }
 
+/** What a visitor sees at the front address: what Connect is, and the ways in. */
+function FrontPage() {
+  const button = "rounded px-4 py-2 font-medium";
+  return (
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-14">
+      <h1 className="text-3xl font-semibold">A private video call, one to one</h1>
+      <p className="mt-3">
+        On Connect you book a video call with a host: someone whose advice, company or conversation you want. Just the two of you, for the
+        time you choose.
+      </p>
+
+      <ol className="mt-8 list-decimal space-y-3 pl-5 text-sm">
+        <li>
+          <span className="font-medium">Find a host.</span> Search by name, or by the name they use on social media.
+        </li>
+        <li>
+          <span className="font-medium">Ask for a time.</span> The host says yes or no. Nothing is charged when you ask.
+        </li>
+        <li>
+          <span className="font-medium">Talk.</span> You are charged after the call, and only for the time that counted. Calls are never recorded.
+        </li>
+      </ol>
+
+      <form action="/search" method="get" className="mt-8 flex max-w-md gap-2">
+        <label className="flex-1 text-sm">
+          <span className="sr-only">Find a host by name, handle or social media name</span>
+          <input name="q" type="search" maxLength={50} placeholder="Find a host: name, @handle or social media name" className="w-full rounded border border-neutral-400 bg-transparent px-3 py-2" />
+        </label>
+        <button type="submit" className="rounded border border-neutral-500 px-3 py-2 text-sm">
+          Search
+        </button>
+      </form>
+
+      <p className="mt-8 flex flex-wrap gap-3">
+        <Link href="/signup" className={`${button} bg-blue-600 text-white`}>
+          Create an account
+        </Link>
+        <Link href="/login" className={`${button} border border-neutral-500`}>
+          Log in
+        </Link>
+      </p>
+      <p className="mt-6 text-sm opacity-80">Want to take calls yourself? Create an account, then open &quot;Hosting&quot; to set up your page.</p>
+    </SitePage>
+  );
+}
+
 export default async function HomePage(props: PageProps<"/">) {
+  // Nobody logged in: the front page. Someone part-way through signing up is still sent to their next step.
+  if (!(await getSignedIn())) return <FrontPage />;
   const user = await requireUser();
   const notice = readNotice("/", await props.searchParams);
 
@@ -68,39 +116,16 @@ export default async function HomePage(props: PageProps<"/">) {
   const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [];
   const paymentsOf = new Map<string, Payment[]>();
   for (const p of payments) paymentsOf.set(p.callId, [...(paymentsOf.get(p.callId) ?? []), p]);
-  const admin = await isAdmin(user.id);
   const now = new Date();
   const [requests, toAnswer, toRate] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now)]);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10">
-      <header className="flex items-baseline justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Your calls</h1>
-        <p className="text-sm">
-          {user.name} · <SignOutButton />
-        </p>
-      </header>
-
-      <p className="mt-6">
-        <Link href="/host" className="underline underline-offset-2">
-          Hosting
-        </Link>
-        <Link href="/account" className="ml-4 underline underline-offset-2">
-          Your account
-        </Link>
-        <Link href="/contacts" className="ml-4 underline underline-offset-2">
+    <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">Your calls</h1>
+      <p className="mt-2 text-sm">
+        <Link href="/contacts" className="underline underline-offset-2">
           People you have talked to
         </Link>
-        {admin && (
-          <>
-            <Link href="/admin" className="ml-4 underline underline-offset-2">
-              Admin
-            </Link>
-            <Link href="/calls/new" className="ml-4 underline underline-offset-2">
-              Create a test call
-            </Link>
-          </>
-        )}
       </p>
 
       <form action="/search" method="get" className="mt-6 flex max-w-md gap-2">
@@ -172,7 +197,13 @@ export default async function HomePage(props: PageProps<"/">) {
       )}
 
       {calls.length === 0 ? (
-        <p className="mt-8 opacity-70">No calls yet.</p>
+        <p className="mt-8 opacity-70">
+          No calls yet. To ask for one, find a host with the search box above. To take calls yourself, open{" "}
+          <Link href="/host" className="underline underline-offset-2">
+            Hosting
+          </Link>
+          .
+        </p>
       ) : (
         <div className="mt-8 overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -217,6 +248,6 @@ export default async function HomePage(props: PageProps<"/">) {
           </table>
         </div>
       )}
-    </main>
+    </SitePage>
   );
 }

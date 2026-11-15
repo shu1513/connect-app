@@ -1,9 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { readNotice } from "@/lib/notice";
 import { returnPath } from "@/lib/safe-next";
 import { identityState, IDENTITY_TRIES, refreshIdentity } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { startIdentity } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Confirm who you are" };
 
 /**
  * "Confirm who you are": the identity check. Needed to host, before a first free call, and by
@@ -19,10 +23,10 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
   if (!state.passed && (state.pending || state.triesLeft < IDENTITY_TRIES)) state = await refreshIdentity(user.id).catch(() => state);
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
-        <Link href="/account" className="underline underline-offset-2">
-          ← Your account
+        <Link href={next ?? "/account"} className="underline underline-offset-2">
+          ← {next ? "Back to where you were" : "Your account"}
         </Link>
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Confirm who you are</h1>
@@ -68,6 +72,6 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
       <p className="mt-6 text-sm opacity-70">
         Hosts you ask for a call can see that your ID is confirmed. They never see your ID, your photos or the name on it.
       </p>
-    </main>
+    </SitePage>
   );
 }

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import Link from "next/link";
@@ -10,6 +11,9 @@ import { decisionDeadline } from "@/lib/payments/rules";
 import { requireAdmin } from "@/lib/session";
 import { refundAction } from "../calls/[id]/actions";
 import { chargeReviewed, releaseReviewed } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Admin" };
 
 const STATUS_LABEL: Record<string, string> = {
   awaiting_payment: "Waiting for payment",
@@ -48,13 +52,8 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   const field = "mt-1 block w-32 rounded border border-neutral-400 bg-transparent px-2 py-1";
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-10">
-      <p className="text-sm">
-        <Link href="/" className="underline underline-offset-2">
-          ← Your calls
-        </Link>
-      </p>
-      <h1 className="mt-4 text-2xl font-semibold">Admin: payments</h1>
+    <SitePage className="mx-auto w-full max-w-5xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">Admin</h1>
       <p className="mt-2 text-sm">
         <Link href="/admin/people" className="underline underline-offset-2">
           Hosts and accounts
@@ -62,11 +61,9 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         <Link href="/admin/reports" className="ml-4 underline underline-offset-2">
           Reports and safety
         </Link>
-        {process.env.NODE_ENV !== "production" && (
-          <Link href="/admin/outbox" className="ml-4 underline underline-offset-2">
-            Sent emails (testing)
-          </Link>
-        )}
+        <Link href="/admin/outbox" className="ml-4 underline underline-offset-2">
+          Emails
+        </Link>
       </p>
 
       {notice && (
@@ -218,6 +215,6 @@ export default async function AdminPage(props: PageProps<"/admin">) {
           </tbody>
         </table>
       </div>
-    </main>
+    </SitePage>
   );
 }
