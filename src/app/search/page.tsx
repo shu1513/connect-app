@@ -5,9 +5,10 @@ import { formatMoney } from "@/lib/payments/access";
 import { searchHosts } from "@/lib/profiles/search";
 import { SEARCH, searchTerms } from "@/lib/profiles/search-rules";
 import { getUser } from "@/lib/session";
+import { SitePage } from "@/components/site-page";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Find a host — Connect" };
+export const metadata: Metadata = { title: "Find a host" };
 
 /** Finding a host by name, handle or confirmed social media name. Open to anyone, like the host pages. */
 export default async function SearchPage(props: PageProps<"/search">) {
@@ -18,15 +19,8 @@ export default async function SearchPage(props: PageProps<"/search">) {
   const results = searched ? await searchHosts(typed, viewer?.id ?? null, new Date()) : [];
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      {viewer && (
-        <p className="text-sm">
-          <Link href="/" className="underline underline-offset-2">
-            ← Your calls
-          </Link>
-        </p>
-      )}
-      <h1 className="mt-4 text-2xl font-semibold">Find a host</h1>
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">Find a host</h1>
       <form action="/search" method="get" className="mt-4 flex gap-2">
         <label className="flex-1 text-sm">
           <span className="sr-only">Name, handle, or social media name</span>
@@ -71,6 +65,6 @@ export default async function SearchPage(props: PageProps<"/search">) {
         </ul>
       )}
       {results.length === SEARCH.results && <p className="mt-4 text-sm opacity-70">Showing the {SEARCH.results} best matches. Type more to narrow it down.</p>}
-    </main>
+    </SitePage>
   );
 }

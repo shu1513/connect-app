@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Connect",
+  // Each page gives its own name; the site name is added after it.
+  title: { default: "Connect", template: "%s — Connect" },
   description: "Private one-to-one video calls.",
 };
 

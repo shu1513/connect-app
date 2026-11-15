@@ -38,6 +38,11 @@ function Problem({ text }: { text: string | null }) {
   );
 }
 
+/** The welcome step, carrying the page the person was heading for. Someone already welcomed is passed straight on. */
+const afterWelcome = (next: string) => (next === "/" ? "/welcome" : `/welcome?next=${encodeURIComponent(next)}`);
+/** A sign-up page's own address, carrying the page the person was heading for. */
+const carrying = (path: string, next: string) => (next === "/" ? path : `${path}?next=${encodeURIComponent(next)}`);
+
 function GoogleButton({ next = "/" }: { next?: string }) {
   const [busy, setBusy] = useState(false);
   return (
@@ -104,7 +109,7 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
     if (result.error) {
       if (result.error.code === "EMAIL_NOT_VERIFIED") {
         // The password was right, but the address is not confirmed yet. A new link has been sent.
-        router.push("/check-email");
+        router.push(carrying("/check-email", next));
         return;
       }
       setError(result.error.status === 429 ? TOO_MANY : "That email and password did not match.");
@@ -159,7 +164,7 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
       </p>
       <p className="mt-2 text-sm">
         New here?{" "}
-        <Link href="/signup" className="underline underline-offset-2">
+        <Link href={carrying("/signup", next)} className="underline underline-offset-2">
           Create an account
         </Link>
       </p>
@@ -167,7 +172,8 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
   );
 }
 
-export function SignUpForm({ google }: { google: boolean }) {
+/** `next` is the page the person was on their way to (a booking, usually). It travels through the confirmation email and the welcome step. */
+export function SignUpForm({ google, next }: { google: boolean; next: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -181,7 +187,7 @@ export function SignUpForm({ google }: { google: boolean }) {
       name: String(form.get("name") ?? "").trim(),
       email: String(form.get("email") ?? ""),
       password: String(form.get("password") ?? ""),
-      callbackURL: "/welcome",
+      callbackURL: afterWelcome(next),
     });
     setBusy(false);
     if (result.error) {
@@ -189,14 +195,14 @@ export function SignUpForm({ google }: { google: boolean }) {
       return;
     }
     // The same screen whether the address is new or already has an account.
-    router.push("/check-email");
+    router.push(carrying("/check-email", next));
   }
 
   return (
     <div className="mt-6">
       {google && (
         <>
-          <GoogleButton />
+          <GoogleButton next={afterWelcome(next)} />
           <OrDivider />
         </>
       )}
@@ -223,7 +229,7 @@ export function SignUpForm({ google }: { google: boolean }) {
       </p>
       <p className="mt-2 text-sm">
         Already have an account?{" "}
-        <Link href="/login" className="underline underline-offset-2">
+        <Link href={carrying("/login", next)} className="underline underline-offset-2">
           Log in
         </Link>
       </p>
@@ -232,7 +238,7 @@ export function SignUpForm({ google }: { google: boolean }) {
 }
 
 /** Sends the confirmation link again. Always answers the same way. */
-export function ResendConfirmationForm() {
+export function ResendConfirmationForm({ next }: { next: string }) {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -242,7 +248,7 @@ export function ResendConfirmationForm() {
     setBusy(true);
     setError(null);
     const form = new FormData(event.currentTarget);
-    const result = await authClient.sendVerificationEmail({ email: String(form.get("email") ?? ""), callbackURL: "/welcome" });
+    const result = await authClient.sendVerificationEmail({ email: String(form.get("email") ?? ""), callbackURL: afterWelcome(next) });
     setBusy(false);
     if (result.error?.status === 429) {
       setError(TOO_MANY);

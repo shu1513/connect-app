@@ -13,6 +13,7 @@ import { averageFor } from "@/lib/ratings/ratings";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { getUser } from "@/lib/session";
+import { SitePage } from "@/components/site-page";
 
 // Always built fresh, so hiding or suspending a profile takes effect at once.
 export const dynamic = "force-dynamic";
@@ -31,8 +32,8 @@ export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise
   const { handle } = await props.params;
   const profile = await loadProfile(handle);
   // The same title for every page that cannot be shown, so nothing is given away.
-  if (!profile) return { title: "Not found — Connect" };
-  return { title: `${profile.displayName} (@${profile.handle}) — Connect` };
+  if (!profile) return { title: "Not found" };
+  return { title: `${profile.displayName} (@${profile.handle})` };
 }
 
 /** A host's public page. Anyone can open it, logged in or not. */
@@ -54,7 +55,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <div className="flex items-center gap-4">
         <div
           aria-hidden
@@ -139,9 +140,9 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       <section className="mt-8">
         <h2 className="text-lg font-semibold">{now ? "Or ask for a call later" : "Ask for a call"}</h2>
         {!offer || !chosen ? (
-          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking bookings at the moment.</p>
+          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls at the moment.</p>
         ) : !offer.canTakePaid ? (
-          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking bookings yet.</p>
+          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls yet.</p>
         ) : (
           <>
             <p className="mt-2 text-sm">
@@ -167,6 +168,6 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           </>
         )}
       </section>
-    </main>
+    </SitePage>
   );
 }

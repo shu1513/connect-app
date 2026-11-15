@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -12,6 +13,8 @@ import { cancelCallAction } from "./actions";
 import { CallRoom } from "./call-room";
 import { PayPanel } from "./pay-panel";
 import { RefreshWhenPaid } from "./refresh-when-paid";
+
+export const metadata: Metadata = { title: "Call" };
 
 function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): string {
   if (freeCancelMinutes === 0) return "You can cancel for free at any time before the call starts.";

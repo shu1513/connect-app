@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { and, eq } from "drizzle-orm";
 import Link from "next/link";
 import { ChangePasswordForm } from "@/components/auth-forms";
@@ -13,6 +14,9 @@ import { requireUser } from "@/lib/session";
 import { unblockAction } from "../report/actions";
 import { timeZones } from "@/lib/time-zones";
 import { saveAccount, saveReminders } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Your account" };
 
 const NOTICES: Record<string, string> = {
   saved: "Your details were saved.",
@@ -37,13 +41,8 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      <p className="text-sm">
-        <Link href="/" className="underline underline-offset-2">
-          ← Your calls
-        </Link>
-      </p>
-      <h1 className="mt-4 text-2xl font-semibold">Your account</h1>
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">Your account</h1>
 
       {((typeof notice === "string" && NOTICES[notice]) || signed) && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
@@ -60,7 +59,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
             <input name="name" type="text" defaultValue={user.name} required minLength={2} maxLength={50} className={field} />
           </label>
           <label className="block text-sm">
-            Your time zone
+            Your time zone (used for the times in your emails; screens use the time zone of your device)
             <TimeZoneSelect zones={timeZones()} saved={user.timeZone} />
           </label>
           <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 text-sm">
@@ -117,7 +116,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
         <h2 className="text-lg font-semibold">Hosting</h2>
         <p className="mt-2 text-sm">
           <Link href="/host" className="underline underline-offset-2">
-            Your host profile and payout settings
+            Your host profile, payouts and calendar
           </Link>
         </p>
       </section>
@@ -162,6 +161,6 @@ export default async function AccountPage(props: PageProps<"/account">) {
         <SignOutButton />
         <p className="mt-4 opacity-70">To close your account, contact support.</p>
       </section>
-    </main>
+    </SitePage>
   );
 }

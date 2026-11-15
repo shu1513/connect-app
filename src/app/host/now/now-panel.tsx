@@ -249,7 +249,7 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
                     {request.customerName} — {request.lengthMinutes} minutes{request.totalCents > 0 ? `, ${money(request.totalCents)}` : ", free"}
                   </p>
                   <p className="mt-1 text-sm">
-                    As a customer: {request.customerRating === "New" ? "new, not enough ratings yet" : `★ ${request.customerRating}`}
+                    As a customer: {request.customerRating === "New" ? "New: not enough ratings yet" : `★ ${request.customerRating}`}
                     {request.idConfirmed && <span className="text-green-700"> · ID confirmed</span>}
                   </p>
                   <p className="mt-1 text-sm opacity-80">

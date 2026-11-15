@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -17,6 +18,9 @@ import { Rating } from "@/components/rating";
 import { hostNoteAbout } from "@/lib/people/contacts";
 import { averageFor } from "@/lib/ratings/ratings";
 import { identityState } from "@/lib/safety/identity";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Request for a call" };
 
 const STAGE_FOR_CUSTOMER: Record<string, string> = {
   card: "Almost there: enter your card to send the request.",
@@ -76,10 +80,10 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   }
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
         <Link href={role === "host" ? "/host/requests" : "/"} className="underline underline-offset-2">
-          ← {role === "host" ? "Your requests" : "Your calls"}
+          ← {role === "host" ? "Requests for calls" : "Your calls"}
         </Link>
       </p>
       <h1 className="mt-4 text-2xl font-semibold">{role === "host" ? `Request from ${otherName}` : `Your request to ${otherName}`}</h1>
@@ -213,6 +217,6 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
           {role === "customer" && paid && booking.stage === "accepted" && " (this is also where you can pay by hand if your card needs attention)"}
         </p>
       )}
-    </main>
+    </SitePage>
   );
 }

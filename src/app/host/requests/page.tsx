@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { waitingForHost } from "@/lib/booking/bookings";
@@ -8,6 +9,9 @@ import { formatMoney } from "@/lib/payments/access";
 import { verifiedAmong } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Requests for calls" };
 
 /** The requests a host has to answer. Requests for the same time sit together. */
 export default async function HostRequestsPage(props: PageProps<"/host/requests">) {
@@ -27,7 +31,7 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   }
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
       <p className="text-sm">
         <Link href="/host" className="underline underline-offset-2">
           ← Hosting
@@ -37,6 +41,13 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
       <p className="mt-2 text-sm opacity-70">
         Several people may ask for the same time. Accepting one books the call and tells everyone else whose request it gets in
         the way of. A request you do not answer in time ends by itself.
+      </p>
+      <p className="mt-2 text-sm opacity-70">
+        Requests for a call right now are not listed here. They appear on your{" "}
+        <Link href="/host/now" className="underline underline-offset-2">
+          Available now
+        </Link>{" "}
+        page while you are switched on there.
       </p>
 
       {notice && (
@@ -60,7 +71,7 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
                   <li key={booking.id} className="text-sm">
                     <p>
                       <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"} ·{" "}
-                      <Rating shown={ratings.get(booking.customerId) ?? null} newText="new customer" />
+                      <Rating shown={ratings.get(booking.customerId) ?? null} newText="New: not enough ratings yet" />
                       {idConfirmed.has(booking.customerId) && <span className="text-green-700"> · ID confirmed</span>}
                     </p>
                     {booking.note && <p className="mt-1 opacity-80">&ldquo;{booking.note}&rdquo;</p>}
@@ -92,6 +103,6 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
           ))}
         </ul>
       )}
-    </main>
+    </SitePage>
   );
 }

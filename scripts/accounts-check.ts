@@ -389,8 +389,8 @@ async function main() {
     await freshLimits();
     {
       const visitor = await newPerson("visitor");
-      const statuses = await Promise.all(["/calls/new", "/admin", "/admin/people", "/admin/outbox"].map(async (path) => (await send(path, { jar: visitor.jar })).status));
-      check("a normal user cannot open the test-call page, the admin pages or the sent emails", statuses.every((s) => s === 404), statuses.join(" "));
+      const statuses = await Promise.all(["/admin", "/admin/people", "/admin/reports", "/admin/outbox"].map(async (path) => (await send(path, { jar: visitor.jar })).status));
+      check("a normal user cannot open the admin pages or the sent emails", statuses.every((s) => s === 404), statuses.join(" "));
       const stranger = await send("/", { jar: new Map() });
       check("someone who is not logged in is sent to the login page", (stranger.location ?? "").includes("/login"), stranger.location ?? "");
       const token = await send(`/api/calls/${randomUUID()}/token`, { method: "POST", jar: new Map() });

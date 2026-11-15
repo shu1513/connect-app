@@ -1,5 +1,9 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { NewPasswordForm } from "@/components/auth-forms";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Choose a new password" };
 
 /** Where the emailed reset link lands. The link carries a one-time token. */
 export default async function ResetPasswordPage(props: PageProps<"/reset-password">) {
@@ -7,7 +11,7 @@ export default async function ResetPasswordPage(props: PageProps<"/reset-passwor
   const usable = typeof token === "string" && token.length > 0 && typeof error !== "string";
 
   return (
-    <main className="mx-auto w-full max-w-sm px-4 py-16">
+    <SitePage bare className="mx-auto w-full max-w-sm px-4 py-16">
       <h1 className="text-2xl font-semibold">Choose a new password</h1>
       {usable ? (
         <>
@@ -26,6 +30,6 @@ export default async function ResetPasswordPage(props: PageProps<"/reset-passwor
           </p>
         </>
       )}
-    </main>
+    </SitePage>
   );
 }

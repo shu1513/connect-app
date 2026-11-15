@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -12,6 +13,9 @@ import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { getSignedIn } from "@/lib/session";
 import { sendNowRequest } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Call now" };
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +36,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   // A block either way looks, from here, exactly like a host who is not available.
   if (!open || !open.lengths.includes(minutes) || (await isBlockedEitherWay(person.id, profile.userId))) {
     return (
-      <main className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">{profile.displayName} is not available right now</h1>
         <p className="mt-4 text-sm">
           <Link href={`/h/${profile.handle}`} className="underline underline-offset-2">
@@ -40,15 +44,15 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
           </Link>{" "}
           — you can still ask for a call at a later time there.
         </p>
-      </main>
+      </SitePage>
     );
   }
   if (person.id === profile.userId) {
     return (
-      <main className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">This is your own page</h1>
         <p className="mt-4 text-sm">You cannot book a call with yourself.</p>
-      </main>
+      </SitePage>
     );
   }
   const total = bookedTotalCents(open.offer.pricePer15Cents, minutes * 60);
@@ -57,7 +61,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   if ((!paid || open.offer.verifiedOnly) && !idConfirmed) return <ConfirmIdFirst reason={paid ? "host" : "free"} hostName={profile.displayName} next={here} />;
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
         <Link href={`/h/${profile.handle}`} className="underline underline-offset-2">
           ← Back
@@ -128,6 +132,6 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
           {paid ? "Save my card and ask now" : "Ask now"}
         </button>
       </form>
-    </main>
+    </SitePage>
   );
 }

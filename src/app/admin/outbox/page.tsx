@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { desc, sql } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
@@ -6,6 +7,9 @@ import { readNotice } from "@/lib/notice";
 import { deliveryConfigured } from "@/lib/notifications/delivery";
 import { requireAdmin } from "@/lib/session";
 import { sendTestEmail } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Emails" };
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +32,7 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
     .from(schema.emailOutbox);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
       <p className="text-sm">
         <Link href="/admin" className="underline underline-offset-2">
           ← Admin
@@ -67,6 +71,6 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
           ))}
         </ul>
       )}
-    </main>
+    </SitePage>
   );
 }

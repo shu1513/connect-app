@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -8,6 +9,9 @@ import { getSignedIn } from "@/lib/session";
 import { eq } from "drizzle-orm";
 import { timeZones } from "@/lib/time-zones";
 import { finishSignUp } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "One last step" };
 
 /**
  * The last step of signing up, shown once: 18 or older, the terms, and the
@@ -27,7 +31,7 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const returning = Boolean(row?.termsAcceptedAt);
 
   return (
-    <main className="mx-auto w-full max-w-sm px-4 py-16">
+    <SitePage bare className="mx-auto w-full max-w-sm px-4 py-16">
       <h1 className="text-2xl font-semibold">{returning ? "We have updated the rules" : "One last step"}</h1>
       <p className="mt-2 text-sm opacity-70">
         {returning ? `${person.name}, please read and accept the current rules to carry on.` : `Welcome, ${person.name}. Your email address is confirmed.`}
@@ -69,7 +73,7 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
           </span>
         </label>
         <label className="block text-sm">
-          Your time zone (used to show call times)
+          Your time zone (used for the times in your emails)
           <TimeZoneSelect zones={timeZones()} saved={person.timeZone} />
         </label>
         <button type="submit" className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white">
@@ -80,6 +84,6 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
       <p className="mt-6 text-sm">
         Not you? <SignOutButton />
       </p>
-    </main>
+    </SitePage>
   );
 }

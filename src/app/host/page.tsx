@@ -1,7 +1,9 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
+import { hoursAndTimeOff } from "@/lib/booking/calendar";
 import { readNotice } from "@/lib/notice";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
@@ -21,6 +23,9 @@ import {
   socialReady,
   startPayoutSetup,
 } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Hosting" };
 
 const RULE_LABEL: Record<number, string> = {
   0: "Any time before the start (our default)",
@@ -48,14 +53,35 @@ export default async function HostPage(props: PageProps<"/host">) {
     settings = await getHostSettings(user.id);
   }
 
+  // "Getting started": what a new host has to do before anyone can ask for a call, in order. It reads what is already stored.
+  const { hours } = await hoursAndTimeOff(user.id, now);
+  const paid = profile ? profile.pricePer15Cents > 0 : false;
+  const steps: Array<{ done: boolean; text: string; note?: string; href?: string; go?: string }> = [
+    { done: Boolean(profile), text: "Fill in your profile and send it for approval.", href: "#profile", go: "Your host profile" },
+    { done: identity.passed, text: "Confirm who you are, with a photo of your ID and a selfie.", href: "/identity?next=%2Fhost", go: "Start the check" },
+    {
+      done: profile?.status === "approved",
+      text: "We approve your page.",
+      note: !profile
+        ? "This comes after steps 1 and 2."
+        : profile.status === "pending"
+          ? identity.passed
+            ? "We look at every profile ourselves. You will get an email with the answer."
+            : "We look at your profile once you have confirmed who you are (step 2)."
+          : profile.status === "declined"
+            ? "Not approved as it is. Change your profile below and we look at it again."
+            : profile.status === "suspended"
+              ? "Your page is suspended. Contact support if you think this is a mistake."
+              : undefined,
+    },
+    ...(paid ? [{ done: settings.payoutsReady, text: "Set up payouts, so you can be paid for calls.", href: "#paid", go: "Getting paid" }] : []),
+    { done: hours.length > 0, text: "Set the hours when people can ask you for a call.", href: "/host/calendar", go: "Your calendar" },
+  ];
+  const allDone = steps.every((step) => step.done);
+
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      <p className="text-sm">
-        <Link href="/" className="underline underline-offset-2">
-          ← Your calls
-        </Link>
-      </p>
-      <h1 className="mt-4 text-2xl font-semibold">Hosting settings</h1>
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">Hosting</h1>
       <p className="mt-2 text-sm">
         <Link href="/host/requests" className="underline underline-offset-2">
           Requests for calls
@@ -74,6 +100,35 @@ export default async function HostPage(props: PageProps<"/host">) {
         </p>
       )}
 
+      {!allDone && (
+        <section className="mt-6 rounded border border-blue-600 p-4 text-sm">
+          <h2 className="text-base font-semibold">Getting started</h2>
+          <p className="mt-1 opacity-80">People can ask you for a call once every step here is done.</p>
+          <ol className="mt-3 space-y-2">
+            {steps.map((step, index) => (
+              <li key={step.text} className="flex gap-2">
+                <span aria-hidden className={step.done ? "text-green-700" : "opacity-50"}>
+                  {step.done ? "✓" : "○"}
+                </span>
+                <span>
+                  <span className="sr-only">{step.done ? "Done: " : "To do: "}</span>
+                  {index + 1}. {step.text}
+                  {!step.done && step.href && (
+                    <>
+                      {" "}
+                      <Link href={step.href} className="underline underline-offset-2">
+                        {step.go}
+                      </Link>
+                    </>
+                  )}
+                  {!step.done && step.note && <span className="block opacity-80">{step.note}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       <section className="mt-8">
         <h2 className="text-lg font-semibold">Confirm who you are</h2>
         {identity.passed ? (
@@ -82,7 +137,7 @@ export default async function HostPage(props: PageProps<"/host">) {
           <p className="mt-2 text-sm">
             Before your profile can be approved, confirm that you are a real adult with a photo of your ID and a selfie, on Stripe&apos;s own
             pages.{" "}
-            <Link href="/identity" className="underline underline-offset-2">
+            <Link href="/identity?next=%2Fhost" className="underline underline-offset-2">
               Start here
             </Link>
             .
@@ -90,7 +145,7 @@ export default async function HostPage(props: PageProps<"/host">) {
         )}
       </section>
 
-      <section className="mt-8">
+      <section id="profile" className="mt-8 scroll-mt-4">
         <h2 className="text-lg font-semibold">Your host profile</h2>
         {!profile ? (
           <>
@@ -249,7 +304,7 @@ export default async function HostPage(props: PageProps<"/host">) {
         </section>
       )}
 
-      <section className="mt-10">
+      <section id="paid" className="mt-10 scroll-mt-4">
         <h2 className="text-lg font-semibold">Getting paid</h2>
         {!stripeConfigured() ? (
           <p className="mt-2 text-sm opacity-70">Paid calls are switched off because Stripe is not set up.</p>
@@ -319,6 +374,6 @@ export default async function HostPage(props: PageProps<"/host">) {
           </button>
         </form>
       </section>
-    </main>
+    </SitePage>
   );
 }

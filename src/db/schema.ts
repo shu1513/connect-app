@@ -379,7 +379,7 @@ export const bookings = pgTable(
     /** What the customer wants to talk about. Only the host sees it. */
     note: text("note").notNull().default(""),
     stage: text("stage").notNull(),
-    /** "customer" for a booked request; "now" for an instant call while the host is available; "admin" for the admin test page. */
+    /** "customer" for a booked request; "now" for an instant call while the host is available; "admin" for a call made by a check script (once also by a test page, now removed). */
     source: text("source").notNull().default("customer"),
     /** One key per press of the button, so a double click makes one request. */
     requestKey: text("request_key").notNull().unique(),

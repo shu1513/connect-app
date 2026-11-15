@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { and, asc, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
@@ -8,6 +9,9 @@ import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
 import { requireAdmin } from "@/lib/session";
 import { closeAccountAction, decideProfileAction, decideSocialAction, reopenAccountAction } from "./actions";
+import { SitePage } from "@/components/site-page";
+
+export const metadata: Metadata = { title: "Hosts and accounts" };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "Waiting for approval",
@@ -52,10 +56,10 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
   const primary = "rounded bg-blue-600 px-3 py-1.5 font-medium text-white";
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
       <p className="text-sm">
         <Link href="/admin" className="underline underline-offset-2">
-          ← Admin: payments
+          ← Admin
         </Link>
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Admin: hosts and accounts</h1>
@@ -228,6 +232,6 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
           </ul>
         </>
       )}
-    </main>
+    </SitePage>
   );
 }

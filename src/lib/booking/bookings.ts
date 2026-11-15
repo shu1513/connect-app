@@ -706,8 +706,9 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
 // ---------------------------------------------------------------------------
 
 /**
- * For the admin test page only: a call between any two people, created as an
- * already-accepted booking so it obeys the same "never two calls at once" rule.
+ * For the check scripts only (no page uses it): a call between any two people, created as an
+ * already-accepted booking so it obeys the same "never two calls at once" rule. It is marked
+ * source "admin", which keeps it out of ratings, contacts and reminders.
  */
 export async function createTestCall(input: {
   hostId: string;
