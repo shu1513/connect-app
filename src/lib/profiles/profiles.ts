@@ -121,6 +121,7 @@ export async function decideProfile(input: {
   await db.transaction(async (tx) => {
     // Read under a lock, so two presses of the same button are two steps, one after the other.
     const [before] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.userId)).for("update");
+    if (!before) throw new ProfileError("Profile not found.");
     const changed = await tx
       .update(schema.hostProfiles)
       .set({ status: input.decision, decidedBy: input.by, decidedAt, updatedAt: decidedAt })
@@ -132,7 +133,7 @@ export async function decideProfile(input: {
       );
     }
     // The host is told when the answer changes, not when the same answer is given again.
-    if (before && before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision, decidedAt });
+    if (before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision });
   });
 }
 

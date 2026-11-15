@@ -100,6 +100,15 @@ export default async function HostPage(props: PageProps<"/host">) {
         </p>
       )}
 
+      {user.paused && (
+        <p className="mt-6 rounded border border-red-600 p-3 text-sm">
+          Your account is paused, so nobody can ask you for a call at the moment, whatever is set up below.{" "}
+          <Link href="/paused" className="underline underline-offset-2">
+            Why, and what to do
+          </Link>
+        </p>
+      )}
+
       {!allDone && (
         <section className="mt-6 rounded border border-blue-600 p-4 text-sm">
           <h2 className="text-base font-semibold">Getting started</h2>

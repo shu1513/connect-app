@@ -25,8 +25,15 @@
  * Stripe test key and payouts set up for host@test.local, and is skipped with a note otherwise; the
  * founder's pages need `npx tsx scripts/secure-test-admin.ts`, and are skipped with a note otherwise.
  *
- * It only changes rows it made itself. It removes its requests and emails and hides its host; the
- * people, calls and payments stay as test data, like the other scripts leave them.
+ * What it touches besides its own rows, all of it on this computer's test database only:
+ *   - It clears the local "too many attempts" counters at the start and the end (as the accounts
+ *     check does), because every request here comes from one network address.
+ *   - The paid part books a time with host@test.local. It is skipped while that host has requests
+ *     waiting, so that accepting this one cannot end somebody else's.
+ *   - Charging the finished call runs the same step the always-on helper runs, with the real
+ *     clock, so any other call in the database that is already over and unpaid is settled too.
+ * It removes its requests and emails and hides its host; the people, calls and payments stay as
+ * test data, like the other scripts leave them.
  *
  * Usage: npx tsx scripts/journey-check.ts
  */
@@ -284,6 +291,13 @@ async function main() {
       await rateCall({ callId, raterId: customer.id, stars: 5, now: new Date() });
       await rateCall({ callId, raterId: host.id, stars: 4, now: new Date() });
       check("once rated, the results page says what was given and the reminder is gone", (await page(`/calls/${callId}/results`, customer.jar)).words.includes(`You gave Jo Journey ${RUN} 5 stars.`) && !(await page("/", customer.jar)).words.includes("Waiting for your rating"));
+      const { block, unblock } = await import("../src/lib/safety/blocks");
+      await block({ blockerId: host.id, blockedId: customer.id, now: new Date() });
+      check("if the host blocks the customer, the customer is no longer invited to book again", !(await page(`/calls/${callId}/results`, customer.jar)).words.includes("Book another call"));
+      await unblock(host.id, customer.id);
+      await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, host.id));
+      check("nor while the host has hidden their page", !(await page(`/calls/${callId}/results`, customer.jar)).words.includes("Book another call"));
+      await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, host.id));
       const customerContacts = await page("/contacts", customer.jar);
       const hostContacts = await page("/contacts", host.jar);
       check("each is now in the other's \"People you have talked to\"", customerContacts.words.includes(`Jo Journey ${RUN}`) && hostContacts.words.includes(customer.name));
@@ -295,6 +309,8 @@ async function main() {
     const hanaOffer = hana ? await B.offerOf(hana.id) : null;
     if (!process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !hana || !hanaOffer || hanaOffer.pricePer15Cents === 0 || !hanaOffer.canTakePaid) {
       console.log("   SKIPPED: this part needs the Stripe test key, and host@test.local approved, charging for calls, with hours and payouts set up.");
+    } else if ((await B.waitingForHost(hana.id)).length > 0) {
+      console.log("   SKIPPED: host@test.local has requests waiting for an answer. Answer them first, so that accepting this run's request cannot end one of them.");
     } else {
       const { stripe } = await import("../src/lib/payments/stripe");
       const { tryHoldOnce } = await import("../src/lib/booking/jobs");
@@ -335,7 +351,7 @@ async function main() {
 
     // ----------------------------------------------------------------------
     console.log("\n5. Every page, for each kind of person");
-    const BARE = ["/login", "/signup", "/forgot-password", "/check-email"];
+    const BARE = ["/login", "/signup", "/forgot-password", "/check-email", "/reset-password"];
     /** Opens each page and checks its answer, its top bar and its tab title; then opens every link found on those pages once. */
     async function walk(who: string, jar: Jar | undefined, pages: Array<[string, number | string]>) {
       const wrong: string[] = [];
@@ -343,7 +359,7 @@ async function main() {
       for (const [path, expected] of pages) {
         const reply = await send(path, { jar });
         if (typeof expected === "string") {
-          if (!(reply.status >= 300 && reply.status < 400) || !pathOf(reply.location).startsWith(expected)) wrong.push(`${path}: expected to be sent to ${expected}, got ${reply.status} ${pathOf(reply.location)}`);
+          if (!(reply.status >= 300 && reply.status < 400) || pathOf(reply.location) !== expected) wrong.push(`${path}: expected to be sent to ${expected}, got ${reply.status} ${pathOf(reply.location)}`);
           continue;
         }
         if (reply.status !== expected) {
@@ -365,15 +381,23 @@ async function main() {
       check(`${who}: each of ${pages.length} pages answers as it should, with the right top bar and its own tab title`, wrong.length === 0, wrong.join("; "));
       const broken: string[] = [];
       for (const href of linked.values()) {
-        const reply = await send(href, { jar });
-        if (reply.status >= 400) broken.push(`${href} → ${reply.status}`);
+        // Follow where the link really ends up: a link that only ever sends the person on, or to a page that is not there, is broken.
+        let at = href;
+        let reply = await send(at, { jar });
+        for (let hops = 0; hops < 5 && reply.status >= 300 && reply.status < 400; hops++) {
+          at = pathOf(reply.location);
+          if (!at.startsWith("/")) break; // off to another site (Stripe, Google): not ours to open
+          reply = await send(at, { jar });
+        }
+        if (reply.status !== 200 && at.startsWith("/")) broken.push(`${href} → ${at} ${reply.status}`);
       }
       check(`${who}: every link on those pages (${linked.size}) leads somewhere`, broken.length === 0, broken.join("; "));
     }
 
     await walk("a visitor", undefined, [
       ["/", 200], ["/search", 200], [`/search?q=Jo+Journey+${RUN}`, 200], [`/h/${handle}`, 200], ["/login", 200], ["/signup", 200], ["/forgot-password", 200], ["/check-email", 200],
-      ["/rules", 200], ["/terms", 200], ["/privacy", 200], ["/unsubscribe", 200], ["/h/nobody_here_at_all", 404],
+      ["/rules", 200], ["/terms", 200], ["/privacy", 200], ["/unsubscribe", 200], ["/reset-password", 200], ["/h/nobody_here_at_all", 404],
+      [`/h/${handle}/now?length=15`, `/login?next=${encodeURIComponent(`/h/${handle}/now?length=15`)}`], ["/admin/secure", "/login"],
       ["/account", "/login?next=%2Faccount"], ["/contacts", "/login?next=%2Fcontacts"], ["/host", "/login?next=%2Fhost"], ["/host/requests", "/login?next=%2Fhost%2Frequests"],
       [`/bookings/${freeBookingId}`, `/login?next=${encodeURIComponent(`/bookings/${freeBookingId}`)}`], [`/calls/${freeCallId}`, `/login?next=${encodeURIComponent(`/calls/${freeCallId}`)}`],
       [`/calls/${freeCallId}/results`, `/login?next=${encodeURIComponent(`/calls/${freeCallId}/results`)}`], ["/admin", "/login"], ["/identity", "/login"],
@@ -385,7 +409,7 @@ async function main() {
         ["/", 200], ["/account", 200], ["/contacts", 200], ["/search", 200], ["/host", 200], ["/host/calendar", 200], ["/host/requests", 200], ["/host/now", 200], ["/identity", 200],
         [`/bookings/${freeBookingId}`, 200], [`/calls/${freeCallId}`, 200], [`/calls/${freeCallId}/results`, 200], [`/report?call=${freeCallId}`, 200], [`/h/${handle}`, 200],
         ["/rules", 200], ["/terms", 200], ["/privacy", 200], ["/unsubscribe", 200], ["/paused", "/"], ["/login", "/"], ["/signup", "/"], ["/welcome", "/"],
-        ["/admin", 404], ["/admin/people", 404], ["/admin/reports", 404], ["/admin/outbox", 404], ["/calls/new", 404], [`/bookings/${randomUUID()}`, 404],
+        [`/h/${handle}/now?length=15`, 200], ["/admin", 404], ["/admin/people", 404], ["/admin/reports", 404], ["/admin/outbox", 404], ["/admin/secure", 404], ["/calls/new", 404], [`/bookings/${randomUUID()}`, 404],
       ],
     ];
     await walk("the customer", ...(signedIn(customerJar).slice(1) as [Jar, Array<[string, number | string]>]));
@@ -402,7 +426,7 @@ async function main() {
     if ((await send("/admin", { jar: adminJar })).status !== 200) {
       console.log("   SKIPPED the founder's pages: the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).");
     } else {
-      await walk("the founder", adminJar, [["/", 200], ["/admin", 200], ["/admin/people", 200], ["/admin/reports", 200], ["/admin/outbox", 200], [`/calls/${freeCallId}/results`, 200], ["/calls/new", 404]]);
+      await walk("the founder", adminJar, [["/", 200], ["/admin", 200], ["/admin/people", 200], ["/admin/reports", 200], ["/admin/outbox", 200], ["/admin/secure", "/admin"], [`/calls/${freeCallId}/results`, 200], ["/calls/new", 404]]);
       const record = await page(`/calls/${freeCallId}/results`, adminJar);
       check("the founder, and only the founder, sees the raw record of a call", record.words.includes("Messages received from the video service") && record.words.includes("Room confirmed closed."));
       await api("/sign-out", {}, adminJar);

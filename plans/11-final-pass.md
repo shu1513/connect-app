@@ -1,6 +1,6 @@
 # Plan 11: The final pass, joining everything together
 
-**Status:** being built (15 November 2026). Astra's check of this plan, and what was done with each point, is at the end.
+**Status:** built (15 November 2026). Astra's check of this plan, and what was done with each point, is at the end. What was built, the code review and the checks are recorded in `docs/module-record.md`.
 
 ## What this is
 

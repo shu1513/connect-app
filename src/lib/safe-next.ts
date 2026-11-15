@@ -7,7 +7,18 @@
  */
 export function safeNext(value: unknown): string {
   if (typeof value !== "string" || value.length > 2000 || !/^\/(?![\/\\])[^\s]*$/.test(value)) return "/";
-  return /^\/api(?:[\/?#]|$)/i.test(value) ? "/" : value;
+  // Read the address the way a browser will ("/x/../api" is "/api" to a browser), and judge that,
+  // so what is checked and what is followed can never be two different things.
+  let url: URL;
+  let path: string;
+  try {
+    url = new URL(value, "http://here.invalid");
+    path = decodeURIComponent(url.pathname).toLowerCase();
+  } catch {
+    return "/";
+  }
+  if (url.origin !== "http://here.invalid" || path.includes("\\") || path.startsWith("//") || /^\/api(?:\/|$)/.test(path)) return "/";
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 /**

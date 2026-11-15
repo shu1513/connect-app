@@ -11,6 +11,12 @@ describe("the email a host gets about their profile", () => {
     expect(text).toContain("https://connect.example/h/hana_host");
     expect(text).toContain("https://connect.example/host");
   });
+  it("approved while the host has hidden their page: does not say it is public", () => {
+    const { text } = profileDecisionEmail("approved", { ...host, hidden: true }, "https://connect.example");
+    expect(text).toContain("hidden by you");
+    expect(text).not.toContain("public:");
+    expect(text).not.toContain("/h/hana_host");
+  });
   it("declined: says the page is not public and that it can be changed and looked at again", () => {
     const { subject, text } = profileDecisionEmail("declined", host, "https://connect.example");
     expect(subject).toContain("not approved");

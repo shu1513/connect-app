@@ -4,13 +4,15 @@
  */
 import { SUPPORT_EMAIL } from "@/lib/terms";
 
-export function profileDecisionEmail(decision: "approved" | "declined" | "suspended", host: { name: string; handle: string }, url: string): { subject: string; text: string } {
+export function profileDecisionEmail(decision: "approved" | "declined" | "suspended", host: { name: string; handle: string; hidden?: boolean }, url: string): { subject: string; text: string } {
   const hosting = `${url}/host`;
   const said = {
     approved: {
       subject: "Your Connect page is approved",
       lines: [
-        `Your host page is approved and public: ${url}/h/${host.handle}`,
+        host.hidden
+          ? "Your host profile is approved. Your page is hidden by you at the moment; you can show it again on your Hosting page."
+          : `Your host page is approved and public: ${url}/h/${host.handle}`,
         "",
         "People can ask you for a call once your hours are set on your calendar and, if you charge for calls, once your payouts are set up. Your Hosting page shows what is left to do:",
         hosting,
