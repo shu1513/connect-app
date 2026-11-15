@@ -6,11 +6,13 @@ import {
   decisionDeadline,
   holdCoversCall,
   holdExpiry,
+  moneyTiming,
   paymentBlocksJoin,
   canCollectAgainAt,
   heldBack,
   payWindow,
   readyToCollectAt,
+  takeDecision,
 } from "./rules";
 
 const at = (iso: string) => new Date(iso);
@@ -150,6 +152,103 @@ describe("the deadline for deciding a call that needs review", () => {
     expect(decisionDeadline({ callEndsAt: END, holdExpiresAt: at("2027-01-15T12:00:00Z") })).toEqual(
       at("2027-01-14T12:00:00Z"),
     );
+  });
+});
+
+describe("when the money for a call is taken", () => {
+  const HOUR = 3_600_000;
+  const plus = (date: Date, hours: number, minutes = 0) => new Date(date.getTime() + hours * HOUR + minutes * 60_000);
+  // A booked call: the hold is placed 2 days before the start. START and END are a one-hour call.
+  const HELD = plus(START, -48);
+  const VISA = plus(HELD, 114); // 4 days 18 hours
+  const SEVEN_DAYS = plus(HELD, 168); // Mastercard, American Express, Discover
+  const NOT_GIVEN = plus(HELD, 96); // Stripe did not say: 4 days are assumed
+  const LONG_END = plus(START, 6); // the same call with time added, up to six hours
+
+  it("nobody asked: 24 hours and 10 minutes after the call, on any card", () => {
+    for (const holdExpiresAt of [VISA, SEVEN_DAYS, NOT_GIVEN]) {
+      const timing = moneyTiming({ callEndsAt: END, requestedAt: null, holdExpiresAt });
+      expect(timing.askBy).toEqual(plus(END, 24));
+      expect(timing.takeAt).toEqual(plus(END, 24, 10));
+      expect(timing.answerBy).toBeNull();
+    }
+  });
+  it("the hours of hold left on a Visa card are the ones in the plan", () => {
+    const left = (moment: Date) => Math.round((VISA.getTime() - moment.getTime()) / HOUR);
+    expect([left(END), left(plus(END, 24)), left(plus(END, 48))]).toEqual([65, 41, 17]);
+    expect([left(LONG_END), left(plus(LONG_END, 24)), left(plus(LONG_END, 48))]).toEqual([60, 36, 12]);
+  });
+  it("a request gives the host 24 hours, and the money is taken 10 minutes after that", () => {
+    const requestedAt = plus(END, 3);
+    const timing = moneyTiming({ callEndsAt: END, requestedAt, holdExpiresAt: VISA });
+    expect(timing.answerBy).toEqual(plus(requestedAt, 24));
+    expect(timing.takeAt).toEqual(plus(requestedAt, 24, 10));
+  });
+  it("a customer who asks in the last minute of a one-hour call still leaves the host 24 hours", () => {
+    const requestedAt = plus(END, 23, 59);
+    for (const holdExpiresAt of [VISA, SEVEN_DAYS]) {
+      const timing = moneyTiming({ callEndsAt: END, requestedAt, holdExpiresAt });
+      expect(timing.answerBy).toEqual(plus(requestedAt, 24));
+      expect(timing.takeAt.getTime()).toBeLessThanOrEqual(holdExpiresAt.getTime() - 12 * HOUR);
+    }
+  });
+  it("the longest call on Visa, asked in the last minute: taken exactly 12 hours before the hold ends, and the host is told the shorter time", () => {
+    const requestedAt = plus(LONG_END, 23, 59);
+    const timing = moneyTiming({ callEndsAt: LONG_END, requestedAt, holdExpiresAt: VISA });
+    expect(timing.takeAt).toEqual(plus(VISA, -12));
+    expect(timing.answerBy).toEqual(plus(VISA, -12, -10));
+    // A few minutes less than 24 hours, never more than the limit allows.
+    expect(timing.answerBy!.getTime() - requestedAt.getTime()).toBe(24 * HOUR - 9 * 60_000);
+  });
+  it("when Stripe gives no end for the hold, the customer's 24 hours still fit; only the host's time shrinks", () => {
+    for (const callEndsAt of [END, LONG_END]) {
+      const quiet = moneyTiming({ callEndsAt, requestedAt: null, holdExpiresAt: NOT_GIVEN });
+      expect(quiet.askBy).toEqual(plus(callEndsAt, 24));
+      const asked = moneyTiming({ callEndsAt, requestedAt: plus(callEndsAt, 23, 59), holdExpiresAt: NOT_GIVEN });
+      expect(asked.takeAt).toEqual(plus(NOT_GIVEN, -12));
+      expect(asked.answerBy!.getTime()).toBeGreaterThan(plus(callEndsAt, 23, 59).getTime());
+    }
+    // About 11 hours after a one-hour call, about 6 after a six-hour call.
+    const hostHours = (callEndsAt: Date) => {
+      const requestedAt = plus(callEndsAt, 23, 59);
+      return Math.round((moneyTiming({ callEndsAt, requestedAt, holdExpiresAt: NOT_GIVEN }).answerBy!.getTime() - requestedAt.getTime()) / HOUR);
+    };
+    expect([hostHours(END), hostHours(LONG_END)]).toEqual([11, 6]);
+  });
+  it("a hold that ends unusually soon shortens the customer's time too, and never the 12 hours", () => {
+    const soon = plus(END, 30); // the hold ends 30 hours after the call
+    const timing = moneyTiming({ callEndsAt: END, requestedAt: null, holdExpiresAt: soon });
+    expect(timing.takeAt).toEqual(plus(END, 18));
+    expect(timing.askBy).toEqual(plus(END, 17, 50));
+  });
+  it("by plan the money is never left on hold inside the last 12 hours", () => {
+    for (const holdExpiresAt of [VISA, SEVEN_DAYS, NOT_GIVEN]) {
+      for (const callEndsAt of [END, LONG_END]) {
+        for (const requestedAt of [null, plus(callEndsAt, 0, 1), plus(callEndsAt, 12), plus(callEndsAt, 24)]) {
+          expect(moneyTiming({ callEndsAt, requestedAt, holdExpiresAt }).takeAt.getTime()).toBeLessThanOrEqual(holdExpiresAt.getTime() - 12 * HOUR);
+        }
+      }
+    }
+  });
+
+  const base = { callEndsAt: END, holdExpiresAt: VISA, requestedAt: null, decided: false };
+  it("waits until the moment, then takes", () => {
+    expect(takeDecision({ ...base, now: plus(END, 0, 5) })).toBe("wait");
+    expect(takeDecision({ ...base, now: plus(END, 24, 9) })).toBe("wait");
+    expect(takeDecision({ ...base, now: plus(END, 24, 10) })).toBe("take");
+  });
+  it("with a request it waits for the host, and takes at once when the host has answered", () => {
+    const requestedAt = plus(END, 20);
+    expect(takeDecision({ ...base, requestedAt, now: plus(END, 30) })).toBe("wait");
+    expect(takeDecision({ ...base, requestedAt, decided: true, now: plus(END, 30) })).toBe("take");
+    expect(takeDecision({ ...base, requestedAt, now: plus(requestedAt, 24, 9) })).toBe("wait");
+    expect(takeDecision({ ...base, requestedAt, now: plus(requestedAt, 24, 10) })).toBe("take");
+  });
+  it("keeps trying after a missed moment for as long as the hold lasts, and not after", () => {
+    expect(takeDecision({ ...base, now: plus(VISA, -1) })).toBe("take");
+    expect(takeDecision({ ...base, now: plus(VISA, 0, -1) })).toBe("take");
+    expect(takeDecision({ ...base, now: VISA })).toBe("hold_ended");
+    expect(takeDecision({ ...base, decided: true, now: plus(VISA, 1) })).toBe("hold_ended");
   });
 });
 

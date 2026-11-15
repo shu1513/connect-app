@@ -730,6 +730,12 @@ export const payments = pgTable(
     originalHostShareCents: integer("original_host_share_cents"),
     /** Total successfully refunded so far. */
     refundedCents: integer("refunded_cents").notNull().default(0),
+    /**
+     * Set when the charge was lowered, or dropped, by an answer to a refund request before the money
+     * was taken: what the call's record gave at that moment, and who lowered it ("host" or "admin").
+     */
+    recordCents: integer("record_cents"),
+    loweredBy: text("lowered_by"),
     /** True while the customer's bank is disputing the charge. Blocks refunds and the host's payout. */
     disputeOpen: boolean("dispute_open").notNull().default(false),
 
@@ -875,6 +881,64 @@ export const collectionItems = pgTable(
 );
 
 /**
+ * A customer's request for a refund: one per call, asked within 24 hours of
+ * its end. The host answers (or the founder in the host's place).
+ *
+ * Where it stands (status):
+ *   asked     waiting for an answer
+ *   answered  answered before the money was taken; the answer for each charge is in refund_request_answers
+ *   declined  the host said no after the money had been taken
+ *   closed    closed by the founder
+ * A refund made after the money was taken is not stored here: it is read from
+ * the refund records. A request also counts as answered once a refund of that
+ * call, started after the request, has gone through.
+ */
+export const refundRequests = pgTable("refund_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  callId: uuid("call_id")
+    .notNull()
+    .unique()
+    .references(() => calls.id),
+  customerId: text("customer_id")
+    .notNull()
+    .references(() => user.id),
+  /** "connection" (the connection was bad) or "other". */
+  reason: text("reason").notNull(),
+  /** The customer's sentence about what went wrong. Shown to the host and the founder. */
+  note: text("note").notNull().default(""),
+  /**
+   * The short summary of the call's quality record as it stood when the request was made (JSON).
+   * For "connection" it is exactly what the customer confirmed. Kept for one year.
+   */
+  summary: text("summary"),
+  askedAt: timestamp("asked_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("asked"),
+  decidedBy: text("decided_by").references(() => user.id),
+  /** "host" or "admin". */
+  decidedAs: text("decided_as"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** The message to the customer that came with the answer. */
+  message: text("message"),
+});
+
+/** The answer for one charge of a call, given before its money was taken. The amount itself is worked out from the call's record when the money is taken. */
+export const refundRequestAnswers = pgTable(
+  "refund_request_answers",
+  {
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => refundRequests.id),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id),
+    /** "full" (what the record gives), "less" (at most maxCents) or "nothing". */
+    choice: text("choice").notNull(),
+    maxCents: integer("max_cents"),
+  },
+  (t) => [primaryKey({ columns: [t.requestId, t.paymentId] })],
+);
+
+/**
  * What each person's browser reported about the two connections during a call:
  * the video service's own grade (excellent, good, poor, lost), noted when the
  * person joined, at every change, and about twice a minute in between.
@@ -957,4 +1021,5 @@ export type HostCalendar = typeof hostCalendars.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type CallExtension = typeof callExtensions.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
+export type RefundRequest = typeof refundRequests.$inferSelect;
 export type AttendanceEvent = typeof attendanceEvents.$inferSelect;
