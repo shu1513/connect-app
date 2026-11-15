@@ -1,185 +1,172 @@
-# Plan 13: When a call goes badly because of the connection
+# Plan 13: Refund requests for a connection problem, with a record of call quality
 
-**Status:** plan, second version (16 November 2026). Not built. Astra checked the first version and
-asked for a rework; its points are worked in and listed at the end. **Two decisions by the founder
-are needed before this can be finished and checked again.** They are at the top.
+**Status:** plan, third version (16 November 2026). Not built. Astra checked the first version and
+asked for a rework. This version follows the founder's decisions made since; Astra's checks are at
+the end.
 
 ## What this is, and why
 
 The founder's concern: when a call goes badly because of the host's internet, the customer should
-not lose money, the founder should not have to sort it out by hand, and a request that is not true
-should not succeed.
+be able to get their money back, a request that is not true should not succeed, and the founder
+should not have to sort out every case by hand.
 
-Two facts about the app today make this real:
+Two facts about the app today:
 - **A customer cannot ask for a refund at all.** Only the host, or the founder, can start one.
-- **On a booked call the customer pays for the time the host is in the room**, not for the time the
-  two are together. So a customer who gives up on a bad call after five minutes keeps paying for as
-  long as the host stays in the room, and the host is the one who decides whether to give it back.
+- **On a booked call the customer pays for the time the host is in the room.** A customer who gives
+  up on a bad call after five minutes keeps paying for as long as the host stays, and the host is
+  the one who decides whether to give it back.
 
-## Decision 1 (first, because it decides how much of the rest is needed): what a booked call charges
+## What the founder decided
 
-| | **A. As today: the host's time in the room** | **B. Only the time the two are together** |
-| --- | --- | --- |
-| The customer leaves early | Pays for as long as the host stays in the room afterwards. | Stops paying when they leave. |
-| The customer is late | Pays for the time the host waited. | Pays only from when they arrive. |
-| The customer never shows up | Pays for the time the host waited. | Would pay nothing, unless the no-show rule below is kept. |
-| The host leaves early, is late or does not show | Not charged. | Not charged. |
-| A bad connection | The customer needs a refund to get money back. | The customer leaves and stops paying. Only the minutes together are in question. |
-| Who carries the risk of unused time | The customer. | The host. |
+| Question | Decided |
+| --- | --- |
+| What a booked call charges | **Stays as it is**: the time the host is in the room. (Charging only the time together was considered and not chosen.) |
+| A record of call quality | **Collect it from the first version**, and show it to whoever decides a refund. |
+| Refunding automatically | **Later**, once real calls show what good and bad calls look like in that record. |
+| Paying LiveKit for its $500-a-month plan | **Not now.** Nothing in this plan needs it. |
 
-"Available now" calls already charge by B.
+## What gets built
 
-**The builder's view, changed after working this plan through.** Rule A was chosen so that a host who
-kept the time free is paid. It has two side effects that were not clear then. A host is only paid
-for the rest of the time by sitting in an empty room after the customer has gone. And "I left after
-five minutes and was charged for the hour" is exactly the complaint, and the kind of card dispute,
-this plan is trying to avoid. Astra's check (below) showed that the app cannot reliably repair that
-afterwards with automatic refunds.
+### 1. A customer can ask for a refund
 
-So the recommendation is **B, with one protection kept from A: a customer who never joins at all
-pays for the time the host waited**, as today. That keeps a booking from being free to ignore. Its
-cost: a customer who is late, or leaves early, pays less than the host kept free, and someone could
-join for a moment to avoid the no-show charge. A small minimum charge could close that later.
-
-This is the founder's decision. It was agreed the other way in the payments module, and hosts are
-the ones who lose under B.
-
-## Decision 2: asking for a refund
-
-Whatever is decided above, a customer needs a way to ask. Recommended, and small:
-
-1. On a call's results page, once the charge is final, the customer gets **"Ask for a refund:
-   connection problem"**. One request per call, within 3 days of the call.
-2. **The request goes to the host**, by email and on the results page, together with the call's own
-   record: when each person was connected, when they dropped out, and what the video service gave
-   as the reason. The host refunds with the form they already have, any amount, or declines.
+1. On a call's results page, once the charge is final, the customer sees **"Ask for a refund:
+   connection problem"**. One request per call, within 3 days of the call, only for a call that was
+   charged.
+2. **The request goes to the host**, by email and on the results page, together with the call's
+   record (part 3 below). The host refunds with the form they already have, any amount, or declines.
 3. **If the host declines, or says nothing for 3 days**, the customer can pass it to Connect with
-   one press. The founder sees it on the existing reports screen, with the same record and the name
-   of the call's room for looking it up in LiveKit's dashboard.
+   one press. The founder sees it on the existing reports screen with the same record, and the name
+   of the call's room for looking it up in LiveKit's dashboard. The founder refunds with the tool
+   they already have, or closes it.
 
-The founder only sees the cases still in dispute. Under rule B there should be few, and small.
+Nothing about who may make a refund changes: the host, or the founder. So the rule the founder set
+in the payments module (the host decides refunds) stays. What is new is that the customer can ask,
+and that a "no" can be passed on.
 
-## Decision 3: should the app ever refund by itself?
+### 2. The app keeps a record of call quality
 
-The first version of this plan said yes, when the saved record shows the host dropped out. Astra's
-check found that this stands on weaker ground than it looked:
+During a call LiveKit works out a grade for each person's connection (excellent, good, poor, lost)
+and sends it to both browsers, for both people. Today the app throws it away.
 
-- **The record says why a connection ended, not whose fault it was.** After a network failure the
-  video toolkit often reconnects by itself, and that can be recorded as the person having left by
-  choice. So many real failures would be missed.
-- **A person can bend it.** A customer can block the host after a short stumble so the host cannot
-  get back in, which would make a brief gap look long. A host can leave tidily to avoid it.
-- **"Refund the whole call" is harsh on a long call that mostly worked.** The time a host is
-  disconnected is already not charged.
-- **It can only say yes, never no.** Nothing the app keeps can show that the host's side was fine.
+- **Collecting.** While a person is in a call, their browser tells the app each time a grade
+  changes: who it is about, and the grade. A few words each time, sent no more than once every few
+  seconds. Nothing is shown on screen, and nothing extra travels over the video connection, so it
+  does not slow the call and fits the founder's "no sign during a call".
+- **Keeping.** One new table: the call, whose browser said it, who it is about, the grade, and when
+  the app received it. The app accepts a report only from a person who is on that call, only while
+  the call's room is open, only about the two people on it, and no more than a fixed number per
+  call. Rows are removed 60 days after the call.
+- **What it is, and is not.** It is LiveKit's own grade, but it reaches the app through the two
+  people's browsers. Either person could alter or hold back what their own browser sends. So it is
+  a record of **what each browser reported**, always shown that way, and never treated as proof.
 
-**Recommended: not in the first version.** Under rule B the money at stake is small, and the host
-answers first. If it is wanted later, it would be narrow and switched off until proven on real
-calls: only a host connection that the video service itself reports as timed out, a real gap in
-the host's presence while the customer was there, never when either person has blocked the other,
-never for a charge the founder has already reviewed, and only for the part of the call after the
-first drop-out.
+### 3. The record shown with a request
 
-## A record of call quality
+To the host and the customer of that call, and to the founder, once a refund has been asked for:
 
-LiveKit works out a grade for each person's connection during a call (excellent, good, poor, lost)
-and sends it to both browsers. The app could save those, a few words each time one changes, with
-nothing shown on screen. That would be the app's own record of call quality.
+- **From what the app already saves** (LiveKit's own messages, which neither person can change):
+  when each person was connected, each time someone's connection ended, and the reason LiveKit gave,
+  in plain words ("left the call", "connection timed out", "removed when the call ended").
+- **From the new record:** for each person, how long their connection was graded good, poor or
+  lost, shown twice: as their own browser reported it and as the other person's browser reported
+  it. Where the two agree it says so; where one is missing it says "no reports".
 
-**Recommended: collect it with the first version, and only show it** to the host and the founder
-when a refund is asked for. It is not proof, because it comes from the two people's browsers and
-either could alter or withhold their own. So it is shown as "what each browser reported", never
-used to refund or refuse by itself. After real calls it will be clear whether it is dependable
-enough for more.
+One line says what the record is: "Drop-outs come from the video service. Grades are what each
+person's browser reported. Neither shows what was said or seen on the call."
 
-## What was checked about LiveKit
+### 4. Automatic refunds: not in this version
 
-| Possible source of a record | What was found | Usable by the app? |
+Left for later on purpose, as the founder decided. This version is built so that it can be added:
+every request, the record at the time, and what the host or founder decided are kept. After real
+calls, those cases show which patterns were clear, and whether the grades can be trusted enough.
+
+What Astra's first check already settled about any later automatic rule:
+- It must be narrow: a real gap in the host's presence that LiveKit reports as a timed-out
+  connection, with the customer there at the time, inside the call's final time.
+- Never when either person has blocked the other, or the call was ended with "End call and report",
+  or the charge was already reviewed by the founder, or is disputed with a bank.
+- It can say yes. It can never say no by itself: nothing the app keeps can show that the host's side
+  was fine, and two browsers agreeing is not proof.
+- A refund of a whole call with time added is several payments, each with its own record.
+
+## Smaller choices (the builder's)
+
+| Question | Chosen | Why |
 | --- | --- | --- |
-| LiveKit's dashboard | Seen with the founder's login on today's plan: for every person in every call, charts over time of picture rate, sending rate and loss. | By hand only. |
-| LiveKit's newer interface ("Cloud API", beta) | From its documentation: no quality per person, only one line for the whole call. It signs in as a person with a pass that runs out after about 30 days and cannot be renewed by a program. | No. |
-| LiveKit's older interface ("Analytics API") | For programs, but only on the plan at about $500 a month. | Not now (founder's decision). |
-| What the app already saves | Every connect and leave message from LiveKit, whole, including the reason each connection ended. Checked in the saved messages of real calls. | Yes, as a record to show. Not strong enough to refund on by itself. |
-| The grade LiveKit sends during a call | Reaches both browsers for both people. LiveKit keeps no history the app can ask for. | Yes, if the app saves it (see above). |
-
-None of this needs a paid plan.
-
-## What gets built, if the recommendations are taken
-
-**The charging rule** (decision 1, B): booked calls count the time together. A booked call the
-customer never joined keeps today's count of the host's waiting time. The words on the booking
-page, the emails, the receipt and the terms change to match. Calls already booked keep the rule
-they were booked under: each call already carries its own rule.
-
-**Refund requests** (decision 2): one small table of its own. It is not built on the safety
-reports, because sending a report also blocks the other person and counts against them. The host's
-existing refund form stays as it is; the request only adds "Decline". Where a request stands is
-read from the real refund records, so a refund the host makes by hand also settles the request.
-
-**The record shown with a request:** connected periods and drop-outs from the saved messages, with
-the reason in plain words; and the grades, once collected.
-
-**Collecting the grades:** one small table; the call screen sends a few words when a grade changes;
-nothing on screen.
-
-**The founder's reports screen** shows requests passed on, with the room name.
+| Where requests are stored | A small table of their own, not the safety reports. | Sending a safety report also blocks the other person and counts against them. Asking for a refund must do neither. |
+| How a request's state is known | Asked, declined, passed on and closed are stored. "Refunded" is read from the real refund records. | A refund the host makes by hand, of any amount, then settles the request without a second record that could disagree. A part refund does not close a request: the customer can still pass it on. |
+| When the button appears | Only once every charge of the call is final. Before that the page says the charge is still being worked out. | Right after a call the charge takes a couple of minutes, longer if time was added. A request must not be used up before there is anything to refund. |
+| The 3 days for the host | Worked out from when the request was made. No timer job. | Nothing has to run for it; the page just shows the next step when the time has passed. |
+| Who sees the quality record | The two people on the call and the founder, and only once a refund was asked for. | The customer should see what the host sees about them, and the other way round. Showing it on every call would be a new feature nobody asked for. |
+| Emails | To the host when a request arrives; to the customer when the host answers; to the founder when one is passed on. | Through the existing email queue. |
+| A limit | One request per call. | Requests cost the customer nothing and refund nothing by themselves, so no more is needed yet. |
 
 ## What is left out, on purpose
 
-- **Automatic refunds** (decision 3).
-- **Refusing a request automatically.** The app cannot know enough to say no by itself.
-- **Reading LiveKit's stored charts from the app.** It needs the expensive plan.
+- **Automatic refunds, and automatic refusals** (part 4).
+- **Changing what a booked call charges** (the founder's decision).
+- **Reading LiveKit's stored charts from the app.** It needs the expensive plan. The founder can
+  still look at them by hand in LiveKit's dashboard.
 - **A refund after the host has been paid.** The existing refund tool cannot do it, for anyone.
-  Requests close 3 days after the call, well before the earliest payday; a later case is handled by
-  the founder outside the app, as decided in the payments module.
+  Requests close 3 days after the call, and the earliest payday is 7 days after it. A host's 3 days
+  of silence can use that up to day 6, so the page shows the customer the date by which Connect
+  must be asked. A later case is handled by the founder outside the app, as decided in the payments
+  module.
+- **The connection check before a call** (plan 12) plays no part here.
 
 ## What it costs
 
-Nothing to run. One thing to know: when a card payment is refunded, the card company's fee for the
-original payment is not given back. Today that falls on Connect's side of a refund, and the same
-would be true here.
+Nothing to run, and no paid plan. One thing to know: when a card payment is refunded, the card
+company keeps its fee for the original payment. That is already true of every refund today.
 
-## What the terms must say (for the lawyer)
+## What the terms and privacy page must say (for the lawyer)
 
-What a booked call charges, if it changes; that a customer can ask for a refund for a connection
-problem within 3 days; that the host answers first and Connect can decide if they disagree; and
-that the app keeps a grade of each person's connection during a call.
+That a customer can ask for a refund for a connection problem within 3 days; that the host answers
+first and Connect can decide if they disagree; and that the app keeps a grade of each person's
+connection during a call for 60 days and shows it to the two people and to Connect when a refund is
+asked for.
 
 ## How it will be checked
 
-- Automatic tests for the new counting rule, including late arrival, leaving early, coming back, a
-  customer who never joins, and time added during a call.
-- The payments, booking and whole-journey scripts updated for the new rule; a new script for
-  requests: who may ask and when, one per call, the host's answers, passing it on, the 3 days, what
-  each person can see.
-- By hand in a browser, and one real two-person call with a deliberately bad connection to see what
-  the record and the grades show.
+- Automatic tests: turning saved messages into drop-outs with plain reasons; turning grade reports
+  into "how long at each grade" for each person as each browser reported it, including missing,
+  repeated and out-of-order reports.
+- A new check script: who may ask and when (not before the charge is final, not after 3 days, not
+  twice, not for a free or uncharged call, not someone else's call); the host's refund and decline;
+  passing it on; what each person and the founder can see; a refund made by hand settles the
+  request; grade reports are refused from someone not on the call, outside the call's time, about
+  anyone else, or beyond the limit.
+- The whole-journey script and the other check scripts must still pass.
+- By hand in a browser against the real video service: grades arriving from a real call in two
+  browsers, and the request from asking to refund.
 
-## Order of work, once decided
+**What the checks cannot cover, and a friend test must:** what the grades and the drop-out reasons
+look like on a call with a truly bad connection. That call is also the first piece of evidence for
+deciding about automatic refunds later.
 
-1. The charging rule and its wording (if B).
-2. Refund requests: asking, the host's answer, passing it on.
-3. The record shown with a request; collecting the grades.
-4. The check scripts; every check; the two reviews; the pull request.
+## Order of work, in small steps
 
-Size: about a week of building in all, plus the reviews. Decision 1 alone is about two days.
+1. Collecting the grades: the table, the route, the listener in the call screen. Nothing visible.
+2. Asking for a refund: the table, the button, the email to the host, the host's "Decline".
+3. Passing it on, and the founder's side.
+4. The record shown with a request.
+5. The check script; every check; the two reviews; the pull request.
 
-## Astra's check of the first version (16 November 2026)
+Size: about four to five days of building, plus the reviews.
 
-Verdict: **rework.** Thirteen points. The main ones, and what was done:
+## Astra's checks
 
-| Astra's point | Done |
-| --- | --- |
-| The saved reason shows how a connection ended, not that the host's internet failed or whose fault it was; a reconnect after a failure can be recorded as leaving by choice. | Automatic refunds are no longer in the first version. The record is shown to people instead. |
-| "Dropped out twice" must be worked out from real gaps in presence, with the customer there, inside the call's final time. | Kept as a condition for any later automatic rule. |
-| A customer can stretch a short gap by blocking the host. | Named as an exclusion for any later automatic rule. |
-| Refunding a whole call with time added means several payments, each with its own record; a refund can also be pending or fail. | Avoided for now: the host's existing form makes refunds, and a request's state is read from the real refund records. |
-| A charge the founder already reviewed must not be overturned automatically. | Named as an exclusion. |
-| An automatic refund needs an honest record of who decided. | Not needed while people decide. |
-| Right after a call the charge is not final yet. | The button appears once the charge is final. |
-| Three days is before payday, but a slow answer can run up to it; after payday nobody can refund in the app. | Stated in "What is left out". |
-| Refunding a whole call for two short stumbles gives back money for time that worked; card fees are not returned. | Stated; the whole-call idea is dropped. |
-| The record is real but can be influenced; do not call it beyond dispute. | Wording changed. |
-| Do not build requests on safety reports: a report blocks the other person. | Taken: a table of its own. |
-| One friend test does not settle how failures are recorded. | Taken: a real bad-connection call is in "How it will be checked", and automation waits. |
-| Leaving the grades for later is right; two browsers agreeing is not proof, and silence proves nothing. | Taken: grades are collected and shown, never decide. |
+**First version (16 November 2026): rework.** That version refunded automatically when the saved
+messages showed the host had dropped out. Thirteen points; the main ones:
+- The saved reason shows how a connection ended, not whose fault it was. After a network failure the
+  video toolkit often reconnects by itself, which can be recorded as leaving by choice.
+- A customer can stretch a short gap by blocking the host; a host can leave tidily to avoid it.
+- Refunding a whole call for two short stumbles gives back money for time that worked.
+- A refund request must not be built on the safety reports: a report blocks the other person.
+- Right after a call the charge is not final; after payday nobody can refund in the app.
+- Two browsers agreeing about a grade is not proof, and silence proves nothing.
+
+All are worked in: automatic refunds wait, the record is shown to people instead of deciding, and
+the conditions for any later automatic rule are written down in part 4.
+
+**Third version** (this one): see below.
