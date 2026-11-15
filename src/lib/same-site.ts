@@ -3,17 +3,26 @@
  * addresses the call screen talks to in the background, so that another
  * website cannot make a logged-in person's browser send things to them.
  */
-export function fromThisSite(headers: { get(name: string): string | null }): boolean {
-  // Every current browser says where a request comes from.
+
+/** The app's own addresses, from its settings: never from anything a request says about itself. */
+export function ownOrigins(): string[] {
+  const origins: string[] = [];
+  for (const address of [process.env.BETTER_AUTH_URL, process.env.PUBLIC_APP_URL]) {
+    try {
+      if (address) origins.push(new URL(address).origin);
+    } catch {
+      // A setting that is not an address names no origin.
+    }
+  }
+  return origins;
+}
+
+export function fromThisSite(headers: { get(name: string): string | null }, own: string[] = ownOrigins()): boolean {
+  // Every current browser says where a request comes from, and a page cannot change what it says.
   const site = headers.get("sec-fetch-site");
   if (site) return site === "same-origin";
-  // An older browser: compare the page's address with ours.
+  // An older browser: the page's address must be one of ours. It is compared with the app's own settings,
+  // not with a "host" or "forwarded host" header, which whoever sends the request can write.
   const origin = headers.get("origin");
-  const host = headers.get("x-forwarded-host") ?? headers.get("host");
-  if (!origin || !host) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
+  return Boolean(origin) && own.includes(origin!);
 }

@@ -59,7 +59,13 @@ export function QualityNotes({ callId, serverNow }: { callId: string; serverNow:
     noteEveryone();
     const confirming = setInterval(noteEveryone, CONFIRM_EVERY_MS);
     const sending = setInterval(() => send(false), SEND_EVERY_MS);
-    const onHide = () => send(true);
+    // On leaving, everything still waiting goes out, batch after batch: after a stretch of bad connection the
+    // queue holds more than one batch, and those are the notes that matter most. (At most 300 short notes,
+    // far below what a browser lets a closing page send.)
+    const sendAll = () => {
+      while (queue.length > 0) send(true);
+    };
+    const onHide = sendAll;
     window.addEventListener("pagehide", onHide);
     return () => {
       room.off(RoomEvent.Connected, noteEveryone);
@@ -69,7 +75,7 @@ export function QualityNotes({ callId, serverNow }: { callId: string; serverNow:
       clearInterval(confirming);
       clearInterval(sending);
       window.removeEventListener("pagehide", onHide);
-      send(true);
+      sendAll();
     };
   }, [room, callId, serverNow]);
   return null;

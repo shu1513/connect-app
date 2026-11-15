@@ -349,16 +349,20 @@ export async function unansweredRequests(): Promise<Array<{ request: RefundReque
 
 /** The summary saved with a request, and the two short texts, are kept for one year. */
 export async function forgetOldRequests(now: Date): Promise<void> {
-  const old = await db
-    .update(schema.refundRequests)
-    .set({ summary: null, note: "", message: null })
-    .where(
-      and(
-        lt(schema.refundRequests.askedAt, new Date(now.getTime() - 365 * 24 * 3_600_000)),
-        or(sql`${schema.refundRequests.summary} is not null`, ne(schema.refundRequests.note, ""), sql`${schema.refundRequests.message} is not null`),
-      ),
-    )
-    .returning({ id: schema.refundRequests.id });
-  // The emails about the request quote the two texts. Their words go too; that each was sent stays on record.
-  for (const { id } of old) await db.update(schema.emailOutbox).set({ body: REMOVED }).where(like(schema.emailOutbox.dedupeKey, `refund-request:${id}:%`));
+  // In one step: if removing the copies in the emails fails, the request keeps its texts and the whole
+  // removal is tried again next time. Otherwise the copies would never be found again.
+  await db.transaction(async (tx) => {
+    const old = await tx
+      .update(schema.refundRequests)
+      .set({ summary: null, note: "", message: null })
+      .where(
+        and(
+          lt(schema.refundRequests.askedAt, new Date(now.getTime() - 365 * 24 * 3_600_000)),
+          or(sql`${schema.refundRequests.summary} is not null`, ne(schema.refundRequests.note, ""), sql`${schema.refundRequests.message} is not null`),
+        ),
+      )
+      .returning({ id: schema.refundRequests.id });
+    // The emails about the request quote the two texts. Their words go too; that each was sent stays on record.
+    for (const { id } of old) await tx.update(schema.emailOutbox).set({ body: REMOVED }).where(like(schema.emailOutbox.dedupeKey, `refund-request:${id}:%`));
+  });
 }

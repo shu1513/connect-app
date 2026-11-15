@@ -82,9 +82,12 @@ async function main() {
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     // If the payment work fails, the booking work waits for a pass in which it went through.
     try {
-      if (stripeConfigured()) await runPaymentJobs(now);
-      // Only a round that finished counts. The health address goes "not healthy" when this gets old.
-      await recordBeat("payments", new Date());
+      if (stripeConfigured()) {
+        await runPaymentJobs(now);
+        // Only a round that ran and finished counts. The health address goes "not healthy" when this gets old,
+        // also when Stripe's key has gone missing: then no payment work is being done at all.
+        await recordBeat("payments", new Date());
+      }
     } finally {
       // Requests for more time that nobody answered, and holds of requests that were not accepted.
       // This does not depend on the payment work, so it runs whether or not that went through:

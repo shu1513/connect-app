@@ -85,6 +85,9 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                   <>
                     The money is still on hold. The host&apos;s answer costs nothing until <LocalTime iso={view.answerBy.toISOString()} />.
                   </>
+                ) : view.beingDecided ? (
+                  // On hold, but not for the host to answer: under your review (see Admin), or just being taken.
+                  "The money is still on hold and its charge is being decided: the call's record is under review, or the money is just being taken. Nothing can be answered until that is done."
                 ) : (
                   "The money has been taken. The answer is now a refund or a no."
                 )}
