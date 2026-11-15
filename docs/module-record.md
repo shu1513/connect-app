@@ -644,6 +644,10 @@ Plan: `plans/12-connection-check.md`, checked three times by Astra and once by C
 - If a person started the test themselves a few seconds before that moment, the automatic start would have stopped their test and started another, which the 20-second rule then refused: they would have seen "not measured". A test that is running is now left to finish.
 - The check script used the seed customer as "somebody else" and removed all of that person's tests afterwards. It now makes a second made-up person for that, and removes only its own made-up people.
 
+**A second look by the builder (15 November 2026), asked for by the founder:** the whole change was read again, line by line. The server side, the rule and the test itself were found sound. Two small things in the box on screen were changed, and nothing was added beyond them.
+- When the moment for starting by itself came while the page was in a background tab (a call's link opened and left for later, which is common), the test ended at once as "not measured", and then did not start again by itself for 15 minutes. It now waits until the person looks at the page.
+- If the page around the box had been drawn again while a test was running, the test would have been stopped and the box left saying "Testing…". Nothing draws that part of the page again today; the box now no longer depends on it.
+
 **What the checks cannot cover, and the founder's friend tests must:** a weak connection (it cannot be made on this computer), a real iPhone, hotel Wi-Fi, mobile data on the move, and a network that blocks video calls. A test that is still connected when the helper ends it could not be tried either: that needs a browser held open on purpose. The two limits may need adjusting after the friend tests.
 
 ---

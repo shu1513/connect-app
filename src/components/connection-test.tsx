@@ -66,32 +66,50 @@ export function ConnectionTest({
     });
   }, []);
 
+  // The wait is fixed when the box first appears. If the page around it is drawn again later, a test that is
+  // running is not stopped and the moment is not counted anew.
+  const [wait] = useState(() => autoInMs ?? 0);
+
   useEffect(() => {
     // The one start that happens by itself. It waits for its moment also on a page that was opened earlier and
     // left open, and it looks at the two notes when that moment comes, not before.
-    const wait = autoInMs ?? 0;
+    const byItself = () => {
+      // A test the person started themselves is left to finish: starting another would stop it, and the
+      // new one would be refused for coming too soon after it.
+      if (running.current) return;
+      const last = Number(note(LAST_FINISHED));
+      const recently = Number.isFinite(last) && last > 0 && Date.now() - last < NOT_AGAIN_FOR_MS;
+      const alreadyJoined = callId ? note(joinedKey(callId)) === "1" : false;
+      if (!recently && !alreadyJoined) start();
+    };
+    // A tab in the background cannot be measured (the browser slows it down). So when the moment comes while the
+    // person is looking at something else, the start waits until they look at this page.
+    const whenSeen = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", whenSeen);
+      byItself();
+    };
     let first: ReturnType<typeof setTimeout> | null =
       Number.isFinite(wait) && wait < MAX_WAIT_MS
         ? setTimeout(
             () => {
               first = null;
-              // A test the person started themselves is left to finish: starting another would stop it, and the
-              // new one would be refused for coming too soon after it.
-              if (running.current) return;
-              const last = Number(note(LAST_FINISHED));
-              const recently = Number.isFinite(last) && last > 0 && Date.now() - last < NOT_AGAIN_FOR_MS;
-              const alreadyJoined = callId ? note(joinedKey(callId)) === "1" : false;
-              if (!recently && !alreadyJoined) start();
+              if (document.hidden) document.addEventListener("visibilitychange", whenSeen);
+              else byItself();
             },
             Math.max(0, wait),
           )
         : null;
+    const neverByItself = () => {
+      if (first) clearTimeout(first);
+      first = null;
+      document.removeEventListener("visibilitychange", whenSeen);
+    };
 
     // Joining never waits for the test: the moment "Join" is pressed, the test is over, and one that was
     // about to start by itself never does.
     const onJoining = () => {
-      if (first) clearTimeout(first);
-      first = null;
+      neverByItself();
       running.current?.stop();
       running.current = null;
       if (callId) keep(joinedKey(callId), "1");
@@ -99,12 +117,12 @@ export function ConnectionTest({
     };
     window.addEventListener(JOINING_EVENT, onJoining);
     return () => {
-      if (first) clearTimeout(first);
+      neverByItself();
       window.removeEventListener(JOINING_EVENT, onJoining);
       running.current?.stop();
       running.current = null;
     };
-  }, [autoInMs, callId, start]);
+  }, [wait, callId, start]);
 
   // In the call, and after dropping out of it, nothing about the test is shown.
   if (state === "joined") return null;
