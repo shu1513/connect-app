@@ -465,6 +465,7 @@ async function main() {
       await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
       await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));
+      await db.delete(schema.connectionTests).where(eq(schema.connectionTests.userId, id));
       await db.delete(schema.user).where(eq(schema.user.id, id));
     }
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `check-${RUN}-%`));

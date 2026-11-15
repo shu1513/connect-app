@@ -30,6 +30,12 @@ export default async function HostNowPage() {
         minute after you accept. You have {NOW.answerMinutes} minutes to answer each request. You are charged nothing; the customer pays for
         the time you are both in the call.
       </p>
+      <p className="mt-2 text-sm">
+        <Link href="/connection-test" className="underline underline-offset-2">
+          Test your connection
+        </Link>{" "}
+        <span className="opacity-70">before you switch it on.</span>
+      </p>
       {!offer ? (
         <p className="mt-6 rounded border border-neutral-400 p-3 text-sm">
           To be available now, your profile must be approved and your calendar set up (at least one call length and some hours).

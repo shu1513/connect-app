@@ -23,6 +23,12 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* During a call nothing grades anyone's connection on screen (the founder's decision: it distracts the
+   person on the call). The video toolkit's small bars icon is hidden for good, also on hover. */
+.lk-connection-quality {
+  display: none !important;
+}
+
 /* The camera check asks for a name by default. We already know who is logged in. */
 .lk-prejoin input.lk-form-control[name="username"] {
   display: none;

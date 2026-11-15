@@ -349,6 +349,7 @@ async function main() {
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
     await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
     await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
+    await db.delete(schema.connectionTests).where(inArray(schema.connectionTests.userId, ids));
     await db.delete(schema.user).where(inArray(schema.user.id, ids));
   }
 
