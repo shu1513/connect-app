@@ -7,7 +7,9 @@
  * every transfer it will make before Stripe is asked anything. Sending comes
  * after that, one share at a time. Whatever is not confirmed by then is
  * finished by the always-on helper (reconcileOperations in jobs.ts), without
- * the host pressing again.
+ * the host pressing again. The one exception: a transfer the helper only
+ * reaches more than 23 hours later is not repeated. If Stripe never made it,
+ * that share is ready again for the host's next collection.
  */
 import { and, desc, eq, inArray, isNull, like, lte, ne } from "drizzle-orm";
 import { db, schema } from "@/db";

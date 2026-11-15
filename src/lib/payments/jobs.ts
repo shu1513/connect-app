@@ -208,7 +208,8 @@ export async function reconcileOperations(now: Date): Promise<void> {
         }
       } else if (operation.kind === "transfer") {
         // A share a host's collection wrote down. Whether Stripe's answer was lost or the request
-        // never left, the same request under the same label finishes it without the host pressing again.
+        // never left, the same request under the same label finishes it without the host pressing again
+        // (unless it is too old to repeat: see below).
         if (params.amountCents < 1) {
           // Nothing goes to Stripe for this one; it follows the rest of its collection.
           if (!(await settleEmptyShare(operation, params))) continue; // the rest is not known yet: look again next pass
