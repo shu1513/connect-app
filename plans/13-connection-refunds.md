@@ -28,7 +28,7 @@ Three facts about the app today:
 | How long a customer has to ask | **24 hours** after the call ends. |
 | The reason | The customer picks one: **"The connection was bad"** or **"Something else"**. |
 | Who answers | **The host**, within **24 hours**, with a message if they like. They can charge in full, less, or nothing. Passing a "no" on to Connect is left out for now. |
-| When the money is taken | **24 hours after the call** when nobody asked. With a request: **when the host answers, and at the latest 24 hours after the request**, so up to 48 hours after the call. |
+| When the money is taken | **About 24 hours after the call** when nobody asked. With a request: **at once when the host answers**; with no answer, **about 24 hours after the request**, so up to about 48 hours after the call. ("About": 10 minutes after each deadline, see part 1.) |
 | The safety limit | **Never later than 12 hours before the card's hold ends.** |
 | If the host has not answered by then | The money is taken in full. **The host cannot collect that call's money until they answer.** Nothing is refunded or refused automatically. |
 | A record of call quality | **Collected for every call.** Shown only for a request about the connection: to the customer before they confirm, then to the host. The founder can see it for any request. |
@@ -48,10 +48,10 @@ Stripe's own guidance recommends exactly this to cut the cost of refunds.
 | 2 days before a booked call | Hold placed | Hold placed |
 | The call ends | | The customer sees what they will be charged, and can ask for a refund for 24 hours |
 | A few minutes later | **Money taken** | |
-| 24 hours after the call | | Nobody asked: **money taken** |
+| About 24 hours after the call | | Nobody asked: **money taken** (10 minutes after the customer's deadline) |
 | The customer asked | | The host is told at once and has 24 hours |
 | The host answers | (a refund, fee lost) | **Money taken at once**: in full, less, or not at all. No fee lost on what is not taken |
-| 24 hours after the request, no answer | | **Money taken in full**; the request stays open |
+| About 24 hours after the request, no answer | | **Money taken in full** (10 minutes after the host's deadline); the request stays open |
 
 ## How much time there is
 
@@ -61,7 +61,7 @@ card, 2 days before the call starts, and from Stripe's documentation such a hold
 2 days of a Visa hold are already used. A call can also grow: time can be added during it, up to six
 hours in all, and the hold's clock does not stop for that.
 
-On a Visa card, hours of hold left:
+On a Visa card, hours of hold left, to the nearest hour:
 
 | Moment | A one-hour call | A call extended to six hours |
 | --- | --- | --- |
@@ -95,7 +95,8 @@ For every paid call that took place, also one with nothing wrong:
   hours after the request; the money is taken 10 minutes after that.
 - **Never later than 12 hours before the hold ends.** In full: the money is taken at the planned
   moment above or 12 hours before the hold ends, whichever comes first, and the host's deadline is
-  always 10 minutes before the money is taken. If that moment is missed (the helper was down,
+  always 10 minutes before that automatic taking. (An answer given earlier takes the money at
+  once; the 10 minutes only concern the moment the app acts by itself.) If that moment is missed (the helper was down,
   Stripe did not answer), the app keeps trying for as long as the hold lasts. An attempt whose
   answer was lost is checked with Stripe before anything is tried again, as today.
 - **The 10 minutes** (the founder's point) are so that a request or an answer sent in the last
@@ -348,10 +349,12 @@ approved rule**:
 ## What people are shown about the money
 
 - **The receipt** on the results page says what happened in plain words: "to be charged" with the
-  time, then "charged". A charge the host lowered says so ("charged $10.00 of $20.00, lowered by
-  the host"), so it is never mistaken for what the call's record gave.
-- **The founder's page** lists, on its own and not only among the latest payments: requests waiting
-  for an answer, and money still on hold with the time it is due to be taken.
+  time, then "charged". A lowered charge says so, and by whom ("charged $10.00 of $20.00, lowered
+  by the host", or "by Connect" when the founder answered), so it is never mistaken for what the
+  call's record gave.
+- **The founder's page** shows, for a lowered charge, the amount the record gave, the amount taken
+  and who lowered it. It also lists, on its own and not only among the latest payments: requests
+  waiting for an answer, and money still on hold with the time it is due to be taken.
 
 ## What it saves and what it costs
 
@@ -482,3 +485,8 @@ was done in this ninth version:
    words for a lowered charge. (Both added.)
 9. The table of hours was confirmed correct, as were the savings.
 10. Nothing over-built.
+
+**Ninth version (a confirming check): approve with changes.** All six "must" points were found
+incorporated. Two small points, both taken: the summary table and the picture now say "about 24
+hours" to match the 10 minutes in part 1; and the founder's page and the receipt say who lowered a
+charge and what the record had given.
