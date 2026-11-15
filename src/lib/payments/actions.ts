@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
+import { queueRefundEmail } from "@/lib/refunds/emails";
 import type { Payment } from "@/db/schema";
 import { addLedgerEntry, MoneyError, runMoneyOperation, type OperationPlan, type Tx } from "./operations";
 import { MIN_CHARGE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
@@ -281,6 +282,8 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
     .update(schema.payments)
     .set({ refundedCents, transferStatus: nothingOwedNow ? "not_owed" : payment.transferStatus, updatedAt: new Date() })
     .where(eq(schema.payments.id, payment.id));
+  // The customer is told in the same step that records the refund, with the message that came with it.
+  await queueRefundEmail(tx, refund);
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_refund", amountCents: -refund.amountCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: stripeRefundId });

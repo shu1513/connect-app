@@ -277,6 +277,10 @@ describe("when a share can be collected", () => {
     expect(heldBack({ ...share, refundOnItsWay: true })).toBe("refund");
     expect(heldBack({ ...share, actionUnfinished: true })).toBe("being_sent");
     expect(heldBack({ ...share, disputeOpen: true, refundOnItsWay: true, actionUnfinished: true })).toBe("dispute");
+    // A refund request on the call that is not answered, or whose answer is still being applied.
+    expect(heldBack({ ...share, request: "request" })).toBe("request");
+    expect(heldBack({ ...share, request: "answer_applying" })).toBe("answer_applying");
+    expect(heldBack({ ...share, request: null })).toBeNull();
   });
   it("a host can collect again exactly 24 hours after the last time", () => {
     expect(canCollectAgainAt(null)).toBeNull();

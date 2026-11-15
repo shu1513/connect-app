@@ -32,6 +32,7 @@ async function main() {
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
   const { recordBeat } = await import("../src/lib/health");
   const { removeOldNotes } = await import("../src/lib/quality/notes");
+  const { forgetOldRequests, writeAnswerReminders } = await import("../src/lib/refunds/requests");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -96,6 +97,8 @@ async function main() {
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
+    // The summary and the two short texts of a refund request are kept for one year.
+    if (passes % 720 === 0) await forgetOldRequests(now).catch((error) => console.error("[refunds] forgetting old requests failed; will retry", error));
     passes++;
   }
 
@@ -107,6 +110,8 @@ async function main() {
     const now = new Date();
     await writeCallReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
     await writeRequestReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
+    // To a host with a refund request waiting, once, halfway through their time to answer.
+    await writeAnswerReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
   }
 
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */

@@ -68,6 +68,10 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
                   "the customer's bank is disputing this charge"
                 ) : heldBack === "refund" ? (
                   "a refund is on its way"
+                ) : heldBack === "request" ? (
+                  "waiting for your answer to a refund request"
+                ) : heldBack === "answer_applying" ? (
+                  "your answer to a refund request is being applied"
                 ) : heldBack === "being_sent" ? (
                   "being checked with Stripe"
                 ) : payment.transferDueAt ? (

@@ -12,6 +12,9 @@ import { formatDuration } from "@/lib/format";
 import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
+import { attendanceChargeCents, countedSeconds } from "@/lib/payments/pricing";
+import { isDecided, moneyPlan } from "@/lib/payments/take";
+import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
 import { getSignedIn, isAdminSession } from "@/lib/session";
@@ -22,6 +25,7 @@ import { publicProfile } from "@/lib/profiles/profiles";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { rateCallAction, refundAction } from "../actions";
 import { SitePage } from "@/components/site-page";
+import { RefundRequest } from "./refund-request";
 
 export const metadata: Metadata = { title: "Call results" };
 
@@ -38,7 +42,8 @@ const fromSeconds = (s: number) => new Date(s * 1000).toISOString();
 export default async function ResultsPage(props: PageProps<"/calls/[id]/results">) {
   const { id } = await props.params;
   const user = await requireUser(`/calls/${id}/results`);
-  const notice = readNotice(`/calls/${id}/results`, await props.searchParams);
+  const query = await props.searchParams;
+  const notice = readNotice(`/calls/${id}/results`, query);
   // The founder's login. Kept apart from the role below: a founder who was in the call is "host" or
   // "customer" there (for the rating and the receipt), and still sees the raw record.
   const founder = await isAdminSession(await getSignedIn());
@@ -59,6 +64,16 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
     db.select().from(schema.callExtensions).where(eq(schema.callExtensions.callId, call.id)).orderBy(asc(schema.callExtensions.createdAt)),
   ]);
+  // Where the money stands: the charges still on hold, what the record gives for each right now, and when they are taken.
+  const now = new Date();
+  const plan = payments.length > 0 ? await moneyPlan(call) : null;
+  const request = payments.length > 0 ? await requestViewOf(call) : null;
+  const toBeCharged = new Map<string, number | null>();
+  for (const held of plan?.held ?? []) {
+    const own = await loadAttendance(call, now, { from: held.coversFrom, until: held.coversUntil });
+    const final = own.final && call.closedAt && own.result.status === "complete" && own.result.totals;
+    toBeCharged.set(held.id, final ? attendanceChargeCents({ pricePer15Cents: held.pricePer15Cents, bookedSeconds: own.bookedSeconds, countedSeconds: countedSeconds(call, own.result.totals!) }) : null);
+  }
   const extensionOf = new Map(extensions.map((e) => [e.id, e]));
   const addedMinutes = extensions.filter((e) => e.status === "accepted").reduce((sum, e) => sum + e.minutes, 0);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
@@ -188,6 +203,23 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         </p>
       )}
 
+      {payments.length > 0 && (
+        <RefundRequest
+          call={call}
+          role={role}
+          founder={founder}
+          view={request}
+          names={{ host: nameOf.get(call.hostId) ?? "the host", customer: nameOf.get(call.customerId) ?? "the customer" }}
+          asking={typeof query.ask === "string" ? query.ask : null}
+          charges={(request?.open ?? []).map((p) => ({
+            paymentId: p.id,
+            label: p.extensionId ? `The ${extensionOf.get(p.extensionId)?.minutes ?? ""} minutes added during the call` : "The call itself",
+            recordCents: toBeCharged.get(p.id) ?? null,
+            bookedCents: p.bookedCents,
+          }))}
+        />
+      )}
+
       {payments.length > 0 ? (
         payments.map((p) => (
           <Receipt
@@ -198,6 +230,11 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
             refunds={refunds.filter((r) => r.paymentId === p.id)}
             billing={call.billing}
             addedMinutes={p.extensionId ? (extensionOf.get(p.extensionId)?.minutes ?? 0) : null}
+            waiting={
+              toBeCharged.has(p.id)
+                ? { cents: toBeCharged.get(p.id) ?? null, takeAt: plan?.timing?.takeAt ?? null, decided: isDecided(plan?.request), askedFor: Boolean(plan?.request) }
+                : null
+            }
           />
         ))
       ) : (
@@ -276,10 +313,15 @@ function Receipt(props: {
   payment: Payment;
   role: "host" | "customer" | "admin";
   callId: string;
-  refunds: Array<{ id: string; amountCents: number; status: string; decidedAs: string; createdAt: Date }>;
+  refunds: Array<{ id: string; amountCents: number; status: string; decidedAs: string; reason: string | null; createdAt: Date }>;
   billing: string;
   /** Null for the call's own payment. Otherwise the minutes this payment was asked for. */
   addedMinutes: number | null;
+  /**
+   * For an ordinary charge that is still on hold after the call: what the record gives now (null until the
+   * record is final), when the money is taken, and whether a refund request was made and decided.
+   */
+  waiting: { cents: number | null; takeAt: Date | null; decided: boolean; askedFor: boolean } | null;
 }) {
   const { payment, role, refunds } = props;
   const split = currentSplit(payment);
@@ -300,12 +342,33 @@ function Receipt(props: {
           : `${formatMoney(payment.bookedCents)} is held on the customer's card. The charge is worked out after the call.`
         : payment.status === "closed_uncharged"
           ? `Nothing was charged for ${extra ? "this extra time" : "this call"}.`
-          : `Charged ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} ${extra ? "held" : "booked"}.`;
+          : payment.loweredBy && payment.recordCents !== null
+            ? // Never mistaken for what the call's record gave: it says who lowered it.
+              `Charged ${formatMoney(payment.chargedCents ?? 0)} of ${formatMoney(payment.recordCents)}, lowered by ${payment.loweredBy === "admin" ? "Connect" : "the host"}.`
+            : `Charged ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} ${extra ? "held" : "booked"}.`;
+  const waiting = payment.status === "held" && !payment.needsReview ? props.waiting : null;
 
   return (
     <section className="mt-6 rounded border border-neutral-400 p-4">
       <h2 className="text-lg font-semibold">{extra ? `Payment for ${props.addedMinutes} more minutes` : "Payment"}</h2>
       <p className="mt-1">{headline}</p>
+      {waiting && waiting.cents !== null && (
+        <p className="mt-1" data-to-be-charged>
+          To be charged: <span className="font-medium">{formatMoney(waiting.cents)}</span>
+          {waiting.decided ? (
+            ". The answer to the refund request is being applied."
+          ) : waiting.takeAt ? (
+            <>
+              {waiting.askedFor ? ", at the latest on " : ", on "}
+              <LocalTime iso={waiting.takeAt.toISOString()} />
+              {waiting.askedFor ? ", or sooner when the host answers the refund request (the amount can then be lower)." : ". Nothing is taken from the card before then."}
+            </>
+          ) : (
+            "."
+          )}
+        </p>
+      )}
+      {waiting && waiting.cents === null && <p className="mt-1 text-sm opacity-70">The amount is shown here a few minutes after the call, once its record is final.</p>}
       {payment.status === "closed_uncharged" && payment.reviewReason && <p className="mt-1 text-sm opacity-70">{payment.reviewReason}</p>}
 
       {payment.status === "charged" && (
@@ -366,8 +429,9 @@ function Receipt(props: {
         <ul className="mt-3 text-sm">
           {refunds.map((r) => (
             <li key={r.id}>
-              Refund of {formatMoney(r.amountCents)} by the {r.decidedAs}:{" "}
+              Refund of {formatMoney(r.amountCents)} by {r.decidedAs === "admin" ? "Connect" : "the host"}:{" "}
               {r.status === "done" ? "sent" : r.status === "failed" ? "did not go through" : "in progress"}
+              {r.reason ? `. Message: "${r.reason}"` : ""}
             </li>
           ))}
         </ul>
@@ -391,8 +455,8 @@ function Receipt(props: {
             />
           </label>
           <label>
-            Reason (optional)
-            <input name="reason" type="text" maxLength={200} className="mt-1 block w-64 rounded border border-neutral-400 bg-transparent px-3 py-1.5" />
+            Message to the customer (optional)
+            <input name="reason" type="text" maxLength={300} className="mt-1 block w-64 rounded border border-neutral-400 bg-transparent px-3 py-1.5" />
           </label>
           <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5">
             Refund

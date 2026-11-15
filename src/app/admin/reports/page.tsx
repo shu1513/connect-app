@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
+import { unansweredRequests } from "@/lib/refunds/requests";
 import { openReports, REPORT_REASONS } from "@/lib/safety/reports";
 import { switches } from "@/lib/safety/switches";
 import { RULES } from "@/lib/terms";
@@ -31,6 +32,10 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
       .orderBy(desc(schema.adminActions.createdAt))
       .limit(50),
   ]);
+  // Read on its own, oldest first: a request whose host has gone silent must not sink out of sight.
+  const requests = await unansweredRequests();
+  const people = requests.length > 0 ? await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user) : [];
+  const nameOf = new Map(people.map((person) => [person.id, person.name]));
   const field = "mt-1 rounded border border-neutral-400 bg-transparent px-2 py-1";
   const button = "rounded border border-neutral-500 px-3 py-1.5";
   const ruleOptions = RULES.map((rule) => (
@@ -55,6 +60,44 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
         </p>
+      )}
+
+      <h2 className="mt-8 text-lg font-semibold">Refund requests waiting for an answer ({requests.length})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        The host decides. A host cannot collect the money for a call until they have answered its request. Open a call to see the connection
+        record, to answer in the host&apos;s place before the money is taken, to refund, or to close the request.
+      </p>
+      {requests.length === 0 ? (
+        <p className="mt-3 text-sm opacity-70">No request is waiting.</p>
+      ) : (
+        <ul className="mt-3 space-y-3" data-refund-requests>
+          {requests.map(({ request, call, view }) => (
+            <li key={request.id} className="rounded border border-neutral-400 p-3 text-sm">
+              <p className="font-medium">
+                {nameOf.get(call.customerId)} asked {nameOf.get(call.hostId)} (host), <LocalTime iso={request.askedAt.toISOString()} />
+              </p>
+              <p className="mt-1">
+                Reason: {request.reason === "connection" ? "the connection was bad" : "something else"}
+                {request.note ? `. "${request.note}"` : "."}
+              </p>
+              <p className="mt-1">
+                {view.answerBy ? (
+                  <>
+                    The money is still on hold. The host&apos;s answer costs nothing until <LocalTime iso={view.answerBy.toISOString()} />.
+                  </>
+                ) : (
+                  "The money has been taken. The answer is now a refund or a no."
+                )}
+              </p>
+              <p className="mt-1 opacity-70">Room name, for the video service&apos;s dashboard: {call.roomName}</p>
+              <p className="mt-1">
+                <Link href={`/calls/${call.id}/results#refund`} className="underline underline-offset-2">
+                  Open the call
+                </Link>
+              </p>
+            </li>
+          ))}
+        </ul>
       )}
 
       <h2 className="mt-8 text-lg font-semibold">Open reports ({reports.length})</h2>

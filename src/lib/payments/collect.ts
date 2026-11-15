@@ -11,10 +11,11 @@
  * reaches more than 23 hours later is not repeated. If Stripe never made it,
  * that share is ready again for the host's next collection.
  */
-import { and, desc, eq, inArray, isNull, like, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, lte, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { applyTransferSent, currentSplit, transferSteps, type TransferParams } from "./actions";
+import { requestHolds } from "@/lib/refunds/requests";
 import { refreshPayoutsReady } from "./hosts";
 import {
   completeMoneyOperation,
@@ -57,10 +58,19 @@ async function heldBackNow(reader: Reader, payments: Payment[], now: Date): Prom
     .where(and(inArray(schema.moneyOperations.paymentId, ids), eq(schema.moneyOperations.status, "started")));
   const refunding = new Set(refunds.map((r) => r.paymentId));
   const busy = new Set(unfinished.map((o) => o.paymentId));
+  // A refund request that is not answered holds every charge of its call.
+  const requests = await requestHolds(reader, [...new Set(payments.map((p) => p.callId))]);
   return new Map(
     payments.map((p) => [
       p.id,
-      heldBack({ now, readyAt: p.transferDueAt, disputeOpen: p.disputeOpen, refundOnItsWay: refunding.has(p.id), actionUnfinished: busy.has(p.id) }),
+      heldBack({
+        now,
+        readyAt: p.transferDueAt,
+        disputeOpen: p.disputeOpen,
+        refundOnItsWay: refunding.has(p.id),
+        actionUnfinished: busy.has(p.id),
+        request: requests.get(p.callId) ?? null,
+      }),
     ]),
   );
 }
@@ -135,11 +145,16 @@ export async function acceptCollection(input: {
 
     // Lock every share that might be taken, always in the same order, then judge each as it stands now.
     const candidates = await tx
-      .select({ id: schema.payments.id })
+      .select({ id: schema.payments.id, callId: schema.payments.callId })
       .from(schema.payments)
       .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
       .where(and(eq(schema.calls.hostId, input.hostId), UNSENT, lte(schema.payments.transferDueAt, now)))
       .orderBy(schema.payments.id);
+    // The order of locks is the same everywhere: this host's collection, then the calls, then their payments,
+    // then request and refund records. So whether a call has an unanswered refund request is read with that
+    // call locked, in the same step that starts its transfer.
+    const callIds = [...new Set(candidates.map((c) => c.callId))];
+    if (callIds.length > 0) await tx.select({ id: schema.calls.id }).from(schema.calls).where(inArray(schema.calls.id, callIds)).orderBy(asc(schema.calls.id)).for("update");
     const locked: Payment[] = [];
     for (const { id } of candidates) locked.push(await lockPayment(tx, id));
     const judged = await heldBackNow(tx, locked, now);
