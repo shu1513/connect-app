@@ -7,6 +7,7 @@
  */
 import { and, eq, isNull, lt } from "drizzle-orm";
 import { db, schema } from "@/db";
+import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
 import { moneyTiming } from "@/lib/payments/rules";
 import { earliestExpiry, heldOrdinary, isDecided } from "@/lib/payments/take";
@@ -33,25 +34,28 @@ export async function moneyOverdue(now: Date): Promise<boolean> {
     .from(schema.payments)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
     .where(and(eq(schema.payments.status, "held"), eq(schema.payments.needsReview, false), isNull(schema.calls.cancelledAt), lt(schema.calls.endsAt, new Date(now.getTime() - OVERDUE_MS))));
-  for (const { call } of calls) {
-    const held = (await heldOrdinary(db, call.id)).filter((p) => p.holdExpiresAt && p.holdExpiresAt > now);
-    const expiry = earliestExpiry(held);
-    if (!expiry) continue;
-    const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
-    const dueAt = isDecided(request) && request.decidedAt ? request.decidedAt : moneyTiming({ callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
-    if (now.getTime() <= dueAt.getTime() + OVERDUE_MS) continue;
-    for (const payment of held) {
-      const [started] = await db
-        .select({ id: schema.moneyOperations.id })
-        .from(schema.moneyOperations)
-        .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started")))
-        .limit(1);
-      if (started) continue;
-      // Only a charge the helper would really take or release now counts: its record is final and adds up.
-      const record = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
-      if (!record.final || !call.closedAt || record.result.status !== "complete" || !record.result.totals) continue;
-      return true;
-    }
+  for (const { call } of calls) if (await callOverdue(call, now)) return true;
+  return false;
+}
+
+/** The same question for one call. */
+export async function callOverdue(call: Call, now: Date): Promise<boolean> {
+  const held = (await heldOrdinary(db, call.id)).filter((p) => p.holdExpiresAt && p.holdExpiresAt > now);
+  const expiry = earliestExpiry(held);
+  if (!expiry || call.cancelledAt) return false;
+  const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
+  const dueAt = isDecided(request) && request.decidedAt ? request.decidedAt : moneyTiming({ callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
+  if (now.getTime() <= dueAt.getTime() + OVERDUE_MS) return false;
+  for (const payment of held) {
+    const [started] = await db
+      .select({ id: schema.moneyOperations.id })
+      .from(schema.moneyOperations)
+      .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started")))
+      .limit(1);
+    if (started) continue;
+    // Only a charge the helper would really take or release now counts: its record is final and adds up.
+    const record = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
+    if (record.final && call.closedAt && record.result.status === "complete" && record.result.totals) return true;
   }
   return false;
 }

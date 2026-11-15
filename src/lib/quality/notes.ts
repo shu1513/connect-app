@@ -5,7 +5,9 @@
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
-import { NOTES_PER_PERSON_PER_CALL, type IncomingNote } from "./rules";
+import { roleOnCall, roomClosesAt, roomOpensAt, roomState } from "@/lib/calls";
+import { fromThisSite } from "@/lib/same-site";
+import { NOTES_PER_PERSON_PER_CALL, readNotes, type IncomingNote } from "./rules";
 
 /** Notes are removed this long after the call. */
 export const KEEP_NOTES_DAYS = 60;
@@ -44,6 +46,35 @@ export async function saveNotes(input: {
     if (rows.length > 0) await tx.insert(schema.qualityNotes).values(rows).onConflictDoNothing();
     return "saved" as const;
   });
+}
+
+/**
+ * Everything the server checks before it keeps a batch of notes, in one place.
+ * Accepted only from a logged-in person who is on this call, from our own
+ * pages, while the room is open and the call was not cancelled or stopped.
+ * Gives back the status to answer with, and nothing else: the call screen
+ * does not wait for it.
+ */
+export async function receiveNotes(input: { userId: string | null; callId: string; headers: { get(name: string): string | null }; text: string; now: Date }): Promise<number> {
+  if (!fromThisSite(input.headers)) return 403;
+  if (!input.userId) return 401;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.callId)) return 404;
+  const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, input.callId));
+  // A stranger gets the same answer whether or not the call exists.
+  if (!call || !roleOnCall(call, input.userId)) return 404;
+  if (call.cancelledAt || call.safetyEndedAt || roomState(call, input.now) !== "open") return 409;
+
+  if (input.text.length === 0 || input.text.length > 20_000) return 400;
+  let body: unknown;
+  try {
+    body = JSON.parse(input.text);
+  } catch {
+    return 400;
+  }
+  const read = readNotes(body, { opensAt: roomOpensAt(call), closesAt: roomClosesAt(call), now: input.now });
+  if (!read) return 400;
+  const outcome = await saveNotes({ call, reporterId: input.userId, connectionId: read.connectionId, notes: read.notes });
+  return outcome === "saved" ? 204 : 429;
 }
 
 /** Removes the notes of calls that ended more than 60 days ago. Returns how many calls were cleared. */

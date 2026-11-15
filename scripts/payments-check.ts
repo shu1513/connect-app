@@ -97,6 +97,8 @@ async function main() {
   }
 
   const after = (call: { endsAt: Date }, minutes: number) => new Date(call.endsAt.getTime() + minutes * 60_000);
+  /** The moment the money for a call is taken when nobody asked for a refund: 24 hours and 10 minutes after its end. */
+  const taken = (call: { endsAt: Date }) => after(call, 24 * 60 + 10);
   const reload = async (id: string) => (await db.select().from(schema.payments).where(eq(schema.payments.id, id)))[0];
   const ledgerSum = async (id: string, kind: string) =>
     (
@@ -120,16 +122,21 @@ async function main() {
 
     await attend(call, [["host", 60, 540], ["customer", 0, 600]]);
     await settleFinishedCalls(after(call, 5));
+    const waiting = await reload(payment.id);
+    check("minutes after the call nothing is taken yet: the money stays on hold", waiting.status === "held" && !waiting.needsReview && (await stripeIntent(payment.id)).status === "requires_capture", waiting.status);
+    await settleFinishedCalls(after(call, 24 * 60 + 9));
+    check("still on hold a minute before the planned moment", (await reload(payment.id)).status === "held");
+    await settleFinishedCalls(taken(call));
     const p = await reload(payment.id);
     // 480 seconds at $20 per 15 minutes = $10.67
-    check("charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
+    check("24 hours and 10 minutes after the call: charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
     check("fee 82 cents, host $9.85", p.originalFeeCents === 82 && p.originalHostShareCents === 985, `${p.originalFeeCents} ${p.originalHostShareCents}`);
     check("time totals frozen", p.frozenHostSeconds === 480 && p.frozenTogetherSeconds === 480);
     check("the host's share is ready to collect exactly 2 days after the call", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === call.endsAt.getTime() + 48 * 3_600_000, String(p.transferDueAt?.toISOString()));
     const intent = await stripeIntent(payment.id);
     check("Stripe received exactly $10.67", intent.status === "succeeded" && intent.amount_received === 1067, `${intent.status} ${intent.amount_received}`);
 
-    await settleFinishedCalls(after(call, 6));
+    await settleFinishedCalls(after(call, 24 * 60 + 20));
     await capturePayment({ paymentId: payment.id, amountCents: 1067, reason: "attendance", frozen: null, callEndsAt: call.endsAt }).catch(() => "refused");
     check("running it all again charges nothing more", (await stripeIntent(payment.id)).amount_received === 1067);
     check("money record: one charge line", (await ledgerSum(payment.id, "customer_charge")) === 1067);
@@ -248,7 +255,7 @@ async function main() {
     const held = await hold(call, payment.id, "pm_card_gb");
     check("card country recorded as GB", held.cardCountry === "GB", String(held.cardCountry));
     await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
-    await settleFinishedCalls(after(call, 5));
+    await settleFinishedCalls(taken(call));
     const p = await reload(payment.id);
     // 4.9% of $13.33 = 65 cents, + 30 cents, + 1.5% = 20 cents
     check("fee includes the foreign-card 1.5%", p.originalFeeCents === 115 && p.originalHostShareCents === 1218, `${p.originalFeeCents} ${p.originalHostShareCents}`);
@@ -276,7 +283,7 @@ async function main() {
     const outcome = await cancelCall({ call: await reloadCall(call.id), payment: held, by: "customer", now: new Date() });
     check("cancelling is late", outcome === "late_charge");
     const p = await reload(payment.id);
-    check("the full booked price is charged", p.status === "charged" && p.chargedCents === 1333 && p.chargeReason === "late_cancel", `${p.status} ${p.chargedCents}`);
+    check("the full booked price is charged at once (a late cancellation does not wait a day)", p.status === "charged" && p.chargedCents === 1333 && p.chargeReason === "late_cancel", `${p.status} ${p.chargedCents}`);
     check("Stripe received the full booked price", (await stripeIntent(payment.id)).amount_received === 1333);
     await settleCancelledCalls();
     await settleFinishedCalls(after(call, 30));
@@ -350,7 +357,7 @@ async function main() {
     const { call, payment } = await newCall();
     await hold(call, payment.id, "pm_card_visa");
     await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
-    await settleFinishedCalls(after(call, 5));
+    await settleFinishedCalls(taken(call));
     const refundId = randomUUID();
     const label = `refund:${refundId}:1`;
     await db.insert(schema.refunds).values({ id: refundId, paymentId: payment.id, amountCents: 400, decidedBy: host.id, decidedAs: "host" });
@@ -406,7 +413,7 @@ async function main() {
     const { call, payment } = await newCall();
     await hold(call, payment.id, "pm_card_visa");
     await attend(call, [["host", 0, 600], ["customer", 0, 600]]);
-    await settleFinishedCalls(after(call, 5));
+    await settleFinishedCalls(taken(call));
     const requestId = randomUUID();
     const refund = () => refundPayment({ paymentId: payment.id, amountCents: 500, decidedBy: host.id, decidedAs: "host", reason: null, requestId });
     await refund();
@@ -531,7 +538,7 @@ async function main() {
         const call = await newCall(hostId);
         await hold(call.call, call.payment.id, card);
         await attend(call.call, visits);
-        await settleFinishedCalls(after(call.call, 5));
+        await settleFinishedCalls(taken(call.call));
         return call;
       };
       const transfersFor = async (callId: string) => (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data;

@@ -5,6 +5,7 @@ import { formatDuration } from "@/lib/format";
 import { formatMoney } from "@/lib/payments/access";
 import { ENDED_WORDS, type GradeTimes, type PersonQuality, type QualitySummary } from "@/lib/quality/summary";
 import { askBy, loadSummary, MESSAGE_MAX, NOTE_MAX, type RequestView } from "@/lib/refunds/requests";
+import { recordVisibleTo } from "@/lib/refunds/rules";
 import { answerRequestAction, askRefundAction, closeRequestAction, declineRequestAction } from "../actions";
 
 type Names = { host: string; customer: string };
@@ -129,7 +130,8 @@ export async function RefundRequest(props: {
     if (role !== "customer") return null;
     const until = await askBy(call, now);
     if (!until || now >= until) return null;
-    const record = props.asking === "connection" ? await loadSummary(call) : null;
+    const mayLook = recordVisibleTo({ role, founder: props.founder, requestReason: null, canStillAsk: true });
+    const record = props.asking === "connection" && mayLook ? await loadSummary(call) : null;
     return (
       <section id="refund" className="mt-6 scroll-mt-4 rounded border border-neutral-400 p-4 text-sm">
         <h2 className="text-lg font-semibold">Ask for a refund</h2>
@@ -182,7 +184,7 @@ export async function RefundRequest(props: {
   // ---- A request exists.
   const { request } = view;
   const deciding = role === "host" || props.founder;
-  const mayOpenRecord = props.founder || (request.reason === "connection" && (role === "host" || role === "customer"));
+  const mayOpenRecord = recordVisibleTo({ role, founder: props.founder, requestReason: request.reason, canStillAsk: false });
   const saved = mayOpenRecord ? parseSummary(request.summary) : null;
   const decidedBy = request.decidedAs === "admin" ? "Connect" : names.host;
   const answerOf = (paymentId: string) => view.answers.find((a) => a.paymentId === paymentId);
@@ -228,8 +230,11 @@ export async function RefundRequest(props: {
         </p>
       )}
       {request.status === "asked" && view.answered && <p className="mt-3 font-medium">Answered with a refund. It is listed in the payment below.</p>}
+      {request.status === "asked" && !view.answered && view.nothingAtStake && (
+        <p className="mt-3 font-medium">Nothing was charged for this call, so there is nothing to refund. The payment below says why.</p>
+      )}
 
-      {request.status === "asked" && !view.answered && role === "customer" && (
+      {request.status === "asked" && !view.answered && !view.nothingAtStake && role === "customer" && (
         <p className="mt-3 opacity-80">
           Waiting for {names.host}&apos;s answer.
           {view.answerBy ? (
@@ -247,7 +252,7 @@ export async function RefundRequest(props: {
       {saved && <QualityRecord summary={saved} names={names} />}
       {mayOpenRecord && !saved && <p className="mt-3 opacity-70">The connection record saved with this request is no longer kept.</p>}
 
-      {request.status === "asked" && !view.answered && deciding && (
+      {request.status === "asked" && !view.answered && !view.nothingAtStake && deciding && (
         <div className="mt-4 border-t border-neutral-400/40 pt-4">
           {role !== "host" && <p className="mb-2 font-medium">You are answering as Connect, in the host&apos;s place.</p>}
           {view.open.length > 0 ? (

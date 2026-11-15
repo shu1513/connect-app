@@ -84,7 +84,19 @@ export type RequestView = {
   open: Payment[];
   /** With open charges: until when an answer costs nothing. */
   answerBy: Date | null;
+  /** Nothing is on hold and nothing was charged for this call any more: there is nothing to refund. */
+  nothingAtStake: boolean;
 };
+
+/** Whether any money of this call is on hold or was taken. */
+async function moneyAtStake(reader: Reader, callId: string): Promise<boolean> {
+  const [paid] = await reader
+    .select({ id: schema.payments.id })
+    .from(schema.payments)
+    .where(and(eq(schema.payments.callId, callId), inArray(schema.payments.status, ["held", "charged"])))
+    .limit(1);
+  return Boolean(paid);
+}
 
 /** The call's ordinary charges on hold for which nothing has been written down yet. */
 async function openCharges(reader: Reader, callId: string): Promise<Payment[]> {
@@ -110,6 +122,7 @@ export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<
     answered: await isAnswered(request),
     open,
     answerBy: expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
+    nothingAtStake: !(await moneyAtStake(db, call.id)),
   };
 }
 
@@ -147,12 +160,7 @@ export async function askBy(call: Call, now: Date, reader: Reader = db): Promise
   const [existing] = await reader.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
   if (existing) return null;
   // Something must be at stake: money on hold or money taken.
-  const [paid] = await reader
-    .select({ id: schema.payments.id })
-    .from(schema.payments)
-    .where(and(eq(schema.payments.callId, call.id), inArray(schema.payments.status, ["held", "charged"])))
-    .limit(1);
-  if (!paid) return null;
+  if (!(await moneyAtStake(reader, call.id))) return null;
   const expiry = earliestExpiry(await heldOrdinary(reader, call.id));
   const until = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.endsAt.getTime() + ASK_WINDOW_MS);
   return now.getTime() < until.getTime() + DEADLINE_CUSHION_MS ? until : null;
@@ -221,7 +229,14 @@ export async function answerRequest(input: { callId: string; by: string; as: "ho
     const { call, request } = await lockedForDeciding(tx, input);
     for (const payment of await heldOrdinary(tx, call.id)) await lockPayment(tx, payment.id);
     const open = await openCharges(tx, call.id);
-    if (open.length === 0) throw new RequestError("The money for this call has already been taken, so it can no longer be lowered. You can still give a refund, or say no.");
+    if (open.length === 0) {
+      const [waiting] = await tx.select({ id: schema.payments.id }).from(schema.payments).where(and(eq(schema.payments.callId, call.id), eq(schema.payments.status, "held"))).limit(1);
+      throw new RequestError(
+        waiting
+          ? "The charge for this call is being decided right now (its record is under review at Connect, or the money is just being taken), so it cannot be answered here at the moment."
+          : "The money for this call has already been taken, so it can no longer be lowered. You can still give a refund, or say no.",
+      );
+    }
 
     const lines: AnswerLine[] = [];
     for (const [index, payment] of open.entries()) {
@@ -308,7 +323,8 @@ export async function unansweredRequests(): Promise<Array<{ request: RefundReque
   const list = [];
   for (const { request, call } of rows) {
     const view = await requestViewOf(call);
-    if (view && !view.answered) list.push({ request, call, view });
+    // A request on a call for which nothing was charged in the end (a hold released after a review) needs no answer.
+    if (view && !view.answered && !view.nothingAtStake) list.push({ request, call, view });
   }
   return list;
 }
