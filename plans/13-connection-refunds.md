@@ -2,7 +2,9 @@
 
 **Status:** plan, sixth version (16 November 2026). Not built. Astra has checked it three times
 (rework, approve with changes, approve with changes); its points are worked in and listed at the
-end. How soon hosts are paid has moved to its own plan, `plans/14-paying-hosts-sooner.md`.
+end. How hosts are paid has moved to its own plan, `plans/14-paying-hosts-sooner.md`. Plan 14
+changed after Astra's last check of this plan (hosts now start the payment themselves), so the
+wording of part 4 follows it.
 
 ## What this is, and why
 
@@ -26,7 +28,7 @@ Two facts about the app today:
 | How long a customer has to ask | **24 hours**, so hosts are not kept waiting for their money. |
 | Who answers a request | **The host.** Passing a "no" on to Connect is left out for now. |
 | If the host does not answer | **The host is not paid for that call until they answer.** That call's money stays on hold. Nothing is refunded or refused automatically. |
-| How long before a host can be paid | **2 days** after a charge, down from 7 days after the call. See plan 14. |
+| How and when hosts are paid | **A host collects their money with a button, from 2 days after a charge.** There is no automatic weekly payday any more. See plan 14. |
 | Paying LiveKit for its $500-a-month plan | **Not now.** Nothing in this plan needs it. |
 
 ## What gets built
@@ -130,8 +132,8 @@ and nothing here shows whose fault a problem was or what was said or seen on the
 
 ### 4. The hold on a call's money
 
-A host's share of a call is not sent while the customer can still ask, or has asked and not been
-answered. In full, no charge of a call is sent to the host until all of these are true:
+A host's share of a call cannot be collected while the customer can still ask, or has asked and
+not been answered. In full, no charge of a call is sent to the host until all of these are true:
 
 1. **Every charge of the call is final**: the call's own, and the one for any time that was added
    and accepted. Final means charged, or closed without a charge. The moment this first became true
@@ -147,16 +149,16 @@ the customer could even ask.
 
 - **Checked at the moment of sending.** The check is made in the same locked step that starts the
   transfer, and making a request locks the same records first. So a request made in the very second
-  payday runs is either seen by the transfer, which then waits, or comes after the customer's time
-  has already run out. A request is accepted only before the 24 hours end; a transfer only at or
+  a host presses "Send it to my bank account" is either seen by the transfer, which then leaves
+  that call out, or comes after the customer's time has already run out. A request is accepted only before the 24 hours end; a transfer only at or
   after.
-- **After the answer the money goes out the next time the helper runs**, not on the following
-  Monday. Its own date has already passed by then.
+- **After the answer the money is ready to collect at once.** Its own date has already passed by
+  then.
 - **A transfer that was already started or sent before this is switched on** is not affected. The
   hold only applies to money that has not started moving.
 - **The founder's list** (requests waiting more than 24 hours) is read on its own, not from the
   list of recent payments, with the refund tool within reach. The host's page and the founder's
-  page show "held, waiting for the host's answer" instead of a payday date.
+  page show "held, waiting for the host's answer" instead of "ready to collect".
 
 Asking, the hold and the founder's list are switched on together. Any one without the others would
 leave a gap.
