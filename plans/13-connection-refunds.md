@@ -27,7 +27,7 @@ Two facts about the app today:
 | Refunding automatically | **Later**, once real calls show what good and bad calls look like in that record. |
 | How long a customer has to ask | **24 hours**, so hosts are not kept waiting for their money. |
 | Who answers a request | **The host.** Passing a "no" on to Connect is left out for now. |
-| If the host does not answer | **The host is not paid for that call until they answer.** That call's money stays on hold. Nothing is refunded or refused automatically. |
+| If the host does not answer | **The host is not paid for that call until they answer.** That call's money stays on hold. Nothing is refunded or refused automatically, and the host has no deadline: the hold does that job. |
 | How and when hosts are paid | **A host collects their money with a button, from 2 days after a charge.** There is no automatic weekly payday any more. See plan 14. |
 | Paying LiveKit for its $500-a-month plan | **Not now.** Nothing in this plan needs it. |
 
@@ -45,11 +45,13 @@ Two facts about the app today:
 2. **The request goes to the host**, by email and on the results page, together with the call's
    record (part 3). The host answers by refunding with the form they already have, any amount, or
    by declining. The customer is told the answer.
-3. **Until the host answers, the host is not paid for that call.** After 24 hours without an answer
-   the host gets one reminder, and the page tells both people that the payment for this call is
-   waiting for the host's answer.
-4. **The founder can see requests that have waited more than 24 hours**, in a section of its own on
-   the existing reports screen, with the call's record and its room name for LiveKit's dashboard.
+3. **Until the host answers, the host is not paid for that call.** There is no deadline for the
+   host and no reminder: the hold is the reason to answer. The host's "Getting paid" list shows
+   that call as "waiting for your answer to a refund request" every time they look at their money,
+   and the results page tells both people that the payment is waiting for the host's answer.
+4. **The founder can see every request that is still unanswered**, oldest first, in a section of
+   its own on the existing reports screen, with the call's record and its room name for LiveKit's
+   dashboard.
    The founder can refund with the tool they already have, or close the request, which lets the
    host's payment go ahead. This is for a host who has gone silent for good; it is not a step the
    customer can ask for.
@@ -156,7 +158,7 @@ the customer could even ask.
   then.
 - **A transfer that was already started or sent before this is switched on** is not affected. The
   hold only applies to money that has not started moving.
-- **The founder's list** (requests waiting more than 24 hours) is read on its own, not from the
+- **The founder's list** (every unanswered request, oldest first) is read on its own, not from the
   list of recent payments, with the refund tool within reach. The host's page and the founder's
   page show "held, waiting for the host's answer" instead of "ready to collect".
 
@@ -181,9 +183,8 @@ much is refunded and how such a refund is recorded.
 | Question | Chosen | Why |
 | --- | --- | --- |
 | Where requests are stored | A small table of their own, one per call, not the safety reports. | Sending a safety report also blocks the other person and counts against them. |
-| The reminder to the host | One email, written by the always-on helper beside the reminders it already writes, once 24 hours have passed without an answer. | The helper already has a loop for reminders. |
 | Who sees the record | The two people on the call and the founder, only once a refund was asked for, and the server checks it, not just the page. | Each should see what the other sees. |
-| Emails | To the host when a request arrives, and the one reminder; to the customer for each answer, including when the founder closes it. Each is written in the same step as the change it reports. | Through the existing email queue, so none is lost or sent twice. |
+| Emails | To the host when a request arrives; to the customer for each answer, including when the founder closes it. Each is written in the same step as the change it reports. | Through the existing email queue, so none is lost or sent twice. |
 
 ## What is left out, on purpose
 
@@ -221,7 +222,7 @@ asked for.
 - A new check script against the Stripe sandbox: who may ask and when (not before every charge is
   final, also with time added; not after 24 hours; not twice; not for a free call; not someone
   else's call); the host's full refund, part refund and decline; a refund still on its way and one
-  that failed; a refund started before the request; a founder's refund; the reminder after 24 hours;
+  that failed; a refund started before the request; a founder's refund;
   the founder closing a request; the order of steps cannot be broken; two answers at once; what
   each person and the founder can see. For the hold: a call's money is not sent before the 24 hours
   are over, while a request is unanswered, or while a charge for added time is still open; it is
@@ -242,7 +243,7 @@ about automatic refunds.
 
 1. Collecting the grades. Nothing visible.
 2. Asking for a refund, the hold and the founder's list, built behind one switch and switched on
-   together; the host's answer; the reminder.
+   together; the host's answer.
 3. The record shown with a request.
 4. The check script; every check; the two reviews; the pull request.
 
