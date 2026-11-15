@@ -346,8 +346,9 @@ async function main() {
       await settleFinishedCalls(new Date());
       const charged = await ownPayment();
       check(`after the call, the customer is charged the ${dollars} for the 15 minutes both were there`, charged.status === "charged" && charged.chargedCents === price, `${charged.status} ${charged.chargedCents}`);
-      const callEnd = paidSlot.getTime() + 15 * 60_000;
-      check("the host's share is ready to collect 2 days after the call, and nothing was sent before", charged.transferStatus === "not_due" && charged.transferDueAt?.getTime() === callEnd + 48 * HOUR && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 0, `${charged.transferStatus} ${charged.transferDueAt?.toISOString()}`);
+      // The call was moved into the past above, so its end is read back rather than worked out from the chosen time.
+      const [ended] = await db.select({ endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, callId));
+      check("the host's share is ready to collect 2 days after the call, and nothing was sent before", charged.transferStatus === "not_due" && charged.transferDueAt?.getTime() === ended.endsAt.getTime() + 48 * HOUR && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 0, `${charged.transferStatus} ${charged.transferDueAt?.toISOString()}`);
       // Pretended: it is now 2 days after the call, and the host presses "Collect earnings".
       const { collectEarnings } = await import("../src/lib/payments/collect");
       const { reconcileOperations } = await import("../src/lib/payments/jobs");
