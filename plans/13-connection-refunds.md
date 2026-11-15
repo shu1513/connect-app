@@ -1,9 +1,8 @@
 # Plan 13: Refund requests for a connection problem, with a record of call quality
 
-**Status:** plan, fifth version (16 November 2026). Not built. Astra has checked it twice (rework,
-then approve with changes); its points are worked in and listed at the end. The founder's latest
-decisions (24 hours, no passing on to Connect, money on hold until the host answers, hosts paid
-after 2 days) are in this version; Astra's check of them is at the very end.
+**Status:** plan, sixth version (16 November 2026). Not built. Astra has checked it three times
+(rework, approve with changes, approve with changes); its points are worked in and listed at the
+end. How soon hosts are paid has moved to its own plan, `plans/14-paying-hosts-sooner.md`.
 
 ## What this is, and why
 
@@ -27,13 +26,8 @@ Two facts about the app today:
 | How long a customer has to ask | **24 hours**, so hosts are not kept waiting for their money. |
 | Who answers a request | **The host.** Passing a "no" on to Connect is left out for now. |
 | If the host does not answer | **The host is not paid for that call until they answer.** That call's money stays on hold. Nothing is refunded or refused automatically. |
-| How long before a host can be paid | **2 days** after the call's charge, down from 7. |
+| How long before a host can be paid | **2 days** after a charge, down from 7 days after the call. See plan 14. |
 | Paying LiveKit for its $500-a-month plan | **Not now.** Nothing in this plan needs it. |
-
-**Still to confirm: how often payday comes.** The plan keeps the weekly payday (the builder's
-recommendation), so a host waits 2 to 9 days instead of 7 to 14, with the 25-cent payout charge
-once a week as today. Paying every day would mean about 2 days, with that charge up to once a day.
-Changing this later is one number and some wording.
 
 ## What gets built
 
@@ -69,6 +63,17 @@ after the request has gone through (whatever the amount: it is the host's answer
 founder has closed it. A refund still on its way, or one that failed, is shown as what it is and
 does not count as an answer.
 
+More exactly: the refund that answers a request is one that was **started after the request**, for
+any charge of that call, by the host or by the founder, and that has **gone through**. A refund
+started before the request does not count, even if it finishes later. "Answered" and "fully
+refunded" are two different things on the page: a host who gives back part has answered; "fully
+refunded" is only said when every charge of the call was given back in full.
+
+The customer is told the answer in the same step that first makes the request answered, wherever
+that happens: when the host declines, when the founder closes it, or later, when a refund that was
+on its way is confirmed. The first answer stands; a later one cannot replace it or send a second
+email.
+
 ### 2. The app keeps a record of call quality
 
 During a call LiveKit works out a grade for each person's connection (excellent, good, poor, lost)
@@ -92,8 +97,9 @@ and sends it to both browsers, for both people. Today the app keeps no history o
   browsers. Either person could alter or hold back what their own browser sends, and a browser on a
   bad connection may fail to deliver. So it is a record of **what each browser reported**, always
   shown that way, and never treated as proof.
-- **Keeping.** The notes are removed 60 days after the call. When a request is decided, a short
-  summary (the figures shown in part 3) is kept with the request. This is a new rule for the
+- **Keeping.** The notes are removed 60 days after the call. A short summary (the figures shown in
+  part 3) is saved with the request when it is made, and brought up to date when it is answered, so
+  a request that waits a long time does not lose its record. This is a new rule for the
   privacy page; it is not something the app already promises.
 
 ### 3. The record shown with a request
@@ -122,28 +128,38 @@ Above it, one line: "These are approximate periods put together from what each b
 and from the video service's own messages. Missing reports do not show that a connection worked,
 and nothing here shows whose fault a problem was or what was said or seen on the call."
 
-### 4. Paying hosts sooner, and the hold
+### 4. The hold on a call's money
 
-- **2 days instead of 7.** A host's share of a call becomes payable 2 days after the call's charge,
-  on the next payday. This applies to calls charged from then on; calls already charged keep the
-  date they were given.
-- **The hold.** On payday, the money of a call is not sent while that call has a request that is
-  not yet answered (see "Where a request stands"). It goes on the first payday after the answer.
-- **Why 2 days is safe for requests.** A customer can ask for 24 hours after the charge. So by the
-  time a call's money can be sent, either nobody asked, or a request exists and the hold applies.
-- **What is not changed:** Stripe's own delay before the money reaches a host's bank, and the risk
-  that a customer's bank disputes a charge weeks later.
-- **What hosts are told**, on the Hosting page and beside each call's payment. The app sends the
-  money by itself; a host does not have to ask for it. So the words separate what Connect does from
-  what Stripe and the bank do, and promise only the first:
-  - "You are paid once a week. Your share of a call is sent on the first payday that is at least 2
-    days after the call."
-  - "After we send it, Stripe and your bank usually need a few business days before it shows in
-    your bank account. Your very first payout takes longer: Stripe holds it for about a week."
-  - "A call with a refund request you have not answered is not paid until you answer."
-  Stripe's own help pages say a new account's first payout is typically 7 days after its first
-  payment, up to 14 in some cases, and that this cannot be shortened. The "few business days" for
-  later payouts is to be confirmed in the founder's Stripe account before the wording goes live.
+A host's share of a call is not sent while the customer can still ask, or has asked and not been
+answered. In full, no charge of a call is sent to the host until all of these are true:
+
+1. **Every charge of the call is final**: the call's own, and the one for any time that was added
+   and accepted. Final means charged, or closed without a charge. The moment this first became true
+   is saved with the call, once, and the 24 hours count from it.
+2. **The customer's 24 hours to ask have passed.**
+3. **If a request was made, it has been answered.**
+4. The charge's own date has come (plan 14), and nothing else that already holds a payment back
+   applies: a bank dispute, a refund on its way, a host whose payout account is not ready.
+
+This is about the whole call, not one charge. A call with time added has two charges with two
+dates; without this rule the first could be sent while the second was still being settled, before
+the customer could even ask.
+
+- **Checked at the moment of sending.** The check is made in the same locked step that starts the
+  transfer, and making a request locks the same records first. So a request made in the very second
+  payday runs is either seen by the transfer, which then waits, or comes after the customer's time
+  has already run out. A request is accepted only before the 24 hours end; a transfer only at or
+  after.
+- **After the answer the money goes out the next time the helper runs**, not on the following
+  Monday. Its own date has already passed by then.
+- **A transfer that was already started or sent before this is switched on** is not affected. The
+  hold only applies to money that has not started moving.
+- **The founder's list** (requests waiting more than 24 hours) is read on its own, not from the
+  list of recent payments, with the refund tool within reach. The host's page and the founder's
+  page show "held, waiting for the host's answer" instead of a payday date.
+
+Asking, the hold and the founder's list are switched on together. Any one without the others would
+leave a gap.
 
 ### 5. Automatic refunds: not in this version
 
@@ -174,8 +190,9 @@ much is refunded and how such a refund is recorded.
 - **Reading LiveKit's stored charts from the app.** It needs the expensive plan.
 - **Passing a "no" on to Connect** (the founder's decision, for now). A customer who disagrees with
   the host's answer can still write to support, as with any complaint.
-- **A refund after the host has been paid.** The refund tool cannot do it, for anyone. The hold in
-  part 4 keeps an unanswered request from reaching that point. A case that comes up later is
+- **A refund after the host has been paid.** The refund tool cannot do it, for anyone, and the app
+  has no way to take a payment back from a host. The hold in part 4 keeps a call from reaching
+  that point while the customer can still ask or is waiting for an answer. A case that comes up later is
   handled by the founder outside the app, as decided in the payments module.
 - **Scoring whether the two browsers agree, keeping notes for later sending when offline, and
   keeping raw notes beyond 60 days.**
@@ -188,9 +205,9 @@ is refunded, the card company keeps its fee for the original payment. That is al
 
 ## What the terms and privacy page must say (for the lawyer)
 
-That a customer can ask for a refund for a connection problem within 24 hours of the charge; that
-the host decides; that a host is paid 2 days after a call at the earliest, and not for a call with
-a request they have not answered; and that the app keeps a grade of each person's connection
+That a customer can ask for a refund for a connection problem within 24 hours of the charge being
+confirmed; that the host decides; that a host is not paid for a call while the customer can still
+ask or has asked and not been answered; and that the app keeps a grade of each person's connection
 during a call for 60 days and shows a summary to the two people and to Connect when a refund is
 asked for.
 
@@ -202,10 +219,12 @@ asked for.
 - A new check script against the Stripe sandbox: who may ask and when (not before every charge is
   final, also with time added; not after 24 hours; not twice; not for a free call; not someone
   else's call); the host's full refund, part refund and decline; a refund still on its way and one
-  that failed; the reminder after 24 hours; the founder closing a request; the order of steps cannot
-  be broken; what each person and the founder can see; a call's money is not sent while its request
-  is unanswered and is sent on the next payday after the answer; a call with no request is paid
-  after 2 days; calls charged before the change keep their date;
+  that failed; a refund started before the request; a founder's refund; the reminder after 24 hours;
+  the founder closing a request; the order of steps cannot be broken; two answers at once; what
+  each person and the founder can see. For the hold: a call's money is not sent before the 24 hours
+  are over, while a request is unanswered, or while a charge for added time is still open; it is
+  sent after the answer; a request and a transfer at the same moment; a transfer that had already
+  started;
   notes are refused from someone not on the call, outside its time, about anyone else, from another
   site, or beyond that person's limit.
 - The payments, booking and whole-journey scripts must still pass, with the new payday.
@@ -220,12 +239,13 @@ about automatic refunds.
 ## Order of work, in small steps
 
 1. Collecting the grades. Nothing visible.
-2. Asking for a refund; the host's answer; the reminder.
-3. The hold, and paying after 2 days.
-4. The record shown with a request; the founder's list.
-5. The check script; every check; the two reviews; the pull request.
+2. Asking for a refund, the hold and the founder's list, built behind one switch and switched on
+   together; the host's answer; the reminder.
+3. The record shown with a request.
+4. The check script; every check; the two reviews; the pull request.
 
-Size: about six days of building, plus the reviews.
+Size: about six days of building, plus the reviews. Plan 14 (paying sooner) is separate and can be
+built before or after.
 
 ## Astra's checks
 
@@ -263,5 +283,17 @@ Two of those points were written for a version in which a customer could pass a 
 Connect. That step is now left out by the founder's decision, so point 2 is met by the hold, and
 for point 3 any refund by the host that has gone through counts as the host's answer.
 
-**Fifth version** (the founder's decisions on 24 hours, the hold, and paying after 2 days): see
-below.
+**Fifth version** (24 hours, the hold, paying after 2 days): **approve with changes.** Twelve
+points. Those about the hold are taken here; those about the payday itself are in plan 14.
+1. Two days does not by itself protect the customer's 24 hours when a call has more than one
+   charge. (The hold is now for the whole call, and counts from when every charge is final.)
+2. Checking for a request only when payday starts leaves a gap. (It is checked in the same locked
+   step that starts the transfer.)
+3. An answer must be exact: a refund started after the request that has gone through, by the host
+   or the founder.
+4. The customer must also be told when the answer comes later, as a refund is confirmed.
+5. After an answer the money was said to go "on the next payday", which is not what the helper
+   does. (It goes the next time the helper runs.)
+6. The founder's list must not depend on the list of recent payments.
+7. Save the summary when the request is made, so a long wait does not outlive the notes.
+8. Switch asking, the hold and the founder's list on together.
