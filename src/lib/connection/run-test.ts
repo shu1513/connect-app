@@ -15,7 +15,7 @@
  * every step that takes time the test first looks whether it was stopped, so
  * nothing can start up again late.
  */
-import { ConnectionError, ConnectionErrorReason, Room, Track, type LocalTrack } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, Room, RoomEvent, Track, type LocalTrack } from "livekit-client";
 import { answerFor, figuresFrom, type Answer, type Reading } from "./answer";
 
 /** How long the made-up picture is sent. */
@@ -75,6 +75,8 @@ function couldNotReach(error: unknown): boolean {
 export function runConnectionTest(): RunningTest {
   let over = false;
   let connected = false;
+  /** The connection was lost, or had to be made again, after it had been made. */
+  let interrupted = false;
   let asked = false;
   let room: Room | null = null;
   let picture: MediaStreamTrack | null = null;
@@ -83,6 +85,9 @@ export function runConnectionTest(): RunningTest {
   const timers: Array<ReturnType<typeof setTimeout>> = [];
   let settle!: (answer: Answer | null) => void;
   const result = new Promise<Answer | null>((resolve) => (settle = resolve));
+
+  /** What the readings so far say, by the one shared rule. */
+  const measured = () => answerFor(figuresFrom(true, readings, interrupted));
 
   /** The one way a test ends: with an answer, or with null when it was stopped. */
   function end(answer: Answer | null) {
@@ -105,7 +110,7 @@ export function runConnectionTest(): RunningTest {
 
   // Past the limit: say what is known. Connected with readings gives the rule's answer; a video service
   // that was asked and never answered is "no connection"; anything earlier is simply not measured.
-  timers.push(setTimeout(() => end(connected ? answerFor(figuresFrom(true, readings)) : asked ? "no_connection" : "not_measured"), LIMIT_MS));
+  timers.push(setTimeout(() => end(connected ? measured() : asked ? "no_connection" : "not_measured"), LIMIT_MS));
 
   void (async () => {
     try {
@@ -129,6 +134,18 @@ export function runConnectionTest(): RunningTest {
       }
       if (over) return void room.disconnect().catch(() => undefined);
       connected = true;
+      // From here on, losing the connection or having to make it again is itself a finding: reports that came
+      // back before it must not be read as "no problems". (Our own disconnecting, in `end`, comes after `over`.)
+      const disturbed = () => {
+        if (!over) interrupted = true;
+      };
+      room.on(RoomEvent.Reconnecting, disturbed);
+      room.on(RoomEvent.SignalReconnecting, disturbed);
+      room.on(RoomEvent.Disconnected, () => {
+        if (over) return;
+        interrupted = true;
+        end(measured());
+      });
 
       // 3. A made-up moving picture: a bar sliding over changing colours, so there is always something new to send.
       const canvas = document.createElement("canvas");
@@ -165,13 +182,13 @@ export function runConnectionTest(): RunningTest {
             .then((reading) => {
               if (over) return;
               readings.push(reading);
-              if (Date.now() - sendingSince >= SEND_MS) end(answerFor(figuresFrom(true, readings)));
+              if (Date.now() - sendingSince >= SEND_MS) end(measured());
             });
         }, 1000),
       );
     } catch {
       // Anything unexpected on our side is never reported as a problem with someone's internet.
-      end(connected ? answerFor(figuresFrom(true, readings)) : "not_measured");
+      end(connected ? measured() : "not_measured");
     }
   })();
 

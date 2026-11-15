@@ -34,6 +34,8 @@ export type Reading = {
 export type Figures = {
   /** Whether the device got through to the video service at all. */
   connected: boolean;
+  /** Whether the connection was lost, or had to be made again, while the test was running. */
+  interrupted: boolean;
   /** How many separate reports came back that carried both figures, each a sensible number. */
   reports: number;
   /** The average round trip over every report that gave one, in seconds, or null when none did. */
@@ -66,7 +68,7 @@ const MAX_TRIP = 10;
 const MAX_SHARE = 1;
 
 /** Boils the readings down. Each report counts once, however many times it was read. */
-export function figuresFrom(connected: boolean, readings: Reading[]): Figures {
+export function figuresFrom(connected: boolean, readings: Reading[], interrupted = false): Figures {
   const seen = new Set<number>();
   const trips: number[] = [];
   const losses: number[] = [];
@@ -80,11 +82,12 @@ export function figuresFrom(connected: boolean, readings: Reading[]): Figures {
     if (loss !== null) losses.push(loss);
     if (trip !== null && loss !== null) complete++;
   }
-  return { connected, reports: complete, roundTripSeconds: average(trips), lossShare: average(losses) };
+  return { connected, interrupted, reports: complete, roundTripSeconds: average(trips), lossShare: average(losses) };
 }
 
 /**
- * The answer. "Weak" when either average is over its limit: one of the two is enough. "Good"
+ * The answer. "Weak" when either average is over its limit (one of the two is enough), or when the
+ * connection was lost or had to be made again during the test. "Good"
  * needs both averages fine and at least two reports that each carried both figures: something
  * that was not measured is never taken to be good. Figures are checked again here, so a broken
  * number can never pass as a good one whoever calls this.
@@ -94,6 +97,9 @@ export function answerFor(figures: Figures): Answer {
   const trip = sensible(figures.roundTripSeconds, MAX_TRIP);
   const loss = sensible(figures.lossShare, MAX_SHARE);
   if ((trip !== null && trip > LIMITS.roundTripSeconds) || (loss !== null && loss > LIMITS.lossShare)) return "weak";
+  // A connection that dropped, or had to be made again, within a few seconds will break up a call, however
+  // good the reports were that came back before it did. Good reports from before the drop never make it "good".
+  if (figures.interrupted) return "weak";
   if (trip === null || loss === null || !(figures.reports >= LIMITS.reportsForGood)) return "not_measured";
   return "good";
 }

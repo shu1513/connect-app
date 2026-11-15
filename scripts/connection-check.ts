@@ -13,7 +13,7 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import { requireLocalDatabase } from "./local-only";
 
 let failures = 0;
@@ -135,8 +135,10 @@ async function main() {
       const left = await rows();
       check("a day later the closed test's row is removed; one whose room is not confirmed closed is kept", left.length === 1 && left[0].id === stillOpen.id && left[0].roomClosedAt === null, String(left.length));
 
-      const [other] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, "customer@test.local"));
-      if (other) {
+      // A second made-up person stands in for "somebody else": nobody's real tests are touched or removed.
+      const other = { id: `cx-${RUN}-other` };
+      await db.insert(schema.user).values({ id: other.id, name: "Connection check, another person", email: `connectioncheck-${RUN}-other@example.test`, emailVerified: true, adultConfirmedAt: stamp, termsAcceptedAt: stamp, termsVersion: "check", timeZone: "America/New_York" });
+      {
         const [theirs] = await db.insert(schema.connectionTests).values({ userId: other.id, startedAt: new Date(Date.now() - 10 * 60_000) }).returning();
         await endOldTests(new Date(), async () => true, only);
         const [untouched] = await db.select().from(schema.connectionTests).where(eq(schema.connectionTests.id, theirs.id));
@@ -149,8 +151,9 @@ async function main() {
     // Whatever happened: end this person's test rooms and remove their tests, then the person. If a room cannot be
     // confirmed closed, its record and the person are kept (the helper will end it), and that is reported.
     try {
-      await removeTestsOf([userId]);
-      await db.delete(schema.user).where(eq(schema.user.id, userId));
+      const made = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, `cx-${RUN}%`))).map((person) => person.id);
+      await removeTestsOf(made);
+      for (const id of made) await db.delete(schema.user).where(eq(schema.user.id, id));
     } catch (error) {
       console.error(" FAIL  tidying up: a test room could not be confirmed closed; its record was kept for the helper", error);
       failures++;

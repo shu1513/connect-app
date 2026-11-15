@@ -40,11 +40,14 @@ function keep(key: string, value: string) {
  */
 export function ConnectionTest({
   callId,
-  autoFrom,
+  autoInMs,
 }: {
   callId?: string;
-  /** From when the test may start by itself. Left out: right away. (A call's page gives a moment shortly before the call.) */
-  autoFrom?: string;
+  /**
+   * How long from now the test may start by itself, worked out on the server from its own clock (so a device
+   * whose clock is wrong still starts it on time). Left out, or not positive: right away.
+   */
+  autoInMs?: number;
 }) {
   const [state, setState] = useState<"idle" | "testing" | "joined" | Answer>("idle");
   const running = useRef<RunningTest | null>(null);
@@ -66,12 +69,15 @@ export function ConnectionTest({
   useEffect(() => {
     // The one start that happens by itself. It waits for its moment also on a page that was opened earlier and
     // left open, and it looks at the two notes when that moment comes, not before.
-    const wait = autoFrom ? Date.parse(autoFrom) - Date.now() : 0;
+    const wait = autoInMs ?? 0;
     let first: ReturnType<typeof setTimeout> | null =
       Number.isFinite(wait) && wait < MAX_WAIT_MS
         ? setTimeout(
             () => {
               first = null;
+              // A test the person started themselves is left to finish: starting another would stop it, and the
+              // new one would be refused for coming too soon after it.
+              if (running.current) return;
               const last = Number(note(LAST_FINISHED));
               const recently = Number.isFinite(last) && last > 0 && Date.now() - last < NOT_AGAIN_FOR_MS;
               const alreadyJoined = callId ? note(joinedKey(callId)) === "1" : false;
@@ -98,7 +104,7 @@ export function ConnectionTest({
       running.current?.stop();
       running.current = null;
     };
-  }, [autoFrom, callId, start]);
+  }, [autoInMs, callId, start]);
 
   // In the call, and after dropping out of it, nothing about the test is shown.
   if (state === "joined") return null;
