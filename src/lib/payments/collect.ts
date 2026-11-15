@@ -30,6 +30,8 @@ import { canCollectAgainAt, heldBack, type HeldBack } from "./rules";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_VALID = "This request is not valid. Reload the page and try again.";
+export const DISPUTE_MESSAGE_WAITING =
+  "Stripe has told us about a disputed charge and we are still checking which one. Please try again in a few minutes.";
 
 /** A share that was charged and has not been sent to the host. */
 const UNSENT = and(eq(schema.payments.status, "charged"), inArray(schema.payments.transferStatus, ["not_due", "due"]));
@@ -61,6 +63,19 @@ async function heldBackNow(reader: Reader, payments: Payment[], now: Date): Prom
   );
 }
 
+/**
+ * Whether a message from Stripe about a bank dispute is still waiting to be handled. It may be
+ * about any charge, so until it is handled (the helper does that within minutes) nobody collects.
+ */
+export async function disputeMessageWaiting(reader: Reader = db): Promise<boolean> {
+  const [unhandled] = await reader
+    .select({ id: schema.stripeEvents.id })
+    .from(schema.stripeEvents)
+    .where(and(isNull(schema.stripeEvents.processedAt), like(schema.stripeEvents.type, "charge.dispute.%")))
+    .limit(1);
+  return Boolean(unhandled);
+}
+
 // ---------------------------------------------------------------------------
 // Accepting a press
 // ---------------------------------------------------------------------------
@@ -83,12 +98,16 @@ export async function acceptCollection(input: {
   hostId: string;
   /** The host, or the founder for a host who can no longer log in. */
   startedBy: string;
-  now: Date;
+  /** Only the check scripts pass this, to pretend it is another day. */
+  now?: Date;
 }): Promise<{ existing: boolean; started: StartedTransfer[] }> {
   if (!UUID.test(input.collectionId)) throw new MoneyError(NOT_VALID);
 
   return db.transaction(async (tx) => {
     const [host] = await tx.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, input.hostId)).for("update");
+    // The moment of acceptance is read here, with the host's row locked, not when the press arrived:
+    // the 24 hours until the next collection are counted from it.
+    const now = input.now ?? new Date();
 
     const [same] = await tx.select().from(schema.collections).where(eq(schema.collections.id, input.collectionId));
     if (same) {
@@ -108,29 +127,20 @@ export async function acceptCollection(input: {
       .orderBy(desc(schema.collections.acceptedAt))
       .limit(1);
     const again = canCollectAgainAt(last?.acceptedAt ?? null);
-    if (again && input.now < again) throw new MoneyError("Earnings were already collected in the last 24 hours.");
+    if (again && now < again) throw new MoneyError("Earnings were already collected in the last 24 hours.");
 
-    // A message from Stripe about a bank dispute that is not handled yet may be about one of
-    // these charges. Until it is handled (the helper does that within minutes), nothing is collected.
-    const [unhandled] = await tx
-      .select({ id: schema.stripeEvents.id })
-      .from(schema.stripeEvents)
-      .where(and(isNull(schema.stripeEvents.processedAt), like(schema.stripeEvents.type, "charge.dispute.%")))
-      .limit(1);
-    if (unhandled) {
-      throw new MoneyError("Stripe has told us about a disputed charge and we are still checking which one. Please try again in a few minutes.");
-    }
+    if (await disputeMessageWaiting(tx)) throw new MoneyError(DISPUTE_MESSAGE_WAITING);
 
     // Lock every share that might be taken, always in the same order, then judge each as it stands now.
     const candidates = await tx
       .select({ id: schema.payments.id })
       .from(schema.payments)
       .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-      .where(and(eq(schema.calls.hostId, input.hostId), UNSENT, lte(schema.payments.transferDueAt, input.now)))
+      .where(and(eq(schema.calls.hostId, input.hostId), UNSENT, lte(schema.payments.transferDueAt, now)))
       .orderBy(schema.payments.id);
     const locked: Payment[] = [];
     for (const { id } of candidates) locked.push(await lockPayment(tx, id));
-    const judged = await heldBackNow(tx, locked, input.now);
+    const judged = await heldBackNow(tx, locked, now);
     const ready = locked
       .filter((p) => p.status === "charged" && (p.transferStatus === "not_due" || p.transferStatus === "due") && p.stripeChargeId)
       .filter((p) => judged.get(p.id) === null)
@@ -146,7 +156,7 @@ export async function acceptCollection(input: {
       );
     }
 
-    await tx.insert(schema.collections).values({ id: input.collectionId, hostId: input.hostId, startedBy: input.startedBy, acceptedAt: input.now });
+    await tx.insert(schema.collections).values({ id: input.collectionId, hostId: input.hostId, startedBy: input.startedBy, acceptedAt: now });
     const started: StartedTransfer[] = [];
     for (const [index, { payment }] of ready.entries()) {
       const { amountCents, payoutFeeCents } = amounts[index];
@@ -227,13 +237,25 @@ export async function sendCollection(started: StartedTransfer[]): Promise<void> 
  * person, when there is no collection: then nothing was charged and the 24
  * hours were not used up.
  */
-export async function collectEarnings(input: { collectionId: string; hostId: string; startedBy: string; now: Date }): Promise<void> {
+export async function collectEarnings(input: { collectionId: string; hostId: string; startedBy: string; now?: Date }): Promise<void> {
   if (!UUID.test(input.collectionId)) throw new MoneyError(NOT_VALID);
   const [known] = await db.select({ id: schema.collections.id }).from(schema.collections).where(eq(schema.collections.id, input.collectionId));
   // Never trust the saved "ready" flag when money is about to move: ask Stripe now.
   if (!known) await refreshPayoutsReady(input.hostId);
   const accepted = await acceptCollection(input);
   await sendCollection(accepted.started);
+}
+
+/**
+ * The founder's final collection for a host whose account is closed and who can therefore not log
+ * in to collect. Refused for an open account: that host collects for themselves. Otherwise it is an
+ * ordinary collection, to the host's own payout account, and the record says who pressed.
+ */
+export async function collectForClosedHost(input: { collectionId: string; hostId: string; adminId: string; now?: Date }): Promise<void> {
+  const [host] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.hostId));
+  if (!host) throw new MoneyError("Host not found.");
+  if (!host.closedAt) throw new MoneyError("This host's account is open, so they collect their earnings themselves.");
+  await collectEarnings({ collectionId: input.collectionId, hostId: input.hostId, startedBy: input.adminId, now: input.now });
 }
 
 // ---------------------------------------------------------------------------

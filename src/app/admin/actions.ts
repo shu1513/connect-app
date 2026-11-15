@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { capturePayment, releasePayment } from "@/lib/payments/actions";
-import { collectEarnings, lastCollectionOf } from "@/lib/payments/collect";
+import { collectForClosedHost, lastCollectionOf } from "@/lib/payments/collect";
 import { reviewChargeLimitCents } from "@/lib/payments/pricing";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { recordAdminAction } from "@/lib/safety/audit";
@@ -86,17 +86,19 @@ export async function finalCollection(formData: FormData) {
   const collectionId = String(formData.get("collectionId") ?? "");
   let notice: string;
   try {
-    const [host] = await db.select({ id: schema.user.id, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, hostId));
-    if (!host) throw new MoneyError("Host not found.");
-    if (!host.closedAt) throw new MoneyError("This host's account is open, so they collect their earnings themselves.");
-    await recordAdminAction({ adminId: admin.id, action: "final collection for a closed account", targetUserId: host.id, targetId: collectionId });
-    await collectEarnings({ collectionId, hostId: host.id, startedBy: admin.id, now: new Date() });
-    const result = (await lastCollectionOf(host.id))?.last;
+    await recordAdminAction({ adminId: admin.id, action: "final collection for a closed account", targetUserId: hostId, targetId: collectionId });
+    await collectForClosedHost({ collectionId, hostId, adminId: admin.id });
+    const result = (await lastCollectionOf(hostId))?.last;
     notice = result
       ? `The collection was accepted. Sent to the host's Stripe payout account: ${formatMoney(result.sentCents)}. Being checked: ${formatMoney(result.checkingCents)}. Could not be sent: ${formatMoney(result.refusedCents)}.`
       : "The collection was accepted.";
   } catch (error) {
-    notice = error instanceof MoneyError ? `${error.message} Nothing was sent.` : message(error);
+    // Only a MoneyError means nothing was accepted. Anything else may have happened after acceptance.
+    if (error instanceof MoneyError) notice = `${error.message} Nothing was sent.`;
+    else {
+      console.error("[payments] final collection failed", error);
+      notice = "We could not confirm what happened. Look at the list of money not yet collected before trying again.";
+    }
   }
   back(notice);
 }

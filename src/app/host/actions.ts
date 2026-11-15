@@ -57,13 +57,15 @@ export async function collectEarningsAction(formData: FormData) {
   const user = await requireUser("/host");
   let notice: string;
   try {
-    await collectEarnings({ collectionId: String(formData.get("collectionId") ?? ""), hostId: user.id, startedBy: user.id, now: new Date() });
+    await collectEarnings({ collectionId: String(formData.get("collectionId") ?? ""), hostId: user.id, startedBy: user.id });
     notice = "Your collection was accepted. What was sent is shown under \"Getting paid\".";
   } catch (error) {
+    // A MoneyError is a refusal before anything was accepted. Anything else may have happened after
+    // acceptance (even a lost answer from the database), so it must not claim that nothing was sent.
     if (error instanceof MoneyError) notice = `${error.message} Nothing was sent and no charge was taken.`;
     else {
       console.error("[payments] collecting earnings failed", error);
-      notice = "Something went wrong before anything was sent. Please try again.";
+      notice = "We could not confirm what happened. Look under \"Getting paid\": if a collection is shown there, it was made and you do not need to press again.";
     }
   }
   redirect(`${withNotice("/host", notice)}#paid`);

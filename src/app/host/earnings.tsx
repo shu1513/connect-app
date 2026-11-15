@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { formatMoney } from "@/lib/payments/access";
-import { lastCollectionOf, unsentEarnings, wouldCollect, type Earning } from "@/lib/payments/collect";
+import { DISPUTE_MESSAGE_WAITING, disputeMessageWaiting, lastCollectionOf, unsentEarnings, wouldCollect, type Earning } from "@/lib/payments/collect";
 import { collectEarningsAction } from "./actions";
 
 const sum = (earnings: Earning[]) => earnings.reduce((total, e) => total + e.shareCents, 0);
@@ -16,6 +16,8 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
   const would = wouldCollect(ready);
   const tooSoon = collection !== null && now < collection.againAt;
   const calls = new Set(ready.map((e) => e.call.id)).size;
+  // A press would be refused for this reason, so the button is not offered while it lasts (minutes).
+  const waitForStripe = would !== null && payoutsReady && !tooSoon && (await disputeMessageWaiting());
 
   return (
     <div className="mt-5 rounded border border-neutral-400 p-4 text-sm" data-earnings>
@@ -34,7 +36,8 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
           You can collect again from <LocalTime iso={collection.againAt.toISOString()} />.
         </p>
       )}
-      {would && payoutsReady && !tooSoon && (
+      {waitForStripe && <p className="mt-1 opacity-80">{DISPUTE_MESSAGE_WAITING}</p>}
+      {would && payoutsReady && !tooSoon && !waitForStripe && (
         <form action={collectEarningsAction} className="mt-2">
           <input type="hidden" name="collectionId" value={randomUUID()} />
           <p>
@@ -48,10 +51,12 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
       )}
 
       {waiting.length > 0 && (
-        <>
-          <p className="mt-4">
-            <span className="font-medium">Not ready yet: {formatMoney(sum(waiting))}</span>
-          </p>
+        // A busy host can have dozens of these. The total is always in sight; the list opens on request once it is long.
+        <details className="mt-4" open={waiting.length <= 6}>
+          <summary className="cursor-pointer">
+            <span className="font-medium">Not ready yet: {formatMoney(sum(waiting))}</span> (from {waiting.length}{" "}
+            {waiting.length === 1 ? "payment" : "payments"}; the reason is beside each)
+          </summary>
           <ul className="mt-1 space-y-1">
             {waiting.map(({ payment, call, shareCents, heldBack }) => (
               <li key={payment.id}>
@@ -75,7 +80,7 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
               </li>
             ))}
           </ul>
-        </>
+        </details>
       )}
 
       {collection && (
@@ -90,7 +95,8 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
               : "Nothing was sent, and no collection charge was taken."}
           {collection.last.checkingCents > 0 && ` ${formatMoney(collection.last.checkingCents)} is being checked. You do not need to press again.`}
           {collection.last.refusedCents > 0 && ` ${formatMoney(collection.last.refusedCents)} could not be sent; it stays ready.`}
-          {!tooSoon ? "" : (
+          {/* Said once: beside the money that is ready when there is some, otherwise here. */}
+          {tooSoon && !would && (
             <>
               {" "}
               You can collect again from <LocalTime iso={collection.againAt.toISOString()} />.

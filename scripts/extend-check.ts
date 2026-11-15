@@ -402,7 +402,9 @@ async function main() {
       check("one collection takes both, with one transfer each", paidOwn.transferStatus === "sent" && paidExtra.transferStatus === "sent" && transfers.length === 2 && [paidOwn.id, paidExtra.id].every((id) => taken.some((item) => item.paymentId === id)), `${paidOwn.transferStatus} ${paidExtra.transferStatus} ${transfers.length}`);
       // The extra payment: $10.67 less the $5.00 refund = $5.67 paid; the host's share shrinks in proportion (985 × 567 / 1067 = 523).
       check("each share is what that payment earned, less any collection charge it carried", (paidOwn.transferCents ?? 0) + (paidOwn.payoutFeeCents ?? 0) === 1872 && (paidExtra.transferCents ?? 0) + (paidExtra.payoutFeeCents ?? 0) === 523, `${paidOwn.transferCents}+${paidOwn.payoutFeeCents} ${paidExtra.transferCents}+${paidExtra.payoutFeeCents}`);
-      check("the 25-cent collection charge is taken once for the whole collection", taken.reduce((sum, item) => sum + item.payoutFeeCents, 0) === 25);
+      // What was really taken is what the payments themselves record (a share Stripe refused records no charge).
+      const reallyTaken = (await db.select({ fee: schema.payments.payoutFeeCents }).from(schema.payments).where(inArray(schema.payments.id, taken.map((item) => item.paymentId)))).reduce((sum, row) => sum + (row.fee ?? 0), 0);
+      check("the collection charge is written down once for the whole collection, and never taken twice", taken.reduce((sum, item) => sum + item.payoutFeeCents, 0) === 25 && reallyTaken <= 25, String(reallyTaken));
       // That press was at a pretend time, days ahead. Move it into the past, so the test host can collect in the app today.
       await db.update(schema.collections).set({ acceptedAt: new Date(Date.now() - 48 * HOUR) }).where(eq(schema.collections.id, collectionId));
     }

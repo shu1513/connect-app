@@ -479,7 +479,7 @@ async function main() {
   // (Connect) and a test host whose payout account is ready. Run with --payouts
   // once that is set up.
   if (process.argv.includes("--payouts")) {
-    const { acceptCollection, collectEarnings, lastCollectionOf, sendCollection, unsentEarnings } = await import("../src/lib/payments/collect");
+    const { acceptCollection, collectEarnings, collectForClosedHost, lastCollectionOf, sendCollection, unsentEarnings } = await import("../src/lib/payments/collect");
     const { transferAtStripe } = await import("../src/lib/payments/actions");
     const { runPaymentJobs } = await import("../src/lib/payments/jobs");
     const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");
@@ -724,6 +724,24 @@ async function main() {
           check("the 24 hours stand all the same", (await press(h2, new Date(T.getTime() + HOUR))) instanceof MoneyError);
           await press(h2, new Date(T.getTime() + DAY));
           check("both go out with the next collection, with one charge", (await sent(y)).status === "sent" && (await sent(z)).status === "sent" && (await sent(y)).fee + (await sent(z)).fee === 25);
+
+          console.log("   …and when the helper only comes back more than 23 hours later, too late to repeat a request safely");
+          const h3 = await freshHost();
+          const m = await chargedCall(h3);
+          const n = await chargedCall(h3);
+          const T3 = await readyAt(m, n);
+          const late = await acceptCollection({ collectionId: randomUUID(), hostId: h3, startedBy: h3, now: T3 });
+          const [made, never] = late.started;
+          const callOf = (paymentId: string) => (paymentId === m.payment.id ? m : n);
+          await transferAtStripe(await reload(made.paymentId), made.params, made.label); // Stripe did this one; the other never left
+          for (const op of late.started) await db.update(schema.moneyOperations).set({ createdAt: new Date(Date.now() - 25 * HOUR) }).where(eq(schema.moneyOperations.id, op.operationId));
+          await reconcileOperations(soon());
+          const pm = await sent(callOf(made.paymentId));
+          const pn = await sent(callOf(never.paymentId));
+          check("it asks Stripe instead: the transfer Stripe made is recorded, once", pm.status === "sent" && pm.transfers.length === 1 && pm.cents + pm.fee === 1238, `${pm.status} ${pm.transfers.length}`);
+          check("the one Stripe never got is not sent late; it is simply ready again", pn.status === "not_due" && pn.transfers.length === 0 && (await unsentEarnings(new Date(T3.getTime() + DAY), h3)).some((e) => e.payment.id === never.paymentId && e.heldBack === null));
+          await press(h3, new Date(T3.getTime() + DAY));
+          check("and goes out with the host's next collection", (await sent(callOf(never.paymentId))).status === "sent" && (await sent(callOf(never.paymentId))).transfers.length === 1);
         }
 
         console.log("\n25. Two shares that are each smaller than the 25-cent charge");
@@ -790,13 +808,16 @@ async function main() {
         {
           const h = await freshHost();
           const k = await chargedCall(h);
-          await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, h));
           const [founder] = await db.select().from(schema.user).where(eq(schema.user.email, "admin@test.local"));
           const T = await readyAt(k);
+          const final = (collectionId: string) => collectForClosedHost({ collectionId, hostId: h, adminId: founder.id, now: T }).then(() => null, (e: unknown) => e as Error);
+          const whileOpen = await final(randomUUID());
+          check("the founder cannot collect for a host whose account is open", whileOpen instanceof MoneyError && (await collectionsOf(h)).length === 0 && (await sent(k)).transfers.length === 0, whileOpen?.message);
+          await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, h));
           const listed = (await unsentEarnings(T)).find((e) => e.payment.id === k.payment.id);
           check("the founder's list of uncollected money includes the closed host's share", listed?.call.hostId === h && listed.shareCents === 1238 && listed.heldBack === null);
           const id = randomUUID();
-          const pressed = await press(h, T, id, founder.id);
+          const pressed = await final(id);
           const pk = await sent(k);
           const [record] = await db.select().from(schema.collections).where(eq(schema.collections.id, id));
           check("the founder's final collection sends it to that host's own account, under the same rules", pressed === null && pk.status === "sent" && pk.cents === 1238 - 25 && pk.transfers[0]?.destination === account, pressed?.message);
