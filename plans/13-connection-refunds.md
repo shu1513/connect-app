@@ -92,6 +92,13 @@ For every paid call that took place, also one with nothing wrong:
 - **Never later than 12 hours before the hold ends**, whatever is pending. If that moment is missed
   (the helper was down, Stripe did not answer), the app keeps trying for as long as the hold lasts.
   An attempt whose answer was lost is checked with Stripe before anything is tried again, as today.
+- **Ten minutes between a deadline and the money being taken** (the founder's point). The customer
+  can ask until exactly 24 hours after the call; the app takes the money 10 minutes after that.
+  The host can answer until exactly 24 hours after the request; the app takes the money 10 minutes
+  after that. So a request or an answer sent in the last seconds, on a slow connection, still
+  arrives before anything is taken. The page shows each person their own deadline, on the app's
+  clock, not the later moment. (The lock in part 2 already stops a request and the taking from
+  both acting at once; the 10 minutes are so that nobody loses out by seconds.)
 - "The call's end" is the end after any added time. A room that closed late, or a record that
   arrived late, does not move it.
 - **Time added during a call** has its own hold and its own charge. All charges of a call are taken
