@@ -37,7 +37,8 @@ async function main() {
   const B = await import("../src/lib/booking/bookings");
   const N = await import("../src/lib/booking/now");
   const { runBookingJobs, tryHoldForAcceptedBooking } = await import("../src/lib/booking/jobs");
-  const { runPaymentJobs, settleFinishedCalls, runPayday } = await import("../src/lib/payments/jobs");
+  const { reconcileOperations, runPaymentJobs, settleFinishedCalls } = await import("../src/lib/payments/jobs");
+  const { collectEarnings } = await import("../src/lib/payments/collect");
   const { capturePayment, refundPayment, releasePayment } = await import("../src/lib/payments/actions");
   const { startHold, syncHold } = await import("../src/lib/payments/hold");
   const { MoneyError } = await import("../src/lib/payments/operations");
@@ -387,15 +388,25 @@ async function main() {
       await refundPayment({ paymentId: chargedExtra.id, amountCents: 500, decidedBy: hana.id, decidedAs: "host", reason: "check" });
       check("a refund of the extra payment leaves the call's own payment untouched", (await extra()).refundedCents === 500 && (await own()).refundedCents === 0);
 
-      const payday = (await own()).transferDueAt!;
-      check("both are due on the same weekly payday", (await extra()).transferDueAt?.getTime() === payday.getTime());
-      await runPayday(payday);
+      // Each charge has its own date, both counted from the same end of the call (the later one, after the added time).
+      const readyFrom = (await own()).transferDueAt!;
+      check("both shares are ready 2 days after the end of the longer call", readyFrom.getTime() === longer.endsAt.getTime() + 48 * HOUR && (await extra()).transferDueAt?.getTime() === readyFrom.getTime(), readyFrom.toISOString());
+      check("nothing is sent until the host collects", (await own()).transferStatus === "not_due" && (await extra()).transferStatus === "not_due" && (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data.length === 0);
+      const collectionId = randomUUID();
+      await collectEarnings({ collectionId, hostId: hana.id, startedBy: hana.id, now: readyFrom });
+      // The test host may have many older shares waiting too; the helper finishes whatever one press did not get to.
+      await reconcileOperations(new Date(Date.now() + 5 * MINUTE));
       const [paidOwn, paidExtra] = [await own(), await extra()];
       const transfers = (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data;
-      check("on payday the host is sent a share for each, one transfer each", paidOwn.transferStatus === "sent" && paidExtra.transferStatus === "sent" && transfers.length === 2, `${paidOwn.transferStatus} ${paidExtra.transferStatus} ${transfers.length}`);
+      const taken = await db.select().from(schema.collectionItems).where(eq(schema.collectionItems.collectionId, collectionId));
+      check("one collection takes both, with one transfer each", paidOwn.transferStatus === "sent" && paidExtra.transferStatus === "sent" && transfers.length === 2 && [paidOwn.id, paidExtra.id].every((id) => taken.some((item) => item.paymentId === id)), `${paidOwn.transferStatus} ${paidExtra.transferStatus} ${transfers.length}`);
       // The extra payment: $10.67 less the $5.00 refund = $5.67 paid; the host's share shrinks in proportion (985 × 567 / 1067 = 523).
-      check("each share is what that payment earned, less any payout charge it carried", (paidOwn.transferCents ?? 0) + (paidOwn.payoutFeeCents ?? 0) === 1872 && (paidExtra.transferCents ?? 0) + (paidExtra.payoutFeeCents ?? 0) === 523, `${paidOwn.transferCents}+${paidOwn.payoutFeeCents} ${paidExtra.transferCents}+${paidExtra.payoutFeeCents}`);
-      check("the 25-cent payout charge is not taken twice for the two", (paidOwn.payoutFeeCents ?? 0) + (paidExtra.payoutFeeCents ?? 0) <= 25);
+      check("each share is what that payment earned, less any collection charge it carried", (paidOwn.transferCents ?? 0) + (paidOwn.payoutFeeCents ?? 0) === 1872 && (paidExtra.transferCents ?? 0) + (paidExtra.payoutFeeCents ?? 0) === 523, `${paidOwn.transferCents}+${paidOwn.payoutFeeCents} ${paidExtra.transferCents}+${paidExtra.payoutFeeCents}`);
+      // What was really taken is what the payments themselves record (a share Stripe refused records no charge).
+      const reallyTaken = (await db.select({ fee: schema.payments.payoutFeeCents }).from(schema.payments).where(inArray(schema.payments.id, taken.map((item) => item.paymentId)))).reduce((sum, row) => sum + (row.fee ?? 0), 0);
+      check("the collection charge is written down once for the whole collection, and never taken twice", taken.reduce((sum, item) => sum + item.payoutFeeCents, 0) === 25 && reallyTaken <= 25, String(reallyTaken));
+      // That press was at a pretend time, days ahead. Move it into the past, so the test host can collect in the app today.
+      await db.update(schema.collections).set({ acceptedAt: new Date(Date.now() - 48 * HOUR) }).where(eq(schema.collections.id, collectionId));
     }
 
     // ----------------------------------------------------------------------

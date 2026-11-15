@@ -340,11 +340,15 @@ function Receipt(props: {
                 label="Payout"
                 value={
                   payment.transferStatus === "sent"
-                    ? `Sent ${formatMoney(payment.transferCents ?? 0)}${payment.payoutFeeCents ? ` after a ${formatMoney(payment.payoutFeeCents)} payout charge` : ""}`
+                    ? `Sent ${formatMoney(payment.transferCents ?? 0)}${payment.payoutFeeCents ? ` after a ${formatMoney(payment.payoutFeeCents)} collection charge` : ""}`
                     : payment.transferStatus === "not_owed"
                       ? "Nothing to pay out"
                       : payment.transferDueAt
-                        ? `On the weekly payday of ${payment.transferDueAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`
+                        ? (
+                            <>
+                              Not collected yet. Ready to collect from <LocalTime iso={payment.transferDueAt.toISOString()} />
+                            </>
+                          )
                         : "Not scheduled yet"
                 }
               />
@@ -403,7 +407,7 @@ function Receipt(props: {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 border-b border-neutral-300/30 py-1">
       <dt className="opacity-70">{label}</dt>

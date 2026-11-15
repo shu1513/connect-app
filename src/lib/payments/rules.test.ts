@@ -7,8 +7,10 @@ import {
   holdCoversCall,
   holdExpiry,
   paymentBlocksJoin,
+  canCollectAgainAt,
+  heldBack,
   payWindow,
-  transferDueAt,
+  readyToCollectAt,
 } from "./rules";
 
 const at = (iso: string) => new Date(iso);
@@ -151,18 +153,35 @@ describe("the deadline for deciding a call that needs review", () => {
   });
 });
 
-describe("the weekly payday", () => {
-  it("is the first Monday at least 7 days after the call", () => {
-    // Call ends Wed 13 Jan 10:00. Seven days later is Wed 20 Jan 10:00. Next Monday is 25 Jan.
-    expect(transferDueAt(END)).toEqual(at("2027-01-25T00:00:00Z"));
+describe("when a share can be collected", () => {
+  // The call ended Wed 13 Jan 10:00. Two days later is Fri 15 Jan 10:00.
+  const TWO_DAYS = at("2027-01-15T10:00:00Z");
+
+  it("is 2 days after the call ends, to the minute, on any day of the week", () => {
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T10:05:00Z") })).toEqual(TWO_DAYS);
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-14T10:10:00Z") })).toEqual(TWO_DAYS);
   });
-  it("is that same Monday when the 7 days end exactly at its start", () => {
-    // Call ends Mon 11 Jan 00:00. Seven days later is Mon 18 Jan 00:00.
-    expect(transferDueAt(at("2027-01-11T00:00:00Z"))).toEqual(at("2027-01-18T00:00:00Z"));
+  it("is not before the charge is recorded, when that happens after the 2 days", () => {
+    const late = at("2027-01-15T10:10:00Z");
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: late })).toEqual(late);
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: TWO_DAYS })).toEqual(TWO_DAYS);
   });
-  it("waits a week when the 7 days end partway through a Monday", () => {
-    // Call ends Mon 11 Jan 10:00. Seven days later is Mon 18 Jan 10:00, after that payday began.
-    expect(transferDueAt(at("2027-01-11T10:00:00Z"))).toEqual(at("2027-01-25T00:00:00Z"));
+  it("just before the moment it is held back, and exactly at it it is not", () => {
+    const share = { readyAt: TWO_DAYS, disputeOpen: false, refundOnItsWay: false, actionUnfinished: false };
+    expect(heldBack({ ...share, now: at("2027-01-15T09:59:59Z") })).toBe("not_yet");
+    expect(heldBack({ ...share, now: TWO_DAYS })).toBeNull();
+    expect(heldBack({ ...share, readyAt: null, now: TWO_DAYS })).toBe("not_yet");
+  });
+  it("a dispute, a refund on its way or an unfinished money action each hold it back", () => {
+    const share = { now: at("2027-01-20T00:00:00Z"), readyAt: TWO_DAYS, disputeOpen: false, refundOnItsWay: false, actionUnfinished: false };
+    expect(heldBack({ ...share, disputeOpen: true })).toBe("dispute");
+    expect(heldBack({ ...share, refundOnItsWay: true })).toBe("refund");
+    expect(heldBack({ ...share, actionUnfinished: true })).toBe("being_sent");
+    expect(heldBack({ ...share, disputeOpen: true, refundOnItsWay: true, actionUnfinished: true })).toBe("dispute");
+  });
+  it("a host can collect again exactly 24 hours after the last time", () => {
+    expect(canCollectAgainAt(null)).toBeNull();
+    expect(canCollectAgainAt(at("2027-01-15T15:10:00Z"))).toEqual(at("2027-01-16T15:10:00Z"));
   });
 });
 

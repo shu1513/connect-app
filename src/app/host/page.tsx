@@ -24,6 +24,7 @@ import {
   startPayoutSetup,
 } from "./actions";
 import { SitePage } from "@/components/site-page";
+import { Earnings } from "./earnings";
 
 export const metadata: Metadata = { title: "Hosting" };
 
@@ -321,8 +322,9 @@ export default async function HostPage(props: PageProps<"/host">) {
           <>
             <p className="mt-2 text-sm text-green-700">Your payout account is ready. You can host paid calls.</p>
             <p className="mt-1 text-sm opacity-70">
-              You are paid once a week, for calls that ended at least 7 days earlier. Our fee is 4.9% plus 30 cents per
-              paid call (1.5% more when the customer&apos;s card is from outside the United States), and 25 cents per payout.
+              You collect your earnings yourself, with the button below. The money for a call is ready 2 days after the call, and you can
+              collect once every 24 hours. Our fee is 4.9% plus 30 cents per paid call (1.5% more when the customer&apos;s card is from
+              outside the United States), and 25 cents each time you collect.
             </p>
             <form action={startPayoutSetup} className="mt-3">
               <button type="submit" className="text-sm underline underline-offset-2">
@@ -344,6 +346,8 @@ export default async function HostPage(props: PageProps<"/host">) {
             </form>
           </>
         )}
+        {/* Also shown while the payout account is not ready: money already earned is still theirs to see. */}
+        {stripeConfigured() && settings.stripeAccountId && <Earnings hostId={user.id} payoutsReady={settings.payoutsReady} now={now} />}
       </section>
 
       <section className="mt-10">

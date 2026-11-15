@@ -29,7 +29,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | Final pass: joining everything together | Built and merged. |
 | 10. Connection check before a call | Planned (`plans/12-connection-check.md`); to be built later (founder, 15 November). A first part is on the branch `module/connection-check`. |
 | 11. Refund requests, taking the money later, and a record of call quality | Planned (`plans/13-connection-refunds.md`); not built (founder, 16 November). Checked by Astra six times. |
-| 12. Hosts collect their earnings when they want | Planned (`plans/14-paying-hosts-sooner.md`); not built (founder, 16 November). Checked by Astra. |
+| 12. Hosts collect their earnings when they want | Built; pull request open. |
 
 ---
 
@@ -88,7 +88,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | Stripe's $2 a month per paid host | Pass it to hosts | **Changed by the founder:** the company absorbs it, so hosts are not put off. |
 | What the customer pays for | The time the host was connected inside the booked time; no free waiting minutes | Agreed. Shown clearly before paying; the receipt separates time together from waiting. |
 | Cancelling | One rule set by us | **Changed by the founder:** the host sets the rule (free until the start [default], or 1, 12 or 24 hours before). Late cancelling follows Airbnb: full booked price, host may refund. A host can always cancel for free. |
-| When hosts are paid | Weekly, for calls that ended at least 7 days earlier | Agreed. |
+| When hosts are paid | Weekly, for calls that ended at least 7 days earlier | Agreed. **Changed by the founder on 16 November 2026 (module 12):** no weekly payday. A host collects with a button, from 2 days after a call, once every 24 hours, so that hosts get their money sooner and choose the moment themselves. |
 | Calls that "need review" | Never charged automatically; the founder decides before a deadline, otherwise the hold is released | Agreed. |
 | Refunds | The founder decides | **Changed by the founder:** the host decides refunds directly until their share has been sent; after that the founder does it by hand. Our fee is returned in the same proportion. |
 | If money is lost through our mistake | Company pays the host by hand | Agreed. |
@@ -99,7 +99,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 Astra reviewed these eight decisions and the recommendations before they were approved.
 
 **What was built**
-- A hold on the customer's card before the call, one charge afterwards for the time that counted, and the host's share sent on a weekly payday.
+- A hold on the customer's card before the call, one charge afterwards for the time that counted, and the host's share sent on a weekly payday (replaced in module 12 by the host's own "Collect earnings" button).
 - "Never twice": every money action is written down first under one label, only one can run per payment, and anything with an unknown outcome is checked with Stripe before anything else happens.
 - A full money record (every cent: charge, fee, host share, refunds, payouts).
 - Screens: confirm and pay, hosting settings (payout account, cancelling rule), receipts and host refunds, and an admin page for reviews.
@@ -587,6 +587,61 @@ Plan: `plans/11-final-pass.md`. Every module had been built and checked on its o
 
 ---
 
+## Module 12: Hosts collect their earnings when they want
+
+Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit before any code was written (pull request 18).
+
+**What the founder decided (16 November 2026)**
+
+| Question | Decided |
+| --- | --- |
+| How long before a call's money can be collected | 2 days after the call, down from 7. |
+| Who starts the payment | The host, with a button. No automatic weekly payday any more. |
+| How often | Once every 24 hours, counted from the host's last collection. |
+| Money nobody collects | Still open. For now the founder sees it on the admin page and settles it by hand. A safety net (send it automatically after 30 days) is recommended by the builder and not built. |
+
+**What was built**
+- **The date.** A host's share is ready 2 days after the call ends, to the minute, and never before the charge is recorded. It is fixed when the charge is recorded and never moved. Charges made before this change keep the payday date they had and are collected with the button from that date on.
+- **The button.** On Hosting, under "Getting paid": what is ready (with the amount that will be sent after the 25-cent charge), what is not ready yet and why for each call, and the result of the last collection as it really stands: sent, being checked, could not be sent. It also says when the host can collect again, and that Stripe pays the bank on its own schedule.
+- **One collection is a record of its own.** A press is accepted in one locked step: the same press arriving twice gets the collection it already made, the 24 hours are checked, and every share that is ready is locked, checked once more and written down as "being sent" with its exact amount, all before Stripe is asked. So two presses at once make one collection, and a crash never leaves a press that half happened.
+- **What holds a share back:** being inside its 2 days, a bank dispute, a refund on its way, a money action whose outcome is not known yet, and a message from Stripe about a dispute that has not been handled. The payout account is checked with Stripe at the moment of the press.
+- **The 25-cent charge** is taken once per collection, from the largest share, never more than that share. If that share fails, the charge is waived. If nothing in a collection goes through, there is no charge. It is recorded per collection; the old per-payday records are kept as history and no longer used.
+- **The always-on helper** no longer starts paying anyone. It still finishes every transfer a collection wrote down, whether Stripe's answer was lost or the request never left, without the host pressing again. One exception: if the helper only gets to a transfer more than 23 hours after it was written down (it normally does within about a minute, so this means the helper was not running for a day), it no longer repeats the request, because Stripe may have forgotten it and could send the money twice. It asks Stripe whether the transfer exists. If it does, it is recorded. If it does not, the helper does not send it late: that share is ready again, the host sees it as "could not be sent; it stays ready", and it goes out with the host's next collection.
+- **Hosts who cannot press.** A paused host can still collect. For a closed account the founder runs a final collection from the admin page, under the same rules, and the record says who pressed.
+- **The founder's view.** The admin page lists, per host, everything earned and not yet collected, read on its own.
+- **Wording.** Beside each call's payment: "Not collected yet. Ready to collect from …" with the time. The Hosting page explains the new rule and the charge.
+
+**Decisions (the builder's)**
+
+| Question | Decided | Why |
+| --- | --- | --- |
+| A message about a dispute that is not handled yet | No collection for anyone until it is handled (the helper does that within minutes); the press is refused with a sentence that says so, and uses up nothing | This is what the weekly payday did. Working out which charge the message is about, before it is handled, would be new code for a wait of minutes. |
+| A very large collection | One press keeps sending for about 20 seconds; the helper finishes the rest, and the host sees them as "being checked" | A page should not hang for minutes. Nothing is lost: every transfer is already written down. |
+| A share so small the charge takes all of it | It counts as sent only once another share of the same collection has gone through; otherwise it stays ready | This is what "a collection in which nothing went through carries no charge" means for the one case where nothing is sent to Stripe at all. |
+| The confirmation before collecting | The amounts are shown right above the button; pressing it is the confirmation | A second "are you sure" screen adds a step and nothing else: the result is shown straight after. |
+| The founder's final collection | Only offered, and only accepted, for a closed account | An open account collects for itself. |
+
+**Astra's review of the code** (15 November 2026): ship with changes. No way was found to send a share twice, to the wrong host or account, or alongside a refund. Six points:
+- Taken (must): the 24 hours were counted from the moment the press arrived, not from the moment it was accepted, so the next collection could come a little early. The moment is now read inside the locked step.
+- Taken (must): when something unexpected went wrong, the host was told "before anything was sent" and the founder "nothing was changed", which could be untrue (for example when the collection was saved and only the answer got lost). Both now say that the result could not be confirmed and where to look. "Nothing was sent" is kept for refusals that happen before anything is accepted.
+- Taken: while a message about a dispute is waiting, the page offered the button and the press was then refused. The page now shows the reason instead of the button.
+- Taken: two checks claimed more than they tested. The rule "only for a closed account" now lives in the money code, where the script tests it (refused for an open account). The added-time script now looks at the charge really taken, not the one planned. A check was added for the helper coming back more than 23 hours later.
+- Not taken: a marker for one rare in-between state (the app stops after sending the only other share of a collection of two tiny shares, before recording the charge). The helper settles it within about a minute and nothing is wrong meanwhile.
+- Noted: the plan says the terms change with this. The terms page is still a placeholder for the lawyer; it has no payday wording to change. It is on the launch list.
+
+**How it was checked**
+- The payments check script, with its paying-out part rewritten around collections: 139 checks against Stripe's test area, all passing. They cover: nothing is sent without a press, however long the helper waits; a press sends everything ready and nothing else; a share a second before its 2 days stays, and exactly at them goes; another host's money is untouched; one 25-cent charge per collection; a second press inside 24 hours refused, exactly at 24 hours accepted; two presses at once, and the same press twice; the first press arriving again days later; a dispute, a refund on its way and an unhandled Stripe message each holding money back; one collection in which Stripe refuses one share and the answer for another is lost; the charge waived when the share carrying it fails; a refund refused while its share is being sent; the app stopping right after accepting, finished by the helper; a collection in which nothing goes through; the helper coming back more than 23 hours later; two shares smaller than the charge; charges from before the change, including one already being sent; the founder's final collection (refused for an open account); and a real bank dispute at Stripe.
+- To prove the script notices mistakes, two rules were switched off on purpose (the 24 hours, and waiting for a refund): 6 checks failed, and all passed again with the rules back.
+- 252 automatic tests (new ones for the date, for what holds a share back and for the charge), lint, types and the build pass.
+- The other nine scripts pass: the whole journey 59 (the host now collects in it), adding time 108 (one collection takes the call's own payment and the added time's), accounts 100, safety 60, notifications 33, booking 94, "call now" 73, ratings 73, verified customers 30.
+- By hand in a browser, as the test host: money ready with the button, a long "not ready yet" list with the reason beside each, a collection with a mixed result (two shares sent, one refused on purpose, the charge waived), the same page inside the 24 hours, and the page while a Stripe message was waiting. As the founder: the list of uncollected money and the final collection for a closed account. Also at phone width.
+
+**CodeRabbit's review (pull request 19):** one comment, on this record itself, and it was right. The record said the helper finishes every transfer without the host pressing again. That is not so for a transfer the helper only reaches more than 23 hours later: if Stripe never made it, the share is ready again and goes out with the host's next collection. The code already did this and the check script tests it; the sentence above and two notes in the code now say it.
+
+**What the checks cannot cover:** Stripe's real timing for paying a host's bank, and whether Stripe's own rules allow the money to sit for long. A real payout to a real bank has not happened yet (Stripe's test area only).
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.
@@ -616,7 +671,7 @@ Also fixed: one check in the notifications script depended on how fast the compu
 ## Things that need the founder or outside help before launch
 
 - **Stripe:** a live account owned by the company, and Stripe's written approval for this kind of business and for the identity check.
-- **A lawyer:** terms of service, privacy policy, the rules page, the wording customers agree to when saving a card (which now also covers keeping the card until the call is over and using it when the customer asks for more time), duties around reports involving children, how long records are kept, and which countries must not be served.
+- **A lawyer:** terms of service (including how and when hosts collect their earnings, module 12), privacy policy, the rules page, the wording customers agree to when saving a card (which now also covers keeping the card until the call is over and using it when the customer asks for more time), duties around reports involving children, how long records are kept, and which countries must not be served.
 - **Email:** a real sending service and the app's own web address.
 - **Real-device tests** of the video call (two people, phones, a 60-minute call), including adding time during a paid call.
 - **Adding time when the bank wants its own approval step:** not possible inside a call in the first version (the request fails and the call ends as booked). Decide before launch whether it is needed; it matters most for customers outside the US.
@@ -625,3 +680,5 @@ Also fixed: one check in the notifications script depended on how fast the compu
 - **Receipts by email:** switch on Stripe's own emailed receipts and refund notices in the live account (a setting, no code).
 - **The front page and the look:** the words on the visitor's front page are a first draft, and the app is plain on purpose. Both are the founder's to shape.
 - **Messaging:** left out of the first version; look again if real hosts ask (`docs/research/messaging/`).
+- **Hosts' money that nobody collects (module 12):** decide whether money still uncollected after 30 days is sent automatically. Ask the lawyer about holding hosts' money for a long time, and ask Stripe how long money earned by hosts may stay in Connect's balance.
+- **Putting module 12 live:** stop the always-on helper first, then update it together with the app, so the old weekly payday and the new button never run side by side.

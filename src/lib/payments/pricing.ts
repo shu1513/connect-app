@@ -24,7 +24,7 @@ export const DEFAULT_FEE_TERMS: FeeTerms = { percentBps: 490, fixedCents: 30, fo
 export const MIN_CHARGE_CENTS = 50;
 /** The lowest price a paid call may have. Zero means a free call. */
 export const MIN_PRICE_PER_15_CENTS = 500;
-/** Taken from each payout to a host's bank. Covers Stripe's payout charge. */
+/** Our charge for one collection of earnings by a host. Covers Stripe's payout charge. */
 export const PAYOUT_FEE_CENTS = 25;
 
 const QUARTER_HOUR_SECONDS = 900;
@@ -116,14 +116,25 @@ export function splitAfterRefunds(input: {
 }
 
 /**
- * What actually leaves for the host's bank on a payday: everything due to
- * them, less the payout charge. The payout charge is never more than the payout.
+ * What one collection sends for each share in it. The 25-cent collection
+ * charge is taken once, from the largest share, and is never more than that
+ * share: it is never spread over several. Null when 25 cents or less is ready
+ * in total, because then there is nothing worth collecting.
  */
-export function payoutAfterFee(dueCents: number, payoutFeeCents: number = PAYOUT_FEE_CENTS): {
-  payoutCents: number;
-  payoutFeeCents: number;
-} {
-  assertWholeNonNegative("dueCents", dueCents);
-  const fee = Math.min(dueCents, payoutFeeCents);
-  return { payoutCents: dueCents - fee, payoutFeeCents: fee };
+export function collectionAmounts(
+  shares: Array<{ id: string; shareCents: number }>,
+): Array<{ id: string; amountCents: number; payoutFeeCents: number }> | null {
+  let total = 0;
+  let largest: { id: string; shareCents: number } | undefined;
+  for (const share of shares) {
+    assertWholeNonNegative("shareCents", share.shareCents);
+    total += share.shareCents;
+    if (!largest || share.shareCents > largest.shareCents) largest = share;
+  }
+  if (!largest || total <= PAYOUT_FEE_CENTS) return null;
+  const carrier = largest;
+  return shares.map((share) => {
+    const payoutFeeCents = share === carrier ? Math.min(PAYOUT_FEE_CENTS, share.shareCents) : 0;
+    return { id: share.id, amountCents: share.shareCents - payoutFeeCents, payoutFeeCents };
+  });
 }

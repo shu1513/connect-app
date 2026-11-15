@@ -150,19 +150,46 @@ export function paymentBlocksJoin(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Paydays. Hosts are paid once a week, for calls that ended at least 7 days earlier.
+// Collecting. There is no payday: a host takes their earnings with a button.
 // ---------------------------------------------------------------------------
 
-export const PAYOUT_DELAY_MS = 7 * DAY_MS;
-/** 1 = Monday (UTC). */
-export const PAYDAY_WEEKDAY_UTC = 1;
+/** A charge's share can be collected this long after the call ends. */
+export const COLLECT_AFTER_MS = 2 * DAY_MS;
+/** A host can collect once in this long, counted from their last collection. */
+export const COLLECT_EVERY_MS = DAY_MS;
 
-/** The first weekly payday on or after 7 days from the end of the call. */
-export function transferDueAt(callEndsAt: Date): Date {
-  const earliest = new Date(callEndsAt.getTime() + PAYOUT_DELAY_MS);
-  const due = new Date(Date.UTC(earliest.getUTCFullYear(), earliest.getUTCMonth(), earliest.getUTCDate()));
-  // If the 7 days end partway through a day, the earliest payday is the next day.
-  if (due.getTime() < earliest.getTime()) due.setUTCDate(due.getUTCDate() + 1);
-  while (due.getUTCDay() !== PAYDAY_WEEKDAY_UTC) due.setUTCDate(due.getUTCDate() + 1);
-  return due;
+/**
+ * When the host's share of a charge can be collected: 2 days after the call
+ * ends, and never before the charge is recorded. Worked out once, at the
+ * moment the charge is recorded, and never moved afterwards.
+ */
+export function readyToCollectAt(input: { callEndsAt: Date; chargedAt: Date }): Date {
+  return new Date(Math.max(input.callEndsAt.getTime() + COLLECT_AFTER_MS, input.chargedAt.getTime()));
+}
+
+/** The earliest moment a host can collect again, or null if they never have. */
+export function canCollectAgainAt(lastCollectedAt: Date | null): Date | null {
+  return lastCollectedAt ? new Date(lastCollectedAt.getTime() + COLLECT_EVERY_MS) : null;
+}
+
+export type HeldBack = "dispute" | "refund" | "being_sent" | "not_yet";
+
+/**
+ * Why a share that was charged and not yet sent cannot be collected right now,
+ * or null if it can. The same answer is shown to the host and used by a collection.
+ */
+export function heldBack(input: {
+  now: Date;
+  /** When the share becomes ready (fixed when the charge was recorded). */
+  readyAt: Date | null;
+  disputeOpen: boolean;
+  refundOnItsWay: boolean;
+  /** A money action on this payment was written down and its outcome is not known yet. */
+  actionUnfinished: boolean;
+}): HeldBack | null {
+  if (input.disputeOpen) return "dispute";
+  if (input.refundOnItsWay) return "refund";
+  if (input.actionUnfinished) return "being_sent";
+  if (!input.readyAt || input.readyAt > input.now) return "not_yet";
+  return null;
 }

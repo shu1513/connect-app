@@ -4,7 +4,9 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
+import { formatMoney } from "@/lib/payments/access";
 import { capturePayment, releasePayment } from "@/lib/payments/actions";
+import { collectForClosedHost, lastCollectionOf } from "@/lib/payments/collect";
 import { reviewChargeLimitCents } from "@/lib/payments/pricing";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { recordAdminAction } from "@/lib/safety/audit";
@@ -70,6 +72,33 @@ export async function releaseReviewed(formData: FormData) {
     notice = "The hold was released. Nothing was charged.";
   } catch (error) {
     notice = message(error);
+  }
+  back(notice);
+}
+
+/**
+ * A host whose account is closed cannot log in to collect. The founder runs a final collection
+ * for them: the same rules and the same record as a host's own press, to the host's own payout account.
+ */
+export async function finalCollection(formData: FormData) {
+  const admin = await requireAdmin();
+  const hostId = String(formData.get("hostId") ?? "");
+  const collectionId = String(formData.get("collectionId") ?? "");
+  let notice: string;
+  try {
+    await recordAdminAction({ adminId: admin.id, action: "final collection for a closed account", targetUserId: hostId, targetId: collectionId });
+    await collectForClosedHost({ collectionId, hostId, adminId: admin.id });
+    const result = (await lastCollectionOf(hostId))?.last;
+    notice = result
+      ? `The collection was accepted. Sent to the host's Stripe payout account: ${formatMoney(result.sentCents)}. Being checked: ${formatMoney(result.checkingCents)}. Could not be sent: ${formatMoney(result.refusedCents)}.`
+      : "The collection was accepted.";
+  } catch (error) {
+    // Only a MoneyError means nothing was accepted. Anything else may have happened after acceptance.
+    if (error instanceof MoneyError) notice = `${error.message} Nothing was sent.`;
+    else {
+      console.error("[payments] final collection failed", error);
+      notice = "We could not confirm what happened. Look at the list of money not yet collected before trying again.";
+    }
   }
   back(notice);
 }

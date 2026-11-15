@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { setVerifiedOnly } from "@/lib/booking/bookings";
 import { withNotice } from "@/lib/notice";
+import { collectEarnings } from "@/lib/payments/collect";
 import { ensurePayoutAccount, getHostSettings, payoutSetupLink, publicAppUrl } from "@/lib/payments/hosts";
+import { MoneyError } from "@/lib/payments/operations";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import {
   addSocialName,
@@ -16,7 +18,7 @@ import {
   setProfileHidden,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
-import { requireActiveUser } from "@/lib/session";
+import { requireActiveUser, requireUser } from "@/lib/session";
 
 function back(text: string): never {
   redirect(withNotice("/host", text));
@@ -44,6 +46,29 @@ export async function startPayoutSetup() {
     back("Payout setup could not be started. Please try again.");
   }
   redirect(url);
+}
+
+/**
+ * The host presses "Collect earnings". The host is the logged-in person and the money goes to their
+ * own payout account; nothing about either is taken from the page. A paused host may collect:
+ * pausing stops new requests and calls, it does not keep back money already earned.
+ */
+export async function collectEarningsAction(formData: FormData) {
+  const user = await requireUser("/host");
+  let notice: string;
+  try {
+    await collectEarnings({ collectionId: String(formData.get("collectionId") ?? ""), hostId: user.id, startedBy: user.id });
+    notice = "Your collection was accepted. What was sent is shown under \"Getting paid\".";
+  } catch (error) {
+    // A MoneyError is a refusal before anything was accepted. Anything else may have happened after
+    // acceptance (even a lost answer from the database), so it must not claim that nothing was sent.
+    if (error instanceof MoneyError) notice = `${error.message} Nothing was sent and no charge was taken.`;
+    else {
+      console.error("[payments] collecting earnings failed", error);
+      notice = "We could not confirm what happened. Look under \"Getting paid\": if a collection is shown there, it was made and you do not need to press again.";
+    }
+  }
+  redirect(`${withNotice("/host", notice)}#paid`);
 }
 
 /** The host chooses how long before the start cancelling is free. Applies to calls created from now on. */

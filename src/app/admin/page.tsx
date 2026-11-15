@@ -7,10 +7,11 @@ import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
+import { unsentEarnings } from "@/lib/payments/collect";
 import { decisionDeadline } from "@/lib/payments/rules";
 import { requireAdmin } from "@/lib/session";
 import { refundAction } from "../calls/[id]/actions";
-import { chargeReviewed, releaseReviewed } from "./actions";
+import { chargeReviewed, finalCollection, releaseReviewed } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Admin" };
@@ -32,8 +33,24 @@ export default async function AdminPage(props: PageProps<"/admin">) {
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
     .orderBy(desc(schema.calls.startsAt))
     .limit(200);
-  const people = await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user);
+  const people = await db.select({ id: schema.user.id, name: schema.user.name, closedAt: schema.user.closedAt }).from(schema.user);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  const closed = new Set(people.filter((p) => p.closedAt).map((p) => p.id));
+
+  // Everything earned and not yet sent to a host, read on its own (not from the "latest 200" list below),
+  // so money that nobody collects, or that belongs to a host who can no longer log in, stays in sight.
+  const uncollected = new Map<string, { totalCents: number; readyCents: number; oldestReady: Date | null }>();
+  for (const earning of await unsentEarnings(new Date())) {
+    const row = uncollected.get(earning.call.hostId) ?? { totalCents: 0, readyCents: 0, oldestReady: null };
+    row.totalCents += earning.shareCents;
+    const readyAt = earning.payment.transferDueAt;
+    if (earning.heldBack === null && readyAt) {
+      row.readyCents += earning.shareCents;
+      if (!row.oldestReady || readyAt < row.oldestReady) row.oldestReady = readyAt;
+    }
+    uncollected.set(earning.call.hostId, row);
+  }
+  const uncollectedTotal = [...uncollected.values()].reduce((sum, row) => sum + row.totalCents, 0);
 
   // Looked up on their own, never cut off by the "latest 200" limit above.
   const paymentsWithCalls = () =>
@@ -145,6 +162,50 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         </>
       )}
 
+      <h2 className="mt-10 text-lg font-semibold">Earned and not yet collected ({formatMoney(uncollectedTotal)})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        Hosts collect their earnings themselves, so nothing is sent until a host presses the button. This is every host&apos;s money that
+        has been charged and not sent yet, less our fee. A host whose account is closed cannot log in: run a final collection for them here.
+      </p>
+      {uncollected.size === 0 ? (
+        <p className="mt-3 text-sm opacity-70">Nothing is waiting to be collected.</p>
+      ) : (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full text-left text-sm" data-uncollected>
+            <thead className="border-b border-neutral-400">
+              <tr>
+                <th className="py-2 pr-3 font-medium">Host</th>
+                <th className="py-2 pr-3 font-medium text-right">Not collected</th>
+                <th className="py-2 pr-3 font-medium text-right">Of that, ready now</th>
+                <th className="py-2 pr-3 font-medium">Ready since</th>
+                <th className="py-2 font-medium">Closed account</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...uncollected.entries()].map(([hostId, row]) => (
+                <tr key={hostId} className="border-b border-neutral-300/40 align-top">
+                  <td className="py-1.5 pr-3">{nameOf.get(hostId)}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">{formatMoney(row.totalCents)}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">{formatMoney(row.readyCents)}</td>
+                  <td className="py-1.5 pr-3">{row.oldestReady ? <LocalTime iso={row.oldestReady.toISOString()} /> : "—"}</td>
+                  <td className="py-1.5">
+                    {closed.has(hostId) && (
+                      <form action={finalCollection}>
+                        <input type="hidden" name="hostId" value={hostId} />
+                        <input type="hidden" name="collectionId" value={randomUUID()} />
+                        <button type="submit" className="underline underline-offset-2">
+                          Run a final collection
+                        </button>
+                      </form>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <h2 className="mt-10 text-lg font-semibold">All payments (latest 200)</h2>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -192,7 +253,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                       : payment.transferStatus === "not_owed"
                         ? "nothing owed"
                         : payment.transferDueAt
-                          ? `due ${payment.transferDueAt.toISOString().slice(0, 10)}`
+                          ? `not collected (ready ${payment.transferDueAt.toISOString().slice(0, 10)})`
                           : "—"}
                   </td>
                   <td className="py-1.5">
