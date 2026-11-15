@@ -207,7 +207,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       <section className="mt-6 rounded border border-neutral-400 p-4">
         <p className={`text-lg font-semibold ${status.tone}`}>{status.label}</p>
         <p className="text-sm opacity-80">{status.note}</p>
-        {result.reasons.length > 0 && !founder && <p className="mt-2 text-sm">Connect looks at records like this one by hand before anything is charged.</p>}
+        {result.reasons.length > 0 && !founder && <p className="mt-2 text-sm">A person at Connect looks at records like this one by hand.</p>}
         {result.reasons.length > 0 && founder && (
           <ul className="mt-2 list-disc pl-5 text-sm">
             {result.reasons.map((reason) => (
