@@ -23,23 +23,27 @@ export async function saveNotes(input: {
 }): Promise<"saved" | "limit_reached"> {
   const { call, reporterId } = input;
   const otherId = reporterId === call.hostId ? call.customerId : call.hostId;
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(schema.qualityNotes)
-    .where(and(eq(schema.qualityNotes.callId, call.id), eq(schema.qualityNotes.reporterId, reporterId)));
-  const room = NOTES_PER_PERSON_PER_CALL - count;
-  if (room <= 0) return "limit_reached";
-  const rows = input.notes.slice(0, room).map((note) => ({
-    callId: call.id,
-    reporterId,
-    aboutId: note.about === "me" ? reporterId : otherId,
-    grade: note.grade,
-    connectionId: input.connectionId,
-    seq: note.seq,
-    seenAt: note.seenAt,
-  }));
-  if (rows.length > 0) await db.insert(schema.qualityNotes).values(rows).onConflictDoNothing();
-  return "saved";
+  return db.transaction(async (tx) => {
+    // One batch at a time per person and call, so batches sent at the same moment cannot slip past the limit together.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`quality:${call.id}:${reporterId}`}))`);
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.qualityNotes)
+      .where(and(eq(schema.qualityNotes.callId, call.id), eq(schema.qualityNotes.reporterId, reporterId)));
+    const room = NOTES_PER_PERSON_PER_CALL - count;
+    if (room <= 0) return "limit_reached" as const;
+    const rows = input.notes.slice(0, room).map((note) => ({
+      callId: call.id,
+      reporterId,
+      aboutId: note.about === "me" ? reporterId : otherId,
+      grade: note.grade,
+      connectionId: input.connectionId,
+      seq: note.seq,
+      seenAt: note.seenAt,
+    }));
+    if (rows.length > 0) await tx.insert(schema.qualityNotes).values(rows).onConflictDoNothing();
+    return "saved" as const;
+  });
 }
 
 /** Removes the notes of calls that ended more than 60 days ago. Returns how many calls were cleared. */
