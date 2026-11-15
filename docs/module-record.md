@@ -24,9 +24,9 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 7. "Available now" calls | Built and merged. Two-device test done by the founder on 13 November. |
 | 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
-| 9. Verified customers only | Built; pull request open. The real ID check in a browser needs the restricted Stripe key (founder). |
-| 8b. Messaging | Not started. Begins with a research round (the builder and Astra separately, then compared). |
-| Final pass: joining everything together | Not started. |
+| 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
+| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
+| Final pass: joining everything together | Being built. |
 
 ---
 
@@ -492,6 +492,30 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 
 **What the automatic checks cannot test**
 - The real check at Stripe with a photo ID and a selfie, and the real trip there and back. It needs the restricted Stripe key that has been missing since module 5.
+
+---
+
+## Module 8b: Messaging (researched, not built)
+
+The founder had asked for two separate studies before anything was built: one by the builder and one by Astra, neither seeing the other's work. Both were done on 14 November 2026 and set side by side in `docs/research/messaging/compared.md` (the builder's full report is `our-research.md` in the same folder, with its notes).
+
+**What both studies said**
+- Build it ourselves in the app's own database; do not rent a chat service (roughly $280 to $500 a month at 10,000 users, and it would repeat the accounts, blocking, reporting and admin screen the app already has).
+- Text only, tied to a booked call, nobody can write to a stranger, and hosts cannot write to customers out of the blue.
+- The conversation opens once the host has accepted, stays open until 7 days after the call, and opens again with the next booking.
+- A report button on messages, blocking both ways, and the founder reads a conversation only through a report.
+- Size: about 8 to 15 days of building, plus ongoing work for the founder (reading reports, the reporting paperwork, more for the lawyer).
+
+**What the founder decided (14 November 2026)**
+
+| Question | Recommended | Decided |
+| --- | --- | --- |
+| A note with a request | Keep the note that already travels with a request, separate from messaging | Agreed. Nothing to build; it has been there since module 4. |
+| Must a customer pass the ID check to message | No, the same rule as for the call (Astra recommended yes) | No. |
+| Open for good, like Airbnb, or closed 7 days after the call | 7 days. An Airbnb host sells a room; a host here sells their time, and a line that never closes gives that away and piles up on the host | Not decided; overtaken by the next row. |
+| Build messaging for the first version at all | **No.** The note, the reminders and the one-tap link cover the main need; what is left ("I'm running late", a short follow-up) is nice to have; similar paid-call products mostly do without chat; and the cost is ongoing, not only the build | **Agreed: left out for launch.** To be looked at again if real hosts ask for it. |
+
+**If it is built later:** start from `docs/research/messaging/compared.md`. The plan would use the points above, plus Astra's limits on sending, an emergency switch that stops all sending, new written rules that mention messages, and deleting messages 12 months after they were sent (a lawyer to confirm).
 
 ---
 
