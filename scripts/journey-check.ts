@@ -5,7 +5,7 @@
  * finds them, picks a time, creates an account and lands back on that time; asks, is accepted, the
  * call happens, both rate, each appears in the other's contacts. Then the same customer books a
  * paid call with host@test.local (whose payout account is ready in the Stripe sandbox): card saved,
- * money held, call charged, the host's share given a payday.
+ * money held, call charged, the host's share collected by the host.
  *
  * Part 2, every page: as a visitor, a customer, a host and the founder, each page loads (or sends
  * the person where it should), has the top bar and its own tab title, and every link on it leads
@@ -304,7 +304,7 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
-    console.log("\n4. The same customer books a paid call: card, hold, charge, the host's payday");
+    console.log("\n4. The same customer books a paid call: card, hold, charge, and the host collects");
     const [hana] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
     const hanaOffer = hana ? await B.offerOf(hana.id) : null;
     if (!process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !hana || !hanaOffer || hanaOffer.pricePer15Cents === 0 || !hanaOffer.canTakePaid) {
@@ -346,7 +346,19 @@ async function main() {
       await settleFinishedCalls(new Date());
       const charged = await ownPayment();
       check(`after the call, the customer is charged the ${dollars} for the 15 minutes both were there`, charged.status === "charged" && charged.chargedCents === price, `${charged.status} ${charged.chargedCents}`);
-      check("the host's share has a payday", charged.transferStatus === "not_due" && charged.transferDueAt !== null, charged.transferStatus);
+      const callEnd = paidSlot.getTime() + 15 * 60_000;
+      check("the host's share is ready to collect 2 days after the call, and nothing was sent before", charged.transferStatus === "not_due" && charged.transferDueAt?.getTime() === callEnd + 48 * HOUR && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 0, `${charged.transferStatus} ${charged.transferDueAt?.toISOString()}`);
+      // Pretended: it is now 2 days after the call, and the host presses "Collect earnings".
+      const { collectEarnings } = await import("../src/lib/payments/collect");
+      const { reconcileOperations } = await import("../src/lib/payments/jobs");
+      const collectionId = randomUUID();
+      await collectEarnings({ collectionId, hostId: hana.id, startedBy: hana.id, now: charged.transferDueAt! });
+      // The test host may have many older shares waiting too; the helper finishes whatever one press did not get to.
+      await reconcileOperations(new Date(Date.now() + 5 * 60_000));
+      const collected = await ownPayment();
+      check("the host collects: the share is sent to their Stripe payout account", collected.transferStatus === "sent" && (collected.transferCents ?? 0) + (collected.payoutFeeCents ?? 0) === charged.originalHostShareCents && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 1, collected.transferStatus);
+      // That press was at a pretend time, days ahead. Move it into the past, so the test host can collect in the app today.
+      await db.update(schema.collections).set({ acceptedAt: new Date(Date.now() - 48 * HOUR) }).where(eq(schema.collections.id, collectionId));
       const receipt = await page(`/calls/${callId}/results`, customer.jar);
       check("the customer's results page shows the charge, and offers to book again", receipt.status === 200 && receipt.words.includes(dollars) && linksOf(receipt.text).includes(`/h/${hanaOffer.handle}`), String(receipt.status));
       await rateCall({ callId, raterId: customer.id, stars: 5, now: new Date() });

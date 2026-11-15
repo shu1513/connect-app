@@ -5,12 +5,15 @@
  *   - finish the money side of cancelled calls,
  *   - charge calls that have finished, or queue them for review,
  *   - release holds nobody decided on in time,
- *   - flag calls whose record changed after they were charged,
- *   - send hosts their share on the weekly payday.
+ *   - flag calls whose record changed after they were charged.
+ *
+ * The helper never starts paying a host: that only happens when the host
+ * presses "Collect earnings" (collect.ts). What it does do, in the first job,
+ * is finish every transfer a collection wrote down that is not confirmed yet.
  *
  * Each job is safe to run again and again, and safe to run on two helpers at once.
  */
-import { and, eq, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
@@ -23,11 +26,10 @@ import {
   capturePayment,
   markRefundFailed,
   releasePayment,
-  sendHostShare,
   transferAtStripe,
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
-import { refreshPayoutsReady } from "./hosts";
+import { settleEmptyShare } from "./collect";
 import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError } from "./operations";
 import { attendanceChargeCents } from "./pricing";
 import { confirmWithSavedCard, syncHold } from "./hold";
@@ -43,16 +45,12 @@ const RECONCILE_AFTER_MS = 60_000;
  * result, or does it now if it never arrived.
  */
 const LABEL_SAFE_MS = 23 * 3_600_000;
-/** How often a host's payout account is re-checked with Stripe while money is waiting for them. */
-const HOST_RECHECK_MS = 3_600_000;
-
 /** After Stripe refuses an action, wait this long before trying it again. */
 const RETRY_AFTER_REFUSAL_MS = 3_600_000;
 
 /**
  * Whether Stripe refused this kind of action on this payment a short while ago.
- * Without this, a payout Stripe keeps refusing (for example because our Stripe
- * balance is short) would be tried again every few seconds.
+ * Without this, a charge Stripe keeps refusing would be tried again every few seconds.
  */
 async function recentlyRefused(paymentId: string, kind: string, now: Date): Promise<boolean> {
   const [refused] = await db
@@ -209,20 +207,26 @@ export async function reconcileOperations(now: Date): Promise<void> {
           });
         }
       } else if (operation.kind === "transfer") {
-        let transferId: string | null | undefined;
+        // A share a host's collection wrote down. Whether Stripe's answer was lost or the request
+        // never left, the same request under the same label finishes it without the host pressing again.
         if (params.amountCents < 1) {
-          transferId = null; // nothing was ever sent to Stripe for this one
-        } else if (canRepeat()) {
-          transferId = await transferAtStripe(payment, params, operation.label);
+          // Nothing goes to Stripe for this one; it follows the rest of its collection.
+          if (!(await settleEmptyShare(operation, params))) continue; // the rest is not known yet: look again next pass
         } else {
-          const list = await stripe().transfers.list({ transfer_group: params.callId, limit: 100 });
-          transferId = list.data.find((t) => t.metadata?.paymentId === payment.id)?.id;
-        }
-        if (transferId === undefined) {
-          await giveUp("Stripe shows this transfer did not happen.");
-        } else {
-          const found = transferId;
-          await finishOperation(operation.id, payment.id, found ?? "nothing-to-send", (p, tx) => applyTransferSent(p, params, found, tx));
+          let transferId: string | undefined;
+          if (canRepeat()) {
+            transferId = (await transferAtStripe(payment, params, operation.label)) ?? undefined;
+          } else {
+            const list = await stripe().transfers.list({ transfer_group: params.callId, limit: 100 });
+            transferId = list.data.find((t) => t.metadata?.paymentId === payment.id)?.id;
+          }
+          if (transferId === undefined) {
+            // The share was never sent. It is simply ready again for a later collection.
+            await giveUp("Stripe shows this transfer did not happen.");
+          } else {
+            const found = transferId;
+            await finishOperation(operation.id, payment.id, found, (p, tx) => applyTransferSent(p, params, found, tx));
+          }
         }
       }
       log(`checked unfinished ${operation.kind} on payment ${operation.paymentId}`);
@@ -452,7 +456,7 @@ export async function flagChangedRecords(now: Date): Promise<void> {
     );
 
   for (const { payment, call } of candidates) {
-    // One record that cannot be checked must not stop the others, or the payday that comes after this step.
+    // One record that cannot be checked must not stop the others.
     try {
       const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
       const totals = attendance.result.totals;
@@ -476,59 +480,6 @@ export async function flagChangedRecords(now: Date): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 6. The weekly payday
-// ---------------------------------------------------------------------------
-
-export async function runPayday(now: Date): Promise<void> {
-  const due = await db
-    .select({ payment: schema.payments, call: schema.calls, host: schema.hostSettings })
-    .from(schema.payments)
-    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .innerJoin(schema.hostSettings, eq(schema.hostSettings.userId, schema.calls.hostId))
-    .where(
-      and(
-        eq(schema.payments.status, "charged"),
-        inArray(schema.payments.transferStatus, ["not_due", "due"]),
-        lte(schema.payments.transferDueAt, now),
-        eq(schema.payments.disputeOpen, false),
-        isNotNull(schema.hostSettings.stripeAccountId),
-      ),
-    );
-  if (due.length === 0) return;
-
-  // A saved message about a bank dispute that is not handled yet may mean one of these
-  // payments must not be paid out. Wait until it is handled.
-  const [unhandled] = await db
-    .select({ id: schema.stripeEvents.id })
-    .from(schema.stripeEvents)
-    .where(and(isNull(schema.stripeEvents.processedAt), like(schema.stripeEvents.type, "charge.dispute.%")))
-    .limit(1);
-  if (unhandled) {
-    log(`payday is waiting: Stripe message ${unhandled.id} about a dispute has not been handled yet`);
-    return;
-  }
-
-  // Never trust the saved "ready" flag for a host who is owed money: ask Stripe, at most once an hour.
-  const ready = new Map<string, boolean>();
-  for (const { host } of due) {
-    if (ready.has(host.userId)) continue;
-    const stale = !host.payoutsCheckedAt || now.getTime() - host.payoutsCheckedAt.getTime() > HOST_RECHECK_MS;
-    ready.set(host.userId, stale ? await refreshPayoutsReady(host.userId).catch(() => false) : host.payoutsReady);
-  }
-
-  for (const { payment, call, host } of due) {
-    if (!ready.get(host.userId)) continue;
-    if (await recentlyRefused(payment.id, "transfer", now)) continue;
-    try {
-      await sendHostShare({ paymentId: payment.id, hostId: host.userId, destination: host.stripeAccountId!, callId: call.id, now });
-      log(`sent host share for payment ${payment.id}`);
-    } catch (error) {
-      log(`could not send host share for payment ${payment.id}; will retry`, error);
-    }
-  }
-}
-
 /** Everything the helper does for payments in one pass, in a safe order. */
 export async function runPaymentJobs(now: Date): Promise<void> {
   await reconcileOperations(now);
@@ -536,5 +487,4 @@ export async function runPaymentJobs(now: Date): Promise<void> {
   await settleCancelledCalls(now);
   await settleFinishedCalls(now);
   await flagChangedRecords(now);
-  await runPayday(now);
 }

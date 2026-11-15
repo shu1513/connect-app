@@ -55,40 +55,56 @@ export type OperationPlan<P, R> = {
   onRefused?: (payment: Payment, params: P, message: string, tx: Tx) => Promise<void>;
 };
 
+/** An action that has been written down and not yet asked of Stripe. */
+export type StartedOperation<P> = { operationId: string; params: P; label: string };
+
 export async function runMoneyOperation<P, R>(plan: OperationPlan<P, R>): Promise<"done" | "already_done"> {
-  // 1. Lock, check, write down.
-  const started = await db.transaction(async (tx) => {
-    const payment = await lockPayment(tx, plan.paymentId);
+  const started = await db.transaction((tx) => startMoneyOperation(tx, plan));
+  if (started === "already_done") return "already_done";
+  await completeMoneyOperation(started, plan);
+  return "done";
+}
 
-    const earlier = await tx
-      .select()
-      .from(schema.moneyOperations)
-      .where(
-        and(
-          eq(schema.moneyOperations.paymentId, plan.paymentId),
-          like(schema.moneyOperations.label, `${plan.labelBase}:%`),
-        ),
-      );
-    if (earlier.some((o) => o.status === "succeeded")) return { already: true as const };
+/**
+ * Step 1 on its own, inside a transaction the caller owns: lock, check, write
+ * down. Called directly only when several actions have to be written down
+ * together (a host's collection); the caller then runs completeMoneyOperation
+ * for each, after its transaction has been saved.
+ */
+export async function startMoneyOperation<P>(
+  tx: Tx,
+  plan: Pick<OperationPlan<P, unknown>, "paymentId" | "kind" | "labelBase" | "prepare">,
+): Promise<StartedOperation<P> | "already_done"> {
+  const payment = await lockPayment(tx, plan.paymentId);
 
-    const [inFlight] = await tx
-      .select({ id: schema.moneyOperations.id })
-      .from(schema.moneyOperations)
-      .where(and(eq(schema.moneyOperations.paymentId, plan.paymentId), eq(schema.moneyOperations.status, "started")));
-    if (inFlight) throw new OutcomeUnknownError("A money action is already in progress on this payment. It is being checked with Stripe.");
+  const earlier = await tx
+    .select()
+    .from(schema.moneyOperations)
+    .where(and(eq(schema.moneyOperations.paymentId, plan.paymentId), like(schema.moneyOperations.label, `${plan.labelBase}:%`)));
+  if (earlier.some((o) => o.status === "succeeded")) return "already_done";
 
-    const params = await plan.prepare(payment, tx);
+  const [inFlight] = await tx
+    .select({ id: schema.moneyOperations.id })
+    .from(schema.moneyOperations)
+    .where(and(eq(schema.moneyOperations.paymentId, plan.paymentId), eq(schema.moneyOperations.status, "started")));
+  if (inFlight) throw new OutcomeUnknownError("A money action is already in progress on this payment. It is being checked with Stripe.");
 
-    // Every earlier attempt under this name was definitely refused, so a new attempt is safe.
-    const label = `${plan.labelBase}:${earlier.length + 1}`;
-    const [operation] = await tx
-      .insert(schema.moneyOperations)
-      .values({ paymentId: plan.paymentId, kind: plan.kind, label, params: JSON.stringify(params) })
-      .returning({ id: schema.moneyOperations.id });
-    return { already: false as const, operationId: operation.id, params, label };
-  });
-  if (started.already) return "already_done";
+  const params = await plan.prepare(payment, tx);
 
+  // Every earlier attempt under this name was definitely refused, so a new attempt is safe.
+  const label = `${plan.labelBase}:${earlier.length + 1}`;
+  const [operation] = await tx
+    .insert(schema.moneyOperations)
+    .values({ paymentId: plan.paymentId, kind: plan.kind, label, params: JSON.stringify(params) })
+    .returning({ id: schema.moneyOperations.id });
+  return { operationId: operation.id, params, label };
+}
+
+/** Steps 2 and 3 for an action that was written down: ask Stripe, then record what happened. */
+export async function completeMoneyOperation<P, R>(
+  started: StartedOperation<P>,
+  plan: Pick<OperationPlan<P, R>, "paymentId" | "execute" | "apply" | "onRefused">,
+): Promise<void> {
   // 2. Ask Stripe.
   let outcome: { stripeId: string; result: R };
   try {
@@ -114,7 +130,6 @@ export async function runMoneyOperation<P, R>(plan: OperationPlan<P, R>): Promis
   await finishOperation(started.operationId, plan.paymentId, outcome.stripeId, (payment, tx) =>
     plan.apply(payment, started.params, outcome, tx),
   );
-  return "done";
 }
 
 /** Marks a written-down action as done and records its outcome, with the payment locked. */

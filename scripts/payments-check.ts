@@ -41,13 +41,13 @@ async function main() {
   const MINUTES = 10; // booked total: $13.33
 
   /** Creates a paid call starting in 10 minutes (so slow answers from Stripe cannot make it start mid-test), with its payment record. */
-  async function newCall() {
+  async function newCall(hostId: string = host.id) {
     const startsAt = new Date(Math.ceil((Date.now() + 600_000) / 1000) * 1000);
     const endsAt = new Date(startsAt.getTime() + MINUTES * 60_000);
     return db.transaction(async (tx) => {
       const [call] = await tx
         .insert(schema.calls)
-        .values({ hostId: host.id, customerId: customer.id, startsAt, endsAt, roomName: `paycheck-${randomUUID()}`, pricePer15Cents: PRICE })
+        .values({ hostId, customerId: customer.id, startsAt, endsAt, roomName: `paycheck-${randomUUID()}`, pricePer15Cents: PRICE })
         .returning();
       await createPaymentForCall(tx, call);
       const [payment] = await tx.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
@@ -125,7 +125,7 @@ async function main() {
     check("charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
     check("fee 82 cents, host $9.85", p.originalFeeCents === 82 && p.originalHostShareCents === 985, `${p.originalFeeCents} ${p.originalHostShareCents}`);
     check("time totals frozen", p.frozenHostSeconds === 480 && p.frozenTogetherSeconds === 480);
-    check("host share has a payday", p.transferStatus === "not_due" && p.transferDueAt !== null);
+    check("the host's share is ready to collect exactly 2 days after the call", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === call.endsAt.getTime() + 48 * 3_600_000, String(p.transferDueAt?.toISOString()));
     const intent = await stripeIntent(payment.id);
     check("Stripe received exactly $10.67", intent.status === "succeeded" && intent.amount_received === 1067, `${intent.status} ${intent.amount_received}`);
 
@@ -475,11 +475,29 @@ async function main() {
   }
 
   // ------------------------------------------------------------------------
-  // Paying hosts. These need Stripe's marketplace feature (Connect) and a test
-  // host whose payout account is ready. Run with --payouts once that is set up.
+  // Hosts collecting their earnings. These need Stripe's marketplace feature
+  // (Connect) and a test host whose payout account is ready. Run with --payouts
+  // once that is set up.
   if (process.argv.includes("--payouts")) {
-    const { runPayday } = await import("../src/lib/payments/jobs");
+    const { acceptCollection, collectEarnings, lastCollectionOf, sendCollection, unsentEarnings } = await import("../src/lib/payments/collect");
+    const { transferAtStripe } = await import("../src/lib/payments/actions");
+    const { runPaymentJobs } = await import("../src/lib/payments/jobs");
     const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");
+    const HOUR = 3_600_000;
+    const DAY = 24 * HOUR;
+    const RUN = randomUUID().slice(0, 8);
+
+    // If an earlier run stopped half way, one of its made-up hosts still has the test payout account. Give it back first.
+    const mine = await getHostSettings(host.id);
+    if (!mine.stripeAccountId) {
+      const [left] = await db.select().from(schema.hostSettings).where(sql`${schema.hostSettings.userId} like 'cc-%' and ${schema.hostSettings.stripeAccountId} is not null`);
+      if (left) {
+        await db.transaction(async (tx) => {
+          await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, left.userId));
+          await tx.update(schema.hostSettings).set({ stripeAccountId: left.stripeAccountId }).where(eq(schema.hostSettings.userId, host.id));
+        });
+      }
+    }
     const ready = await refreshPayoutsReady(host.id);
     const settings = await getHostSettings(host.id);
     check("the test host's payout account is ready", ready && Boolean(settings.stripeAccountId));
@@ -487,136 +505,348 @@ async function main() {
       console.log("   Set up payouts for host@test.local on the Hosting page first.");
     } else {
       const account = settings.stripeAccountId;
-      const transfersFor = async (callId: string) => (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data;
-      /** A charged call for the test host: full 10 minutes, $13.33, host share $12.38. */
-      const chargedCall = async () => {
-        const made = await newCall();
-        await hold(made.call, made.payment.id, "pm_card_visa");
-        await attend(made.call, [["host", 0, 600], ["customer", 0, 600]]);
-        await settleFinishedCalls(after(made.call, 5));
-        return made;
+      let holder = host.id;
+      let made = 0;
+      /**
+       * A new host with nothing behind them, so that each journey below starts clean and its pretend
+       * dates never touch host@test.local. A payout account cannot be made ready from a script, and
+       * one account belongs to one host at a time, so the new host takes over the test account.
+       */
+      const freshHost = async (): Promise<string> => {
+        const id = `cc-${RUN}-${++made}`;
+        const stamp = new Date();
+        await db.insert(schema.user).values({ id, name: `Collect check ${made}`, email: `collectcheck-${RUN}-${made}@example.test`, emailVerified: true, adultConfirmedAt: stamp, termsAcceptedAt: stamp, termsVersion: "check", timeZone: "America/New_York" });
+        await db.transaction(async (tx) => {
+          await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, holder));
+          await tx.insert(schema.hostSettings).values({ userId: id, stripeAccountId: account, payoutsReady: true });
+        });
+        holder = id;
+        return id;
       };
-      const payday = (call: { endsAt: Date }) => new Date(call.endsAt.getTime() + 15 * 24 * 3_600_000);
 
-      console.log("\n20. Payday: two calls for one host");
-      {
-        const a = await chargedCall();
-        const b = await chargedCall();
-        const before = await reload(a.payment.id);
-        check("charged, with the host's share of $12.38 waiting", before.status === "charged" && before.originalHostShareCents === 1238 && before.transferStatus === "not_due", `${before.status} ${before.originalHostShareCents}`);
-
-        await runPayday(new Date(a.call.endsAt.getTime() + 6 * 24 * 3_600_000));
-        check("nothing is sent before 7 days have passed", (await reload(a.payment.id)).transferStatus === "not_due");
-
-        await Promise.all([runPayday(payday(b.call)), runPayday(payday(b.call))]); // two helpers at once
-        await reconcileOperations(soon());
-        await runPayday(payday(b.call));
-        const pa = await reload(a.payment.id);
-        const pb = await reload(b.payment.id);
-        check("both shares were sent", pa.transferStatus === "sent" && pb.transferStatus === "sent", `${pa.transferStatus} ${pb.transferStatus}`);
-        const sent = (pa.transferCents ?? 0) + (pb.transferCents ?? 0);
-        // Earlier journeys left other charged calls for this host on the same payday, so count the whole payday.
-        const [{ fees, paid }] = await db
-          .select({
-            fees: sql<number>`coalesce(sum(${schema.payments.payoutFeeCents}), 0)::int`,
-            paid: sql<number>`count(*)::int`,
-          })
-          .from(schema.payments)
-          .where(sql`${schema.payments.transferStatus} = 'sent' and ${schema.payments.transferDueAt} = ${pa.transferDueAt!.toISOString()}::timestamptz`);
-        check(`the 25-cent payout charge was taken once across the ${paid} calls paid that day`, fees === 25, String(fees));
-        check("each share was sent in full, less any payout charge it carried", (pa.transferCents ?? 0) + (pa.payoutFeeCents ?? 0) === 1238 && (pb.transferCents ?? 0) + (pb.payoutFeeCents ?? 0) === 1238);
-        const ta = await transfersFor(a.call.id);
-        const tb = await transfersFor(b.call.id);
-        check("Stripe made exactly one transfer per call", ta.length === 1 && tb.length === 1, `${ta.length} ${tb.length}`);
-        check("Stripe sent them to the host's account", ta[0]?.destination === account && ta[0].amount + tb[0].amount === sent);
-        check("the money record matches", (await ledgerSum(a.payment.id, "host_transfer")) + (await ledgerSum(b.payment.id, "host_transfer")) === -sent);
-
-        await runPayday(payday(b.call));
-        check("running payday again sends nothing more", (await transfersFor(a.call.id)).length === 1 && (await transfersFor(b.call.id)).length === 1);
-        const refused = await refundPayment({ paymentId: a.payment.id, amountCents: 100, decidedBy: host.id, decidedAs: "host", reason: null }).catch((e) => e);
-        check("no refund after the host has been paid", refused instanceof MoneyError);
-      }
-
-      console.log("\n21. Payday after a partial refund");
-      {
-        const c = await chargedCall();
-        await refundPayment({ paymentId: c.payment.id, amountCents: 667, decidedBy: host.id, decidedAs: "host", reason: null });
-        const share = currentSplit(await reload(c.payment.id)).hostShareCents;
-        await runPayday(payday(c.call));
+      type Made = Awaited<ReturnType<typeof newCall>>;
+      const FULL: Parameters<typeof attend>[1] = [["host", 0, 600], ["customer", 0, 600]];
+      /** A charged call. By default the full 10 minutes: $13.33, host's share $12.38. */
+      const chargedCall = async (hostId: string, visits = FULL, card = "pm_card_visa"): Promise<Made> => {
+        const call = await newCall(hostId);
+        await hold(call.call, call.payment.id, card);
+        await attend(call.call, visits);
+        await settleFinishedCalls(after(call.call, 5));
+        return call;
+      };
+      const transfersFor = async (callId: string) => (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data;
+      /** One press of "Collect earnings". Gives back the refusal, or null when the press was accepted. */
+      const press = (hostId: string, now: Date, collectionId = randomUUID(), startedBy = hostId) =>
+        collectEarnings({ collectionId, hostId, startedBy, now }).then(() => null, (e: unknown) => e as Error);
+      /** The moment the last of these shares becomes ready. */
+      const readyAt = async (...calls: Made[]) => {
+        const dates = await Promise.all(calls.map(async (c) => (await reload(c.payment.id)).transferDueAt!.getTime()));
+        return new Date(Math.max(...dates));
+      };
+      const collectionsOf = (hostId: string) => db.select().from(schema.collections).where(eq(schema.collections.hostId, hostId));
+      const itemsOf = (collectionId: string) => db.select().from(schema.collectionItems).where(eq(schema.collectionItems.collectionId, collectionId));
+      const share = async (c: Made) => currentSplit(await reload(c.payment.id)).hostShareCents;
+      /** What the host got for this share, with the charge it carried, once sent. */
+      const sent = async (c: Made) => {
         const p = await reload(c.payment.id);
-        check("only the share that is left is sent", p.transferStatus === "sent" && (p.transferCents ?? 0) + (p.payoutFeeCents ?? 0) === share, `${p.transferCents} + ${p.payoutFeeCents} vs ${share}`);
-        const t = await transfersFor(c.call.id);
-        check("Stripe sent exactly that", t.length === 1 && t[0].amount === p.transferCents);
-      }
+        return { status: p.transferStatus, cents: p.transferCents ?? 0, fee: p.payoutFeeCents ?? 0, transfers: await transfersFor(c.call.id) };
+      };
+      const breakCharge = async (c: Made) => {
+        const real = (await reload(c.payment.id)).stripeChargeId!;
+        await db.update(schema.payments).set({ stripeChargeId: "ch_not_a_real_charge" }).where(eq(schema.payments.id, c.payment.id));
+        return () => db.update(schema.payments).set({ stripeChargeId: real }).where(eq(schema.payments.id, c.payment.id));
+      };
 
-      console.log("\n22. Payday after a full refund, and while a bank dispute is open");
-      {
-        const d = await chargedCall();
-        // As if Stripe had refused an earlier payout of this call, leaving it holding a week's 25-cent charge.
-        await db.insert(schema.payoutFees).values({ hostId: host.id, payday: new Date(Date.now() + 3650 * 24 * 3_600_000), paymentId: d.payment.id });
-        await refundPayment({ paymentId: d.payment.id, amountCents: 1333, decidedBy: host.id, decidedAs: "host", reason: null });
-        const stillClaimed = await db.select().from(schema.payoutFees).where(eq(schema.payoutFees.paymentId, d.payment.id));
-        check("a fully refunded call gives up the payout charge it was holding", stillClaimed.length === 0);
-        const e = await chargedCall();
-        await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, e.payment.id));
-        await runPayday(payday(e.call));
-        check("nothing is sent for a fully refunded call", (await reload(d.payment.id)).transferStatus === "not_owed" && (await transfersFor(d.call.id)).length === 0);
-        check("nothing is sent while a dispute is open", (await reload(e.payment.id)).transferStatus === "not_due" && (await transfersFor(e.call.id)).length === 0);
-        await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, e.payment.id));
-        await runPayday(payday(e.call));
-        check("it is sent once the dispute is closed", (await reload(e.payment.id)).transferStatus === "sent");
+      try {
+        console.log("\n20. Nothing is sent without a press; a press sends everything that is ready, and nothing else");
+        {
+          const h = await freshHost();
+          const a = await chargedCall(h);
+          const b = await chargedCall(h);
+          const c = await chargedCall(h); // made last, so it ends, and becomes ready, a little later
+          const other = await chargedCall(host.id); // another host's money
+          const before = await reload(a.payment.id);
+          check("charged, with the host's share of $12.38 waiting", before.status === "charged" && before.originalHostShareCents === 1238 && before.transferStatus === "not_due", `${before.status} ${before.originalHostShareCents}`);
+          const T = await readyAt(a, b);
+          check("the third share becomes ready later than the first two", (await readyAt(c)).getTime() > T.getTime());
 
-        console.log("   …and while a saved Stripe message about a dispute has not been handled yet");
-        const f = await chargedCall();
-        const messageId = `evt_check_${randomUUID()}`;
-        await db.insert(schema.stripeEvents).values({ id: messageId, type: "charge.dispute.created", payload: "{}" });
-        try {
-          await runPayday(payday(f.call));
-          check("payday waits", (await reload(f.payment.id)).transferStatus === "not_due" && (await transfersFor(f.call.id)).length === 0);
-        } finally {
-          await db.delete(schema.stripeEvents).where(eq(schema.stripeEvents.id, messageId));
+          await runPaymentJobs(new Date(T.getTime() + DAY));
+          check("the helper sends nothing by itself, however long it waits", (await sent(a)).status === "not_due" && (await sent(a)).transfers.length === 0 && (await collectionsOf(h)).length === 0);
+
+          const early = await press(h, new Date((await readyAt(a)).getTime() - 1000));
+          check("a second before the first share's 2 days are over, there is nothing to collect", early instanceof MoneyError && (await collectionsOf(h)).length === 0, early?.message);
+
+          const first = randomUUID();
+          const accepted = await press(h, T, first);
+          const [pa, pb, pc] = [await sent(a), await sent(b), await sent(c)];
+          check("exactly at the 2 days, the press is accepted (and the refused press used up nothing)", accepted === null, accepted?.message);
+          check("both ready shares were sent", pa.status === "sent" && pb.status === "sent", `${pa.status} ${pb.status}`);
+          check("the share inside its 2 days stays", pc.status === "not_due" && pc.transfers.length === 0);
+          check("another host's money is not touched", (await sent(other)).status === "not_due" && (await sent(other)).transfers.length === 0);
+          check("the 25-cent collection charge was taken once", pa.fee + pb.fee === 25 && pa.cents + pa.fee === 1238 && pb.cents + pb.fee === 1238, `${pa.fee} ${pb.fee}`);
+          check("Stripe made exactly one transfer per call, to the host's account", pa.transfers.length === 1 && pb.transfers.length === 1 && pa.transfers[0].destination === account && pa.transfers[0].amount + pb.transfers[0].amount === pa.cents + pb.cents);
+          check("the money record matches", (await ledgerSum(a.payment.id, "host_transfer")) + (await ledgerSum(b.payment.id, "host_transfer")) === -(pa.cents + pb.cents) && (await ledgerSum(a.payment.id, "payout_fee")) + (await ledgerSum(b.payment.id, "payout_fee")) === 25);
+          const view = (await lastCollectionOf(h))!;
+          check("the collection is a record of its own, showing what really happened", (await itemsOf(first)).length === 2 && view.last.id === first && view.last.sentCents === 2 * 1238 - 25 && view.last.feeCents === 25 && view.last.checkingCents === 0 && view.last.refusedCents === 0);
+          check("and says when the host can collect again", view.againAt.getTime() === T.getTime() + DAY);
+          const refused = await refundPayment({ paymentId: a.payment.id, amountCents: 100, decidedBy: h, decidedAs: "host", reason: null }).catch((e) => e);
+          check("no refund after the share has been sent", refused instanceof MoneyError);
+
+          const tooSoon = await press(h, new Date(T.getTime() + DAY - 1000));
+          check("a second press inside the 24 hours is refused", tooSoon instanceof MoneyError && /24 hours/.test(tooSoon.message) && (await sent(c)).status === "not_due", tooSoon?.message);
+          const later = await press(h, new Date(T.getTime() + DAY));
+          const lc = await sent(c);
+          check("exactly at 24 hours it is accepted, and takes the share that is ready by then", later === null && lc.status === "sent" && lc.transfers.length === 1, later?.message);
+          check("that second collection carries its own 25-cent charge", lc.fee === 25 && lc.cents === 1238 - 25);
+
+          const again = await press(h, new Date(T.getTime() + 5 * DAY), first);
+          check("the first press arriving again, days later, changes nothing", again === null && (await collectionsOf(h)).length === 2 && (await sent(a)).transfers.length === 1);
         }
-        await runPayday(payday(f.call));
-        check("and carries on once the message is handled", (await reload(f.payment.id)).transferStatus === "sent");
-      }
 
-      console.log("\n23. A real bank dispute at Stripe, which we then lose");
-      {
-        const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
-        const stranger = await handleStripeEvent({ type: "payment_intent.succeeded", data: { object: { metadata: { paymentId: randomUUID() } } } }).catch((e) => e);
-        check("a Stripe message about a payment that is not ours is ignored, not an error", stranger === undefined);
+        console.log("\n21. Two presses at the same moment");
+        {
+          const h = await freshHost();
+          const a = await chargedCall(h);
+          const b = await chargedCall(h);
+          const T = await readyAt(a, b);
+          const results = await Promise.all([press(h, T), press(h, T)]); // two tabs
+          check("two different presses at once make one collection", results.filter((r) => r === null).length === 1 && (await collectionsOf(h)).length === 1, results.map((r) => r?.message ?? "accepted").join(" | "));
+          const [pa, pb] = [await sent(a), await sent(b)];
+          check("each share was sent once, with one charge", pa.transfers.length === 1 && pb.transfers.length === 1 && pa.fee + pb.fee === 25);
 
-        const g = await newCall();
-        await hold(g.call, g.payment.id, "pm_card_createDispute"); // Stripe's test card that is always disputed
-        await attend(g.call, [["host", 0, 600], ["customer", 0, 600]]);
-        await settleFinishedCalls(after(g.call, 5));
-        const intentId = (await reload(g.payment.id)).stripePaymentIntentId!;
-        const pause = () => new Promise((resolve) => setTimeout(resolve, 2000));
-        let disputeId: string | undefined;
-        for (let i = 0; i < 30 && !disputeId; i++) {
-          disputeId = (await stripe().disputes.list({ payment_intent: intentId, limit: 1 })).data[0]?.id;
-          if (!disputeId) await pause();
+          const h2 = await freshHost();
+          const c = await chargedCall(h2);
+          const same = randomUUID();
+          const twice = await Promise.all([press(h2, await readyAt(c), same), press(h2, await readyAt(c), same)]); // a double click
+          const pc = await sent(c);
+          check("the same press sent twice at once is one collection", twice.every((r) => r === null) && (await collectionsOf(h2)).length === 1 && pc.transfers.length === 1 && pc.fee === 25, twice.map((r) => r?.message ?? "accepted").join(" | "));
         }
-        check("Stripe opened a dispute on the charge", Boolean(disputeId));
-        if (disputeId) {
-          const message = (type: string) => ({ type, data: { object: { id: disputeId } } });
-          await handleStripeEvent(message("charge.dispute.created"));
-          check("the dispute is recorded", (await reload(g.payment.id)).disputeOpen === true);
 
-          await stripe().disputes.update(disputeId, { evidence: { uncategorized_text: "losing_evidence" } });
-          let status = "";
-          for (let i = 0; i < 30 && status !== "lost"; i++) {
-            status = (await stripe().disputes.retrieve(disputeId)).status;
-            if (status !== "lost") await pause();
+        console.log("\n22. What holds a share back: a bank dispute, a refund on its way, a Stripe message not handled yet");
+        {
+          const h = await freshHost();
+          const disputed = await chargedCall(h);
+          const refunding = await chargedCall(h);
+          const partly = await chargedCall(h);
+          const fully = await chargedCall(h);
+          const plain = await chargedCall(h);
+          await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, disputed.payment.id));
+          const refundId = randomUUID(); // a refund asked for just before the press, not finished yet
+          await db.insert(schema.refunds).values({ id: refundId, paymentId: refunding.payment.id, amountCents: 100, decidedBy: h, decidedAs: "host" });
+          await refundPayment({ paymentId: partly.payment.id, amountCents: 667, decidedBy: h, decidedAs: "host", reason: null });
+          await refundPayment({ paymentId: fully.payment.id, amountCents: 1333, decidedBy: h, decidedAs: "host", reason: null });
+          const left = await share(partly);
+          const T = await readyAt(disputed, refunding, partly, fully, plain);
+
+          const messageId = `evt_check_${randomUUID()}`;
+          await db.insert(schema.stripeEvents).values({ id: messageId, type: "charge.dispute.created", payload: "{}" });
+          const waits = await press(h, T).finally(() => db.delete(schema.stripeEvents).where(eq(schema.stripeEvents.id, messageId)));
+          check("while a message about a dispute is not handled, nothing is collected", waits instanceof MoneyError && (await collectionsOf(h)).length === 0 && (await sent(plain)).transfers.length === 0, waits?.message);
+
+          const accepted = await press(h, T);
+          check("once it is handled, the press is accepted (the refused one used up nothing)", accepted === null, accepted?.message);
+          const pp = await sent(partly);
+          check("the plain share is sent", (await sent(plain)).status === "sent");
+          check("after a partial refund, only the share that is left is sent", pp.status === "sent" && pp.cents + pp.fee === left && pp.transfers.length === 1 && pp.transfers[0].amount === pp.cents, `${pp.cents}+${pp.fee} vs ${left}`);
+          check("nothing is sent for a fully refunded call", (await sent(fully)).status === "not_owed" && (await sent(fully)).transfers.length === 0);
+          check("nothing is sent while a dispute is open", (await sent(disputed)).status === "not_due" && (await sent(disputed)).transfers.length === 0);
+          check("nothing is sent while a refund is on its way", (await sent(refunding)).status === "not_due" && (await sent(refunding)).transfers.length === 0);
+          const shown = await unsentEarnings(T, h);
+          check("the host is told why each one waits", shown.length === 2 && shown.find((e) => e.payment.id === disputed.payment.id)?.heldBack === "dispute" && shown.find((e) => e.payment.id === refunding.payment.id)?.heldBack === "refund");
+
+          await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, disputed.payment.id));
+          await db.update(schema.refunds).set({ status: "failed", finishedAt: new Date() }).where(eq(schema.refunds.id, refundId));
+          await press(h, new Date(T.getTime() + DAY));
+          check("both are sent by the next collection, once nothing holds them back", (await sent(disputed)).status === "sent" && (await sent(refunding)).status === "sent");
+        }
+
+        console.log("\n23. One collection: Stripe refuses one share, the answer for another is lost");
+        {
+          const h = await freshHost();
+          const calls = [await chargedCall(h), await chargedCall(h), await chargedCall(h)];
+          const T = await readyAt(...calls);
+          const id = randomUUID();
+          const accepted = await acceptCollection({ collectionId: id, hostId: h, startedBy: h, now: T });
+          const startedOps = await Promise.all(calls.map((c) => opsFor(c.payment.id)));
+          check("accepting writes every transfer down before Stripe is asked", accepted.started.length === 3 && startedOps.every((ops) => ops.filter((o) => o.kind === "transfer" && o.status === "started").length === 1) && (await transfersFor(calls[0].call.id)).length === 0);
+
+          const blocked = await refundPayment({ paymentId: calls[0].payment.id, amountCents: 100, decidedBy: h, decidedAs: "host", reason: null }).catch((e) => e);
+          check("a refund asked for while the share is being sent is refused", blocked instanceof Error && (await reload(calls[0].payment.id)).refundedCents === 0 && (await stripe().refunds.list({ payment_intent: (await reload(calls[0].payment.id)).stripePaymentIntentId!, limit: 5 })).data.length === 0, blocked?.message);
+
+          // The share that carries the charge is the one Stripe refuses. One other goes through; the third's answer is lost.
+          const carrier = accepted.started.find((s) => s.params.payoutFeeCents > 0)!;
+          const [through, lost] = accepted.started.filter((s) => s !== carrier);
+          const call = (paymentId: string) => calls.find((c) => c.payment.id === paymentId)!;
+          const restore = await breakCharge(call(carrier.paymentId));
+          await sendCollection([through, carrier]);
+          await transferAtStripe(await reload(lost.paymentId), lost.params, lost.label); // Stripe did it; we "crashed" before hearing back
+          const during = (await lastCollectionOf(h))!.last;
+          check("the host is shown what really happened: one sent, one being checked, one could not be sent", during.sentCents === 1238 && during.checkingCents === 1238 && during.refusedCents === 1238, `${during.sentCents} ${during.checkingCents} ${during.refusedCents}`);
+          check("the refused share stays ready for a later collection", (await sent(call(carrier.paymentId))).status === "not_due" && (await sent(call(carrier.paymentId))).transfers.length === 0);
+
+          await reconcileOperations(soon());
+          await reconcileOperations(soon());
+          const pl = await sent(call(lost.paymentId));
+          check("the helper finishes the lost one: recorded once, one transfer at Stripe", pl.status === "sent" && pl.cents === 1238 && pl.transfers.length === 1 && (await ledgerSum(lost.paymentId, "host_transfer")) === -1238, `${pl.status} ${pl.transfers.length}`);
+          const after24 = (await lastCollectionOf(h))!.last;
+          check("that was not another press, and the charge is waived because the share carrying it failed", (await collectionsOf(h)).length === 1 && after24.feeCents === 0 && after24.sentCents === 2 * 1238 && after24.checkingCents === 0);
+          const stillBlocked = await press(h, new Date(T.getTime() + HOUR));
+          check("the 24 hours stand, even though one share failed", stillBlocked instanceof MoneyError);
+
+          await restore();
+          await press(h, new Date(T.getTime() + DAY));
+          const pr = await sent(call(carrier.paymentId));
+          check("the refused share goes out with the next collection, which carries its own charge", pr.status === "sent" && pr.cents === 1238 - 25 && pr.fee === 25 && pr.transfers.length === 1, `${pr.status} ${pr.cents} ${pr.fee}`);
+        }
+
+        console.log("\n24. The app stops right after accepting; and a collection in which nothing goes through");
+        {
+          const h = await freshHost();
+          const x = await chargedCall(h);
+          await acceptCollection({ collectionId: randomUUID(), hostId: h, startedBy: h, now: await readyAt(x) });
+          check("nothing has reached Stripe", (await sent(x)).status === "not_due" && (await sent(x)).transfers.length === 0);
+          await reconcileOperations(soon());
+          await reconcileOperations(soon());
+          const px = await sent(x);
+          check("the helper sends it, without the host pressing again", px.status === "sent" && px.transfers.length === 1 && px.cents === 1238 - 25 && px.fee === 25 && (await collectionsOf(h)).length === 1, `${px.status} ${px.transfers.length}`);
+
+          const h2 = await freshHost();
+          const y = await chargedCall(h2);
+          const z = await chargedCall(h2);
+          const T = await readyAt(y, z);
+          const restoreY = await breakCharge(y);
+          const restoreZ = await breakCharge(z);
+          const pressed = await press(h2, T);
+          const view = (await lastCollectionOf(h2))!.last;
+          check("Stripe refuses everything: the press was accepted, nothing was sent and no charge was taken", pressed === null && view.sentCents === 0 && view.feeCents === 0 && view.refusedCents === 2 * 1238 && (await ledgerSum(y.payment.id, "payout_fee")) + (await ledgerSum(z.payment.id, "payout_fee")) === 0);
+          await restoreY();
+          await restoreZ();
+          check("the 24 hours stand all the same", (await press(h2, new Date(T.getTime() + HOUR))) instanceof MoneyError);
+          await press(h2, new Date(T.getTime() + DAY));
+          check("both go out with the next collection, with one charge", (await sent(y)).status === "sent" && (await sent(z)).status === "sent" && (await sent(y)).fee + (await sent(z)).fee === 25);
+        }
+
+        console.log("\n25. Two shares that are each smaller than the 25-cent charge");
+        {
+          const h = await freshHost();
+          // The host was there for 23 seconds: 51 cents charged, and a share of 19 cents.
+          const tiny: Parameters<typeof attend>[1] = [["host", 0, 23], ["customer", 0, 600]];
+          const s1 = await chargedCall(h, tiny);
+          check("a 51-cent charge leaves the host 19 cents", (await reload(s1.payment.id)).chargedCents === 51 && (await share(s1)) === 19, `${(await reload(s1.payment.id)).chargedCents} ${await share(s1)}`);
+          const alone = await press(h, await readyAt(s1));
+          check("19 cents alone is not collected: it would all go on the charge", alone instanceof MoneyError && (await collectionsOf(h)).length === 0, alone?.message);
+
+          const s2 = await chargedCall(h, tiny);
+          const T = await readyAt(s1, s2);
+          const accepted = await acceptCollection({ collectionId: randomUUID(), hostId: h, startedBy: h, now: T });
+          const carrier = accepted.started.find((s) => s.params.payoutFeeCents > 0)!;
+          const receiver = accepted.started.find((s) => s !== carrier)!;
+          const tinyCall = (paymentId: string) => (paymentId === s1.payment.id ? s1 : s2);
+          check("the charge is 19 cents, taken from one share; the other is sent whole", carrier.params.payoutFeeCents === 19 && carrier.params.amountCents === 0 && receiver.params.amountCents === 19 && receiver.params.payoutFeeCents === 0);
+          const restore = await breakCharge(tinyCall(receiver.paymentId));
+          await sendCollection(accepted.started);
+          const dropped = (await lastCollectionOf(h))!.last;
+          check("when the other share fails, the charge is not taken: both stay ready", dropped.sentCents === 0 && dropped.feeCents === 0 && (await sent(s1)).status === "not_due" && (await sent(s2)).status === "not_due" && (await ledgerSum(carrier.paymentId, "payout_fee")) === 0, `${dropped.sentCents} ${dropped.feeCents}`);
+
+          await restore();
+          await press(h, new Date(T.getTime() + DAY));
+          const [p1, p2] = [await sent(s1), await sent(s2)];
+          const [gave, got] = p1.fee > 0 ? [p1, p2] : [p2, p1];
+          check("next time one share pays the 19-cent charge and the host receives the other 19 cents", p1.status === "sent" && p2.status === "sent" && gave.fee === 19 && gave.cents === 0 && gave.transfers.length === 0 && got.fee === 0 && got.cents === 19 && got.transfers.length === 1 && got.transfers[0].amount === 19, `${p1.cents}+${p1.fee} ${p2.cents}+${p2.fee}`);
+        }
+
+        console.log("\n26. Charges from before this change, which were due on a weekly payday");
+        {
+          const h = await freshHost();
+          const o1 = await chargedCall(h);
+          const o2 = await chargedCall(h);
+          const o3 = await chargedCall(h);
+          const payday = new Date("2026-01-05T00:00:00Z"); // the same old Monday for all three
+          for (const o of [o1, o2, o3]) await db.update(schema.payments).set({ transferDueAt: payday }).where(eq(schema.payments.id, o.payment.id));
+          await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, o2.payment.id));
+          // The third was already being sent by the old payday when the app was stopped.
+          const oldParams = { amountCents: 1238, payoutFeeCents: 0, destination: account, callId: o3.call.id };
+          await db.insert(schema.moneyOperations).values({ paymentId: o3.payment.id, kind: "transfer", label: `transfer:${o3.payment.id}:1`, params: JSON.stringify(oldParams), createdAt: new Date(Date.now() - 10 * 60_000) });
+
+          const T = new Date();
+          const id = randomUUID();
+          const pressed = await press(h, T, id);
+          const p1 = await sent(o1);
+          check("an old charge keeps its date and is collected with the button", pressed === null && p1.status === "sent" && p1.fee === 25 && (await reload(o1.payment.id)).transferDueAt!.getTime() === payday.getTime(), pressed?.message);
+          check("the one already being sent is left to finish; it is not part of the collection", (await itemsOf(id)).length === 1 && (await sent(o3)).status === "not_due");
+          await reconcileOperations(soon());
+          const p3 = await sent(o3);
+          check("the helper finishes it as it was written down", p3.status === "sent" && p3.cents === 1238 && p3.fee === 0 && p3.transfers.length === 1, `${p3.status} ${p3.cents}`);
+
+          await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, o2.payment.id));
+          await press(h, new Date(T.getTime() + DAY));
+          const p2 = await sent(o2);
+          check("a second old charge with the same payday, collected a day later, carries its own charge", p2.status === "sent" && p2.fee === 25 && p2.cents === 1238 - 25, `${p2.status} ${p2.fee}`);
+          const oldRecords = await db.select().from(schema.payoutFees).where(eq(schema.payoutFees.hostId, h));
+          check("the old per-payday records are not written any more", oldRecords.length === 0);
+        }
+
+        console.log("\n27. A host whose account is closed: the founder's list, and a final collection");
+        {
+          const h = await freshHost();
+          const k = await chargedCall(h);
+          await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, h));
+          const [founder] = await db.select().from(schema.user).where(eq(schema.user.email, "admin@test.local"));
+          const T = await readyAt(k);
+          const listed = (await unsentEarnings(T)).find((e) => e.payment.id === k.payment.id);
+          check("the founder's list of uncollected money includes the closed host's share", listed?.call.hostId === h && listed.shareCents === 1238 && listed.heldBack === null);
+          const id = randomUUID();
+          const pressed = await press(h, T, id, founder.id);
+          const pk = await sent(k);
+          const [record] = await db.select().from(schema.collections).where(eq(schema.collections.id, id));
+          check("the founder's final collection sends it to that host's own account, under the same rules", pressed === null && pk.status === "sent" && pk.cents === 1238 - 25 && pk.transfers[0]?.destination === account, pressed?.message);
+          check("and the record says who pressed", record?.hostId === h && record.startedBy === founder.id);
+          check("nothing is left on the founder's list for that host", !(await unsentEarnings(T)).some((e) => e.call.hostId === h));
+        }
+
+        console.log("\n28. A real bank dispute at Stripe, which we then lose");
+        {
+          const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
+          const stranger = await handleStripeEvent({ type: "payment_intent.succeeded", data: { object: { metadata: { paymentId: randomUUID() } } } }).catch((e) => e);
+          check("a Stripe message about a payment that is not ours is ignored, not an error", stranger === undefined);
+
+          const h = await freshHost();
+          const g = await chargedCall(h, FULL, "pm_card_createDispute"); // Stripe's test card that is always disputed
+          const intentId = (await reload(g.payment.id)).stripePaymentIntentId!;
+          const pause = () => new Promise((resolve) => setTimeout(resolve, 2000));
+          let disputeId: string | undefined;
+          for (let i = 0; i < 30 && !disputeId; i++) {
+            disputeId = (await stripe().disputes.list({ payment_intent: intentId, limit: 1 })).data[0]?.id;
+            if (!disputeId) await pause();
           }
-          check("Stripe says the dispute was lost", status === "lost", status);
-          await handleStripeEvent(message("charge.dispute.closed"));
-          await runPayday(payday(g.call));
-          const p = await reload(g.payment.id);
-          check("the host is not paid automatically for it", p.disputeOpen === true && p.transferStatus === "not_due" && (await transfersFor(g.call.id)).length === 0, `${p.disputeOpen} ${p.transferStatus}`);
-          const refused = await refundPayment({ paymentId: g.payment.id, amountCents: 100, decidedBy: host.id, decidedAs: "host", reason: null }).catch((e) => e);
-          check("and it cannot be refunded on top", refused instanceof MoneyError);
+          check("Stripe opened a dispute on the charge", Boolean(disputeId));
+          if (disputeId) {
+            const message = (type: string) => ({ type, data: { object: { id: disputeId } } });
+            await handleStripeEvent(message("charge.dispute.created"));
+            check("the dispute is recorded", (await reload(g.payment.id)).disputeOpen === true);
+
+            await stripe().disputes.update(disputeId, { evidence: { uncategorized_text: "losing_evidence" } });
+            let status = "";
+            for (let i = 0; i < 30 && status !== "lost"; i++) {
+              status = (await stripe().disputes.retrieve(disputeId)).status;
+              if (status !== "lost") await pause();
+            }
+            check("Stripe says the dispute was lost", status === "lost", status);
+            await handleStripeEvent(message("charge.dispute.closed"));
+            const pressed = await press(h, await readyAt(g));
+            const p = await reload(g.payment.id);
+            check("the host cannot collect it", pressed instanceof MoneyError && p.disputeOpen === true && p.transferStatus === "not_due" && (await transfersFor(g.call.id)).length === 0, `${p.disputeOpen} ${p.transferStatus}`);
+            const refused = await refundPayment({ paymentId: g.payment.id, amountCents: 100, decidedBy: h, decidedAs: "host", reason: null }).catch((e) => e);
+            check("and it cannot be refunded on top", refused instanceof MoneyError);
+          }
         }
+      } finally {
+        // Give the test payout account back to host@test.local, whatever happened above.
+        await db.transaction(async (tx) => {
+          await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, holder));
+          await tx.update(schema.hostSettings).set({ stripeAccountId: account }).where(eq(schema.hostSettings.userId, host.id));
+        });
+        await refreshPayoutsReady(host.id).catch(() => undefined);
       }
     }
   }

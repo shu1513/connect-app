@@ -735,10 +735,11 @@ export const payments = pgTable(
 
     /** not_due, due, sent or not_owed. */
     transferStatus: text("transfer_status").notNull().default("not_due"),
+    /** From when the host can collect this share. Fixed when the charge is recorded, never moved. */
     transferDueAt: timestamp("transfer_due_at", { withTimezone: true }),
     /** What was actually sent to the host for this call. */
     transferCents: integer("transfer_cents"),
-    /** The share of the 25-cent payout charge taken from this call's transfer. */
+    /** The 25-cent collection charge, if this share was the one that carried it. */
     payoutFeeCents: integer("payout_fee_cents"),
     stripeTransferId: text("stripe_transfer_id"),
     transferredAt: timestamp("transferred_at", { withTimezone: true }),
@@ -807,8 +808,9 @@ export const moneyOperations = pgTable(
 );
 
 /**
- * The 25-cent payout charge is taken once per host per weekly payday.
- * This row is what "once" means: only one payment can hold it.
+ * History only. While hosts were paid on a weekly payday, the 25-cent charge
+ * was taken once per host per payday, and this row was what "once" meant.
+ * Nothing reads or writes it any more: the charge is recorded per collection.
  */
 export const payoutFees = pgTable(
   "payout_fees",
@@ -823,6 +825,53 @@ export const payoutFees = pgTable(
       .references(() => payments.id),
   },
   (t) => [uniqueIndex("payout_fees_host_payday_uq").on(t.hostId, t.payday)],
+);
+
+/**
+ * One accepted press of "Collect earnings". It is written, together with every
+ * transfer it will make, in one locked step before Stripe is asked anything.
+ */
+export const collections = pgTable(
+  "collections",
+  {
+    /** Made when the button is shown, so the same press arriving twice is one collection. */
+    id: uuid("id").primaryKey(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    /** Who pressed: the host, or the founder for a host who can no longer log in. */
+    startedBy: text("started_by")
+      .notNull()
+      .references(() => user.id),
+    /** The host's 24 hours until the next collection are counted from here. */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("collections_host_idx").on(t.hostId, t.acceptedAt)],
+);
+
+/**
+ * The shares one collection took. Each has its transfer written down as a
+ * money action; that action's outcome is the outcome of the share.
+ */
+export const collectionItems = pgTable(
+  "collection_items",
+  {
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => collections.id),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id),
+    operationId: uuid("operation_id")
+      .notNull()
+      .unique()
+      .references(() => moneyOperations.id),
+    /** What is sent to the host for this share. */
+    amountCents: integer("amount_cents").notNull(),
+    /** The collection charge taken from this share: all of it for one share of the collection, 0 for the others. */
+    payoutFeeCents: integer("payout_fee_cents").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.collectionId, t.paymentId] }), index("collection_items_payment_idx").on(t.paymentId)],
 );
 
 /** The money record. Only ever added to: a correction is a new line, never an edit. */

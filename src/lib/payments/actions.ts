@@ -1,17 +1,18 @@
 /**
  * The four actions that move money: charge a held payment, release a hold,
- * refund, and send the host's share. Each goes through runMoneyOperation(),
- * so none can happen twice.
+ * refund, and send the host's share. Each is written down first, under one
+ * label, so none can happen twice. (A host's share is written down by a
+ * collection: see collect.ts.)
  *
- * The "apply…" functions record an outcome. They are also used by
- * reconcile.ts when it finds out from Stripe what happened to an unfinished action.
+ * The "apply…" functions record an outcome. They are also used by jobs.ts
+ * when it finds out from Stripe what happened to an unfinished action.
  */
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { addLedgerEntry, MoneyError, runMoneyOperation, type Tx } from "./operations";
-import { MIN_CHARGE_CENTS, PAYOUT_FEE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
+import { MIN_CHARGE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
 import { canMovePayment, decisionDeadline, readyToCollectAt } from "./rules";
 import { stripe } from "./stripe";
 
@@ -249,9 +250,6 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
     .update(schema.payments)
     .set({ refundedCents, transferStatus: nothingOwedNow ? "not_owed" : payment.transferStatus, updatedAt: new Date() })
     .where(eq(schema.payments.id, payment.id));
-  // This payment will never be paid out. If it was holding the week's payout charge
-  // (from a payout attempt Stripe refused), give that up so the host's next payment carries it.
-  if (nothingOwedNow) await tx.delete(schema.payoutFees).where(eq(schema.payoutFees.paymentId, payment.id));
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_refund", amountCents: -refund.amountCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: stripeRefundId });
@@ -379,59 +377,20 @@ export async function transferAtStripe(payment: Payment, params: TransferParams,
 }
 
 /**
- * Sends the host's share for one call to the host's Stripe account.
- *
- * The 25-cent payout charge is taken once per host per weekly payday: the
- * first payment to claim that payday carries it, and no other payment can.
+ * Asking Stripe to send a share that a collection wrote down, and recording
+ * the answer. The checks and the amounts were fixed when it was written down.
  */
-export async function sendHostShare(input: {
-  paymentId: string;
-  hostId: string;
-  destination: string;
-  callId: string;
-  now: Date;
-}): Promise<void> {
-  await runMoneyOperation<TransferParams, null>({
-    paymentId: input.paymentId,
-    kind: "transfer",
-    labelBase: `transfer:${input.paymentId}`,
-    prepare: async (payment, tx) => {
-      if (payment.status !== "charged") throw new MoneyError("Nothing has been charged for this call.");
-      if (payment.transferStatus !== "not_due" && payment.transferStatus !== "due") {
-        throw new MoneyError("The host's share has already been sent, or nothing is owed.");
-      }
-      if (!payment.transferDueAt || payment.transferDueAt > input.now) throw new MoneyError("The host's share is not due yet.");
-      if (payment.disputeOpen) throw new MoneyError("The customer's bank has disputed this charge.");
-      if (!payment.stripeChargeId) throw new MoneyError("This payment has no charge at Stripe.");
-      const [pending] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.refunds)
-        .where(and(eq(schema.refunds.paymentId, payment.id), eq(schema.refunds.status, "in_progress")));
-      if (pending.count > 0) throw new MoneyError("A refund is still in progress on this call.");
-
-      const { hostShareCents } = currentSplit(payment);
-
-      // Claim this host's payout charge for this payday, if no other payment has it.
-      await tx
-        .insert(schema.payoutFees)
-        .values({ hostId: input.hostId, payday: payment.transferDueAt, paymentId: payment.id })
-        .onConflictDoNothing();
-      const [holder] = await tx
-        .select()
-        .from(schema.payoutFees)
-        .where(and(eq(schema.payoutFees.hostId, input.hostId), eq(schema.payoutFees.payday, payment.transferDueAt)));
-      const payoutFeeCents = holder?.paymentId === payment.id ? Math.min(PAYOUT_FEE_CENTS, hostShareCents) : 0;
-
-      return { amountCents: hostShareCents - payoutFeeCents, payoutFeeCents, destination: input.destination, callId: input.callId };
-    },
-    execute: async (params, label) => {
-      const [payment] = await paymentById(input.paymentId);
+export function transferSteps(paymentId: string) {
+  return {
+    paymentId,
+    execute: async (params: TransferParams, label: string) => {
+      const [payment] = await paymentById(paymentId);
       const transferId = await transferAtStripe(payment, params, label);
       return { stripeId: transferId ?? "nothing-to-send", result: null };
     },
-    apply: (payment, params, outcome, tx) =>
+    apply: (payment: Payment, params: TransferParams, outcome: { stripeId: string }, tx: Tx) =>
       applyTransferSent(payment, params, params.amountCents < 1 ? null : outcome.stripeId, tx),
-  });
+  };
 }
 
 async function paymentById(paymentId: string): Promise<Payment[]> {
