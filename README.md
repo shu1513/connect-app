@@ -58,6 +58,14 @@ npm run lint
 
 Testing tools:
 
+- `npx tsx scripts/journey-check.ts` is the whole app as one journey, then a walk over every page. A new
+  host signs up, sets up and is approved; a visitor finds them, picks a time, creates an account and
+  lands back on that time; the call happens, both rate, each is in the other's contacts; then a paid
+  call with `host@test.local` goes from the card to the charge and the host's payday. After that it
+  opens every page as a visitor, a customer, a host and the founder, and checks the top bar, the tab
+  title and every link. Needs the app running; the top of the script says what is real and what is
+  pretended. Run this one first after any change that touches more than one part of the app.
+
 - `npx tsx scripts/send-test-messages.ts <call-id>` pretends to be LiveKit and sends a realistic
   set of signed "connected / disconnected" messages for a call, so the attendance log and results
   page can be checked without two phones.
@@ -65,7 +73,7 @@ Testing tools:
 - `npx tsx scripts/payments-check.ts` runs real payment journeys against the Stripe sandbox and checks
   every result: holds, charges, refunds, cancelling, reviews, declined and foreign cards, two helpers
   charging at once, and recovery after a crash. Add `--payouts` to also check paying hosts (the test
-  host must have finished payout setup on the Hosting settings page first).
+  host must have finished payout setup on the Hosting page first).
 - `npx tsx scripts/booking-check.ts` runs real booking journeys against the local database and the
   Stripe sandbox: asking, several people asking for the same time, accepting, declining, time-outs,
   the limits, "never two calls at once", the saved card, the automatic hold, a card that fails, and
@@ -164,6 +172,11 @@ Every major module follows the same steps:
 | Search: cleaning what was typed, ordering results | `src/lib/profiles/search-rules.ts` |
 | Search: who can be found | `src/lib/profiles/search.ts` |
 | People you have talked to, and a host's private notes | `src/lib/people/contacts.ts` |
+| The frame of every page: the top bar and the footer | `src/components/site-page.tsx` |
+| The front page a visitor sees, and "Your calls" | `src/app/page.tsx` |
+| "Come back here after logging in or signing up": what is allowed | `src/lib/safe-next.ts` |
+| The email a host gets when their profile is approved, declined or suspended | `src/lib/profiles/decision-email.ts`, `emails.ts` |
+| The "Getting started" list for a new host | the top of `src/app/host/page.tsx` |
 | Database tables | `src/db/schema.ts` |
 | The rule that refuses overlapping calls for one person | `drizzle/0010_busy_no_overlap.sql` |
 
@@ -173,6 +186,10 @@ Every major module follows the same steps:
 - Going live with real money: this needs the company's own Stripe account and Stripe's approval.
 - Before real people sign up: a real email-sending service, real terms and privacy pages, and
   Google sign-in tried with a real Google account.
-- The modules still to come: messaging (after its research round), then the final pass that joins everything together.
+- Messaging between a customer and a host: researched and left out of the first version
+  (`docs/research/messaging/`, and the decision in `docs/module-record.md`).
+- How the app looks: it is plain on purpose. A designed look (colours, a logo, photos) is its own piece of work.
+- A page listing all of a host's earnings and payouts (today a host sees money one call at a time).
+- A receipt by email after a charge: to be switched on in the live Stripe account, which sends its own.
 - Adding time during a call, first version: a paid call can only be made longer if its money is held on the
   card saved with the booking, and a bank that wants its own approval step makes the request fail.

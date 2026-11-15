@@ -1,6 +1,6 @@
 # Plan 11: The final pass, joining everything together
 
-**Status:** plan (14 November 2026). Astra's check is at the end.
+**Status:** being built (15 November 2026). Astra's check of this plan, and what was done with each point, is at the end.
 
 ## What this is
 
@@ -58,11 +58,14 @@ Nothing here costs money or changes a money rule, a safety rule or what is store
 
 ## What gets built
 
-**The top bar** (`src/components/site-header.tsx`). A server piece that reads who is logged in (the
-same cached look-up the pages already do, so no extra work) and whether they are the founder. It is
-placed in each page, not in the one shared frame around all pages: a shared frame is not drawn again
-when someone logs in or out, so the bar would show the wrong links. The whole-app check below fails
-if a page is missing the bar.
+**The top bar** (`src/components/site-page.tsx`, the frame each page is wrapped in: bar, page,
+footer with Rules, Terms and Privacy). A server piece that reads who is logged in (the same cached
+look-up the pages already do) and whether they are the founder. It is drawn with each page, not in
+the one shared frame around all pages. A shared frame is not drawn again as people move between
+pages, so it would have to be told to redraw at every place where the answer can change (logging in,
+logging out, finishing sign-up, changing your name, and whatever is added later). Drawn with the
+page, the bar is always right with nothing to remember. The whole-app check below fails if a page is
+missing the bar.
 
 **The front page.** `src/app/page.tsx` shows the visitor's page when nobody is logged in; someone who
 is part-way through signing up is still sent to the right step, as now.
@@ -145,3 +148,23 @@ real email delivery, as before.
 4. Removing the test page; the results page.
 5. Wording.
 6. The journey script; all checks; the browser walk; README and the module record.
+
+## Astra's check of this plan (15 November 2026)
+
+Verdict: **approve with changes.** Thirteen points. What was done with each:
+
+| # | Astra's point | Done |
+| --- | --- | --- |
+| 1 | The "come back here" check accepted the app's machine addresses (`/api/...`) and values of any length. | **Taken.** It now refuses both, with tests. |
+| 2 | Name every branch of sign-up that must carry the page: the "Create an account" link, password sign-up, "check your email", "send again", Google (also when Google fails), an expired confirmation link, someone already logged in. | **Taken**, all of them. |
+| 3 | The front page must be chosen by "nobody is logged in", not by "may not use the app", or someone part-way through sign-up would see it. One more existing check (a closed account) depended on the front address going to login. | **Taken.** |
+| 4 | The profile emails: save the decision and its email together; do not email again when the same answer is given twice; the suspension email must not claim every call was cancelled. | **Taken.** The email goes out only when the answer changes. |
+| 5 | Links in the emails the app already sends (a request, a call, results, "requests waiting") lose their place when the person has to log in first. | **Taken.** Those pages now return to themselves after login. |
+| 6 | Say plainly what the journey script pretends (the ID check, who was connected, the passing of days) and what it leaves behind. | **Taken.** It is written at the top of the script. Its paid part uses the sandbox host whose payouts are ready, and is skipped with a note when that is not set up. A separate database just for this script was not added: the script only touches rows it made. |
+| 7 | Put the bar in the one shared frame, and tell it to redraw after each change. | **Not taken.** Both ways work. Drawing it with the page needs no "remember to redraw" anywhere, so it cannot go stale when something is added later. The reason given in this plan was corrected. |
+| 8 | "Set your hours" is not the whole of step 5: a calendar also needs a time zone and call lengths. Show hidden, paused and suspended apart. | **Partly taken.** Step 5 now names all three. The page already says when a profile is hidden or suspended, and the home page when an account is paused. |
+| 9 | A host is not told when a booked request arrives. | **Checked, not so.** The always-on helper sends "You have a new call request" (`src/lib/booking/jobs.ts`). Nothing to add. |
+| 10 | Do not follow every link blindly: check known pages for each kind of person, and only ordinary links. | **Taken.** |
+| 11 | The results page also shows the detailed reasons a record "needs review" (connection messages). | **Taken.** The founder sees the reasons; the two people see one plain sentence. |
+| 12 | Host pages already put "— Connect" in their title, so the new pattern would double it. The time zone is also the starting zone of a host's calendar. | **Taken.** |
+| 13 | Keep the helper behind the test page, and keep a check that the old address is gone. | **Taken.** |

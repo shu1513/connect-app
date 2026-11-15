@@ -119,6 +119,8 @@ export async function decideProfile(input: {
   const decidedAt = new Date();
   // The decision and the email that tells the host about it are saved together, or not at all.
   await db.transaction(async (tx) => {
+    // Read under a lock, so two presses of the same button are two steps, one after the other.
+    const [before] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.userId)).for("update");
     const changed = await tx
       .update(schema.hostProfiles)
       .set({ status: input.decision, decidedBy: input.by, decidedAt, updatedAt: decidedAt })
@@ -129,7 +131,8 @@ export async function decideProfile(input: {
         input.decision === "approved" ? "That profile was changed while you were looking at it. Check it again." : "Profile not found.",
       );
     }
-    await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision, decidedAt });
+    // The host is told when the answer changes, not when the same answer is given again.
+    if (before && before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision, decidedAt });
   });
 }
 

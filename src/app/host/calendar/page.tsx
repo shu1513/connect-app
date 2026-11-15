@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Your calendar" };
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export default async function HostCalendarPage(props: PageProps<"/host/calendar">) {
-  const user = await requireUser();
+  const user = await requireUser("/host/calendar");
   const notice = readNotice("/host/calendar", await props.searchParams);
   const calendar = await calendarOf(user.id, user.timeZone);
   const { hours, off } = await hoursAndTimeOff(user.id, new Date());

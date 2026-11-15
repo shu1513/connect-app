@@ -44,8 +44,9 @@ const STAGE_FOR_HOST: Record<string, string> = {
 
 /** One request, for the customer who sent it or the host it was sent to. */
 export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
-  const user = await requireUser();
   const { id } = await props.params;
+  // Emails link here: someone who has to log in first comes back to this request.
+  const user = await requireUser(`/bookings/${id}`);
   const found = await bookingFor(id, user.id);
   if (!found) notFound();
   const { booking, role } = found;

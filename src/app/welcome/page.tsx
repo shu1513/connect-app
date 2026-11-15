@@ -23,7 +23,9 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const person = await getSignedIn();
   if (!person || person.closed || !person.emailVerified) {
     // A confirmation link that has expired or was already used arrives here with an error.
-    redirect(typeof error === "string" ? "/login?notice=link" : "/login");
+    // Either way the person keeps the page they were heading for.
+    const carried = next === "/" ? "" : `next=${encodeURIComponent(next)}`;
+    redirect(typeof error === "string" ? `/login?notice=link${carried && `&${carried}`}` : `/login${carried && `?${carried}`}`);
   }
   if (person.welcomed) redirect(next);
   // Someone who accepted an older version of the terms is asked again.

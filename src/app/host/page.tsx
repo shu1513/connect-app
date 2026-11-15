@@ -35,7 +35,7 @@ const RULE_LABEL: Record<number, string> = {
 };
 
 export default async function HostPage(props: PageProps<"/host">) {
-  const user = await requireUser();
+  const user = await requireUser("/host");
   const notice = readNotice("/host", await props.searchParams);
   const identity = await identityState(user.id);
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
@@ -75,7 +75,7 @@ export default async function HostPage(props: PageProps<"/host">) {
               : undefined,
     },
     ...(paid ? [{ done: settings.payoutsReady, text: "Set up payouts, so you can be paid for calls.", href: "#paid", go: "Getting paid" }] : []),
-    { done: hours.length > 0, text: "Set the hours when people can ask you for a call.", href: "/host/calendar", go: "Your calendar" },
+    { done: hours.length > 0, text: "Set up your calendar: your time zone, the call lengths you offer, and your hours.", href: "/host/calendar", go: "Your calendar" },
   ];
   const allDone = steps.every((step) => step.done);
 

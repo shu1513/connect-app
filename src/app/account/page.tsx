@@ -26,7 +26,7 @@ const NOTICES: Record<string, string> = {
 };
 
 export default async function AccountPage(props: PageProps<"/account">) {
-  const user = await requireUser();
+  const user = await requireUser("/account");
   const query = await props.searchParams;
   const { notice } = query;
   const signed = readNotice("/account", query);
@@ -59,7 +59,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
             <input name="name" type="text" defaultValue={user.name} required minLength={2} maxLength={50} className={field} />
           </label>
           <label className="block text-sm">
-            Your time zone (used for the times in your emails; screens use the time zone of your device)
+            Your time zone (used for the times in your emails)
             <TimeZoneSelect zones={timeZones()} saved={user.timeZone} />
           </label>
           <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 text-sm">

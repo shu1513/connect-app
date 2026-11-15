@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 /** The host's live page: switch "available now" on, and answer people asking for a call right away. */
 export default async function HostNowPage() {
-  const user = await requireActiveUser();
+  const user = await requireActiveUser("/host/now");
   const offer = await offerOf(user.id);
   const initial = await liveForHost(user.id, new Date());
 

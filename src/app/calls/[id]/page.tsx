@@ -24,8 +24,9 @@ function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): str
 }
 
 export default async function CallPage(props: PageProps<"/calls/[id]">) {
-  const user = await requireUser();
   const { id } = await props.params;
+  // Reminders link here: someone who has to log in first comes back to this call.
+  const user = await requireUser(`/calls/${id}`);
   const access = await callForParticipant(id, user.id);
   // A stranger sees the same "not found" whether or not the call exists.
   if (!access) notFound();

@@ -82,8 +82,8 @@ export async function requireUser(backTo?: string): Promise<CurrentUser> {
 }
 
 /** For actions that start or join something: a paused account may not. */
-export async function requireActiveUser(): Promise<CurrentUser> {
-  const user = await requireUser();
+export async function requireActiveUser(backTo?: string): Promise<CurrentUser> {
+  const user = await requireUser(backTo);
   if (user.paused) redirect("/paused");
   return user;
 }

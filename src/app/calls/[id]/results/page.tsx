@@ -34,8 +34,8 @@ const EVENT_LABEL: Record<string, string> = {
 const fromSeconds = (s: number) => new Date(s * 1000).toISOString();
 
 export default async function ResultsPage(props: PageProps<"/calls/[id]/results">) {
-  const user = await requireUser();
   const { id } = await props.params;
+  const user = await requireUser(`/calls/${id}/results`);
   const notice = readNotice(`/calls/${id}/results`, await props.searchParams);
   const access = await callForViewer(id, user.id, await isAdminSession(await getSignedIn()));
   if (!access) notFound();
@@ -201,7 +201,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       <section className="mt-6 rounded border border-neutral-400 p-4">
         <p className={`text-lg font-semibold ${status.tone}`}>{status.label}</p>
         <p className="text-sm opacity-80">{status.note}</p>
-        {result.reasons.length > 0 && (
+        {result.reasons.length > 0 && role !== "admin" && <p className="mt-2 text-sm">Connect looks at records like this one by hand before anything is charged.</p>}
+        {result.reasons.length > 0 && role === "admin" && (
           <ul className="mt-2 list-disc pl-5 text-sm">
             {result.reasons.map((reason) => (
               <li key={reason}>{reason}</li>

@@ -11,6 +11,10 @@ describe("safeNext", () => {
     expect(safeNext(outer)).toBe(outer);
     expect(returnPath(new URL(outer, "http://x").searchParams.get("next"))).toBe(inner);
   });
+  it("never sends anyone to one of the app's machine addresses, or to an address too long to be a page", () => {
+    for (const bad of ["/api/auth/verify-email?token=x", "/api", "/API/unsubscribe?t=1", "/api?x=1", `/h/${"a".repeat(2000)}`]) expect(safeNext(bad)).toBe("/");
+    expect(safeNext("/apiary")).toBe("/apiary");
+  });
   it("sends anything else to the home page", () => {
     for (const bad of ["https://evil.example/x", "//evil.example", "/\\evil.example", "javascript:alert(1)", "h/hana", "/a b", "", undefined, null, 5, ["/a"]]) {
       expect(safeNext(bad)).toBe("/");

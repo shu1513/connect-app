@@ -43,7 +43,7 @@ const afterWelcome = (next: string) => (next === "/" ? "/welcome" : `/welcome?ne
 /** A sign-up page's own address, carrying the page the person was heading for. */
 const carrying = (path: string, next: string) => (next === "/" ? path : `${path}?next=${encodeURIComponent(next)}`);
 
-function GoogleButton({ next = "/" }: { next?: string }) {
+function GoogleButton({ next, errorTo }: { next: string; errorTo: string }) {
   const [busy, setBusy] = useState(false);
   return (
     <button
@@ -51,7 +51,7 @@ function GoogleButton({ next = "/" }: { next?: string }) {
       disabled={busy}
       onClick={async () => {
         setBusy(true);
-        await authClient.signIn.social({ provider: "google", callbackURL: next, errorCallbackURL: "/login" });
+        await authClient.signIn.social({ provider: "google", callbackURL: next, errorCallbackURL: errorTo });
         setBusy(false);
       }}
       className="w-full rounded border border-neutral-500 px-4 py-2 font-medium disabled:opacity-50"
@@ -139,7 +139,7 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
     <div className="mt-6">
       {google && (
         <>
-          <GoogleButton next={next} />
+          <GoogleButton next={next} errorTo={carrying("/login", next)} />
           <OrDivider />
         </>
       )}
@@ -202,7 +202,7 @@ export function SignUpForm({ google, next }: { google: boolean; next: string }) 
     <div className="mt-6">
       {google && (
         <>
-          <GoogleButton next={afterWelcome(next)} />
+          <GoogleButton next={afterWelcome(next)} errorTo={carrying("/login", next)} />
           <OrDivider />
         </>
       )}

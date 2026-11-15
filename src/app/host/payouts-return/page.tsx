@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/session";
  * nothing, so we ask Stripe whether the account can now receive money.
  */
 export default async function PayoutsReturnPage() {
-  const user = await requireUser();
+  const user = await requireUser("/host/payouts-return");
   let notice: string;
   try {
     notice = (await refreshPayoutsReady(user.id))

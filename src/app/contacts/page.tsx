@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 /** The people this person has had calls with. A host can keep a private note about each customer. */
 export default async function ContactsPage(props: PageProps<"/contacts">) {
-  const user = await requireUser();
+  const user = await requireUser("/contacts");
   const notice = readNotice("/contacts", await props.searchParams);
   const contacts = await contactsOf(user.id, new Date());
 

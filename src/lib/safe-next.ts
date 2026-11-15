@@ -1,10 +1,13 @@
 /**
- * Where to send a person after logging in or finishing sign-up. Only a path on
- * this site is accepted, never another site, so a link cannot use our pages
- * to send someone elsewhere.
+ * Where to send a person after logging in or finishing sign-up. Only a page on
+ * this site is accepted: never another site, so a link cannot use our pages to
+ * send someone elsewhere, and never one of the app's own machine addresses
+ * (/api/...), which do things rather than show things. Anything too long to be
+ * a real page address is dropped too.
  */
 export function safeNext(value: unknown): string {
-  return typeof value === "string" && /^\/(?![\/\\])[^\s]*$/.test(value) ? value : "/";
+  if (typeof value !== "string" || value.length > 2000 || !/^\/(?![\/\\])[^\s]*$/.test(value)) return "/";
+  return /^\/api(?:[\/?#]|$)/i.test(value) ? "/" : value;
 }
 
 /**

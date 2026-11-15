@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "Requests for calls" };
 
 /** The requests a host has to answer. Requests for the same time sit together. */
 export default async function HostRequestsPage(props: PageProps<"/host/requests">) {
-  const user = await requireUser();
+  const user = await requireUser("/host/requests");
   const notice = readNotice("/host/requests", await props.searchParams);
   const waiting = await waitingForHost(user.id);
   // How other hosts have rated each of these customers: one question to the database for all of them.
