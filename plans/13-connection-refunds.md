@@ -1,8 +1,9 @@
 # Plan 13: Refund requests for a connection problem, with a record of call quality
 
-**Status:** plan, fourth version (16 November 2026). Not built. Astra has checked it twice (rework,
-then approve with changes); its points are worked in and listed at the end. One decision by the
-founder is still open (when hosts are paid), and that part has not been checked by Astra yet.
+**Status:** plan, fifth version (16 November 2026). Not built. Astra has checked it twice (rework,
+then approve with changes); its points are worked in and listed at the end. The founder's latest
+decisions (24 hours, no passing on to Connect, money on hold until the host answers, hosts paid
+after 2 days) are in this version; Astra's check of them is at the very end.
 
 ## What this is, and why
 
@@ -21,30 +22,18 @@ Two facts about the app today:
 | Question | Decided |
 | --- | --- |
 | What a booked call charges | **Stays as it is**: the time the host is in the room. |
-| A record of call quality | **Collect it from the first version**, and show it to whoever decides a refund. |
+| A record of call quality | **Collect it from the first version**, and show it with a refund request. |
 | Refunding automatically | **Later**, once real calls show what good and bad calls look like in that record. |
-| How long a customer has to ask | **24 hours** (the founder's proposal, in place of 3 days), so hosts are not kept waiting for their money. |
+| How long a customer has to ask | **24 hours**, so hosts are not kept waiting for their money. |
+| Who answers a request | **The host.** Passing a "no" on to Connect is left out for now. |
+| If the host does not answer | **The host is not paid for that call until they answer.** That call's money stays on hold. Nothing is refunded or refused automatically. |
+| How long before a host can be paid | **2 days** after the call's charge, down from 7. |
 | Paying LiveKit for its $500-a-month plan | **Not now.** Nothing in this plan needs it. |
 
-## Still open: when hosts are paid
-
-Today a host is paid on a weekly payday, for calls that ended at least 7 days earlier, so they wait
-7 to 14 days. The founder wants hosts paid sooner. Two ways:
-
-| | **Weekly payday, wait cut to 2 days** (recommended) | **Paid every day, after 24 hours** |
-| --- | --- | --- |
-| A host waits | 2 to 9 days | 1 to 2 days |
-| The 25-cent payout charge | Once a week, as today | Up to once a day |
-| What has to change | One number | The payday rule and what hosts are told about the charge |
-
-Either way, three things hold:
-- **Money for a call with an open refund request must wait** until the request is settled. Once a
-  host has been paid, nobody can refund that call in the app. This is a new rule in the payout step.
-- **Stripe adds its own delay.** Card money takes about two business days to become available at
-  Stripe, and Stripe then pays the host's bank on its own schedule. To be confirmed in the Stripe
-  account.
-- **A customer's bank can dispute a charge weeks later**, whatever the payday. That risk exists
-  today and is not changed.
+**Still to confirm: how often payday comes.** The plan keeps the weekly payday (the builder's
+recommendation), so a host waits 2 to 9 days instead of 7 to 14, with the 25-cent payout charge
+once a week as today. Paying every day would mean about 2 days, with that charge up to once a day.
+Changing this later is one number and some wording.
 
 ## What gets built
 
@@ -58,25 +47,27 @@ Either way, three things hold:
    - It can be used for **24 hours from the moment the charge became final** (not from the end of
      the call, so a charge that took longer to settle does not cost the customer their chance).
 2. **The request goes to the host**, by email and on the results page, together with the call's
-   record (part 3). The host has **24 hours** to refund with the form they already have, any
-   amount, or to decline.
-3. **If the host declines, refunds only part, or says nothing for 24 hours**, the customer has
-   **24 hours** to pass it to Connect with one press. The founder sees it in a section of its own
-   on the existing reports screen, with the same record, the call's room name for looking it up in
-   LiveKit's dashboard, and the date the host is due to be paid.
-4. The founder refunds with the tool they already have, or closes the request. The customer is told
-   either way.
+   record (part 3). The host answers by refunding with the form they already have, any amount, or
+   by declining. The customer is told the answer.
+3. **Until the host answers, the host is not paid for that call.** After 24 hours without an answer
+   the host gets one reminder, and the page tells both people that the payment for this call is
+   waiting for the host's answer.
+4. **The founder can see requests that have waited more than 24 hours**, in a section of its own on
+   the existing reports screen, with the call's record and its room name for LiveKit's dashboard.
+   The founder can refund with the tool they already have, or close the request, which lets the
+   host's payment go ahead. This is for a host who has gone silent for good; it is not a step the
+   customer can ask for.
 
-Nothing about who may make a refund changes: the host, or the founder. So the rule from the
-payments module (the host decides refunds) stays. What is new is that the customer can ask, and
-that a "no" can be passed on.
+Nothing about who may make a refund changes: the host, or the founder. The rule from the payments
+module (the host decides refunds) stays. What is new is that the customer can ask, and that the
+host cannot be paid for that call while ignoring the request.
 
-**Where a request stands.** Stored: asked, declined, passed on, closed, each with who did it and
-when. A step can only follow the one before it, so a late "decline" cannot undo a request that was
-already passed on. **Refunded is not stored**: it is read from the real refund records. A request
-counts as fully refunded only when every charge of the call has been given back in full and those
-refunds have gone through. A part refund, one still on its way, and one that failed are each shown
-as what they are, and none of them settles the request.
+**Where a request stands.** Stored: asked, declined by the host, closed by the founder, each with
+who did it and when. **A refund is not stored on the request**: it is read from the real refund
+records. A request is **answered** when the host has declined, when a refund of that call made
+after the request has gone through (whatever the amount: it is the host's answer), or when the
+founder has closed it. A refund still on its way, or one that failed, is shown as what it is and
+does not count as an answer.
 
 ### 2. The app keeps a record of call quality
 
@@ -131,11 +122,18 @@ Above it, one line: "These are approximate periods put together from what each b
 and from the video service's own messages. Missing reports do not show that a connection worked,
 and nothing here shows whose fault a problem was or what was said or seen on the call."
 
-### 4. Paying hosts sooner (see "Still open")
+### 4. Paying hosts sooner, and the hold
 
-Whichever option is chosen: the shorter wait, and the rule that a call's money is not sent while a
-refund request for it is open. A request is open from asking until it is fully refunded, closed by
-the founder, or the customer's 24 hours to pass it on have run out.
+- **2 days instead of 7.** A host's share of a call becomes payable 2 days after the call's charge,
+  on the next payday. This applies to calls charged from then on; calls already charged keep the
+  date they were given.
+- **The hold.** On payday, the money of a call is not sent while that call has a request that is
+  not yet answered (see "Where a request stands"). It goes on the first payday after the answer.
+- **Why 2 days is safe for requests.** A customer can ask for 24 hours after the charge. So by the
+  time a call's money can be sent, either nobody asked, or a request exists and the hold applies.
+- **What is not changed:** Stripe's own delay before card money is available (about two business
+  days, to be confirmed in the Stripe account), and the risk that a customer's bank disputes a
+  charge weeks later.
 
 ### 5. Automatic refunds: not in this version
 
@@ -155,17 +153,19 @@ much is refunded and how such a refund is recorded.
 | Question | Chosen | Why |
 | --- | --- | --- |
 | Where requests are stored | A small table of their own, one per call, not the safety reports. | Sending a safety report also blocks the other person and counts against them. |
-| The 24-hour steps | Worked out from the saved times. No timer job. | The page shows the next step when the time has passed. |
+| The reminder to the host | One email, written by the always-on helper beside the reminders it already writes, once 24 hours have passed without an answer. | The helper already has a loop for reminders. |
 | Who sees the record | The two people on the call and the founder, only once a refund was asked for, and the server checks it, not just the page. | Each should see what the other sees. |
-| Emails | To the host when a request arrives; to the customer for each answer, including when the founder closes it; to the founder when one is passed on. Each is written in the same step as the change it reports. | Through the existing email queue, so none is lost or sent twice. |
+| Emails | To the host when a request arrives, and the one reminder; to the customer for each answer, including when the founder closes it. Each is written in the same step as the change it reports. | Through the existing email queue, so none is lost or sent twice. |
 
 ## What is left out, on purpose
 
 - **Automatic refunds, and automatic refusals** (part 5).
 - **Changing what a booked call charges** (the founder's decision).
 - **Reading LiveKit's stored charts from the app.** It needs the expensive plan.
+- **Passing a "no" on to Connect** (the founder's decision, for now). A customer who disagrees with
+  the host's answer can still write to support, as with any complaint.
 - **A refund after the host has been paid.** The refund tool cannot do it, for anyone. The hold in
-  part 4 is what keeps an open request from reaching that point. A case that comes up later is
+  part 4 keeps an unanswered request from reaching that point. A case that comes up later is
   handled by the founder outside the app, as decided in the payments module.
 - **Scoring whether the two browsers agree, keeping notes for later sending when offline, and
   keeping raw notes beyond 60 days.**
@@ -179,8 +179,8 @@ is refunded, the card company keeps its fee for the original payment. That is al
 ## What the terms and privacy page must say (for the lawyer)
 
 That a customer can ask for a refund for a connection problem within 24 hours of the charge; that
-the host answers first and Connect can decide if they disagree; when hosts are paid, and that
-payment waits while a request is open; and that the app keeps a grade of each person's connection
+the host decides; that a host is paid 2 days after a call at the earliest, and not for a call with
+a request they have not answered; and that the app keeps a grade of each person's connection
 during a call for 60 days and shows a summary to the two people and to Connect when a refund is
 asked for.
 
@@ -192,8 +192,10 @@ asked for.
 - A new check script against the Stripe sandbox: who may ask and when (not before every charge is
   final, also with time added; not after 24 hours; not twice; not for a free call; not someone
   else's call); the host's full refund, part refund and decline; a refund still on its way and one
-  that failed; passing it on and closing; the order of steps cannot be broken; what each person and
-  the founder can see; a call's money is not sent while its request is open and is sent afterwards;
+  that failed; the reminder after 24 hours; the founder closing a request; the order of steps cannot
+  be broken; what each person and the founder can see; a call's money is not sent while its request
+  is unanswered and is sent on the next payday after the answer; a call with no request is paid
+  after 2 days; calls charged before the change keep their date;
   notes are refused from someone not on the call, outside its time, about anyone else, from another
   site, or beyond that person's limit.
 - The payments, booking and whole-journey scripts must still pass, with the new payday.
@@ -208,13 +210,12 @@ about automatic refunds.
 ## Order of work, in small steps
 
 1. Collecting the grades. Nothing visible.
-2. Asking for a refund, the host's answer.
-3. Passing it on, the founder's side.
-4. The record shown with a request.
-5. Paying hosts sooner, with the hold.
-6. The check script; every check; the two reviews; the pull request.
+2. Asking for a refund; the host's answer; the reminder.
+3. The hold, and paying after 2 days.
+4. The record shown with a request; the founder's list.
+5. The check script; every check; the two reviews; the pull request.
 
-Size: about six to seven days of building, plus the reviews.
+Size: about six days of building, plus the reviews.
 
 ## Astra's checks
 
@@ -248,5 +249,9 @@ taken:
 12. Call the limits on automatic refunds limits, not an approved rule.
 13. Wording, and more cases in the checks.
 
-**Not yet checked by Astra:** the 24-hour steps and paying hosts sooner, which came from the founder
-after the last check.
+Two of those points were written for a version in which a customer could pass a "no" on to
+Connect. That step is now left out by the founder's decision, so point 2 is met by the hold, and
+for point 3 any refund by the host that has gone through counts as the host's answer.
+
+**Fifth version** (the founder's decisions on 24 hours, the hold, and paying after 2 days): see
+below.
