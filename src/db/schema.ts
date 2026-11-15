@@ -874,6 +874,53 @@ export const collectionItems = pgTable(
   (t) => [primaryKey({ columns: [t.collectionId, t.paymentId] }), index("collection_items_payment_idx").on(t.paymentId)],
 );
 
+/**
+ * What each person's browser reported about the two connections during a call:
+ * the video service's own grade (excellent, good, poor, lost), noted when the
+ * person joined, at every change, and about twice a minute in between.
+ *
+ * It is a record of what a browser said, never proof: a person can alter or
+ * hold back what their own browser sends. Removed 60 days after the call.
+ */
+export const qualityNotes = pgTable(
+  "quality_notes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    callId: uuid("call_id")
+      .notNull()
+      .references(() => calls.id),
+    /** Whose browser sent this note. */
+    reporterId: text("reporter_id")
+      .notNull()
+      .references(() => user.id),
+    /** Whose connection it is about: the host or the customer of the call, worked out on the server. */
+    aboutId: text("about_id")
+      .notNull()
+      .references(() => user.id),
+    /** excellent, good, poor, lost or unknown. */
+    grade: text("grade").notNull(),
+    /** One connection of the reporter to the room. A rejoin gets a new one. */
+    connectionId: text("connection_id").notNull(),
+    /** The note's number in order within that connection, so late or repeated notes are put right. */
+    seq: integer("seq").notNull(),
+    /** When the browser saw it, on the server's clock (which the call screen follows). */
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
+    /** When it arrived here. */
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("quality_notes_once_uq").on(t.callId, t.reporterId, t.connectionId, t.seq)],
+);
+
+/**
+ * When the always-on helper last finished a round of each kind of work.
+ * The health address reads this to say whether the helper is alive.
+ */
+export const helperBeats = pgTable("helper_beats", {
+  /** "payments": one full round of the payment work. */
+  name: text("name").primaryKey(),
+  at: timestamp("at", { withTimezone: true }).notNull(),
+});
+
 /** The money record. Only ever added to: a correction is a new line, never an edit. */
 export const ledgerEntries = pgTable(
   "ledger_entries",

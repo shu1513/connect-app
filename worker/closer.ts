@@ -30,6 +30,8 @@ async function main() {
   const { refreshPendingIdentityChecks } = await import("../src/lib/safety/identity");
   const { writeCallReminders, writeRequestReminders } = await import("../src/lib/notifications/reminders");
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
+  const { recordBeat } = await import("../src/lib/health");
+  const { removeOldNotes } = await import("../src/lib/quality/notes");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -80,6 +82,8 @@ async function main() {
     // If the payment work fails, the booking work waits for a pass in which it went through.
     try {
       if (stripeConfigured()) await runPaymentJobs(now);
+      // Only a round that finished counts. The health address goes "not healthy" when this gets old.
+      await recordBeat("payments", new Date());
     } finally {
       // Requests for more time that nobody answered, and holds of requests that were not accepted.
       // This does not depend on the payment work, so it runs whether or not that went through:
@@ -89,7 +93,10 @@ async function main() {
     await runBookingJobs(now);
     // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
     // Stripe never hold up closing rooms or the money jobs.
-    if (stripeConfigured() && passes++ % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
+    if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
+    // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
+    if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
+    passes++;
   }
 
   /**
