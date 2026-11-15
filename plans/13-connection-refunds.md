@@ -131,9 +131,19 @@ and nothing here shows whose fault a problem was or what was said or seen on the
   not yet answered (see "Where a request stands"). It goes on the first payday after the answer.
 - **Why 2 days is safe for requests.** A customer can ask for 24 hours after the charge. So by the
   time a call's money can be sent, either nobody asked, or a request exists and the hold applies.
-- **What is not changed:** Stripe's own delay before card money is available (about two business
-  days, to be confirmed in the Stripe account), and the risk that a customer's bank disputes a
-  charge weeks later.
+- **What is not changed:** Stripe's own delay before the money reaches a host's bank, and the risk
+  that a customer's bank disputes a charge weeks later.
+- **What hosts are told**, on the Hosting page and beside each call's payment. The app sends the
+  money by itself; a host does not have to ask for it. So the words separate what Connect does from
+  what Stripe and the bank do, and promise only the first:
+  - "You are paid once a week. Your share of a call is sent on the first payday that is at least 2
+    days after the call."
+  - "After we send it, Stripe and your bank usually need a few business days before it shows in
+    your bank account. Your very first payout takes longer: Stripe holds it for about a week."
+  - "A call with a refund request you have not answered is not paid until you answer."
+  Stripe's own help pages say a new account's first payout is typically 7 days after its first
+  payment, up to 14 in some cases, and that this cannot be shortened. The "few business days" for
+  later payouts is to be confirmed in the founder's Stripe account before the wording goes live.
 
 ### 5. Automatic refunds: not in this version
 
