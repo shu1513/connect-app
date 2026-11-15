@@ -14,7 +14,7 @@ and to decide themselves when to take it.
 
 | Question | Decided |
 | --- | --- |
-| How long before a call's money can be collected | **2 days** after the charge, down from 7 days after the call. |
+| How long before a call's money can be collected | **2 days** after the call, down from 7. |
 | Who starts the payment | **The host**, with a button. There is no automatic weekly payday any more. |
 | How often | **Once every 24 hours**, counted from the last time the host collected, not by calendar day. |
 
@@ -41,11 +41,14 @@ Paying the bank is Stripe's step, which the app does not control. Beside each ca
 
 ## What changes in the app
 
-**When a charge becomes ready.** 2 days after the moment the app records that the charge went
-through. No rounding to a Monday. One moment is used for both "charged at" and the date, so the two
-cannot drift apart, and a recorded date is never moved by a retry.
+**When a charge becomes ready.** 2 days after the call ends, and never before the app has recorded
+that the charge went through. No rounding to a Monday. Under plan 13 the money is taken about a
+day after a call, or a little later when a refund request is waiting for the host, so a charge is
+normally recorded well inside the 2 days. The date is fixed when the charge is recorded and is
+never moved by a retry.
 - A charge for time added during a call has its own date.
-- A charge the founder makes later, after a review, is ready 2 days from then.
+- A charge the founder makes later, after a review, is ready as soon as it is recorded, if the 2
+  days since the call have already passed.
 - **Charges recorded before this change** keep the date they were given, and from that date on are
   collected with the button like any other.
 
@@ -137,8 +140,8 @@ a balance a host can owe, and taking sent money back.
 
 ## How it will be checked
 
-- Automatic tests for the date: just before and exactly at the 48 hours; a recorded date never
-  moves; old dates stay.
+- Automatic tests for the date: just before and exactly at the 48 hours after the call; a charge
+  recorded after the 48 hours; a recorded date never moves; old dates stay.
 - The payments check script, rewritten around collections: nothing is sent without a press; a press
   sends everything ready and nothing else; a charge inside its 2 days, in dispute, or with a refund
   on its way stays; the collection charge once, on a payment large enough, waived when that payment
