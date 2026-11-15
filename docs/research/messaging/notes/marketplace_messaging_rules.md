@@ -136,7 +136,7 @@ Open DMs to well-known women are a documented abuse channel; the main mitigation
 - Dating apps: Bumble's women-message-first rule was meant to cut unwanted messages but Bumble never published proof; in 2024 it added "Opening Moves", and has since dropped women-first so either side can message first but the chat opens only when the other person chooses to; Bumble reported a rise in mutual chat rate (no numbers) — [Engadget](https://engadget.com/2232004/bumble-lets-either-person-send-first-message); [Mediaweek](https://www.mediaweek.com.au/technology/bumble-drops-women-first-messaging-rule); [Vice review](https://www.vice.com/en/article/bumble-dating-app-review)
 
 ### Inferences
-- Connect's hosts are the "high-profile women in the public eye" case at small scale. A design where strangers cannot send free, unlimited, media-carrying messages (requests-only, text-only, booking-gated) removes the main abuse path the CCDH study describes.
+- Connect's hosts are the "high-profile women in the public eye" case at small scale. A design where strangers cannot send free, unlimited, media-carrying messages (requests-only, text-only, booking-gated) greatly narrows the main abuse path the CCDH study describes. It does not remove it: someone who is allowed to write can still send an abusive or threatening text, which is why reporting and blocking are still needed.
 - Pay-to-message also filters abuse, but Cameo's "non-refundable, no reply guaranteed" can feel unfair to buyers and adds payment/refund work.
 
 ### Gaps

@@ -30,7 +30,7 @@ export function profileDecisionEmail(decision: "approved" | "declined" | "suspen
     suspended: {
       subject: "Your Connect host page has been suspended",
       lines: [
-        "Your host page has been suspended and is no longer public. Requests that were waiting for your answer have ended, and your upcoming calls are being cancelled at no charge to your customers.",
+        "Your host page has been suspended and is no longer public. Requests that are waiting for your answer are being ended, and your upcoming calls are being cancelled at no charge to your customers.",
         "",
         `If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
       ],

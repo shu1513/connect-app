@@ -311,14 +311,18 @@ async function main() {
       console.log("   SKIPPED: this part needs the Stripe test key, and host@test.local approved, charging for calls, with hours and payouts set up.");
     } else if ((await B.waitingForHost(hana.id)).length > 0) {
       console.log("   SKIPPED: host@test.local has requests waiting for an answer. Answer them first, so that accepting this run's request cannot end one of them.");
-    } else {
+    } else paid: {
       const { stripe } = await import("../src/lib/payments/stripe");
       const { tryHoldOnce } = await import("../src/lib/booking/jobs");
       const { settleFinishedCalls } = await import("../src/lib/payments/jobs");
       const price = hanaOffer.pricePer15Cents;
       const dollars = `$${(price / 100).toFixed(2)}`;
       const far = (await B.openTimes(hanaOffer, 15, new Date())).filter((t) => t.getTime() > Date.now() + 96 * HOUR);
-      const paidSlot = far[Math.floor(Math.random() * Math.min(far.length, 150))];
+      const paidSlot: Date | undefined = far[Math.floor(Math.random() * Math.min(far.length, 150))];
+      if (!paidSlot) {
+        console.log("   SKIPPED: host@test.local has no open 15-minute time more than 4 days ahead.");
+        break paid;
+      }
       const summary = await page(bookPath(hanaOffer.handle, paidSlot, 15), customer.jar);
       check("the summary page shows the price before anything is asked", summary.status === 200 && summary.words.includes(dollars), String(summary.status));
 

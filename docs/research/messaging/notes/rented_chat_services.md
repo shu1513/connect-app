@@ -5,7 +5,7 @@ All pricing pages were read on 2026-11-14 unless stated. Most pricing pages show
 ## 1. Current pricing (free tier, cost at ~100 / 1,000 / 10,000 MAU, startup plans)
 
 ### Takeaway
-Only Stream (free Build plan, 1,000 MAU; free Maker plan, 2,000 MAU if eligible), PubNub (free, 200 MAU), Ably (free, 500 MAU), Pusher (free Sandbox, by connections not MAU), Supabase (free) and LiveKit (free Build) let a live app run at $0. TalkJS and CometChat free modes are development-only: going live costs $279/mo (TalkJS) or from $239/mo (CometChat). The full chat products (Stream, Sendbird, TalkJS, CometChat) all land around $240–$600/mo at 10,000 MAU. The cheapest per-MAU options at 10,000 MAU are Ably (about $480/mo, an estimate) and the build-it-yourself backends (Supabase from $25/mo, Pusher from $49/mo), but those need the chat features built by hand.
+Only Stream (free Build plan, 1,000 MAU; free Maker plan, 2,000 MAU if eligible), PubNub (free, 200 MAU), Ably (free, 500 MAU), Pusher (free Sandbox, by connections not MAU), Supabase (free) and LiveKit (free Build) let a live app run at $0. TalkJS and CometChat free modes are development-only: going live costs $279/mo (TalkJS) or from $239/mo (CometChat). The full chat products whose price at 10,000 MAU could be worked out (Stream, Sendbird, TalkJS) land around $280–$600/mo; CometChat starts at $239/mo, and its price at 10,000 MAU could not be determined from its page. The cheapest per-MAU options at 10,000 MAU are Ably (about $480/mo, an estimate) and the build-it-yourself backends (Supabase from $25/mo, Pusher from $49/mo), but those need the chat features built by hand.
 
 ### Cited Findings
 

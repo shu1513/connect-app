@@ -16,7 +16,7 @@ them side by side and says what the builder recommends.
 | No cold messages | Nobody can message a stranger. Hosts cannot message customers out of the blue or write to all their contacts. |
 | After the call | The conversation stays open for **7 days**, then can only be read until the next booking. |
 | What a message can be | Text only, up to about 2,000 characters. No photos, files, link previews, typing dots, editing, search, or paid messages in the first version. |
-| Safety | A report button on messages that saves the conversation; blocking stops messages both ways; an admin can read a conversation only through a report, and every look is logged. No end-to-end encryption, because reports could not be reviewed. |
+| Safety | A report button on messages that saves the conversation; blocking stops messages both ways; an admin can read a conversation only through a report, and every look is logged. No end-to-end encryption: with it we could only ever see the messages a reporter's own device hands over, we could not save a whole reported conversation as evidence ourselves, and the build would be far larger. |
 | Email | One email for a batch of missed messages, with a link and **without** the message text. |
 | The law (United States) | Once we know of child sexual exploitation, including an adult trying to entice a minor by text, we must report it to the national hotline (NCMEC) and keep the evidence for a year. The law does not require us to scan every message. A lawyer must confirm our duties and the privacy wording. |
 

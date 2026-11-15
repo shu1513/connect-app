@@ -26,7 +26,9 @@ describe("the email a host gets about their profile", () => {
   });
   it("suspended: does not claim that every call has already been cancelled", () => {
     const { text } = profileDecisionEmail("suspended", host, "https://connect.example");
+    expect(text).toContain("are being ended");
     expect(text).toContain("are being cancelled");
+    expect(text).not.toContain("have ended");
     expect(text).not.toContain("were cancelled");
     expect(text).not.toContain("/h/hana_host");
   });

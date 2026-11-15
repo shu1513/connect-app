@@ -111,7 +111,7 @@ The only hard US minimum found is preservation of CyberTipline-reported material
 - New COPPA rule requires a written data retention policy and limits retention to what is reasonably necessary (if COPPA applies) — [Federal Register, 22 Apr 2025](https://www.federalregister.gov/documents/2025/04/22/2025-05904/childrens-online-privacy-protection-rule) [retention detail from background knowledge of the rule]
 
 ### Inferences
-- Default proposal for the founder and lawyer: keep messages while the conversation's accounts exist; delete within 30–90 days of account closure (with backups rolling off on their own schedule); when a conversation is reported, copy it into a locked evidence store kept at least one year, or longer if an NCMEC report or police preservation request is open; record every admin view in an audit log.
+- Default proposal for the founder and lawyer: keep messages while the conversation's accounts exist; delete within 30–90 days of account closure (with backups rolling off on their own schedule); when a conversation is reported, copy it into a locked evidence store kept at least one year; if a CyberTipline report is filed with NCMEC, keep it at least one year counted from the day that report is submitted (18 U.S.C. 2258A(h)), whether or not the user's report is still open, and for as long as any police preservation request runs; record every admin view in an audit log.
 - Users of marketplaces generally expect their message history to remain visible to them; letting users "delete" a message only from their own view while the platform keeps a copy for safety should be disclosed in the privacy policy.
 
 ### Gaps
@@ -149,7 +149,7 @@ The leading documented risks are enticement and financially motivated sextortion
 - Twitch has required a verified phone number to send whispers since 2021 and offers "Block Whispers from Strangers" (reportedly default for newer accounts) — [third-party guide, lower reliability](https://screenwiseapp.com/agents/the-twitch-safety-playbook-locking-down-chat-whispers-and-sp?view=human)
 
 ### Inferences
-- On Connect, the customer, not the host, is the likely unverified party. Main risks: a minor posing as an adult customer and being solicited by a host (host-side abuse); customers harassing or doxxing hosts; scammers impersonating hosts or Connect staff to move payment off-platform; and sextortion of either side. Messaging only tied to bookings, plus off-platform-payment flags, address most of these cheaply.
+- On Connect, the customer, not the host, is the likely unverified party. Main risks: a minor posing as an adult customer and being solicited by a host (host-side abuse); customers harassing or doxxing hosts; scammers impersonating hosts or Connect staff to move payment off-platform; and sextortion of either side. Messaging only tied to bookings, plus off-platform-payment flags, cheaply narrow the risks that come from strangers (harassment by people with no booking, impersonation scams). They do not address abuse inside a booking: a host soliciting a customer who booked is permitted contact, and a payment flag would not notice it. For that the tools are the in-conversation report button, blocking and review of reports.
 
 ### Gaps
 - Documented incidents on directly comparable paid creator-fan platforms (Cameo, OnlyFans, Fansly, Patreon messaging) and their responses were not found in this session's searches.
@@ -164,7 +164,7 @@ No source directly listed "what to defer"; the following are inferences from the
 - No US law requires proactive scanning — [18 U.S.C. 2258A(f), Cornell LII](https://www.law.cornell.edu/uscode/text/18/2258A) [background, not re-verified]
 
 ### Inferences
-- Reasonable to defer: paid ML classifiers (Safer, Hive), image hash matching (until images are allowed), end-to-end encryption (which would also block report-based review), transparency reports, appeals workflows beyond a simple email, multi-language moderation, Lantern membership, and full DSA/OSA compliance programmes if EU/UK are geo-blocked.
+- Reasonable to defer: paid ML classifiers (Safer, Hive), image hash matching (until images are allowed), end-to-end encryption (which would limit report-based review to whatever a reporter's own device submits, and is a large build in itself), transparency reports, appeals workflows beyond a simple email, multi-language moderation, Lantern membership, and full DSA/OSA compliance programmes if EU/UK are geo-blocked.
 - Not reasonable to defer: NCMEC registration and reporting procedure, one-year preservation of reported content, in-conversation reporting and two-way blocking, Take It Down removal process, clear privacy-policy disclosure of message review, audited admin access, and a law-enforcement contact.
 
 ### Gaps

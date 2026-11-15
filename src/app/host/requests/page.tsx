@@ -10,6 +10,7 @@ import { verifiedAmong } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
 import { SitePage } from "@/components/site-page";
+import { NOW } from "@/lib/booking/now-rules";
 
 export const metadata: Metadata = { title: "Requests for calls" };
 
@@ -43,11 +44,11 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
         the way of. A request you do not answer in time ends by itself.
       </p>
       <p className="mt-2 text-sm opacity-70">
-        Requests for a call right now are not listed here. They appear on your{" "}
+        A request for a call right now is listed here too, but it needs your answer within {NOW.answerMinutes} minutes. Your{" "}
         <Link href="/host/now" className="underline underline-offset-2">
           Available now
         </Link>{" "}
-        page while you are switched on there.
+        page shows those the moment they arrive.
       </p>
 
       {notice && (
