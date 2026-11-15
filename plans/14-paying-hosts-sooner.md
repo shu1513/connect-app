@@ -67,7 +67,16 @@ payments it took. That record is what makes everything below hold.
   collection first (a retry of the same press gets the same collection back, also days later), then
   checks the 24 hours, then writes down the collection and exactly which payments it will send,
   all before it talks to Stripe. So two presses at once make one collection, and a crash in the
-  middle leaves a list the helper can finish, never a press that half happened.
+  middle never leaves a press that half happened.
+- **What "writes down" means for each payment.** In that same step the app locks each payment in
+  turn, checks once more that it is not disputed and has no refund on its way, and records its
+  transfer as **started**, with the exact amounts, the way every money action is already recorded.
+  From that moment the app's existing rule applies: one money action at a time on a payment. A
+  refund asked for while a transfer is started is refused until that transfer's outcome is known,
+  and once it is sent no refund is possible in the app, as today. So a refund and a transfer of
+  the same charge can never run side by side, no further check is needed at the moment of sending,
+  and the refund step needs no new lock. (A bank dispute that arrives after this point can still
+  lose the race; that risk is named below.)
 - **When nothing can be sent** (everything is held, the payout account is not ready, or 25 cents or
   less is ready), there is no collection: no charge, and the 24 hours are not used up.
 - **Once a collection is accepted, the 24 hours stand**, even if Stripe then refuses every payment
@@ -75,17 +84,33 @@ payments it took. That record is what makes everything below hold.
 - **Sending** is one payment after another, outside the locked step. One that Stripe refuses stays
   ready for a later collection. One whose answer is lost is "being checked": the always-on helper
   finishes exactly that payment, with the same amounts, and does not count as another press.
+- **If the app stops after accepting, before Stripe was asked at all,** nothing is lost and the host
+  does not have to press again. Every transfer of the collection is already recorded as started.
+  After a minute the helper finds each one that is not yet confirmed and sends it under the same
+  name, which Stripe treats as one and the same request however often it arrives. After 23 hours
+  the helper no longer repeats a request; it asks Stripe whether the transfer exists, and if it
+  does not, that payment is simply ready again for a later collection. This is how the helper
+  already finishes every interrupted money action today.
 
 **The 25-cent collection charge** is Connect's charge for a collection, once per collection.
-- It is taken from one payment of the collection, one large enough to carry it.
+- It is taken from the largest payment of the collection.
+- It is 25 cents, or that payment's whole share when the share is smaller. (Two payments of 20
+  cents each: the charge is 20 cents, taken from one, and the host receives the other 20.) The
+  charge is never spread over several payments, and the app never keeps track of a remainder.
+  This is the rule the app already has: the charge is never more than the payment it is taken from.
 - If that payment fails, the charge is **waived** for that collection. The app does not move it to
   another payment afterwards or keep track of 25 cents owed.
 - A collection in which nothing went through carries no charge.
-- The existing record of the charge, kept per weekly payday, stays for old payments; new ones are
-  kept per collection.
+- **Recorded per collection, for every payment**, whether its date is old or new. The old records,
+  kept per weekly payday, stay only as the history of payments already sent under that rule; no
+  new collection reads or writes them. (Otherwise two old charges with the same payday, collected
+  on different days, would share one record and the second collection's charge could not be
+  written down.)
 
-**The always-on helper** no longer starts any payment to a host. It keeps doing everything else it
-does for payments, and it still finishes a payment that was started and whose answer was lost.
+**The always-on helper** no longer begins any collection: nothing goes to a host unless the host
+pressed. It keeps doing everything else it does for payments, and it still completes every
+transfer that an accepted collection recorded and that is not yet confirmed, whether Stripe's
+answer was lost or the request never left.
 While this change is put live, the old helper is stopped first, so the two rules never run side by
 side.
 
@@ -150,8 +175,11 @@ a balance a host can owe, and taking sent money back.
   fails, never on a collection where nothing went through; a second press inside 24 hours is
   refused and exactly at 24 hours is accepted; two presses at once; a retry of the same press; a
   press with nothing to send uses up nothing; some payments through, one refused, one with a lost
-  answer; a crash before anything reached Stripe; the helper finishing a lost one without a second
-  charge or a second press; only the host's own money; a payment that was already being sent under
+  answer; a crash before anything reached Stripe, finished by the helper without the host pressing
+  again; the helper finishing a lost one without a second charge or a second press; a refund asked
+  for while its charge is being sent is refused, and one asked for just before is not collected;
+  two payments each smaller than 25 cents; two old charges with the same weekly payday collected
+  on different days, each with its own charge; only the host's own money; a payment that was already being sent under
   the old rule; a final collection by the founder for a closed account.
 - The added-time script: the two charges of a call need not be ready at the same moment; one
   collection takes both once both are.
@@ -198,3 +226,23 @@ that assume 7 days change with the rule; two days is a risk accepted, not a guar
 11. Say plainly that a host can collect at the earliest moment and end the refund route, and that
     ID checks reduce fraud without preventing it.
 12. Keep it narrow: one transfer per charge, one after another; no bank payout, wallet or reversal.
+
+## CodeRabbit's review (pull request 18)
+
+Four comments on this plan. Each was checked against the money code before anything was changed.
+All four pointed at something the plan had left unsaid; all are taken, as wording that makes the
+rule exact, not as new machinery.
+1. *A refund could run alongside the transfer of the same charge.* Not possible in the app as it
+   is: every money action on a payment is recorded as started under that payment's lock, and a
+   second one is refused while the first is unfinished (`src/lib/payments/operations.ts`). The plan
+   had not said that a collection records each transfer in that same way. It does now. The
+   suggested extra lock on refunds is not needed.
+2. *No payment of a collection is large enough to carry 25 cents.* The charge is taken from the
+   largest payment and is never more than that payment's share, as the app's rule already is.
+3. *Old charges keep a record per weekly payday, so two of them collected on different days would
+   share one.* Correct. The charge is now recorded per collection for every payment.
+4. *A crash after accepting and before Stripe was asked: who finishes it?* The helper, as it does
+   for every interrupted money action today (checked in `reconcileOperations`): it repeats the
+   recorded request under the same name. The plan's wording ("whose answer was lost") was too
+   narrow and is corrected.
+

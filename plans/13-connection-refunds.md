@@ -135,11 +135,17 @@ new: they are today's rules, which the later timing must not bend.
      quality record (part 4), with its plain warning about what the record is and is not. Only
      then can they press "Send request", with room for a sentence about what went wrong. A
      customer who sees that the trouble was on their own side may decide not to ask.
+     **What is sent is what was seen.** In the first minutes after a call a late message from the
+     video service can still change the record. So when the customer presses "Send request", the
+     server works the record out once more. If it is no longer what the page showed, nothing is
+     sent; the page shows the record as it now is and asks the customer to confirm again. The
+     record saved with the request is the one the customer confirmed.
    - **"Something else."** A sentence saying what is required. No record is shown.
 2. **The host is told at once**, by email and on the results page, with the customer's reason and
    sentence, and the exact time by which their answer still costs nothing: 24 hours after the
    request, or sooner if the hold requires it. **The quality record is shown to the host only when
-   the reason is the connection**, and it is the same record the customer saw. One reminder is
+   the reason is the connection**, and it is the record saved with the request: the one the
+   customer confirmed, unchanged. One reminder is
    sent halfway.
 3. **The host answers** for each charge of the call. Most calls have one; a call with time added has
    one more for each addition, and the page lists them. For each: **charge in full**, **charge
@@ -149,6 +155,9 @@ new: they are today's rules, which the later timing must not bend.
      amount that was held.
    - *Less* is the most the customer will pay for that charge. If the record, looked at again,
      gives a lower amount, the lower one is taken.
+   - If the amount to take comes out under 50 cents for any reason (for example the host said "at
+     most 50 cents" and the record, looked at again, gives 30), nothing is taken and the hold is
+     released. That is the rule the app already has for every call.
    - A card cannot be charged under 50 cents. An amount from 1 to 49 cents is not accepted; the
      page offers "charge nothing" instead. It is never rounded up.
    - A charge whose record already gives nothing is simply released; the host is not asked about
@@ -234,8 +243,10 @@ and sends it to both browsers, for both people. Today the app keeps no history o
   bad connection may fail to deliver. So it is a record of **what each browser reported**, always
   shown that way, and never treated as proof.
 - **Keeping.** The notes are removed 60 days after the call. A short summary (the figures shown
-  below) is saved with a request when it is made, brought up to date when it is answered, and
-  kept for one year. This
+  below) is saved with every request when it is made, whatever the reason, and kept for one year.
+  For a request about the connection it is exactly what the customer confirmed, and it is not
+  changed afterwards. For "something else" it is saved without being shown to the customer or the
+  host, so that the founder can look at it. This
   is a new rule for the privacy page; it is not something the app already promises.
 
 **The record of one call**, and exactly who may open it. The server enforces this; hiding it on the
@@ -368,10 +379,14 @@ error described above, and about ten days of building.
 ## What the terms and privacy page must say (for the lawyer)
 
 That the charge for a call is taken one to two days after it; that a customer can ask for a refund
-within 24 hours of the call; that the host decides; that a host cannot collect the money for a call
-with a request they have not answered; and that the app keeps a grade of each person's connection
-during a call for 60 days, shows a summary to a customer who asks for a refund because of the
-connection, to the host of that call and to Connect, and keeps that summary for a year.
+within 24 hours of the call; that the host decides; and that a host cannot collect the money for a
+call with a request they have not answered.
+
+About what is kept: the app keeps a grade of each person's connection during every call for 60
+days. When a refund is asked for, **for any reason**, it saves a summary of those grades with the
+request and keeps it for a year, together with the customer's sentence and the host's message.
+Connect can see that summary for every request. The customer and the host of that call see it only
+when the reason given is the connection.
 
 ## How it will be checked
 
@@ -490,3 +505,17 @@ was done in this ninth version:
 incorporated. Two small points, both taken: the summary table and the picture now say "about 24
 hours" to match the 10 minutes in part 1; and the founder's page and the receipt say who lowered a
 charge and what the record had given.
+
+## CodeRabbit's review (pull request 18)
+
+Three comments on this plan, all taken as small clarifications.
+1. *The record the host sees could differ from the one the customer saw*, if a message arrives
+   between looking and sending. Notes from the browsers are only accepted while the call's room is
+   open, so they cannot change after the call; a late message from the video service can, in the
+   first minutes. The record is now worked out again when the request is sent, and the customer
+   confirms again if it changed.
+2. *A lowered amount that comes out under 50 cents* had no stated result. Nothing is taken, as the
+   app already does for any call.
+3. *The note for the privacy page only spoke of connection requests.* A summary is saved for every
+   request and the founder can see each one. The note now says so.
+
