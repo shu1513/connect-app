@@ -169,6 +169,13 @@
       "when": 1794778117636,
       "tag": "0023_refund_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794783114935,
+      "tag": "0024_connection_tests",
+      "breakpoints": true
     }
   ]
 }

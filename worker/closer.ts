@@ -33,6 +33,7 @@ async function main() {
   const { recordBeat } = await import("../src/lib/health");
   const { removeOldNotes } = await import("../src/lib/quality/notes");
   const { forgetOldRequests, writeAnswerReminders } = await import("../src/lib/refunds/requests");
+  const { endOldTests } = await import("../src/lib/connection/tests");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -117,6 +118,14 @@ async function main() {
     await writeAnswerReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
   }
 
+  /**
+   * Connection checks left open are ended in a loop of their own, so that nothing about them can
+   * slow down closing a call's room or the money work.
+   */
+  async function testPass() {
+    await endOldTests(new Date()).catch((error) => console.error("[connection test] ending old tests failed; will retry", error));
+  }
+
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
   async function sendPass() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
@@ -128,6 +137,7 @@ async function main() {
     await pass();
     await remindPass();
     await sendPass();
+    await testPass();
     process.exit(0);
   }
 
@@ -147,7 +157,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass)]);
   process.exit(0);
 }
 

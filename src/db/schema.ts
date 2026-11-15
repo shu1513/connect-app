@@ -976,6 +976,26 @@ export const qualityNotes = pgTable(
 );
 
 /**
+ * Connection checks. One row each time someone starts the short "test your connection" check.
+ * It holds no result: the answer never leaves the person's browser. The rows exist only so that
+ * tests can be limited per person, and so that the helper can close a test room left open.
+ */
+export const connectionTests = pgTable(
+  "connection_tests",
+  {
+    /** The test's own number. Its room at the video service is "check-<id>"; it is never a call's room. */
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Set once the helper has confirmed the test room is gone. */
+    roomClosedAt: timestamp("room_closed_at", { withTimezone: true }),
+  },
+  (t) => [index("connection_tests_user_idx").on(t.userId, t.startedAt), index("connection_tests_open_idx").on(t.roomClosedAt, t.startedAt)],
+);
+
+/**
  * When the always-on helper last finished a round of each kind of work.
  * The health address reads this to say whether the helper is alive.
  */
