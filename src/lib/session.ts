@@ -69,11 +69,15 @@ export async function getUser(): Promise<CurrentUser | null> {
   return { id: person.id, name: person.name, email: person.email, timeZone: person.timeZone, paused: person.paused };
 }
 
-/** For pages and actions: sends anyone who may not use the app to the right place. */
-export async function requireUser(): Promise<CurrentUser> {
+/**
+ * For pages and actions: sends anyone who may not use the app to the right place.
+ * A page in the middle of a journey passes its own address, so the person comes back to it after logging in.
+ */
+export async function requireUser(backTo?: string): Promise<CurrentUser> {
   const person = await getSignedIn();
-  if (!person || person.closed || !person.emailVerified) redirect("/login");
-  if (!person.welcomed) redirect("/welcome");
+  const next = backTo ? `?next=${encodeURIComponent(backTo)}` : "";
+  if (!person || person.closed || !person.emailVerified) redirect(`/login${next}`);
+  if (!person.welcomed) redirect(`/welcome${next}`);
   return { id: person.id, name: person.name, email: person.email, timeZone: person.timeZone, paused: person.paused };
 }
 

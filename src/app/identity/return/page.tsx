@@ -6,8 +6,10 @@ import { requireUser } from "@/lib/session";
 
 /** Where Stripe sends people back. Coming back proves nothing; we ask Stripe. */
 export default async function IdentityReturnPage(props: PageProps<"/identity/return">) {
-  const user = await requireUser();
   const next = returnPath((await props.searchParams).next);
+  const carry = next ? `?next=${encodeURIComponent(next)}` : "";
+  // Someone who arrives logged out (the check can be finished on another device) logs in and lands here again.
+  const user = await requireUser(`/identity/return${carry}`);
   let notice: string;
   try {
     const state = await refreshIdentity(user.id);
@@ -20,5 +22,5 @@ export default async function IdentityReturnPage(props: PageProps<"/identity/ret
     console.error("[identity] could not read the result", error);
     notice = "We could not read the result from Stripe just now. Please reload this page in a minute.";
   }
-  redirect(withNotice(`/identity${next ? `?next=${encodeURIComponent(next)}` : ""}`, notice));
+  redirect(withNotice(`/identity${carry}`, notice));
 }

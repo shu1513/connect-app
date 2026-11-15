@@ -5,6 +5,12 @@ describe("safeNext", () => {
   it("keeps a path on this site", () => {
     expect(safeNext("/h/hana_host/book?length=30&start=2026-11-20T15%3A00%3A00.000Z")).toBe("/h/hana_host/book?length=30&start=2026-11-20T15%3A00%3A00.000Z");
   });
+  it("keeps a path that carries another path inside it (back to the identity check, and from there to a booking)", () => {
+    const inner = "/h/hana_host/book?length=30&start=2026-11-20T15%3A00%3A00.000Z";
+    const outer = `/identity/return?next=${encodeURIComponent(inner)}`;
+    expect(safeNext(outer)).toBe(outer);
+    expect(returnPath(new URL(outer, "http://x").searchParams.get("next"))).toBe(inner);
+  });
   it("sends anything else to the home page", () => {
     for (const bad of ["https://evil.example/x", "//evil.example", "/\\evil.example", "javascript:alert(1)", "h/hana", "/a b", "", undefined, null, 5, ["/a"]]) {
       expect(safeNext(bad)).toBe("/");

@@ -76,7 +76,8 @@ For a host whose calls are free, a note says everyone who asks already has to co
   they picked is checked again there, as always; for a call now it may have gone.) That address is
   checked at every step with the existing `safeNext` (only a path on this site), is dropped if it
   is longer than 500 characters, and is kept through a failed start and a "still checking" result.
-  If the customer's login runs out on the way, they land on the identity page without it.
+  A customer who comes back logged out (the login ran out, or the check was finished on another
+  device) logs in and is brought back to the same step, with the address still attached.
 - On the account page: a new line "Your ID: confirmed" or "Your ID: not confirmed. Confirm who you
   are", so anyone can do it by choice.
 - **Telling people what a host sees.** People who passed the check earlier (hosts, customers of

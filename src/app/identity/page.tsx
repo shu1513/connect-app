@@ -10,11 +10,11 @@ import { startIdentity } from "./actions";
  * hosts who only take people who have passed it; anyone may also do it by choice.
  */
 export default async function IdentityPage(props: PageProps<"/identity">) {
-  const user = await requireUser();
   const query = await props.searchParams;
-  const notice = readNotice("/identity", query);
   // The page the person was on (a booking they had started), to go back to once the check is passed.
   const next = returnPath(query.next);
+  const user = await requireUser(next ? `/identity?next=${encodeURIComponent(next)}` : undefined);
+  const notice = readNotice("/identity", query);
   let state = await identityState(user.id);
   if (!state.passed && (state.pending || state.triesLeft < IDENTITY_TRIES)) state = await refreshIdentity(user.id).catch(() => state);
 
