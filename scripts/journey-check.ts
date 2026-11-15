@@ -344,10 +344,14 @@ async function main() {
 
       await happenedAlready(callId, booking.id, 15);
       await settleFinishedCalls(new Date());
-      const charged = await ownPayment();
-      check(`after the call, the customer is charged the ${dollars} for the 15 minutes both were there`, charged.status === "charged" && charged.chargedCents === price, `${charged.status} ${charged.chargedCents}`);
       // The call was moved into the past above, so its end is read back rather than worked out from the chosen time.
       const [ended] = await db.select({ endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, callId));
+      const waiting = await page(`/calls/${callId}/results`, customer.jar);
+      check("after the call nothing is taken yet: the customer sees what will be charged, and can ask for a refund", (await ownPayment()).status === "held" && waiting.words.includes("To be charged") && waiting.words.includes(dollars) && waiting.words.includes("Ask for a refund"), (await ownPayment()).status);
+      // Pretended: it is now 24 hours and 10 minutes after the call, and nobody asked for a refund.
+      await settleFinishedCalls(new Date(ended.endsAt.getTime() + 24 * HOUR + 10 * 60_000));
+      const charged = await ownPayment();
+      check(`a day after the call, the customer is charged the ${dollars} for the 15 minutes both were there`, charged.status === "charged" && charged.chargedCents === price, `${charged.status} ${charged.chargedCents}`);
       check("the host's share is ready to collect 2 days after the call, and nothing was sent before", charged.transferStatus === "not_due" && charged.transferDueAt?.getTime() === ended.endsAt.getTime() + 48 * HOUR && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 0, `${charged.transferStatus} ${charged.transferDueAt?.toISOString()}`);
       // Pretended: it is now 2 days after the call, and the host presses "Collect earnings".
       const { collectEarnings } = await import("../src/lib/payments/collect");

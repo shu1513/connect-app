@@ -3,7 +3,8 @@
  *   - check with Stripe on any action whose outcome is not known,
  *   - handle saved Stripe messages that could not be handled when they arrived,
  *   - finish the money side of cancelled calls,
- *   - charge calls that have finished, or queue them for review,
+ *   - close what a finished call leaves behind (an unpaid payment, nothing owed, a record that needs review),
+ *     and take the money for its ordinary charges when it is time: about a day after the call (take.ts),
  *   - release holds nobody decided on in time,
  *   - flag calls whose record changed after they were charged.
  *
@@ -23,17 +24,17 @@ import {
   applyReleased,
   applyTransferSent,
   captureAtStripe,
-  capturePayment,
   markRefundFailed,
   releasePayment,
   transferAtStripe,
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
-import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError } from "./operations";
-import { attendanceChargeCents } from "./pricing";
+import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, refusedRecently } from "./operations";
+import { attendanceChargeCents, countedSeconds } from "./pricing";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
+import { settleOrdinaryCharges } from "./take";
 import { isDefiniteRefusal, stripe, stripeErrorMessage } from "./stripe";
 import { handleStripeEvent } from "./stripe-events";
 
@@ -45,29 +46,6 @@ const RECONCILE_AFTER_MS = 60_000;
  * result, or does it now if it never arrived.
  */
 const LABEL_SAFE_MS = 23 * 3_600_000;
-/** After Stripe refuses an action, wait this long before trying it again. */
-const RETRY_AFTER_REFUSAL_MS = 3_600_000;
-
-/**
- * Whether Stripe refused this kind of action on this payment a short while ago.
- * Without this, a charge Stripe keeps refusing would be tried again every few seconds.
- */
-async function recentlyRefused(paymentId: string, kind: string, now: Date): Promise<boolean> {
-  const [refused] = await db
-    .select({ id: schema.moneyOperations.id })
-    .from(schema.moneyOperations)
-    .where(
-      and(
-        eq(schema.moneyOperations.paymentId, paymentId),
-        eq(schema.moneyOperations.kind, kind),
-        eq(schema.moneyOperations.status, "failed"),
-        sql`${schema.moneyOperations.finishedAt} > ${new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS).toISOString()}::timestamptz`,
-      ),
-    )
-    .limit(1);
-  return Boolean(refused);
-}
-
 /**
  * A charge attempt we wrote off as refused can still have gone through at
  * Stripe. Before anything else is decided about a held payment with such an
@@ -178,7 +156,7 @@ export async function reconcileOperations(now: Date): Promise<void> {
         }
         if (intent.status === "canceled") {
           await finishOperation(operation.id, payment.id, intent.id, (p, tx) =>
-            applyReleased(p, params.note ?? "The hold was released.", tx),
+            applyReleased(p, params.note ?? "The hold was released.", tx, params.lowered),
           );
         } else {
           await giveUp("This payment was charged, so the hold could not be released.");
@@ -303,7 +281,7 @@ export async function settleCancelledCalls(now: Date = new Date()): Promise<void
     try {
       const current = await afterCheckingRefusedCharge(payment, now);
       // Stripe refused the late-cancellation charge a short while ago: wait before trying again.
-      if (current.status === "held" && call.cancelledLate && (await recentlyRefused(payment.id, "capture", now))) continue;
+      if (current.status === "held" && call.cancelledLate && (await refusedRecently(payment.id, "capture", now))) continue;
       await settleCancelledCall(call, current);
       log(`settled cancelled call ${call.id}`);
     } catch (error) {
@@ -334,21 +312,26 @@ export async function settleFinishedCalls(now: Date): Promise<void> {
       ),
     );
 
+  // Calls with an ordinary charge on hold. Their money is taken per call, at the moment the timing rule gives.
+  const ordinary = new Set<string>();
   for (const { payment, call } of due) {
     try {
-      await settleOne(payment, call, now);
+      if ((await settleOne(payment, call, now)) === "ordinary") ordinary.add(call.id);
     } catch (error) {
       log(`could not settle payment ${payment.id}; will retry`, error);
     }
   }
+  for (const callId of ordinary) {
+    try {
+      await settleOrdinaryCharges(callId, now);
+    } catch (error) {
+      log(`could not take the money for call ${callId}; will retry`, error);
+    }
+  }
 }
 
-/** The seconds a call is charged for, by the rule fixed on the call: the host's time (booked) or the time both were in (instant). */
-export function countedSeconds(call: Pick<Call, "billing">, totals: { hostSeconds: number; togetherSeconds: number }): number {
-  return call.billing === "together" ? totals.togetherSeconds : totals.hostSeconds;
-}
-
-async function settleOne(found: Payment, call: Call, now: Date): Promise<void> {
+/** Gives back "ordinary" for a payment on hold whose record is final and gives an amount: its money is taken by the timing rule, not here. */
+async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordinary" | void> {
   // If Stripe made a charge we had written off, it is recorded here and there is nothing left to settle.
   const payment = await afterCheckingRefusedCharge(found, now);
   if (payment.status !== "awaiting_payment" && payment.status !== "held") return;
@@ -398,24 +381,12 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<void> {
       countedSeconds: countedSeconds(call, totals),
     });
     if (amountCents === 0) {
+      // Nothing to wait for: nobody is asked about a charge that is nothing.
       await releasePayment({ paymentId: payment.id, note: "Nothing was owed for this call." });
       log(`released payment ${payment.id}: nothing owed`);
-    } else {
-      // Stripe refused this charge a short while ago (and it is confirmed above that it did not go through): wait.
-      if (await recentlyRefused(payment.id, "capture", now)) return;
-      await capturePayment({
-        paymentId: payment.id,
-        amountCents,
-        reason: "attendance",
-        frozen: totals,
-        callEndsAt: call.endsAt,
-        // Remember which messages the amount was based on, so later ones can be noticed.
-        pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0),
-        now,
-      });
-      log(`charged payment ${payment.id}: ${amountCents} cents`);
+      return;
     }
-    return;
+    return "ordinary";
   }
 
   // The record is incomplete or contradicts itself: never charge on a guess.

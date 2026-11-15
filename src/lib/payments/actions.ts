@@ -10,8 +10,9 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
+import { queueRefundEmail } from "@/lib/refunds/emails";
 import type { Payment } from "@/db/schema";
-import { addLedgerEntry, MoneyError, runMoneyOperation, type Tx } from "./operations";
+import { addLedgerEntry, MoneyError, runMoneyOperation, type OperationPlan, type Tx } from "./operations";
 import { MIN_CHARGE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
 import { canMovePayment, decisionDeadline, readyToCollectAt } from "./rules";
 import { stripe } from "./stripe";
@@ -19,6 +20,7 @@ import { stripe } from "./stripe";
 export type FrozenTotals = { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
 export type ChargeReason = "attendance" | "late_cancel" | "admin";
 
+const formatCents = (cents: number) => "$" + (cents / 100).toFixed(2);
 const isForeignCard = (payment: Payment) => payment.cardCountry !== null && payment.cardCountry !== "US";
 
 /** The host's share and our fee as they stand now, after any refunds. */
@@ -42,7 +44,12 @@ export type CaptureParams = {
   callEndsAt: string;
   /** The last attendance message known when the amount was worked out. */
   pricedThroughEventId: number | null;
+  /** When an answer to a refund request made this charge lower than the call's record gave. */
+  lowered?: Lowered;
 };
+
+/** A charge lowered (or dropped) by an answer to a refund request: what the record gave, and who lowered it. */
+export type Lowered = { recordCents: number; by: "host" | "admin" };
 
 /**
  * Records a charge Stripe has made. `amountCents` is what Stripe actually
@@ -77,6 +84,8 @@ export async function applyCaptured(
       frozenCustomerSeconds: params.frozen?.customerSeconds ?? null,
       frozenTogetherSeconds: params.frozen?.togetherSeconds ?? null,
       pricedThroughEventId: params.pricedThroughEventId ?? null,
+      recordCents: params.lowered?.recordCents ?? null,
+      loweredBy: params.lowered?.by ?? null,
       transferStatus: hostShareCents > 0 ? "not_due" : "not_owed",
       transferDueAt: hostShareCents > 0 ? readyToCollectAt({ callEndsAt: new Date(params.callEndsAt), chargedAt }) : null,
       updatedAt: chargedAt,
@@ -110,8 +119,7 @@ export async function captureAtStripe(
   return { stripeId: intent.id, result: { chargeId, amountReceived: intent.amount_received } };
 }
 
-/** Charges a held payment once. The unused part of the hold is released by Stripe. */
-export function capturePayment(input: {
+export type CaptureInput = {
   paymentId: string;
   amountCents: number;
   reason: ChargeReason;
@@ -121,8 +129,17 @@ export function capturePayment(input: {
   now?: Date;
   /** The most that may be charged, when less than the booked price (a call stopped for safety). */
   maxCents?: number;
-}) {
-  return runMoneyOperation<CaptureParams, { chargeId: string | null; amountReceived: number }>({
+  lowered?: Lowered;
+};
+
+/** Charges a held payment once. The unused part of the hold is released by Stripe. */
+export function capturePayment(input: CaptureInput) {
+  return runMoneyOperation(capturePlan(input));
+}
+
+/** The steps of one charge. Used on its own where several charges of a call are written down together (take.ts). */
+export function capturePlan(input: CaptureInput): OperationPlan<CaptureParams, { chargeId: string | null; amountReceived: number }> {
+  return {
     paymentId: input.paymentId,
     kind: "capture",
     labelBase: `capture:${input.paymentId}`,
@@ -140,6 +157,17 @@ export function capturePayment(input: {
         if (!payment.needsReview) throw new MoneyError("This payment is not waiting for review.");
         const deadline = decisionDeadline({ callEndsAt: input.callEndsAt, holdExpiresAt: payment.holdExpiresAt ?? input.callEndsAt });
         if ((input.now ?? new Date()) >= deadline) throw new MoneyError("The deadline for deciding this call has passed.");
+        // A review decides what the record supports. It does not undo an answer to a refund request that
+        // was accepted for this charge before it came under review: that answer stays the most the customer pays.
+        const [answer] = await tx
+          .select({ choice: schema.refundRequestAnswers.choice, maxCents: schema.refundRequestAnswers.maxCents })
+          .from(schema.refundRequestAnswers)
+          .innerJoin(schema.refundRequests, eq(schema.refundRequests.id, schema.refundRequestAnswers.requestId))
+          .where(and(eq(schema.refundRequestAnswers.paymentId, payment.id), eq(schema.refundRequests.status, "answered")));
+        if (answer?.choice === "nothing") throw new MoneyError("The answer to this call's refund request was \"charge nothing\" for this charge. Release the hold instead.");
+        if (answer?.choice === "less" && input.amountCents > (answer.maxCents ?? 0)) {
+          throw new MoneyError(`The answer to this call's refund request was "at most ${formatCents(answer.maxCents ?? 0)}" for this charge. Charge that or less.`);
+        }
       } else if (payment.needsReview) {
         // A call waiting for the founder's decision is only ever charged by the founder.
         throw new MoneyError("This payment is waiting for review.");
@@ -157,6 +185,7 @@ export function capturePayment(input: {
         frozen: input.frozen,
         callEndsAt: input.callEndsAt.toISOString(),
         pricedThroughEventId: input.pricedThroughEventId ?? null,
+        ...(input.lowered ? { lowered: input.lowered } : {}),
       };
     },
     execute: async (params, label) => {
@@ -165,18 +194,56 @@ export function capturePayment(input: {
     },
     apply: (payment, params, outcome, tx) =>
       applyCaptured(payment, params, outcome.result.amountReceived, outcome.result.chargeId, tx),
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Release
 // ---------------------------------------------------------------------------
 
-export async function applyReleased(payment: Payment, note: string, tx: Tx): Promise<void> {
+export type ReleaseParams = { note: string; lowered?: Lowered };
+
+export async function applyReleased(payment: Payment, note: string, tx: Tx, lowered?: Lowered): Promise<void> {
   await tx
     .update(schema.payments)
-    .set({ status: "closed_uncharged", needsReview: false, transferStatus: "not_owed", reviewReason: note, updatedAt: new Date() })
+    .set({
+      status: "closed_uncharged",
+      needsReview: false,
+      transferStatus: "not_owed",
+      reviewReason: note,
+      recordCents: lowered?.recordCents ?? null,
+      loweredBy: lowered?.by ?? null,
+      updatedAt: new Date(),
+    })
     .where(eq(schema.payments.id, payment.id));
+}
+
+/** The steps of letting a hold at Stripe go. Used on its own where several payments of a call are written down together (take.ts). */
+export function releasePlan(input: { paymentId: string; note: string; lowered?: Lowered }): OperationPlan<ReleaseParams, null> {
+  return {
+    paymentId: input.paymentId,
+    kind: "release",
+    labelBase: `release:${input.paymentId}`,
+    prepare: async (payment) => {
+      if (!canMovePayment(payment.status as never, "closed_uncharged")) {
+        throw new MoneyError("This payment has already been charged or closed.");
+      }
+      return { note: input.note, ...(input.lowered ? { lowered: input.lowered } : {}) };
+    },
+    execute: async (_params, label) => {
+      const [payment] = await paymentById(input.paymentId);
+      const intentId = payment.stripePaymentIntentId!;
+      try {
+        await stripe().paymentIntents.cancel(intentId, {}, { idempotencyKey: label });
+      } catch (error) {
+        // Stripe refuses to cancel something already cancelled (for example a hold that ran out). That is fine.
+        const intent = await stripe().paymentIntents.retrieve(intentId);
+        if (intent.status !== "canceled") throw error;
+      }
+      return { stripeId: intentId, result: null };
+    },
+    apply: (payment, params, _outcome, tx) => applyReleased(payment, params.note, tx, params.lowered),
+  };
 }
 
 /** Lets a hold go without charging anything. Also closes a payment that was never paid. */
@@ -196,30 +263,7 @@ export async function releasePayment(input: { paymentId: string; note: string })
     if (!after.stripePaymentIntentId) return;
   }
 
-  await runMoneyOperation<{ note: string }, null>({
-    paymentId: input.paymentId,
-    kind: "release",
-    labelBase: `release:${input.paymentId}`,
-    prepare: async (payment) => {
-      if (!canMovePayment(payment.status as never, "closed_uncharged")) {
-        throw new MoneyError("This payment has already been charged or closed.");
-      }
-      return { note: input.note };
-    },
-    execute: async (_params, label) => {
-      const [payment] = await paymentById(input.paymentId);
-      const intentId = payment.stripePaymentIntentId!;
-      try {
-        await stripe().paymentIntents.cancel(intentId, {}, { idempotencyKey: label });
-      } catch (error) {
-        // Stripe refuses to cancel something already cancelled (for example a hold that ran out). That is fine.
-        const intent = await stripe().paymentIntents.retrieve(intentId);
-        if (intent.status !== "canceled") throw error;
-      }
-      return { stripeId: intentId, result: null };
-    },
-    apply: (payment, params, _outcome, tx) => applyReleased(payment, params.note, tx),
-  });
+  await runMoneyOperation(releasePlan(input));
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +294,8 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
     .update(schema.payments)
     .set({ refundedCents, transferStatus: nothingOwedNow ? "not_owed" : payment.transferStatus, updatedAt: new Date() })
     .where(eq(schema.payments.id, payment.id));
+  // The customer is told in the same step that records the refund, with the message that came with it.
+  await queueRefundEmail(tx, refund);
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_refund", amountCents: -refund.amountCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: stripeRefundId });
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: stripeRefundId });

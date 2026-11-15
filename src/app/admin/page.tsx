@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
@@ -9,6 +9,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { unsentEarnings } from "@/lib/payments/collect";
 import { decisionDeadline } from "@/lib/payments/rules";
+import { isDecided, moneyPlan } from "@/lib/payments/take";
 import { requireAdmin } from "@/lib/session";
 import { refundAction } from "../calls/[id]/actions";
 import { chargeReviewed, finalCollection, releaseReviewed } from "./actions";
@@ -51,6 +52,20 @@ export default async function AdminPage(props: PageProps<"/admin">) {
     uncollected.set(earning.call.hostId, row);
   }
   const uncollectedTotal = [...uncollected.values()].reduce((sum, row) => sum + row.totalCents, 0);
+
+  // Money still on hold after a call: it is taken about a day later, or when a refund request is answered.
+  // Listed on its own, with the moment it is due, so a charge that was not taken in time is noticed here too.
+  const endedOnHold = await db
+    .selectDistinct({ call: schema.calls })
+    .from(schema.payments)
+    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .where(and(eq(schema.payments.status, "held"), eq(schema.payments.needsReview, false), isNull(schema.calls.cancelledAt), lt(schema.calls.endsAt, new Date())));
+  const onHold = [];
+  for (const { call } of endedOnHold) {
+    const plan = await moneyPlan(call);
+    if (plan.held.length > 0) onHold.push({ call, plan, heldCents: plan.held.reduce((sum, p) => sum + p.bookedCents, 0) });
+  }
+  onHold.sort((a, b) => (a.plan.timing?.takeAt.getTime() ?? 0) - (b.plan.timing?.takeAt.getTime() ?? 0));
 
   // Looked up on their own, never cut off by the "latest 200" limit above.
   const paymentsWithCalls = () =>
@@ -162,6 +177,40 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         </>
       )}
 
+      <h2 className="mt-10 text-lg font-semibold">On hold after a call, to be taken ({onHold.length})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        The money for a call is taken about a day after it, so that the customer can first ask for a refund. With a request it is taken when the
+        host answers, and at the latest at the time shown. Refund requests are answered under{" "}
+        <Link href="/admin/reports" className="underline underline-offset-2">
+          Reports and safety
+        </Link>
+        .
+      </p>
+      {onHold.length === 0 ? (
+        <p className="mt-3 text-sm opacity-70">Nothing is on hold after a call.</p>
+      ) : (
+        <ul className="mt-2 list-disc pl-5 text-sm" data-on-hold>
+          {onHold.map(({ call, plan, heldCents }) => (
+            <li key={call.id}>
+              <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
+                {nameOf.get(call.hostId)} and {nameOf.get(call.customerId)}
+              </Link>
+              : {formatMoney(heldCents)} held.{" "}
+              {isDecided(plan.request) ? (
+                "The answer to a refund request is being applied."
+              ) : plan.timing ? (
+                <>
+                  {plan.request ? "A refund request is waiting for the host. Taken at the latest on " : "Due to be taken on "}
+                  <LocalTime iso={plan.timing.takeAt.toISOString()} />.
+                </>
+              ) : (
+                ""
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <h2 className="mt-10 text-lg font-semibold">Earned and not yet collected ({formatMoney(uncollectedTotal)})</h2>
       <p className="mt-1 text-sm opacity-70">
         Hosts collect their earnings themselves, so nothing is sent until a host presses the button. This is every host&apos;s money that
@@ -243,7 +292,15 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                     {payment.extensionId ? " · more time" : ""}
                   </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{formatMoney(payment.bookedCents)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{payment.chargedCents === null ? "—" : formatMoney(payment.chargedCents)}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">
+                    {payment.chargedCents === null ? "—" : formatMoney(payment.chargedCents)}
+                    {/* A lowered charge shows what the record gave and who lowered it. */}
+                    {payment.loweredBy && payment.recordCents !== null && (
+                      <span className="block text-xs opacity-70">
+                        record gave {formatMoney(payment.recordCents)}; lowered by {payment.loweredBy === "admin" ? "Connect" : "the host"}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{payment.refundedCents ? formatMoney(payment.refundedCents) : "—"}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{payment.status === "charged" ? formatMoney(split.feeCents) : "—"}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{payment.status === "charged" ? formatMoney(split.hostShareCents) : "—"}</td>

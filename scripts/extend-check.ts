@@ -366,6 +366,11 @@ async function main() {
       const total = (longer.endsAt.getTime() - longer.startsAt.getTime()) / 1000;
       await attend(callId, [["host", 0, total - 120], ["customer", 0, total]]);
       await settleFinishedCalls(new Date(longer.endsAt.getTime() + 5 * MINUTE));
+      check("minutes after the call both charges are still on hold: the money is taken about a day later", (await own()).status === "held" && (await extra()).status === "held" && !(await own()).needsReview && !(await extra()).needsReview);
+      // The two charges share one moment, counted from the end of the longer call: 24 hours and 10 minutes after it.
+      await settleFinishedCalls(new Date(longer.endsAt.getTime() + 24 * HOUR + 9 * MINUTE));
+      check("and a minute before that moment", (await own()).status === "held" && (await extra()).status === "held");
+      await settleFinishedCalls(new Date(longer.endsAt.getTime() + 24 * HOUR + 10 * MINUTE));
       const [chargedOwn, chargedExtra] = [await own(), await extra()];
       check("the call's own payment is charged in full for its 15 minutes: $20.00", chargedOwn.status === "charged" && chargedOwn.chargedCents === 2000 && chargedOwn.frozenTogetherSeconds === 900, `${chargedOwn.status} ${chargedOwn.chargedCents}`);
       check("the extra payment is charged for the 8 of its 10 minutes both were there: $10.67", chargedExtra.status === "charged" && chargedExtra.chargedCents === 1067 && chargedExtra.frozenTogetherSeconds === 480, `${chargedExtra.status} ${chargedExtra.chargedCents}`);
@@ -427,8 +432,8 @@ async function main() {
       const call = await callOf(callId);
       const total = (call.endsAt.getTime() - call.startsAt.getTime()) / 1000;
       await attend(callId, [["host", 0, total], ["customer", 0, total]]);
-      // The charge after the call runs before anything has let the declined hold go.
-      await settleFinishedCalls(new Date(call.endsAt.getTime() + 5 * MINUTE));
+      // The charge after the call (a day later) runs before anything has let the declined hold go.
+      await settleFinishedCalls(new Date(call.endsAt.getTime() + 24 * HOUR + 10 * MINUTE));
       const accepted = await paymentOfExtension(second.extensionId);
       check("after the call, only the accepted request is charged for those minutes", accepted.status === "charged" && accepted.chargedCents === 667 && (await firstPayment()).status === "held" && (await firstPayment()).chargedCents === null, `${accepted.status} ${(await firstPayment()).status}`);
       await X.closeFinishedExtensions(new Date(call.endsAt.getTime() + 5 * MINUTE));

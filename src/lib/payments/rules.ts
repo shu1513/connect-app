@@ -150,6 +150,69 @@ export function paymentBlocksJoin(input: {
 }
 
 // ---------------------------------------------------------------------------
+// Taking the money. An ordinary charge is not taken minutes after the call any
+// more, but about a day later, so that a customer can first ask for a refund
+// and a lower charge costs no card fee. (A charge under review, and a charge
+// for cancelling late, keep their own rules.)
+// ---------------------------------------------------------------------------
+
+/** How long after the call ends a customer can ask for a refund. */
+export const ASK_WINDOW_MS = DAY_MS;
+/** How long the host has to answer a request before the money is taken anyway. */
+export const ANSWER_WINDOW_MS = DAY_MS;
+/**
+ * The app acts by itself this long after a deadline it shows a person, so a
+ * request or an answer sent in the last seconds still arrives first.
+ */
+export const DEADLINE_CUSHION_MS = 10 * 60_000;
+/** An ordinary charge is never left on hold later than this long before the hold ends. */
+export const TAKE_BEFORE_EXPIRY_MS = 12 * HOUR_MS;
+
+/**
+ * The moments around taking the money for a call's ordinary charges.
+ * `holdExpiresAt` is the earliest end among the holds of those charges: they
+ * share one moment, and each is then taken as its own payment.
+ */
+export function moneyTiming(input: {
+  /** The call's end, after any added time. */
+  callEndsAt: Date;
+  /** When the customer asked for a refund, or null if they have not. */
+  requestedAt: Date | null;
+  holdExpiresAt: Date;
+}): {
+  /** The customer can ask until here. */
+  askBy: Date;
+  /** With a request: the host's answer costs nothing until here. Null without one. */
+  answerBy: Date | null;
+  /** The app takes the money by itself at this moment, if nothing was decided before. */
+  takeAt: Date;
+} {
+  const limit = input.holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS;
+  const withoutRequest = Math.min(input.callEndsAt.getTime() + ASK_WINDOW_MS + DEADLINE_CUSHION_MS, limit);
+  const askBy = new Date(withoutRequest - DEADLINE_CUSHION_MS);
+  if (!input.requestedAt) return { askBy, answerBy: null, takeAt: new Date(withoutRequest) };
+  const takeAt = Math.min(input.requestedAt.getTime() + ANSWER_WINDOW_MS + DEADLINE_CUSHION_MS, limit);
+  return { askBy, answerBy: new Date(takeAt - DEADLINE_CUSHION_MS), takeAt: new Date(takeAt) };
+}
+
+/**
+ * What to do right now with a call's ordinary charges that are still on hold.
+ * "take" also covers every later try: the app keeps trying for as long as the hold lasts.
+ */
+export function takeDecision(input: {
+  now: Date;
+  callEndsAt: Date;
+  requestedAt: Date | null;
+  /** The request was answered (or closed by the founder): nothing is waited for any more. */
+  decided: boolean;
+  holdExpiresAt: Date;
+}): "wait" | "take" | "hold_ended" {
+  if (input.now >= input.holdExpiresAt) return "hold_ended";
+  if (input.decided) return "take";
+  return input.now >= moneyTiming(input).takeAt ? "take" : "wait";
+}
+
+// ---------------------------------------------------------------------------
 // Collecting. There is no payday: a host takes their earnings with a button.
 // ---------------------------------------------------------------------------
 
@@ -172,7 +235,7 @@ export function canCollectAgainAt(lastCollectedAt: Date | null): Date | null {
   return lastCollectedAt ? new Date(lastCollectedAt.getTime() + COLLECT_EVERY_MS) : null;
 }
 
-export type HeldBack = "dispute" | "refund" | "being_sent" | "not_yet";
+export type HeldBack = "dispute" | "refund" | "request" | "answer_applying" | "being_sent" | "not_yet";
 
 /**
  * Why a share that was charged and not yet sent cannot be collected right now,
@@ -186,9 +249,15 @@ export function heldBack(input: {
   refundOnItsWay: boolean;
   /** A money action on this payment was written down and its outcome is not known yet. */
   actionUnfinished: boolean;
+  /**
+   * The call has a refund request that is not answered ("request"), or an answer that is still being
+   * applied to one of the call's charges ("answer_applying"). Either holds every charge of that call.
+   */
+  request?: "request" | "answer_applying" | null;
 }): HeldBack | null {
   if (input.disputeOpen) return "dispute";
   if (input.refundOnItsWay) return "refund";
+  if (input.request) return input.request;
   if (input.actionUnfinished) return "being_sent";
   if (!input.readyAt || input.readyAt > input.now) return "not_yet";
   return null;

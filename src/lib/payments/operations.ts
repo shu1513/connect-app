@@ -13,7 +13,7 @@
  * action stays "started". Nothing else can run on that payment until
  * reconcile.ts has asked Stripe what actually happened.
  */
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { isDefiniteRefusal, stripeErrorMessage } from "./stripe";
@@ -175,4 +175,27 @@ export async function addLedgerEntry(
     stripeRef: entry.stripeRef ?? null,
     note: entry.note,
   });
+}
+
+/** After Stripe refuses an action, wait this long before trying it again. */
+const RETRY_AFTER_REFUSAL_MS = 3_600_000;
+
+/**
+ * Whether Stripe refused this kind of action on this payment a short while ago.
+ * Without this, a charge Stripe keeps refusing would be tried again every few seconds.
+ */
+export async function refusedRecently(paymentId: string, kind: OperationKind, now: Date, reader: Pick<Tx, "select"> = db): Promise<boolean> {
+  const [refused] = await reader
+    .select({ id: schema.moneyOperations.id })
+    .from(schema.moneyOperations)
+    .where(
+      and(
+        eq(schema.moneyOperations.paymentId, paymentId),
+        eq(schema.moneyOperations.kind, kind),
+        eq(schema.moneyOperations.status, "failed"),
+        sql`${schema.moneyOperations.finishedAt} > ${new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS).toISOString()}::timestamptz`,
+      ),
+    )
+    .limit(1);
+  return Boolean(refused);
 }

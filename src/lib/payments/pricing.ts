@@ -63,6 +63,11 @@ export function attendanceChargeCents(input: {
   return charge < MIN_CHARGE_CENTS ? 0 : charge;
 }
 
+/** The seconds a call is charged for, by the rule fixed on the call: the host's time (booked) or the time both were in (instant). */
+export function countedSeconds(call: { billing: string }, totals: { hostSeconds: number; togetherSeconds: number }): number {
+  return call.billing === "together" ? totals.togetherSeconds : totals.hostSeconds;
+}
+
 /**
  * The most the founder may charge on one payment after a review: the price of
  * the stretch of the call that payment pays for, and for a call stopped with

@@ -8,6 +8,7 @@ import { refundPayment } from "@/lib/payments/actions";
 import { cancelCall } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { rateCall, RatingError } from "@/lib/ratings/ratings";
+import { answerRequest, askForRefund, closeRequest, declineRequest, MESSAGE_MAX, RequestError } from "@/lib/refunds/requests";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 
 function message(error: unknown): string {
@@ -61,7 +62,8 @@ export async function refundAction(formData: FormData) {
   const callId = String(formData.get("callId") ?? "");
   const paymentId = String(formData.get("paymentId") ?? "");
   const dollars = Number(formData.get("amount"));
-  const reason = String(formData.get("reason") ?? "").trim() || null;
+  // The message to the customer that goes with the refund. They see it beside the refund and in the email about it.
+  const reason = String(formData.get("reason") ?? "").replace(/\s+/g, " ").trim().slice(0, MESSAGE_MAX) || null;
   // Made when the form was shown. Sending the same form twice cannot refund twice.
   const requestId = String(formData.get("requestId") ?? "");
 
@@ -90,4 +92,103 @@ export async function refundAction(formData: FormData) {
     notice = message(error);
   }
   redirect(withNotice(back, notice));
+}
+
+// ---------------------------------------------------------------------------
+// Refund requests
+// ---------------------------------------------------------------------------
+
+function requestProblem(error: unknown): string {
+  if (error instanceof RequestError) return error.message;
+  console.error("[refunds] action failed", error);
+  return "We could not confirm what happened. Reload this page to see where the request stands before trying again.";
+}
+
+/** The customer asks for a refund. Who they are comes from the login; the call, the reason and their sentence from the form. */
+export async function askRefundAction(formData: FormData) {
+  const user = await requireUser();
+  const callId = String(formData.get("callId") ?? "");
+  const page = `/calls/${callId}/results`;
+  let to = page;
+  let notice: string;
+  try {
+    const outcome = await askForRefund({
+      callId,
+      customerId: user.id,
+      reason: String(formData.get("reason") ?? ""),
+      note: String(formData.get("note") ?? ""),
+      seen: formData.get("seen") ? String(formData.get("seen")) : null,
+    });
+    if (outcome === "changed") {
+      // What is sent is what was seen: the record is shown again as it now stands.
+      to = `${page}?ask=connection`;
+      notice = "The connection record changed while you were looking at it (a late message from the video service). Nothing was sent. Here it is as it stands now: please look again and send your request if you still want to.";
+    } else notice = "Your request was sent. The host has been told and decides. You will get an email with the answer.";
+  } catch (error) {
+    notice = requestProblem(error);
+  }
+  redirect(`${withNotice(to, notice)}#refund`);
+}
+
+/** Who is deciding: the host of this very call, or the founder with a full admin login. */
+async function decider(callId: string): Promise<{ userId: string; as: "host" | "admin" } | null> {
+  const user = await requireUser();
+  const access = await callForParticipant(callId, user.id);
+  if (access?.role === "host") return { userId: user.id, as: "host" };
+  return (await isAdminSession(await getSignedIn())) ? { userId: user.id, as: "admin" } : null;
+}
+
+/** The answer before the money is taken: in full, less or nothing, for each charge. */
+export async function answerRequestAction(formData: FormData) {
+  const callId = String(formData.get("callId") ?? "");
+  const who = await decider(callId);
+  let notice: string;
+  try {
+    if (!who) throw new RequestError("Only the host of this call can answer.");
+    const answers = [...formData.keys()]
+      .filter((key) => key.startsWith("choice:"))
+      .map((key) => {
+        const paymentId = key.slice("choice:".length);
+        const dollars = Number(formData.get(`max:${paymentId}`));
+        return { paymentId, choice: String(formData.get(key)), maxCents: Number.isFinite(dollars) ? Math.round(dollars * 100) : null };
+      });
+    if (who.as === "admin") await recordAdminAction({ adminId: who.userId, action: "refund request answered in the host's place", targetId: callId });
+    await answerRequest({ callId, by: who.userId, as: who.as, answers, message: String(formData.get("message") ?? "") });
+    notice = "Your answer was saved and the customer has been told. The payment below shows the amount once it has been applied.";
+  } catch (error) {
+    notice = requestProblem(error);
+  }
+  redirect(`${withNotice(`/calls/${callId}/results`, notice)}#refund`);
+}
+
+/** "No refund", after the money was taken. */
+export async function declineRequestAction(formData: FormData) {
+  const callId = String(formData.get("callId") ?? "");
+  const who = await decider(callId);
+  let notice: string;
+  try {
+    if (!who) throw new RequestError("Only the host of this call can answer.");
+    if (who.as === "admin") await recordAdminAction({ adminId: who.userId, action: "refund request declined in the host's place", targetId: callId });
+    await declineRequest({ callId, by: who.userId, as: who.as, message: String(formData.get("message") ?? "") });
+    notice = "Your answer was saved and the customer has been told.";
+  } catch (error) {
+    notice = requestProblem(error);
+  }
+  redirect(`${withNotice(`/calls/${callId}/results`, notice)}#refund`);
+}
+
+/** The founder closes a request that the host never answered. */
+export async function closeRequestAction(formData: FormData) {
+  const callId = String(formData.get("callId") ?? "");
+  const who = await decider(callId);
+  let notice: string;
+  try {
+    if (who?.as !== "admin") throw new RequestError("Only Connect can close a request.");
+    await recordAdminAction({ adminId: who.userId, action: "refund request closed", targetId: callId });
+    await closeRequest({ callId, adminId: who.userId });
+    notice = "The request was closed and the customer has been told.";
+  } catch (error) {
+    notice = requestProblem(error);
+  }
+  redirect(`${withNotice(`/calls/${callId}/results`, notice)}#refund`);
 }

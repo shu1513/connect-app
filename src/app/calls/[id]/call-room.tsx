@@ -9,6 +9,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CLOSE_LATE_SECONDS } from "@/lib/calls";
 import { ACCEPT_CLOSES_SECONDS, ASK_CLOSES_SECONDS, ASK_OPENS_SECONDS, choicesThatFit, COUNTDOWN_SECONDS, extensionPriceCents, MAX_EXTENSION_MINUTES, MIN_EXTENSION_MINUTES, WATCH_SECONDS } from "@/lib/extend/rules";
 import { formatDuration } from "@/lib/format";
+import { QualityNotes } from "./quality-notes";
 
 type Props = {
   callId: string;
@@ -174,8 +175,12 @@ export function CallRoom(props: Props) {
   // How far this device's clock is from the server's. First estimated when the
   // page loads, then measured more precisely when the person joins.
   const [clockOffset, setClockOffset] = useState<number | null>(null);
+  // The same reading of the server's clock, for the background notes about connection quality.
+  const offsetNow = useRef(0);
+  const serverNow = useCallback(() => Date.now() + offsetNow.current, []);
   useEffect(() => {
     const offset = clockOffset ?? Date.parse(props.serverNow) - Date.now();
+    offsetNow.current = offset;
     const update = () => setNow(Date.now() + offset);
     update();
     const timer = setInterval(update, 1000);
@@ -518,6 +523,7 @@ export function CallRoom(props: Props) {
           style={{ height: "100%" }}
         >
           <VideoConference />
+          <QualityNotes callId={props.callId} serverNow={serverNow} />
         </LiveKitRoom>
       </div>
     </section>
