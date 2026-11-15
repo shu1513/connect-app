@@ -100,13 +100,22 @@ For every paid call, also one with nothing wrong:
    - **Charge less**, with the amount.
    - **Charge nothing.**
 
+   With any of the three the host can add **a message to the customer**, up to 300 characters:
+   why, or an apology. It is optional.
+
    The money is then taken as answered, at once. Nothing was taken before, so there is no refund
-   and no card fee lost. The customer is told the answer.
+   and no card fee lost. The customer is told the answer, with the host's message, by email and on
+   the results page.
 4. **If the host has not answered when the money has to be taken**, it is taken in full and the
    request stays open. The host can still answer later, with the refund form they already have; at
    that point it is a refund, and the card fee on it is lost, as today. **Until they answer, the
    host cannot collect the money for that call** (part 3).
-5. **The founder sees every request that is still unanswered**, oldest first, in a section of its
+5. **A message with every refund, also outside a request.** A host can already give back any part
+   of a charge at any time before they collect it, and can type a reason. Today that reason is
+   saved and the customer never sees it. It becomes "Message to the customer (optional)" and is
+   shown to the customer beside the refund, and in the email about it. So every refund, in full or
+   in part, asked for or not, can carry a message.
+6. **The founder sees every request that is still unanswered**, oldest first, in a section of its
    own on the existing reports screen, with the call's record and its room name for LiveKit's
    dashboard. The founder can refund with the tool they already have, or close the request, which
    lets the host's payment go ahead. This is for a host who has gone silent for good.
@@ -224,6 +233,7 @@ approved rule**:
 | A nudge for the host | A clear time in the email, one reminder halfway, and the hold on that call's money. No automatic bad review. | Reviews come from customers. A host who was on a plane should not be marked down by a machine. If hosts still answer late, a stronger measure can follow. |
 | Where requests are stored | A small table of their own, one per call, not the safety reports. | Sending a safety report also blocks the other person and counts against them. |
 | Who sees the record | The two people on the call and the founder, only once a refund was asked for, and the server checks it, not just the page. | Each should see what the other sees. |
+| The two short texts | The customer's sentence when asking and the host's message when answering are plain text with a length limit, each shown only to the other person and the founder. They are one note each way about one call, not a conversation: messaging was left out of the first version on purpose. The existing "Report" link on the page covers a text that breaks the rules. | The founder asked for a message with every refund. |
 | Emails | To the host when a request arrives, and the one reminder; to the customer for each answer, including when the founder closes it. Each is written in the same step as the change it reports. | Through the existing email queue, so none is lost or sent twice. |
 | Switching on | The new timing, asking, the hold and the founder's list go live together. A call whose money was already taken under the old timing is not touched. | Any one without the others would leave a gap. |
 
