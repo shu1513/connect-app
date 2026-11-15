@@ -27,7 +27,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
 | 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
-| 10. Connection check before a call | Planned (`plans/12-connection-check.md`); to be built later (founder, 15 November). A first part is on the branch `module/connection-check`. |
+| 10. Connection check before a call | Built; pull request open. A weak connection, a real iPhone, hotel Wi-Fi and mobile data still need the founder's friend tests. |
 | 11. Refund requests, taking the money later, and a record of call quality | Built and merged. A real two-person call on a bad connection and a real card's hold from start to finish still need a friend test; the outside health watcher comes with the hosting. |
 | 12. Hosts collect their earnings when they want | Built and merged. Stripe's test area only; a real payout to a bank has not happened yet. |
 
@@ -589,6 +589,59 @@ Plan: `plans/11-final-pass.md`. Every module had been built and checked on its o
 
 ---
 
+## Module 10: Connection check before a call
+
+Plan: `plans/12-connection-check.md`, checked three times by Astra and once by CodeRabbit before any code was written (pull request 17). The founder's idea: hosts do their own customer service, so a call that goes badly because of someone's internet should not become a complaint against the host. A short check before the call tells each person whether their own connection has a problem, while there is still time to do something about it.
+
+**What the founder decided (15 November 2026)**
+
+| Question | Decided |
+| --- | --- |
+| A weak or failed test | Warn only. Joining is never blocked. |
+| A sign during the call when someone's connection is weak | No: it distracts the person on the call. The small bars icon of the video toolkit is hidden too. |
+| Keep the result, or show it afterwards | No. Nothing is kept, and nobody sees anyone else's answer. |
+
+**What was built**
+- **The test**, about 12 seconds, in the background, on the person's own device. It connects to the video service the way a real call does, but to a private test room; sends a made-up moving picture (not the camera) for about 8 seconds; reads the reports the video service sends back (how long a round trip takes, how much was lost); and cleans up after itself. It can be stopped at any moment. It is written with the video toolkit the app already uses, not with that toolkit's ready-made test, which cannot be stopped and leaves a drawing loop running.
+- **Four answers in plain words**, each with a tip: no problems found; weak (round trip over 0.4 seconds, or more than 3% lost); could not connect; not measured. A figure that is missing or makes no sense is never taken to be good. A failure on our side is "not measured", never a problem with someone's internet.
+- **Where it shows.** On a call's page, above the countdown and the camera check, it starts by itself once. Pressing "Join" stops it at once: joining never waits for it. On a page of its own, "Test your connection", linked from Hosting and from "Available now". "Test again" always works.
+- **A private test room, never a call's room.** The server makes up the room's name and the name the test connects under, both from the test's own number. The room takes one participant; the pass can send and not receive, and can only be used to connect in its first minute. Messages from the video service about a test room belong to no call and are not kept, so a test cannot reach a call's record or its charge.
+- **Limits:** 10 tests per person per hour, and at least 20 seconds apart, counted under a lock of that person's own. For logged-in people, from our own pages, not for a paused account, and not while the founder's "stop joining" switch is on.
+- **Tidying up.** The always-on helper ends every test 90 seconds after it started, in a loop of its own: it cancels the pass, deletes the room, and marks the test only when the video service confirms the room is gone. No pass is handed over when making the room took 20 seconds or more, so nobody can still connect after the tidying up. Rows are removed after a day, but only those whose room is confirmed closed.
+- **During a call** the bars icon in the corner of a person's picture is hidden.
+- **Nothing about an answer is stored or sent to the server.** One new table holds only who started a test and when, for the limit and the tidying up.
+
+**Decisions (the builder's)**
+
+| Question | Decided | Why |
+| --- | --- | --- |
+| When the test starts by itself on a call's page | Only when the call starts within 30 minutes; before that the person can start it with a click | The plan said "once, by itself". A check a day ahead says nothing about the connection at call time, and would use allowance for nothing. |
+| How "Join" stops the test | The call screen announces that "Join" was pressed, and the test listens | The test sits outside the call screen, which redraws every second; this way neither has to know the other's insides, and joining waits for nothing. |
+| What the browser remembers | Two notes in the browser tab only: when a test last finished (no test starts by itself within 15 minutes of it), and, per call, that the person pressed "Join". Never the answer | As planned. |
+| The step that keeps a message from the video service | Moved into a function of its own, unchanged | So the check script can prove that a test room's messages are not kept. |
+
+**Astra's review of the code** (15 November 2026): ship with changes. It confirmed that a test cannot touch a call's room, its attendance record, the "one call at a time" rule or a charge, and that moving the step that keeps the video service's messages into its own function changed nothing. Ten points:
+- Taken (must): the check script pretended, for every person's tests, that their rooms were closed. On a shared database that would have left other people's test rooms unwatched. Everything the script pretends is now kept to its own made-up person.
+- Taken (must): a test's starting moment was read before waiting for the person's lock, while the 20 seconds were counted from after it. A start that had to wait very long could have been handed a pass for a room the helper had already tidied up. The moment is now read once, with the lock held, and both counts start from it.
+- Taken (must): a test that was about to start by itself could still start after "Join" was pressed. Pressing "Join" now cancels it.
+- Taken: a call's page opened more than 30 minutes early and left open never started the test by itself. The page now waits for the moment.
+- Taken: every failed attempt to connect was called "could not reach the video service", also when the video service itself refused or failed. Only a real failure to get through says so now; the rest is "not measured".
+- Taken: a hundred tests that keep failing to close could have kept all later ones from being ended. They are now picked in no fixed order.
+- Taken: tools that delete a made-up person removed that person's tests without ending their rooms. They now end the rooms first, and keep the record when a room cannot be confirmed closed.
+- Taken: two checks claimed more than they tested (the room's one-participant limit is now read back from the video service; the tidying up is labelled as being of an empty room). Added: the room cannot be made at all; a start that had to wait for the lock.
+- Taken: a test in a browser tab that is in the background ends as "not measured": the browser slows such a tab down, and what would be measured is that, not the connection.
+- Noted, not changed: the video toolkit keeps one shared waiting time per project after a failed connection. A "Join" pressed right after a test that could not connect may inherit a few seconds of it. A call would not connect on that network at that moment anyway, and avoiding it would mean changing the toolkit.
+
+**How it was checked**
+- A new script, `scripts/connection-check.ts`: 27 checks against the local database and the real video service. The limits (10 an hour, 20 seconds apart, three starts at once); no pass when making the room took 20 seconds or more, or failed; a start that had to wait; a real test room with its pass (the server's own room and name, send only, one minute, one participant); messages about a test room are not kept for any call; the helper ends a test after 90 seconds, tries again when the room is not confirmed gone, and removes old rows only when closed; nothing pretended touches another person's tests.
+- 299 automatic tests (11 for the rule that turns figures into an answer), lint, types and the build pass.
+- The eleven other scripts pass: the whole journey 60, refund requests 104, payments 141, adding time 110, accounts 100, safety 60, notifications 33, booking 94, "call now" 73, ratings 73, verified customers 30.
+- By hand in a browser against the real video service, as the test host: the test on its own page answered "No connection problems found" after about 12 seconds; on a call's page it started by itself above the countdown, the countdown and the change to the camera check did not restart it, pressing "Join" in the middle of a test removed it at once, and in the call the bars icon was hidden. A failure on our side (a local server holding old code) correctly showed "not measured".
+
+**What the checks cannot cover, and the founder's friend tests must:** a weak connection (it cannot be made on this computer), a real iPhone, hotel Wi-Fi, mobile data on the move, and a network that blocks video calls. A test that is still connected when the helper ends it could not be tried either: that needs a browser held open on purpose. The two limits may need adjusting after the friend tests.
+
+---
+
 ## Module 11: Refund requests, taking the money later, and a record of call quality
 
 Plan: `plans/13-connection-refunds.md`, ninth version, checked by Astra six times and by CodeRabbit before any code was written (pull request 18). Built after module 12, because it relies on hosts collecting their own earnings.
@@ -761,6 +814,7 @@ Also fixed: one check in the notifications script depended on how fast the compu
 - **Messaging:** left out of the first version; look again if real hosts ask (`docs/research/messaging/`).
 - **Before the new timing goes live (module 11):** an outside watching service must call `/api/health` every few minutes, treat no reply as "not healthy", and alert the founder by email or text. Money is now taken a day or two after a call, close enough to the end of a card hold that a helper which has stopped must be noticed within minutes.
 - **For the lawyer (module 11):** the terms must say that the charge for a call is taken one to two days after it, that a customer can ask for a refund within 24 hours, that the host decides, and that a host cannot collect the money for a call with a request they have not answered. The privacy page must say that a grade of each person's connection is kept for 60 days for every call, and that with any refund request a summary of those grades, the customer's sentence and the host's message are kept for a year; Connect can see that summary for every request, the two people only when the reason is the connection.
+- **Friend tests of the connection check (module 10):** a weak connection, a real iPhone (Safari may answer "not measured"), hotel Wi-Fi, and mobile data on the move. The two limits (0.4 seconds, 3%) are starting values and may need adjusting afterwards. Also confirm in the LiveKit account what a connected minute costs.
 - **A friend test (module 11):** what the grades and the reasons look like on a call with a truly bad connection, and a real Visa card's hold from the call to the charge a day later.
 - **In Stripe (module 11):** confirm the real card fee and that the name on card statements says Connect; decide whether to email a customer when a hold is placed on their card.
 - **Hosts' money that nobody collects (module 12):** decide whether money still uncollected after 30 days is sent automatically. Ask the lawyer about holding hosts' money for a long time, and ask Stripe how long money earned by hosts may stay in Connect's balance.

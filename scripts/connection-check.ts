@@ -25,7 +25,9 @@ function check(label: string, ok: boolean, detail = "") {
 async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
-  const { startTest, endOldTests, TESTS_PER_HOUR, SECONDS_APART, END_AFTER_MS } = await import("../src/lib/connection/tests");
+  const { startTest, endOldTests, removeTestsOf, TESTS_PER_HOUR, SECONDS_APART, END_AFTER_MS } = await import("../src/lib/connection/tests");
+  const { sql } = await import("drizzle-orm");
+  const { RoomServiceClient } = await import("livekit-server-sdk");
   const { roomExists, testRoomOf, closeTestRoom } = await import("../src/lib/video/livekit");
   const { saveAttendance } = await import("../src/lib/attendance/save");
 
@@ -36,6 +38,8 @@ async function main() {
   const rows = () => db.select().from(schema.connectionTests).where(eq(schema.connectionTests.userId, userId));
   /** Stands in for the video service where a check is only about our own limits: no room is made. */
   const noRoom = async () => "a-pass";
+  /** Everything this script pretends about tidying up is kept to its own person: other people's tests are never touched. */
+  const only = { userId };
   const T0 = Date.now() - 50 * 60_000;
   const at = (seconds: number) => new Date(T0 + seconds * 1000);
 
@@ -73,6 +77,23 @@ async function main() {
       check("20 seconds or more: no pass (the person sees \"not measured\")", !late.ok && late.why === "slow");
       check("the test is still written down, so the helper tidies its room up", (await rows()).length === 2);
       await db.delete(schema.connectionTests).where(eq(schema.connectionTests.userId, userId));
+
+      const failing = await startTest(userId, { now: at(0), open: async () => { throw new Error("the video service is down"); } }).then(() => null, (e: unknown) => e as Error);
+      check("when the room cannot be made at all, no pass is handed over, and the test stays written down for the helper", failing instanceof Error && (await rows()).length === 1);
+      await db.delete(schema.connectionTests).where(eq(schema.connectionTests.userId, userId));
+
+      // A start that has to wait for this person's lock: another step holds it for a second and a half.
+      const before = Date.now();
+      const holder = db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`connection-test:${userId}`}))`);
+        await tx.execute(sql`select pg_sleep(1.5)`);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const waited = await startTest(userId, { open: noRoom });
+      await holder;
+      const [afterWaiting] = await rows();
+      check("a start that had to wait is dated from when it really began, not from when it was asked for", waited.ok && afterWaiting.startedAt.getTime() >= before + 1400, `${afterWaiting.startedAt.getTime() - before} ms`);
+      await db.delete(schema.connectionTests).where(eq(schema.connectionTests.userId, userId));
     }
 
     console.log("\n3. A real test room at the video service, and its pass");
@@ -86,7 +107,9 @@ async function main() {
       check("it connects under the test's own name, never the person's account", claims.sub === identity && identity === `check:${row.id}` && claims.sub !== userId);
       check("the pass can send and cannot receive", claims.video.roomJoin === true && claims.video.canPublish === true && claims.video.canSubscribe === false);
       check("the pass can only be used to connect in its first minute", claims.exp - Math.floor(Date.now() / 1000) <= 61, String(claims.exp - Math.floor(Date.now() / 1000)));
-      check("the room exists at the video service, for one participant", await roomExists(roomName));
+      const service = new RoomServiceClient(process.env.LIVEKIT_URL!.replace(/^ws/, "http"), process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!);
+      const [made] = await service.listRooms([roomName]);
+      check("the room exists at the video service, and takes one participant only", (await roomExists(roomName)) && made?.maxParticipants === 1, String(made?.maxParticipants));
 
       console.log("\n4. A test can never reach a call's record");
       const message = (type: string) => ({ provider: "livekit" as const, id: `EV_${randomUUID()}`, type, roomName, roomSessionId: "RM_check", participantIdentity: identity, participantSessionId: "PA_check", time: new Date() });
@@ -97,28 +120,44 @@ async function main() {
       const [asCall] = await db.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.roomName, roomName));
       check("a test room is not in the list of calls, which is all the closing helper and the \"one call at a time\" rule look at", !asCall);
 
-      console.log("\n5. The helper ends tests left open");
-      await endOldTests(new Date(row.startedAt.getTime() + END_AFTER_MS - 1000));
+      console.log("\n5. The helper ends tests left open (here an empty room: nobody is connected to it)");
+      await endOldTests(new Date(row.startedAt.getTime() + END_AFTER_MS - 1000), undefined, only);
       check("not before 90 seconds have passed", (await rows())[0].roomClosedAt === null && (await roomExists(roomName)));
-      await endOldTests(new Date(row.startedAt.getTime() + END_AFTER_MS), async () => false);
+      await endOldTests(new Date(row.startedAt.getTime() + END_AFTER_MS), async () => false, only);
       check("when the video service does not confirm the room is gone, the test stays to be tried again", (await rows())[0].roomClosedAt === null);
-      await endOldTests(new Date(row.startedAt.getTime() + END_AFTER_MS));
+      await endOldTests(new Date(row.startedAt.getTime() + END_AFTER_MS), undefined, only);
       check("after 90 seconds its room is deleted and the test is marked closed", (await rows())[0].roomClosedAt !== null && !(await roomExists(roomName)));
       check("ending it again does no harm", (await closeTestRoom(row.id)) === true);
 
       const dayLater = new Date(row.startedAt.getTime() + 25 * 3_600_000);
       const [stillOpen] = await db.insert(schema.connectionTests).values({ userId, startedAt: new Date(row.startedAt.getTime() - 60_000) }).returning();
-      await endOldTests(dayLater, async (id) => id !== stillOpen.id);
+      await endOldTests(dayLater, async (id) => id !== stillOpen.id, only);
       const left = await rows();
       check("a day later the closed test's row is removed; one whose room is not confirmed closed is kept", left.length === 1 && left[0].id === stillOpen.id && left[0].roomClosedAt === null, String(left.length));
+
+      const [other] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, "customer@test.local"));
+      if (other) {
+        const [theirs] = await db.insert(schema.connectionTests).values({ userId: other.id, startedAt: new Date(Date.now() - 10 * 60_000) }).returning();
+        await endOldTests(new Date(), async () => true, only);
+        const [untouched] = await db.select().from(schema.connectionTests).where(eq(schema.connectionTests.id, theirs.id));
+        check("what this script pretends about tidying up never touches another person's test", untouched?.roomClosedAt === null);
+        await removeTestsOf([other.id]);
+        check("removing a person's tests first ends their rooms at the video service, then removes the rows", (await db.select().from(schema.connectionTests).where(eq(schema.connectionTests.id, theirs.id))).length === 0);
+      }
     }
   } finally {
-    // Whatever happened: end this person's test rooms, then remove their tests and the person.
-    for (const test of await rows()) await closeTestRoom(test.id).catch(() => false);
-    await db.delete(schema.connectionTests).where(eq(schema.connectionTests.userId, userId));
-    await db.delete(schema.user).where(eq(schema.user.id, userId));
+    // Whatever happened: end this person's test rooms and remove their tests, then the person. If a room cannot be
+    // confirmed closed, its record and the person are kept (the helper will end it), and that is reported.
+    try {
+      await removeTestsOf([userId]);
+      await db.delete(schema.user).where(eq(schema.user.id, userId));
+    } catch (error) {
+      console.error(" FAIL  tidying up: a test room could not be confirmed closed; its record was kept for the helper", error);
+      failures++;
+    }
   }
 
+  console.log("\nNot covered here, because it needs a browser: a test that is connected while the helper ends it, and a pass tried again afterwards.");
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

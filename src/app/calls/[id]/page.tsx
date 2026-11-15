@@ -143,7 +143,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
         <>
         {/* Kept outside the call screen, which redraws every second and changes from the countdown to the camera
             check: here the test is never restarted by that. It starts by itself only close to the call. */}
-        <ConnectionTest callId={call.id} auto={call.startsAt.getTime() - now.getTime() <= TEST_BY_ITSELF_WITHIN_MS} />
+        <ConnectionTest callId={call.id} autoFrom={new Date(call.startsAt.getTime() - TEST_BY_ITSELF_WITHIN_MS).toISOString()} />
         <CallRoom
           callId={call.id}
           userName={user.name}

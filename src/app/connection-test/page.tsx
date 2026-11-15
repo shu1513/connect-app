@@ -15,7 +15,7 @@ export default async function ConnectionTestPage() {
         A short check of this device&apos;s connection to the video service, on the network you are on now. It takes about 12 seconds and does not
         use your camera or microphone. Only you see the answer, and nothing about it is kept.
       </p>
-      <ConnectionTest auto />
+      <ConnectionTest />
       <p className="mt-4 text-sm opacity-70">
         The check looks at delay and at how much gets lost on the way. It does not measure speed, and it is only a warning: you can always join
         your call. The same check runs by itself on a call&apos;s page shortly before the call.

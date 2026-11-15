@@ -15,7 +15,7 @@
  * every step that takes time the test first looks whether it was stopped, so
  * nothing can start up again late.
  */
-import { Room, Track, type LocalTrack } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, Room, Track, type LocalTrack } from "livekit-client";
 import { answerFor, figuresFrom, type Answer, type Reading } from "./answer";
 
 /** How long the made-up picture is sent. */
@@ -60,6 +60,18 @@ async function readOnce(track: LocalTrack | undefined): Promise<Reading> {
   return { report };
 }
 
+/**
+ * Whether a failed attempt to connect means this device could not get through to the video service. Only
+ * then is the person told so. A refusal or a failure on the video service's own side is not a problem with
+ * anyone's internet, and gives "not measured".
+ */
+function couldNotReach(error: unknown): boolean {
+  return (
+    error instanceof ConnectionError &&
+    (error.reason === ConnectionErrorReason.ServerUnreachable || error.reason === ConnectionErrorReason.Timeout || error.reason === ConnectionErrorReason.WebSocket)
+  );
+}
+
 export function runConnectionTest(): RunningTest {
   let over = false;
   let connected = false;
@@ -78,10 +90,18 @@ export function runConnectionTest(): RunningTest {
     over = true;
     request.abort();
     for (const timer of timers) clearTimeout(timer); // clears the repeating ones too
+    document.removeEventListener("visibilitychange", onHidden);
     picture?.stop();
     void room?.disconnect().catch(() => undefined);
     settle(answer);
   }
+
+  // A tab in the background is slowed down by the browser: its timers run late and the made-up picture stutters.
+  // What would be measured then is the browser's thrift, not the connection, so the test ends without an answer.
+  function onHidden() {
+    if (document.hidden) end("not_measured");
+  }
+  document.addEventListener("visibilitychange", onHidden);
 
   // Past the limit: say what is known. Connected with readings gives the rule's answer; a video service
   // that was asked and never answered is "no connection"; anything earlier is simply not measured.
@@ -90,6 +110,7 @@ export function runConnectionTest(): RunningTest {
   void (async () => {
     try {
       if (typeof RTCPeerConnection === "undefined" || typeof HTMLCanvasElement === "undefined" || !("captureStream" in HTMLCanvasElement.prototype)) return end("not_measured");
+      if (document.hidden) return end("not_measured");
 
       // 1. A private test room, from our server. Refused (the limit, switched off, not logged in): not measured.
       const response = await fetch("/api/connection-test", { method: "POST", signal: request.signal });
@@ -103,8 +124,8 @@ export function runConnectionTest(): RunningTest {
       asked = true;
       try {
         await room.connect(pass.serverUrl, pass.token, { autoSubscribe: false });
-      } catch {
-        return end("no_connection");
+      } catch (error) {
+        return end(couldNotReach(error) ? "no_connection" : "not_measured");
       }
       if (over) return void room.disconnect().catch(() => undefined);
       connected = true;

@@ -3,7 +3,7 @@
  * limits) and ending tests that were left open. The answer of a test is
  * worked out in the person's browser and never comes here.
  */
-import { and, desc, eq, gt, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { closeTestRoom, openTestRoom, videoServerUrl } from "@/lib/video/livekit";
 
@@ -33,10 +33,14 @@ export async function startTest(
   /** Only the check script passes these, to pretend another time or a slow video service. */
   options: { now?: Date; open?: (testId: string) => Promise<string>; clock?: () => number } = {},
 ): Promise<Started> {
-  const now = options.now ?? new Date();
   const clock = options.clock ?? Date.now;
   const written = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`connection-test:${userId}`}))`);
+    // The test's starting moment is read here, with the lock held, never before waiting for it. The helper
+    // counts its 90 seconds from the moment that is written down, and the 20 seconds below count from the same
+    // moment: so a start that had to wait can never be handed a pass for a room the helper has already tidied up.
+    const at = clock();
+    const now = options.now ?? new Date(at);
     const recent = await tx
       .select({ startedAt: schema.connectionTests.startedAt })
       .from(schema.connectionTests)
@@ -45,7 +49,7 @@ export async function startTest(
     if (recent.length >= TESTS_PER_HOUR) return "limit" as const;
     if (recent[0] && now.getTime() - recent[0].startedAt.getTime() < SECONDS_APART * 1000) return "too_soon" as const;
     const [row] = await tx.insert(schema.connectionTests).values({ userId, startedAt: now }).returning({ id: schema.connectionTests.id });
-    return { id: row.id, at: clock() };
+    return { id: row.id, at };
   });
   if (typeof written === "string") return { ok: false, why: written };
 
@@ -61,11 +65,19 @@ export async function startTest(
  * again on the next pass. Then removes rows older than a day whose room is confirmed closed (a
  * row still waiting is the only record of a room left to close).
  */
-export async function endOldTests(now: Date, close: (testId: string) => Promise<boolean> = closeTestRoom): Promise<void> {
+export async function endOldTests(
+  now: Date,
+  close: (testId: string) => Promise<boolean> = closeTestRoom,
+  /** Only the check script passes this, so that what it pretends never touches anyone else's tests. */
+  only?: { userId: string },
+): Promise<void> {
+  const mine = only ? eq(schema.connectionTests.userId, only.userId) : undefined;
   const open = await db
     .select({ id: schema.connectionTests.id })
     .from(schema.connectionTests)
-    .where(and(isNull(schema.connectionTests.roomClosedAt), lte(schema.connectionTests.startedAt, new Date(now.getTime() - END_AFTER_MS))))
+    .where(and(isNull(schema.connectionTests.roomClosedAt), lte(schema.connectionTests.startedAt, new Date(now.getTime() - END_AFTER_MS)), mine))
+    // In no fixed order: tests that keep failing to close must not keep the same hundred in front of the rest.
+    .orderBy(sql`random()`)
     .limit(100);
   for (const { id } of open) {
     try {
@@ -75,5 +87,23 @@ export async function endOldTests(now: Date, close: (testId: string) => Promise<
       console.error(`[connection test] could not end test ${id}; will retry`, error);
     }
   }
-  await db.delete(schema.connectionTests).where(and(isNotNull(schema.connectionTests.roomClosedAt), lt(schema.connectionTests.startedAt, new Date(now.getTime() - KEEP_ROWS_MS))));
+  await db.delete(schema.connectionTests).where(and(isNotNull(schema.connectionTests.roomClosedAt), lt(schema.connectionTests.startedAt, new Date(now.getTime() - KEEP_ROWS_MS)), mine));
+}
+
+/**
+ * For tools that remove a person: first ends each of that person's tests whose room is not confirmed closed,
+ * then removes their test rows. Throws when a room cannot be confirmed closed, and then removes nothing: a
+ * row still waiting is the only record of a room left to close.
+ */
+export async function removeTestsOf(userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  const open = await db
+    .select({ id: schema.connectionTests.id })
+    .from(schema.connectionTests)
+    .where(and(inArray(schema.connectionTests.userId, userIds), isNull(schema.connectionTests.roomClosedAt)));
+  for (const { id } of open) {
+    if (!(await closeTestRoom(id))) throw new Error(`The room of connection test ${id} could not be confirmed closed, so its record was kept.`);
+    await db.update(schema.connectionTests).set({ roomClosedAt: new Date() }).where(eq(schema.connectionTests.id, id));
+  }
+  await db.delete(schema.connectionTests).where(inArray(schema.connectionTests.userId, userIds));
 }

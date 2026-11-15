@@ -32,6 +32,7 @@ function check(label: string, ok: boolean, detail = "") {
 async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
+  const { removeTestsOf } = await import("../src/lib/connection/tests");
   const { writeCallReminders, writeRequestReminders } = await import("../src/lib/notifications/reminders");
   const delivery = await import("../src/lib/notifications/delivery");
   const { deliverEmails, suppressAddress } = delivery;
@@ -266,7 +267,7 @@ async function main() {
     await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `notifycheck-${RUN}-%`));
     await db.delete(schema.emailSuppressions).where(like(schema.emailSuppressions.address, `notifycheck-${RUN}-%`));
-    await db.delete(schema.connectionTests).where(inArray(schema.connectionTests.userId, ids));
+    await removeTestsOf(ids);
     await db.delete(schema.user).where(inArray(schema.user.id, ids));
   }
 

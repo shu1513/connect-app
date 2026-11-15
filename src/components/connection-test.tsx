@@ -6,6 +6,8 @@ import { runConnectionTest, type RunningTest } from "@/lib/connection/run-test";
 
 /** No test starts by itself within this long of the last one finishing. */
 const NOT_AGAIN_FOR_MS = 15 * 60_000;
+/** A page opened longer than this before its moment does not wait for it (a browser cannot count that far). */
+const MAX_WAIT_MS = 24 * 3_600_000;
 /** Two small notes kept in this browser tab only, never on the server. The answer itself is not kept, even there. */
 const LAST_FINISHED = "connect:connection-test:finished";
 const joinedKey = (callId: string) => `connect:connection-test:joined:${callId}`;
@@ -36,7 +38,14 @@ function keep(key: string, value: string) {
  * once. It does not start by itself again within 15 minutes of the last test,
  * or on a call the person has already joined.
  */
-export function ConnectionTest({ callId, auto }: { callId?: string; auto: boolean }) {
+export function ConnectionTest({
+  callId,
+  autoFrom,
+}: {
+  callId?: string;
+  /** From when the test may start by itself. Left out: right away. (A call's page gives a moment shortly before the call.) */
+  autoFrom?: string;
+}) {
   const [state, setState] = useState<"idle" | "testing" | "joined" | Answer>("idle");
   const running = useRef<RunningTest | null>(null);
 
@@ -55,13 +64,28 @@ export function ConnectionTest({ callId, auto }: { callId?: string; auto: boolea
   }, []);
 
   useEffect(() => {
-    const last = Number(note(LAST_FINISHED));
-    const recently = Number.isFinite(last) && last > 0 && Date.now() - last < NOT_AGAIN_FOR_MS;
-    const alreadyJoined = callId ? note(joinedKey(callId)) === "1" : false;
-    const first = auto && !recently && !alreadyJoined ? setTimeout(start, 0) : null;
+    // The one start that happens by itself. It waits for its moment also on a page that was opened earlier and
+    // left open, and it looks at the two notes when that moment comes, not before.
+    const wait = autoFrom ? Date.parse(autoFrom) - Date.now() : 0;
+    let first: ReturnType<typeof setTimeout> | null =
+      Number.isFinite(wait) && wait < MAX_WAIT_MS
+        ? setTimeout(
+            () => {
+              first = null;
+              const last = Number(note(LAST_FINISHED));
+              const recently = Number.isFinite(last) && last > 0 && Date.now() - last < NOT_AGAIN_FOR_MS;
+              const alreadyJoined = callId ? note(joinedKey(callId)) === "1" : false;
+              if (!recently && !alreadyJoined) start();
+            },
+            Math.max(0, wait),
+          )
+        : null;
 
-    // Joining never waits for the test: the moment "Join" is pressed, the test is over.
+    // Joining never waits for the test: the moment "Join" is pressed, the test is over, and one that was
+    // about to start by itself never does.
     const onJoining = () => {
+      if (first) clearTimeout(first);
+      first = null;
       running.current?.stop();
       running.current = null;
       if (callId) keep(joinedKey(callId), "1");
@@ -74,7 +98,7 @@ export function ConnectionTest({ callId, auto }: { callId?: string; auto: boolea
       running.current?.stop();
       running.current = null;
     };
-  }, [auto, callId, start]);
+  }, [autoFrom, callId, start]);
 
   // In the call, and after dropping out of it, nothing about the test is shown.
   if (state === "joined") return null;
