@@ -12,7 +12,7 @@ import { schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { addLedgerEntry, MoneyError, runMoneyOperation, type Tx } from "./operations";
 import { MIN_CHARGE_CENTS, PAYOUT_FEE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
-import { canMovePayment, decisionDeadline, transferDueAt } from "./rules";
+import { canMovePayment, decisionDeadline, readyToCollectAt } from "./rules";
 import { stripe } from "./stripe";
 
 export type FrozenTotals = { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
@@ -59,6 +59,8 @@ export async function applyCaptured(
     { percentBps: payment.feePercentBps, fixedCents: payment.feeFixedCents, foreignCardBps: payment.feeForeignCardBps },
     isForeignCard(payment),
   );
+  // One moment for "charged at" and for the date the host's share becomes ready.
+  const chargedAt = new Date();
   await tx
     .update(schema.payments)
     .set({
@@ -66,7 +68,7 @@ export async function applyCaptured(
       needsReview: false,
       chargedCents: amountCents,
       chargeReason: params.reason,
-      chargedAt: new Date(),
+      chargedAt,
       stripeChargeId: stripeChargeId ?? payment.stripeChargeId,
       originalFeeCents: feeCents,
       originalHostShareCents: hostShareCents,
@@ -75,8 +77,8 @@ export async function applyCaptured(
       frozenTogetherSeconds: params.frozen?.togetherSeconds ?? null,
       pricedThroughEventId: params.pricedThroughEventId ?? null,
       transferStatus: hostShareCents > 0 ? "not_due" : "not_owed",
-      transferDueAt: hostShareCents > 0 ? transferDueAt(new Date(params.callEndsAt)) : null,
-      updatedAt: new Date(),
+      transferDueAt: hostShareCents > 0 ? readyToCollectAt({ callEndsAt: new Date(params.callEndsAt), chargedAt }) : null,
+      updatedAt: chargedAt,
     })
     .where(eq(schema.payments.id, payment.id));
   const ref = stripeChargeId ?? payment.stripeChargeId;

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   attendanceChargeCents,
   bookedTotalCents,
+  collectionAmounts,
   DEFAULT_FEE_TERMS,
-  payoutAfterFee,
   reviewChargeLimitCents,
   splitAfterRefunds,
   splitCharge,
@@ -138,16 +138,39 @@ describe("the split after a refund", () => {
   });
 });
 
-describe("the payout charge", () => {
-  it("takes 25 cents from a payout", () => {
-    expect(payoutAfterFee(7578)).toEqual({ payoutCents: 7553, payoutFeeCents: 25 });
+describe("the collection charge", () => {
+  it("takes 25 cents from a collection of one share", () => {
+    expect(collectionAmounts([{ id: "a", shareCents: 7578 }])).toEqual([{ id: "a", amountCents: 7553, payoutFeeCents: 25 }]);
   });
-  it("is charged once for several calls paid together", () => {
-    expect(payoutAfterFee(7578 + 1872)).toEqual({ payoutCents: 9425, payoutFeeCents: 25 });
+  it("is taken once for several shares collected together, from the largest", () => {
+    expect(
+      collectionAmounts([
+        { id: "a", shareCents: 1872 },
+        { id: "b", shareCents: 7578 },
+        { id: "c", shareCents: 523 },
+      ]),
+    ).toEqual([
+      { id: "a", amountCents: 1872, payoutFeeCents: 0 },
+      { id: "b", amountCents: 7553, payoutFeeCents: 25 },
+      { id: "c", amountCents: 523, payoutFeeCents: 0 },
+    ]);
   });
-  it("is never more than the payout itself", () => {
-    expect(payoutAfterFee(10)).toEqual({ payoutCents: 0, payoutFeeCents: 10 });
-    expect(payoutAfterFee(0)).toEqual({ payoutCents: 0, payoutFeeCents: 0 });
+  it("with two equal shares, the first one carries it", () => {
+    const amounts = collectionAmounts([{ id: "a", shareCents: 1238 }, { id: "b", shareCents: 1238 }]);
+    expect(amounts).toEqual([{ id: "a", amountCents: 1213, payoutFeeCents: 25 }, { id: "b", amountCents: 1238, payoutFeeCents: 0 }]);
+  });
+  it("is never more than the share it is taken from, and never spread over several", () => {
+    // Two shares of 20 cents: the charge is 20 cents, taken from one; the host receives the other 20.
+    expect(collectionAmounts([{ id: "a", shareCents: 20 }, { id: "b", shareCents: 20 }])).toEqual([
+      { id: "a", amountCents: 0, payoutFeeCents: 20 },
+      { id: "b", amountCents: 20, payoutFeeCents: 0 },
+    ]);
+  });
+  it("there is no collection when 25 cents or less is ready", () => {
+    expect(collectionAmounts([])).toBeNull();
+    expect(collectionAmounts([{ id: "a", shareCents: 25 }])).toBeNull();
+    expect(collectionAmounts([{ id: "a", shareCents: 10 }, { id: "b", shareCents: 15 }])).toBeNull();
+    expect(collectionAmounts([{ id: "a", shareCents: 26 }])).toEqual([{ id: "a", amountCents: 1, payoutFeeCents: 25 }]);
   });
 });
 
