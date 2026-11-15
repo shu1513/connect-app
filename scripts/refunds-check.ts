@@ -228,14 +228,16 @@ async function main() {
     await hold(made.call, made.payment.id);
     const oldEnd = made.call.endsAt;
     const newEnd = new Date(oldEnd.getTime() + 10 * 60_000);
-    const [extension] = await db.insert(schema.callExtensions).values({ callId: made.call.id, minutes: 10, oldEndsAt: oldEnd, newEndsAt: newEnd, priceCents: 1333, status: "accepted", decidedAt: new Date() }).returning();
-    await db.update(schema.calls).set({ endsAt: newEnd }).where(eq(schema.calls.id, made.call.id));
+    // As in a real call: the customer asks (the request is open), the money for it is held, then the host accepts and the end moves.
+    const [extension] = await db.insert(schema.callExtensions).values({ callId: made.call.id, minutes: 10, oldEndsAt: oldEnd, newEndsAt: newEnd, priceCents: 1333 }).returning();
     const [extra] = await db
       .insert(schema.payments)
       .values({ callId: made.call.id, extensionId: extension.id, coversFrom: oldEnd, coversUntil: newEnd, pricePer15Cents: PRICE, bookedCents: 1333, feePercentBps: made.payment.feePercentBps, feeFixedCents: made.payment.feeFixedCents, feeForeignCardBps: made.payment.feeForeignCardBps })
       .returning();
+    await hold(made.call, extra.id);
+    await db.update(schema.callExtensions).set({ status: "accepted", decidedAt: new Date() }).where(eq(schema.callExtensions.id, extension.id));
+    await db.update(schema.calls).set({ endsAt: newEnd }).where(eq(schema.calls.id, made.call.id));
     const call = await reloadCall(made.call.id);
-    await hold(call, extra.id);
     await attend(call, [["host", 0, 1200], ["customer", 0, 1200]]);
     return { call: await reloadCall(call.id), payment: made.payment, extra };
   }
