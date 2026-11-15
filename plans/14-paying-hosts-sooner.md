@@ -1,8 +1,9 @@
 # Plan 14: Hosts collect their earnings when they want
 
-**Status:** plan, third version (16 November 2026). Not built. Astra checked the second version
-(approve with changes); its twelve points are worked in and listed at the end. One choice is left
-for the founder: the safety net for money nobody collects.
+**Status:** built (branch `module/collect-earnings`); what was built, the reviews and the checks
+are in `docs/module-record.md` under "Module 12". The plan below is the third version (16 November
+2026). Astra checked the second version (approve with changes); its twelve points are worked in and
+listed at the end. One choice is left for the founder: the safety net for money nobody collects.
 
 ## What this is, and why
 
