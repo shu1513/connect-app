@@ -26,7 +26,8 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 8. Ratings, search, contacts, host notes | Built and merged. |
 | 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
 | 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
-| Final pass: joining everything together | Built; pull request open. |
+| Final pass: joining everything together | Built and merged. |
+| 10. Connection check before a call | Planned (`plans/12-connection-check.md`); to be built later (founder, 15 November). A first part is on the branch `module/connection-check`. |
 
 ---
 
