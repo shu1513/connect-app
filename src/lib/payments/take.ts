@@ -39,20 +39,27 @@ type Reader = Pick<Tx, "select">;
  * founder's review. In a fixed order, which is also the order they are locked in.
  */
 export async function heldOrdinary(reader: Reader, callId: string): Promise<Payment[]> {
+  return (await ordinaryPayments(reader, callId)).filter((payment) => payment.status === "held" && !payment.needsReview);
+}
+
+/** Every payment of the call that is a real charge of it, whatever its state: the call's own, and each accepted request for more time. */
+export async function ordinaryPayments(reader: Reader, callId: string): Promise<Payment[]> {
   const rows = await reader
     .select({ payment: schema.payments })
     .from(schema.payments)
     .leftJoin(schema.callExtensions, eq(schema.callExtensions.id, schema.payments.extensionId))
-    .where(
-      and(
-        eq(schema.payments.callId, callId),
-        eq(schema.payments.status, "held"),
-        eq(schema.payments.needsReview, false),
-        or(isNull(schema.payments.extensionId), eq(schema.callExtensions.status, "accepted")),
-      ),
-    )
+    .where(and(eq(schema.payments.callId, callId), or(isNull(schema.payments.extensionId), eq(schema.callExtensions.status, "accepted"))))
     .orderBy(asc(schema.payments.id));
   return rows.map((row) => row.payment);
+}
+
+/**
+ * The earliest end among the holds of the call's charges, also of those already taken. The moment for
+ * taking the money is decided by it once, so it does not move later when one charge goes through and
+ * another has to be tried again.
+ */
+export async function commonExpiry(reader: Reader, callId: string): Promise<Date | null> {
+  return earliestExpiry(await ordinaryPayments(reader, callId));
 }
 
 /** The earliest end among these holds. They share one moment for taking the money. */
@@ -72,7 +79,7 @@ export async function moneyPlan(call: { id: string; endsAt: Date }): Promise<{
 }> {
   const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
   const held = await heldOrdinary(db, call.id);
-  const expiry = earliestExpiry(held);
+  const expiry = held.length > 0 ? await commonExpiry(db, call.id) : null;
   return {
     request: request ?? null,
     held,
@@ -108,12 +115,14 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
       const payment = await lockPayment(tx, id);
       if (payment.status === "held" && !payment.needsReview) held.push(payment);
     }
-    const expiry = earliestExpiry(held);
+    const expiry = held.length > 0 ? await commonExpiry(tx, callId) : null;
     if (!expiry) return [];
 
     const [request] = await tx.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, callId));
     const decided = isDecided(request);
-    if (takeDecision({ now, callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, decided, holdExpiresAt: expiry }) !== "take") return [];
+    // "hold_ended" is about the earliest hold only. Each charge's own hold is checked below, so a charge
+    // with a longer hold is still tried after an earlier one has ended.
+    if (takeDecision({ now, callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, decided, holdExpiresAt: expiry }) === "wait") return [];
     const answers = request?.status === "answered" ? await tx.select().from(schema.refundRequestAnswers).where(eq(schema.refundRequestAnswers.requestId, request.id)) : [];
 
     const steps: Array<() => Promise<void>> = [];
@@ -122,7 +131,7 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
       if (!payment.holdExpiresAt || payment.holdExpiresAt <= now) continue;
 
       // Before any money is taken, the record is looked at again.
-      const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
+      const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil }, tx);
       if (!attendance.final || !call.closedAt) continue; // never charged on a guess
       const totals = attendance.result.totals;
       if (attendance.result.status !== "complete" || !totals) {

@@ -160,6 +160,12 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
   const key = email.dedupeKey ?? "";
   const reminder = key.match(/^reminder:([^:]+):([^:]+):/);
   const expiring = key.match(/^expiring:(.+)$/);
+  const refundReminder = key.match(/^refund-request:([^:]+):reminder$/);
+  if (refundReminder) {
+    // Written halfway through the host's time; pointless once the host has answered or the request was closed.
+    const [request] = await db.select({ status: schema.refundRequests.status }).from(schema.refundRequests).where(eq(schema.refundRequests.id, refundReminder[1]));
+    return !request || request.status !== "asked" ? "the refund request has been answered" : null;
+  }
   if (!reminder && !expiring) return null;
   let userId: string;
   if (reminder) {

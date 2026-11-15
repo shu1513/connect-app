@@ -12,15 +12,17 @@
  * was written down first, the answer or the automatic charge, is what happens.
  */
 import { createHash } from "node:crypto";
-import { and, asc, eq, gt, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, like, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment, RefundRequest } from "@/db/schema";
 import { lockPayment, type Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { ASK_WINDOW_MS, DEADLINE_CUSHION_MS, moneyTiming } from "@/lib/payments/rules";
-import { earliestExpiry, heldOrdinary, isDecided, settleOrdinaryCharges } from "@/lib/payments/take";
+import { commonExpiry, heldOrdinary, isDecided, settleOrdinaryCharges } from "@/lib/payments/take";
 import { summarise, type QualitySummary } from "@/lib/quality/summary";
 import { queueAnswerEmail, queueClosedEmail, queueRequestEmail, queueRequestReminder, type AnswerLine } from "./emails";
+
+const REMOVED = "(Removed: the texts of a refund request are kept for one year.)";
 
 /** Refused for a reason a person can read. Nothing was changed. */
 export class RequestError extends Error {}
@@ -41,13 +43,13 @@ type Reader = Pick<Tx, "select">;
  * exactly that summary. The mark travels with the form, so that what is sent
  * is what was seen.
  */
-export async function loadSummary(call: Call): Promise<{ summary: QualitySummary; json: string; seen: string }> {
-  const messages = await db
+export async function loadSummary(call: Call, reader: Reader = db): Promise<{ summary: QualitySummary; json: string; seen: string }> {
+  const messages = await reader
     .select({ type: schema.attendanceEvents.type, identity: schema.attendanceEvents.participantIdentity, sessionId: schema.attendanceEvents.participantSessionId, time: schema.attendanceEvents.providerTime, payload: schema.attendanceEvents.payload })
     .from(schema.attendanceEvents)
     .where(eq(schema.attendanceEvents.callId, call.id))
     .orderBy(asc(schema.attendanceEvents.providerTime), asc(schema.attendanceEvents.id));
-  const notes = await db.select().from(schema.qualityNotes).where(eq(schema.qualityNotes.callId, call.id));
+  const notes = await reader.select().from(schema.qualityNotes).where(eq(schema.qualityNotes.callId, call.id));
   // A call ended with "End call and report" stops at that moment.
   const end = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
   const summary = summarise({ hostId: call.hostId, customerId: call.customerId, start: call.startsAt, end, messages, notes });
@@ -86,7 +88,18 @@ export type RequestView = {
   answerBy: Date | null;
   /** Nothing is on hold and nothing was charged for this call any more: there is nothing to refund. */
   nothingAtStake: boolean;
+  /**
+   * Money of this call is still on hold, but an answer here cannot change it right now: its record is
+   * under review at Connect, or the charge is just being taken. It has not been taken yet.
+   */
+  beingDecided: boolean;
 };
+
+/** Whether any payment of this call is still on hold, whatever the reason. */
+async function anyOnHold(reader: Reader, callId: string): Promise<boolean> {
+  const [held] = await reader.select({ id: schema.payments.id }).from(schema.payments).where(and(eq(schema.payments.callId, callId), eq(schema.payments.status, "held"))).limit(1);
+  return Boolean(held);
+}
 
 /** Whether any money of this call is on hold or was taken. */
 async function moneyAtStake(reader: Reader, callId: string): Promise<boolean> {
@@ -115,7 +128,7 @@ export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<
   if (!request) return null;
   const answers = await db.select().from(schema.refundRequestAnswers).where(eq(schema.refundRequestAnswers.requestId, request.id));
   const open = request.status === "asked" ? await openCharges(db, call.id) : [];
-  const expiry = earliestExpiry(open);
+  const expiry = open.length > 0 ? await commonExpiry(db, call.id) : null;
   return {
     request,
     answers: answers.map((a) => ({ paymentId: a.paymentId, choice: a.choice as Choice, maxCents: a.maxCents })),
@@ -123,6 +136,7 @@ export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<
     open,
     answerBy: expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
     nothingAtStake: !(await moneyAtStake(db, call.id)),
+    beingDecided: open.length === 0 && (await anyOnHold(db, call.id)),
   };
 }
 
@@ -138,7 +152,8 @@ export async function requestHolds(reader: Reader, callIds: string[]): Promise<M
   for (const request of requests) {
     if (request.status === "asked") {
       if (!(await refundedSince(reader, request.callId, request.askedAt))) holds.set(request.callId, "request");
-    } else if (isDecided(request) && (await heldOrdinary(reader, request.callId)).length > 0) {
+    } else if (isDecided(request) && (await anyOnHold(reader, request.callId))) {
+      // Also when a charge of the call has come under the founder's review meanwhile: the answer is not finished.
       holds.set(request.callId, "answer_applying");
     }
   }
@@ -161,7 +176,7 @@ export async function askBy(call: Call, now: Date, reader: Reader = db): Promise
   if (existing) return null;
   // Something must be at stake: money on hold or money taken.
   if (!(await moneyAtStake(reader, call.id))) return null;
-  const expiry = earliestExpiry(await heldOrdinary(reader, call.id));
+  const expiry = (await heldOrdinary(reader, call.id)).length > 0 ? await commonExpiry(reader, call.id) : null;
   const until = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.endsAt.getTime() + ASK_WINDOW_MS);
   return now.getTime() < until.getTime() + DEADLINE_CUSHION_MS ? until : null;
 }
@@ -186,16 +201,16 @@ export async function askForRefund(input: { callId: string; customerId: string; 
     if (!(await askBy(call, now, tx))) throw new RequestError("A refund can no longer be asked for on this call.");
 
     // Worked out once more at the moment of sending: a late message from the video service can still change it.
-    const record = await loadSummary(call);
+    const record = await loadSummary(call, tx);
     if (input.reason === "connection" && input.seen !== record.seen) return "changed";
 
     const [request] = await tx
       .insert(schema.refundRequests)
       .values({ callId: call.id, customerId: input.customerId, reason: input.reason, note, summary: record.json, askedAt: now })
       .returning();
-    const expiry = earliestExpiry(await openCharges(tx, call.id));
+    const expiry = (await openCharges(tx, call.id)).length > 0 ? await commonExpiry(tx, call.id) : null;
     const answerBy = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
-    await queueRequestEmail(tx, call, request, answerBy);
+    await queueRequestEmail(tx, call, request, answerBy ? { answerBy } : (await anyOnHold(tx, call.id)) ? "being_decided" : "taken");
     return "sent";
   });
 }
@@ -208,12 +223,16 @@ type GivenAnswer = { paymentId: string; choice: string; maxCents?: number | null
 
 /** The call and its request, both locked, for someone allowed to decide: the call's host, or the founder. */
 async function lockedForDeciding(tx: Tx, input: { callId: string; by: string; as: "host" | "admin" }): Promise<{ call: Call; request: RefundRequest }> {
+  // Always in this order: the call, then its payments, then the request.
   const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, input.callId)).for("update");
   if (!call || (input.as === "host" && call.hostId !== input.by)) throw new RequestError("Call not found.");
+  const payments = await tx.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.callId, call.id)).orderBy(asc(schema.payments.id));
+  for (const { id } of payments) await lockPayment(tx, id);
   const [request] = await tx.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id)).for("update");
   if (!request) throw new RequestError("There is no refund request on this call.");
-  // The first answer stands. A later one cannot replace it or send a second email.
-  if (request.status !== "asked") throw new RequestError("This request has already been answered.");
+  // The first answer stands. A later one cannot replace it or send a second email. A refund that went
+  // through is an answer too (and with the payments locked, none can complete while this is decided).
+  if (await isAnswered(request, tx)) throw new RequestError("This request has already been answered.");
   return { call, request };
 }
 
@@ -227,12 +246,10 @@ export async function answerRequest(input: { callId: string; by: string; as: "ho
   const message = clean(input.message, MESSAGE_MAX) || null;
   await db.transaction(async (tx) => {
     const { call, request } = await lockedForDeciding(tx, input);
-    for (const payment of await heldOrdinary(tx, call.id)) await lockPayment(tx, payment.id);
     const open = await openCharges(tx, call.id);
     if (open.length === 0) {
-      const [waiting] = await tx.select({ id: schema.payments.id }).from(schema.payments).where(and(eq(schema.payments.callId, call.id), eq(schema.payments.status, "held"))).limit(1);
       throw new RequestError(
-        waiting
+        (await anyOnHold(tx, call.id))
           ? "The charge for this call is being decided right now (its record is under review at Connect, or the money is just being taken), so it cannot be answered here at the moment."
           : "The money for this call has already been taken, so it can no longer be lowered. You can still give a refund, or say no.",
       );
@@ -268,7 +285,8 @@ export async function declineRequest(input: { callId: string; by: string; as: "h
   const message = clean(input.message, MESSAGE_MAX) || null;
   await db.transaction(async (tx) => {
     const { call, request } = await lockedForDeciding(tx, input);
-    if ((await heldOrdinary(tx, call.id)).length > 0) throw new RequestError("The money for this call has not been taken yet. Answer for each charge instead.");
+    if ((await openCharges(tx, call.id)).length > 0) throw new RequestError("The money for this call has not been taken yet. Answer for each charge instead.");
+    if (await anyOnHold(tx, call.id)) throw new RequestError("The charge for this call is still being decided, so there is nothing to say no to yet.");
     await tx
       .update(schema.refundRequests)
       .set({ status: "declined", decidedBy: input.by, decidedAs: input.as, decidedAt: input.now ?? new Date(), message })
@@ -303,7 +321,7 @@ export async function writeAnswerReminders(now: Date): Promise<void> {
     .innerJoin(schema.calls, eq(schema.calls.id, schema.refundRequests.callId))
     .where(and(eq(schema.refundRequests.status, "asked"), gt(schema.refundRequests.askedAt, new Date(now.getTime() - 3 * 24 * 3_600_000))));
   for (const { request, call } of waiting) {
-    const expiry = earliestExpiry(await openCharges(db, call.id));
+    const expiry = (await openCharges(db, call.id)).length > 0 ? await commonExpiry(db, call.id) : null;
     if (!expiry) continue; // the money was taken: nothing left to hurry for
     const answerBy = moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy!;
     const halfway = (request.askedAt.getTime() + answerBy.getTime()) / 2;
@@ -331,7 +349,7 @@ export async function unansweredRequests(): Promise<Array<{ request: RefundReque
 
 /** The summary saved with a request, and the two short texts, are kept for one year. */
 export async function forgetOldRequests(now: Date): Promise<void> {
-  await db
+  const old = await db
     .update(schema.refundRequests)
     .set({ summary: null, note: "", message: null })
     .where(
@@ -339,5 +357,8 @@ export async function forgetOldRequests(now: Date): Promise<void> {
         lt(schema.refundRequests.askedAt, new Date(now.getTime() - 365 * 24 * 3_600_000)),
         or(sql`${schema.refundRequests.summary} is not null`, ne(schema.refundRequests.note, ""), sql`${schema.refundRequests.message} is not null`),
       ),
-    );
+    )
+    .returning({ id: schema.refundRequests.id });
+  // The emails about the request quote the two texts. Their words go too; that each was sent stays on record.
+  for (const { id } of old) await db.update(schema.emailOutbox).set({ body: REMOVED }).where(like(schema.emailOutbox.dedupeKey, `refund-request:${id}:%`));
 }

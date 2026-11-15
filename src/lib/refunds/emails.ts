@@ -34,14 +34,21 @@ type CallRef = { id: string; hostId: string; customerId: string; startsAt: Date 
 const results = (call: CallRef) => `${appUrl()}/calls/${call.id}/results`;
 const quoted = (label: string, text: string | null | undefined) => (text?.trim() ? `\n${label}\n"${text.trim()}"\n` : "");
 
-/** To the host, at once: a customer asked for a refund. `answerBy` is null when the money was already taken. */
-export async function queueRequestEmail(tx: Writer, call: CallRef, request: { id: string; reason: string; note: string }, answerBy: Date | null): Promise<void> {
+/**
+ * To the host, at once: a customer asked for a refund. What the host can do depends on where the money
+ * stands: still on hold (with the time by which an answer costs nothing), being decided (under review at
+ * Connect, or just being taken), or already taken.
+ */
+export async function queueRequestEmail(tx: Writer, call: CallRef, request: { id: string; reason: string; note: string }, money: { answerBy: Date } | "being_decided" | "taken"): Promise<void> {
   const found = await peopleOf(tx, call);
   if (!found) return;
   const { host, customer } = found;
-  const deadline = answerBy
-    ? `The money for this call has not been taken yet. If you answer by ${whenFor(host, answerBy)}, you can charge in full, charge less, or charge nothing, and no card fee is lost. After that the full amount is taken, and you can still give a refund.`
-    : "The money for this call has already been taken. You can give a refund, or say no.";
+  const deadline =
+    money === "taken"
+      ? "The money for this call has already been taken. You can give a refund, or say no."
+      : money === "being_decided"
+        ? "The charge for this call is still being decided (its record is under review at Connect, or the money is just being taken), so there is nothing for you to answer yet. The call's page shows when there is."
+        : `The money for this call has not been taken yet. If you answer by ${whenFor(host, money.answerBy)}, you can charge in full, charge less, or charge nothing, and no card fee is lost. After that the full amount is taken, and you can still give a refund.`;
   await queueEmail(tx, {
     to: host.email,
     key: `refund-request:${request.id}:host`,

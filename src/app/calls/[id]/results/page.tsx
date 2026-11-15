@@ -12,7 +12,7 @@ import { formatDuration } from "@/lib/format";
 import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
-import { attendanceChargeCents, countedSeconds } from "@/lib/payments/pricing";
+import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { isDecided, moneyPlan } from "@/lib/payments/take";
 import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
@@ -72,7 +72,11 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   for (const held of plan?.held ?? []) {
     const own = await loadAttendance(call, now, { from: held.coversFrom, until: held.coversUntil });
     const final = own.final && call.closedAt && own.result.status === "complete" && own.result.totals;
-    toBeCharged.set(held.id, final ? attendanceChargeCents({ pricePer15Cents: held.pricePer15Cents, bookedSeconds: own.bookedSeconds, countedSeconds: countedSeconds(call, own.result.totals!) }) : null);
+    const record = final ? attendanceChargeCents({ pricePer15Cents: held.pricePer15Cents, bookedSeconds: own.bookedSeconds, countedSeconds: countedSeconds(call, own.result.totals!) }) : null;
+    // With an answer already saved for this charge, what will be taken is what the answer allows, not what the record gives.
+    const answer = request?.request.status === "answered" ? request.answers.find((a) => a.paymentId === held.id) : undefined;
+    const cents = record === null || !answer || answer.choice === "full" ? record : answer.choice === "less" ? Math.min(answer.maxCents ?? 0, record) : 0;
+    toBeCharged.set(held.id, cents !== null && cents < MIN_CHARGE_CENTS ? 0 : cents);
   }
   const extensionOf = new Map(extensions.map((e) => [e.id, e]));
   const addedMinutes = extensions.filter((e) => e.status === "accepted").reduce((sum, e) => sum + e.minutes, 0);
@@ -354,7 +358,7 @@ function Receipt(props: {
       <p className="mt-1">{headline}</p>
       {waiting && waiting.cents !== null && (
         <p className="mt-1" data-to-be-charged>
-          To be charged: <span className="font-medium">{formatMoney(waiting.cents)}</span>
+          To be charged: <span className="font-medium">{waiting.cents === 0 ? "nothing" : formatMoney(waiting.cents)}</span>
           {waiting.decided ? (
             ". The answer to the refund request is being applied."
           ) : waiting.takeAt ? (

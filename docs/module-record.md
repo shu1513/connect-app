@@ -28,7 +28,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
 | 10. Connection check before a call | Planned (`plans/12-connection-check.md`); to be built later (founder, 15 November). A first part is on the branch `module/connection-check`. |
-| 11. Refund requests, taking the money later, and a record of call quality | Planned (`plans/13-connection-refunds.md`); not built (founder, 16 November). Checked by Astra six times. |
+| 11. Refund requests, taking the money later, and a record of call quality | Built; pull request open. A real two-person call and a real card's hold from start to finish still need a friend test. |
 | 12. Hosts collect their earnings when they want | Built and merged. Stripe's test area only; a real payout to a bank has not happened yet. |
 
 ---
@@ -589,6 +589,53 @@ Plan: `plans/11-final-pass.md`. Every module had been built and checked on its o
 
 ---
 
+## Module 11: Refund requests, taking the money later, and a record of call quality
+
+Plan: `plans/13-connection-refunds.md`, ninth version, checked by Astra six times and by CodeRabbit before any code was written (pull request 18). Built after module 12, because it relies on hosts collecting their own earnings.
+
+**What the founder decided (16 November 2026)**
+
+| Question | Decided |
+| --- | --- |
+| What a booked call charges | Stays as it is: the time the host is in the room. |
+| How long a customer has to ask | 24 hours after the call ends. |
+| The reason | The customer picks one: "The connection was bad" or "Something else". |
+| Who answers | The host, within 24 hours, with a message if they like: charge in full, less, or nothing. Passing a "no" on to Connect is left out for now. |
+| When the money is taken | About 24 hours after the call when nobody asked. With a request: at once when the host answers; with no answer, about 24 hours after the request. |
+| The safety limit | Never later than 12 hours before the card's hold ends. |
+| No answer in time | The money is taken in full, and the host cannot collect that call's money until they answer. Nothing is refunded or refused automatically. |
+| A record of call quality | Collected for every call. Shown only for a request about the connection: to the customer before they confirm, then to the host. The founder can see it for any request. |
+| Refunding automatically | Later, once real calls show what good and bad calls look like. |
+
+**What was built**
+- **When the money is taken.** Minutes after a call the amount is worked out and shown to both people as "To be charged", with the time. It is taken 24 hours and 10 minutes after the call when nobody asked; when the host answers a request; or 24 hours and 10 minutes after the request. Never later than 12 hours before the hold ends, and the app keeps trying until the hold ends. Before any money is taken the call's record is looked at again. A charge under the founder's review, a record that is not complete, and a charge for cancelling late keep exactly the rules they had.
+- **One locked step per call.** With the call locked, the request and its answer are read, the record is looked at again, and the charge (or the release) of each payment is written down before Stripe is asked. An answer is saved under the same lock. So whichever was written down first is what happens: an answer is never replaced by "in full", and a charge that was already written down is carried out as written.
+- **Asking.** On the call's page, for 24 hours: "Ask for a refund", one per call, with the reason. For "the connection was bad" the customer is first shown the call's connection record, and what is sent is what was seen: if the record changed in the meantime, nothing is sent and they are asked again.
+- **The host's answer**, for each charge of the call (the call itself, and each time that was added): in full, less (at most an amount, 50 cents or more), or nothing, with an optional message of up to 300 characters. "In full" is what the record gives when the money is taken; "less" is the most the customer pays. Under 50 cents nothing is taken. The receipt says "charged $5.00 of $13.33, lowered by the host" (or "by Connect").
+- **After the money was taken** the host answers with a "no" or with the refund form they already had. Every refund can now carry a message to the customer, shown beside the refund and in an email.
+- **The hold on collecting.** A host cannot collect any charge of a call whose request is not answered, or whose answer is still being applied. It is checked in the same locked step that starts a collection. A request counts as answered once the host answered or said no, a refund started after the request has gone through, or the founder closed it.
+- **The founder.** A list of requests still waiting, oldest first, on "Reports and safety", with the room name for the video service's dashboard. On the call's page the founder sees the connection record for any request, can answer in the host's place before the money is taken, refund, or close the request. The admin page lists money still on hold after a call with the time it is due, and shows for a lowered charge what the record gave and who lowered it.
+- **The record of call quality.** One invisible piece in the call screen notes the video service's grade for each person's connection: on joining, at every change, and twice a minute in between; it sends them in small batches in the background. The server only accepts them from a logged-in person on that call, from our own pages, while the room is open, up to 4,000 per person and call. The notes are removed after 60 days. A short summary (when each person was connected and why each connection ended, in neutral words, and about how long at each grade as each browser reported it) is saved with every request and kept for a year.
+- **Emails.** To the host when a request arrives, and one reminder halfway; to the customer for the answer, a late "no", a closed request, and every refund. Each is written in the same database step as what it reports.
+- **An alarm that does not depend on the helper.** The helper notes the time whenever it finishes a round of payment work. The address `/api/health` answers only "healthy" or "not healthy": not healthy when that note is older than 10 minutes, when a money action has had no answer for more than 5 minutes after the usual check, or when a call's money is more than 5 minutes past the moment it should have been taken.
+
+**Decisions (the builder's)**
+
+| Question | Decided | Why |
+| --- | --- | --- |
+| The plan's on/off switch for the new timing | Not built | It was a way to build in steps. Everything lands in one pull request, so the switch would be dead code from the first day. |
+| An answer that arrives in the last 10 minutes | Accepted as long as the automatic charge has not been written down yet; the lock decides | The 10 minutes exist so that a late answer still counts. Refusing it by the clock would throw that away. |
+| An answer that loses the race with the automatic charge | The host is told the money has been taken and uses the refund form | Turning it into a refund automatically would be a second way to refund, for a case the 10 minutes all but remove. |
+| "Took place" (who can ask) | A paid call that was not cancelled, has ended, and still has money on hold or taken | When nothing was charged there is nothing to ask back. |
+| A request on a call whose hold was released after a review | Needs no answer, and is not on the founder's list | Nothing was charged. The page says so. |
+| The customer's email about an answer | Sent when the answer is saved, and says what the host decided; the exact amount is on the call's page | The answer is the news. The email is written in the same step as the answer, so it cannot be lost if the money step is finished later by the helper. |
+| When a record stops adding up at the moment the money is taken | It goes to the founder's review under today's deadline; past that deadline the hold is released | The plan's rule: a doubtful record is never charged automatically, and a refund request starts no new deadline. An automatic check flagged this; see the reviews below. |
+| The terms and the privacy page | Not changed | Both are placeholders for the lawyer. What they must say is on the launch list. |
+
+REVIEWS_AND_CHECKS_GO_HERE
+
+---
+
 ## Module 12: Hosts collect their earnings when they want
 
 Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit before any code was written (pull request 18).
@@ -682,5 +729,9 @@ Also fixed: one check in the notifications script depended on how fast the compu
 - **Receipts by email:** switch on Stripe's own emailed receipts and refund notices in the live account (a setting, no code).
 - **The front page and the look:** the words on the visitor's front page are a first draft, and the app is plain on purpose. Both are the founder's to shape.
 - **Messaging:** left out of the first version; look again if real hosts ask (`docs/research/messaging/`).
+- **Before the new timing goes live (module 11):** an outside watching service must call `/api/health` every few minutes, treat no reply as "not healthy", and alert the founder by email or text. Money is now taken a day or two after a call, close enough to the end of a card hold that a helper which has stopped must be noticed within minutes.
+- **For the lawyer (module 11):** the terms must say that the charge for a call is taken one to two days after it, that a customer can ask for a refund within 24 hours, that the host decides, and that a host cannot collect the money for a call with a request they have not answered. The privacy page must say that a grade of each person's connection is kept for 60 days for every call, and that with any refund request a summary of those grades, the customer's sentence and the host's message are kept for a year; Connect can see that summary for every request, the two people only when the reason is the connection.
+- **A friend test (module 11):** what the grades and the reasons look like on a call with a truly bad connection, and a real Visa card's hold from the call to the charge a day later.
+- **In Stripe (module 11):** confirm the real card fee and that the name on card statements says Connect; decide whether to email a customer when a hold is placed on their card.
 - **Hosts' money that nobody collects (module 12):** decide whether money still uncollected after 30 days is sent automatically. Ask the lawyer about holding hosts' money for a long time, and ask Stripe how long money earned by hosts may stay in Connect's balance.
 - **Putting module 12 live:** stop the always-on helper first, then update it together with the app, so the old weekly payday and the new button never run side by side.

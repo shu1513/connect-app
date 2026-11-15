@@ -30,7 +30,7 @@ async function main() {
   const { db, schema } = await import("../src/db");
   const { stripe } = await import("../src/lib/payments/stripe");
   const { createPaymentForCall, startHold, syncHold } = await import("../src/lib/payments/hold");
-  const { refundPayment } = await import("../src/lib/payments/actions");
+  const { capturePayment, refundPayment } = await import("../src/lib/payments/actions");
   const { settleFinishedCalls, reconcileOperations } = await import("../src/lib/payments/jobs");
   const { MoneyError } = await import("../src/lib/payments/operations");
   const { cancelCall } = await import("../src/lib/payments/cancel");
@@ -173,7 +173,7 @@ async function main() {
     const b = await paid();
     await ask(b, 60, "other", "The host was rude.");
     const other = await requestOf(b);
-    check("\"something else\" saves the summary too (for the founder), without anyone being shown it", other.reason === "other" && other.summary !== null);
+    check("\"something else\" saves the summary too, for the founder (who may open it is a rule with its own tests)", other.reason === "other" && other.summary !== null);
     const view = (await R.requestViewOf(b.call))!;
     check("the host has 24 hours from the request", view.open.length === 1 && view.answerBy?.getTime() === after(b, 60 + DAY).getTime() && !view.answered);
   }
@@ -273,9 +273,26 @@ async function main() {
     const takingWon = answered.status === "rejected" && req.status === "asked" && p.status === "charged" && p.chargedCents === 1333;
     check("whichever was written down first is what happens, and never both", answerWon !== takingWon, `${answered.status} ${req.status} ${p.status} ${p.chargedCents}`);
     console.log(`        (this time ${answerWon ? "the answer" : "the automatic charge"} was first)`);
+
+    console.log("   …and each order on purpose, at the very same moment");
+    const first = await paid();
+    await settle(first, 5);
+    await ask(first, 60);
+    await answer(first, moment, [{ paymentId: first.payment.id, choice: "nothing" }]);
+    await settle(first, moment);
+    const pf = await reload(first.payment.id);
+    check("the answer written first: it is carried out, and the automatic charge does nothing", pf.status === "closed_uncharged" && pf.loweredBy === "host" && (await requestOf(first)).status === "answered", pf.status);
+
+    const second = await paid();
+    await settle(second, 5);
+    await ask(second, 60);
+    await settle(second, moment);
+    const tooLate = await problem(answer(second, moment, [{ paymentId: second.payment.id, choice: "nothing" }]));
+    const ps = await reload(second.payment.id);
+    check("the automatic charge written first: it stands in full, and the answer is refused as too late", ps.status === "charged" && ps.chargedCents === 1333 && tooLate instanceof RequestError && (await requestOf(second)).status === "asked", `${ps.status} ${tooLate?.message}`);
   }
 
-  console.log("\n6. The answer is saved, and the app stops before it is carried out");
+  console.log("\n6. An answer given before the call's record is final: saved first, carried out later by the helper");
   {
     // The host answers in the first minute after the call, before its record is final: nothing can be carried out yet.
     const c = await paid();
@@ -290,12 +307,13 @@ async function main() {
     check("and nothing more is taken later", (await received(c.payment.id)).amount_received === 700 && (await holdOn(c)) === null);
   }
 
-  console.log("\n7. Two charges: one goes through, the answer from Stripe for the other is lost");
+  console.log("\n7. Two charges: one goes through; for the other a charge was written down and Stripe's answer never came back");
   {
     const c = await withAddedTime();
     await ask(c, 0.5);
     await answer(c, 0.6, [{ paymentId: c.payment.id, choice: "less", maxCents: 600 }, { paymentId: c.extra.id, choice: "less", maxCents: 900 }]);
-    // For the added time the app wrote the charge down and Stripe made it; then the app stopped before hearing back.
+    // For the added time the state is put in place by hand, exactly as the app leaves it when it has written the
+    // charge down, Stripe has made it, and the app stops before hearing back.
     const label = `capture:${c.extra.id}:1`;
     const params = { amountCents: 900, reason: "attendance", frozen: { hostSeconds: 600, customerSeconds: 600, togetherSeconds: 600 }, callEndsAt: c.call.endsAt.toISOString(), pricedThroughEventId: null, lowered: { recordCents: 1333, by: "host" } };
     await db.insert(schema.moneyOperations).values({ paymentId: c.extra.id, kind: "capture", label, params: JSON.stringify(params), createdAt: new Date(Date.now() - 10 * 60_000) });
@@ -350,6 +368,10 @@ async function main() {
     const refundMail = await mail(`refund:${refundId}`);
     check("answers the request, whatever the amount", (await R.requestViewOf(part.call))!.answered && (await requestOf(part)).status === "asked" && (await holdOn(part)) === null);
     check("the customer gets the message that came with the refund", refundMail?.to === customer.email && refundMail.body.includes("Sorry about the sound.") && refundMail.subject.includes("$4.00"));
+    const staleNo = await problem(R.declineRequest({ callId: part.call.id, by: host.id, as: "host", message: "No." }));
+    const staleClose = await problem(R.closeRequest({ callId: part.call.id, adminId: founder.id }));
+    const partRequest = await requestOf(part);
+    check("a \"no\" or a close arriving after that refund changes nothing and sends no second answer", staleNo instanceof RequestError && staleClose instanceof RequestError && partRequest.status === "asked" && !(await mail(`refund-request:${partRequest.id}:declined`)) && !(await mail(`refund-request:${partRequest.id}:closed`)));
 
     console.log("   …a late refund in full");
     const whole = await unanswered();
@@ -403,6 +425,9 @@ async function main() {
     check("the customer can still ask", (await ask(c, 60)) === "sent");
     const refused = await problem(answer(c, 120, [{ paymentId: c.payment.id, choice: "nothing" }]));
     check("the host's answer cannot decide a charge that is under review", refused instanceof RequestError && /review/.test(refused.message) && (await requestOf(c)).status === "asked", refused?.message);
+    const during = (await R.requestViewOf(c.call))!;
+    const early = await problem(R.declineRequest({ callId: c.call.id, by: host.id, as: "host", message: null }));
+    check("the request is shown as \"being decided\", not as \"the money was taken\", and cannot be declined yet", during.beingDecided && !during.nothingAtStake && during.open.length === 0 && early instanceof RequestError && (await mail(`refund-request:${during.request.id}:host`))?.body.includes("still being decided") === true);
     await settle(c, 60 + DAY + 30);
     check("it is never taken automatically, also not when the host's time is up", (await reload(c.payment.id)).status === "held");
     await settle(c, 3 * DAY + 1);
@@ -410,6 +435,49 @@ async function main() {
     const view = (await R.requestViewOf(c.call))!;
     check("nobody decides in time: the hold is released, as today, and that is not shown as the host's answer", p.status === "closed_uncharged" && p.loweredBy === null && view.request.status === "asked" && view.nothingAtStake);
     check("such a request needs no answer any more", !(await R.unansweredRequests()).some((r) => r.call.id === c.call.id));
+  }
+
+  console.log("\n10b. An answer was accepted, and then the charge comes under the founder's review");
+  {
+    const reviewed = async (choice: string, maxCents?: number) => {
+      const c = await paid();
+      await ask(c, 0.5);
+      await answer(c, 0.6, [{ paymentId: c.payment.id, choice, maxCents }]);
+      // A late message from the video service: a connection of the host that never ended. The record no longer adds up.
+      await db.insert(schema.attendanceEvents).values({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: c.call.id, type: "participant_joined", roomSessionId: "RM_refundcheck", participantIdentity: host.id, participantSessionId: `PA_never_left_${randomUUID().slice(0, 6)}`, providerTime: new Date(c.call.startsAt.getTime() + 500_000), payload: "{}" });
+      await settle(c, 5);
+      return c;
+    };
+    const decide = (c: Made, amountCents: number) => problem(capturePayment({ paymentId: c.payment.id, amountCents, reason: "admin", frozen: null, callEndsAt: c.call.endsAt, now: after(c, 30) }));
+
+    const capped = await reviewed("less", 700);
+    check("the answer cannot override the review: the charge waits for the founder", (await reload(capped.payment.id)).needsReview === true && (await reload(capped.payment.id)).status === "held");
+    check("the call stays held from collection while that answer is not finished", (await holdOn(capped)) === "answer_applying");
+    const over = await decide(capped, 1333);
+    check("and the review cannot undo the answer: the founder cannot charge more than the host's \"at most $7\"", over instanceof MoneyError && /at most \$7\.00/.test(over.message) && (await reload(capped.payment.id)).status === "held", over?.message);
+    const within = await decide(capped, 700);
+    check("the founder can charge up to it", within === null && (await reload(capped.payment.id)).chargedCents === 700 && (await holdOn(capped)) === null, within?.message);
+
+    const free = await reviewed("nothing");
+    const any = await decide(free, 500);
+    check("after \"charge nothing\" the founder cannot charge at all; the hold can only be let go", any instanceof MoneyError && /charge nothing/.test(any.message) && (await reload(free.payment.id)).status === "held", any?.message);
+  }
+
+  console.log("\n10c. Two charges whose holds end at different times share one moment, also after one of them went through");
+  {
+    const c = await withAddedTime();
+    await settle(c, 5);
+    // The call's own hold ends early: 32 hours after the call. So the money is due 12 hours before that, at hour 20.
+    await db.update(schema.payments).set({ holdExpiresAt: after(c, 32 * HOUR) }).where(eq(schema.payments.id, c.payment.id));
+    await settle(c, 20 * HOUR - 1);
+    check("a minute before that moment both are still on hold", (await reload(c.payment.id)).status === "held" && (await reload(c.extra.id)).status === "held");
+    // Stripe has just refused the charge for the added time (put in place by hand), so the app waits an hour before trying it again.
+    await db.insert(schema.moneyOperations).values({ paymentId: c.extra.id, kind: "capture", label: `capture:${c.extra.id}:1`, params: "{}", status: "failed", error: "refused", finishedAt: after(c, 20 * HOUR) });
+    await settle(c, 20 * HOUR);
+    check("at the moment, the first is taken and the refused one waits", (await reload(c.payment.id)).status === "charged" && (await reload(c.extra.id)).status === "held");
+    await settle(c, 21 * HOUR + 5);
+    const extra = await reload(c.extra.id);
+    check("an hour later the second is tried again; the moment has not moved to its own, later, hold", extra.status === "charged" && extra.chargedCents === 1333, `${extra.status} ${extra.chargedCents}`);
   }
 
   console.log("\n11. Collecting while a request is not answered");
@@ -528,6 +596,8 @@ async function main() {
     await R.forgetOldRequests(new Date(req.askedAt.getTime() + 366 * DAY * 60_000));
     const old = await requestOf(c);
     check("after a year the saved summary and the two short texts are gone; the request itself stays", old.summary === null && old.note === "" && old.status === "asked");
+    const toHost = await mail(`refund-request:${req.id}:host`);
+    check("and so are their copies in the emails about the request, while the record that they were sent stays", Boolean(toHost) && !toHost.body.includes("The picture kept freezing.") && toHost.subject.length > 0);
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

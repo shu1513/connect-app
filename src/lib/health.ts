@@ -10,7 +10,7 @@ import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
 import { moneyTiming } from "@/lib/payments/rules";
-import { earliestExpiry, heldOrdinary, isDecided } from "@/lib/payments/take";
+import { commonExpiry, heldOrdinary, isDecided } from "@/lib/payments/take";
 
 /** The helper's last finished round of payment work may be this old. */
 export const BEAT_MAX_AGE_MS = 10 * 60_000;
@@ -41,10 +41,11 @@ export async function moneyOverdue(now: Date): Promise<boolean> {
 /** The same question for one call. */
 export async function callOverdue(call: Call, now: Date): Promise<boolean> {
   const held = (await heldOrdinary(db, call.id)).filter((p) => p.holdExpiresAt && p.holdExpiresAt > now);
-  const expiry = earliestExpiry(held);
+  const expiry = held.length > 0 ? await commonExpiry(db, call.id) : null;
   if (!expiry || call.cancelledAt) return false;
   const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
-  const dueAt = isDecided(request) && request.decidedAt ? request.decidedAt : moneyTiming({ callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
+  const answered = isDecided(request) && request.decidedAt ? request.decidedAt : null;
+  const dueAt = answered ?? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
   if (now.getTime() <= dueAt.getTime() + OVERDUE_MS) return false;
   for (const payment of held) {
     const [started] = await db
@@ -53,7 +54,10 @@ export async function callOverdue(call: Call, now: Date): Promise<boolean> {
       .where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started")))
       .limit(1);
     if (started) continue;
-    // Only a charge the helper would really take or release now counts: its record is final and adds up.
+    // An answer was accepted and nothing was started for it within 5 minutes: that is late whatever holds it
+    // up, also a room that could not be confirmed closed.
+    if (answered) return true;
+    // Otherwise only a charge the helper would really take or release now counts: its record is final and adds up.
     const record = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
     if (record.final && call.closedAt && record.result.status === "complete" && record.result.totals) return true;
   }

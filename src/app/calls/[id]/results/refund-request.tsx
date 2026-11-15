@@ -234,7 +234,13 @@ export async function RefundRequest(props: {
         <p className="mt-3 font-medium">Nothing was charged for this call, so there is nothing to refund. The payment below says why.</p>
       )}
 
-      {request.status === "asked" && !view.answered && !view.nothingAtStake && role === "customer" && (
+      {request.status === "asked" && !view.answered && view.beingDecided && (
+        <p className="mt-3 opacity-80">
+          The charge for this call is still being decided (its record is being looked at by Connect, or the money is just being taken). Nothing
+          has been taken from the card yet, and there is nothing to answer here until that is done.
+        </p>
+      )}
+      {request.status === "asked" && !view.answered && !view.nothingAtStake && !view.beingDecided && role === "customer" && (
         <p className="mt-3 opacity-80">
           Waiting for {names.host}&apos;s answer.
           {view.answerBy ? (
@@ -252,7 +258,7 @@ export async function RefundRequest(props: {
       {saved && <QualityRecord summary={saved} names={names} />}
       {mayOpenRecord && !saved && <p className="mt-3 opacity-70">The connection record saved with this request is no longer kept.</p>}
 
-      {request.status === "asked" && !view.answered && !view.nothingAtStake && deciding && (
+      {request.status === "asked" && !view.answered && !view.nothingAtStake && !view.beingDecided && deciding && (
         <div className="mt-4 border-t border-neutral-400/40 pt-4">
           {role !== "host" && <p className="mb-2 font-medium">You are answering as Connect, in the host&apos;s place.</p>}
           {view.open.length > 0 ? (

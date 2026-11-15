@@ -28,8 +28,9 @@ export type Stretch = { from: Date; until: Date };
  * the payment that pays for it). The whole log is still read, and whether the
  * record is final and consistent is still judged for the whole call.
  */
-export async function loadAttendance(call: Call, now: Date = new Date(), stretch?: Stretch): Promise<LoadedAttendance> {
-  const events = await db
+export async function loadAttendance(call: Call, now: Date = new Date(), stretch?: Stretch, reader: Pick<typeof db, "select"> = db): Promise<LoadedAttendance> {
+  // A caller inside a locked step passes its own transaction, so that it never waits for a second database connection while holding locks.
+  const events = await reader
     .select()
     .from(schema.attendanceEvents)
     .where(eq(schema.attendanceEvents.callId, call.id))

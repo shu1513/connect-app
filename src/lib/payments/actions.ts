@@ -20,6 +20,7 @@ import { stripe } from "./stripe";
 export type FrozenTotals = { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
 export type ChargeReason = "attendance" | "late_cancel" | "admin";
 
+const formatCents = (cents: number) => "$" + (cents / 100).toFixed(2);
 const isForeignCard = (payment: Payment) => payment.cardCountry !== null && payment.cardCountry !== "US";
 
 /** The host's share and our fee as they stand now, after any refunds. */
@@ -156,6 +157,17 @@ export function capturePlan(input: CaptureInput): OperationPlan<CaptureParams, {
         if (!payment.needsReview) throw new MoneyError("This payment is not waiting for review.");
         const deadline = decisionDeadline({ callEndsAt: input.callEndsAt, holdExpiresAt: payment.holdExpiresAt ?? input.callEndsAt });
         if ((input.now ?? new Date()) >= deadline) throw new MoneyError("The deadline for deciding this call has passed.");
+        // A review decides what the record supports. It does not undo an answer to a refund request that
+        // was accepted for this charge before it came under review: that answer stays the most the customer pays.
+        const [answer] = await tx
+          .select({ choice: schema.refundRequestAnswers.choice, maxCents: schema.refundRequestAnswers.maxCents })
+          .from(schema.refundRequestAnswers)
+          .innerJoin(schema.refundRequests, eq(schema.refundRequests.id, schema.refundRequestAnswers.requestId))
+          .where(and(eq(schema.refundRequestAnswers.paymentId, payment.id), eq(schema.refundRequests.status, "answered")));
+        if (answer?.choice === "nothing") throw new MoneyError("The answer to this call's refund request was \"charge nothing\" for this charge. Release the hold instead.");
+        if (answer?.choice === "less" && input.amountCents > (answer.maxCents ?? 0)) {
+          throw new MoneyError(`The answer to this call's refund request was "at most ${formatCents(answer.maxCents ?? 0)}" for this charge. Charge that or less.`);
+        }
       } else if (payment.needsReview) {
         // A call waiting for the founder's decision is only ever charged by the founder.
         throw new MoneyError("This payment is waiting for review.");
