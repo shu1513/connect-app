@@ -43,8 +43,10 @@ Paying the bank is Stripe's step, which the app does not control. Beside each ca
 
 **When a charge becomes ready.** 2 days after the call ends, and never before the app has recorded
 that the charge went through. No rounding to a Monday. Under plan 13 the money is taken about a
-day after a call, or a little later when a refund request is waiting for the host, so a charge is
-normally recorded well inside the 2 days. The date is fixed when the charge is recorded and is
+day after a call when nobody asked for a refund, so that charge is recorded well inside the 2 days.
+With a request that runs its full time, the charge is only taken about 48 hours after the call,
+and the money is ready once it is recorded and the host has answered. A charge for added time
+counts its 2 days from the same end of the call. The date is fixed when the charge is recorded and is
 never moved by a retry.
 - A charge for time added during a call has its own date.
 - A charge the founder makes later, after a review, is ready as soon as it is recorded, if the 2
