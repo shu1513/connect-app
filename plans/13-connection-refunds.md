@@ -151,11 +151,12 @@ the customer could even ask.
 
 - **Checked at the moment of sending.** The check is made in the same locked step that starts the
   transfer, and making a request locks the same records first. So a request made in the very second
-  a host presses "Send it to my bank account" is either seen by the transfer, which then leaves
+  a host presses "Collect earnings" is either seen by the transfer, which then leaves
   that call out, or comes after the customer's time has already run out. A request is accepted only before the 24 hours end; a transfer only at or
   after.
-- **After the answer the money is ready to collect at once.** Its own date has already passed by
-  then.
+- **After the answer, the hold for the request is gone.** Each charge of the call can then be
+  collected once its own date has come and nothing else holds it back. An answer does not start a
+  collection, and does not change when the host may next collect.
 - **A transfer that was already started or sent before this is switched on** is not affected. The
   hold only applies to money that has not started moving.
 - **The founder's list** (every unanswered request, oldest first) is read on its own, not from the
@@ -230,7 +231,8 @@ asked for.
   started;
   notes are refused from someone not on the call, outside its time, about anyone else, from another
   site, or beyond that person's limit.
-- The payments, booking and whole-journey scripts must still pass, with the new payday.
+- The payments, booking and whole-journey scripts must still pass, with hosts collecting their
+  earnings themselves (plan 14).
 - By hand, with two browsers against the real video service: grades arriving, the same on a
   deliberately limited connection, closing a tab in the middle, and a request from asking to
   refund.
@@ -296,7 +298,8 @@ points. Those about the hold are taken here; those about the payday itself are i
    or the founder.
 4. The customer must also be told when the answer comes later, as a refund is confirmed.
 5. After an answer the money was said to go "on the next payday", which is not what the helper
-   does. (It goes the next time the helper runs.)
+   does. (Since then replaced: under plan 14 nothing is sent by itself; an answer only lifts the
+   hold.)
 6. The founder's list must not depend on the list of recent payments.
 7. Save the summary when the request is made, so a long wait does not outlive the notes.
 8. Switch asking, the hold and the founder's list on together.
