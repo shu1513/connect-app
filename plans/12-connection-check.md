@@ -104,10 +104,19 @@ an 11th, and refuses one within 20 seconds of the last; then it writes a row, ma
 hands over the pass. The browser works out the answer itself with the one shared rule; nothing is
 sent back to the server, and nothing about the answer is stored.
 
+*One rule ties this to the tidying up below.* The route hands over a pass only if making the room
+took less than 20 seconds from the moment the row was written; if it took longer, it hands over
+nothing and the person sees "not measured". A pass can only be used to connect in its first minute.
+So no pass can still be used later than about 80 seconds after its test started, and the tidying up
+at 90 seconds always comes after the last moment anyone could connect. A room that was made but
+never used closes by itself after a minute.
+
 **Tidying up.** A pass's time limit only stops a late connection, not a long one. So the always-on
 helper, in a loop of its own beside its work on calls and payments, ends every test about 90 seconds
 after it started: it cancels the test's pass, deletes its room, and marks the row only once the
-video service confirms the room is gone (otherwise it tries again). Rows older than a day are
+video service confirms the room is gone (otherwise it tries again). Because of the 20-second rule
+above, the room it closes is always the last of that test: nothing can be made or joined after it
+has run. Rows older than a day are
 removed, but only those whose room is confirmed closed: a row still waiting is the only record of a
 room left to close.
 
@@ -126,7 +135,7 @@ What it reads, once a second, from the browser's own report on the picture it is
 (`getRTCStatsReport()` on the track):
 - from the entry about the picture going out (`outbound-rtp`): which report from the far side
   belongs to it;
-- from that report (`remote-inbound-rtp`, matched by its id or by the stream's number): when it was
+- from that report (`remote-inbound-rtp`, matched by its id or by the stream's number): when it
   arrived (its `timestamp`, which is what tells one report from the next), the share lost since the
   report before (`fractionLost`, from 0 to 1), and the round trip (`roundTripTime`, in seconds).
 
@@ -160,11 +169,12 @@ back on hover).
 
 ## How it will be checked
 
-- Automatic tests for the rule (written: 8 tests, including missing and nonsense figures).
+- Automatic tests for the rule (written: 11 tests, including missing and nonsense figures).
 - The check scripts that delete the people they made (accounts, ratings, notifications) must first
   end and remove those people's test rows, or the deletion will be refused. The new script does the
   same for its own.
-- A new check script: the hourly limit and the 20 seconds, also when two starts arrive together; a
+- A new check script: the hourly limit and the 20 seconds, also when two starts arrive together; no
+  pass when making the room took too long; a
   pass that only works for its own test room, under the test's own name, and cannot receive; a test
   room's comings and goings never reach a call's attendance record or its charge; the helper ends a
   test left open and removes old rows.
@@ -228,3 +238,13 @@ that a test cannot reach a call's attendance. Five points, all taken:
    says so.
 5. Check scripts that delete their test people must remove those people's test rows first. Added to
    "How it will be checked".
+
+## CodeRabbit's review of this plan (pull request 17)
+
+One comment: the plan did not say what happens if the helper tidies up a test while the route is
+still making that test's room. Checked: for that, the call to the video service would have to hang
+for more than 90 seconds, far beyond its own time limit, and at worst one test connection would be
+left untidied. Small, but the plan promises that every test is ended, so it is closed off. Not the
+way suggested (look at the row again and delete the room, which leaves a gap of its own between
+looking and answering), but with a simpler rule that needs no second look: no pass is handed over
+when making the room took more than 20 seconds. It is in "Starting a test".
