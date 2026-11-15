@@ -9,6 +9,8 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { ConfirmIdFirst } from "@/components/confirm-id-first";
+import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { getSignedIn } from "@/lib/session";
 import { sendRequest } from "./actions";
@@ -44,7 +46,8 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   const stillOpen = open.some((o) => o.getTime() === startsAt.getTime());
   const back = `/h/${profile.handle}?length=${minutes || ""}`;
 
-  if (!offer || !stillOpen) {
+  // A block either way looks, from here, exactly like a time that is no longer open.
+  if (!offer || !stillOpen || (await isBlockedEitherWay(person.id, profile.userId))) {
     return (
       <main className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">That time is no longer open</h1>
@@ -67,22 +70,8 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
 
   const total = bookedTotalCents(offer.pricePer15Cents, minutes * 60);
   const paid = total > 0;
-  if (!paid && !(await identityState(person.id)).passed) {
-    return (
-      <main className="mx-auto w-full max-w-xl px-4 py-12">
-        <h1 className="text-2xl font-semibold">One thing first</h1>
-        <p className="mt-4 text-sm">
-          Before your first free call, please confirm who you are: a photo of your ID and a selfie on Stripe&apos;s own pages, which we never
-          see. It takes a couple of minutes and is needed once.
-        </p>
-        <p className="mt-4 text-sm">
-          <Link href="/identity" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
-            Confirm who I am
-          </Link>
-        </p>
-      </main>
-    );
-  }
+  const idConfirmed = (await identityState(person.id)).passed;
+  if ((!paid || offer.verifiedOnly) && !idConfirmed) return <ConfirmIdFirst reason={paid ? "host" : "free"} hostName={profile.displayName} next={here} />;
   const terms = { startsAt, paid, freeCancelMinutes: offer.freeCancelMinutes };
   const answerBy = answerDeadline({ ...terms, requestedAt: now });
   const hostZoneTime = whenFor({ timeZone: offer.timeZone }, startsAt);
@@ -171,6 +160,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
             </span>
           </label>
         )}
+        {idConfirmed && <p className="opacity-70">{profile.displayName} can see that your ID is confirmed, never your ID or the name on it.</p>}
         <button type="submit" className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white">
           {paid ? "Continue to card details" : "Send request"}
         </button>

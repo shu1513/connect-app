@@ -8,6 +8,7 @@ import { readNotice } from "@/lib/notice";
 import { Rating } from "@/components/rating";
 import { averageFor } from "@/lib/ratings/ratings";
 import { blockedBy } from "@/lib/safety/blocks";
+import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { unblockAction } from "../report/actions";
 import { timeZones } from "@/lib/time-zones";
@@ -32,6 +33,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const blocked = await blockedBy(user.id);
   const [{ reminders }] = await db.select({ reminders: schema.user.reminderEmails }).from(schema.user).where(eq(schema.user.id, user.id));
   const [asHost, asCustomer] = await Promise.all([averageFor(user.id, "host", new Date()), averageFor(user.id, "customer", new Date())]);
+  const idConfirmed = (await identityState(user.id)).passed;
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -80,6 +82,23 @@ export default async function AccountPage(props: PageProps<"/account">) {
         <p className="mt-1 text-sm">
           As a customer: <Rating shown={asCustomer} newText="not enough ratings yet" />
         </p>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Your ID</h2>
+        {idConfirmed ? (
+          <p className="mt-2 text-sm text-green-700">Confirmed.</p>
+        ) : (
+          <p className="mt-2 text-sm">
+            Not confirmed.{" "}
+            <Link href="/identity" className="underline underline-offset-2">
+              Confirm who you are
+            </Link>{" "}
+            with a photo of your ID and a selfie. Hosts need it, so does anyone booking a free call, and some hosts only take calls from
+            people who have done it.
+          </p>
+        )}
+        <p className="mt-1 text-sm opacity-70">Hosts you ask for a call can see that your ID is confirmed. They never see your ID or the name on it.</p>
       </section>
 
       <section className="mt-10">

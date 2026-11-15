@@ -16,6 +16,7 @@ import { NoteForm } from "@/components/note-form";
 import { Rating } from "@/components/rating";
 import { hostNoteAbout } from "@/lib/people/contacts";
 import { averageFor } from "@/lib/ratings/ratings";
+import { identityState } from "@/lib/safety/identity";
 
 const STAGE_FOR_CUSTOMER: Record<string, string> = {
   card: "Almost there: enter your card to send the request.",
@@ -59,6 +60,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   // For the host deciding: how other hosts have rated this customer, and the host's own private note about them.
   const showRating = role === "host" && !testCall;
   const customerRating = showRating ? await averageFor(booking.customerId, "customer", new Date()) : null;
+  const idConfirmed = showRating && (await identityState(booking.customerId)).passed;
   const note = role === "host" ? await hostNoteAbout(booking.hostId, booking.customerId) : null;
 
   // The card form, for a paid request that has not been sent yet.
@@ -89,7 +91,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
       )}
 
       <p className="mt-4 font-medium">{(role === "host" ? STAGE_FOR_HOST : STAGE_FOR_CUSTOMER)[booking.stage] ?? booking.stage}</p>
-      {role === "customer" && booking.stage === "ran_out" && booking.endedReason && <p className="mt-1 text-sm opacity-70">Reason: {booking.endedReason}.</p>}
+      {role === "customer" && booking.stage === "ran_out" && booking.endedReason && <p className="mt-1 text-sm opacity-70">Reason: {booking.endedReason.replace(/\.$/, "")}.</p>}
 
       <dl className="mt-6 space-y-2 text-sm">
         <div>
@@ -108,6 +110,12 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
             <dd className="font-medium">
               <Rating shown={customerRating} newText="New: not enough ratings yet" />
             </dd>
+          </div>
+        )}
+        {idConfirmed && (
+          <div>
+            <dt className="opacity-70">Their ID</dt>
+            <dd className="font-medium text-green-700">Confirmed</dd>
           </div>
         )}
         {role === "host" && booking.note && (

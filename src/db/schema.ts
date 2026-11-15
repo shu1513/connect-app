@@ -633,6 +633,8 @@ export const hostSettings = pgTable("host_settings", {
   payoutsCheckedAt: timestamp("payouts_checked_at", { withTimezone: true }),
   /** The host's cancelling rule: minutes before the start that cancelling is free. */
   freeCancelMinutes: integer("free_cancel_minutes").notNull().default(0),
+  /** The host's own switch: only people who have passed the identity check can send a new request. */
+  verifiedOnly: boolean("verified_only").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

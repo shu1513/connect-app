@@ -22,8 +22,9 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
 | 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
 | 7. "Available now" calls | Built and merged. Two-device test done by the founder on 13 November. |
-| 7b. Adding time during a call | Built; pull request open. Two-device test still needed. |
+| 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
+| 9. Verified customers only | Built; pull request open. The real ID check in a browser needs the restricted Stripe key (founder). |
 | 8b. Messaging | Not started. Begins with a research round (the builder and Astra separately, then compared). |
 | Final pass: joining everything together | Not started. |
 
@@ -437,6 +438,60 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - After a call is accepted, both people stay "taken" for its whole booked length (and the host for the break after it) even when both have hung up. A host who ends a call early cannot take another, and "Call now" disappears from their page with no explanation. Ending a call early should free both people, and the page should say "in a call, check back soon".
 - A host has to find the "Available now" page through Hosting; it needs a link on the home page.
 - A customer may send one host 3 requests a day; fine for real use, quickly reached when testing.
+
+---
+
+## Module 9: Verified customers only
+
+**Plan:** `plans/10-verified-customers.md`
+
+**The founder's brief (14 November 2026):** "a person can verify himself with his ID. hosts can choose to only accept calls from customers who have verified his identity."
+
+**What was already there.** The ID check itself (module 5): a photo of an ID and a matching selfie on Stripe's pages, needed by hosts and before a free call. What was missing was small: a switch for hosts, a way for a paying customer to reach the check and come back, and a mark hosts can see.
+
+**What was recommended and what was decided**
+
+| # | Topic | Decided |
+| --- | --- | --- |
+| 1 | Who pays for a customer's check ($1.50 per completed check at Stripe) | **Founder's decision, as recommended: the company pays**, as it already does for hosts and free calls. One account normally costs $1.50, at most about $4.50 with its 3 tries. |
+| 2 | The switch for a new host | **Founder's decision, as recommended: off.** A host turns it on in one click. |
+| 3 | Where the rule lives | In the one check every request already passes before it is sent (`checkMayAsk`): "a free call, or a host with the switch on, needs a passed ID check". That covers a booked call, a call now, and the end of the card step. |
+| 4 | Requests already on their way when a host turns it on | A request already waiting stays; the host sees who has the mark and can decline. A request still at the card step ends there with the reason, and its card is removed by the helper. Nothing is declined automatically, and nothing is checked again when the host accepts or when time is added to a call. |
+| 5 | What a host sees | "ID confirmed" next to a customer who has passed, on the requests page, the "available now" panel and the page of a single request, **whether their own switch is on or off**. Nothing is shown for anyone else. Never the ID, the photos or the name on it; only a yes or no reaches the browser. |
+| 6 | Telling people what a host sees | People who passed the check before this module did so before the mark existed. The sentence "Hosts you ask for a call can see that your ID is confirmed. They never see your ID or the name on it." is on the identity page (for everyone), the account page, and both booking forms for a customer who has passed. |
+| 7 | Coming back after the check | The link to the check carries the page the customer was on; it survives the trip to Stripe and back and becomes a "Continue where you were" button. Only a path on this site is accepted, at every step, and one longer than 500 characters is dropped. |
+
+**What Astra found in the plan** (verdict "build with changes"; 10 findings, all taken)
+- The two that changed behaviour: (1) saving the switch must take the same calendar lock a request takes before it reads the host's settings, or a request could read "off" and still arrive after the host saved "on"; (2) the two booking pages did not check for a block before showing the "confirm your ID" screen, so a blocked customer could have been invited to do a check that could not help them.
+- A repair to older code found on the way: the request check looked up the customer's ID result and the founder's stop switch on a second database connection while holding the first. Both now read through the same step.
+- The rest: tell people who passed earlier what a host now sees; keep the "where to go next" address checked and short; never treat having a host profile as having passed; add the yes or no to what the "available now" panel is sent; describe the cost as a normal figure, not a guaranteed ceiling; no separate rule function; nothing needed in emails, search, contacts or the home page.
+
+**What was built**
+- One new field on a host's settings (`verified_only`, off by default) and the switch on the hosting settings page, "Who can ask you for a call".
+- The rule in `checkMayAsk`, and `verifiedAmong` (one question to the database for a whole list of customers) for the mark.
+- For the customer: a line on the host's public page; the "One thing first" screen on both booking pages, with its own words for this case; the trip to the check and back; "Your ID" on the account page.
+- For the host: the mark on the three screens where requests are answered.
+
+**Known limits of this first version**
+- Customers cannot pay for their own check, there is no "confirmed" filter in search, and a check never expires.
+- There is no daily limit on how many checks the whole site can start, and the 3-tries limit is not exact if two checks are started in the same instant. This module adds no new way in (the page was already open to anyone signed in), only more ordinary use. Worth doing before launch.
+- The admin's test-call page makes a booked call without a request, so it does not pass this rule. Only an admin can use it; it goes in the final clean-up.
+
+**What the reviewers found in the code**
+- Astra (code review; verdict "ship with changes"): nothing found in the app's own code. It confirmed that all three ways a request is sent take the same calendar locks as the switch, read the host's settings again inside that step and check before sending; that saving the switch leaves the host's other settings alone; that the way back from the check cannot be pointed at another site and its message cannot be forged; that only a yes or no about the ID reaches a host; that the mark and the rule mean the same thing; and that the database change is safe for existing hosts.
+- Its three findings were all in the journey script, and all were taken: (1) the script replaced the test host's weekly hours and did not put them back (it now restores the hours, the calendar and the "available now" state; tried with a made-up calendar, which came back unchanged); (2) switching the test host's availability off would have ended any real instant request waiting for them (the script now refuses to start while that host has requests waiting); (3) the check that the host's live page is sent "a yes or no and nothing else" would still have passed if other ID fields had been added (it now compares the exact list of fields, and the name on the test ID is different from the shown name).
+
+- CodeRabbit (pull request 15): 1 comment, taken. A customer who came back from the check logged out (the login ran out, or the check was finished on a phone where they are not logged in) was sent to the login page and from there to the home page: the result was not read at that moment and the way back to the booking was lost. (The result itself was never lost; the helper and the identity page both read it later.) This had been written down as a known limit; it turned out to be a few lines to fix. The page gate now takes an optional "come back here" address, used by the identity page and the page Stripe sends people back to, so logging in returns the customer to the same step with the booking's address still attached. Every other page calls the gate as before.
+
+**How it was checked**
+- 30 checks over 7 journeys (`scripts/verified-check.ts`) against the local database and the Stripe sandbox: the switch on and off, also for a host with no settings saved yet; with it on, a customer without a passed check refused for a booked call and for a call now, with the reason; a check passed by someone under 18 and one Stripe is still looking at do not count; a blocked customer still hears only "no longer open"; a confirmed customer gets through and carries the mark on the host's list and live page; with it off, a paying customer needs no ID, as before; the switch turned on with one request waiting (it stays and can be accepted) and one at the card step (it ends with the reason, and the helper removes the card at Stripe); a free host unchanged; a customer who passes later can ask.
+- To prove the script has teeth, the new half of the rule was taken out on purpose: 8 checks failed, and all passed again with it back.
+- 6 new automatic tests for the "where to go next" address; 242 automatic tests in all, lint, types and the build pass.
+- The eight earlier journey scripts all pass: booking 94, "call now" 73, adding time 107, ratings 73, notifications 33, safety 60, accounts 99, payments 71.
+- In a browser, with the test accounts: the host ticked the switch and saw "Saved. From now on, only people who have confirmed their ID can ask you for a call."; the public page showed the line, with "Confirm yours" for a signed-in customer who has not passed; that customer was stopped on the booking page with the right words; the link led to the identity page carrying the booking's address; after a made-up "passed" record, coming back from the check showed "Continue where you were", which opened the booking form with the sentence about what the host sees; an address pointing at another site was dropped; and the host saw "ID confirmed" on the requests page and on the single request.
+
+**What the automatic checks cannot test**
+- The real check at Stripe with a photo ID and a selfie, and the real trip there and back. It needs the restricted Stripe key that has been missing since module 5.
 
 ---
 

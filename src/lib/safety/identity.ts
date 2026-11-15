@@ -4,7 +4,7 @@
  * the ID; never the date of birth, the ID number or any picture. The result
  * is always read from Stripe, never from the browser.
  */
-import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { db, schema } from "@/db";
 import { stripe } from "@/lib/payments/stripe";
@@ -30,9 +30,11 @@ export const IDENTITY_TRIES = 3;
 
 export type IdentityState = { passed: boolean; adult: boolean | null; verifiedName: string | null; triesLeft: number; pending: boolean; checkId: string | null };
 
-/** Where this person stands. */
-export async function identityState(userId: string): Promise<IdentityState> {
-  const checks = await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, userId)).orderBy(desc(schema.identityChecks.createdAt));
+type Reader = Pick<typeof db, "select">;
+
+/** Where this person stands. Code inside a database step of its own passes that step as the reader. */
+export async function identityState(userId: string, reader: Reader = db): Promise<IdentityState> {
+  const checks = await reader.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, userId)).orderBy(desc(schema.identityChecks.createdAt));
   const passed = checks.find((c) => c.status === "verified" && c.adult === true);
   const used = checks.filter((c) => c.status !== "canceled").length;
   return {
@@ -43,6 +45,19 @@ export async function identityState(userId: string): Promise<IdentityState> {
     triesLeft: Math.max(0, IDENTITY_TRIES - used),
     pending: checks.some((c) => c.status === "started" || c.status === "processing"),
   };
+}
+
+/**
+ * Which of these people have passed, for the "ID confirmed" mark a host sees. The same test as
+ * identityState's "passed": a verified check by an adult. One question for the whole list.
+ */
+export async function verifiedAmong(userIds: string[]): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const rows = await db
+    .selectDistinct({ userId: schema.identityChecks.userId })
+    .from(schema.identityChecks)
+    .where(and(inArray(schema.identityChecks.userId, userIds), eq(schema.identityChecks.status, "verified"), eq(schema.identityChecks.adult, true)));
+  return new Set(rows.map((row) => row.userId));
 }
 
 /** Starts a check at Stripe and returns the address of Stripe's page. Each person gets a few tries. */

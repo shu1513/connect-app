@@ -11,6 +11,7 @@ import { Rating } from "@/components/rating";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { averageFor } from "@/lib/ratings/ratings";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { identityState } from "@/lib/safety/identity";
 import { getUser } from "@/lib/session";
 
 // Always built fresh, so hiding or suspending a profile takes effect at once.
@@ -49,6 +50,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
   const now = offer ? await instantOffer(profile.userId, new Date()) : null;
   const rating = await averageFor(profile.userId, "host", new Date());
+  // A signed-in visitor who would be stopped at the booking page is offered the ID check here already.
+  const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">
@@ -97,6 +100,19 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           {profile.pricePer15Cents === 0 ? "Free private video call" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}
         </p>
         <p className="mt-1 text-sm opacity-70">A private one-to-one video call. {CANCEL_RULE[profile.freeCancelMinutes] ?? ""}</p>
+        {offer?.verifiedOnly && (
+          <p className="mt-2 text-sm">
+            {profile.displayName} only takes calls from people who have confirmed their ID.
+            {offerIdCheck && (
+              <>
+                {" "}
+                <Link href={`/identity?next=${encodeURIComponent(`/h/${profile.handle}`)}`} className="underline underline-offset-2">
+                  Confirm yours
+                </Link>
+              </>
+            )}
+          </p>
+        )}
       </section>
 
       {now && (
