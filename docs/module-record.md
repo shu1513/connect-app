@@ -28,7 +28,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
 | 10. Connection check before a call | Planned (`plans/12-connection-check.md`); to be built later (founder, 15 November). A first part is on the branch `module/connection-check`. |
-| 11. Refund requests, taking the money later, and a record of call quality | Built; pull request open. A real two-person call and a real card's hold from start to finish still need a friend test. |
+| 11. Refund requests, taking the money later, and a record of call quality | Built and merged. A real two-person call on a bad connection and a real card's hold from start to finish still need a friend test; the outside health watcher comes with the hosting. |
 | 12. Hosts collect their earnings when they want | Built and merged. Stripe's test area only; a real payout to a bank has not happened yet. |
 
 ---
