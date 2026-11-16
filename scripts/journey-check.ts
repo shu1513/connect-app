@@ -194,15 +194,24 @@ async function main() {
       check("the Hosting page opens with a \"Getting started\" list", start.status === 200 && start.words.includes("Getting started") && start.words.includes("1. Fill in your profile and send it for approval."), String(start.status));
       await profiles.createHostProfile(host.id, { handle, displayName: `Jo Journey ${RUN}`, about: "Here to talk.", pricePer15Cents: 0, usConfirmed: true });
       const sent = await page("/host", host.jar);
-      check("with the profile sent, the list says the ID check comes before approval", sent.words.includes("We look at your profile once you have confirmed who you are (step 2)."));
+      check("with the profile sent, the list says the ID check and a proven account come before approval", sent.words.includes("3. Prove one social media account: Instagram, TikTok, YouTube or X. Your social media accounts") && sent.words.includes("We look at your profile once you have confirmed who you are (step 2) and proven one social media account (step 3)."));
       check("a free host is not asked to set up payouts", !sent.words.includes("Set up payouts, so you can be paid for calls."));
       check("the page is not public yet", (await page(`/h/${handle}`)).status === 404);
 
       await passIdCheck(host);
-      check("with the ID confirmed, the list says the profile is being looked at", (await page("/host", host.jar)).words.includes("We look at every profile ourselves. You will get an email with the answer."));
+      check("with the ID confirmed, the list says a proven account is still missing", (await page("/host", host.jar)).words.includes("We look at your profile once you have proven one social media account (step 3)."));
 
       const [admin] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, "admin@test.local"));
       const approve = () => profiles.decideProfile({ userId: host.id, decision: "approved", by: admin?.id ?? host.id, seen: { displayName: `Jo Journey ${RUN}`, about: "Here to talk." } });
+      check("without a proven account the founder cannot approve", (await approve().then(() => null, (e: unknown) => e)) instanceof profiles.ProfileError && (await page(`/h/${handle}`)).status === 404);
+
+      // The host proves an account with the code, and the founder confirms it.
+      await profiles.addSocialName(host.id, "youtube", `@jrn-${RUN}`);
+      const [claim] = await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, host.id));
+      check("the Hosting page shows the code to put in the account's bio", (await page("/host", host.jar)).words.includes(claim.code));
+      await profiles.markSocialNameReady(host.id, claim.id);
+      await profiles.confirmSocialName({ id: claim.id, nameKey: claim.nameKey, code: claim.code, by: admin?.id ?? host.id });
+      check("with the ID and the account confirmed, the list says the profile is being looked at", (await page("/host", host.jar)).words.includes("We look at every profile ourselves. You will get an email with the answer."));
       await approve();
       await approve(); // the founder presses the button twice
       const mail = await emailTo(host.email, "Your Connect page is approved");
@@ -464,6 +473,7 @@ async function main() {
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `journey-${RUN}-%`));
     if (made.length) {
       await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, made));
+      await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, made));
       await db.delete(schema.session).where(inArray(schema.session.userId, made));
       await db.update(schema.hostProfiles).set({ status: "suspended", hidden: true }).where(inArray(schema.hostProfiles.userId, made));
     }

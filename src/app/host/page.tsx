@@ -57,18 +57,28 @@ export default async function HostPage(props: PageProps<"/host">) {
   // "Getting started": what a new host has to do before anyone can ask for a call, in order. It reads what is already stored.
   const { hours } = await hoursAndTimeOff(user.id, now);
   const paid = profile ? profile.pricePer15Cents > 0 : false;
+  const proven = socials.some((social) => social.confirmedAt);
   const steps: Array<{ done: boolean; text: string; note?: string; href?: string; go?: string }> = [
     { done: Boolean(profile), text: "Fill in your profile and send it for approval.", href: "#profile", go: "Your host profile" },
     { done: identity.passed, text: "Confirm who you are, with a photo of your ID and a selfie.", href: "/identity?next=%2Fhost", go: "Start the check" },
     {
+      done: proven,
+      text: "Prove one social media account: Instagram, TikTok, YouTube or X.",
+      ...(profile ? { href: "#social", go: "Your social media accounts" } : { note: "You can do this once your profile is sent (step 1)." }),
+    },
+    {
       done: profile?.status === "approved",
       text: "We approve your page.",
       note: !profile
-        ? "This comes after steps 1 and 2."
+        ? "This comes after steps 1, 2 and 3."
         : profile.status === "pending"
-          ? identity.passed
+          ? identity.passed && proven
             ? "We look at every profile ourselves. You will get an email with the answer."
-            : "We look at your profile once you have confirmed who you are (step 2)."
+            : !identity.passed && !proven
+              ? "We look at your profile once you have confirmed who you are (step 2) and proven one social media account (step 3)."
+              : !identity.passed
+                ? "We look at your profile once you have confirmed who you are (step 2)."
+                : "We look at your profile once you have proven one social media account (step 3)."
           : profile.status === "declined"
             ? "Not approved as it is. Change your profile below and we look at it again."
             : profile.status === "suspended"
@@ -240,11 +250,12 @@ export default async function HostPage(props: PageProps<"/host">) {
       </section>
 
       {profile && (
-        <section className="mt-10">
+        <section id="social" className="mt-10 scroll-mt-4">
           <h2 className="text-lg font-semibold">Your social media accounts</h2>
           <p className="mt-2 text-sm opacity-70">
-            Show people that you are the real owner of your accounts. Add an account, put the code we give you in that
-            account&apos;s bio, and we will confirm it. Only confirmed accounts are shown on your page.
+            People find you by these names, and we use one of them to check that you are you. Your page needs at least one
+            confirmed account before we can approve it. Add an account, put the code we give you in that account&apos;s bio,
+            and we will confirm it. Only confirmed accounts are shown on your page.
           </p>
           {socials.length > 0 && (
             <ul className="mt-3 space-y-3">

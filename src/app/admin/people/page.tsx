@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { and, asc, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
@@ -52,6 +52,14 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
   for (const { profile } of profiles) identity.set(profile.userId, await identityState(profile.userId));
   const waiting = profiles.filter((p) => p.profile.status === "pending");
   const others = profiles.filter((p) => p.profile.status !== "pending");
+  // The confirmed accounts of each waiting host: what the founder compares the name and the handle with.
+  const confirmed = waiting.length
+    ? await db
+        .select({ userId: schema.socialAccounts.userId, network: schema.socialAccounts.network, nameKey: schema.socialAccounts.nameKey, url: schema.socialAccounts.url })
+        .from(schema.socialAccounts)
+        .where(and(inArray(schema.socialAccounts.userId, waiting.map((p) => p.profile.userId)), isNotNull(schema.socialAccounts.confirmedAt)))
+        .orderBy(schema.socialAccounts.network)
+    : [];
   const button = "rounded border border-neutral-500 px-3 py-1.5";
   const primary = "rounded bg-blue-600 px-3 py-1.5 font-medium text-white";
 
@@ -72,7 +80,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
 
       <h2 className="mt-8 text-lg font-semibold">Host profiles waiting for approval ({waiting.length})</h2>
       <p className="mt-1 text-sm opacity-70">
-        A profile is not public until you approve it. Check that the person is not posing as someone else.
+        A profile is not public until you approve it. Check that the person is not posing as someone else: do the name
+        and the handle fit the confirmed accounts?
       </p>
       {waiting.length === 0 ? (
         <p className="mt-3 text-sm opacity-70">Nothing is waiting.</p>
@@ -90,6 +99,25 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                 {identity.get(profile.userId)?.passed
                   ? `Identity confirmed. Name on the ID: ${identity.get(profile.userId)?.verifiedName ?? "(not given)"}.`
                   : "Identity not confirmed yet: this profile cannot be approved until it is."}
+              </p>
+              <p className="mt-1">
+                {confirmed.some((account) => account.userId === profile.userId) ? (
+                  <>
+                    Confirmed accounts:{" "}
+                    {confirmed
+                      .filter((account) => account.userId === profile.userId)
+                      .map((account, index) => (
+                        <span key={account.network}>
+                          {index > 0 && ", "}
+                          <a href={account.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                            {isNetwork(account.network) ? NETWORKS[account.network].label : account.network} @{account.nameKey}
+                          </a>
+                        </span>
+                      ))}
+                  </>
+                ) : (
+                  "No confirmed social media account yet: this profile cannot be approved until there is one."
+                )}
               </p>
               <p className="mt-1">
                 {profile.pricePer15Cents === 0 ? "Free calls" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}

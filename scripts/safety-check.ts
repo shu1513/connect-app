@@ -302,8 +302,10 @@ async function main() {
       await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, newHost.id));
       const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, newHost.id));
       const approve = () => decideProfile({ userId: newHost.id, decision: "approved", by: adminUser.id, seen: { displayName: profile.displayName, about: profile.about } });
+      // The host has a confirmed social media account already, so what stops the approval here is the identity check.
+      await db.insert(schema.socialAccounts).values({ userId: newHost.id, network: "youtube", nameTyped: `sf-${RUN}`, nameKey: `sf-${RUN}`, url: `https://example.test/sf-${RUN}`, code: `connect-${randomUUID().slice(0, 10)}`, codeExpiresAt: now, claimedAt: now, confirmedAt: now });
       const before = await approve().catch((e) => e);
-      check("a profile cannot be approved before the identity check passes", before instanceof ProfileError);
+      check("a profile cannot be approved before the identity check passes", before instanceof ProfileError && before.message.includes("identity check"));
 
       const url = await startIdentityCheck(newHost, "https://example.com/return");
       check("a check can be started at Stripe and gives a page to go to", url.startsWith("https://"));
@@ -366,6 +368,7 @@ async function main() {
     await db.delete(schema.reports).where(or(inArray(schema.reports.reporterId, ids), inArray(schema.reports.reportedId, ids)));
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
     await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, ids));
+    await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `safetycheck-${RUN}-%`));
     for (const id of made) await db.update(schema.hostProfiles).set({ status: "suspended", hidden: true }).where(eq(schema.hostProfiles.userId, id));
   }

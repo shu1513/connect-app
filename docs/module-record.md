@@ -844,6 +844,40 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 
 ---
 
+## A later change: a host needs one confirmed social media account (plan 16, part 1)
+
+**The founder's question (15 November 2026).** How do we make sure an influencer is who they say they are? Could a host connect their Instagram, so that one Instagram account belongs to one host and customers find the host by that name? The plan is `plans/16-proven-social-accounts.md`.
+
+**What was there already** (modules 3 and 8): a host can add a name on Instagram, TikTok, YouTube or X and prove it with a code in that account's bio, which the founder confirms; a name can be confirmed for one host only; only confirmed names are shown; search finds a host by a confirmed name. What was missing: proving an account was optional.
+
+**The founder's decisions.** A host must prove at least one account, on any of the four networks, before they can be approved. The ID check for hosts stays (the founder first chose to drop it and reversed the same day: it is the only proof that a host is 18 or older). Instagram is a proof, not the way to sign in.
+
+**What changed**
+- **Approval** asks for one confirmed social media account as well as the passed ID check. The founder's page shows each waiting host's confirmed accounts as links, to compare with the name and the handle, and says so when there is none.
+- **An approved host cannot remove their last confirmed account**, or give it a different name (which would start the proof again). They are told why. A host who is not approved can change their accounts freely, because approval looks again.
+- **For a host,** "Getting started" has a new step 3, "Prove one social media account", and the note under "We approve your page" says which of the two (ID, account) is still missing.
+- **A gap closed on the way:** a profile could be approved after its account had been closed, and would have been public the moment the account was opened again. Approving a closed account is refused.
+- **Small:** pressing "Remove" used to say "removed" whatever happened. It now shows a refusal, and otherwise says the account is no longer on the profile (true also for a second press).
+- Nothing changed in the database. Hosts approved before this change (test accounts only) stay approved.
+
+**Part 2 of the plan, "Connect your Instagram", is not built.** It was planned against Meta's "log in with Instagram". When the founder's Meta developer account and app were made, Meta's own page said: "API setup with Instagram login is not available for newer apps". The replacement ("Unified login") needs the app to sit in a Meta business portfolio, sends the host through a business-style sign-in, and its ready-made set-up asks the host for far more than a name (their ads, messages and posts). The founder then asked that confirming happen by itself, with nothing to confirm by hand. That is the next piece of work and gets its own plan; what was learned is in the plan under "What changed while building". Until then an account is confirmed as before: the founder looks at the bio and presses "confirm".
+
+**Done at Meta the same day, with the founder's go-ahead:** a Meta developer account; an app named "Connect" (Instagram use case); the app connected to the founder's existing business portfolio (after a security check the founder passed); the founder's own Instagram account added to the app as a tester and the invitation accepted. No keys were created or stored.
+
+**Astra's check of the plan:** ready with changes, 12 points, all worked in (they are listed at the end of the plan). The most important: tie the return from Instagram to the person who started; take the profile's lock before reading the accounts; protect the last account only for approved hosts.
+
+**Astra's review of the code:** ship with changes. It confirmed that approval, removal, renaming and profile editing wait for each other, that nothing else in the app approves a profile or changes social accounts, and that a closure always wins over an approval. Its points:
+1. *Taken.* An approval and the adding of an account on another network could block each other for good (a deadlock): the approval held the person's row in a way that made the new account wait. The person's row is now locked more gently, and first, in every step.
+2. *Taken, with the same change.* For a person with no profile yet nothing was locked, so a profile made and approved in that instant could have lost its only account. The person's row is locked also then.
+3. *Taken.* The accounts script's clean-up could still stop half way (a profile one test person decided on points at that person). Profiles are removed for everyone first.
+4. *Taken.* The "at the same moment" checks accepted any failure as a pass. Each now names the one outcome it may have and the reason for the refusal. A check was added for the deadlock in point 1.
+5. *Not taken.* A host approved before this change sees the new step as still to do, under a sentence saying people can ask once every step is done. Only test accounts are in that state, and no real host can get into it.
+6. *Taken.* The message after "Remove" (above).
+
+**How it was checked:** 319 automatic tests, lint, types, build. The accounts script (116 checks; new: no approval without a confirmed account, without the ID check, or with an account still waiting; approval with both; the last account of an approved host cannot be removed or renamed, and the reason is said; an unconfirmed one can always go; two removals at the same moment; an approval and a removal at the same moment; adding accounts while the founder approves; a host who is not approved can remove theirs and then cannot be approved; a closed account's profile cannot be approved). The whole-journey script (63: the new step and its notes on the Hosting page, the founder refused without a proven account, the code shown, approval after the founder's "confirm"). The safety script (60: a missing ID check still refuses, now with an account already confirmed). The other nine scripts unchanged and passing: notifications 33, booking 116, "call now" 74, adding time 114, ratings 73, verified customers 30, refund requests 112, connection 27, payments 145. By hand in a browser: the Hosting page (the new step, adding an account, the refusal when removing the last one, phone size) and the founder's page (a waiting host with two confirmed accounts as links, one with none, and the refusal when approving that one).
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.

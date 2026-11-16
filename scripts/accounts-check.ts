@@ -285,7 +285,16 @@ async function main() {
     const host = await newPerson("host");
     const copycat = await newPerson("copycat");
     // Approval needs a passed identity check (safety module); test people get one directly.
-    await db.insert(schema.identityChecks).values({ userId: host.id, stripeSessionId: `vs_acct_${RUN}`, status: "verified", adult: true, verifiedName: host.name, checkedAt: new Date() });
+    const passId = (person: { id: string; name: string }) =>
+      db.insert(schema.identityChecks).values({ userId: person.id, stripeSessionId: `vs_acct_${randomUUID()}`, status: "verified", adult: true, verifiedName: person.name, checkedAt: new Date() });
+    await passId(host);
+    // Approval also needs one confirmed social media account; this writes one as the founder's "confirm" would leave it.
+    const prove = (userId: string, network: string, nameKey: string) =>
+      db.insert(schema.socialAccounts).values({ userId, network, nameTyped: nameKey, nameKey, url: `https://example.test/${network}/${nameKey}`, code: `connect-${randomUUID().slice(0, 10)}`, codeExpiresAt: new Date(Date.now() + 86_400_000), claimedAt: new Date(), confirmedAt: new Date() });
+    const refusedWith = async (work: Promise<unknown>, words: string) => {
+      const problem = await work.then(() => null).catch((e) => e);
+      return problem instanceof ProfileError && problem.message.includes(words);
+    };
     {
       const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, usConfirmed: true };
       check("a blocked handle is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "admin" })));
@@ -311,6 +320,8 @@ async function main() {
       check("two people grabbing look-alike handles at the same moment: exactly one gets it", raced.filter((r) => r.status === "fulfilled").length === 1);
 
       check("not public while waiting for approval", (await page(handle)).status === 404);
+      check("with the ID check passed but no confirmed social media account, it cannot be approved", (await refusedWith(approve(host.id), "no confirmed social media account")) && (await page(handle)).status === 404);
+      await prove(host.id, "youtube", `chk-yt-${RUN}`);
       await approve(host.id);
       const shown = await page(handle);
       check("public once approved, without logging in", shown.status === 200 && shown.text.includes("Check Host"), String(shown.status));
@@ -385,6 +396,89 @@ async function main() {
       check("a link to a post is not taken for an account", await refused(profiles.addSocialName(copycat.id, "instagram", "https://www.instagram.com/p/Cabc123/")));
       check("saying \"the code is not there\" for an old request does not touch the new one", await refused(profiles.rejectSocialName({ id: changed.id, nameKey: name, code: first.code })));
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n6b. One confirmed account, before approval and after");
+    await freshLimits();
+    {
+      const LAST = "needs one confirmed account";
+      const statusOf = async (userId: string) => (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)))[0].status;
+      const accounts = (userId: string) => db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, userId)).orderBy(schema.socialAccounts.network);
+      const confirmedOf = async (userId: string) => (await accounts(userId)).filter((a) => a.confirmedAt !== null);
+      const newHost = async (label: string) => {
+        const person = await newPerson(label);
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, usConfirmed: true });
+        return person;
+      };
+
+      const accountOnly = await newHost("acct");
+      await prove(accountOnly.id, "youtube", `acct-${RUN}`);
+      check("a confirmed account but no ID check: cannot be approved", (await refusedWith(approve(accountOnly.id), "identity check")) && (await statusOf(accountOnly.id)) === "pending");
+
+      const ana = await newHost("ana");
+      await passId(ana);
+      await profiles.addSocialName(ana.id, "tiktok", `wait.${RUN}`);
+      const [waitingClaim] = await accounts(ana.id);
+      await profiles.markSocialNameReady(ana.id, waitingClaim.id);
+      check("an account that is waiting to be confirmed does not count", (await refusedWith(approve(ana.id), "no confirmed social media account")) && (await statusOf(ana.id)) === "pending");
+      await profiles.confirmSocialName({ id: waitingClaim.id, nameKey: waitingClaim.nameKey, code: waitingClaim.code, by: host.id });
+      await approve(ana.id);
+      check("once the founder has confirmed it, the profile can be approved", (await statusOf(ana.id)) === "approved");
+
+      check("an approved host cannot remove their last confirmed account, and is told why", (await refusedWith(profiles.removeSocialName(ana.id, waitingClaim.id), LAST)) && (await confirmedOf(ana.id)).length === 1);
+      check("nor give it a different name, which would start the proof again", (await refusedWith(profiles.addSocialName(ana.id, "tiktok", `other.${RUN}`), LAST)) && (await confirmedOf(ana.id))[0]?.nameKey === `wait.${RUN}`);
+      await profiles.addSocialName(ana.id, "tiktok", `@WAIT.${RUN}`);
+      check("typing the same name again changes nothing", (await confirmedOf(ana.id)).length === 1);
+      await profiles.addSocialName(ana.id, "x", `x${RUN}`);
+      const pendingX = (await accounts(ana.id)).find((a) => a.network === "x")!;
+      await profiles.removeSocialName(ana.id, pendingX.id);
+      check("an account that is not confirmed can always be removed", (await accounts(ana.id)).length === 1);
+      await profiles.removeSocialName(ana.id, randomUUID());
+      await profiles.removeSocialName(host.id, waitingClaim.id);
+      check("removing an account that is not there, or someone else's, changes nothing", (await confirmedOf(ana.id)).length === 1);
+
+      await prove(ana.id, "youtube", `ana-${RUN}`);
+      const two = await confirmedOf(ana.id);
+      const both = await Promise.allSettled(two.map((a) => profiles.removeSocialName(ana.id, a.id)));
+      const refusedAsLast = (r: PromiseSettledResult<unknown>) => r.status === "rejected" && r.reason instanceof ProfileError && r.reason.message.includes(LAST);
+      check("with two confirmed accounts, two removals at the same moment: one goes, one is refused as the last one", both.filter((r) => r.status === "fulfilled").length === 1 && both.filter(refusedAsLast).length === 1 && (await confirmedOf(ana.id)).length === 1, both.map((r) => r.status).join(" "));
+
+      await prove(ana.id, "x", `x2${RUN}`);
+      const [toReplace] = await confirmedOf(ana.id);
+      await profiles.addSocialName(ana.id, toReplace.network, `fresh.${RUN}`.replace(/\./g, toReplace.network === "x" ? "_" : "."));
+      check("with two confirmed accounts, one can be given a new name", (await confirmedOf(ana.id)).length === 1 && (await accounts(ana.id)).length === 2);
+
+      await profiles.decideProfile({ userId: ana.id, decision: "declined", by: host.id });
+      const [lastOne] = await confirmedOf(ana.id);
+      await profiles.removeSocialName(ana.id, lastOne.id);
+      check("a host who is not approved can remove their last confirmed account", (await confirmedOf(ana.id)).length === 0);
+      check("and then cannot be approved again, also from the list of other profiles", (await refusedWith(approve(ana.id), "no confirmed social media account")) && (await statusOf(ana.id)) === "declined");
+
+      // An approval and the removal of the only confirmed account at the same moment, several times over.
+      // Whichever gets there first wins, and the other is refused for exactly that reason. (Which one is
+      // first is left to chance here; the rule itself is that both wait for the same locks.)
+      const outcomes: string[] = [];
+      for (let round = 0; round < 4; round++) {
+        const racer = await newHost(`race${round}`);
+        await passId(racer);
+        await prove(racer.id, "youtube", `race${round}-${RUN}`);
+        const [only] = await confirmedOf(racer.id);
+        const [approval, removal] = await Promise.allSettled([approve(racer.id), profiles.removeSocialName(racer.id, only.id)]);
+        const because = (r: PromiseSettledResult<unknown>, words: string) => r.status === "rejected" && r.reason instanceof ProfileError && r.reason.message.includes(words);
+        const status = await statusOf(racer.id);
+        const left = (await confirmedOf(racer.id)).length;
+        if (approval.status === "fulfilled" && because(removal, LAST) && status === "approved" && left === 1) outcomes.push("approved, the account kept");
+        else if (removal.status === "fulfilled" && because(approval, "no confirmed social media account") && status === "pending" && left === 0) outcomes.push("removed, not approved");
+        else outcomes.push(`UNEXPECTED ${approval.status} ${removal.status} ${status} ${left}`);
+      }
+      check("an approval and a removal at the same moment: one wins, the other is refused for that reason, and no approved host is left without an account", outcomes.every((o) => !o.startsWith("UNEXPECTED")), outcomes.join("; "));
+      // Adding an account on another network while the founder approves: both go through (this deadlocked before the person's row was locked the gentler way).
+      const adder = await newHost("adder");
+      await passId(adder);
+      await prove(adder.id, "youtube", `adder-${RUN}`);
+      const together = await Promise.allSettled([approve(adder.id), profiles.addSocialName(adder.id, "tiktok", `adder.${RUN}`), profiles.addSocialName(adder.id, "x", `ad${RUN}`)]);
+      check("adding accounts while the founder approves: all go through", together.every((r) => r.status === "fulfilled") && (await statusOf(adder.id)) === "approved" && (await accounts(adder.id)).length === 3, together.map((r) => r.status).join(" "));
+    }
     // ----------------------------------------------------------------------
     console.log("\n7. Doors that must stay shut");
     await freshLimits();
@@ -446,6 +540,7 @@ async function main() {
       check("and nobody is charged for them", payment.status === "closed_uncharged" && freeCall.pricePer15Cents === 0, payment.status);
       check("closing twice is refused", await refused(closing.closeAccount({ userId: host.id, by: admin.userId })));
 
+      check("a closed account's profile cannot be approved", (await refusedWith(approve(host.id), "account is closed")) && (await page(handle)).status === 404);
       await closing.reopenAccount(host.id);
       check("after opening it again they can log in", (await api("/sign-in/email", { email: host.email, password }, new Map())).status === 200);
       check("but the profile stays suspended until approved again", (await page(handle)).status === 404);
@@ -461,10 +556,14 @@ async function main() {
         await db.delete(schema.calls).where(eq(schema.calls.id, call.id));
       }
     }
+    // First, for everyone: an account one test person confirmed for another, and a profile one decided
+    // on for another, point at that person.
+    if (ids.length > 0) {
+      await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
+      await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
+    }
     for (const id of ids) {
       await db.delete(schema.identityChecks).where(eq(schema.identityChecks.userId, id));
-      await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
-      await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));
       await removeTestsOf([id]);
       await db.delete(schema.user).where(eq(schema.user.id, id));
