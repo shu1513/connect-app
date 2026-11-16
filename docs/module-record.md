@@ -737,13 +737,13 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 
 | Question | Decided |
 | --- | --- |
-| How long before a call's money can be collected | 2 days after the call, down from 7. |
+| How long before a call's money can be collected | 2 days after the call, down from 7. **Changed by the founder on 16 November 2026, after modules 10 to 12 were merged:** 24 hours after the call when the customer did not ask for a refund. With a refund request it stays 2 days, and never before the host has answered. See "A later change" below. |
 | Who starts the payment | The host, with a button. No automatic weekly payday any more. |
 | How often | Once every 24 hours, counted from the host's last collection. |
 | Money nobody collects | Still open. For now the founder sees it on the admin page and settles it by hand. A safety net (send it automatically after 30 days) is recommended by the builder and not built. |
 
 **What was built**
-- **The date.** A host's share is ready 2 days after the call ends, to the minute, and never before the charge is recorded. It is fixed when the charge is recorded and never moved. Charges made before this change keep the payday date they had and are collected with the button from that date on.
+- **The date.** A host's share is ready 2 days after the call ends, to the minute, and never before the charge is recorded. (Since 16 November 2026: 24 hours when the customer did not ask for a refund; see "A later change" below.) It is fixed when the charge is recorded and never moved. Charges made before this change keep the payday date they had and are collected with the button from that date on.
 - **The button.** On Hosting, under "Getting paid": what is ready (with the amount that will be sent after the 25-cent charge), what is not ready yet and why for each call, and the result of the last collection as it really stands: sent, being checked, could not be sent. It also says when the host can collect again, and that Stripe pays the bank on its own schedule.
 - **One collection is a record of its own.** A press is accepted in one locked step: the same press arriving twice gets the collection it already made, the 24 hours are checked, and every share that is ready is locked, checked once more and written down as "being sent" with its exact amount, all before Stripe is asked. So two presses at once make one collection, and a crash never leaves a press that half happened.
 - **What holds a share back:** being inside its 2 days, a bank dispute, a refund on its way, a money action whose outcome is not known yet, and a message from Stripe about a dispute that has not been handled. The payout account is checked with Stripe at the moment of the press.
@@ -781,6 +781,22 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 **CodeRabbit's review (pull request 19):** one comment, on this record itself, and it was right. The record said the helper finishes every transfer without the host pressing again. That is not so for a transfer the helper only reaches more than 23 hours later: if Stripe never made it, the share is ready again and goes out with the host's next collection. The code already did this and the check script tests it; the sentence above and two notes in the code now say it.
 
 **What the checks cannot cover:** Stripe's real timing for paying a host's bank, and whether Stripe's own rules allow the money to sit for long. A real payout to a real bank has not happened yet (Stripe's test area only).
+
+---
+
+## A later change: a host's share is ready after 24 hours when nobody asked for a refund
+
+**The founder's decision (16 November 2026).** Asked whether a host can collect 24 hours after a call when the customer did not ask for a refund, the builder answered that it was 2 days, and recommended keeping 2 days until real calls show how often something goes wrong after a charge. The founder decided: 24 hours when the customer has not asked for a refund.
+
+**What changed**
+- A host's share is ready **24 hours after the call ends** when there is no refund request on the call, and never before the charge is recorded. The money for such a call is taken 24 hours and 10 minutes after it, so the share is ready the moment it is taken.
+- With a refund request on the call nothing changes: 2 days after the call, never before the charge is recorded, and never before the host has answered.
+- Whether there is a request is looked at once, when the charge is recorded, in the same step; the date is then fixed, as before. (One edge: a charge the founder makes after a review inside the customer's 24 hours gets the 24-hour date; if the customer then asks, the request still holds the money until the host answers.)
+- The Hosting page says so.
+
+**What this gives up, said plainly.** Once a host has collected, the app cannot refund that charge and cannot take the money back from the host. With 2 days there was a day between the charge and the earliest collection in which a host could still refund through the app, and in which a bank dispute or a changed record could still be noticed. For a call nobody asked about, that day is gone: a host can collect at the moment the customer is charged. The customer's own 24 hours to ask are untouched, and a bank dispute that arrives later is a loss Connect carries, as before.
+
+**How it was checked:** the rule's own tests (24 hours without a request, 2 days with one, never before the charge); the payments, added-time, whole-journey and refund scripts, each now checking the date it expects.
 
 ---
 

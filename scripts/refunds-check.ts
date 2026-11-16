@@ -193,6 +193,7 @@ async function main() {
     const req = await requestOf(full);
     const toCustomer = await mail(`refund-request:${req.id}:answer`);
     check("the answer is saved with who gave it, and the customer is told, with the message", req.status === "answered" && req.decidedBy === host.id && req.decidedAs === "host" && toCustomer?.to === customer.email && toCustomer.body.includes("Everything worked on my side."));
+    check("with a refund request on the call, the host's share is ready 2 days after it, not 1", p.transferDueAt?.getTime() === after(full, 2 * DAY).getTime(), String(p.transferDueAt?.toISOString()));
     check("the first answer stands", (await problem(answer(full, 130, one(full, "nothing")))) instanceof RequestError && (await problem(R.declineRequest({ callId: full.call.id, by: host.id, as: "host", message: null }))) instanceof RequestError);
 
     const less = await paid();

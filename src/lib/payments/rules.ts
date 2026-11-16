@@ -216,18 +216,33 @@ export function takeDecision(input: {
 // Collecting. There is no payday: a host takes their earnings with a button.
 // ---------------------------------------------------------------------------
 
-/** A charge's share can be collected this long after the call ends. */
-export const COLLECT_AFTER_MS = 2 * DAY_MS;
+/**
+ * A charge's share can be collected this long after the call ends when the customer did not ask for a
+ * refund. That is the customer's time to ask: once it is over and the money has been taken, the host
+ * need not wait any longer.
+ */
+export const COLLECT_AFTER_MS = DAY_MS;
+/** With a refund request on the call, the wait stays longer (and the host must have answered first). */
+export const COLLECT_AFTER_REQUEST_MS = 2 * DAY_MS;
 /** A host can collect once in this long, counted from their last collection. */
 export const COLLECT_EVERY_MS = DAY_MS;
 
 /**
- * When the host's share of a charge can be collected: 2 days after the call
- * ends, and never before the charge is recorded. Worked out once, at the
- * moment the charge is recorded, and never moved afterwards.
+ * When the host's share of a charge can be collected: 24 hours after the call
+ * ends when the customer did not ask for a refund, 2 days after it when they
+ * did, and never before the charge is recorded. Since the money is taken 24
+ * hours and 10 minutes after a call nobody asked about, such a share is ready
+ * the moment its charge is recorded. Worked out once, at that moment, and
+ * never moved afterwards.
  */
-export function readyToCollectAt(input: { callEndsAt: Date; chargedAt: Date }): Date {
-  return new Date(Math.max(input.callEndsAt.getTime() + COLLECT_AFTER_MS, input.chargedAt.getTime()));
+export function readyToCollectAt(input: {
+  callEndsAt: Date;
+  chargedAt: Date;
+  /** Whether the customer has asked for a refund on this call, as it stands when the charge is recorded. */
+  refundAsked: boolean;
+}): Date {
+  const wait = input.refundAsked ? COLLECT_AFTER_REQUEST_MS : COLLECT_AFTER_MS;
+  return new Date(Math.max(input.callEndsAt.getTime() + wait, input.chargedAt.getTime()));
 }
 
 /** The earliest moment a host can collect again, or null if they never have. */

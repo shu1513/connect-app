@@ -253,17 +253,26 @@ describe("when the money for a call is taken", () => {
 });
 
 describe("when a share can be collected", () => {
-  // The call ended Wed 13 Jan 10:00. Two days later is Fri 15 Jan 10:00.
+  // The call ended Wed 13 Jan 10:00.
+  const ONE_DAY = at("2027-01-14T10:00:00Z");
   const TWO_DAYS = at("2027-01-15T10:00:00Z");
 
-  it("is 2 days after the call ends, to the minute, on any day of the week", () => {
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T10:05:00Z") })).toEqual(TWO_DAYS);
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-14T10:10:00Z") })).toEqual(TWO_DAYS);
+  it("nobody asked for a refund: 24 hours after the call ends, and not before the charge is recorded", () => {
+    // A charge recorded early (a late cancellation, a charge after a review) waits for the 24 hours.
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T10:05:00Z"), refundAsked: false })).toEqual(ONE_DAY);
+    // The usual case: the money is taken 24 hours and 10 minutes after the call, and the share is ready at that moment.
+    const taken = at("2027-01-14T10:10:00Z");
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: taken, refundAsked: false })).toEqual(taken);
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: ONE_DAY, refundAsked: false })).toEqual(ONE_DAY);
   });
-  it("is not before the charge is recorded, when that happens after the 2 days", () => {
+  it("the customer asked for a refund: 2 days after the call ends, to the minute, on any day of the week", () => {
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T12:00:00Z"), refundAsked: true })).toEqual(TWO_DAYS);
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-14T10:10:00Z"), refundAsked: true })).toEqual(TWO_DAYS);
+  });
+  it("with a request too, not before the charge is recorded, when that happens after the 2 days", () => {
     const late = at("2027-01-15T10:10:00Z");
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: late })).toEqual(late);
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: TWO_DAYS })).toEqual(TWO_DAYS);
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: late, refundAsked: true })).toEqual(late);
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: TWO_DAYS, refundAsked: true })).toEqual(TWO_DAYS);
   });
   it("just before the moment it is held back, and exactly at it it is not", () => {
     const share = { readyAt: TWO_DAYS, disputeOpen: false, refundOnItsWay: false, actionUnfinished: false };

@@ -325,7 +325,8 @@ export default async function HostPage(props: PageProps<"/host">) {
           <>
             <p className="mt-2 text-sm text-green-700">Your payout account is ready. You can host paid calls.</p>
             <p className="mt-1 text-sm opacity-70">
-              You collect your earnings yourself, with the button below. The money for a call is ready 2 days after the call, and you can
+              You collect your earnings yourself, with the button below. The money for a call is ready about 24 hours after the call (2
+              days after it when the customer asked for a refund, and not before you have answered them), and you can
               collect once every 24 hours. Our fee is 4.9% plus 30 cents per paid call (1.5% more when the customer&apos;s card is from
               outside the United States), and 25 cents each time you collect.
             </p>

@@ -1,5 +1,7 @@
 # Plan 14: Hosts collect their earnings when they want
 
+**Changed after this plan was built (16 November 2026, the founder's decision):** a share is ready 24 hours after the call when the customer did not ask for a refund; with a request it stays 2 days. See "A later change" in `docs/module-record.md`.
+
 **Status:** built (branch `module/collect-earnings`); what was built, the reviews and the checks
 are in `docs/module-record.md` under "Module 12". The plan below is the third version (16 November
 2026). Astra checked the second version (approve with changes); its twelve points are worked in and

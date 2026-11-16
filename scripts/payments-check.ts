@@ -132,7 +132,7 @@ async function main() {
     check("24 hours and 10 minutes after the call: charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
     check("fee 82 cents, host $9.85", p.originalFeeCents === 82 && p.originalHostShareCents === 985, `${p.originalFeeCents} ${p.originalHostShareCents}`);
     check("time totals frozen", p.frozenHostSeconds === 480 && p.frozenTogetherSeconds === 480);
-    check("the host's share is ready to collect exactly 2 days after the call", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === call.endsAt.getTime() + 48 * 3_600_000, String(p.transferDueAt?.toISOString()));
+    check("nobody asked for a refund: the host's share is ready to collect 24 hours after the call", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === call.endsAt.getTime() + 24 * 3_600_000, String(p.transferDueAt?.toISOString()));
     const intent = await stripeIntent(payment.id);
     check("Stripe received exactly $10.67", intent.status === "succeeded" && intent.amount_received === 1067, `${intent.status} ${intent.amount_received}`);
 
@@ -581,14 +581,14 @@ async function main() {
           check("the helper sends nothing by itself, however long it waits", (await sent(a)).status === "not_due" && (await sent(a)).transfers.length === 0 && (await collectionsOf(h)).length === 0);
 
           const early = await press(h, new Date((await readyAt(a)).getTime() - 1000));
-          check("a second before the first share's 2 days are over, there is nothing to collect", early instanceof MoneyError && (await collectionsOf(h)).length === 0, early?.message);
+          check("a second before the first share's 24 hours are over, there is nothing to collect", early instanceof MoneyError && (await collectionsOf(h)).length === 0, early?.message);
 
           const first = randomUUID();
           const accepted = await press(h, T, first);
           const [pa, pb, pc] = [await sent(a), await sent(b), await sent(c)];
-          check("exactly at the 2 days, the press is accepted (and the refused press used up nothing)", accepted === null, accepted?.message);
+          check("exactly at the 24 hours, the press is accepted (and the refused press used up nothing)", accepted === null, accepted?.message);
           check("both ready shares were sent", pa.status === "sent" && pb.status === "sent", `${pa.status} ${pb.status}`);
-          check("the share inside its 2 days stays", pc.status === "not_due" && pc.transfers.length === 0);
+          check("the share inside its 24 hours stays", pc.status === "not_due" && pc.transfers.length === 0);
           check("another host's money is not touched", (await sent(other)).status === "not_due" && (await sent(other)).transfers.length === 0);
           check("the 25-cent collection charge was taken once", pa.fee + pb.fee === 25 && pa.cents + pa.fee === 1238 && pb.cents + pb.fee === 1238, `${pa.fee} ${pb.fee}`);
           check("Stripe made exactly one transfer per call, to the host's account", pa.transfers.length === 1 && pb.transfers.length === 1 && pa.transfers[0].destination === account && pa.transfers[0].amount + pb.transfers[0].amount === pa.cents + pb.cents);
