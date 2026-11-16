@@ -32,6 +32,17 @@ describe("tiktokSettings", () => {
     expect(tiktokSettings()).toEqual({ clientKey: "k", clientSecret: "s", returnUrl: "https://connect.example/api/social/tiktok/return", signingSecret: "x" });
   });
 
+  it("reads the address part by part: capitals and the usual port still count, and the return address is tidied", () => {
+    for (const address of ["https://CONNECT.EXAMPLE", "https://connect.example:443", "https://connect.example:443/"]) {
+      set({ ...on, PUBLIC_APP_URL: address });
+      expect(tiktokSettings()?.returnUrl).toBe("https://connect.example/api/social/tiktok/return");
+    }
+    set({ ...on, PUBLIC_APP_URL: "https://connect.example:8443" });
+    expect(tiktokSettings()?.returnUrl).toBe("https://connect.example:8443/api/social/tiktok/return");
+    set({ ...on, PUBLIC_APP_URL: "https://someone:pw@connect.example" });
+    expect(tiktokSettings()).toBeNull();
+  });
+
   it("is off when a key is missing", () => {
     set({ ...on, TIKTOK_CLIENT_KEY: undefined });
     expect(tiktokSettings()).toBeNull();
@@ -199,6 +210,17 @@ describe("tiktokAccountFor (with a pretended connection)", () => {
     expect(await tiktokAccountFor("c", SETTINGS, handBackFails.send)).toEqual({ kind: "account", openId: "723f", username: "jane.doe" });
     const noHandBackAnswer = connection([token, account, null]);
     expect(await tiktokAccountFor("c", SETTINGS, noHandBackAnswer.send)).toEqual({ kind: "account", openId: "723f", username: "jane.doe" });
+  });
+
+  it("a key that came in an answer that is not good enough is still handed back", async () => {
+    const fewPermissions = connection([JSON.stringify({ access_token: "act.key", open_id: "723f", scope: "user.info.basic" }), "{}"]);
+    expect(await tiktokAccountFor("c", SETTINGS, fewPermissions.send)).toEqual({ kind: "failed", reason: "permissions missing" });
+    expect(fewPermissions.sent.map((s) => s.url)).toEqual(["https://open.tiktokapis.com/v2/oauth/token/", "https://open.tiktokapis.com/v2/oauth/revoke/"]);
+    expect(fewPermissions.sent[1].body?.token).toBe("act.key");
+
+    const noNumber = connection([JSON.stringify({ access_token: "act.key", scope: BOTH }), "{}"]);
+    expect(await tiktokAccountFor("c", SETTINGS, noNumber.send)).toEqual({ kind: "failed", reason: "no account number" });
+    expect(noNumber.sent.at(-1)?.url).toBe("https://open.tiktokapis.com/v2/oauth/revoke/");
   });
 
   it("no answer to the first request: nothing else is asked", async () => {

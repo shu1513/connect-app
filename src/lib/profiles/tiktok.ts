@@ -42,8 +42,10 @@ export function tiktokSettings(): TikTokSettings | null {
   } catch {
     return null;
   }
-  if (address.protocol !== "https:" || address.origin !== site) return null;
-  return { clientKey, clientSecret, returnUrl: `${site}${TIKTOK_RETURN_PATH}`, signingSecret };
+  // Each part is looked at by itself, so "https://CONNECT.EXAMPLE" or ":443" at the end still count.
+  if (address.protocol !== "https:" || address.username || address.password || address.pathname !== "/" || address.search || address.hash) return null;
+  // Built from the tidied address. This exact address is the one to register with TikTok.
+  return { clientKey, clientSecret, returnUrl: `${address.origin}${TIKTOK_RETURN_PATH}`, signingSecret };
 }
 
 /** True while a TikTok account is proven by signing in at TikTok (and no longer with a code). */
@@ -134,6 +136,12 @@ export type TokenAnswer =
   | { kind: "refused"; reason: TikTokRefusal }
   | { kind: "failed"; reason: TikTokProblem };
 
+/** The key in TikTok's answer, if it issued one at all, whatever else is wrong with the answer. Only to hand it back. */
+export function issuedKey(body: string): string | null {
+  const key = parsed(body)?.access_token;
+  return typeof key === "string" && key.length > 0 ? key : null;
+}
+
 /** Reads TikTok's answer to "swap this one-time code for a key". */
 export function readTokenAnswer(body: string): TokenAnswer {
   const answer = parsed(body);
@@ -215,16 +223,20 @@ export async function tiktokAccountFor(code: string, settings: TikTokSettings, t
     }),
   });
   if (swapped === null) return { kind: "failed", reason: "no answer" };
-  const token = readTokenAnswer(swapped);
-  if (token.kind !== "key") return token;
+  // A key that was issued is handed back whatever follows, also when its own answer is not good enough to use.
+  const issued = issuedKey(swapped);
   try {
+    const token = readTokenAnswer(swapped);
+    if (token.kind !== "key") return token;
     const asked = await transport(ACCOUNT_URL, { method: "GET", headers: { authorization: `Bearer ${token.accessToken}` } });
     return asked === null ? { kind: "failed", reason: "no answer" } : readAccountAnswer(asked, token.openId);
   } finally {
     // Tried, not promised: if TikTok cannot be reached now, the key simply runs out by itself.
-    await transport(REVOKE_URL, {
-      method: "POST",
-      body: new URLSearchParams({ client_key: settings.clientKey, client_secret: settings.clientSecret, token: token.accessToken }),
-    }).catch(() => null);
+    if (issued !== null) {
+      await transport(REVOKE_URL, {
+        method: "POST",
+        body: new URLSearchParams({ client_key: settings.clientKey, client_secret: settings.clientSecret, token: issued }),
+      }).catch(() => null);
+    }
   }
 }

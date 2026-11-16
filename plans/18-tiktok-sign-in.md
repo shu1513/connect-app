@@ -1,6 +1,6 @@
 # Plan 18: A host proves a TikTok account by signing in at TikTok
 
-**Status:** plan only, not built. Written 16 November 2026. It builds on plans 16 and 17, which
+**Status:** built (branch `plan/tiktok-sign-in`) but not switched on and **not yet tried against the real TikTok**; what was built, the reviews and the checks are in `docs/module-record.md` under "A later change: a host proves a TikTok account by signing in at TikTok". Below is the plan as it was approved. Written 16 November 2026. It builds on plans 16 and 17, which
 are merged (pull requests 26 and 27). Astra has checked it against the code; what it found is at
 the end, and every point is worked in.
 

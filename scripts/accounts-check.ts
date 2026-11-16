@@ -30,7 +30,7 @@ function check(label: string, ok: boolean, detail = "") {
 }
 
 type Jar = Map<string, string>;
-type Reply = { status: number; json: Record<string, unknown> | null; text: string; location: string | null };
+type Reply = { status: number; json: Record<string, unknown> | null; text: string; location: string | null; setCookies: string[] };
 
 /** One request to the app, the way a browser would send it. Cookies are kept in the jar. */
 async function send(path: string, options: { method?: string; body?: unknown; jar?: Jar } = {}): Promise<Reply> {
@@ -59,7 +59,7 @@ async function send(path: string, options: { method?: string; body?: unknown; ja
   } catch {
     // not JSON (a page)
   }
-  return { status: response.status, json, text, location: response.headers.get("location") };
+  return { status: response.status, json, text, location: response.headers.get("location"), setCookies: response.headers.getSetCookie() };
 }
 
 const api = (path: string, body: unknown, jar?: Jar) => send(`/api/auth${path}`, { body, jar });
@@ -703,6 +703,9 @@ async function main() {
       let asked = 0;
       const says = (answer: TikTokAccount): TikTokLookup => async () => (asked++, answer);
       const account = (openId: string, username: string): TikTokAccount => ({ kind: "account", openId, username });
+      // Every name and account number here carries this run's own tag, so runs never meet each other's leftovers.
+      const tag = RUN.slice(0, 6);
+      const open = (name: string) => `open-${name}-${RUN}`;
       /** One sign-in from start to return, as the two addresses would run it. `change` alters what comes back. */
       const signIn = (userId: string, accountFor: TikTokLookup, change: (r: Parameters<typeof tiktokLogin.finishTikTokLogin>[0]) => void = () => undefined) => {
         const started = tiktokLogin.startTikTokLogin({ userId, now: now(), settings: ON });
@@ -722,12 +725,11 @@ async function main() {
         await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, usConfirmed: true });
         return person;
       };
-      const tag = RUN.slice(0, 6);
 
       // Switched off.
       const kim = await newHost("kim");
       await passId(kim);
-      check("switched off (a key missing, or the site's address not https): nothing is asked and nothing saved", tiktok.tiktokSettings() === null && (await signIn(kim.id, says(account("open-kim", "kim.tok")), (r) => (r.settings = null))) === tiktokLogin.TIKTOK_OFF && asked === 0 && (await entryOf(kim.id)) === undefined);
+      check("switched off (a key missing, or the site's address not https): nothing is asked and nothing saved", tiktok.tiktokSettings() === null && (await signIn(kim.id, says(account(open("kim"), `kim.${tag}`)), (r) => (r.settings = null))) === tiktokLogin.TIKTOK_OFF && asked === 0 && (await entryOf(kim.id)) === undefined);
       switchOn();
       const onNow = tiktok.tiktokSettings() !== null;
       process.env.PUBLIC_APP_URL = "http://localhost:3000";
@@ -749,49 +751,65 @@ async function main() {
       ];
       const stopped: string[] = [];
       for (const [label, change] of wrong) {
-        const message = await signIn(kim.id, says(account("open-kim", "kim.tok")), change);
+        const message = await signIn(kim.id, says(account(open("kim"), `kim.${tag}`)), change);
         if (message.includes("is confirmed") || asked !== 0 || (await entryOf(kim.id)) !== undefined || (await entryOf(stranger.id)) !== undefined) stopped.push(label);
       }
       check(`the return is stopped by Connect's own checks, before anything is asked of TikTok (${wrong.length} cases)`, stopped.length === 0, stopped.join("; "));
 
       // Saving.
-      const first = await signIn(kim.id, says(account("open-kim", "Kim.Tok")));
+      const first = await signIn(kim.id, says(account(open("kim"), `Kim.${tag}`)));
       const kimEntry = await entryOf(kim.id);
-      check("a good return: confirmed at once, with TikTok's number, by nobody's hand, never on the founder's list", first === "TikTok @kim.tok is confirmed." && asked === 1 && kimEntry.confirmedAt !== null && kimEntry.providerAccountId === "open-kim" && kimEntry.confirmedBy === null && kimEntry.claimedAt === null && kimEntry.codeExpiresAt <= now() && (await onFoundersList(kim.id)) === 0, first);
+      check("a good return: confirmed at once, with TikTok's number, by nobody's hand, never on the founder's list", first === `TikTok @kim.${tag} is confirmed.` && asked === 1 && kimEntry.confirmedAt !== null && kimEntry.providerAccountId === open("kim") && kimEntry.confirmedBy === null && kimEntry.claimedAt === null && kimEntry.codeExpiresAt <= now() && (await onFoundersList(kim.id)) === 0, first);
       await approve(kim.id);
       check("a host whose only account was confirmed by signing in can be approved, and then cannot remove it", (await statusOf(kim.id)) === "approved" && (await refusedWith(profiles.removeSocialName(kim.id, kimEntry.id), "needs one confirmed account")));
-      check("the same account under a new name: the name is updated, the proof kept", (await signIn(kim.id, says(account("open-kim", "kim.renamed")))) === "TikTok @kim.renamed is confirmed." && (await entryOf(kim.id)).id === kimEntry.id && (await entryOf(kim.id)).nameKey === "kim.renamed" && (await confirmedOf(kim.id)).length === 1);
-      check("a different account replaces the old one in one step: the approved host is never without a confirmed account", (await signIn(kim.id, says(account("open-kim-2", `kim2.${tag}`)))) === `TikTok @kim2.${tag} is confirmed.` && (await entryOf(kim.id)).providerAccountId === "open-kim-2" && (await confirmedOf(kim.id)).length === 1 && (await statusOf(kim.id)) === "approved");
+      check("the same account under a new name: the name is updated, the proof kept", (await signIn(kim.id, says(account(open("kim"), `kimr.${tag}`)))) === `TikTok @kimr.${tag} is confirmed.` && (await entryOf(kim.id)).id === kimEntry.id && (await entryOf(kim.id)).nameKey === `kimr.${tag}` && (await confirmedOf(kim.id)).length === 1);
+      check("a different account replaces the old one in one step: the approved host is never without a confirmed account", (await signIn(kim.id, says(account(open("kim-2"), `kim2.${tag}`)))) === `TikTok @kim2.${tag} is confirmed.` && (await entryOf(kim.id)).providerAccountId === open("kim-2") && (await confirmedOf(kim.id)).length === 1 && (await statusOf(kim.id)) === "approved");
 
       const lee = await newHost("lee");
       await profiles.addSocialName(lee.id, "tiktok", `lee.${tag}`);
       const leeByHand = await entryOf(lee.id);
       await profiles.markSocialNameReady(lee.id, leeByHand.id);
       await profiles.confirmSocialName({ id: leeByHand.id, nameKey: leeByHand.nameKey, code: leeByHand.code, by: host.id });
-      check("an account confirmed by hand stays confirmed and gets TikTok's number", (await signIn(lee.id, says(account("open-lee", `lee.${tag}`)))) === `TikTok @lee.${tag} is confirmed.` && (await entryOf(lee.id)).id === leeByHand.id && (await entryOf(lee.id)).providerAccountId === "open-lee" && (await entryOf(lee.id)).confirmedAt !== null);
-      check("the founder's \"confirm\" or \"the code is not there\" from a page left open changes nothing after that", (await refused(profiles.confirmSocialName({ id: leeByHand.id, nameKey: leeByHand.nameKey, code: leeByHand.code, by: host.id }))) && (await refused(profiles.rejectSocialName({ id: leeByHand.id, nameKey: leeByHand.nameKey, code: leeByHand.code }))) && (await entryOf(lee.id)).providerAccountId === "open-lee");
+      check("an account confirmed by hand stays confirmed and gets TikTok's number", (await signIn(lee.id, says(account(open("lee"), `lee.${tag}`)))) === `TikTok @lee.${tag} is confirmed.` && (await entryOf(lee.id)).id === leeByHand.id && (await entryOf(lee.id)).providerAccountId === open("lee") && (await entryOf(lee.id)).confirmedAt !== null);
+      check("the founder's \"confirm\" or \"the code is not there\" from a page left open changes nothing after that", (await refused(profiles.confirmSocialName({ id: leeByHand.id, nameKey: leeByHand.nameKey, code: leeByHand.code, by: host.id }))) && (await refused(profiles.rejectSocialName({ id: leeByHand.id, nameKey: leeByHand.nameKey, code: leeByHand.code }))) && (await entryOf(lee.id)).providerAccountId === open("lee"));
 
       const max = await newHost("max");
       await profiles.addSocialName(max.id, "tiktok", `max.${tag}`);
       const maxOwn = await entryOf(max.id);
-      const byName = await signIn(max.id, says(account("open-max", `kim2.${tag}`)));
-      const byNumber = await signIn(max.id, says(account("open-kim-2", `brand.new.${tag}`)));
+      const byName = await signIn(max.id, says(account(open("max"), `kim2.${tag}`)));
+      const byNumber = await signIn(max.id, says(account(open("kim-2"), `brand.new.${tag}`)));
       const maxAfter = await entryOf(max.id);
       check("a name or a number that is confirmed for another host is refused, and the host's own entry is untouched", byName.includes("already confirmed for another host") && byNumber.includes("already confirmed for another host") && maxAfter.nameKey === maxOwn.nameKey && maxAfter.code === maxOwn.code && maxAfter.confirmedAt === null && maxAfter.providerAccountId === null, `${byName} | ${byNumber}`);
 
       const ned = await newHost("ned");
       const oli = await newHost("oli");
-      const both = await Promise.all([signIn(ned.id, says(account("open-same", `same.${tag}`))), signIn(oli.id, says(account("open-same", `same.${tag}`)))]);
+      const both = await Promise.all([signIn(ned.id, says(account(open("same"), `same.${tag}`))), signIn(oli.id, says(account(open("same"), `same.${tag}`)))]);
       check("two hosts connect the same account at the same moment: one gets it, the other is told it is taken", both.filter((m) => m.includes("is confirmed")).length === 1 && both.filter((m) => m.includes("already confirmed for another host")).length === 1 && (await confirmedOf(ned.id)).length + (await confirmedOf(oli.id)).length === 1, both.join(" | "));
 
+      // A replacement at the same moment as a removal, and as an approval: the approved host always keeps one.
+      const kimNow = await entryOf(kim.id);
+      const swapAndRemove = await Promise.allSettled([signIn(kim.id, says(account(open("kim-3"), `kim3.${tag}`))), profiles.removeSocialName(kim.id, kimNow.id)]);
+      check("a replacement and a removal at the same moment: the approved host still has one confirmed account", (await confirmedOf(kim.id)).length === 1 && (await statusOf(kim.id)) === "approved" && swapAndRemove[1].status === "rejected", swapAndRemove.map((r) => r.status).join(" "));
+      const tom = await newHost("tom");
+      await passId(tom);
+      await signIn(tom.id, says(account(open("tom"), `tom.${tag}`)));
+      const swapAndApprove = await Promise.allSettled([approve(tom.id), signIn(tom.id, says(account(open("tom-2"), `tom2.${tag}`)))]);
+      check("a replacement and an approval at the same moment: approved, with one confirmed account", (await statusOf(tom.id)) === "approved" && (await confirmedOf(tom.id)).length === 1, swapAndApprove.map((r) => r.status).join(" "));
+
+      await freshLimits(); // this section signs up many people
       const pia = await newHost("pia");
       const pausedMeanwhile = await signIn(pia.id, async () => {
         await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, pia.id));
-        return account("open-pia", `pia.${tag}`);
+        return account(open("pia"), `pia.${tag}`);
       });
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, pia.id));
+      const closedMeanwhile = await signIn(pia.id, async () => {
+        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, pia.id));
+        return account(open("pia"), `pia.${tag}`);
+      });
+      await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, pia.id));
       const noProfile = await newPerson("quin");
-      check("an account paused while TikTok was answering, or a person with no host profile: nothing is saved", pausedMeanwhile.includes("cannot do this at the moment") && (await entryOf(pia.id)) === undefined && (await signIn(noProfile.id, says(account("open-quin", `quin.${tag}`)))) === "Fill in your host profile first." && (await entryOf(noProfile.id)) === undefined);
+      check("an account paused or closed while TikTok was answering, or a person with no host profile: nothing is saved", pausedMeanwhile.includes("cannot do this at the moment") && closedMeanwhile.includes("cannot do this at the moment") && (await entryOf(pia.id)) === undefined && (await signIn(noProfile.id, says(account(open("quin"), `quin.${tag}`)))) === "Fill in your host profile first." && (await entryOf(noProfile.id)) === undefined);
 
       // The founder's warning: only when TikTok refuses our own keys or permissions.
       const before = await refusedRows(pia.id);
@@ -810,6 +828,7 @@ async function main() {
       check("those rows do not use up the host's own Instagram and YouTube checks", stillChecks.outcome === "confirmed", stillChecks.outcome);
 
       // The by-hand way for TikTok, while the sign-in is on and off.
+      await freshLimits(); // this section signs up many people
       const ria = await newHost("ria");
       await profiles.addSocialName(ria.id, "tiktok", `ria.${tag}`);
       const riaEntry = await entryOf(ria.id);
@@ -824,7 +843,7 @@ async function main() {
         check("and \"I've done it\" from an old page cannot put a TikTok request on the founder's list", (await refusedWith(profiles.markSocialNameReady(ria.id, riaEntry.id), USE)) && (await refusedWith(profiles.socialNameReady(ria.id, riaEntry.id), USE)) && (await onFoundersList(ria.id)) === 0);
         await profiles.addSocialName(ria.id, "x", `ria${tag}`);
         check("the other networks are as before", (await entryOf(ria.id, "x")).nameKey === `ria${tag}`);
-        check("a TikTok entry that was already waiting stays on the founder's list, and leaves it when the host connects", (await onFoundersList(sam.id)) === 1 && (await signIn(sam.id, says(account("open-sam", `sam.${tag}`)))).includes("is confirmed") && (await onFoundersList(sam.id)) === 0 && (await entryOf(sam.id)).id === samEntry.id);
+        check("a TikTok entry that was already waiting stays on the founder's list, and leaves it when the host connects", (await onFoundersList(sam.id)) === 1 && (await signIn(sam.id, says(account(open("sam"), `sam.${tag}`)))).includes("is confirmed") && (await onFoundersList(sam.id)) === 0 && (await entryOf(sam.id)).id === samEntry.id);
       } finally {
         switchOff();
       }
@@ -832,14 +851,18 @@ async function main() {
       const samTyped = await entryOf(sam.id);
       check("with the sign-in off again, typing a name works as before and clears TikTok's number with the old proof", samTyped.nameKey === `sam.new.${tag}` && samTyped.confirmedAt === null && samTyped.providerAccountId === null);
 
-      // Through the running app, as a browser would. (The app itself has no TikTok keys here, so it is switched off.)
+      // Through the running app, as a browser would. A note that is not ours is sent along. Whether the app
+      // has TikTok's keys (then the note is refused) or not (then it is switched off), nothing may be saved,
+      // and the note must be removed: read from the cookie line the app really sends.
       const returnAddress = "/api/social/tiktok/return?code=one-time-code&state=some-value&scopes=user.info.basic,user.info.profile";
-      const visitor = await send(returnAddress, { jar: new Map() });
-      check("the return address without being logged in: sent to log in, and back to the Hosting page afterwards", (visitor.location ?? "").includes("/login?next=%2Fhost"), visitor.location ?? String(visitor.status));
+      const noteRemoved = (reply: Reply) =>
+        reply.setCookies.some((line) => line.startsWith(`${tiktok.TIKTOK_COOKIE}=;`) && /;\s*path=\/api\/social\/tiktok(;|$)/i.test(line) && (/;\s*max-age=0(;|$)/i.test(line) || /;\s*expires=thu, 01 jan 1970/i.test(line)));
+      const visitor = await send(returnAddress, { jar: new Map([[tiktok.TIKTOK_COOKIE, "a-note-from-before"]]) });
+      check("the return address without being logged in: the note is removed, and the person is sent to log in and then to the Hosting page", noteRemoved(visitor) && (visitor.location ?? "").includes("/login?next=%2Fhost"), `${visitor.location} | ${visitor.setCookies.join(" || ").slice(0, 160)}`);
       sam.jar.set(tiktok.TIKTOK_COOKIE, "a-note-from-before");
-      const offReply = await send(returnAddress, { jar: sam.jar });
-      const landed = decodeURIComponent(offReply.location ?? "");
-      check("logged in, with the sign-in switched off in the app: back on the Hosting page with a plain message, the note removed, nothing saved", landed.includes("/host?notice=") && landed.includes(tiktokLogin.TIKTOK_OFF) && !sam.jar.has(tiktok.TIKTOK_COOKIE) && (await entryOf(sam.id)).nameKey === `sam.new.${tag}`, landed.slice(0, 120));
+      const reply = await send(returnAddress, { jar: sam.jar });
+      const landed = decodeURIComponent(reply.location ?? "");
+      check("logged in, with a note that is not ours: the note is removed, back on the Hosting page with a plain message, nothing saved", noteRemoved(reply) && landed.includes("/host?notice=") && (landed.includes(tiktokLogin.TIKTOK_OFF) || landed.includes("TikTok was not connected")) && (await entryOf(sam.id)).nameKey === `sam.new.${tag}`, `${landed.slice(0, 110)} | ${reply.setCookies.join(" || ").slice(0, 160)}`);
     }
 
     // ----------------------------------------------------------------------

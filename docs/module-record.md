@@ -918,6 +918,38 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 
 ---
 
+## A later change: a host proves a TikTok account by signing in at TikTok (plan 18)
+
+**Why.** After plan 17, Instagram and YouTube are confirmed by Connect itself; TikTok still came to the founder's list, because TikTok has no free official way to read a bio by name. TikTok does offer its own sign-in ("Login Kit"). The founder asked for it on 16 November 2026. The plan is `plans/18-tiktok-sign-in.md`.
+
+**What changed**
+- **For a host:** a button, "Connect your TikTok". The host logs in at TikTok and agrees to share their name; TikTok sends them back and the account is confirmed at once: "TikTok @name is confirmed." No code in a bio. A renamed account is updated by pressing the button again.
+- **While the sign-in is switched on, a new TikTok account can only be proven this way.** TikTok is not in the list for adding an account with a code, and the server refuses both typing a TikTok name and "I've done it" for a TikTok entry, so a form from an old page cannot put a new request on the founder's list. A request that was already waiting stays until it is dealt with.
+- **For the founder:** nothing to do for a new TikTok account. If TikTok does not accept our own keys or the permissions we ask for, the admin page's warning line says so for TikTok, as for Meta and Google.
+- **What Connect asks TikTok for:** the account's number (for our app) and its name. The key TikTok gives is used once, handed back to be cancelled, and never stored. Our secret travels in the body of a request and the key in a header, never in an address.
+- **The database:** one new column on `social_accounts`, `provider_account_id`, and a guard that one account number is confirmed for one host only.
+- **Settings:** `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET`. The sign-in is on only when both are there and the site's address is a plain `https` address. Off, nothing changes for TikTok: it is confirmed by hand as before.
+- **Small:** in development the framework prints the address of every request; the address TikTok returns a host to holds a one-time code, so it is left out of that.
+
+**Said plainly: it is built, and not switched on.**
+- It has **not been tried against the real TikTok yet.** Every check so far used pretended answers from TikTok. The real test needs a TikTok developer account in the founder's name and a TikTok account to test with, in TikTok's test mode ("sandbox", up to 10 named accounts, no review).
+- **It cannot serve real hosts until Connect is live.** TikTok only approves an app whose website is on its own address, fully working, with real terms and privacy pages. It does not ask for a registered company. Its review takes "several days to two weeks". Until then TikTok accounts keep coming to the founder's list.
+- Four things TikTok's pages do not say, to be looked at in the sandbox: what happens when a host presses "Cancel"; whether a one-time code is taken once only; whether the sandbox has its own keys; and whether the "profile" permission works in a sandbox before approval.
+
+**Astra's check of the plan:** ready with changes, twelve points, all worked in (listed at the end of the plan). The most important: TikTok's side written out exactly, with what counts as a good answer; which of TikTok's two account numbers is kept, and that a sandbox's numbers never meet the live site's; "I've done it" from an old page closed as a way onto the founder's list; a refusal of our keys told apart from everything that is not our fault.
+
+**Astra's review of the code:** ship with changes. It found no way to attach an account to the wrong person or to confirm wrongly: the signed note, the matching value and the same logged-in person stop it in both directions; the one write under the locks covers every saving case; an approved host is never left without a confirmed account. Its five points, all taken:
+1. A key from TikTok was not handed back when the answer it came in was not good enough to use (permissions missing, no account number). Any key that was issued is now handed back.
+2. The site's address was compared as text, so an address written with capitals or with the usual port at the end would have switched the sign-in off without saying so. It is now read part by part.
+3. One check through the running app assumed the app has no TikTok keys. It now holds either way.
+4. That check could have passed even if the cookie were removed wrongly. It now reads the cookie line the app really sends: the name, the path and that it is expired.
+5. The script's TikTok names and numbers were the same on every run; leftovers from a stopped run could have failed the next. They carry each run's own tag.
+Astra also noted three planned cases the script did not have yet (a replacement at the same moment as a removal, as an approval, and an account closed while TikTok was answering). Added.
+
+**How it was checked:** 358 automatic tests (23 new: the settings; the address at TikTok; the signed note; the permissions; TikTok's answers; the three requests with a pretended connection, including that the secret, the code and the key never appear in an address). The accounts script (new section with pretended answers from TikTok: switched off; nine ways the return is stopped before anything is asked; every saving case; two hosts and one account; things at the same moment; paused, closed or no profile; which refusals reach the founder's page; the by-hand way while the sign-in is on and off; and the return address through the running app). The other eleven scripts unchanged and passing. Lint, types, build. By hand in a browser, with pretended keys: the button appears, TikTok leaves the add-with-a-code list, and pressing the button sends the browser to TikTok's own log-in page.
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.
