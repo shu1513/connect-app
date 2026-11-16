@@ -164,7 +164,7 @@ export async function socialReady(formData: FormData) {
     const { outcome, network, nameKey } = await socialNameReady(user.id, String(formData.get("id") ?? ""));
     const tryLater = "We could not check right now. Please try again in a few minutes.";
     notice = {
-      waiting: "Thank you. We will look at the account and confirm it. Keep the code in the bio until then.",
+      waiting: `Thank you. We will look at the account and confirm it. Keep the code in ${network === "youtube" ? "the channel's description" : "the bio"} until then.`,
       confirmed: "Account confirmed. You can remove the code.",
       not_found: `We looked at @${nameKey} and did not find the code. Save it, wait a minute, and press Check now again.`,
       no_account: `We could not read @${nameKey}. Check the name.${network === "instagram" ? " On Instagram it must be a Creator or Business account, which is free to switch to in Instagram's settings." : ""}`,
@@ -172,7 +172,7 @@ export async function socialReady(formData: FormData) {
       busy: "Many people are checking right now. Please try again in a little while.",
       too_soon: "Please wait a moment before checking again.",
       limit: "You have checked many times. Please try again in an hour.",
-      gone: "That account was changed, or its code has run out. Nothing was confirmed.",
+      gone: "This check made no change. Look at the account below to see where it stands.",
       taken: "That account is already confirmed for another host. If it is yours, write to us.",
     }[outcome];
   } catch (error) {

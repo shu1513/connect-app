@@ -1,6 +1,6 @@
 # Plan 17: Connect confirms a host's account by itself
 
-**Status:** plan only, not built. Written 15 November 2026. It builds on plan 16, part 1 (pull
+**Status:** built (branch `plan/automatic-confirming`); what was built, the reviews and the checks are in `docs/module-record.md` under "A later change: Connect confirms a host's account by itself". One thing differs from the plan below: the keys travel in a header of each request, not in its address (Astra's review of the code). Below is the plan as it was approved. Written 15 November 2026. It builds on plan 16, part 1 (pull
 request 26: a host needs one confirmed social media account before approval). Astra has checked it
 against the code twice; what it found each time is at the end, and every point is worked in.
 

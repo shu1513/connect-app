@@ -256,9 +256,9 @@ export default async function HostPage(props: PageProps<"/host">) {
           <h2 className="text-lg font-semibold">Your social media accounts</h2>
           <p className="mt-2 text-sm opacity-70">
             People find you by these names, and we use one of them to check that you are you. Your page needs at least one
-            confirmed account before we can approve it. Add an account and put the code we give you in that account&apos;s bio
-            (on YouTube, the channel&apos;s description). Instagram and YouTube are confirmed at once when you press
-            &quot;Check now&quot;; for the others we look ourselves. Only confirmed accounts are shown on your page.
+            confirmed account before we can approve it. Add an account, put the code we give you in that account&apos;s bio
+            (on YouTube, the channel&apos;s description), and press the button next to it. Where we can, the account is
+            confirmed at once; otherwise we look ourselves. Only confirmed accounts are shown on your page.
           </p>
           {socials.length > 0 && (
             <ul className="mt-3 space-y-3">
@@ -278,7 +278,7 @@ export default async function HostPage(props: PageProps<"/host">) {
                       <p className="mt-1">The code has run out. Add the account again to get a new one.</p>
                     ) : social.claimedAt && !automatic ? (
                       <p className="mt-1">
-                        Waiting for us to check. Keep <code className="font-mono">{social.code}</code> in the bio until it is confirmed.
+                        Waiting for us to check. Keep <code className="font-mono">{social.code}</code> in {place} until it is confirmed.
                       </p>
                     ) : (
                       <>

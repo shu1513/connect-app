@@ -93,6 +93,9 @@ describe("readYouTubeAnswer", () => {
     expect(readYouTubeAnswer(failure(400, "keyInvalid"), "jane")).toEqual({ kind: "refused", code: 400 });
     expect(readYouTubeAnswer(failure(403, "accessNotConfigured"), "jane")).toEqual({ kind: "refused", code: 403 });
     expect(readYouTubeAnswer(failure(400, "API_KEY_INVALID", "details"), "jane")).toEqual({ kind: "refused", code: 400 });
+    expect(readYouTubeAnswer(failure(400, "keyExpired"), "jane")).toEqual({ kind: "refused", code: 400 });
+    expect(readYouTubeAnswer(failure(403, "API_KEY_IP_ADDRESS_BLOCKED", "details"), "jane")).toEqual({ kind: "refused", code: 403 });
+    expect(readYouTubeAnswer(failure(403, "API_KEY_HTTP_REFERRER_BLOCKED", "details"), "jane")).toEqual({ kind: "refused", code: 403 });
     expect(readYouTubeAnswer(failure(500, "backendError"), "jane")).toEqual({ kind: "unavailable", code: 500 });
   });
 

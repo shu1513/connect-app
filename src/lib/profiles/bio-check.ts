@@ -3,9 +3,10 @@
  * code. Instagram: Meta's "Business Discovery" (professional accounts only). YouTube: the YouTube
  * Data API (the channel's description).
  *
- * Everything that can go wrong in here comes out as one of five plain results. Nothing from a
- * request, its address or an answer is ever passed on in an error or written to the log, because
- * the keys travel in the address.
+ * Everything that can go wrong in here comes out as one of five plain results. The keys travel in
+ * a header of the request, never in its address, so nothing that writes an address down (this
+ * app's framework does, in some failures) can ever hold a key. Nothing from an answer is passed on
+ * in an error or written to the log either.
  */
 
 export type BioNetwork = "instagram" | "youtube";
@@ -65,7 +66,16 @@ export function readInstagramAnswer(body: string, nameKey: string): BioAnswer {
 }
 
 const GOOGLE_TOO_OFTEN = ["quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"];
-const GOOGLE_KEY = ["keyInvalid", "accessNotConfigured", "API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED", "SERVICE_DISABLED"];
+const GOOGLE_KEY = [
+  "keyInvalid",
+  "keyExpired",
+  "accessNotConfigured",
+  "API_KEY_INVALID",
+  "API_KEY_SERVICE_BLOCKED",
+  "API_KEY_IP_ADDRESS_BLOCKED",
+  "API_KEY_HTTP_REFERRER_BLOCKED",
+  "SERVICE_DISABLED",
+];
 
 /** Reads Google's answer to "the channel whose handle is @<nameKey>". */
 export function readYouTubeAnswer(body: string, nameKey: string): BioAnswer {
@@ -121,10 +131,13 @@ export function isAutomatic(network: string, settings: BioSettings = bioSettings
 /** How long a request may take, waiting for the answer and reading it. */
 const TIME_LIMIT_MS = 8_000;
 
-/** One fresh request. Null when it did not get through, took too long or could not be read. */
-async function ask(address: URL): Promise<string | null> {
+/**
+ * One fresh request, with our key in a header. It never follows a redirect, so the key only ever
+ * goes to the address written here. Null when it did not get through, took too long or could not be read.
+ */
+async function ask(address: URL, keyHeader: Record<string, string>): Promise<string | null> {
   try {
-    const answer = await fetch(address, { cache: "no-store", signal: AbortSignal.timeout(TIME_LIMIT_MS) });
+    const answer = await fetch(address, { headers: keyHeader, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(TIME_LIMIT_MS) });
     return await answer.text();
   } catch {
     return null;
@@ -143,18 +156,16 @@ export const readBio: BioReader = async (network, nameKey) => {
   if (network === "instagram" && settings.instagram && /^[a-z0-9._]{1,30}$/.test(nameKey)) {
     const address = new URL(`https://graph.facebook.com/v27.0/${settings.instagram.accountId}`);
     address.searchParams.set("fields", `business_discovery.username(${nameKey}){username,biography}`);
-    address.searchParams.set("access_token", settings.instagram.token);
-    const body = await ask(address);
+    const body = await ask(address, { authorization: `Bearer ${settings.instagram.token}` });
     if (body !== null) answer = readInstagramAnswer(body, nameKey);
   } else if (network === "youtube" && settings.youtube && /^[a-z0-9._-]{3,30}$/.test(nameKey)) {
     const address = new URL("https://www.googleapis.com/youtube/v3/channels");
     address.searchParams.set("part", "snippet");
     address.searchParams.set("forHandle", `@${nameKey}`);
-    address.searchParams.set("key", settings.youtube.key);
-    const body = await ask(address);
+    const body = await ask(address, { "x-goog-api-key": settings.youtube.key });
     if (body !== null) answer = readYouTubeAnswer(body, nameKey);
   }
-  // Only the network, the result and the network's own number are written down. Never an address or an answer.
+  // Only the network, the result and the network's own number are written down. Never an answer.
   if (answer.kind !== "bio" && answer.kind !== "no_account") {
     console.error(`[bio-check] ${network}: ${answer.kind}${answer.code === undefined ? "" : ` (${answer.code})`}`);
   }

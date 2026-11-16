@@ -514,6 +514,9 @@ async function main() {
         const underWay = new Promise<void>((resolve) => (started = resolve));
         return { read: async () => (asked++, started(), answer), release, underWay };
       };
+      /** Waits until a held-back check is really asking. Fails at once if the check ended without asking (a limit, say). */
+      const whenAsking = (held: ReturnType<typeof heldBack>, running: Promise<string>) =>
+        Promise.race([held.underWay, running.then((outcome) => Promise.reject(new Error(`the check ended before anything was asked: ${outcome}`)))]);
 
       // Not found, then found.
       const bea = await newHost("bea");
@@ -538,7 +541,7 @@ async function main() {
       await profiles.addSocialName(cal.id, "youtube", `@cal-${RUN}`);
       const calEntry = await entryOf(cal.id, "youtube");
       const refusedCount = async (network: string) => (await profiles.refusedBioChecks(clock())).find((r) => r.network === network)?.count ?? 0;
-      const refusedBefore = { youtube: await refusedCount("youtube"), instagram: await refusedCount("instagram") };
+      const refusedBefore = await refusedCount("youtube");
       const failures: Array<[string, () => Promise<BioAnswer>, string]> = [
         ["no account of that name", answering({ kind: "no_account" }), "no_account"],
         ["asked too often", answering({ kind: "too_often", code: 403 }), "unavailable"],
@@ -554,7 +557,9 @@ async function main() {
       const calAfter = await entryOf(cal.id, "youtube");
       check("no account, asked too often, key refused, not available, a broken request: each its own answer, nothing confirmed", got.join(",") === failures.map((f) => f[2]).join(",") && calAfter.confirmedAt === null && calAfter.code === calEntry.code && calAfter.claimedAt === null, got.join(","));
       check("and each is noted for what it was", (await checksOf(cal.id)).map((c) => c.result).join(",") === "no_account,too_often,refused,unavailable,unavailable");
-      check("a refused key shows up for the founder's page, counted once and for the right network only", (await refusedCount("youtube")) === refusedBefore.youtube + 1 && (await refusedCount("instagram")) === refusedBefore.instagram);
+      // Counted from this person's own rows, so that whatever else is in the table does not matter.
+      const calRefused = (await checksOf(cal.id)).filter((c) => c.result === "refused");
+      check("a refused key shows up for the founder's page: once, for the right network, and not the host's own mistakes", calRefused.length === 1 && calRefused[0].network === "youtube" && (await refusedCount("youtube")) >= refusedBefore + 1);
 
       // The limits.
       const before = asked;
@@ -598,10 +603,15 @@ async function main() {
         const entry = await entryOf(fay.id, "instagram");
         const held = heldBack();
         const running = ready(fay.id, entry.id, held.read);
-        await held.underWay;
-        await meanwhile(entry);
-        held.release({ kind: "bio", text: `my bio ${entry.code}` });
-        const outcome = await running;
+        let outcome: string;
+        try {
+          await whenAsking(held, running);
+          await meanwhile(entry);
+        } finally {
+          // Whatever happened, the held-back answer is let go, so nothing is left waiting.
+          held.release({ kind: "bio", text: `my bio ${entry.code}` });
+          outcome = await running;
+        }
         const after = await entryOf(fay.id, "instagram");
         check(label, outcome === expected && then(after), `${outcome}, confirmed: ${Boolean(after?.confirmedAt)}`);
         if (after) await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.id, after.id));
@@ -631,9 +641,13 @@ async function main() {
       const ianEntry = await entryOf(ian.id, "instagram");
       const heldGus = heldBack();
       const gusRunning = ready(gus.id, gusEntry.id, heldGus.read);
-      await heldGus.underWay;
-      const ianOutcome = await ready(ian.id, ianEntry.id, answering({ kind: "bio", text: `${gusEntry.code} ${ianEntry.code}` }));
-      heldGus.release({ kind: "bio", text: `${gusEntry.code} ${ianEntry.code}` });
+      let ianOutcome = "";
+      try {
+        await whenAsking(heldGus, gusRunning);
+        ianOutcome = await ready(ian.id, ianEntry.id, answering({ kind: "bio", text: `${gusEntry.code} ${ianEntry.code}` }));
+      } finally {
+        heldGus.release({ kind: "bio", text: `${gusEntry.code} ${ianEntry.code}` });
+      }
       check("two hosts prove the same account at the same moment: one gets it, the other is told it is taken", ianOutcome === "confirmed" && (await gusRunning) === "taken" && (await entryOf(gus.id, "instagram")).confirmedAt === null && (await entryOf(ian.id, "instagram")).confirmedAt !== null);
 
       // A code that has run out, an entry that was already waiting, and the by-hand way.

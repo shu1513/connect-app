@@ -878,6 +878,46 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 
 ---
 
+## A later change: Connect confirms a host's account by itself (plan 17)
+
+**The founder's instruction (15 November 2026).** Confirming an account must happen by itself; the founder does not want to confirm anything by hand. The plan is `plans/17-automatic-confirming.md`.
+
+**What was found out first, with the founder's own Meta and Google accounts**
+- Meta's "log in with Instagram" is "not available for newer apps" (Meta's own words). Its replacement serves only people with a role on our app until Meta has reviewed the app and verified a business.
+- Meta's official way to read a professional account's public details by name ("Business Discovery") works today, before any review. With a key for our own account, Meta returned the bio of an account that is not ours. It needs two read-only permissions.
+- YouTube's official service returns a channel's description for its handle, with a free key.
+- TikTok and X offer no free official way to read a bio.
+
+**The founder's decisions.** Instagram and YouTube are confirmed by Connect itself. TikTok and X stay confirmed by hand for now; TikTok's own sign-in is the next plan.
+
+**What changed**
+- **For a host:** next to an Instagram or YouTube account the button now says "Check now". Connect reads the bio (on YouTube, the channel's description) through Meta or Google and, when the code is there, confirms at once: "Account confirmed. You can remove the code." Otherwise the host is told what happened: the code was not found; the account could not be read (on Instagram it must be a Creator or Business account); the check is not available right now; or to wait before checking again.
+- **For the founder:** new Instagram and YouTube requests no longer come to the list of accounts to check. If Meta or Google does not accept our key, the admin page says so in one line ("did not accept our key or our permission in 3 checks in the last 24 hours"), because nothing else would show it.
+- **A wrong answer cannot confirm anyone.** Only a bio that really showed this host's code a moment ago confirms, and only if the entry is still the same one: same person, name and code, not confirmed, code not run out. Any failure confirms nothing.
+- **Limits.** One check every 30 seconds per person and network, 10 an hour per person, 100 an hour for all of Instagram together (half of what Meta is assumed to allow). They survive removing an entry and adding it again.
+- **The database:** one small new table, `bio_checks`: who, which network, when, and how the check ended. Never the bio's text.
+- **Settings:** `INSTAGRAM_CHECK_TOKEN` and `INSTAGRAM_CHECK_ACCOUNT_ID` for Instagram, `YOUTUBE_API_KEY` for YouTube. A network whose settings are missing is confirmed by hand as before, so the app runs without them.
+- **Small:** "That does not look like a Instagram name" now says "an Instagram name".
+
+**Said plainly.** Only Creator and Business accounts can be read on Instagram; a personal account cannot be confirmed this way. Meta allows this today for an app that has not been through its review, and could stop. Then hosts are told the check is not available, the founder sees the line on the admin page, and the choice is Meta's review or confirming by hand again.
+
+**Set up outside the app, with the founder's go-ahead:** at Meta, the app "Connect" with two read-only permissions and a key that does not expire; at Google, a project "Connect app" with YouTube's service switched on and a key that may use that service only. The founder created both keys and saved them; the builder never handled them.
+
+**Astra's checks of the plan:** twice, both "ready with changes", all points worked in (listed at the end of the plan). The most important: limits that one person cannot get around; exact guards on the confirming step; a refused key must be visible to the founder; and, from the second check, one simplification (our own account's number is a setting, so a check is always one request).
+
+**Astra's review of the code:** ship with changes. It found no way to confirm an entry wrongly through any of the races it walked (adding, removing, the founder confirming or rejecting, approval), the limits sound, and the readers right for the real answers. Its five points, all taken:
+1. The keys travelled in the address of the request, and this version of Next.js can write an address to its log when a request fails in a certain way. The keys now travel in a header, and a request never follows a redirect. Both services were tried for real that way.
+2. Three more of Google's answers that mean "our key is the problem" are now counted for the founder's warning.
+3. The script's "while a check is under way" cases could have waited for ever if a check ended early. They now fail at once, and always let the held-back answer go.
+4. One message told a host "nothing was confirmed" in a case where the founder had just confirmed the account. It now says the check made no change.
+5. Three sentences that promised more than is true in every state (the page's introduction, the founder's list, and "bio" where YouTube has a channel description).
+
+**How it was checked:** 335 automatic tests (16 new: the code in a bio; Meta's and Google's answers as they really came back, and every group of their error numbers and reasons). The accounts script (141 checks, 25 new, with pretended answers: not found then found; every failure; the three limits and the ways around them; six presses at once; five things happening while a check is under way; two hosts and one account; an entry already waiting; settings missing). The other eleven scripts unchanged and passing: the whole journey 63, safety 60, notifications 33, booking 116, "call now" 74, adding time 114, ratings 73, verified customers 30, refund requests 112, connection 27, payments 145. Lint, types, build.
+
+**For real, against Meta and Google,** in the local app with the founder's own Instagram account, before and again after Astra's fixes: "Check now" with no code in the bio gave "not found"; with the code in the bio it confirmed at once; searching for the Instagram name then found the host. A YouTube handle that does not exist gave "could not read". The founder's bio was put back as it was each time. Not tried for real: a YouTube channel with the code in its description (the founder has no channel to try with; the reading of Google's answer is covered by the tests and by a real request for a known channel), and a personal Instagram account.
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.

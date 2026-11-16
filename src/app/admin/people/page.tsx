@@ -154,7 +154,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
       <h2 className="mt-10 text-lg font-semibold">Social media accounts to check ({claims.length})</h2>
       <p className="mt-1 text-sm opacity-70">
         Open the link, look for the code in that account&apos;s bio, and say whether it is there. Instagram and YouTube
-        accounts are confirmed by Connect itself and only come here when their keys are not set up.
+        accounts are normally confirmed by Connect itself. They come here only when their keys are not set up, or when
+        they were already waiting.
       </p>
       {claims.length === 0 ? (
         <p className="mt-3 text-sm opacity-70">Nothing is waiting.</p>
