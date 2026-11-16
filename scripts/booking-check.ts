@@ -513,6 +513,27 @@ async function main() {
       const intent = await stripe().paymentIntents.retrieve(intentId);
       check("the booking is cancelled for free and that late hold is let go at Stripe", (await reload(booking.id)).stage === "cancelled" && p.status === "closed_uncharged" && intent.status === "canceled", `${p.status} ${intent.status}`);
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n13. A 5-minute call");
+    {
+      const { saveCalendarChoices } = await import("../src/lib/booking/calendar");
+      const host = await freeHost("host13", 1);
+      const eve = await customer("eve13");
+      // The host ticks 5 and 15 minutes. (7 is not one of the choices: a made-up value is dropped.)
+      await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 7, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 1 });
+      const offer = (await B.offerOf(host.id))!;
+      check("a host can offer 5-minute calls", offer.lengths.join(",") === "5,15", offer.lengths.join(","));
+      const five = await times(host.id, 5);
+      check("the open times for 5 minutes come one call and one break apart", five.length > 3 && five[1].getTime() - five[0].getTime() === 6 * MINUTE, String(five.length));
+      check("a length the host did not tick has no open times and cannot be asked for", (await times(host.id, 10)).length === 0 && (await refused(ask(eve, host.id, five[3], 10))));
+      const { booking } = await ask(eve, host.id, five[0], 5);
+      check("a 5-minute request is for exactly 5 minutes", booking.stage === "waiting" && booking.lengthMinutes === 5 && booking.endsAt.getTime() - booking.startsAt.getTime() === 5 * MINUTE);
+      const { callId } = await B.accept({ bookingId: booking.id, hostId: host.id, now });
+      const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
+      check("accepting it makes a 5-minute call", call.endsAt.getTime() - call.startsAt.getTime() === 5 * MINUTE);
+      check("the next 5-minute time, right after the call and its break, is still open; the taken one is not", (await times(host.id, 5)).some((t) => t.getTime() === five[1].getTime()) && !(await times(host.id, 5)).some((t) => t.getTime() === five[0].getTime()));
+    }
   } finally {
     // Remove the bookings this run made, so the hosts' calendars are clear for the next run.
     // (People, calls and payments are left as test data, like the payments script does.)

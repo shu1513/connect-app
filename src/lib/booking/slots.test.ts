@@ -161,6 +161,17 @@ describe("openStarts", () => {
     expect(open).toEqual(["2026-11-01T04:00", "2026-11-01T05:00", "2026-11-01T07:00"]);
   });
 
+  it("5-minute calls: one after another, each a call and a break apart, and only whole calls", () => {
+    // Tuesday 18:00 to 18:30 with a 1-minute break: starts every 6 minutes; the last whole call starts at 18:24.
+    const weekly: WeeklyRange[] = [{ weekday: 2, startMinute: 18 * 60, endMinute: 18 * 60 + 30 }];
+    expect(times(openStarts({ ...base, weekly, lengthMinutes: 5, breakMinutes: 1 }))).toEqual([
+      "2026-11-03T23:00",
+      "2026-11-03T23:06",
+      "2026-11-03T23:12",
+      "2026-11-03T23:18",
+      "2026-11-03T23:24",
+    ]);
+  });
   it("gives nothing for a host with no hours", () => {
     expect(openStarts({ ...base, weekly: [] })).toEqual([]);
   });
