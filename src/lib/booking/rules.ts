@@ -9,11 +9,16 @@
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
+/** The shortest and the longest call a host can offer, and the step between two lengths, in minutes. */
+export const MIN_LENGTH_MINUTES = 5;
+export const MAX_LENGTH_MINUTES = 360;
+export const LENGTH_STEP_MINUTES = 5;
 /**
- * The call lengths a host can choose to offer. The short ones (5 and 10 minutes) are the host's
- * choice like any other; no host offers them unless they tick them.
+ * Every call length a host can offer: each step of 5 minutes from 5 minutes to 6 hours. A host sets
+ * their shortest and their longest call, and the list stored for them holds every step between the
+ * two. A customer picks one of those.
  */
-export const LENGTH_CHOICES_MINUTES = [5, 10, 15, 30, 45, 60] as const;
+export const LENGTH_CHOICES_MINUTES: readonly number[] = Array.from({ length: MAX_LENGTH_MINUTES / LENGTH_STEP_MINUTES }, (_, i) => (i + 1) * LENGTH_STEP_MINUTES);
 export const NOTICE_CHOICES_HOURS = [24, 48, 72] as const;
 export const HORIZON_CHOICES_WEEKS = [2, 4, 8] as const;
 export const BREAK_CHOICES_MINUTES = [1, 5, 10, 15, 30] as const;
@@ -115,6 +120,35 @@ export function canMoveBooking(from: Stage, to: Stage): boolean {
 
 /** Reads the "15,30" list stored for a host. Unknown values are dropped. */
 export function readLengths(stored: string): number[] {
-  const allowed: readonly number[] = LENGTH_CHOICES_MINUTES;
-  return [...new Set(stored.split(",").map(Number))].filter((n) => allowed.includes(n)).sort((a, b) => a - b);
+  return [...new Set(stored.split(",").map(Number))].filter((n) => LENGTH_CHOICES_MINUTES.includes(n)).sort((a, b) => a - b);
+}
+
+/**
+ * Every length from a host's shortest call to their longest, or null when the two are not a range a
+ * host can offer (not one of the choices, or the shortest longer than the longest).
+ */
+export function lengthRange(shortest: number, longest: number): number[] | null {
+  if (!LENGTH_CHOICES_MINUTES.includes(shortest) || !LENGTH_CHOICES_MINUTES.includes(longest) || shortest > longest) return null;
+  return LENGTH_CHOICES_MINUTES.filter((n) => n >= shortest && n <= longest);
+}
+
+/** The lengths a new calendar starts with: 30 minutes to 2 hours. */
+export const DEFAULT_LENGTHS: readonly number[] = lengthRange(30, 120)!;
+
+/** The length shown first: the offered one closest to 30 minutes, the shorter one when two are equally close. */
+export function firstLength(lengths: readonly number[]): number | null {
+  let best: number | null = null;
+  for (const n of [...lengths].sort((a, b) => a - b)) {
+    if (best === null || Math.abs(n - 30) < Math.abs(best - 30)) best = n;
+  }
+  return best;
+}
+
+/** A length in words: "45 minutes", "1 hour", "1 hour 30 minutes", "2 hours". */
+export function lengthWords(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const h = hours === 0 ? "" : hours === 1 ? "1 hour" : `${hours} hours`;
+  const m = rest === 0 ? "" : rest === 1 ? "1 minute" : `${rest} minutes`;
+  return [h, m].filter(Boolean).join(" ") || "0 minutes";
 }

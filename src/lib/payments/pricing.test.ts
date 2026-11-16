@@ -23,6 +23,9 @@ describe("the booked total", () => {
   it("is zero for a free call", () => {
     expect(bookedTotalCents(0, HOUR)).toBe(0);
   });
+  it("the largest there can be: the longest call (6 hours) at the highest price ($1,000 per 15 minutes) is $24,000", () => {
+    expect(bookedTotalCents(100_000, 6 * HOUR)).toBe(2_400_000);
+  });
   it("a 5-minute call is a third of the 15-minute price: $6.67 at $20, $1.67 at the lowest price", () => {
     expect(bookedTotalCents(PRICE, 300)).toBe(667);
     expect(bookedTotalCents(500, 300)).toBe(167);

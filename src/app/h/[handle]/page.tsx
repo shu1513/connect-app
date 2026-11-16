@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SlotPicker } from "@/components/slot-picker";
 import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
 import { NOW } from "@/lib/booking/now-rules";
+import { firstLength, lengthWords } from "@/lib/booking/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { Rating } from "@/components/rating";
@@ -17,6 +18,8 @@ import { SitePage } from "@/components/site-page";
 
 // Always built fresh, so hiding or suspending a profile takes effect at once.
 export const dynamic = "force-dynamic";
+
+const lengthList = "mt-1 block rounded border border-neutral-400 bg-transparent px-3 py-2";
 
 const CANCEL_RULE: Record<number, string> = {
   0: "Free to cancel any time before the call starts.",
@@ -47,7 +50,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
   const offer = blocked ? null : await offerOf(profile.userId);
   const { length } = await props.searchParams;
-  const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : (offer?.lengths[0] ?? null);
+  // The length the customer chose stays chosen; before any choice, the offered length closest to 30 minutes is shown.
+  const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : offer ? firstLength(offer.lengths) : null;
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
   const now = offer ? await instantOffer(profile.userId, new Date()) : null;
   const rating = await averageFor(profile.userId, "host", new Date());
@@ -126,18 +130,26 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             {profile.displayName} can take a call right away. Choose a length; they answer within {NOW.answerMinutes} minutes and the call starts a minute after they accept.
             {now.offer.pricePer15Cents > 0 ? " You pay for the time you are both in the call." : ""}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2 text-sm">
-            {now.lengths.map((minutes) => (
-              <Link key={minutes} href={`/h/${profile.handle}/now?length=${minutes}`} className="rounded bg-green-700 px-3 py-1.5 font-medium text-white">
-                Call now, {minutes} minutes
-                {now.offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(now.offer.pricePer15Cents, minutes * 60))}` : ""}
-              </Link>
-            ))}
-          </div>
+          <form method="get" action={`/h/${profile.handle}/now`} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+            <label className="block">
+              Length
+              <select name="length" defaultValue={firstLength(now.lengths) ?? undefined} className={lengthList}>
+                {now.lengths.map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {lengthWords(minutes)}
+                    {now.offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(now.offer.pricePer15Cents, minutes * 60))}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="rounded bg-green-700 px-3 py-2 font-medium text-white">
+              Call now
+            </button>
+          </form>
         </section>
       )}
 
-      <section className="mt-8">
+      <section id="ask" className="mt-8 scroll-mt-4">
         <h2 className="text-lg font-semibold">{now ? "Or ask for a call later" : "Ask for a call"}</h2>
         {!offer || !chosen ? (
           <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls at the moment.</p>
@@ -148,18 +160,22 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             <p className="mt-2 text-sm">
               This sends a request. It does not reserve the time: others may ask for it too, and {profile.displayName} chooses.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm">
-              {offer.lengths.map((minutes) => (
-                <Link
-                  key={minutes}
-                  href={`/h/${profile.handle}?length=${minutes}`}
-                  className={`rounded border px-3 py-1.5 ${minutes === chosen ? "border-blue-600 bg-blue-600 text-white" : "border-neutral-500"}`}
-                >
-                  {minutes} minutes
-                  {offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(offer.pricePer15Cents, minutes * 60))}` : ""}
-                </Link>
-              ))}
-            </div>
+            <form method="get" action={`/h/${profile.handle}#ask`} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+              <label className="block">
+                Length
+                <select name="length" defaultValue={chosen} className={lengthList}>
+                  {offer.lengths.map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {lengthWords(minutes)}
+                      {offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(offer.pricePer15Cents, minutes * 60))}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="rounded border border-neutral-500 px-3 py-2">
+                Show times
+              </button>
+            </form>
             {starts.length === 0 ? (
               <p className="mt-4 text-sm opacity-70">There are no open times for this length right now. Please look again later.</p>
             ) : (

@@ -561,6 +561,21 @@ async function main() {
       check("and exactly that goes through", (await extraTwo()).status === "charged" && (await extraTwo()).chargedCents === 800);
       await releasePayment({ paymentId: (await ownTwo()).id, note: "Released by the check." });
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n11. A long call is never taken past 6 hours");
+    {
+      const host = await person("longhost");
+      await makeHost(host, 0, 1);
+      const cust = await person("c11");
+      const callId = await freeCall(host, cust, slot(1), 350);
+      check("a call of 5 hours 50 minutes: asking for 15 more minutes is refused, 10 fit", await refusedWith(ask(callId, cust, 15, 80), "up to 10"));
+      const asked = await ask(callId, cust, 10, 80);
+      check("10 minutes are accepted", asked.state === "waiting" && (await answer(asked.extensionId, callId, host, true, 30)) === "accepted");
+      const six = await callOf(callId);
+      check("the call is now exactly 6 hours long", six.endsAt.getTime() - six.startsAt.getTime() === 360 * MINUTE);
+      check("and nothing more can be added", await refusedWith(ask(callId, cust, 5, 80), "no room"));
+    }
   } finally {
     await setSwitches(switchesBefore).catch(() => undefined);
     const people = made.length ? made : ["-"];

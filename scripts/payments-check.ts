@@ -148,6 +148,25 @@ async function main() {
       const q = await reload(old.payment.id);
       check("the money is taken, and the host's share is ready at that very moment", q.status === "charged" && q.chargedAt !== null && q.transferDueAt?.getTime() === q.chargedAt.getTime(), `${q.status} ${q.transferDueAt?.toISOString()} ${q.chargedAt?.toISOString()}`);
     }
+    console.log("   …and the largest there can be: a 6-hour call at $1,000 per 15 minutes");
+    {
+      const startsAt = new Date(Math.ceil((Date.now() + 600_000) / 1000) * 1000);
+      const big = await db.transaction(async (tx) => {
+        const [made] = await tx.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt: new Date(startsAt.getTime() + 360 * 60_000), roomName: `paycheck-${randomUUID()}`, pricePer15Cents: 100_000 }).returning();
+        await createPaymentForCall(tx, made);
+        const [made2] = await tx.select().from(schema.payments).where(eq(schema.payments.callId, made.id));
+        return { call: made, payment: made2 };
+      });
+      await hold(big.call, big.payment.id, "pm_card_visa");
+      const held = await reload(big.payment.id);
+      check("$24,000 is held on the card", held.status === "held" && held.bookedCents === 2_400_000 && (await stripeIntent(big.payment.id)).amount === 2_400_000 && (await stripeIntent(big.payment.id)).status === "requires_capture", `${held.status} ${held.bookedCents}`);
+      await attend(big.call, [["host", 0, 21_600], ["customer", 0, 21_600]]);
+      await db.update(schema.calls).set({ closedAt: new Date(big.call.endsAt.getTime() + 60_000) }).where(eq(schema.calls.id, big.call.id));
+      await settleFinishedCalls(taken(big.call));
+      const q = await reload(big.payment.id);
+      check("and taken in full a day after the call's start, for the 6 hours both were there", q.status === "charged" && q.chargedCents === 2_400_000 && q.frozenTogetherSeconds === 21_600 && (await stripeIntent(big.payment.id)).amount_received === 2_400_000, `${q.status} ${q.chargedCents} ${q.frozenTogetherSeconds}`);
+      check("the host's share is ready 24 hours after the 6-hour call ends", q.transferDueAt?.getTime() === after(big.call, 24 * 60).getTime(), String(q.transferDueAt?.toISOString()));
+    }
     const intent = await stripeIntent(payment.id);
     check("Stripe received exactly $10.67", intent.status === "succeeded" && intent.amount_received === 1067, `${intent.status} ${intent.amount_received}`);
 

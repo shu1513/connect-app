@@ -6,7 +6,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { HostCalendar } from "@/db/schema";
-import { BREAK_CHOICES_MINUTES, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, NOTICE_CHOICES_HOURS } from "./rules";
+import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, NOTICE_CHOICES_HOURS } from "./rules";
 import { isCalendarZone } from "./slots";
 
 /** A problem the host can fix. Its message is safe to show them. */
@@ -14,11 +14,14 @@ export class CalendarError extends Error {}
 
 const includes = (choices: readonly number[], value: number) => choices.includes(value);
 
-/** The host's calendar, created on first use in their own time zone. */
+/**
+ * The host's calendar, created on first use in their own time zone, with calls from 30 minutes to
+ * 2 hours. A calendar that already exists is left exactly as it is.
+ */
 export async function calendarOf(userId: string, fallbackZone: string | null): Promise<HostCalendar> {
   await db
     .insert(schema.hostCalendars)
-    .values({ userId, timeZone: fallbackZone && isCalendarZone(fallbackZone) ? fallbackZone : "America/New_York" })
+    .values({ userId, timeZone: fallbackZone && isCalendarZone(fallbackZone) ? fallbackZone : "America/New_York", lengths: DEFAULT_LENGTHS.join(",") })
     .onConflictDoNothing();
   const [calendar] = await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, userId));
   return calendar;

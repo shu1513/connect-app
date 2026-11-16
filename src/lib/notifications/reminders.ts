@@ -9,7 +9,7 @@ import { db, schema } from "@/db";
 import { whenFor } from "@/lib/booking/emails";
 import { queueEmail } from "@/lib/email";
 import { formatMoney } from "@/lib/payments/access";
-import { dueReminders } from "./reminder-rules";
+import { dueReminders, reminderExpiresAt } from "./reminder-rules";
 import { reminderFooter, unsubscribeHeaders, unsubscribeTokenFor } from "./unsubscribe";
 import { ownPaymentOn } from "@/lib/payments/own";
 
@@ -73,8 +73,8 @@ export async function writeCallReminders(now: Date): Promise<number> {
             subject,
             text: [`Hi ${person.name},`, "", lead + paidNote, "", `Join here: ${link}`, "", reminderFooter(person)].join("\n"),
             key: keyFor(call.id, person.id, kind),
-            // A late "Tomorrow" or "In an hour" email would be wrong: each is dropped once its moment has passed.
-            expiresAt: kind === "day" ? new Date(call.startsAt.getTime() - 12 * HOUR) : kind === "hour" ? new Date(call.startsAt.getTime() - 5 * MINUTE) : call.endsAt,
+            // A late reminder would be wrong: each is dropped once its moment has passed.
+            expiresAt: reminderExpiresAt(kind, call.startsAt),
             headers: unsubscribeHeaders(person),
           }),
         );

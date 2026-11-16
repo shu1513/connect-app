@@ -3,6 +3,7 @@
  * may ask, until when the host may accept, how many minutes fit, and what they
  * cost. No database, no Stripe, so they can be tested directly.
  */
+import { MAX_LENGTH_MINUTES } from "@/lib/booking/rules";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 
 /** The customer can ask from this long before the end. */
@@ -23,6 +24,8 @@ export const MIN_EXTENSION_MINUTES = 5;
 export const MAX_EXTENSION_MINUTES = 60;
 /** The most requests one call can have, answered or not, so a card is never tried again and again. */
 export const MAX_REQUESTS_PER_CALL = 5;
+/** With added time a call is never longer than this in all: the longest call that can be booked. */
+export const MAX_CALL_MINUTES = MAX_LENGTH_MINUTES;
 
 export type ExtensionStatus = "open" | "accepted" | "declined" | "ran_out" | "failed";
 
@@ -47,13 +50,15 @@ export function canStillAccept(input: { now: Date; endsAt: Date }): boolean {
  * The most whole minutes that can be added to a call that ends at `endsAt`.
  * The host needs their break after the new end before their next thing starts;
  * the customer only needs the new end to come before their next thing.
- * Null means "nothing coming up". Never more than the most one request may ask for.
+ * Null means "nothing coming up". Never more than the most one request may ask for,
+ * and never more than is left until the call is 6 hours long in all.
  */
-export function minutesThatFit(input: { endsAt: Date; breakMinutes: number; hostNextAt: Date | null; customerNextAt: Date | null }): number {
+export function minutesThatFit(input: { startsAt: Date; endsAt: Date; breakMinutes: number; hostNextAt: Date | null; customerNextAt: Date | null }): number {
   const end = input.endsAt.getTime();
+  const untilLongest = Math.floor((input.startsAt.getTime() + MAX_CALL_MINUTES * MINUTE - end) / MINUTE);
   const forHost = input.hostNextAt ? Math.floor((input.hostNextAt.getTime() - end) / MINUTE) - input.breakMinutes : MAX_EXTENSION_MINUTES;
   const forCustomer = input.customerNextAt ? Math.floor((input.customerNextAt.getTime() - end) / MINUTE) : MAX_EXTENSION_MINUTES;
-  return Math.max(0, Math.min(MAX_EXTENSION_MINUTES, forHost, forCustomer));
+  return Math.max(0, Math.min(MAX_EXTENSION_MINUTES, untilLongest, forHost, forCustomer));
 }
 
 /** The quick choices that fit. */

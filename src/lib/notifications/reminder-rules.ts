@@ -10,6 +10,16 @@ const WINDOWS: Record<Kind, { from: number; until: number }> = {
   open: { from: 5 * MINUTE, until: 0 },
 };
 
+/**
+ * Until when a reminder that could not be sent yet is still worth sending. After this it is dropped.
+ * A late "Tomorrow" or "In an hour" email would be wrong, and so would "the room is open now" hours
+ * into a long call: that one is dropped 5 minutes after the start (no call is shorter than that).
+ */
+export function reminderExpiresAt(kind: Kind, startsAt: Date): Date {
+  const start = startsAt.getTime();
+  return new Date(kind === "day" ? start - 12 * HOUR : kind === "hour" ? start - 5 * MINUTE : start + 5 * MINUTE);
+}
+
 /** Which reminders are due for a call that starts at `startsAt`, right now. Plain logic, tested on its own. */
 export function dueReminders(startsAt: Date, now: Date): Kind[] {
   const left = startsAt.getTime() - now.getTime();
