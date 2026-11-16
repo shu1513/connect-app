@@ -156,15 +156,20 @@ export function paymentBlocksJoin(input: {
 // for cancelling late, keep their own rules.)
 // ---------------------------------------------------------------------------
 
-/** How long after the call ends a customer can ask for a refund. */
+/** How long a customer can ask for a refund, counted from the call's start (they can ask once it has ended). */
 export const ASK_WINDOW_MS = DAY_MS;
 /** How long the host has to answer a request before the money is taken anyway. */
 export const ANSWER_WINDOW_MS = DAY_MS;
 /**
  * The app acts by itself this long after a deadline it shows a person, so a
  * request or an answer sent in the last seconds still arrives first.
+ *
+ * It must stay shorter than the shortest call a host can offer: a host can
+ * collect 24 hours after a call's end, and the customer's last moment to ask
+ * (24 hours after its start, plus this) has to come before that. A test keeps
+ * watch over it.
  */
-export const DEADLINE_CUSHION_MS = 10 * 60_000;
+export const DEADLINE_CUSHION_MS = 3 * 60_000;
 /** An ordinary charge is never left on hold later than this long before the hold ends. */
 export const TAKE_BEFORE_EXPIRY_MS = 12 * HOUR_MS;
 
@@ -174,8 +179,8 @@ export const TAKE_BEFORE_EXPIRY_MS = 12 * HOUR_MS;
  * share one moment, and each is then taken as its own payment.
  */
 export function moneyTiming(input: {
-  /** The call's end, after any added time. */
-  callEndsAt: Date;
+  /** The call's start: the customer's time to ask is counted from it, so added time does not move it. */
+  callStartsAt: Date;
   /** When the customer asked for a refund, or null if they have not. */
   requestedAt: Date | null;
   holdExpiresAt: Date;
@@ -188,7 +193,7 @@ export function moneyTiming(input: {
   takeAt: Date;
 } {
   const limit = input.holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS;
-  const withoutRequest = Math.min(input.callEndsAt.getTime() + ASK_WINDOW_MS + DEADLINE_CUSHION_MS, limit);
+  const withoutRequest = Math.min(input.callStartsAt.getTime() + ASK_WINDOW_MS + DEADLINE_CUSHION_MS, limit);
   const askBy = new Date(withoutRequest - DEADLINE_CUSHION_MS);
   if (!input.requestedAt) return { askBy, answerBy: null, takeAt: new Date(withoutRequest) };
   const takeAt = Math.min(input.requestedAt.getTime() + ANSWER_WINDOW_MS + DEADLINE_CUSHION_MS, limit);
@@ -201,7 +206,7 @@ export function moneyTiming(input: {
  */
 export function takeDecision(input: {
   now: Date;
-  callEndsAt: Date;
+  callStartsAt: Date;
   requestedAt: Date | null;
   /** The request was answered (or closed by the founder): nothing is waited for any more. */
   decided: boolean;
@@ -216,18 +221,34 @@ export function takeDecision(input: {
 // Collecting. There is no payday: a host takes their earnings with a button.
 // ---------------------------------------------------------------------------
 
-/** A charge's share can be collected this long after the call ends. */
-export const COLLECT_AFTER_MS = 2 * DAY_MS;
+/**
+ * A charge's share can be collected this long after the call ends when the customer did not ask for a
+ * refund. The customer's time to ask is counted from the call's start (24 hours, plus the 3 minutes in
+ * which a request sent in the last seconds is still accepted), and a call lasts at least 5 minutes. So by
+ * this moment a first request can no longer arrive, and the money has been taken a little before.
+ */
+export const COLLECT_AFTER_MS = DAY_MS;
+/** With a refund request on the call, the wait stays longer (and the host must have answered first). */
+export const COLLECT_AFTER_REQUEST_MS = 2 * DAY_MS;
 /** A host can collect once in this long, counted from their last collection. */
 export const COLLECT_EVERY_MS = DAY_MS;
 
 /**
- * When the host's share of a charge can be collected: 2 days after the call
- * ends, and never before the charge is recorded. Worked out once, at the
- * moment the charge is recorded, and never moved afterwards.
+ * When the host's share of a charge can be collected: 24 hours after the call
+ * ends when the customer did not ask for a refund (their time to ask is over
+ * a little before that), 2 days after the call when they did, and never
+ * before the charge is recorded. Worked out when the charge is recorded. It moves once at most,
+ * and only later: when the customer asks for a refund after the charge was
+ * recorded, it becomes the 2 days of a call with a request (see askForRefund).
  */
-export function readyToCollectAt(input: { callEndsAt: Date; chargedAt: Date }): Date {
-  return new Date(Math.max(input.callEndsAt.getTime() + COLLECT_AFTER_MS, input.chargedAt.getTime()));
+export function readyToCollectAt(input: {
+  callEndsAt: Date;
+  chargedAt: Date;
+  /** Whether the customer has asked for a refund on this call, as it stands at this moment. */
+  refundAsked: boolean;
+}): Date {
+  const wait = input.refundAsked ? COLLECT_AFTER_REQUEST_MS : COLLECT_AFTER_MS;
+  return new Date(Math.max(input.callEndsAt.getTime() + wait, input.chargedAt.getTime()));
 }
 
 /** The earliest moment a host can collect again, or null if they never have. */

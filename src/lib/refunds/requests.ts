@@ -1,7 +1,7 @@
 /**
  * A customer asks for a refund; the host answers.
  *
- * One request per call, asked within 24 hours of its end. Before the money is
+ * One request per call, asked after the call and within 24 hours of its start. Before the money is
  * taken, the host's answer decides what is taken: in full, less, or nothing,
  * for each charge of the call. After that, an answer is a "no" or a refund
  * with the refund tool. Who may decide does not change: the host, or the
@@ -17,7 +17,7 @@ import { db, schema } from "@/db";
 import type { Call, Payment, RefundRequest } from "@/db/schema";
 import { lockPayment, type Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
-import { ASK_WINDOW_MS, DEADLINE_CUSHION_MS, moneyTiming } from "@/lib/payments/rules";
+import { ASK_WINDOW_MS, COLLECT_AFTER_REQUEST_MS, DEADLINE_CUSHION_MS, moneyTiming } from "@/lib/payments/rules";
 import { commonExpiry, heldOrdinary, isDecided, settleOrdinaryCharges } from "@/lib/payments/take";
 import { summarise, type QualitySummary } from "@/lib/quality/summary";
 import { queueAnswerEmail, queueClosedEmail, queueRequestEmail, queueRequestReminder, type AnswerLine } from "./emails";
@@ -123,7 +123,7 @@ async function openCharges(reader: Reader, callId: string): Promise<Payment[]> {
   return held.filter((payment) => !taken.has(payment.id));
 }
 
-export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<RequestView | null> {
+export async function requestViewOf(call: Pick<Call, "id" | "startsAt">): Promise<RequestView | null> {
   const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
   if (!request) return null;
   const answers = await db.select().from(schema.refundRequestAnswers).where(eq(schema.refundRequestAnswers.requestId, request.id));
@@ -134,7 +134,7 @@ export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<
     answers: answers.map((a) => ({ paymentId: a.paymentId, choice: a.choice as Choice, maxCents: a.maxCents })),
     answered: await isAnswered(request),
     open,
-    answerBy: expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
+    answerBy: expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
     nothingAtStake: !(await moneyAtStake(db, call.id)),
     beingDecided: open.length === 0 && (await anyOnHold(db, call.id)),
   };
@@ -167,7 +167,7 @@ export async function requestHolds(reader: Reader, callIds: string[]): Promise<M
 /**
  * Until when the customer of this call can ask, or null if they cannot (any
  * more): a paid call that took place, not cancelled, no request yet, inside
- * the 24 hours. `now` may be up to 10 minutes past the moment shown, so a
+ * the 24 hours counted from its start. `now` may be up to 3 minutes past the moment shown, so a
  * request sent in the last seconds still counts.
  */
 export async function askBy(call: Call, now: Date, reader: Reader = db): Promise<Date | null> {
@@ -177,7 +177,7 @@ export async function askBy(call: Call, now: Date, reader: Reader = db): Promise
   // Something must be at stake: money on hold or money taken.
   if (!(await moneyAtStake(reader, call.id))) return null;
   const expiry = (await heldOrdinary(reader, call.id)).length > 0 ? await commonExpiry(reader, call.id) : null;
-  const until = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.endsAt.getTime() + ASK_WINDOW_MS);
+  const until = expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.startsAt.getTime() + ASK_WINDOW_MS);
   return now.getTime() < until.getTime() + DEADLINE_CUSHION_MS ? until : null;
 }
 
@@ -197,6 +197,11 @@ export async function askForRefund(input: { callId: string; customerId: string; 
   return db.transaction(async (tx) => {
     const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, input.callId)).for("update");
     if (!call || call.customerId !== input.customerId) throw new RequestError("Call not found.");
+    // Then the call's payments, in the order every other step uses. A charge that is being recorded at this very
+    // moment waits for this request and then sees it, or is finished before the date below is set. Either way its
+    // date is never the one of a call nobody asked about.
+    const payments = await tx.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.callId, call.id)).orderBy(asc(schema.payments.id));
+    for (const { id } of payments) await lockPayment(tx, id);
     const now = input.now ?? new Date();
     if (!(await askBy(call, now, tx))) throw new RequestError("A refund can no longer be asked for on this call.");
 
@@ -208,8 +213,17 @@ export async function askForRefund(input: { callId: string; customerId: string; 
       .insert(schema.refundRequests)
       .values({ callId: call.id, customerId: input.customerId, reason: input.reason, note, summary: record.json, askedAt: now })
       .returning();
+    // Money of this call that was already taken (a charge the founder made after a review) had been given the
+    // date of a call nobody asked about. Now somebody has asked: it waits the 2 days of a call with a request,
+    // like a charge taken after the request. The date only ever moves later, and nothing of this call can have
+    // been collected yet: that is not possible before asking is over.
+    const withRequest = new Date(call.endsAt.getTime() + COLLECT_AFTER_REQUEST_MS);
+    await tx
+      .update(schema.payments)
+      .set({ transferDueAt: withRequest })
+      .where(and(eq(schema.payments.callId, call.id), eq(schema.payments.status, "charged"), inArray(schema.payments.transferStatus, ["not_due", "due"]), lt(schema.payments.transferDueAt, withRequest)));
     const expiry = (await openCharges(tx, call.id)).length > 0 ? await commonExpiry(tx, call.id) : null;
-    const answerBy = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
+    const answerBy = expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
     await queueRequestEmail(tx, call, request, answerBy ? { answerBy } : (await anyOnHold(tx, call.id)) ? "being_decided" : "taken");
     return "sent";
   });
@@ -323,7 +337,7 @@ export async function writeAnswerReminders(now: Date): Promise<void> {
   for (const { request, call } of waiting) {
     const expiry = (await openCharges(db, call.id)).length > 0 ? await commonExpiry(db, call.id) : null;
     if (!expiry) continue; // the money was taken: nothing left to hurry for
-    const answerBy = moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy!;
+    const answerBy = moneyTiming({ callStartsAt: call.startsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy!;
     const halfway = (request.askedAt.getTime() + answerBy.getTime()) / 2;
     if (now.getTime() < halfway || now >= answerBy) continue;
     await queueRequestReminder(db, call, request, answerBy);

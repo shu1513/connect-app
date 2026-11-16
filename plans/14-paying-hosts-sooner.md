@@ -1,5 +1,9 @@
 # Plan 14: Hosts collect their earnings when they want
 
+**The choice this plan left open is decided (15 November 2026):** money nobody collects is not sent automatically.
+
+**Changed after this plan was built (15 November 2026, the founder's decision):** a share is ready 24 hours after the call ends if the customer did not ask for a refund (the customer's 24 hours to ask count from the call's start, so they are over before that); with a request it stays 2 days. See "A later change" in `docs/module-record.md`.
+
 **Status:** built (branch `module/collect-earnings`); what was built, the reviews and the checks
 are in `docs/module-record.md` under "Module 12". The plan below is the third version (16 November
 2026). Astra checked the second version (approve with changes); its twelve points are worked in and

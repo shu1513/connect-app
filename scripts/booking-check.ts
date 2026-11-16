@@ -218,6 +218,8 @@ async function main() {
       const forH3 = await ask(pat, h3.id, slot).catch(() => null);
       check("a host's own request elsewhere closes that time on their page", mine !== null && forH3 === null);
       check("the admin test page cannot make an overlapping call either", await refused(B.createTestCall({ hostId: h2.id, customerId: pat.id, startsAt: slot, endsAt: new Date(slot.getTime() + 10 * MINUTE), pricePer15Cents: 0, freeCancelMinutes: 0 })));
+      const tooShort = await B.createTestCall({ hostId: h2.id, customerId: pat.id, startsAt: new Date(slot.getTime() + 3 * 60 * MINUTE), endsAt: new Date(slot.getTime() + 3 * 60 * MINUTE + 4 * MINUTE), pricePer15Cents: 2000, freeCancelMinutes: 0 }).then(() => null, (e: unknown) => e as Error);
+      check("and it cannot make a paid call shorter than 5 minutes", tooShort instanceof BookingError && /5 minutes/.test(tooShort.message), tooShort?.message);
       check("a time that is not one of the open times is refused, whatever the browser sends", await refused(ask(pat, h1.id, new Date(slot.getTime() + 7 * MINUTE))));
     }
 

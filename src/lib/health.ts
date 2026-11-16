@@ -45,7 +45,7 @@ export async function callOverdue(call: Call, now: Date): Promise<boolean> {
   if (!expiry || call.cancelledAt) return false;
   const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
   const answered = isDecided(request) && request.decidedAt ? request.decidedAt : null;
-  const dueAt = answered ?? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
+  const dueAt = answered ?? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
   if (now.getTime() <= dueAt.getTime() + OVERDUE_MS) return false;
   for (const payment of held) {
     const [started] = await db
