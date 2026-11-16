@@ -199,6 +199,12 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 **Still open**
 - Cards whose bank asks for approval later; how long real holds last; real email delivery.
 
+**A later change: calls as short as 5 minutes (the founder's decision, 15 November 2026).** The shortest call that could be booked was 15 minutes. A host can now also offer 5-minute and 10-minute calls, beside 15, 30, 45 and 60. It is the host's choice, on the calendar page; no host offers them unless they tick them. Nothing else changed: the price of a call follows its length (a 5-minute call costs a third of the 15-minute price), and open times, breaks, instant calls and adding time work for the short lengths as for any other.
+- Said to the founder first, and now to hosts on the calendar page: our fee includes 30 cents for each paid call whatever its length. On the shortest call at the lowest price ($5 per 15 minutes) the customer pays $1.67, our fee is 38 cents, and the host gets $1.29. At $20 per 15 minutes a 5-minute call is $6.67.
+- Left as it was: a host's page shows the shortest length the host offers first.
+- **Astra's review:** ship. It read everything else in the app that might quietly assume a call is at least 15 minutes (booking, open times, instant calls, the call screen, adding time, the money, ratings, reminders, refund requests, the pages) and found nothing that breaks. It confirmed the numbers: on a 5-minute call at the lowest price Connect is left with about 3 cents after Stripe's own card fee, which is not a loss. Four small points, all taken: the calendar page now also says that the 30 cents is taken again each time paid time is added during a call (5 minutes plus 5 added minutes cost the host more in fees than 10 minutes booked at once); one check in the booking script could have passed for the wrong reason and now uses a time that really is good for a 10-minute call; and two tests were added (hours that end in the middle of a last call; a short instant call when the host has 8 minutes left).
+- Checked: tests for the lengths, the price and the open times of a 5-minute call; the booking script, with a new journey (a host ticks 5 minutes, the open times come one call and one break apart, a 5-minute request is accepted as a 5-minute call, a length the host does not tick is refused), 100 checks; and by hand in a browser: the calendar page with the two new lengths, and the host's page offering "5 minutes, $6.67".
+
 ---
 
 ## Module 5: Safety

@@ -78,6 +78,9 @@ describe("stages", () => {
 describe("readLengths", () => {
   it("keeps only the lengths we offer, once each, in order", () => {
     expect(readLengths("60,15,15,20,abc")).toEqual([15, 60]);
+    // The shortest call a host can offer is 5 minutes. Nothing shorter, and nothing in between the choices.
+    expect(readLengths("5,10,15,30,45,60")).toEqual([5, 10, 15, 30, 45, 60]);
+    expect(readLengths("1,4,5,7,10,90")).toEqual([5, 10]);
     expect(readLengths("")).toEqual([]);
   });
 });

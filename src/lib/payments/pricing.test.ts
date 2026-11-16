@@ -23,6 +23,14 @@ describe("the booked total", () => {
   it("is zero for a free call", () => {
     expect(bookedTotalCents(0, HOUR)).toBe(0);
   });
+  it("a 5-minute call is a third of the 15-minute price: $6.67 at $20, $1.67 at the lowest price", () => {
+    expect(bookedTotalCents(PRICE, 300)).toBe(667);
+    expect(bookedTotalCents(500, 300)).toBe(167);
+    expect(bookedTotalCents(500, 600)).toBe(333);
+  });
+  it("on the shortest, cheapest call the fixed 30 cents is most of our fee: 38 cents of $1.67, and the host gets $1.29", () => {
+    expect(splitCharge(167, DEFAULT_FEE_TERMS, false)).toEqual({ feeCents: 38, hostShareCents: 129 });
+  });
   it("rounds to the nearest cent, halves up", () => {
     // $5.00 per 15 minutes for 61 seconds = 33.888… cents
     expect(bookedTotalCents(500, 61)).toBe(34);
