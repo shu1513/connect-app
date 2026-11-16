@@ -560,15 +560,38 @@ async function main() {
       const [later] = await times(host.id, 90, 120);
       const long = await ask(fay, host.id, later, 90);
       check("so can a call of 1 hour 30 minutes", long.booking.stage === "waiting" && long.booking.lengthMinutes === 90 && long.booking.endsAt.getTime() - long.booking.startsAt.getTime() === 90 * MINUTE);
-      const [free] = await times(host.id, 30, 168);
-      check("a length outside the host's range is refused, whatever the browser sends", (await refused(ask(fay, host.id, free, 125))) && (await refused(ask(fay, host.id, free, 5))));
-      check("and so is a length that is not a step of 5 minutes", (await refused(ask(fay, host.id, free, 12))) && (await refused(ask(fay, host.id, free, 30.5))));
+      const longCall = await B.accept({ bookingId: long.booking.id, hostId: host.id, now });
+      const [ninety] = await db.select().from(schema.calls).where(eq(schema.calls.id, longCall.callId));
+      check("and it is accepted as a call of 1 hour 30 minutes", ninety.endsAt.getTime() - ninety.startsAt.getTime() === 90 * MINUTE);
+      // Refused because the host does not offer the length, not for any other reason (a closed time has its own message).
+      const notOffered = async (lengthMinutes: number) => {
+        const [free] = await times(host.id, 30, 168);
+        const problem = await ask(fay, host.id, free, lengthMinutes).then(() => null, (e: unknown) => e as Error);
+        return problem instanceof BookingError && /cannot be booked right now/.test(problem.message);
+      };
+      check("a 30-minute call at that same time would be fine", (await times(host.id, 30, 168)).length > 0 && offer.lengths.includes(30));
+      check("a length outside the host's range is refused, whatever the browser sends", (await notOffered(125)) && (await notOffered(5)));
+      check("and so is a length that is not a step of 5 minutes", (await notOffered(12)) && (await notOffered(30.5)));
       check("a calendar that already exists keeps its list when it is opened", (await calendarOf(host.id, "America/New_York")).lengths === lengthRange(10, 120)!.join(","));
       const fresh = await customer("new14");
       check("a new calendar starts with 30 minutes to 2 hours", (await calendarOf(fresh.id, "America/New_York")).lengths === DEFAULT_LENGTHS.join(",") && DEFAULT_LENGTHS[0] === 30 && DEFAULT_LENGTHS[DEFAULT_LENGTHS.length - 1] === 120);
 
-      // The longest call at the highest price, through booking itself.
+      // A paid host with every length, at $20 per 15 minutes: the price follows the chosen length.
       await db.update(schema.hostCalendars).set({ lengths: lengthRange(5, 360)!.join(",") }).where(eq(schema.hostCalendars.userId, hana.id));
+      const ivy = await customer("ivy14");
+      const [p25] = await times(hana.id, 25, 96);
+      const paid25 = await ask(ivy, hana.id, p25, 25);
+      check("at $20 per 15 minutes a 25-minute call is $33.33", paid25.booking.stage === "card" && paid25.booking.lengthMinutes === 25 && paid25.booking.totalCents === 3333, String(paid25.booking.totalCents));
+      const [p90] = await times(hana.id, 90, 120);
+      const paid90 = await ask(ivy, hana.id, p90, 90);
+      check("and a call of 1 hour 30 minutes is $120.00", paid90.booking.stage === "card" && paid90.booking.totalCents === 12_000, String(paid90.booking.totalCents));
+      await cardFor(paid90.booking.id, "pm_card_visa");
+      await B.finishCardStep({ bookingId: paid90.booking.id, customerId: ivy.id, now });
+      const paidCall = await B.accept({ bookingId: paid90.booking.id, hostId: hana.id, now });
+      const [paidPayment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, paidCall.callId));
+      check("accepted: $120.00 will be held for it", paidPayment.bookedCents === 12_000 && paidPayment.status === "awaiting_payment", `${paidPayment.bookedCents} ${paidPayment.status}`);
+
+      // The longest call at the highest price, through booking itself.
       await db.update(schema.hostProfiles).set({ pricePer15Cents: 100_000 }).where(eq(schema.hostProfiles.userId, hana.id));
       const gus = await customer("gus14");
       const [six] = await times(hana.id, 360, 96);

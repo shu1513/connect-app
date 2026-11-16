@@ -1,6 +1,6 @@
 # Plan 15: A customer picks the length of the call
 
-**Status:** plan only, not built. Written 15 November 2026. Astra has checked it against the code
+**Status:** built (branch `plan/custom-call-lengths`); what was built, the reviews and the checks are in `docs/module-record.md` under "A later change: a customer picks the length of the call". Below is the plan as it was approved. Written 15 November 2026. Astra has checked it against the code
 twice; what it found each time is at the end, and every point is worked in. The two changes it
 builds on are merged (calls as short as 5 minutes, pull request 24; the customer's 24 hours counted
 from the call's start, pull request 23).

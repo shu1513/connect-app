@@ -9,8 +9,7 @@
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
-/** The shortest and the longest call a host can offer, and the step between two lengths, in minutes. */
-export const MIN_LENGTH_MINUTES = 5;
+/** The longest call a host can offer, and the step between two lengths (which is also the shortest call), in minutes. */
 export const MAX_LENGTH_MINUTES = 360;
 export const LENGTH_STEP_MINUTES = 5;
 /**
