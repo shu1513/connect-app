@@ -197,6 +197,11 @@ export async function askForRefund(input: { callId: string; customerId: string; 
   return db.transaction(async (tx) => {
     const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, input.callId)).for("update");
     if (!call || call.customerId !== input.customerId) throw new RequestError("Call not found.");
+    // Then the call's payments, in the order every other step uses. A charge that is being recorded at this very
+    // moment waits for this request and then sees it, or is finished before the date below is set. Either way its
+    // date is never the one of a call nobody asked about.
+    const payments = await tx.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.callId, call.id)).orderBy(asc(schema.payments.id));
+    for (const { id } of payments) await lockPayment(tx, id);
     const now = input.now ?? new Date();
     if (!(await askBy(call, now, tx))) throw new RequestError("A refund can no longer be asked for on this call.");
 

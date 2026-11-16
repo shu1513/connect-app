@@ -459,6 +459,15 @@ async function main() {
     check("after the host's answer it still waits for the 2 days, and is ready exactly then", (await answered(DAY + 30)) === "not_yet" && (await answered(2 * DAY - 1)) === "not_yet" && (await answered(2 * DAY)) === null);
   }
 
+  {
+    // The founder's charge and the customer's request at the same moment: whichever comes first, the date is the 2 days.
+    const c = await paid(host.id, [["host", 0, null], ["customer", 0, 600]]);
+    await settle(c, 5);
+    const [charged, asked] = await Promise.allSettled([capturePayment({ paymentId: c.payment.id, amountCents: 700, reason: "admin", frozen: null, callEndsAt: c.call.endsAt, now: after(c, 60) }), ask(c, 60)]);
+    const p = await reload(c.payment.id);
+    check("a charge and a request at the same moment: both go through, and the share waits the 2 days", charged.status === "fulfilled" && asked.status === "fulfilled" && p.status === "charged" && p.transferDueAt?.getTime() === after(c, 2 * DAY).getTime(), `${charged.status} ${asked.status} ${p.status} ${p.transferDueAt?.toISOString()}`);
+  }
+
   console.log("\n10b. An answer was accepted, and then the charge comes under the founder's review");
   {
     const reviewed = async (choice: string, maxCents?: number) => {
