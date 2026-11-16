@@ -931,10 +931,16 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 - **Settings:** `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET`. The sign-in is on only when both are there and the site's address is a plain `https` address. Off, nothing changes for TikTok: it is confirmed by hand as before.
 - **Small:** in development the framework prints the address of every request; the address TikTok returns a host to holds a one-time code, so it is left out of that.
 
-**Said plainly: it is built, and not switched on.**
-- It has **not been tried against the real TikTok yet.** Every check so far used pretended answers from TikTok. The real test needs a TikTok developer account in the founder's name and a TikTok account to test with, in TikTok's test mode ("sandbox", up to 10 named accounts, no review).
-- **It cannot serve real hosts until Connect is live.** TikTok only approves an app whose website is on its own address, fully working, with real terms and privacy pages. It does not ask for a registered company. Its review takes "several days to two weeks". Until then TikTok accounts keep coming to the founder's list.
-- Four things TikTok's pages do not say, to be looked at in the sandbox: what happens when a host presses "Cancel"; whether a one-time code is taken once only; whether the sandbox has its own keys; and whether the "profile" permission works in a sandbox before approval.
+**Tried for real in TikTok's test mode (16 November 2026),** with the founder's TikTok developer account, an app named "Connect" in "sandbox" state, and the founder's own TikTok account as its one test user. In Chrome, on the app's secure test address:
+- "Cancel" on TikTok's page: TikTok sends the host back, and the app says "You did not connect TikTok. Nothing was changed."
+- TikTok's page lets the host switch the second permission off. Tried: the app says "TikTok did not share your account's name with us. Nothing was changed. Please try again and leave both switches on at TikTok."
+- **The first full try failed, and showed a real fault.** TikTok answered "The request parameters are malformed." The cause: TikTok takes a form only when it is labelled exactly `application/x-www-form-urlencoded`. The usual way of sending a form adds `;charset=UTF-8` to that label, and TikTok refuses it. No pretended answer could have shown this. The forms are now sent as text under the plain label, and a test holds that in place.
+- After the fix: "TikTok @name is confirmed." The entry holds TikTok's number, is confirmed by nobody's hand, and is not on the founder's list. Searching for the name finds the host, marked "TikTok: @name (confirmed)". Connecting a second time gives the same result, one entry.
+- TikTok asked for permission again the second time, which shows that handing the key back works: TikTok had forgotten the first permission.
+
+What that settled, of the things TikTok's pages do not say: on "Cancel" TikTok returns with a refusal; the sandbox has its own keys; and the "profile" permission works in a sandbox before any approval. Not tried: whether TikTok takes a one-time code twice (nothing depends on it).
+
+**Said plainly: it works, and it is not switched on for real hosts.** TikTok only approves an app whose website is on its own address, fully working, with real terms and privacy pages. It does not ask for a registered company. Its review takes "several days to two weeks". Until then only accounts named in the sandbox can sign in, and real hosts' TikTok accounts keep coming to the founder's list. The sandbox's keys are on the founder's computer only; the live site will get the approved app's keys.
 
 **Astra's check of the plan:** ready with changes, twelve points, all worked in (listed at the end of the plan). The most important: TikTok's side written out exactly, with what counts as a good answer; which of TikTok's two account numbers is kept, and that a sandbox's numbers never meet the live site's; "I've done it" from an old page closed as a way onto the founder's list; a refusal of our keys told apart from everything that is not our fault.
 
@@ -945,6 +951,8 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 4. That check could have passed even if the cookie were removed wrongly. It now reads the cookie line the app really sends: the name, the path and that it is expired.
 5. The script's TikTok names and numbers were the same on every run; leftovers from a stopped run could have failed the next. They carry each run's own tag.
 Astra also noted three planned cases the script did not have yet (a replacement at the same moment as a removal, as an approval, and an account closed while TikTok was answering). Added.
+
+**CodeRabbit's review:** one comment, taken. Two of the script's same-moment checks could have passed even if the sign-in had failed quietly (the sign-in answers with a message also when it fails). They now read the message and the saved account number.
 
 **How it was checked:** 358 automatic tests (23 new: the settings; the address at TikTok; the signed note; the permissions; TikTok's answers; the three requests with a pretended connection, including that the secret, the code and the key never appear in an address). The accounts script (new section with pretended answers from TikTok: switched off; nine ways the return is stopped before anything is asked; every saving case; two hosts and one account; things at the same moment; paused, closed or no profile; which refusals reach the founder's page; the by-hand way while the sign-in is on and off; and the return address through the running app). The other eleven scripts unchanged and passing. Lint, types, build. By hand in a browser, with pretended keys: the button appears, TikTok leaves the add-with-a-code list, and pressing the button sends the browser to TikTok's own log-in page.
 

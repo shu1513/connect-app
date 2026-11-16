@@ -187,7 +187,17 @@ const REVOKE_URL = "https://open.tiktokapis.com/v2/oauth/revoke/";
 const TIME_LIMIT_MS = 8_000;
 
 /** One request to TikTok and the text of its answer, or null when there was none. Never throws. */
-export type TikTokSend = (url: string, request: { method: "GET" | "POST"; headers?: Record<string, string>; body?: URLSearchParams }) => Promise<string | null>;
+export type TikTokSend = (url: string, request: { method: "GET" | "POST"; headers?: Record<string, string>; body?: string }) => Promise<string | null>;
+
+/**
+ * A form for TikTok: the fields as text, labelled exactly "application/x-www-form-urlencoded".
+ * Seen for real on 16 November 2026: TikTok answers "The request parameters are malformed" when the
+ * label also carries ";charset=UTF-8", which is what happens when the fields are handed over as they
+ * are and the label is left to be added by itself.
+ */
+function form(fields: Record<string, string>): { headers: Record<string, string>; body: string } {
+  return { headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields).toString() };
+}
 
 /** A fresh request, with a time limit, that follows no redirect and is not tried again. */
 const send: TikTokSend = async (url, request) => {
@@ -214,7 +224,7 @@ export type TikTokLookup = (code: string, settings: TikTokSettings) => Promise<T
 export async function tiktokAccountFor(code: string, settings: TikTokSettings, transport: TikTokSend = send): Promise<TikTokAccount> {
   const swapped = await transport(TOKEN_URL, {
     method: "POST",
-    body: new URLSearchParams({
+    ...form({
       client_key: settings.clientKey,
       client_secret: settings.clientSecret,
       code,
@@ -235,7 +245,7 @@ export async function tiktokAccountFor(code: string, settings: TikTokSettings, t
     if (issued !== null) {
       await transport(REVOKE_URL, {
         method: "POST",
-        body: new URLSearchParams({ client_key: settings.clientKey, client_secret: settings.clientSecret, token: issued }),
+        ...form({ client_key: settings.clientKey, client_secret: settings.clientSecret, token: issued }),
       }).catch(() => null);
     }
   }

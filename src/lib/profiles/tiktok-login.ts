@@ -54,7 +54,7 @@ export async function finishTikTokLogin(input: {
   // TikTok from being attached to another person's Connect account.
   if (!started || !input.state || !sameValue(started.state, input.state) || started.userId !== input.userId) return NOT_FINISHED;
   if (input.refused || !input.code) return "You did not connect TikTok. Nothing was changed.";
-  if (!hasBothScopes(input.scopes)) return "TikTok did not share your account's name with us. Nothing was changed. Please try again and allow what TikTok asks.";
+  if (!hasBothScopes(input.scopes)) return "TikTok did not share your account's name with us. Nothing was changed. Please try again and leave both switches on at TikTok.";
 
   const [person] = await db.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId));
   if (!person || person.pausedAt || person.closedAt) return NOT_FINISHED;

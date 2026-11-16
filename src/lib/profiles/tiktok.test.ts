@@ -162,7 +162,7 @@ describe("tiktokAccountFor (with a pretended connection)", () => {
   const connection = (answers: Array<string | null | Error>) => {
     const sent: Sent[] = [];
     const send: TikTokSend = async (url, request) => {
-      sent.push({ url, method: request.method, headers: request.headers, body: request.body ? Object.fromEntries(request.body) : undefined });
+      sent.push({ url, method: request.method, headers: request.headers, body: request.body === undefined ? undefined : Object.fromEntries(new URLSearchParams(request.body)) });
       const next = answers.shift();
       if (next instanceof Error) throw next;
       return next ?? null;
@@ -182,6 +182,9 @@ describe("tiktokAccountFor (with a pretended connection)", () => {
     ]);
     expect(sent[0].body).toEqual({ client_key: "our-key", client_secret: "our-secret", code: "the-code", grant_type: "authorization_code", redirect_uri: SETTINGS.returnUrl });
     expect(sent[1].headers).toEqual({ authorization: "Bearer act.key" });
+    // TikTok takes a form only under exactly this label (seen for real: with ";charset=UTF-8" it answers "malformed").
+    expect(sent[0].headers).toEqual({ "content-type": "application/x-www-form-urlencoded" });
+    expect(sent[2].headers).toEqual({ "content-type": "application/x-www-form-urlencoded" });
     expect(sent[2].body).toEqual({ client_key: "our-key", client_secret: "our-secret", token: "act.key" });
   });
 
