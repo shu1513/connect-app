@@ -789,12 +789,14 @@ async function main() {
       // A replacement at the same moment as a removal, and as an approval: the approved host always keeps one.
       const kimNow = await entryOf(kim.id);
       const swapAndRemove = await Promise.allSettled([signIn(kim.id, says(account(open("kim-3"), `kim3.${tag}`))), profiles.removeSocialName(kim.id, kimNow.id)]);
-      check("a replacement and a removal at the same moment: the approved host still has one confirmed account", (await confirmedOf(kim.id)).length === 1 && (await statusOf(kim.id)) === "approved" && swapAndRemove[1].status === "rejected", swapAndRemove.map((r) => r.status).join(" "));
+      // The sign-in gives its answer as a message also when it fails, so the message and the saved number are read.
+      const said = (r: PromiseSettledResult<unknown>) => (r.status === "fulfilled" ? String(r.value) : `refused: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
+      check("a replacement and a removal at the same moment: the replacement goes through, the removal is refused, and the approved host has the new account", said(swapAndRemove[0]) === `TikTok @kim3.${tag} is confirmed.` && swapAndRemove[1].status === "rejected" && (await entryOf(kim.id)).providerAccountId === open("kim-3") && (await confirmedOf(kim.id)).length === 1 && (await statusOf(kim.id)) === "approved", swapAndRemove.map(said).join(" | "));
       const tom = await newHost("tom");
       await passId(tom);
       await signIn(tom.id, says(account(open("tom"), `tom.${tag}`)));
       const swapAndApprove = await Promise.allSettled([approve(tom.id), signIn(tom.id, says(account(open("tom-2"), `tom2.${tag}`)))]);
-      check("a replacement and an approval at the same moment: approved, with one confirmed account", (await statusOf(tom.id)) === "approved" && (await confirmedOf(tom.id)).length === 1, swapAndApprove.map((r) => r.status).join(" "));
+      check("a replacement and an approval at the same moment: both go through, and the approved host has the new account", swapAndApprove[0].status === "fulfilled" && said(swapAndApprove[1]) === `TikTok @tom2.${tag} is confirmed.` && (await entryOf(tom.id)).providerAccountId === open("tom-2") && (await statusOf(tom.id)) === "approved" && (await confirmedOf(tom.id)).length === 1, swapAndApprove.map(said).join(" | "));
 
       await freshLimits(); // this section signs up many people
       const pia = await newHost("pia");
