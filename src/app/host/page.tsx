@@ -11,10 +11,12 @@ import { stripeConfigured } from "@/lib/payments/stripe";
 import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
+import { tiktokSignInOn } from "@/lib/profiles/tiktok";
 import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import {
   addSocial,
+  connectTikTok,
   createProfile,
   removeSocial,
   saveCancelRule,
@@ -60,6 +62,8 @@ export default async function HostPage(props: PageProps<"/host">) {
   const paid = profile ? profile.pricePer15Cents > 0 : false;
   const proven = socials.some((social) => social.confirmedAt);
   const checkSettings = bioSettings();
+  // While this is on, a TikTok account is proven by signing in at TikTok, and no longer with a code.
+  const tiktokOn = tiktokSignInOn();
   const steps: Array<{ done: boolean; text: string; note?: string; href?: string; go?: string }> = [
     { done: Boolean(profile), text: "Fill in your profile and send it for approval.", href: "#profile", go: "Your host profile" },
     { done: identity.passed, text: "Confirm who you are, with a photo of your ID and a selfie.", href: "/identity?next=%2Fhost", go: "Start the check" },
@@ -260,6 +264,17 @@ export default async function HostPage(props: PageProps<"/host">) {
             (on YouTube, the channel&apos;s description), and press the button next to it. Where we can, the account is
             confirmed at once; otherwise we look ourselves. Only confirmed accounts are shown on your page.
           </p>
+          {tiktokOn && (
+            <form action={connectTikTok} className="mt-3">
+              <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+                Connect your TikTok
+              </button>
+              <p className="mt-1 text-sm opacity-70">
+                For TikTok there is no code: you log in at TikTok, and your account is confirmed at once. We never see your
+                TikTok password.
+              </p>
+            </form>
+          )}
           {socials.length > 0 && (
             <ul className="mt-3 space-y-3">
               {socials.map((social) => {
@@ -267,18 +282,25 @@ export default async function HostPage(props: PageProps<"/host">) {
                 // Connect looks itself (Instagram and YouTube, when their settings are there), or the founder does.
                 const automatic = isAutomatic(social.network, checkSettings);
                 const place = social.network === "youtube" ? "that channel's description" : "that account's bio";
+                // TikTok while its sign-in is on: no code and no "I've done it"; the button above is the way.
+                const bySignIn = tiktokOn && social.network === "tiktok";
                 return (
                   <li key={social.id} className="rounded border border-neutral-400 p-3 text-sm">
                     <p className="font-medium">
                       {isNetwork(social.network) ? NETWORKS[social.network].label : social.network}: @{social.nameKey}
                     </p>
                     {social.confirmedAt ? (
-                      <p className="mt-1 text-green-700">Confirmed. It is shown on your page. You can remove the code from the bio.</p>
+                      <p className="mt-1 text-green-700">
+                        {social.providerAccountId ? "Confirmed. It is shown on your page." : "Confirmed. It is shown on your page. You can remove the code from the bio."}
+                      </p>
+                    ) : bySignIn && (expired || !social.claimedAt) ? (
+                      <p className="mt-1">Press &quot;Connect your TikTok&quot; above to confirm this account.</p>
                     ) : expired ? (
                       <p className="mt-1">The code has run out. Add the account again to get a new one.</p>
                     ) : social.claimedAt && !automatic ? (
                       <p className="mt-1">
                         Waiting for us to check. Keep <code className="font-mono">{social.code}</code> in {place} until it is confirmed.
+                        {bySignIn && " Or press \"Connect your TikTok\" above to finish at once."}
                       </p>
                     ) : (
                       <>
@@ -292,7 +314,7 @@ export default async function HostPage(props: PageProps<"/host">) {
                       </>
                     )}
                     <div className="mt-2 flex gap-4">
-                      {!social.confirmedAt && !expired && (automatic || !social.claimedAt) && (
+                      {!social.confirmedAt && !expired && !bySignIn && (automatic || !social.claimedAt) && (
                         <form action={socialReady}>
                           <input type="hidden" name="id" value={social.id} />
                           <button type="submit" className={smallButton}>
@@ -316,11 +338,13 @@ export default async function HostPage(props: PageProps<"/host">) {
             <label className="block text-sm">
               Network
               <select name="network" className={field}>
-                {Object.entries(NETWORKS).map(([key, rule]) => (
-                  <option key={key} value={key}>
-                    {rule.label}
-                  </option>
-                ))}
+                {Object.entries(NETWORKS)
+                  .filter(([key]) => !(tiktokOn && key === "tiktok"))
+                  .map(([key, rule]) => (
+                    <option key={key} value={key}>
+                      {rule.label}
+                    </option>
+                  ))}
               </select>
             </label>
             <label className="block flex-1 text-sm">

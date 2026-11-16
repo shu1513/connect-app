@@ -3,7 +3,7 @@
  * through here, so the rules are in one place. (Closing accounts is in closing.ts.)
  */
 import { randomInt } from "node:crypto";
-import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { priceProblem } from "@/lib/payments/hold";
 import { identityState } from "@/lib/safety/identity";
@@ -11,6 +11,7 @@ import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type Bi
 import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
+import { tiktokSignInOn } from "./tiktok";
 
 /** A problem the person can fix. Its message is safe to show them. */
 export class ProfileError extends Error {}
@@ -26,6 +27,8 @@ export type ProfileStatus = "pending" | "approved" | "declined" | "suspended";
 export const NO_CONFIRMED_ACCOUNT = "This host has no confirmed social media account yet, so the profile cannot be approved.";
 export const LAST_CONFIRMED_ACCOUNT = "Your page needs one confirmed account. Confirm another one first, or write to us.";
 const TAKEN_BY_ANOTHER_HOST = "That account is already confirmed for another host. If it is yours, write to us.";
+/** While TikTok's sign-in is switched on, a TikTok account is proven there and no longer with a code. */
+export const USE_TIKTOK_SIGN_IN = "Press \"Connect your TikTok\" to confirm a TikTok account.";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -39,10 +42,14 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * the meantime cannot slip past. It is locked in the way that still lets other rows point at the
  * person (adding a social account does), which a full lock would make wait, and deadlock.
  */
-async function lockedProfile(tx: Tx, userId: string): Promise<{ closed: boolean; profile: { status: string } | undefined }> {
-  const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, userId)).for("no key update");
+async function lockedProfile(tx: Tx, userId: string): Promise<{ closed: boolean; paused: boolean; profile: { status: string } | undefined }> {
+  const [person] = await tx
+    .select({ closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .for("no key update");
   const [profile] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
-  return { closed: Boolean(person?.closedAt), profile };
+  return { closed: Boolean(person?.closedAt), paused: Boolean(person?.pausedAt), profile };
 }
 
 async function confirmedAccounts(tx: Tx, userId: string): Promise<number> {
@@ -254,6 +261,8 @@ function newProofCode(): string {
  */
 export async function addSocialName(userId: string, network: string, typed: string): Promise<void> {
   if (!isNetwork(network)) throw new ProfileError("Choose one of the listed networks.");
+  // Before anything else is looked at, also the name that is already confirmed.
+  if (network === "tiktok" && tiktokSignInOn()) throw new ProfileError(USE_TIKTOK_SIGN_IN);
   const read = readSocialName(network, typed);
   if ("problem" in read) throw new ProfileError(read.problem);
 
@@ -283,12 +292,70 @@ export async function addSocialName(userId: string, network: string, typed: stri
       claimedAt: null,
       confirmedAt: null,
       confirmedBy: null,
+      // A proof by signing in belonged to the old name; it goes with the rest of the old proof.
+      providerAccountId: null,
     };
     await tx
       .insert(schema.socialAccounts)
       .values({ userId, network, ...fresh })
       .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: fresh });
   });
+}
+
+/**
+ * The host signed in at the network (TikTok), and the network told us which account that is. The
+ * account is confirmed for this host at once: there is nothing for the founder to look at.
+ * `accountId` is the network's own number for the account, `username` its name today.
+ *
+ * One write covers every case. Whatever the host's entry for this network was (none, waiting for
+ * a code, confirmed by hand, the same account under an older name, or a different account), it
+ * becomes this account, confirmed. A confirmed entry is replaced by a confirmed entry in the same
+ * step, so the host is never without a confirmed account in between; the rule about an approved
+ * host's last confirmed account is therefore not applied here. If the name or the number is
+ * confirmed for another host, the database refuses and nothing changes.
+ */
+export async function confirmSocialByLogin(input: { userId: string; network: "tiktok"; accountId: string; username: string; now?: Date }): Promise<{ nameKey: string }> {
+  const read = readSocialName(input.network, input.username);
+  // The number is the network's own text. It is kept exactly as it came, never read as a number.
+  if ("problem" in read || !/^[\x21-\x7e]{1,200}$/.test(input.accountId)) throw new ProfileError("TikTok's answer could not be read. Nothing was changed.");
+  const now = input.now ?? new Date();
+  const confirmed = {
+    nameTyped: input.username.slice(0, 200),
+    nameKey: read.nameKey,
+    url: read.url,
+    // The code way is not in play for this entry: a code nobody is shown, already run out.
+    code: newProofCode(),
+    codeExpiresAt: now,
+    claimedAt: null,
+    confirmedAt: now,
+    confirmedBy: null,
+    providerAccountId: input.accountId,
+  };
+  try {
+    await db.transaction(async (tx) => {
+      // Checked again with the locks held: the person may have changed while the network was answering.
+      const { closed, paused, profile } = await lockedProfile(tx, input.userId);
+      if (closed || paused) throw new ProfileError("Your account cannot do this at the moment. Nothing was changed.");
+      if (!profile) throw new ProfileError("Fill in your host profile first.");
+      await tx
+        .insert(schema.socialAccounts)
+        .values({ userId: input.userId, network: input.network, ...confirmed })
+        .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: confirmed });
+    });
+  } catch (error) {
+    if (isTaken(error)) throw new ProfileError(TAKEN_BY_ANOTHER_HOST);
+    throw error;
+  }
+  return { nameKey: read.nameKey };
+}
+
+/**
+ * A network did not accept our own keys or the permissions we ask for, when a host signed in
+ * there. Written down for the founder's page (see refusedBioChecks); nothing else about a sign-in
+ * is ever written here.
+ */
+export async function noteRefusedSignIn(userId: string, network: "tiktok", now: Date): Promise<void> {
+  await db.insert(schema.bioChecks).values({ userId, network, startedAt: now, result: "refused" });
 }
 
 /** One person can have this many automatic checks in an hour, and no two for the same network closer together than this. */
@@ -380,7 +447,7 @@ async function checkBioNow(
     const mine = await tx
       .select({ network: schema.bioChecks.network, startedAt: schema.bioChecks.startedAt })
       .from(schema.bioChecks)
-      .where(and(eq(schema.bioChecks.userId, userId), gt(schema.bioChecks.startedAt, hourAgo)))
+      .where(and(eq(schema.bioChecks.userId, userId), inArray(schema.bioChecks.network, ["instagram", "youtube"]), gt(schema.bioChecks.startedAt, hourAgo)))
       .orderBy(desc(schema.bioChecks.startedAt));
     const lastHere = mine.find((check) => check.network === network);
     if (lastHere && now.getTime() - lastHere.startedAt.getTime() < BIO_CHECK_SECONDS_APART * 1000) return "too_soon" as const;
@@ -444,6 +511,13 @@ export async function refusedBioChecks(now: Date): Promise<Array<{ network: stri
  * (The by-hand way. The Hosting page goes through socialNameReady, which decides which way applies.)
  */
 export async function markSocialNameReady(userId: string, id: string): Promise<void> {
+  if (tiktokSignInOn()) {
+    // Decided from the entry itself, so a form from an old page cannot put a new TikTok request on the founder's list.
+    const [entry] = /^[0-9a-f-]{36}$/i.test(id)
+      ? await db.select({ network: schema.socialAccounts.network }).from(schema.socialAccounts).where(and(eq(schema.socialAccounts.id, id), eq(schema.socialAccounts.userId, userId)))
+      : [];
+    if (entry?.network === "tiktok") throw new ProfileError(USE_TIKTOK_SIGN_IN);
+  }
   const changed = await db
     .update(schema.socialAccounts)
     .set({ claimedAt: new Date() })

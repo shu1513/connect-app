@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   // While developing, let the app be opened through a temporary secure tunnel
   // (needed for phones, and so LiveKit can reach this computer).
   allowedDevOrigins: ["*.trycloudflare.com"],
+  // While developing, the framework prints the address of every request. The address TikTok sends a
+  // host back to holds a one-time code, which does not belong in a log.
+  logging: { incomingRequests: { ignore: [/\/api\/social\/tiktok\/return/] } },
   turbopack: {
     rules: {
       "*.css": {
