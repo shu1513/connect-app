@@ -440,7 +440,8 @@ async function main() {
       await prove(ana.id, "youtube", `ana-${RUN}`);
       const two = await confirmedOf(ana.id);
       const both = await Promise.allSettled(two.map((a) => profiles.removeSocialName(ana.id, a.id)));
-      check("with two confirmed accounts, two removals at the same moment: one goes, one is refused", both.filter((r) => r.status === "fulfilled").length === 1 && (await confirmedOf(ana.id)).length === 1, both.map((r) => r.status).join(" "));
+      const refusedAsLast = (r: PromiseSettledResult<unknown>) => r.status === "rejected" && r.reason instanceof ProfileError && r.reason.message.includes(LAST);
+      check("with two confirmed accounts, two removals at the same moment: one goes, one is refused as the last one", both.filter((r) => r.status === "fulfilled").length === 1 && both.filter(refusedAsLast).length === 1 && (await confirmedOf(ana.id)).length === 1, both.map((r) => r.status).join(" "));
 
       await prove(ana.id, "x", `x2${RUN}`);
       const [toReplace] = await confirmedOf(ana.id);
@@ -454,18 +455,29 @@ async function main() {
       check("and then cannot be approved again, also from the list of other profiles", (await refusedWith(approve(ana.id), "no confirmed social media account")) && (await statusOf(ana.id)) === "declined");
 
       // An approval and the removal of the only confirmed account at the same moment, several times over.
-      let leftBare = 0;
+      // Whichever gets there first wins, and the other is refused for exactly that reason. (Which one is
+      // first is left to chance here; the rule itself is that both wait for the same locks.)
+      const outcomes: string[] = [];
       for (let round = 0; round < 4; round++) {
         const racer = await newHost(`race${round}`);
         await passId(racer);
         await prove(racer.id, "youtube", `race${round}-${RUN}`);
         const [only] = await confirmedOf(racer.id);
-        const pair = [() => approve(racer.id), () => profiles.removeSocialName(racer.id, only.id)];
-        if (round % 2) pair.reverse();
-        await Promise.allSettled(pair.map((work) => work()));
-        if ((await statusOf(racer.id)) === "approved" && (await confirmedOf(racer.id)).length === 0) leftBare++;
+        const [approval, removal] = await Promise.allSettled([approve(racer.id), profiles.removeSocialName(racer.id, only.id)]);
+        const because = (r: PromiseSettledResult<unknown>, words: string) => r.status === "rejected" && r.reason instanceof ProfileError && r.reason.message.includes(words);
+        const status = await statusOf(racer.id);
+        const left = (await confirmedOf(racer.id)).length;
+        if (approval.status === "fulfilled" && because(removal, LAST) && status === "approved" && left === 1) outcomes.push("approved, the account kept");
+        else if (removal.status === "fulfilled" && because(approval, "no confirmed social media account") && status === "pending" && left === 0) outcomes.push("removed, not approved");
+        else outcomes.push(`UNEXPECTED ${approval.status} ${removal.status} ${status} ${left}`);
       }
-      check("an approval and a removal at the same moment never leave an approved host without a confirmed account", leftBare === 0, String(leftBare));
+      check("an approval and a removal at the same moment: one wins, the other is refused for that reason, and no approved host is left without an account", outcomes.every((o) => !o.startsWith("UNEXPECTED")), outcomes.join("; "));
+      // Adding an account on another network while the founder approves: both go through (this deadlocked before the person's row was locked the gentler way).
+      const adder = await newHost("adder");
+      await passId(adder);
+      await prove(adder.id, "youtube", `adder-${RUN}`);
+      const together = await Promise.allSettled([approve(adder.id), profiles.addSocialName(adder.id, "tiktok", `adder.${RUN}`), profiles.addSocialName(adder.id, "x", `ad${RUN}`)]);
+      check("adding accounts while the founder approves: all go through", together.every((r) => r.status === "fulfilled") && (await statusOf(adder.id)) === "approved" && (await accounts(adder.id)).length === 3, together.map((r) => r.status).join(" "));
     }
     // ----------------------------------------------------------------------
     console.log("\n7. Doors that must stay shut");
@@ -544,12 +556,14 @@ async function main() {
         await db.delete(schema.calls).where(eq(schema.calls.id, call.id));
       }
     }
-    // First, for everyone: an account one test person confirmed for another points at the confirmer.
-    if (ids.length > 0) await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
+    // First, for everyone: an account one test person confirmed for another, and a profile one decided
+    // on for another, point at that person.
+    if (ids.length > 0) {
+      await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
+      await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
+    }
     for (const id of ids) {
       await db.delete(schema.identityChecks).where(eq(schema.identityChecks.userId, id));
-      await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
-      await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));
       await removeTestsOf([id]);
       await db.delete(schema.user).where(eq(schema.user.id, id));

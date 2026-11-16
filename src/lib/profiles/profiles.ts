@@ -29,14 +29,19 @@ const TAKEN_BY_ANOTHER_HOST = "That account is already confirmed for another hos
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
- * The host's profile, locked until the surrounding step ends. Everything that approves a profile or
- * takes a confirmed account away asks for this lock first, and only then reads the accounts, so two
- * of them at the same moment happen one after the other. Where a step also needs the person's own
- * row, the order is always: the person, the profile, the social account.
+ * The person and their host profile, both locked until the surrounding step ends. Everything that
+ * decides on a profile or takes a confirmed account away asks for these locks first, and only then
+ * reads the accounts, so two of them at the same moment happen one after the other. The order is
+ * always: the person, the profile, the social account (closing an account works in that order too).
+ *
+ * The person's row is locked also when there is no profile yet, so a profile made and approved in
+ * the meantime cannot slip past. It is locked in the way that still lets other rows point at the
+ * person (adding a social account does), which a full lock would make wait, and deadlock.
  */
-async function lockedProfile(tx: Tx, userId: string): Promise<{ status: string } | undefined> {
+async function lockedProfile(tx: Tx, userId: string): Promise<{ closed: boolean; profile: { status: string } | undefined }> {
+  const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, userId)).for("no key update");
   const [profile] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
-  return profile;
+  return { closed: Boolean(person?.closedAt), profile };
 }
 
 async function confirmedAccounts(tx: Tx, userId: string): Promise<number> {
@@ -149,14 +154,11 @@ export async function decideProfile(input: {
   const decidedAt = new Date();
   // The decision and the email that tells the host about it are saved together, or not at all.
   await db.transaction(async (tx) => {
-    if (input.decision === "approved") {
-      // Closing an account suspends its profile. Locking the person first means an approval and a
-      // closure at the same moment happen one after the other, and the closure always wins.
-      const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("update");
-      if (person?.closedAt) throw new ProfileError("This account is closed. Open it again before approving its profile.");
-    }
     // Read under a lock, so two presses of the same button are two steps, one after the other.
-    const before = await lockedProfile(tx, input.userId);
+    const { closed, profile: before } = await lockedProfile(tx, input.userId);
+    // Closing an account suspends its profile. With the person locked first, an approval and a
+    // closure at the same moment happen one after the other, and the closure always wins.
+    if (input.decision === "approved" && closed) throw new ProfileError("This account is closed. Open it again before approving its profile.");
     if (!before) throw new ProfileError("Profile not found.");
     if (input.decision === "approved" && (await confirmedAccounts(tx, input.userId)) === 0) throw new ProfileError(NO_CONFIRMED_ACCOUNT);
     const changed = await tx
@@ -255,7 +257,7 @@ export async function addSocialName(userId: string, network: string, typed: stri
   if ("problem" in read) throw new ProfileError(read.problem);
 
   await db.transaction(async (tx) => {
-    const profile = await lockedProfile(tx, userId);
+    const { profile } = await lockedProfile(tx, userId);
     const [mine] = await tx
       .select()
       .from(schema.socialAccounts)
@@ -309,7 +311,7 @@ export async function markSocialNameReady(userId: string, id: string): Promise<v
 export async function removeSocialName(userId: string, id: string): Promise<void> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
   await db.transaction(async (tx) => {
-    const profile = await lockedProfile(tx, userId);
+    const { profile } = await lockedProfile(tx, userId);
     const [mine] = await tx
       .select({ confirmedAt: schema.socialAccounts.confirmedAt })
       .from(schema.socialAccounts)

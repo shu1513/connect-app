@@ -168,7 +168,7 @@ export async function removeSocial(formData: FormData) {
   let notice: string;
   try {
     await removeSocialName(user.id, String(formData.get("id") ?? ""));
-    notice = "The account was removed from your profile.";
+    notice = "That account is no longer on your profile.";
   } catch (error) {
     notice = problem(error);
   }
