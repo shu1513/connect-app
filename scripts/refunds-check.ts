@@ -438,6 +438,21 @@ async function main() {
     check("such a request needs no answer any more", !(await R.unansweredRequests()).some((r) => r.call.id === c.call.id));
   }
 
+  console.log("\n10a. A charge the founder makes early can never be collected while the customer could still ask");
+  {
+    const c = await paid(host.id, [["host", 0, null], ["customer", 0, 600]]);
+    await settle(c, 5);
+    // The founder decides an hour after the call. Nobody has asked for a refund.
+    await capturePayment({ paymentId: c.payment.id, amountCents: 700, reason: "admin", frozen: null, callEndsAt: c.call.endsAt, now: after(c, 60) });
+    const p = await reload(c.payment.id);
+    check("its share is ready only when asking is over: 24 hours and 10 minutes after the call", p.status === "charged" && p.transferDueAt?.getTime() === after(c, DAY + 10).getTime(), String(p.transferDueAt?.toISOString()));
+    const waiting = (await unsentEarnings(after(c, DAY + 9), host.id)).find((e) => e.payment.id === c.payment.id);
+    check("a minute before that it cannot be collected yet", waiting?.heldBack === "not_yet");
+    check("a request sent in the last seconds is still accepted, and then holds the money", (await ask(c, DAY + 9)) === "sent" && (await holdOn(c)) === "request");
+    const held = (await unsentEarnings(after(c, DAY + 10), host.id)).find((e) => e.payment.id === c.payment.id);
+    check("so when its moment comes the host is told to answer first", held?.heldBack === "request");
+  }
+
   console.log("\n10b. An answer was accepted, and then the charge comes under the founder's review");
   {
     const reviewed = async (choice: string, maxCents?: number) => {

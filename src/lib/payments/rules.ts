@@ -218,22 +218,24 @@ export function takeDecision(input: {
 
 /**
  * A charge's share can be collected this long after the call ends when the customer did not ask for a
- * refund. That is the customer's time to ask: once it is over and the money has been taken, the host
- * need not wait any longer.
+ * refund: the customer's 24 hours to ask, plus the 10 minutes in which a request sent in the last seconds
+ * is still accepted. So a share can never be collected while a first request could still arrive. It is the
+ * same moment at which the money of a call nobody asked about is taken.
  */
-export const COLLECT_AFTER_MS = DAY_MS;
+export const COLLECT_AFTER_MS = ASK_WINDOW_MS + DEADLINE_CUSHION_MS;
 /** With a refund request on the call, the wait stays longer (and the host must have answered first). */
 export const COLLECT_AFTER_REQUEST_MS = 2 * DAY_MS;
 /** A host can collect once in this long, counted from their last collection. */
 export const COLLECT_EVERY_MS = DAY_MS;
 
 /**
- * When the host's share of a charge can be collected: 24 hours after the call
- * ends when the customer did not ask for a refund, 2 days after it when they
- * did, and never before the charge is recorded. Since the money is taken 24
- * hours and 10 minutes after a call nobody asked about, such a share is ready
- * the moment its charge is recorded. Worked out once, at that moment, and
- * never moved afterwards.
+ * When the host's share of a charge can be collected: once the customer's
+ * time to ask for a refund is over (24 hours and 10 minutes after the call
+ * ends) when they did not ask, 2 days after the call when they did, and never
+ * before the charge is recorded. The money of a call nobody asked about is
+ * taken at that same moment, so such a share is ready the moment its charge is
+ * recorded; a charge recorded earlier (after a review, or for cancelling late)
+ * waits for it. Worked out once, when the charge is recorded, and never moved.
  */
 export function readyToCollectAt(input: {
   callEndsAt: Date;

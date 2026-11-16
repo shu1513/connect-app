@@ -395,7 +395,7 @@ async function main() {
 
       // Each charge has its own date, both counted from the same end of the call (the later one, after the added time).
       const readyFrom = (await own()).transferDueAt!;
-      check("both shares are ready 24 hours after the end of the longer call (nobody asked for a refund)", readyFrom.getTime() === longer.endsAt.getTime() + 24 * HOUR && (await extra()).transferDueAt?.getTime() === readyFrom.getTime(), readyFrom.toISOString());
+      check("both shares are ready 24 hours and 10 minutes after the end of the longer call (nobody asked for a refund)", readyFrom.getTime() === longer.endsAt.getTime() + 24 * HOUR + 10 * MINUTE && (await extra()).transferDueAt?.getTime() === readyFrom.getTime(), readyFrom.toISOString());
       check("nothing is sent until the host collects", (await own()).transferStatus === "not_due" && (await extra()).transferStatus === "not_due" && (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data.length === 0);
       const collectionId = randomUUID();
       await collectEarnings({ collectionId, hostId: hana.id, startedBy: hana.id, now: readyFrom });

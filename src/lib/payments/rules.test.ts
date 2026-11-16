@@ -254,16 +254,20 @@ describe("when the money for a call is taken", () => {
 
 describe("when a share can be collected", () => {
   // The call ended Wed 13 Jan 10:00.
-  const ONE_DAY = at("2027-01-14T10:00:00Z");
+  // The customer can ask until 24 hours after it, and a request sent in the last seconds is accepted for 10 minutes more.
+  const ASKING_OVER = at("2027-01-14T10:10:00Z");
   const TWO_DAYS = at("2027-01-15T10:00:00Z");
 
-  it("nobody asked for a refund: 24 hours after the call ends, and not before the charge is recorded", () => {
-    // A charge recorded early (a late cancellation, a charge after a review) waits for the 24 hours.
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T10:05:00Z"), refundAsked: false })).toEqual(ONE_DAY);
-    // The usual case: the money is taken 24 hours and 10 minutes after the call, and the share is ready at that moment.
-    const taken = at("2027-01-14T10:10:00Z");
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: taken, refundAsked: false })).toEqual(taken);
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: ONE_DAY, refundAsked: false })).toEqual(ONE_DAY);
+  it("nobody asked for a refund: ready the moment the money is taken, 24 hours and 10 minutes after the call", () => {
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: ASKING_OVER, refundAsked: false })).toEqual(ASKING_OVER);
+    const aLittleLate = at("2027-01-14T10:25:00Z");
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: aLittleLate, refundAsked: false })).toEqual(aLittleLate);
+  });
+  it("a charge recorded early is never ready while the customer could still ask", () => {
+    // A charge after a review, an hour after the call: it waits until asking is over, also past the plain 24 hours.
+    const ready = readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T11:00:00Z"), refundAsked: false });
+    expect(ready).toEqual(ASKING_OVER);
+    expect(ready.getTime()).toBeGreaterThan(at("2027-01-14T10:00:00Z").getTime());
   });
   it("the customer asked for a refund: 2 days after the call ends, to the minute, on any day of the week", () => {
     expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T12:00:00Z"), refundAsked: true })).toEqual(TWO_DAYS);
