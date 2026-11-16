@@ -882,7 +882,7 @@ export const collectionItems = pgTable(
 
 /**
  * A customer's request for a refund: one per call, asked within 24 hours of
- * its end. The host answers (or the founder in the host's place).
+ * its start. The host answers (or the founder in the host's place).
  *
  * Where it stands (status):
  *   asked     waiting for an answer

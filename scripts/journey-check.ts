@@ -352,7 +352,7 @@ async function main() {
       await settleFinishedCalls(new Date(ended.endsAt.getTime() + 24 * HOUR + 10 * 60_000));
       const charged = await ownPayment();
       check(`a day after the call, the customer is charged the ${dollars} for the 15 minutes both were there`, charged.status === "charged" && charged.chargedCents === price, `${charged.status} ${charged.chargedCents}`);
-      check("nobody asked for a refund, so the host's share is ready once asking is over (24 hours and 10 minutes after the call); nothing was sent before", charged.transferStatus === "not_due" && charged.transferDueAt?.getTime() === ended.endsAt.getTime() + 24 * HOUR + 10 * 60_000 && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 0, `${charged.transferStatus} ${charged.transferDueAt?.toISOString()}`);
+      check("nobody asked for a refund, so the host's share is ready 24 hours after the call ends; nothing was sent before", charged.transferStatus === "not_due" && charged.transferDueAt?.getTime() === ended.endsAt.getTime() + 24 * HOUR && (await stripe().transfers.list({ transfer_group: callId, limit: 5 })).data.length === 0, `${charged.transferStatus} ${charged.transferDueAt?.toISOString()}`);
       // Pretended: it is now a day after the call, and the host presses "Collect earnings".
       const { collectEarnings } = await import("../src/lib/payments/collect");
       const { reconcileOperations } = await import("../src/lib/payments/jobs");

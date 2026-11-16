@@ -97,8 +97,8 @@ async function main() {
   }
 
   const after = (call: { endsAt: Date }, minutes: number) => new Date(call.endsAt.getTime() + minutes * 60_000);
-  /** The moment the money for a call is taken when nobody asked for a refund: 24 hours and 10 minutes after its end. */
-  const taken = (call: { endsAt: Date }) => after(call, 24 * 60 + 10);
+  /** The moment the money for a call is taken when nobody asked for a refund: 24 hours and 3 minutes after its start. */
+  const taken = (call: { startsAt: Date }) => new Date(call.startsAt.getTime() + (24 * 60 + 3) * 60_000);
   const reload = async (id: string) => (await db.select().from(schema.payments).where(eq(schema.payments.id, id)))[0];
   const ledgerSum = async (id: string, kind: string) =>
     (
@@ -124,15 +124,15 @@ async function main() {
     await settleFinishedCalls(after(call, 5));
     const waiting = await reload(payment.id);
     check("minutes after the call nothing is taken yet: the money stays on hold", waiting.status === "held" && !waiting.needsReview && (await stripeIntent(payment.id)).status === "requires_capture", waiting.status);
-    await settleFinishedCalls(after(call, 24 * 60 + 9));
+    await settleFinishedCalls(new Date(taken(call).getTime() - 60_000));
     check("still on hold a minute before the planned moment", (await reload(payment.id)).status === "held");
     await settleFinishedCalls(taken(call));
     const p = await reload(payment.id);
     // 480 seconds at $20 per 15 minutes = $10.67
-    check("24 hours and 10 minutes after the call: charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
+    check("24 hours and 3 minutes after the call's start: charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
     check("fee 82 cents, host $9.85", p.originalFeeCents === 82 && p.originalHostShareCents === 985, `${p.originalFeeCents} ${p.originalHostShareCents}`);
     check("time totals frozen", p.frozenHostSeconds === 480 && p.frozenTogetherSeconds === 480);
-    check("nobody asked for a refund: the host's share is ready when asking is over, 24 hours and 10 minutes after the call", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === taken(call).getTime(), String(p.transferDueAt?.toISOString()));
+    check("nobody asked for a refund: the host's share is ready 24 hours after the call ends", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === after(call, 24 * 60).getTime(), String(p.transferDueAt?.toISOString()));
 
     console.log("   …and with the real clock: a call that really ended more than a day ago");
     {

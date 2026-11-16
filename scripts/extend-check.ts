@@ -367,10 +367,10 @@ async function main() {
       await attend(callId, [["host", 0, total - 120], ["customer", 0, total]]);
       await settleFinishedCalls(new Date(longer.endsAt.getTime() + 5 * MINUTE));
       check("minutes after the call both charges are still on hold: the money is taken about a day later", (await own()).status === "held" && (await extra()).status === "held" && !(await own()).needsReview && !(await extra()).needsReview);
-      // The two charges share one moment, counted from the end of the longer call: 24 hours and 10 minutes after it.
-      await settleFinishedCalls(new Date(longer.endsAt.getTime() + 24 * HOUR + 9 * MINUTE));
+      // The two charges share one moment, counted from the call's start (added time does not move it): 24 hours and 3 minutes after it.
+      await settleFinishedCalls(new Date(longer.startsAt.getTime() + 24 * HOUR + 2 * MINUTE));
       check("and a minute before that moment", (await own()).status === "held" && (await extra()).status === "held");
-      await settleFinishedCalls(new Date(longer.endsAt.getTime() + 24 * HOUR + 10 * MINUTE));
+      await settleFinishedCalls(new Date(longer.startsAt.getTime() + 24 * HOUR + 3 * MINUTE));
       const [chargedOwn, chargedExtra] = [await own(), await extra()];
       check("the call's own payment is charged in full for its 15 minutes: $20.00", chargedOwn.status === "charged" && chargedOwn.chargedCents === 2000 && chargedOwn.frozenTogetherSeconds === 900, `${chargedOwn.status} ${chargedOwn.chargedCents}`);
       check("the extra payment is charged for the 8 of its 10 minutes both were there: $10.67", chargedExtra.status === "charged" && chargedExtra.chargedCents === 1067 && chargedExtra.frozenTogetherSeconds === 480, `${chargedExtra.status} ${chargedExtra.chargedCents}`);
@@ -395,7 +395,7 @@ async function main() {
 
       // Each charge has its own date, both counted from the same end of the call (the later one, after the added time).
       const readyFrom = (await own()).transferDueAt!;
-      check("both shares are ready 24 hours and 10 minutes after the end of the longer call (nobody asked for a refund)", readyFrom.getTime() === longer.endsAt.getTime() + 24 * HOUR + 10 * MINUTE && (await extra()).transferDueAt?.getTime() === readyFrom.getTime(), readyFrom.toISOString());
+      check("both shares are ready 24 hours after the end of the longer call (nobody asked for a refund)", readyFrom.getTime() === longer.endsAt.getTime() + 24 * HOUR && (await extra()).transferDueAt?.getTime() === readyFrom.getTime(), readyFrom.toISOString());
       check("nothing is sent until the host collects", (await own()).transferStatus === "not_due" && (await extra()).transferStatus === "not_due" && (await stripe().transfers.list({ transfer_group: callId, limit: 10 })).data.length === 0);
       const collectionId = randomUUID();
       await collectEarnings({ collectionId, hostId: hana.id, startedBy: hana.id, now: readyFrom });

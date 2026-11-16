@@ -72,7 +72,7 @@ export function earliestExpiry(payments: Payment[]): Date | null {
 export const isDecided = (request: Pick<RefundRequest, "status"> | null | undefined) => request?.status === "answered" || request?.status === "closed";
 
 /** Where the money of a call stands, for the pages: the charges still on hold and the moments that apply to them. */
-export async function moneyPlan(call: { id: string; endsAt: Date }): Promise<{
+export async function moneyPlan(call: { id: string; startsAt: Date }): Promise<{
   request: RefundRequest | null;
   held: Payment[];
   timing: ReturnType<typeof moneyTiming> | null;
@@ -83,7 +83,7 @@ export async function moneyPlan(call: { id: string; endsAt: Date }): Promise<{
   return {
     request: request ?? null,
     held,
-    timing: expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }) : null,
+    timing: expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }) : null,
   };
 }
 
@@ -122,7 +122,7 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
     const decided = isDecided(request);
     // "hold_ended" is about the earliest hold only. Each charge's own hold is checked below, so a charge
     // with a longer hold is still tried after an earlier one has ended.
-    if (takeDecision({ now, callEndsAt: call.endsAt, requestedAt: request?.askedAt ?? null, decided, holdExpiresAt: expiry }) === "wait") return [];
+    if (takeDecision({ now, callStartsAt: call.startsAt, requestedAt: request?.askedAt ?? null, decided, holdExpiresAt: expiry }) === "wait") return [];
     const answers = request?.status === "answered" ? await tx.select().from(schema.refundRequestAnswers).where(eq(schema.refundRequestAnswers.requestId, request.id)) : [];
 
     const steps: Array<() => Promise<void>> = [];

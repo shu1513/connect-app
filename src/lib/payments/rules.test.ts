@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { LENGTH_CHOICES_MINUTES } from "@/lib/booking/rules";
 import {
+  ASK_WINDOW_MS,
+  DEADLINE_CUSHION_MS,
   cancellationOutcome,
   canMovePayment,
   canMoveTransfer,
@@ -165,11 +168,11 @@ describe("when the money for a call is taken", () => {
   const NOT_GIVEN = plus(HELD, 96); // Stripe did not say: 4 days are assumed
   const LONG_END = plus(START, 6); // the same call with time added, up to six hours
 
-  it("nobody asked: 24 hours and 10 minutes after the call, on any card", () => {
+  it("nobody asked: the customer can ask until 24 hours after the call's start, and the money is taken 3 minutes later, on any card", () => {
     for (const holdExpiresAt of [VISA, SEVEN_DAYS, NOT_GIVEN]) {
-      const timing = moneyTiming({ callEndsAt: END, requestedAt: null, holdExpiresAt });
-      expect(timing.askBy).toEqual(plus(END, 24));
-      expect(timing.takeAt).toEqual(plus(END, 24, 10));
+      const timing = moneyTiming({ callStartsAt: START, requestedAt: null, holdExpiresAt });
+      expect(timing.askBy).toEqual(plus(START, 24));
+      expect(timing.takeAt).toEqual(plus(START, 24, 3));
       expect(timing.answerBy).toBeNull();
     }
   });
@@ -178,71 +181,57 @@ describe("when the money for a call is taken", () => {
     expect([left(END), left(plus(END, 24)), left(plus(END, 48))]).toEqual([65, 41, 17]);
     expect([left(LONG_END), left(plus(LONG_END, 24)), left(plus(LONG_END, 48))]).toEqual([60, 36, 12]);
   });
-  it("a request gives the host 24 hours, and the money is taken 10 minutes after that", () => {
+  it("a request gives the host 24 hours, and the money is taken 3 minutes after that", () => {
     const requestedAt = plus(END, 3);
-    const timing = moneyTiming({ callEndsAt: END, requestedAt, holdExpiresAt: VISA });
+    const timing = moneyTiming({ callStartsAt: START, requestedAt, holdExpiresAt: VISA });
     expect(timing.answerBy).toEqual(plus(requestedAt, 24));
-    expect(timing.takeAt).toEqual(plus(requestedAt, 24, 10));
+    expect(timing.takeAt).toEqual(plus(requestedAt, 24, 3));
   });
-  it("a customer who asks in the last minute of a one-hour call still leaves the host 24 hours", () => {
-    const requestedAt = plus(END, 23, 59);
+  it("a customer who asks in the last minute still leaves the host 24 hours, however long the call was", () => {
+    // The times are counted from the call's start, so the call's length (and time added to it) plays no part.
+    const requestedAt = plus(START, 23, 59);
     for (const holdExpiresAt of [VISA, SEVEN_DAYS]) {
-      const timing = moneyTiming({ callEndsAt: END, requestedAt, holdExpiresAt });
+      const timing = moneyTiming({ callStartsAt: START, requestedAt, holdExpiresAt });
       expect(timing.answerBy).toEqual(plus(requestedAt, 24));
       expect(timing.takeAt.getTime()).toBeLessThanOrEqual(holdExpiresAt.getTime() - 12 * HOUR);
     }
   });
-  it("the longest call on Visa, asked in the last minute: taken exactly 12 hours before the hold ends, and the host is told the shorter time", () => {
-    const requestedAt = plus(LONG_END, 23, 59);
-    const timing = moneyTiming({ callEndsAt: LONG_END, requestedAt, holdExpiresAt: VISA });
-    expect(timing.takeAt).toEqual(plus(VISA, -12));
-    expect(timing.answerBy).toEqual(plus(VISA, -12, -10));
-    // A few minutes less than 24 hours, never more than the limit allows.
-    expect(timing.answerBy!.getTime() - requestedAt.getTime()).toBe(24 * HOUR - 9 * 60_000);
-  });
   it("when Stripe gives no end for the hold, the customer's 24 hours still fit; only the host's time shrinks", () => {
-    for (const callEndsAt of [END, LONG_END]) {
-      const quiet = moneyTiming({ callEndsAt, requestedAt: null, holdExpiresAt: NOT_GIVEN });
-      expect(quiet.askBy).toEqual(plus(callEndsAt, 24));
-      const asked = moneyTiming({ callEndsAt, requestedAt: plus(callEndsAt, 23, 59), holdExpiresAt: NOT_GIVEN });
-      expect(asked.takeAt).toEqual(plus(NOT_GIVEN, -12));
-      expect(asked.answerBy!.getTime()).toBeGreaterThan(plus(callEndsAt, 23, 59).getTime());
-    }
-    // About 11 hours after a one-hour call, about 6 after a six-hour call.
-    const hostHours = (callEndsAt: Date) => {
-      const requestedAt = plus(callEndsAt, 23, 59);
-      return Math.round((moneyTiming({ callEndsAt, requestedAt, holdExpiresAt: NOT_GIVEN }).answerBy!.getTime() - requestedAt.getTime()) / HOUR);
-    };
-    expect([hostHours(END), hostHours(LONG_END)]).toEqual([11, 6]);
+    const quiet = moneyTiming({ callStartsAt: START, requestedAt: null, holdExpiresAt: NOT_GIVEN });
+    expect(quiet.askBy).toEqual(plus(START, 24));
+    const requestedAt = plus(START, 23, 59);
+    const asked = moneyTiming({ callStartsAt: START, requestedAt, holdExpiresAt: NOT_GIVEN });
+    // Taken exactly 12 hours before the hold ends, and the host is told the shorter time: about 12 hours.
+    expect(asked.takeAt).toEqual(plus(NOT_GIVEN, -12));
+    expect(asked.answerBy).toEqual(plus(NOT_GIVEN, -12, -3));
+    expect(Math.round((asked.answerBy!.getTime() - requestedAt.getTime()) / HOUR)).toBe(12);
   });
   it("a hold that ends unusually soon shortens the customer's time too, and never the 12 hours", () => {
     const soon = plus(END, 30); // the hold ends 30 hours after the call
-    const timing = moneyTiming({ callEndsAt: END, requestedAt: null, holdExpiresAt: soon });
+    const timing = moneyTiming({ callStartsAt: START, requestedAt: null, holdExpiresAt: soon });
     expect(timing.takeAt).toEqual(plus(END, 18));
-    expect(timing.askBy).toEqual(plus(END, 17, 50));
+    expect(timing.askBy).toEqual(plus(END, 17, 57));
   });
   it("by plan the money is never left on hold inside the last 12 hours", () => {
     for (const holdExpiresAt of [VISA, SEVEN_DAYS, NOT_GIVEN]) {
-      for (const callEndsAt of [END, LONG_END]) {
-        for (const requestedAt of [null, plus(callEndsAt, 0, 1), plus(callEndsAt, 12), plus(callEndsAt, 24)]) {
-          expect(moneyTiming({ callEndsAt, requestedAt, holdExpiresAt }).takeAt.getTime()).toBeLessThanOrEqual(holdExpiresAt.getTime() - 12 * HOUR);
-        }
+      for (const requestedAt of [null, plus(END, 0, 1), plus(START, 12), plus(START, 24)]) {
+        expect(moneyTiming({ callStartsAt: START, requestedAt, holdExpiresAt }).takeAt.getTime()).toBeLessThanOrEqual(holdExpiresAt.getTime() - 12 * HOUR);
       }
     }
   });
 
-  const base = { callEndsAt: END, holdExpiresAt: VISA, requestedAt: null, decided: false };
+  const base = { callStartsAt: START, holdExpiresAt: VISA, requestedAt: null, decided: false };
   it("waits until the moment, then takes", () => {
     expect(takeDecision({ ...base, now: plus(END, 0, 5) })).toBe("wait");
-    expect(takeDecision({ ...base, now: plus(END, 24, 9) })).toBe("wait");
-    expect(takeDecision({ ...base, now: plus(END, 24, 10) })).toBe("take");
+    expect(takeDecision({ ...base, now: plus(START, 24, 2) })).toBe("wait");
+    expect(takeDecision({ ...base, now: plus(START, 24, 3) })).toBe("take");
   });
   it("with a request it waits for the host, and takes at once when the host has answered", () => {
-    const requestedAt = plus(END, 20);
-    expect(takeDecision({ ...base, requestedAt, now: plus(END, 30) })).toBe("wait");
-    expect(takeDecision({ ...base, requestedAt, decided: true, now: plus(END, 30) })).toBe("take");
-    expect(takeDecision({ ...base, requestedAt, now: plus(requestedAt, 24, 9) })).toBe("wait");
-    expect(takeDecision({ ...base, requestedAt, now: plus(requestedAt, 24, 10) })).toBe("take");
+    const requestedAt = plus(START, 20);
+    expect(takeDecision({ ...base, requestedAt, now: plus(START, 30) })).toBe("wait");
+    expect(takeDecision({ ...base, requestedAt, decided: true, now: plus(START, 30) })).toBe("take");
+    expect(takeDecision({ ...base, requestedAt, now: plus(requestedAt, 24, 2) })).toBe("wait");
+    expect(takeDecision({ ...base, requestedAt, now: plus(requestedAt, 24, 3) })).toBe("take");
   });
   it("keeps trying after a missed moment for as long as the hold lasts, and not after", () => {
     expect(takeDecision({ ...base, now: plus(VISA, -1) })).toBe("take");
@@ -253,21 +242,28 @@ describe("when the money for a call is taken", () => {
 });
 
 describe("when a share can be collected", () => {
-  // The call ended Wed 13 Jan 10:00.
-  // The customer can ask until 24 hours after it, and a request sent in the last seconds is accepted for 10 minutes more.
-  const ASKING_OVER = at("2027-01-14T10:10:00Z");
+  // The call ran Wed 13 Jan 09:00 to 10:00. The customer can ask until 24 hours after its start (Thu 09:00), and a
+  // request sent in the last seconds is accepted for 3 minutes more. The money of a call nobody asked about is taken then.
+  const TAKEN = at("2027-01-14T09:03:00Z");
+  const A_DAY_AFTER = at("2027-01-14T10:00:00Z");
   const TWO_DAYS = at("2027-01-15T10:00:00Z");
 
-  it("nobody asked for a refund: ready the moment the money is taken, 24 hours and 10 minutes after the call", () => {
-    expect(readyToCollectAt({ callEndsAt: END, chargedAt: ASKING_OVER, refundAsked: false })).toEqual(ASKING_OVER);
+  it("nobody asked for a refund: ready 24 hours after the call ends", () => {
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: TAKEN, refundAsked: false })).toEqual(A_DAY_AFTER);
+    // A charge after a review, an hour after the call, waits just the same.
+    expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T11:00:00Z"), refundAsked: false })).toEqual(A_DAY_AFTER);
+  });
+  it("and not before the charge is recorded, when that happens later", () => {
     const aLittleLate = at("2027-01-14T10:25:00Z");
     expect(readyToCollectAt({ callEndsAt: END, chargedAt: aLittleLate, refundAsked: false })).toEqual(aLittleLate);
   });
-  it("a charge recorded early is never ready while the customer could still ask", () => {
-    // A charge after a review, an hour after the call: it waits until asking is over, also past the plain 24 hours.
-    const ready = readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T11:00:00Z"), refundAsked: false });
-    expect(ready).toEqual(ASKING_OVER);
-    expect(ready.getTime()).toBeGreaterThan(at("2027-01-14T10:00:00Z").getTime());
+  it("a share is never ready while the customer could still ask, also after the shortest call a host can offer", () => {
+    const shortest = Math.min(...LENGTH_CHOICES_MINUTES) * 60_000;
+    expect(DEADLINE_CUSHION_MS).toBeLessThan(shortest);
+    // A request is accepted before this moment, and not at it.
+    const askingOver = START.getTime() + ASK_WINDOW_MS + DEADLINE_CUSHION_MS;
+    const ready = readyToCollectAt({ callEndsAt: new Date(START.getTime() + shortest), chargedAt: START, refundAsked: false });
+    expect(ready.getTime()).toBeGreaterThan(askingOver);
   });
   it("the customer asked for a refund: 2 days after the call ends, to the minute, on any day of the week", () => {
     expect(readyToCollectAt({ callEndsAt: END, chargedAt: at("2027-01-13T12:00:00Z"), refundAsked: true })).toEqual(TWO_DAYS);

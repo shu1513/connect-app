@@ -1,7 +1,7 @@
 /**
  * A customer asks for a refund; the host answers.
  *
- * One request per call, asked within 24 hours of its end. Before the money is
+ * One request per call, asked after the call and within 24 hours of its start. Before the money is
  * taken, the host's answer decides what is taken: in full, less, or nothing,
  * for each charge of the call. After that, an answer is a "no" or a refund
  * with the refund tool. Who may decide does not change: the host, or the
@@ -123,7 +123,7 @@ async function openCharges(reader: Reader, callId: string): Promise<Payment[]> {
   return held.filter((payment) => !taken.has(payment.id));
 }
 
-export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<RequestView | null> {
+export async function requestViewOf(call: Pick<Call, "id" | "startsAt">): Promise<RequestView | null> {
   const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
   if (!request) return null;
   const answers = await db.select().from(schema.refundRequestAnswers).where(eq(schema.refundRequestAnswers.requestId, request.id));
@@ -134,7 +134,7 @@ export async function requestViewOf(call: Pick<Call, "id" | "endsAt">): Promise<
     answers: answers.map((a) => ({ paymentId: a.paymentId, choice: a.choice as Choice, maxCents: a.maxCents })),
     answered: await isAnswered(request),
     open,
-    answerBy: expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
+    answerBy: expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
     nothingAtStake: !(await moneyAtStake(db, call.id)),
     beingDecided: open.length === 0 && (await anyOnHold(db, call.id)),
   };
@@ -167,7 +167,7 @@ export async function requestHolds(reader: Reader, callIds: string[]): Promise<M
 /**
  * Until when the customer of this call can ask, or null if they cannot (any
  * more): a paid call that took place, not cancelled, no request yet, inside
- * the 24 hours. `now` may be up to 10 minutes past the moment shown, so a
+ * the 24 hours counted from its start. `now` may be up to 3 minutes past the moment shown, so a
  * request sent in the last seconds still counts.
  */
 export async function askBy(call: Call, now: Date, reader: Reader = db): Promise<Date | null> {
@@ -177,7 +177,7 @@ export async function askBy(call: Call, now: Date, reader: Reader = db): Promise
   // Something must be at stake: money on hold or money taken.
   if (!(await moneyAtStake(reader, call.id))) return null;
   const expiry = (await heldOrdinary(reader, call.id)).length > 0 ? await commonExpiry(reader, call.id) : null;
-  const until = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.endsAt.getTime() + ASK_WINDOW_MS);
+  const until = expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.startsAt.getTime() + ASK_WINDOW_MS);
   return now.getTime() < until.getTime() + DEADLINE_CUSHION_MS ? until : null;
 }
 
@@ -218,7 +218,7 @@ export async function askForRefund(input: { callId: string; customerId: string; 
       .set({ transferDueAt: withRequest })
       .where(and(eq(schema.payments.callId, call.id), eq(schema.payments.status, "charged"), inArray(schema.payments.transferStatus, ["not_due", "due"]), lt(schema.payments.transferDueAt, withRequest)));
     const expiry = (await openCharges(tx, call.id)).length > 0 ? await commonExpiry(tx, call.id) : null;
-    const answerBy = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
+    const answerBy = expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
     await queueRequestEmail(tx, call, request, answerBy ? { answerBy } : (await anyOnHold(tx, call.id)) ? "being_decided" : "taken");
     return "sent";
   });
@@ -332,7 +332,7 @@ export async function writeAnswerReminders(now: Date): Promise<void> {
   for (const { request, call } of waiting) {
     const expiry = (await openCharges(db, call.id)).length > 0 ? await commonExpiry(db, call.id) : null;
     if (!expiry) continue; // the money was taken: nothing left to hurry for
-    const answerBy = moneyTiming({ callEndsAt: call.endsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy!;
+    const answerBy = moneyTiming({ callStartsAt: call.startsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy!;
     const halfway = (request.askedAt.getTime() + answerBy.getTime()) / 2;
     if (now.getTime() < halfway || now >= answerBy) continue;
     await queueRequestReminder(db, call, request, answerBy);
