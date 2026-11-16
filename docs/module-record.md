@@ -27,7 +27,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
 | 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
-| 10. Connection check before a call | Built; pull request open. A weak connection, a real iPhone, hotel Wi-Fi and mobile data still need the founder's friend tests. |
+| 10. Connection check before a call | Built and merged. A weak connection, a real iPhone, hotel Wi-Fi and mobile data still need the founder's friend tests. |
 | 11. Refund requests, taking the money later, and a record of call quality | Built and merged. A real two-person call on a bad connection and a real card's hold from start to finish still need a friend test; the outside health watcher comes with the hosting. |
 | 12. Hosts collect their earnings when they want | Built and merged. Stripe's test area only; a real payout to a bank has not happened yet. |
 
