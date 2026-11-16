@@ -1,7 +1,10 @@
 # Plan 16: A host proves a social media account
 
-**Status:** plan only, not built. Written 15 November 2026. Astra has checked it against the code;
-what it found is at the end, and every point is worked in.
+**Status:** Part 1 is built (branch `plan/instagram-proof`): a host needs one confirmed social
+media account before approval. **Part 2, "Connect your Instagram", is not built**, because Meta no
+longer offers new apps the login it was planned for; see "What changed while building" near the
+end. Below is the plan as it was approved. Written 15 November 2026. Astra has checked it against
+the code; what it found is at the end, and every point is worked in.
 
 ## What this is, and why
 
@@ -129,7 +132,7 @@ Left out on purpose: making the founder's approval name the exact accounts they 
 (as it does for the name and the text). A host can add another proven account after approval
 anyway, so it would guard a few seconds only.
 
-### Part 2: "Connect your Instagram"
+### Part 2: "Connect your Instagram" (not built; see "What changed while building")
 
 Meta's name for this is "Instagram API with Instagram Login". We ask for the smallest permission
 there is (`instagram_business_basic`). Connect asks for and keeps only two things: the account's
@@ -284,6 +287,49 @@ in their answers; which of the numbers Meta returns is the lasting one for an ac
 one-time code is accepted once; that the return address must be `https`; what a personal account
 sees; how testers are added; and what Meta asks for about deleting data before it approves an
 app. The two settings stay unset on the live site until Meta has approved the app.
+
+## What changed while building (15 November 2026)
+
+**Part 1 is built as planned.**
+
+**Part 2 is not built.** The founder's Meta developer account and a Meta app named "Connect" were
+made the same day. Meta's dashboard offers a new app only two ways to set up Instagram: "API setup
+with Unified login" and "API setup with Facebook login". The simple "log in with Instagram" this
+plan was written for (Meta's "Instagram API with Instagram Login") is, in Meta's own pages, for
+integrations that already exist. What Meta's pages say about the new way:
+
+- The app must belong to a Meta "business portfolio". That is a free container inside Meta, not a
+  registered company; the founder has one. Connecting the app to it is waiting on a security check
+  at Meta that only the founder can pass.
+- The host is sent to facebook.com and goes through a business-style sign-in, in which they choose
+  a business portfolio and which Instagram account to share. It is a heavier step for a host than
+  the plan assumed.
+- What comes back is a key that belongs to the host's business and can cover several Instagram
+  accounts, read with different requests than the ones in Part 2.
+- For anyone who has no role on our app, Meta still asks for its review and a verified business,
+  as before.
+
+So the addresses, the requests and the reading of the answers in Part 2 do not fit a new app. A
+first build of Part 2 against the older login is kept on the local branch `wip/connect-instagram`
+(not for merging). Its parts that do not depend on Meta's addresses can be used again: the signed
+note of who started, the checks on return, and the saving step.
+
+**The founder's answer the same day:** confirming must happen by itself; the founder does not want
+to confirm anything by hand. Two ways are being looked at, both through Meta, and they will be
+their own plan:
+
+1. Meta's new sign-in, for when Meta has approved the app.
+2. Connect reading the bio itself, through what Meta calls "Business Discovery": the host still
+   puts the code in the bio, Connect finds it there and confirms at once. Meta's pages do not say
+   whether this is allowed before Meta's review. It has to be tried with the founder's own
+   Instagram account.
+
+Until one of them is built, an account is confirmed as it is today: the founder looks at the bio
+and presses "confirm".
+
+**Two things that turned up while checking:** the accounts script's clean-up now removes social
+accounts for all its test people first (one test person confirms an account for another, which
+blocked the clean-up); and the journey and safety scripts clean up the accounts they add.
 
 ## Astra's check of this plan (15 November 2026)
 

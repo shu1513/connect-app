@@ -3,7 +3,7 @@
  * through here, so the rules are in one place. (Closing accounts is in closing.ts.)
  */
 import { randomInt } from "node:crypto";
-import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { priceProblem } from "@/lib/payments/hold";
 import { identityState } from "@/lib/safety/identity";
@@ -21,6 +21,36 @@ const MAX_PRICE_PER_15_CENTS = 100_000; // $1,000
 const SOCIAL_CODE_DAYS = 7;
 
 export type ProfileStatus = "pending" | "approved" | "declined" | "suspended";
+
+export const NO_CONFIRMED_ACCOUNT = "This host has no confirmed social media account yet, so the profile cannot be approved.";
+export const LAST_CONFIRMED_ACCOUNT = "Your page needs one confirmed account. Confirm another one first, or write to us.";
+const TAKEN_BY_ANOTHER_HOST = "That account is already confirmed for another host. If it is yours, write to us.";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * The host's profile, locked until the surrounding step ends. Everything that approves a profile or
+ * takes a confirmed account away asks for this lock first, and only then reads the accounts, so two
+ * of them at the same moment happen one after the other. Where a step also needs the person's own
+ * row, the order is always: the person, the profile, the social account.
+ */
+async function lockedProfile(tx: Tx, userId: string): Promise<{ status: string } | undefined> {
+  const [profile] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
+  return profile;
+}
+
+async function confirmedAccounts(tx: Tx, userId: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.socialAccounts)
+    .where(and(eq(schema.socialAccounts.userId, userId), isNotNull(schema.socialAccounts.confirmedAt)));
+  return row.n;
+}
+
+/** Refuses to leave an approved host without a confirmed account. Call it with the profile's lock held. */
+async function keepOneConfirmed(tx: Tx, userId: string, profile: { status: string } | undefined): Promise<void> {
+  if (profile?.status === "approved" && (await confirmedAccounts(tx, userId)) <= 1) throw new ProfileError(LAST_CONFIRMED_ACCOUNT);
+}
 
 /** True when the database refused a row because a unique value is already taken. */
 function isTaken(error: unknown): boolean {
@@ -119,9 +149,16 @@ export async function decideProfile(input: {
   const decidedAt = new Date();
   // The decision and the email that tells the host about it are saved together, or not at all.
   await db.transaction(async (tx) => {
+    if (input.decision === "approved") {
+      // Closing an account suspends its profile. Locking the person first means an approval and a
+      // closure at the same moment happen one after the other, and the closure always wins.
+      const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("update");
+      if (person?.closedAt) throw new ProfileError("This account is closed. Open it again before approving its profile.");
+    }
     // Read under a lock, so two presses of the same button are two steps, one after the other.
-    const [before] = await tx.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.userId)).for("update");
+    const before = await lockedProfile(tx, input.userId);
     if (!before) throw new ProfileError("Profile not found.");
+    if (input.decision === "approved" && (await confirmedAccounts(tx, input.userId)) === 0) throw new ProfileError(NO_CONFIRMED_ACCOUNT);
     const changed = await tx
       .update(schema.hostProfiles)
       .set({ status: input.decision, decidedBy: input.by, decidedAt, updatedAt: decidedAt })
@@ -209,41 +246,46 @@ function newProofCode(): string {
 
 /**
  * A host says "this account is mine". We give them a fresh code to put in
- * that account's bio. Changing the name always starts the proof again.
+ * that account's bio. Changing the name always starts the proof again, so an
+ * approved host cannot change the name of their only confirmed account.
  */
 export async function addSocialName(userId: string, network: string, typed: string): Promise<void> {
   if (!isNetwork(network)) throw new ProfileError("Choose one of the listed networks.");
   const read = readSocialName(network, typed);
   if ("problem" in read) throw new ProfileError(read.problem);
 
-  const [mine] = await db
-    .select()
-    .from(schema.socialAccounts)
-    .where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, network)));
-  if (mine?.nameKey === read.nameKey && mine.confirmedAt) return; // already confirmed: nothing to do
+  await db.transaction(async (tx) => {
+    const profile = await lockedProfile(tx, userId);
+    const [mine] = await tx
+      .select()
+      .from(schema.socialAccounts)
+      .where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, network)));
+    if (mine?.nameKey === read.nameKey && mine.confirmedAt) return; // already confirmed: nothing to do
 
-  const [taken] = await db
-    .select({ id: schema.socialAccounts.id })
-    .from(schema.socialAccounts)
-    .where(
-      and(eq(schema.socialAccounts.network, network), eq(schema.socialAccounts.nameKey, read.nameKey), isNotNull(schema.socialAccounts.confirmedAt)),
-    );
-  if (taken) throw new ProfileError("That account is already confirmed for another host. If it is yours, contact support.");
+    const [taken] = await tx
+      .select({ id: schema.socialAccounts.id })
+      .from(schema.socialAccounts)
+      .where(
+        and(eq(schema.socialAccounts.network, network), eq(schema.socialAccounts.nameKey, read.nameKey), isNotNull(schema.socialAccounts.confirmedAt)),
+      );
+    if (taken) throw new ProfileError(TAKEN_BY_ANOTHER_HOST);
+    if (mine?.confirmedAt) await keepOneConfirmed(tx, userId, profile);
 
-  const fresh = {
-    nameTyped: typed.trim().slice(0, 200),
-    nameKey: read.nameKey,
-    url: read.url,
-    code: newProofCode(),
-    codeExpiresAt: new Date(Date.now() + SOCIAL_CODE_DAYS * 24 * 3_600_000),
-    claimedAt: null,
-    confirmedAt: null,
-    confirmedBy: null,
-  };
-  await db
-    .insert(schema.socialAccounts)
-    .values({ userId, network, ...fresh })
-    .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: fresh });
+    const fresh = {
+      nameTyped: typed.trim().slice(0, 200),
+      nameKey: read.nameKey,
+      url: read.url,
+      code: newProofCode(),
+      codeExpiresAt: new Date(Date.now() + SOCIAL_CODE_DAYS * 24 * 3_600_000),
+      claimedAt: null,
+      confirmedAt: null,
+      confirmedBy: null,
+    };
+    await tx
+      .insert(schema.socialAccounts)
+      .values({ userId, network, ...fresh })
+      .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: fresh });
+  });
 }
 
 /** The host says the code is now in the account's bio. The founder is then asked to look. */
@@ -263,8 +305,19 @@ export async function markSocialNameReady(userId: string, id: string): Promise<v
   if (changed.length === 0) throw new ProfileError("That code has run out. Add the account again to get a new one.");
 }
 
+/** The host removes an account. An approved host keeps at least one confirmed account. */
 export async function removeSocialName(userId: string, id: string): Promise<void> {
-  await db.delete(schema.socialAccounts).where(and(eq(schema.socialAccounts.id, id), eq(schema.socialAccounts.userId, userId)));
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+  await db.transaction(async (tx) => {
+    const profile = await lockedProfile(tx, userId);
+    const [mine] = await tx
+      .select({ confirmedAt: schema.socialAccounts.confirmedAt })
+      .from(schema.socialAccounts)
+      .where(and(eq(schema.socialAccounts.id, id), eq(schema.socialAccounts.userId, userId)));
+    if (!mine) return;
+    if (mine.confirmedAt) await keepOneConfirmed(tx, userId, profile);
+    await tx.delete(schema.socialAccounts).where(and(eq(schema.socialAccounts.id, id), eq(schema.socialAccounts.userId, userId)));
+  });
 }
 
 /**
@@ -290,7 +343,7 @@ export async function confirmSocialName(input: { id: string; nameKey: string; co
       .returning({ id: schema.socialAccounts.id });
     if (changed.length === 0) throw new ProfileError("That request has changed, run out, or is no longer waiting. Nothing was confirmed.");
   } catch (error) {
-    if (isTaken(error)) throw new ProfileError("That account is already confirmed for another host.");
+    if (isTaken(error)) throw new ProfileError(TAKEN_BY_ANOTHER_HOST);
     throw error;
   }
 }

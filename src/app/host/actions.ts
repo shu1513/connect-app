@@ -165,6 +165,12 @@ export async function socialReady(formData: FormData) {
 
 export async function removeSocial(formData: FormData) {
   const user = await requireActiveUser();
-  await removeSocialName(user.id, String(formData.get("id") ?? "")).catch(() => undefined);
-  back("The account was removed from your profile.");
+  let notice: string;
+  try {
+    await removeSocialName(user.id, String(formData.get("id") ?? ""));
+    notice = "The account was removed from your profile.";
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
 }
