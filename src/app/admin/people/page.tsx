@@ -5,6 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
+import { refusedBioChecks } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
 import { requireAdmin } from "@/lib/session";
@@ -50,6 +51,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
   ]);
   const identity = new Map<string, Awaited<ReturnType<typeof identityState>>>();
   for (const { profile } of profiles) identity.set(profile.userId, await identityState(profile.userId));
+  // Automatic checks of a bio that failed because a network did not accept our own key or permission.
+  const refused = await refusedBioChecks(new Date());
   const waiting = profiles.filter((p) => p.profile.status === "pending");
   const others = profiles.filter((p) => p.profile.status !== "pending");
   // The confirmed accounts of each waiting host: what the founder compares the name and the handle with.
@@ -77,6 +80,14 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
           {notice}
         </p>
       )}
+
+      {refused.map(({ network, count }) => (
+        <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+          Automatic {isNetwork(network) ? NETWORKS[network].label : network} checks have been failing: {network === "youtube" ? "Google" : "Meta"} did
+          not accept our key or our permission in {count} {count === 1 ? "check" : "checks"} in the last 24 hours. Hosts are told to try again
+          later; nobody is confirmed wrongly.
+        </p>
+      ))}
 
       <h2 className="mt-8 text-lg font-semibold">Host profiles waiting for approval ({waiting.length})</h2>
       <p className="mt-1 text-sm opacity-70">
@@ -142,7 +153,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
 
       <h2 className="mt-10 text-lg font-semibold">Social media accounts to check ({claims.length})</h2>
       <p className="mt-1 text-sm opacity-70">
-        Open the link, look for the code in that account&apos;s bio, and say whether it is there.
+        Open the link, look for the code in that account&apos;s bio, and say whether it is there. Instagram and YouTube
+        accounts are confirmed by Connect itself and only come here when their keys are not set up.
       </p>
       {claims.length === 0 ? (
         <p className="mt-3 text-sm opacity-70">Nothing is waiting.</p>

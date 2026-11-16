@@ -9,13 +9,14 @@ import { collectEarnings } from "@/lib/payments/collect";
 import { ensurePayoutAccount, getHostSettings, payoutSetupLink, publicAppUrl } from "@/lib/payments/hosts";
 import { MoneyError } from "@/lib/payments/operations";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
+import { isAutomatic } from "@/lib/profiles/bio-check";
 import {
   addSocialName,
   createHostProfile,
-  markSocialNameReady,
   ProfileError,
   removeSocialName,
   setProfileHidden,
+  socialNameReady,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
 import { requireActiveUser, requireUser } from "@/lib/session";
@@ -143,20 +144,37 @@ export async function addSocial(formData: FormData) {
   const user = await requireActiveUser();
   let notice: string;
   try {
-    await addSocialName(user.id, String(formData.get("network") ?? ""), String(formData.get("name") ?? ""));
-    notice = "Added. Now put the code shown below in that account's bio, then press \"I've done it\".";
+    const network = String(formData.get("network") ?? "");
+    await addSocialName(user.id, network, String(formData.get("name") ?? ""));
+    notice = `Added. Now put the code shown below in ${network === "youtube" ? "that channel's description" : "that account's bio"}, then press "${isAutomatic(network) ? "Check now" : "I've done it"}".`;
   } catch (error) {
     notice = problem(error);
   }
   back(notice);
 }
 
+/**
+ * The host says the code is in place ("Check now" or "I've done it"). Whether Connect looks itself
+ * or the founder is asked is decided on the server from the entry, never from the button pressed.
+ */
 export async function socialReady(formData: FormData) {
   const user = await requireActiveUser();
   let notice: string;
   try {
-    await markSocialNameReady(user.id, String(formData.get("id") ?? ""));
-    notice = "Thank you. We will look at the account and confirm it. Keep the code in the bio until then.";
+    const { outcome, network, nameKey } = await socialNameReady(user.id, String(formData.get("id") ?? ""));
+    const tryLater = "We could not check right now. Please try again in a few minutes.";
+    notice = {
+      waiting: "Thank you. We will look at the account and confirm it. Keep the code in the bio until then.",
+      confirmed: "Account confirmed. You can remove the code.",
+      not_found: `We looked at @${nameKey} and did not find the code. Save it, wait a minute, and press Check now again.`,
+      no_account: `We could not read @${nameKey}. Check the name.${network === "instagram" ? " On Instagram it must be a Creator or Business account, which is free to switch to in Instagram's settings." : ""}`,
+      unavailable: tryLater,
+      busy: "Many people are checking right now. Please try again in a little while.",
+      too_soon: "Please wait a moment before checking again.",
+      limit: "You have checked many times. Please try again in an hour.",
+      gone: "That account was changed, or its code has run out. Nothing was confirmed.",
+      taken: "That account is already confirmed for another host. If it is yours, write to us.",
+    }[outcome];
   } catch (error) {
     notice = problem(error);
   }
