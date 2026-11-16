@@ -822,6 +822,28 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 
 ---
 
+## A later change: a customer picks the length of the call (plan 15)
+
+**The founder's decisions (15 November 2026).** A customer should be able to choose how many minutes they want, and 60 minutes should not be the most that can be booked. Each host sets their own shortest and longest call; a customer picks any length between the two, in steps of 5 minutes. The builder first proposed a top of 4 hours chosen by Connect; the founder's answer was that the host decides, anywhere from 5 minutes to 6 hours, and that a host who sets nothing gets 2 hours. The plan is `plans/15-custom-call-lengths.md`.
+
+**What changed**
+- **For a host:** on the calendar page the tick boxes are gone. There are two lists, "Shortest call" and "Longest call", each from 5 minutes to 6 hours in steps of 5 minutes. A shortest call that is longer than the longest is refused with a plain message. A new calendar starts with 30 minutes to 2 hours.
+- **For a customer:** on a host's page the row of buttons became a list, "Length", with the price next to each length ("25 minutes, $33.33"), and a "Show times" button. The length shown before any choice is the one closest to 30 minutes that the host offers. "Call now" has the same kind of list, with only the lengths that still fit. Both work without any script in the browser.
+- **The ceiling of 6 hours** keeps the longest possible call what it was (60 minutes booked plus added time). Adding time during a call stays, and the rule is now written down that a call is never longer than 6 hours in all.
+- **Instant calls** keep the limit they had: 1 hour 55 minutes, because a host can switch "available now" on for at most 2 hours.
+- **Nothing changed in the database.** A host's stored list simply holds every step between their shortest and longest call. Lists ticked before this change are kept as they are until the host next saves the calendar page.
+- **A small repair that longer calls made matter:** the email "the room for your call is open now" used to be dropped only at the call's end if it could not be sent in time. For a long call it could have arrived hours late. It is now dropped 5 minutes after the call's start.
+
+**Said plainly.** The whole price is held on the customer's card before the call. The largest possible hold is now $24,000 (6 hours at the highest price a host can set, $1,000 per 15 minutes). The app and Stripe carry that amount; whether a bank allows it is another matter, and a bank dispute over such a call would be a large loss for Connect. After a 6-hour call a customer normally has 18 hours left to ask for a refund (the 24 hours count from the call's start).
+
+**Astra's checks of the plan:** twice, both "ready with changes", every point worked in (they are listed at the end of the plan). The second check was made after the founder's answer on the longest call, and confirmed that a 6-hour call booked up front is safe: the hold on the card has 18 hours to spare in the worst case, open times work across midnight and when the clocks change, and $24,000 fits the database and Stripe.
+
+**Astra's review of the code:** ship with changes. It found no fault in the app itself: the new rules hold for odd input (missing fields, fractions, huge numbers), added time cannot take a call past 6 hours also when a request is accepted late, the two lists work with how the pages read the chosen length, and nothing else in the app still assumes the old list or a 60-minute top. Three small points, all taken: one check in the booking script could have passed for the wrong reason (it now asks for the exact refusal); the 25-minute and 90-minute calls are now also booked with a paid host, with their prices checked and the long one accepted; and an unused number was removed.
+
+**How it was checked:** 319 automatic tests (the lengths that can be offered, the list between a shortest and a longest call, the length shown first, a length in words, the 6-hour limit on added time, open times for a 6-hour call across midnight and on a night the clocks change, the earliest and an early-ending card hold with a 6-hour call, the largest price, and when a reminder is dropped). The booking script (116 checks: a host with 10 minutes to 2 hours; 25-minute and 90-minute calls asked for and accepted, free and paid, at the right price; lengths outside the range or not a step of 5 refused for that reason; a new calendar's default; an existing calendar kept; a 6-hour call at the highest price asked for and accepted, total exactly $24,000). The instant-call script (74: a host with every length offers up to 1 hour 55 minutes and no more), the added-time script (114: a call of 5 hours 50 minutes can get 10 more minutes and then nothing), and the payments script (145: $24,000 held and charged in Stripe's test mode). The other eight scripts unchanged and passing, lint, types and build. By hand in a browser: the calendar page (a wrong order refused, a range saved), a host's page with the list at 25 minutes and at 1 hour 30 minutes, and both pages at phone size. Not seen in a browser: the "Call now" list, which shows only while a host is available.
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.

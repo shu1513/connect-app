@@ -99,6 +99,17 @@ async function main() {
       const open = await B.instantOffer(host.id, now);
       check("switched on for an hour: both lengths are offered", on.on && open?.lengths.join() === "15,30" && open.availableUntil.getTime() === now.getTime() + 60 * MINUTE);
       check("only the offered durations are allowed", await refusedWith(N.setAvailableNow({ hostId: host.id, minutes: 45, now }), "durations"));
+      {
+        // A host who offers every length from 5 minutes to 6 hours, available for the longest time there is: 2 hours.
+        const { LENGTH_CHOICES_MINUTES } = await import("../src/lib/booking/rules");
+        const wide = await person("wide");
+        await makeHost(wide, 0, 1);
+        await db.update(schema.hostCalendars).set({ lengths: LENGTH_CHOICES_MINUTES.join(",") }).where(eq(schema.hostCalendars.userId, wide.id));
+        await N.setAvailableNow({ hostId: wide.id, minutes: 120, now });
+        const fits = (await B.instantOffer(wide.id, now))?.lengths ?? [];
+        check("a host with every length, available for 2 hours: lengths up to 1 hour 55 minutes are offered, and none longer", fits.length === 23 && fits[0] === 5 && fits[fits.length - 1] === 115, fits.join(","));
+        await db.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, wide.id));
+      }
       // The page stops saying "still here" (the tab was closed).
       await db.update(schema.hostCalendars).set({ availableSeenAt: new Date(now.getTime() - (NOW.presenceSeconds + 5) * 1000) }).where(eq(schema.hostCalendars.userId, host.id));
       check("without a recent sign of life the host is not available", (await B.instantOffer(host.id, now)) === null);

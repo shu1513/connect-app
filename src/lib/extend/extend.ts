@@ -92,7 +92,7 @@ async function minutesFitting(reader: Reader, call: Call): Promise<number> {
       .limit(1);
     return next?.startsAt ?? null;
   };
-  return minutesThatFit({ endsAt: call.endsAt, breakMinutes: booking.breakMinutes, hostNextAt: await nextFor(call.hostId), customerNextAt: await nextFor(call.customerId) });
+  return minutesThatFit({ startsAt: call.startsAt, endsAt: call.endsAt, breakMinutes: booking.breakMinutes, hostNextAt: await nextFor(call.hostId), customerNextAt: await nextFor(call.customerId) });
 }
 
 /** The customer's choices right now: how many minutes fit, and the call's price. */

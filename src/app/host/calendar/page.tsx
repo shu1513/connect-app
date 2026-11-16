@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { calendarOf, clockText, hoursAndTimeOff, inZone } from "@/lib/booking/calendar";
-import { BREAK_CHOICES_MINUTES, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, NOTICE_CHOICES_HOURS, readLengths } from "@/lib/booking/rules";
+import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, lengthWords, NOTICE_CHOICES_HOURS, readLengths } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
@@ -18,7 +18,11 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
   const notice = readNotice("/host/calendar", await props.searchParams);
   const calendar = await calendarOf(user.id, user.timeZone);
   const { hours, off } = await hoursAndTimeOff(user.id, new Date());
-  const lengths = readLengths(calendar.lengths);
+  // A host sets a shortest and a longest call. A list saved before that (ticked lengths) shows as its two ends.
+  const saved = readLengths(calendar.lengths);
+  const lengths = saved.length > 0 ? saved : DEFAULT_LENGTHS;
+  const shortest = lengths[0];
+  const longest = lengths[lengths.length - 1];
   const field = "mt-1 rounded border border-neutral-400 bg-transparent px-3 py-2";
   const button = "rounded border border-neutral-500 px-3 py-1.5 text-sm";
 
@@ -137,16 +141,30 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
           </label>
           <fieldset>
             <legend>Call lengths you offer</legend>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-              {LENGTH_CHOICES_MINUTES.map((minutes) => (
-                <label key={minutes} className="flex items-center gap-1">
-                  <input type="checkbox" name="lengths" value={minutes} defaultChecked={lengths.includes(minutes)} />
-                  {minutes} min
-                </label>
-              ))}
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2">
+              <label className="block">
+                Shortest call
+                <select name="shortest" defaultValue={shortest} className={`${field} block`}>
+                  {LENGTH_CHOICES_MINUTES.map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {lengthWords(minutes)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                Longest call
+                <select name="longest" defaultValue={longest} className={`${field} block`}>
+                  {LENGTH_CHOICES_MINUTES.map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {lengthWords(minutes)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <p className="mt-1 opacity-70">
-              The price of a call follows its length: a 5-minute call costs a third of your 15-minute price. Our fee includes 30 cents for each
+              A customer picks any length between the two, in steps of 5 minutes. The price of a call follows its length: a 5-minute call costs a third of your 15-minute price. Our fee includes 30 cents for each
               paid call, whatever its length, so on a short call at a low price it takes a larger part. The same 30 cents is taken again each
               time paid time is added during a call.
             </p>

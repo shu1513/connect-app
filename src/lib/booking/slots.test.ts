@@ -175,6 +175,21 @@ describe("openStarts", () => {
     const shorter: WeeklyRange[] = [{ weekday: 2, startMinute: 18 * 60, endMinute: 18 * 60 + 28 }];
     expect(times(openStarts({ ...base, weekly: shorter, lengthMinutes: 5, breakMinutes: 1 }))).toEqual(["2026-11-03T23:00", "2026-11-03T23:06", "2026-11-03T23:12", "2026-11-03T23:18"]);
   });
+  it("a 6-hour call: across midnight, only where the whole call fits, and by real hours when the clocks change", () => {
+    // Tuesday 20:00 to midnight and Wednesday midnight to 03:00 are one stretch of 7 hours: one 6-hour call fits, from 20:00.
+    const overnight: WeeklyRange[] = [
+      { weekday: 2, startMinute: 20 * 60, endMinute: 1440 },
+      { weekday: 3, startMinute: 0, endMinute: 180 },
+    ];
+    expect(times(openStarts({ ...base, weekly: overnight, lengthMinutes: 360 }))).toEqual(["2026-11-04T01:00"]);
+    // Hours shorter than the call: nothing.
+    expect(openStarts({ ...base, weekly: TUESDAY_EVENING, lengthMinutes: 360 })).toEqual([]);
+    // Sundays midnight to 05:00. On 1 November 2026 one hour happens twice, so that night is 6 real hours and
+    // the call fits; a week later it is 5 hours and it does not.
+    const sundayNight: WeeklyRange[] = [{ weekday: 7, startMinute: 0, endMinute: 300 }];
+    const now = at("2026-10-31T14:00:00Z");
+    expect(times(openStarts({ ...base, weekly: sundayNight, now, earliestStart: now, horizonWeeks: 2, lengthMinutes: 360 }))).toEqual(["2026-11-01T04:00"]);
+  });
   it("gives nothing for a host with no hours", () => {
     expect(openStarts({ ...base, weekly: [] })).toEqual([]);
   });

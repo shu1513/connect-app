@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { addTimeOff, addWeeklyHours, CalendarError, calendarOf, removeTimeOff, removeWeeklyHours, saveCalendarChoices } from "@/lib/booking/calendar";
+import { lengthRange } from "@/lib/booking/rules";
 import { withNotice } from "@/lib/notice";
 import { requireActiveUser } from "@/lib/session";
 
@@ -20,9 +21,12 @@ export async function saveChoices(formData: FormData) {
   let notice: string;
   try {
     await calendarOf(user.id, user.timeZone);
+    // Both ends are checked before the list between them is made.
+    const lengths = lengthRange(Number(formData.get("shortest")), Number(formData.get("longest")));
+    if (!lengths) throw new CalendarError("Choose your shortest and your longest call from the lists. The shortest cannot be longer than the longest.");
     await saveCalendarChoices(user.id, {
       timeZone: String(formData.get("timeZone") ?? ""),
-      lengths: formData.getAll("lengths").map(Number),
+      lengths,
       noticeHours: Number(formData.get("noticeHours")),
       horizonWeeks: Number(formData.get("horizonWeeks")),
       breakMinutes: Number(formData.get("breakMinutes")),

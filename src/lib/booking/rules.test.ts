@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerDeadline, canMoveBooking, earliestStartFor, latestRequestAt, payCutoff, readLengths } from "./rules";
+import { answerDeadline, canMoveBooking, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
 
 const S = new Date("2026-11-10T20:00:00Z");
 const hoursBefore = (date: Date, hours: number) => new Date(date.getTime() - hours * 3_600_000);
@@ -76,11 +76,59 @@ describe("stages", () => {
 });
 
 describe("readLengths", () => {
-  it("keeps only the lengths we offer, once each, in order", () => {
-    expect(readLengths("60,15,15,20,abc")).toEqual([15, 60]);
-    // The shortest call a host can offer is 5 minutes. Nothing shorter, and nothing in between the choices.
+  it("keeps only the lengths that can be offered, once each, in order", () => {
+    expect(readLengths("60,15,15,20,abc")).toEqual([15, 20, 60]);
+    // A list ticked before hosts set a range is kept as it is.
     expect(readLengths("5,10,15,30,45,60")).toEqual([5, 10, 15, 30, 45, 60]);
-    expect(readLengths("1,4,5,7,10,90")).toEqual([5, 10]);
+    // Steps of 5 minutes from 5 minutes to 6 hours. Nothing shorter, longer, or in between.
+    expect(readLengths("0,1,4,5,7,10,90,360,365,3.5")).toEqual([5, 10, 90, 360]);
     expect(readLengths("")).toEqual([]);
+  });
+});
+
+describe("the lengths a host can offer", () => {
+  it("are every step of 5 minutes from 5 minutes to 6 hours", () => {
+    expect(LENGTH_CHOICES_MINUTES.length).toBe(72);
+    expect(LENGTH_CHOICES_MINUTES[0]).toBe(5);
+    expect(LENGTH_CHOICES_MINUTES[71]).toBe(360);
+    expect(LENGTH_CHOICES_MINUTES.every((n, i) => n === (i + 1) * 5)).toBe(true);
+  });
+  it("a host's shortest and longest call give every step between them", () => {
+    expect(lengthRange(10, 30)).toEqual([10, 15, 20, 25, 30]);
+    expect(lengthRange(45, 45)).toEqual([45]);
+    expect(lengthRange(5, 360)).toEqual(LENGTH_CHOICES_MINUTES);
+  });
+  it("two values that are not a range are refused, before any list is made", () => {
+    expect(lengthRange(30, 15)).toBeNull();
+    expect(lengthRange(7, 30)).toBeNull();
+    expect(lengthRange(5, 365)).toBeNull();
+    expect(lengthRange(0, 30)).toBeNull();
+    expect(lengthRange(3.5, 30)).toBeNull();
+    expect(lengthRange(NaN, 30)).toBeNull();
+    expect(lengthRange(5, 1e9)).toBeNull();
+  });
+  it("a new calendar starts with 30 minutes to 2 hours", () => {
+    expect(DEFAULT_LENGTHS[0]).toBe(30);
+    expect(DEFAULT_LENGTHS[DEFAULT_LENGTHS.length - 1]).toBe(120);
+    expect(DEFAULT_LENGTHS.length).toBe(19);
+    expect(readLengths(DEFAULT_LENGTHS.join(","))).toEqual(DEFAULT_LENGTHS);
+  });
+  it("the length shown first is the one closest to 30 minutes, the shorter when two are equally close", () => {
+    expect(firstLength([5, 10, 15, 30, 45])).toBe(30);
+    expect(firstLength([45, 60, 90])).toBe(45);
+    expect(firstLength([5, 10, 15])).toBe(15);
+    expect(firstLength([25, 35])).toBe(25);
+    expect(firstLength([60, 15])).toBe(15);
+    expect(firstLength([120])).toBe(120);
+    expect(firstLength([])).toBeNull();
+  });
+  it("a length in words: minutes under an hour, hours from an hour on", () => {
+    expect(lengthWords(5)).toBe("5 minutes");
+    expect(lengthWords(45)).toBe("45 minutes");
+    expect(lengthWords(60)).toBe("1 hour");
+    expect(lengthWords(65)).toBe("1 hour 5 minutes");
+    expect(lengthWords(90)).toBe("1 hour 30 minutes");
+    expect(lengthWords(120)).toBe("2 hours");
+    expect(lengthWords(360)).toBe("6 hours");
   });
 });

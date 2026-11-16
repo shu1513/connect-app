@@ -539,6 +539,74 @@ async function main() {
       check("accepting it makes a 5-minute call", call.endsAt.getTime() - call.startsAt.getTime() === 5 * MINUTE);
       check("the next 5-minute time, right after the call and its break, is still open; the taken one is not", (await times(host.id, 5)).some((t) => t.getTime() === five[1].getTime()) && !(await times(host.id, 5)).some((t) => t.getTime() === five[0].getTime()));
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n14. A host sets a shortest and a longest call; the customer picks a length between them");
+    {
+      const { saveCalendarChoices, calendarOf } = await import("../src/lib/booking/calendar");
+      const { DEFAULT_LENGTHS, lengthRange } = await import("../src/lib/booking/rules");
+      const host = await freeHost("host14", 5);
+      const fay = await customer("fay14");
+      const choices = { timeZone: "America/New_York", noticeHours: 24, horizonWeeks: 2, breakMinutes: 5 };
+      await saveCalendarChoices(host.id, { ...choices, lengths: lengthRange(10, 120)! });
+      const offer = (await B.offerOf(host.id))!;
+      check("10 minutes to 2 hours: every step of 5 minutes between them is offered", offer.lengths.length === 23 && offer.lengths[0] === 10 && offer.lengths[22] === 120, offer.lengths.join(","));
+      const [first] = await times(host.id, 25);
+      const short = await ask(fay, host.id, first, 25);
+      check("a 25-minute call can be asked for", short.booking.stage === "waiting" && short.booking.lengthMinutes === 25 && short.booking.endsAt.getTime() - short.booking.startsAt.getTime() === 25 * MINUTE);
+      const { callId } = await B.accept({ bookingId: short.booking.id, hostId: host.id, now });
+      const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
+      check("and accepted as a 25-minute call", call.endsAt.getTime() - call.startsAt.getTime() === 25 * MINUTE);
+      const [later] = await times(host.id, 90, 120);
+      const long = await ask(fay, host.id, later, 90);
+      check("so can a call of 1 hour 30 minutes", long.booking.stage === "waiting" && long.booking.lengthMinutes === 90 && long.booking.endsAt.getTime() - long.booking.startsAt.getTime() === 90 * MINUTE);
+      const longCall = await B.accept({ bookingId: long.booking.id, hostId: host.id, now });
+      const [ninety] = await db.select().from(schema.calls).where(eq(schema.calls.id, longCall.callId));
+      check("and it is accepted as a call of 1 hour 30 minutes", ninety.endsAt.getTime() - ninety.startsAt.getTime() === 90 * MINUTE);
+      // Refused because the host does not offer the length, not for any other reason (a closed time has its own message).
+      const notOffered = async (lengthMinutes: number) => {
+        const [free] = await times(host.id, 30, 168);
+        const problem = await ask(fay, host.id, free, lengthMinutes).then(() => null, (e: unknown) => e as Error);
+        return problem instanceof BookingError && /cannot be booked right now/.test(problem.message);
+      };
+      check("a 30-minute call at that same time would be fine", (await times(host.id, 30, 168)).length > 0 && offer.lengths.includes(30));
+      check("a length outside the host's range is refused, whatever the browser sends", (await notOffered(125)) && (await notOffered(5)));
+      check("and so is a length that is not a step of 5 minutes", (await notOffered(12)) && (await notOffered(30.5)));
+      check("a calendar that already exists keeps its list when it is opened", (await calendarOf(host.id, "America/New_York")).lengths === lengthRange(10, 120)!.join(","));
+      const fresh = await customer("new14");
+      check("a new calendar starts with 30 minutes to 2 hours", (await calendarOf(fresh.id, "America/New_York")).lengths === DEFAULT_LENGTHS.join(",") && DEFAULT_LENGTHS[0] === 30 && DEFAULT_LENGTHS[DEFAULT_LENGTHS.length - 1] === 120);
+
+      // A paid host with every length, at $20 per 15 minutes: the price follows the chosen length.
+      await db.update(schema.hostCalendars).set({ lengths: lengthRange(5, 360)!.join(",") }).where(eq(schema.hostCalendars.userId, hana.id));
+      const ivy = await customer("ivy14");
+      const [p25] = await times(hana.id, 25, 96);
+      const paid25 = await ask(ivy, hana.id, p25, 25);
+      check("at $20 per 15 minutes a 25-minute call is $33.33", paid25.booking.stage === "card" && paid25.booking.lengthMinutes === 25 && paid25.booking.totalCents === 3333, String(paid25.booking.totalCents));
+      const [p90] = await times(hana.id, 90, 120);
+      const paid90 = await ask(ivy, hana.id, p90, 90);
+      check("and a call of 1 hour 30 minutes is $120.00", paid90.booking.stage === "card" && paid90.booking.totalCents === 12_000, String(paid90.booking.totalCents));
+      await cardFor(paid90.booking.id, "pm_card_visa");
+      await B.finishCardStep({ bookingId: paid90.booking.id, customerId: ivy.id, now });
+      const paidCall = await B.accept({ bookingId: paid90.booking.id, hostId: hana.id, now });
+      const [paidPayment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, paidCall.callId));
+      check("accepted: $120.00 will be held for it", paidPayment.bookedCents === 12_000 && paidPayment.status === "awaiting_payment", `${paidPayment.bookedCents} ${paidPayment.status}`);
+
+      // The longest call at the highest price, through booking itself.
+      await db.update(schema.hostProfiles).set({ pricePer15Cents: 100_000 }).where(eq(schema.hostProfiles.userId, hana.id));
+      const gus = await customer("gus14");
+      const [six] = await times(hana.id, 360, 96);
+      const big = await ask(gus, hana.id, six, 360);
+      check("a 6-hour call at $1,000 per 15 minutes is asked for: the total is exactly $24,000", big.booking.stage === "card" && big.booking.lengthMinutes === 360 && big.booking.totalCents === 2_400_000, `${big.booking.stage} ${big.booking.totalCents}`);
+      await cardFor(big.booking.id, "pm_card_visa");
+      await B.finishCardStep({ bookingId: big.booking.id, customerId: gus.id, now });
+      const accepted = await B.accept({ bookingId: big.booking.id, hostId: hana.id, now });
+      const [bigCall] = await db.select().from(schema.calls).where(eq(schema.calls.id, accepted.callId));
+      const [bigPayment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, accepted.callId));
+      check("and accepted: a 6-hour call with $24,000 to be held", bigCall.endsAt.getTime() - bigCall.startsAt.getTime() === 360 * MINUTE && bigPayment.bookedCents === 2_400_000, String(bigPayment.bookedCents));
+      // The test host goes back to what this script gave them at its start.
+      await makeHost(hana, 2000);
+      await db.update(schema.hostProfiles).set({ pricePer15Cents: 2000 }).where(eq(schema.hostProfiles.userId, hana.id));
+    }
   } finally {
     // Remove the bookings this run made, so the hosts' calendars are clear for the next run.
     // (People, calls and payments are left as test data, like the payments script does.)

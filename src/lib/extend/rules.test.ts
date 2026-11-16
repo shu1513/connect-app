@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { askWindow, canStillAccept, choicesThatFit, extensionPriceCents, minutesProblem, minutesThatFit } from "./rules";
 
 const endsAt = new Date("2026-01-01T10:00:00Z");
+/** A 15-minute call, unless a test says otherwise. */
+const startsAt = new Date(endsAt.getTime() - 15 * 60_000);
 const before = (seconds: number) => new Date(endsAt.getTime() - seconds * 1000);
 const after = (minutes: number) => new Date(endsAt.getTime() + minutes * 60_000);
 
@@ -37,25 +39,40 @@ describe("until when the host can accept", () => {
 
 describe("how many minutes fit", () => {
   it("is the most one request may ask for when nothing is coming up", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: null })).toBe(60);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: null })).toBe(60);
   });
   it("leaves the host their break before their next call", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 5, hostNextAt: after(30), customerNextAt: null })).toBe(25);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: after(30), customerNextAt: null })).toBe(25);
   });
   it("lets the customer go right up to their next call", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: after(12) })).toBe(12);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: after(12) })).toBe(12);
   });
   it("takes whichever of the two is tighter", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 10, hostNextAt: after(30), customerNextAt: after(25) })).toBe(20);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 10, hostNextAt: after(30), customerNextAt: after(25) })).toBe(20);
   });
   it("rounds down to whole minutes", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 0, hostNextAt: new Date(endsAt.getTime() + 7 * 60_000 + 59_000), customerNextAt: null })).toBe(7);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 0, hostNextAt: new Date(endsAt.getTime() + 7 * 60_000 + 59_000), customerNextAt: null })).toBe(7);
   });
   it("is zero when the next call starts right after the break", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 5, hostNextAt: after(5), customerNextAt: null })).toBe(0);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: after(5), customerNextAt: null })).toBe(0);
   });
   it("is never below zero", () => {
-    expect(minutesThatFit({ endsAt, breakMinutes: 15, hostNextAt: after(5), customerNextAt: null })).toBe(0);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 15, hostNextAt: after(5), customerNextAt: null })).toBe(0);
+  });
+  it("never takes a call past 6 hours in all", () => {
+    const long = (minutes: number) => minutesThatFit({ startsAt: new Date(endsAt.getTime() - minutes * 60_000), endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: null });
+    // A 4-hour call can go to 5 hours, and from there to 6, and no further.
+    expect(long(240)).toBe(60);
+    expect(long(300)).toBe(60);
+    expect(long(301)).toBe(59);
+    expect(long(337)).toBe(23);
+    expect(long(360)).toBe(0);
+    // Fewer than 5 minutes left to the limit: nothing can be asked for, and no quick choice is offered.
+    expect(long(356)).toBe(4);
+    expect(minutesProblem(5, long(356))).toMatch(/no room/);
+    expect(choicesThatFit(long(356))).toEqual([]);
+    // Whatever comes first decides: the 6 hours, or the host's next call.
+    expect(minutesThatFit({ startsAt: new Date(endsAt.getTime() - 340 * 60_000), endsAt, breakMinutes: 5, hostNextAt: after(15), customerNextAt: null })).toBe(10);
   });
 });
 
@@ -91,7 +108,7 @@ describe("a number of minutes the customer asks for", () => {
     expect(minutesProblem(5, 4)).toMatch(/no room/);
   });
   it("never allows more than 60, because no more than 60 ever fit", () => {
-    expect(minutesProblem(61, minutesThatFit({ endsAt, breakMinutes: 0, hostNextAt: null, customerNextAt: null }))).toMatch(/up to 60/);
+    expect(minutesProblem(61, minutesThatFit({ startsAt, endsAt, breakMinutes: 0, hostNextAt: null, customerNextAt: null }))).toMatch(/up to 60/);
   });
 });
 

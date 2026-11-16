@@ -158,6 +158,27 @@ describe("the deadline for deciding a call that needs review", () => {
   });
 });
 
+describe("the longest call that can be booked: 6 hours", () => {
+  const HOUR = 3_600_000;
+  const SIX_HOUR_END = at("2027-01-13T15:00:00Z");
+  it("is covered by the earliest hold a card can have, with 18 hours to spare", () => {
+    // Held 2 days before the start, and Stripe did not say when the hold ends: 4 days are assumed.
+    const expiry = holdExpiry({ heldAt: at("2027-01-11T09:00:00Z"), captureBefore: null });
+    expect(expiry).toEqual(at("2027-01-15T09:00:00Z"));
+    expect(holdCoversCall({ now: START, holdExpiresAt: expiry, callEndsAt: SIX_HOUR_END })).toBe(true);
+    expect(expiry.getTime() - (SIX_HOUR_END.getTime() + 24 * HOUR)).toBe(18 * HOUR);
+    // A hold that ends a second too early does not cover it: the call cannot be joined on that hold.
+    expect(holdCoversCall({ now: START, holdExpiresAt: at("2027-01-14T14:59:59Z"), callEndsAt: SIX_HOUR_END })).toBe(false);
+  });
+  it("leaves the customer 18 hours to ask for a refund, and less when the hold ends unusually early", () => {
+    const usual = moneyTiming({ callStartsAt: START, requestedAt: null, holdExpiresAt: at("2027-01-15T09:00:00Z") });
+    expect(usual.askBy.getTime() - SIX_HOUR_END.getTime()).toBe(18 * HOUR);
+    // A hold that ends 25 hours after the call: the money is taken 12 hours before that, and asking ends 3 minutes earlier.
+    const early = moneyTiming({ callStartsAt: START, requestedAt: null, holdExpiresAt: new Date(SIX_HOUR_END.getTime() + 25 * HOUR) });
+    expect(early.askBy.getTime() - SIX_HOUR_END.getTime()).toBe(13 * HOUR - 3 * 60_000);
+  });
+});
+
 describe("when the money for a call is taken", () => {
   const HOUR = 3_600_000;
   const plus = (date: Date, hours: number, minutes = 0) => new Date(date.getTime() + hours * HOUR + minutes * 60_000);
