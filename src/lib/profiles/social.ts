@@ -86,6 +86,6 @@ export function readSocialName(network: Network, typed: string): SocialName | { 
   }
 
   const nameKey = name.replace(/^@/, "").toLowerCase();
-  if (!rule.pattern.test(nameKey)) return { problem: `That does not look like a ${rule.label} name.` };
+  if (!rule.pattern.test(nameKey)) return { problem: `That does not look like ${/^[AEIOX]/.test(rule.label) ? "an" : "a"} ${rule.label} name.` };
   return { nameKey, url: rule.link(nameKey) };
 }

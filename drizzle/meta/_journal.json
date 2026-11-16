@@ -176,6 +176,13 @@
       "when": 1794783114935,
       "tag": "0024_connection_tests",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794810849744,
+      "tag": "0025_bio_checks",
+      "breakpoints": true
     }
   ]
 }

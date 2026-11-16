@@ -10,6 +10,10 @@ export default function PrivacyPage() {
         This is a placeholder. The real text will be written by a lawyer before the app opens to the public. Until then
         the app is for testing only.
       </p>
+      <p className="mt-4 text-sm">
+        To confirm an Instagram or YouTube account, we read its public bio (on YouTube, the channel&apos;s description)
+        through Instagram&apos;s or YouTube&apos;s own service and look for the code. We do not keep the text.
+      </p>
     </SitePage>
   );
 }

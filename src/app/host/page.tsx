@@ -8,6 +8,7 @@ import { readNotice } from "@/lib/notice";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
+import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
@@ -58,6 +59,7 @@ export default async function HostPage(props: PageProps<"/host">) {
   const { hours } = await hoursAndTimeOff(user.id, now);
   const paid = profile ? profile.pricePer15Cents > 0 : false;
   const proven = socials.some((social) => social.confirmedAt);
+  const checkSettings = bioSettings();
   const steps: Array<{ done: boolean; text: string; note?: string; href?: string; go?: string }> = [
     { done: Boolean(profile), text: "Fill in your profile and send it for approval.", href: "#profile", go: "Your host profile" },
     { done: identity.passed, text: "Confirm who you are, with a photo of your ID and a selfie.", href: "/identity?next=%2Fhost", go: "Start the check" },
@@ -254,13 +256,17 @@ export default async function HostPage(props: PageProps<"/host">) {
           <h2 className="text-lg font-semibold">Your social media accounts</h2>
           <p className="mt-2 text-sm opacity-70">
             People find you by these names, and we use one of them to check that you are you. Your page needs at least one
-            confirmed account before we can approve it. Add an account, put the code we give you in that account&apos;s bio,
-            and we will confirm it. Only confirmed accounts are shown on your page.
+            confirmed account before we can approve it. Add an account, put the code we give you in that account&apos;s bio
+            (on YouTube, the channel&apos;s description), and press the button next to it. Where we can, the account is
+            confirmed at once; otherwise we look ourselves. Only confirmed accounts are shown on your page.
           </p>
           {socials.length > 0 && (
             <ul className="mt-3 space-y-3">
               {socials.map((social) => {
                 const expired = social.codeExpiresAt <= now;
+                // Connect looks itself (Instagram and YouTube, when their settings are there), or the founder does.
+                const automatic = isAutomatic(social.network, checkSettings);
+                const place = social.network === "youtube" ? "that channel's description" : "that account's bio";
                 return (
                   <li key={social.id} className="rounded border border-neutral-400 p-3 text-sm">
                     <p className="font-medium">
@@ -270,26 +276,27 @@ export default async function HostPage(props: PageProps<"/host">) {
                       <p className="mt-1 text-green-700">Confirmed. It is shown on your page. You can remove the code from the bio.</p>
                     ) : expired ? (
                       <p className="mt-1">The code has run out. Add the account again to get a new one.</p>
-                    ) : social.claimedAt ? (
+                    ) : social.claimedAt && !automatic ? (
                       <p className="mt-1">
-                        Waiting for us to check. Keep <code className="font-mono">{social.code}</code> in the bio until it is confirmed.
+                        Waiting for us to check. Keep <code className="font-mono">{social.code}</code> in {place} until it is confirmed.
                       </p>
                     ) : (
                       <>
                         <p className="mt-1">
-                          Put this code anywhere in that account&apos;s bio: <code className="font-mono font-semibold">{social.code}</code>
+                          Put this code anywhere in {place}: <code className="font-mono font-semibold">{social.code}</code>
                         </p>
                         <p className="mt-1 opacity-70">
                           The code works until <LocalTime iso={social.codeExpiresAt.toISOString()} />.
+                          {automatic && social.network === "instagram" && " This works for Creator and Business accounts."}
                         </p>
                       </>
                     )}
                     <div className="mt-2 flex gap-4">
-                      {!social.confirmedAt && !social.claimedAt && !expired && (
+                      {!social.confirmedAt && !expired && (automatic || !social.claimedAt) && (
                         <form action={socialReady}>
                           <input type="hidden" name="id" value={social.id} />
                           <button type="submit" className={smallButton}>
-                            I&apos;ve done it
+                            {automatic ? "Check now" : "I've done it"}
                           </button>
                         </form>
                       )}

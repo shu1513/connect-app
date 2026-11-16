@@ -10,6 +10,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import type { BioAnswer, BioSettings } from "../src/lib/profiles/bio-check";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
@@ -480,6 +481,202 @@ async function main() {
       check("adding accounts while the founder approves: all go through", together.every((r) => r.status === "fulfilled") && (await statusOf(adder.id)) === "approved" && (await accounts(adder.id)).length === 3, together.map((r) => r.status).join(" "));
     }
     // ----------------------------------------------------------------------
+    console.log("\n6c. Connect looks at the bio itself (Instagram and YouTube)");
+    await freshLimits();
+    {
+      // The networks' answers, the settings and the time are pretended here. Nothing is asked of Meta or Google.
+      const AUTO: BioSettings = { instagram: { token: "pretend", accountId: "17841400000000000" }, youtube: { key: "pretend" } };
+      let asked = 0;
+      const answering = (answer: BioAnswer | (() => BioAnswer)) => async () => {
+        asked++;
+        return typeof answer === "function" ? answer() : answer;
+      };
+      let time = Date.now();
+      const clock = () => new Date(time);
+      const later = (seconds = 31) => (time += seconds * 1000);
+      const ready = (userId: string, id: string, read: () => Promise<BioAnswer>, settings: BioSettings = AUTO) =>
+        profiles.socialNameReady(userId, id, { read, settings, clock }).then((r) => r.outcome);
+      const entryOf = async (userId: string, network: string) =>
+        (await db.select().from(schema.socialAccounts).where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, network))))[0];
+      const onFoundersList = async (userId: string) =>
+        (await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, userId))).filter((a) => a.claimedAt !== null && a.confirmedAt === null && a.codeExpiresAt > new Date()).length;
+      const checksOf = (userId: string) => db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId)).orderBy(schema.bioChecks.startedAt);
+      const newHost = async (label: string) => {
+        const person = await newPerson(label);
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, usConfirmed: true });
+        return person;
+      };
+      /** An answer that is held back until the script lets it go, to do something while a check is under way. */
+      const heldBack = () => {
+        let release!: (answer: BioAnswer) => void;
+        let started!: () => void;
+        const answer = new Promise<BioAnswer>((resolve) => (release = resolve));
+        const underWay = new Promise<void>((resolve) => (started = resolve));
+        return { read: async () => (asked++, started(), answer), release, underWay };
+      };
+      /** Waits until a held-back check is really asking. Fails at once if the check ended without asking (a limit, say). */
+      const whenAsking = (held: ReturnType<typeof heldBack>, running: Promise<string>) =>
+        Promise.race([held.underWay, running.then((outcome) => Promise.reject(new Error(`the check ended before anything was asked: ${outcome}`)))]);
+
+      // Not found, then found.
+      const bea = await newHost("bea");
+      await passId(bea);
+      await profiles.addSocialName(bea.id, "instagram", `bea.${RUN}`);
+      const beaEntry = await entryOf(bea.id, "instagram");
+      check("the code is not in the bio yet: not found, nothing confirmed, the code unchanged", (await ready(bea.id, beaEntry.id, answering({ kind: "bio", text: "Dancer. No code here." }))) === "not_found" && (await entryOf(bea.id, "instagram")).confirmedAt === null && (await entryOf(bea.id, "instagram")).code === beaEntry.code && asked === 1);
+      check("a second check within 30 seconds asks nobody", (await ready(bea.id, beaEntry.id, answering({ kind: "bio", text: beaEntry.code }))) === "too_soon" && asked === 1 && (await entryOf(bea.id, "instagram")).confirmedAt === null);
+      check("someone else cannot have this entry checked", (await refused(profiles.socialNameReady(host.id, beaEntry.id, { read: answering({ kind: "bio", text: beaEntry.code }), settings: AUTO, clock }))) && asked === 1);
+      later();
+      check("the code is in the bio (in capitals, between other words): confirmed at once", (await ready(bea.id, beaEntry.id, answering({ kind: "bio", text: `Dancer ✨ ${beaEntry.code.toUpperCase()} ✨ bookings below` }))) === "confirmed" && asked === 2);
+      const beaDone = await entryOf(bea.id, "instagram");
+      check("confirmed by Connect, not by a person, and never on the founder's list", beaDone.confirmedAt !== null && beaDone.confirmedBy === null && beaDone.claimedAt === null && (await onFoundersList(bea.id)) === 0);
+      check("each check is noted with how it ended, never with the bio's text", (await checksOf(bea.id)).map((c) => c.result).join(",") === "not_found,found" && Object.keys((await checksOf(bea.id))[0]).sort().join(",") === "id,network,result,startedAt,userId");
+      await approve(bea.id);
+      check("a host whose only account was confirmed this way can be approved, and then cannot remove it", (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, bea.id)))[0].status === "approved" && (await refusedWith(profiles.removeSocialName(bea.id, beaDone.id), "needs one confirmed account")));
+      later();
+      check("a confirmed account is not checked again", (await ready(bea.id, beaDone.id, answering({ kind: "bio", text: "" }))) === "gone" && asked === 2);
+
+      // Every way it can fail: its own answer, and nothing confirmed.
+      const cal = await newHost("cal");
+      await profiles.addSocialName(cal.id, "youtube", `@cal-${RUN}`);
+      const calEntry = await entryOf(cal.id, "youtube");
+      const refusedCount = async (network: string) => (await profiles.refusedBioChecks(clock())).find((r) => r.network === network)?.count ?? 0;
+      const refusedBefore = await refusedCount("youtube");
+      const failures: Array<[string, () => Promise<BioAnswer>, string]> = [
+        ["no account of that name", answering({ kind: "no_account" }), "no_account"],
+        ["asked too often", answering({ kind: "too_often", code: 403 }), "unavailable"],
+        ["our key was refused", answering({ kind: "refused", code: 400 }), "unavailable"],
+        ["not available", answering({ kind: "unavailable" }), "unavailable"],
+        ["the request breaks", answering(() => { throw new Error("boom"); }), "unavailable"],
+      ];
+      const got: string[] = [];
+      for (const [, read] of failures) {
+        later();
+        got.push(await ready(cal.id, calEntry.id, read));
+      }
+      const calAfter = await entryOf(cal.id, "youtube");
+      check("no account, asked too often, key refused, not available, a broken request: each its own answer, nothing confirmed", got.join(",") === failures.map((f) => f[2]).join(",") && calAfter.confirmedAt === null && calAfter.code === calEntry.code && calAfter.claimedAt === null, got.join(","));
+      check("and each is noted for what it was", (await checksOf(cal.id)).map((c) => c.result).join(",") === "no_account,too_often,refused,unavailable,unavailable");
+      // Counted from this person's own rows, so that whatever else is in the table does not matter.
+      const calRefused = (await checksOf(cal.id)).filter((c) => c.result === "refused");
+      check("a refused key shows up for the founder's page: once, for the right network, and not the host's own mistakes", calRefused.length === 1 && calRefused[0].network === "youtube" && (await refusedCount("youtube")) >= refusedBefore + 1);
+
+      // The limits.
+      const before = asked;
+      for (let i = 0; i < profiles.BIO_CHECKS_PER_HOUR - failures.length; i++) {
+        later();
+        await ready(cal.id, calEntry.id, answering({ kind: "bio", text: "" }));
+      }
+      later();
+      check("after 10 checks in an hour, the next one asks nobody", asked === before + profiles.BIO_CHECKS_PER_HOUR - failures.length && (await ready(cal.id, calEntry.id, answering({ kind: "bio", text: calEntry.code }))) === "limit" && asked === before + profiles.BIO_CHECKS_PER_HOUR - failures.length);
+      await profiles.removeSocialName(cal.id, calEntry.id);
+      await profiles.addSocialName(cal.id, "youtube", `@cal-${RUN}`);
+      await profiles.addSocialName(cal.id, "instagram", `cal.${RUN}`);
+      later();
+      const calAgain = await entryOf(cal.id, "youtube");
+      const askedAtLimit = asked;
+      check("removing the entry and adding it again, or using the other network, does not get around that", (await ready(cal.id, calAgain.id, answering({ kind: "bio", text: calAgain.code }))) === "limit" && (await ready(cal.id, (await entryOf(cal.id, "instagram")).id, answering({ kind: "bio", text: "" }))) === "limit" && asked === askedAtLimit);
+
+      const dan = await newHost("dan");
+      await profiles.addSocialName(dan.id, "instagram", `dan.${RUN}`);
+      const danEntry = await entryOf(dan.id, "instagram");
+      const askedBeforeMany = asked;
+      const many = await Promise.all(Array.from({ length: 6 }, () => ready(dan.id, danEntry.id, answering({ kind: "bio", text: "" }))));
+      check("six presses at the same moment make one request", asked === askedBeforeMany + 1 && many.filter((o) => o === "not_found").length === 1 && many.filter((o) => o === "too_soon").length === 5, many.join(" "));
+
+      // All of Instagram together.
+      const eve = await newHost("eve");
+      await profiles.addSocialName(eve.id, "instagram", `eve.${RUN}`);
+      await profiles.addSocialName(eve.id, "youtube", `@eve-${RUN}`);
+      const filler = await db.insert(schema.bioChecks).values(Array.from({ length: profiles.INSTAGRAM_CHECKS_PER_HOUR }, () => ({ userId: dan.id, network: "instagram", startedAt: clock(), result: "not_found" }))).returning({ id: schema.bioChecks.id });
+      const askedBeforeBusy = asked;
+      check("when everyone together has used the hour's Instagram checks, nobody is asked", (await ready(eve.id, (await entryOf(eve.id, "instagram")).id, answering({ kind: "bio", text: "" }))) === "busy" && asked === askedBeforeBusy);
+      check("YouTube is not held up by that", (await ready(eve.id, (await entryOf(eve.id, "youtube")).id, answering({ kind: "bio", text: (await entryOf(eve.id, "youtube")).code }))) === "confirmed");
+      await db.delete(schema.bioChecks).where(inArray(schema.bioChecks.id, filler.map((f) => f.id)));
+
+      // Things that happen while a check is under way.
+      const fay = await newHost("fay");
+      let round = 0;
+      const during = async (label: string, meanwhile: (entry: Awaited<ReturnType<typeof entryOf>>) => Promise<unknown>, expected: string, then: (entry: Awaited<ReturnType<typeof entryOf>> | undefined) => boolean) => {
+        later();
+        await profiles.addSocialName(fay.id, "instagram", `fay${++round}.${RUN}`);
+        const entry = await entryOf(fay.id, "instagram");
+        const held = heldBack();
+        const running = ready(fay.id, entry.id, held.read);
+        let outcome: string;
+        try {
+          await whenAsking(held, running);
+          await meanwhile(entry);
+        } finally {
+          // Whatever happened, the held-back answer is let go, so nothing is left waiting.
+          held.release({ kind: "bio", text: `my bio ${entry.code}` });
+          outcome = await running;
+        }
+        const after = await entryOf(fay.id, "instagram");
+        check(label, outcome === expected && then(after), `${outcome}, confirmed: ${Boolean(after?.confirmedAt)}`);
+        if (after) await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.id, after.id));
+      };
+      await during("while a check is under way the host gives the entry another name: nothing is confirmed", () => profiles.addSocialName(fay.id, "instagram", `fay.other.${RUN}`), "gone", (after) => after?.confirmedAt === null && after.nameKey === `fay.other.${RUN}`);
+      await during("... the host removes the entry and adds it again (a new code): nothing is confirmed", async (entry) => {
+        await profiles.removeSocialName(fay.id, entry.id);
+        await profiles.addSocialName(fay.id, "instagram", entry.nameKey);
+      }, "gone", (after) => after?.confirmedAt === null);
+      await during("... the code runs out: nothing is confirmed", (entry) => db.update(schema.socialAccounts).set({ codeExpiresAt: new Date(time - 1000) }).where(eq(schema.socialAccounts.id, entry.id)), "gone", (after) => after?.confirmedAt === null);
+      await during("... the founder confirms it by hand first: it stays confirmed by the founder", async (entry) => {
+        await db.update(schema.socialAccounts).set({ claimedAt: new Date() }).where(eq(schema.socialAccounts.id, entry.id));
+        await profiles.confirmSocialName({ id: entry.id, nameKey: entry.nameKey, code: entry.code, by: host.id });
+      }, "gone", (after) => after?.confirmedAt != null && after.confirmedBy === host.id);
+      await during("... the founder says \"the code is not there\" for an entry that was waiting: the check that finds it still confirms", async (entry) => {
+        await db.update(schema.socialAccounts).set({ claimedAt: new Date() }).where(eq(schema.socialAccounts.id, entry.id));
+        await profiles.rejectSocialName({ id: entry.id, nameKey: entry.nameKey, code: entry.code });
+      }, "confirmed", (after) => after?.confirmedAt != null && after.confirmedBy === null && after.claimedAt === null);
+
+      // The same name, two hosts: the first one confirmed keeps it.
+      const gus = await newHost("gus");
+      const ian = await newHost("ian");
+      const shared = `same.${RUN}`;
+      await profiles.addSocialName(gus.id, "instagram", shared);
+      await profiles.addSocialName(ian.id, "instagram", shared);
+      const gusEntry = await entryOf(gus.id, "instagram");
+      const ianEntry = await entryOf(ian.id, "instagram");
+      const heldGus = heldBack();
+      const gusRunning = ready(gus.id, gusEntry.id, heldGus.read);
+      let ianOutcome = "";
+      try {
+        await whenAsking(heldGus, gusRunning);
+        ianOutcome = await ready(ian.id, ianEntry.id, answering({ kind: "bio", text: `${gusEntry.code} ${ianEntry.code}` }));
+      } finally {
+        heldGus.release({ kind: "bio", text: `${gusEntry.code} ${ianEntry.code}` });
+      }
+      check("two hosts prove the same account at the same moment: one gets it, the other is told it is taken", ianOutcome === "confirmed" && (await gusRunning) === "taken" && (await entryOf(gus.id, "instagram")).confirmedAt === null && (await entryOf(ian.id, "instagram")).confirmedAt !== null);
+
+      // A code that has run out, an entry that was already waiting, and the by-hand way.
+      const hal = await newHost("hal");
+      await profiles.addSocialName(hal.id, "youtube", `@hal-${RUN}`);
+      const halYoutube = await entryOf(hal.id, "youtube");
+      await db.update(schema.socialAccounts).set({ codeExpiresAt: new Date(time - 1000) }).where(eq(schema.socialAccounts.id, halYoutube.id));
+      const askedBeforeHal = asked;
+      check("a code that has run out is not checked", (await ready(hal.id, halYoutube.id, answering({ kind: "bio", text: halYoutube.code }))) === "gone" && asked === askedBeforeHal);
+      await profiles.addSocialName(hal.id, "instagram", `hal.${RUN}`);
+      const halInstagram = await entryOf(hal.id, "instagram");
+      await profiles.markSocialNameReady(hal.id, halInstagram.id);
+      check("an entry that was already waiting for the founder can be checked, and then leaves the founder's list", (await onFoundersList(hal.id)) === 1 && (await ready(hal.id, halInstagram.id, answering({ kind: "bio", text: halInstagram.code }))) === "confirmed" && (await onFoundersList(hal.id)) === 0);
+
+      const jo = await newHost("jo");
+      for (const [network, name] of [["instagram", `jo.${RUN}`], ["youtube", `@jo-${RUN}`], ["tiktok", `jo.${RUN}`], ["x", `jo${RUN}`]] as const) await profiles.addSocialName(jo.id, network, name);
+      const askedBeforeJo = asked;
+      const noInstagram: BioSettings = { ...AUTO, instagram: null };
+      const noYouTube: BioSettings = { ...AUTO, youtube: null };
+      const byHand = [
+        await ready(jo.id, (await entryOf(jo.id, "instagram")).id, answering({ kind: "bio", text: "" }), noInstagram),
+        await ready(jo.id, (await entryOf(jo.id, "youtube")).id, answering({ kind: "bio", text: "" }), noYouTube),
+        await ready(jo.id, (await entryOf(jo.id, "tiktok")).id, answering({ kind: "bio", text: "" })),
+        await ready(jo.id, (await entryOf(jo.id, "x")).id, answering({ kind: "bio", text: "" })),
+      ];
+      check("with its settings missing, Instagram or YouTube goes to the founder as before; TikTok and X always do; nobody is asked", byHand.every((o) => o === "waiting") && asked === askedBeforeJo && (await onFoundersList(jo.id)) === 4 && (await checksOf(jo.id)).length === 0, byHand.join(" "));
+    }
+
+    // ----------------------------------------------------------------------
     console.log("\n7. Doors that must stay shut");
     await freshLimits();
     {
@@ -559,6 +756,7 @@ async function main() {
     // First, for everyone: an account one test person confirmed for another, and a profile one decided
     // on for another, point at that person.
     if (ids.length > 0) {
+      await db.delete(schema.bioChecks).where(inArray(schema.bioChecks.userId, ids));
       await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
       await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
     }

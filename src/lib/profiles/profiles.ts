@@ -3,10 +3,11 @@
  * through here, so the rules are in one place. (Closing accounts is in closing.ts.)
  */
 import { randomInt } from "node:crypto";
-import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { priceProblem } from "@/lib/payments/hold";
 import { identityState } from "@/lib/safety/identity";
+import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
 import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
@@ -290,7 +291,158 @@ export async function addSocialName(userId: string, network: string, typed: stri
   });
 }
 
-/** The host says the code is now in the account's bio. The founder is then asked to look. */
+/** One person can have this many automatic checks in an hour, and no two for the same network closer together than this. */
+export const BIO_CHECKS_PER_HOUR = 10;
+export const BIO_CHECK_SECONDS_APART = 30;
+/** All of Instagram together, in an hour: half of what Meta is assumed to allow the whole app. */
+export const INSTAGRAM_CHECKS_PER_HOUR = 100;
+
+export type SocialReadyOutcome =
+  /** Not an automatic network (or its settings are missing): the founder is asked to look, as before. */
+  | "waiting"
+  | "confirmed"
+  | "not_found"
+  | "no_account"
+  /** The network could not be asked, or did not accept us. */
+  | "unavailable"
+  | "too_soon"
+  | "limit"
+  /** The limit for everyone together is reached. */
+  | "busy"
+  /** The entry is not there any more, was changed while we looked, or its code has run out. */
+  | "gone"
+  | "taken";
+
+/**
+ * The host says the code is in place. Which way it goes is decided here, from the entry itself and
+ * the settings, never from which button was pressed: Instagram and YouTube are looked at by Connect
+ * at once (when their settings are there), everything else goes to the founder as before.
+ */
+export async function socialNameReady(
+  userId: string,
+  id: string,
+  /** Only the check script passes these, to pretend the networks' answers, the settings and the time. */
+  options: { read?: BioReader; settings?: BioSettings; clock?: () => Date } = {},
+): Promise<{ outcome: SocialReadyOutcome; network: string; nameKey: string }> {
+  const gone = "That account is no longer on your profile.";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ProfileError(gone);
+  const [entry] = await db
+    .select({ network: schema.socialAccounts.network, nameKey: schema.socialAccounts.nameKey })
+    .from(schema.socialAccounts)
+    .where(and(eq(schema.socialAccounts.id, id), eq(schema.socialAccounts.userId, userId)));
+  if (!entry) throw new ProfileError(gone);
+  if (!isAutomatic(entry.network, options.settings ?? bioSettings())) {
+    await markSocialNameReady(userId, id);
+    return { outcome: "waiting", ...entry };
+  }
+  const checked = await checkBioNow(userId, id, entry.network, options.read ?? readBio, options.clock ?? (() => new Date()));
+  return { outcome: checked.outcome, network: entry.network, nameKey: checked.nameKey ?? entry.nameKey };
+}
+
+/**
+ * Connect looks at the account's bio itself and confirms the entry when the code is there.
+ *
+ * 1. One short step under two locks (all of Instagram first, then the person): find the entry,
+ *    check the limits, and write down that a check starts. Only then is the network asked.
+ * 2. The network is asked outside any database step, so nothing is held while waiting for it.
+ * 3. The entry is confirmed with one guarded change: only if it is still this person's, with the
+ *    name and the code that were looked for, not confirmed, and its code not run out. Confirming
+ *    only ever adds a confirmed account, so the locks that guard removing one are not needed.
+ * A failure of any kind confirms nothing.
+ */
+async function checkBioNow(
+  userId: string,
+  id: string,
+  network: BioNetwork,
+  read: BioReader,
+  clock: () => Date,
+): Promise<{ outcome: Exclude<SocialReadyOutcome, "waiting">; nameKey?: string }> {
+  const reserved = await db.transaction(async (tx) => {
+    if (network === "instagram") await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`bio-check:user:${userId}`}))`);
+    // Read with the locks held, never before waiting for them.
+    const now = clock();
+    const [entry] = await tx
+      .select({ nameKey: schema.socialAccounts.nameKey, code: schema.socialAccounts.code })
+      .from(schema.socialAccounts)
+      .where(
+        and(
+          eq(schema.socialAccounts.id, id),
+          eq(schema.socialAccounts.userId, userId),
+          eq(schema.socialAccounts.network, network),
+          isNull(schema.socialAccounts.confirmedAt),
+          gt(schema.socialAccounts.codeExpiresAt, now),
+        ),
+      );
+    if (!entry) return "gone" as const;
+    // A check counts from the moment it starts, whether or not it has ended and however it ended.
+    const hourAgo = new Date(now.getTime() - 3_600_000);
+    const mine = await tx
+      .select({ network: schema.bioChecks.network, startedAt: schema.bioChecks.startedAt })
+      .from(schema.bioChecks)
+      .where(and(eq(schema.bioChecks.userId, userId), gt(schema.bioChecks.startedAt, hourAgo)))
+      .orderBy(desc(schema.bioChecks.startedAt));
+    const lastHere = mine.find((check) => check.network === network);
+    if (lastHere && now.getTime() - lastHere.startedAt.getTime() < BIO_CHECK_SECONDS_APART * 1000) return "too_soon" as const;
+    if (mine.length >= BIO_CHECKS_PER_HOUR) return "limit" as const;
+    if (network === "instagram") {
+      const [all] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.bioChecks)
+        .where(and(eq(schema.bioChecks.network, "instagram"), gt(schema.bioChecks.startedAt, hourAgo)));
+      if (all.n >= INSTAGRAM_CHECKS_PER_HOUR) return "busy" as const;
+    }
+    const [check] = await tx.insert(schema.bioChecks).values({ userId, network, startedAt: now }).returning({ id: schema.bioChecks.id });
+    return { checkId: check.id, nameKey: entry.nameKey, code: entry.code };
+  });
+  if (typeof reserved === "string") return { outcome: reserved };
+
+  const answer = await read(network, reserved.nameKey).catch(() => ({ kind: "unavailable" as const }));
+  const found = answer.kind === "bio" && bioHasCode(answer.text, reserved.code);
+  const result = answer.kind === "bio" ? (found ? "found" : "not_found") : answer.kind;
+  await db.update(schema.bioChecks).set({ result }).where(eq(schema.bioChecks.id, reserved.checkId));
+  if (answer.kind !== "bio") return { outcome: answer.kind === "no_account" ? "no_account" : "unavailable", nameKey: reserved.nameKey };
+  if (!found) return { outcome: "not_found", nameKey: reserved.nameKey };
+
+  try {
+    const at = clock();
+    const changed = await db
+      .update(schema.socialAccounts)
+      .set({ confirmedAt: at, confirmedBy: null, claimedAt: null })
+      .where(
+        and(
+          eq(schema.socialAccounts.id, id),
+          eq(schema.socialAccounts.userId, userId),
+          eq(schema.socialAccounts.network, network),
+          eq(schema.socialAccounts.nameKey, reserved.nameKey),
+          eq(schema.socialAccounts.code, reserved.code),
+          isNull(schema.socialAccounts.confirmedAt),
+          gt(schema.socialAccounts.codeExpiresAt, at),
+        ),
+      )
+      .returning({ id: schema.socialAccounts.id });
+    return { outcome: changed.length > 0 ? "confirmed" : "gone", nameKey: reserved.nameKey };
+  } catch (error) {
+    // The name was confirmed for another host in the meantime: the database itself refuses a second owner.
+    if (isTaken(error)) return { outcome: "taken", nameKey: reserved.nameKey };
+    throw error;
+  }
+}
+
+/** How often a network did not accept our own key or permission, in the last 24 hours. For the founder's page. */
+export async function refusedBioChecks(now: Date): Promise<Array<{ network: string; count: number }>> {
+  return db
+    .select({ network: schema.bioChecks.network, count: sql<number>`count(*)::int` })
+    .from(schema.bioChecks)
+    .where(and(eq(schema.bioChecks.result, "refused"), gt(schema.bioChecks.startedAt, new Date(now.getTime() - 24 * 3_600_000))))
+    .groupBy(schema.bioChecks.network)
+    .orderBy(schema.bioChecks.network);
+}
+
+/**
+ * The host says the code is now in the account's bio. The founder is then asked to look.
+ * (The by-hand way. The Hosting page goes through socialNameReady, which decides which way applies.)
+ */
 export async function markSocialNameReady(userId: string, id: string): Promise<void> {
   const changed = await db
     .update(schema.socialAccounts)

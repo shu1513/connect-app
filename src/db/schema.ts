@@ -996,6 +996,27 @@ export const connectionTests = pgTable(
 );
 
 /**
+ * One row each time Connect itself looks at an account's bio for a host's proof code. Used for the
+ * limits (per person, and for all of Instagram together) and for the founder's warning when a
+ * network does not accept our key. The bio's text is never stored.
+ */
+export const bioChecks = pgTable(
+  "bio_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    /** instagram or youtube. */
+    network: text("network").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Empty while the check is under way. Then: found, not_found, no_account, too_often, refused or unavailable. */
+    result: text("result"),
+  },
+  (t) => [index("bio_checks_user_idx").on(t.userId, t.startedAt), index("bio_checks_network_idx").on(t.network, t.startedAt)],
+);
+
+/**
  * When the always-on helper last finished a round of each kind of work.
  * The health address reads this to say whether the helper is alive.
  */
