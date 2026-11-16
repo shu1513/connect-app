@@ -147,7 +147,8 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
             </div>
             <p className="mt-1 opacity-70">
               The price of a call follows its length: a 5-minute call costs a third of your 15-minute price. Our fee includes 30 cents for each
-              paid call, whatever its length, so on a short call at a low price it takes a larger part.
+              paid call, whatever its length, so on a short call at a low price it takes a larger part. The same 30 cents is taken again each
+              time paid time is added during a call.
             </p>
           </fieldset>
           <label className="block">

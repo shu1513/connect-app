@@ -520,13 +520,16 @@ async function main() {
       const { saveCalendarChoices } = await import("../src/lib/booking/calendar");
       const host = await freeHost("host13", 1);
       const eve = await customer("eve13");
-      // The host ticks 5 and 15 minutes. (7 is not one of the choices: a made-up value is dropped.)
+      // First with 10 minutes offered as well, to have a time that is good for a 10-minute call.
+      await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 10, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 1 });
+      const [goodForTen] = await times(host.id, 10);
+      // Then the host ticks 5 and 15 minutes only. (7 is not one of the choices: a made-up value is dropped.)
       await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 7, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 1 });
       const offer = (await B.offerOf(host.id))!;
       check("a host can offer 5-minute calls", offer.lengths.join(",") === "5,15", offer.lengths.join(","));
       const five = await times(host.id, 5);
       check("the open times for 5 minutes come one call and one break apart", five.length > 3 && five[1].getTime() - five[0].getTime() === 6 * MINUTE, String(five.length));
-      check("a length the host did not tick has no open times and cannot be asked for", (await times(host.id, 10)).length === 0 && (await refused(ask(eve, host.id, five[3], 10))));
+      check("a length the host no longer ticks has no open times, and cannot be asked for even at a time that was good for it", Boolean(goodForTen) && (await times(host.id, 10)).length === 0 && (await refused(ask(eve, host.id, goodForTen, 10))));
       const { booking } = await ask(eve, host.id, five[0], 5);
       check("a 5-minute request is for exactly 5 minutes", booking.stage === "waiting" && booking.lengthMinutes === 5 && booking.endsAt.getTime() - booking.startsAt.getTime() === 5 * MINUTE);
       const { callId } = await B.accept({ bookingId: booking.id, hostId: host.id, now });

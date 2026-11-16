@@ -171,6 +171,9 @@ describe("openStarts", () => {
       "2026-11-03T23:18",
       "2026-11-03T23:24",
     ]);
+    // Hours that end at 18:28: a call from 18:24 would run to 18:29, so it is not offered.
+    const shorter: WeeklyRange[] = [{ weekday: 2, startMinute: 18 * 60, endMinute: 18 * 60 + 28 }];
+    expect(times(openStarts({ ...base, weekly: shorter, lengthMinutes: 5, breakMinutes: 1 }))).toEqual(["2026-11-03T23:00", "2026-11-03T23:06", "2026-11-03T23:12", "2026-11-03T23:18"]);
   });
   it("gives nothing for a host with no hours", () => {
     expect(openStarts({ ...base, weekly: [] })).toEqual([]);
