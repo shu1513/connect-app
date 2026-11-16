@@ -137,7 +137,7 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
           </label>
           <fieldset>
             <legend>Call lengths you offer</legend>
-            <div className="mt-1 flex gap-4">
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
               {LENGTH_CHOICES_MINUTES.map((minutes) => (
                 <label key={minutes} className="flex items-center gap-1">
                   <input type="checkbox" name="lengths" value={minutes} defaultChecked={lengths.includes(minutes)} />
@@ -145,6 +145,11 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
                 </label>
               ))}
             </div>
+            <p className="mt-1 opacity-70">
+              The price of a call follows its length: a 5-minute call costs a third of your 15-minute price. Our fee includes 30 cents for each
+              paid call, whatever its length, so on a short call at a low price it takes a larger part. The same 30 cents is taken again each
+              time paid time is added during a call.
+            </p>
           </fieldset>
           <label className="block">
             Shortest notice

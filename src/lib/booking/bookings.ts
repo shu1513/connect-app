@@ -718,6 +718,11 @@ export async function createTestCall(input: {
   pricePer15Cents: number;
   freeCancelMinutes: number;
 }): Promise<{ callId: string }> {
+  // A host can collect 24 hours after a call's end, and the customer can ask for a refund until 24 hours and
+  // 3 minutes after its start (payments/rules.ts). A paid call shorter than that grace would turn the order round.
+  if (input.pricePer15Cents > 0 && input.endsAt.getTime() - input.startsAt.getTime() < 5 * 60_000) {
+    throw new BookingError("A paid call lasts at least 5 minutes.");
+  }
   const lengthMinutes = Math.max(1, Math.round((input.endsAt.getTime() - input.startsAt.getTime()) / 60_000));
   try {
     return await db.transaction(async (tx) => {

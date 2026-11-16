@@ -97,8 +97,8 @@ async function main() {
   }
 
   const after = (call: { endsAt: Date }, minutes: number) => new Date(call.endsAt.getTime() + minutes * 60_000);
-  /** The moment the money for a call is taken when nobody asked for a refund: 24 hours and 10 minutes after its end. */
-  const taken = (call: { endsAt: Date }) => after(call, 24 * 60 + 10);
+  /** The moment the money for a call is taken when nobody asked for a refund: 24 hours and 3 minutes after its start. */
+  const taken = (call: { startsAt: Date }) => new Date(call.startsAt.getTime() + (24 * 60 + 3) * 60_000);
   const reload = async (id: string) => (await db.select().from(schema.payments).where(eq(schema.payments.id, id)))[0];
   const ledgerSum = async (id: string, kind: string) =>
     (
@@ -124,15 +124,30 @@ async function main() {
     await settleFinishedCalls(after(call, 5));
     const waiting = await reload(payment.id);
     check("minutes after the call nothing is taken yet: the money stays on hold", waiting.status === "held" && !waiting.needsReview && (await stripeIntent(payment.id)).status === "requires_capture", waiting.status);
-    await settleFinishedCalls(after(call, 24 * 60 + 9));
+    await settleFinishedCalls(new Date(taken(call).getTime() - 60_000));
     check("still on hold a minute before the planned moment", (await reload(payment.id)).status === "held");
     await settleFinishedCalls(taken(call));
     const p = await reload(payment.id);
     // 480 seconds at $20 per 15 minutes = $10.67
-    check("24 hours and 10 minutes after the call: charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
+    check("24 hours and 3 minutes after the call's start: charged $10.67 for 8 minutes", p.status === "charged" && p.chargedCents === 1067, `${p.status} ${p.chargedCents}`);
     check("fee 82 cents, host $9.85", p.originalFeeCents === 82 && p.originalHostShareCents === 985, `${p.originalFeeCents} ${p.originalHostShareCents}`);
     check("time totals frozen", p.frozenHostSeconds === 480 && p.frozenTogetherSeconds === 480);
-    check("the host's share is ready to collect exactly 2 days after the call", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === call.endsAt.getTime() + 48 * 3_600_000, String(p.transferDueAt?.toISOString()));
+    check("nobody asked for a refund: the host's share is ready 24 hours after the call ends", p.transferStatus === "not_due" && p.transferDueAt?.getTime() === after(call, 24 * 60).getTime(), String(p.transferDueAt?.toISOString()));
+
+    console.log("   …and with the real clock: a call that really ended more than a day ago");
+    {
+      const old = await newCall();
+      await hold(old.call, old.payment.id, "pm_card_visa");
+      // The call is moved into the past: it ended 25 hours ago. Its money is taken now, by the real clock.
+      const endedAt = new Date(Math.floor((Date.now() - 25 * 3_600_000) / 1000) * 1000);
+      const startedAt = new Date(endedAt.getTime() - MINUTES * 60_000);
+      await db.update(schema.payments).set({ coversFrom: startedAt, coversUntil: endedAt }).where(eq(schema.payments.id, old.payment.id));
+      const [moved] = await db.update(schema.calls).set({ startsAt: startedAt, endsAt: endedAt }).where(eq(schema.calls.id, old.call.id)).returning();
+      await attend(moved, [["host", 0, 600], ["customer", 0, 600]]);
+      await settleFinishedCalls(new Date());
+      const q = await reload(old.payment.id);
+      check("the money is taken, and the host's share is ready at that very moment", q.status === "charged" && q.chargedAt !== null && q.transferDueAt?.getTime() === q.chargedAt.getTime(), `${q.status} ${q.transferDueAt?.toISOString()} ${q.chargedAt?.toISOString()}`);
+    }
     const intent = await stripeIntent(payment.id);
     check("Stripe received exactly $10.67", intent.status === "succeeded" && intent.amount_received === 1067, `${intent.status} ${intent.amount_received}`);
 
@@ -581,14 +596,14 @@ async function main() {
           check("the helper sends nothing by itself, however long it waits", (await sent(a)).status === "not_due" && (await sent(a)).transfers.length === 0 && (await collectionsOf(h)).length === 0);
 
           const early = await press(h, new Date((await readyAt(a)).getTime() - 1000));
-          check("a second before the first share's 2 days are over, there is nothing to collect", early instanceof MoneyError && (await collectionsOf(h)).length === 0, early?.message);
+          check("a second before the first share is ready, there is nothing to collect", early instanceof MoneyError && (await collectionsOf(h)).length === 0, early?.message);
 
           const first = randomUUID();
           const accepted = await press(h, T, first);
           const [pa, pb, pc] = [await sent(a), await sent(b), await sent(c)];
-          check("exactly at the 2 days, the press is accepted (and the refused press used up nothing)", accepted === null, accepted?.message);
+          check("exactly at that moment, the press is accepted (and the refused press used up nothing)", accepted === null, accepted?.message);
           check("both ready shares were sent", pa.status === "sent" && pb.status === "sent", `${pa.status} ${pb.status}`);
-          check("the share inside its 2 days stays", pc.status === "not_due" && pc.transfers.length === 0);
+          check("the share that is not ready yet stays", pc.status === "not_due" && pc.transfers.length === 0);
           check("another host's money is not touched", (await sent(other)).status === "not_due" && (await sent(other)).transfers.length === 0);
           check("the 25-cent collection charge was taken once", pa.fee + pb.fee === 25 && pa.cents + pa.fee === 1238 && pb.cents + pb.fee === 1238, `${pa.fee} ${pb.fee}`);
           check("Stripe made exactly one transfer per call, to the host's account", pa.transfers.length === 1 && pb.transfers.length === 1 && pa.transfers[0].destination === account && pa.transfers[0].amount + pb.transfers[0].amount === pa.cents + pb.cents);

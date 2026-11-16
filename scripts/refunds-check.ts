@@ -50,6 +50,8 @@ async function main() {
   const MINUTES = 10; // booked total: $13.33
   const HOUR = 60;
   const DAY = 24 * HOUR;
+  /** Minutes after a call's end at which the customer's 24 hours, counted from its start, are over. */
+  const LAST = DAY - MINUTES;
 
   /** Creates a paid call starting in 10 minutes, with its payment record. */
   async function newCall(hostId: string = host.id) {
@@ -134,13 +136,13 @@ async function main() {
     check("not before the call has ended", before instanceof RequestError, before?.message);
     check("not by the host, and not by a stranger", (await problem(ask(a, 60, "other", "x", null, host.id))) instanceof RequestError && (await problem(ask(a, 60, "other", "x", null, founder.id))) instanceof RequestError);
     check("a reason is needed, and \"something else\" needs a sentence", (await problem(ask(a, 60, "because"))) instanceof RequestError && (await problem(ask(a, 60, "other", "  "))) instanceof RequestError);
-    check("until 24 hours after the call the customer can ask", (await R.askBy(a.call, after(a, DAY - 1)))?.getTime() === after(a, DAY).getTime() && (await ask(a, DAY - 1)) === "sent");
-    check("one request per call", (await problem(ask(a, DAY - 1))) instanceof RequestError && (await R.askBy(a.call, after(a, 60))) === null);
+    check("the customer can ask until 24 hours after the call's start", (await R.askBy(a.call, after(a, LAST - 1)))?.getTime() === a.call.startsAt.getTime() + DAY * 60_000 && (await ask(a, LAST - 1)) === "sent");
+    check("one request per call", (await problem(ask(a, LAST - 1))) instanceof RequestError && (await R.askBy(a.call, after(a, 60))) === null);
 
     const b = await paid();
-    check("a request sent in the last seconds still counts: up to 10 minutes after the 24 hours", (await ask(b, DAY + 9)) === "sent");
+    check("a request sent in the last seconds still counts: up to 3 minutes after the 24 hours", (await ask(b, LAST + 2)) === "sent");
     const c = await paid();
-    const late = await problem(ask(c, DAY + 10));
+    const late = await problem(ask(c, LAST + 3));
     check("after that it is refused", late instanceof RequestError && !(await requestOf(c)), late?.message);
 
     const cancelled = await newCall();
@@ -193,6 +195,7 @@ async function main() {
     const req = await requestOf(full);
     const toCustomer = await mail(`refund-request:${req.id}:answer`);
     check("the answer is saved with who gave it, and the customer is told, with the message", req.status === "answered" && req.decidedBy === host.id && req.decidedAs === "host" && toCustomer?.to === customer.email && toCustomer.body.includes("Everything worked on my side."));
+    check("with a refund request on the call, the host's share is ready 2 days after it, not 1", p.transferDueAt?.getTime() === after(full, 2 * DAY).getTime(), String(p.transferDueAt?.toISOString()));
     check("the first answer stands", (await problem(answer(full, 130, one(full, "nothing")))) instanceof RequestError && (await problem(R.declineRequest({ callId: full.call.id, by: host.id, as: "host", message: null }))) instanceof RequestError);
 
     const less = await paid();
@@ -262,7 +265,7 @@ async function main() {
     const c = await paid();
     await settle(c, 5);
     await ask(c, 60);
-    const moment = 60 + DAY + 10; // the host's 24 hours, plus the 10 minutes
+    const moment = 60 + DAY + 3; // the host's 24 hours, plus the 3 minutes
     await settle(c, moment - 1);
     check("a minute before, the money is still on hold", (await reload(c.payment.id)).status === "held");
     const [answered] = await Promise.allSettled([answer(c, moment, [{ paymentId: c.payment.id, choice: "nothing" }]), settle(c, moment)]);
@@ -345,9 +348,9 @@ async function main() {
     const c = await paid();
     await settle(c, 5);
     await ask(c, 60);
-    await settle(c, 60 + DAY + 9);
+    await settle(c, 60 + DAY + 2);
     check("the host's time is 24 hours from the request: a minute before the end the money is still on hold", (await reload(c.payment.id)).status === "held");
-    await settle(c, 60 + DAY + 10);
+    await settle(c, 60 + DAY + 3);
     const p = await reload(c.payment.id);
     check("then it is taken in full", p.status === "charged" && p.chargedCents === 1333 && p.loweredBy === null, `${p.status} ${p.chargedCents}`);
     check("the request is still open, and nothing was refused or refunded by itself", (await requestOf(c)).status === "asked" && p.refundedCents === 0 && !(await R.requestViewOf(c.call))!.answered);
@@ -437,6 +440,34 @@ async function main() {
     check("such a request needs no answer any more", !(await R.unansweredRequests()).some((r) => r.call.id === c.call.id));
   }
 
+  console.log("\n10a. A charge the founder makes early can never be collected while the customer could still ask");
+  {
+    const c = await paid(host.id, [["host", 0, null], ["customer", 0, 600]]);
+    await settle(c, 5);
+    // The founder decides an hour after the call. Nobody has asked for a refund.
+    await capturePayment({ paymentId: c.payment.id, amountCents: 700, reason: "admin", frozen: null, callEndsAt: c.call.endsAt, now: after(c, 60) });
+    const p = await reload(c.payment.id);
+    check("its share is ready 24 hours after the call ends", p.status === "charged" && p.transferDueAt?.getTime() === after(c, DAY).getTime(), String(p.transferDueAt?.toISOString()));
+    const waiting = (await unsentEarnings(after(c, DAY - 1), host.id)).find((e) => e.payment.id === c.payment.id);
+    check("a minute before that it cannot be collected yet", waiting?.heldBack === "not_yet");
+    check("a request sent in the last seconds (24 hours and 2 minutes after the call's start) comes before that, and then holds the money", (await ask(c, LAST + 2)) === "sent" && (await holdOn(c)) === "request");
+    const held = (await unsentEarnings(after(c, DAY), host.id)).find((e) => e.payment.id === c.payment.id);
+    check("so when its moment comes the host is told to answer first", held?.heldBack === "request");
+    check("and the request moves that charge's date to the 2 days of a call with a request", (await reload(c.payment.id)).transferDueAt?.getTime() === after(c, 2 * DAY).getTime(), String((await reload(c.payment.id)).transferDueAt?.toISOString()));
+    await R.declineRequest({ callId: c.call.id, by: host.id, as: "host", message: null });
+    const answered = async (minutes: number) => (await unsentEarnings(after(c, minutes), host.id)).find((e) => e.payment.id === c.payment.id)?.heldBack;
+    check("after the host's answer it still waits for the 2 days, and is ready exactly then", (await answered(DAY + 30)) === "not_yet" && (await answered(2 * DAY - 1)) === "not_yet" && (await answered(2 * DAY)) === null);
+  }
+
+  {
+    // The founder's charge and the customer's request at the same moment: whichever comes first, the date is the 2 days.
+    const c = await paid(host.id, [["host", 0, null], ["customer", 0, 600]]);
+    await settle(c, 5);
+    const [charged, asked] = await Promise.allSettled([capturePayment({ paymentId: c.payment.id, amountCents: 700, reason: "admin", frozen: null, callEndsAt: c.call.endsAt, now: after(c, 60) }), ask(c, 60)]);
+    const p = await reload(c.payment.id);
+    check("a charge and a request at the same moment: both go through, and the share waits the 2 days", charged.status === "fulfilled" && asked.status === "fulfilled" && p.status === "charged" && p.transferDueAt?.getTime() === after(c, 2 * DAY).getTime(), `${charged.status} ${asked.status} ${p.status} ${p.transferDueAt?.toISOString()}`);
+  }
+
   console.log("\n10b. An answer was accepted, and then the charge comes under the founder's review");
   {
     const reviewed = async (choice: string, maxCents?: number) => {
@@ -518,7 +549,7 @@ async function main() {
     const c = await paid();
     await settle(c, 5);
     const call = await reloadCall(c.call.id);
-    check("a charge is not late 4 minutes after its moment, and is late 6 minutes after it", !(await callOverdue(call, after(c, DAY + 14))) && (await callOverdue(call, after(c, DAY + 16))));
+    check("a charge is not late 4 minutes after its moment, and is late 6 minutes after it", !(await callOverdue(call, after(c, LAST + 3 + 4))) && (await callOverdue(call, after(c, LAST + 3 + 6))));
     await ask(c, 60);
     check("with a request it is not late while the host still has time", !(await callOverdue(call, after(c, DAY + 16))) && (await callOverdue(call, after(c, 60 + DAY + 16))));
 

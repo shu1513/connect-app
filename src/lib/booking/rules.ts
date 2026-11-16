@@ -9,7 +9,11 @@
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
-export const LENGTH_CHOICES_MINUTES = [15, 30, 45, 60] as const;
+/**
+ * The call lengths a host can choose to offer. The short ones (5 and 10 minutes) are the host's
+ * choice like any other; no host offers them unless they tick them.
+ */
+export const LENGTH_CHOICES_MINUTES = [5, 10, 15, 30, 45, 60] as const;
 export const NOTICE_CHOICES_HOURS = [24, 48, 72] as const;
 export const HORIZON_CHOICES_WEEKS = [2, 4, 8] as const;
 export const BREAK_CHOICES_MINUTES = [1, 5, 10, 15, 30] as const;

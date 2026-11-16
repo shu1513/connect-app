@@ -1,6 +1,8 @@
 # Plan 13: Refund requests, taking the money later, and a record of call quality
 
-**Status:** built (branch `module/refund-requests`); what was built, what was decided along the way, the reviews and the checks are in `docs/module-record.md` under "Module 11". The plan below is the ninth version (16 November 2026). Astra has checked earlier versions
+**Changed after this plan was built (15 November 2026, the founder's decision):** the customer's 24 hours to ask count from the call's start, not its end, and the 10 minutes after each deadline are 3 minutes. Where the text below says otherwise, this applies. See "A later change" in `docs/module-record.md`.
+
+**Status:** built (branch `module/refund-requests`); what was built, what was decided along the way, the reviews and the checks are in `docs/module-record.md` under "Module 11". The plan below is the ninth version (15 November 2026). Astra has checked earlier versions
 five times; what it found is at the end. This version follows the founder's decision on timing (24
 hours, or up to 48 with a request, and never later than 12 hours before a card's hold ends) and
 works in Astra's fifth check, which found the design reasonable and asked for the rules below to be

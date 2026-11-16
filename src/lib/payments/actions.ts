@@ -69,6 +69,8 @@ export async function applyCaptured(
   );
   // One moment for "charged at" and for the date the host's share becomes ready.
   const chargedAt = new Date();
+  // Without a refund request the host's share is ready a day after the call; with one, two days (rules.ts).
+  const [asked] = hostShareCents > 0 ? await tx.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, payment.callId)).limit(1) : [];
   await tx
     .update(schema.payments)
     .set({
@@ -87,7 +89,7 @@ export async function applyCaptured(
       recordCents: params.lowered?.recordCents ?? null,
       loweredBy: params.lowered?.by ?? null,
       transferStatus: hostShareCents > 0 ? "not_due" : "not_owed",
-      transferDueAt: hostShareCents > 0 ? readyToCollectAt({ callEndsAt: new Date(params.callEndsAt), chargedAt }) : null,
+      transferDueAt: hostShareCents > 0 ? readyToCollectAt({ callEndsAt: new Date(params.callEndsAt), chargedAt, refundAsked: Boolean(asked) }) : null,
       updatedAt: chargedAt,
     })
     .where(eq(schema.payments.id, payment.id));

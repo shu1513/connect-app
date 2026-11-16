@@ -37,6 +37,11 @@ describe("fittingLengths", () => {
     expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(33) })).toEqual([15, 30]);
     expect(fittingLengths({ lengths, breakMinutes: 5, busy: [], now, availableUntil: at(63) })).toEqual([15, 30, 60]);
   });
+  it("short calls: with 8 minutes left, a 5-minute call still fits and a 10-minute one does not", () => {
+    // Latest start now + 3: a 5-minute call ends at +8, a 10-minute one at +13.
+    expect(fittingLengths({ lengths: [5, 10, 15], breakMinutes: 1, busy: [], now, availableUntil: at(8) })).toEqual([5]);
+    expect(fittingLengths({ lengths: [5, 10, 15], breakMinutes: 1, busy: [], now, availableUntil: at(7) })).toEqual([]);
+  });
 });
 
 describe("instant deadlines", () => {
