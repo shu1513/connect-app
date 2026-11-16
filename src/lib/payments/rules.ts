@@ -235,12 +235,14 @@ export const COLLECT_EVERY_MS = DAY_MS;
  * before the charge is recorded. The money of a call nobody asked about is
  * taken at that same moment, so such a share is ready the moment its charge is
  * recorded; a charge recorded earlier (after a review, or for cancelling late)
- * waits for it. Worked out once, when the charge is recorded, and never moved.
+ * waits for it. Worked out when the charge is recorded. It moves once at most,
+ * and only later: when the customer asks for a refund after the charge was
+ * recorded, it becomes the 2 days of a call with a request (see askForRefund).
  */
 export function readyToCollectAt(input: {
   callEndsAt: Date;
   chargedAt: Date;
-  /** Whether the customer has asked for a refund on this call, as it stands when the charge is recorded. */
+  /** Whether the customer has asked for a refund on this call, as it stands at this moment. */
   refundAsked: boolean;
 }): Date {
   const wait = input.refundAsked ? COLLECT_AFTER_REQUEST_MS : COLLECT_AFTER_MS;

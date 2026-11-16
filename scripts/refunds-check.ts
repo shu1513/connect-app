@@ -451,6 +451,10 @@ async function main() {
     check("a request sent in the last seconds is still accepted, and then holds the money", (await ask(c, DAY + 9)) === "sent" && (await holdOn(c)) === "request");
     const held = (await unsentEarnings(after(c, DAY + 10), host.id)).find((e) => e.payment.id === c.payment.id);
     check("so when its moment comes the host is told to answer first", held?.heldBack === "request");
+    check("and the request moves that charge's date to the 2 days of a call with a request", (await reload(c.payment.id)).transferDueAt?.getTime() === after(c, 2 * DAY).getTime(), String((await reload(c.payment.id)).transferDueAt?.toISOString()));
+    await R.declineRequest({ callId: c.call.id, by: host.id, as: "host", message: null });
+    const answered = async (minutes: number) => (await unsentEarnings(after(c, minutes), host.id)).find((e) => e.payment.id === c.payment.id)?.heldBack;
+    check("after the host's answer it still waits for the 2 days, and is ready exactly then", (await answered(DAY + 30)) === "not_yet" && (await answered(2 * DAY - 1)) === "not_yet" && (await answered(2 * DAY)) === null);
   }
 
   console.log("\n10b. An answer was accepted, and then the charge comes under the founder's review");

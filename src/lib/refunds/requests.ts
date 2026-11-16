@@ -17,7 +17,7 @@ import { db, schema } from "@/db";
 import type { Call, Payment, RefundRequest } from "@/db/schema";
 import { lockPayment, type Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
-import { ASK_WINDOW_MS, DEADLINE_CUSHION_MS, moneyTiming } from "@/lib/payments/rules";
+import { ASK_WINDOW_MS, COLLECT_AFTER_REQUEST_MS, DEADLINE_CUSHION_MS, moneyTiming } from "@/lib/payments/rules";
 import { commonExpiry, heldOrdinary, isDecided, settleOrdinaryCharges } from "@/lib/payments/take";
 import { summarise, type QualitySummary } from "@/lib/quality/summary";
 import { queueAnswerEmail, queueClosedEmail, queueRequestEmail, queueRequestReminder, type AnswerLine } from "./emails";
@@ -208,6 +208,15 @@ export async function askForRefund(input: { callId: string; customerId: string; 
       .insert(schema.refundRequests)
       .values({ callId: call.id, customerId: input.customerId, reason: input.reason, note, summary: record.json, askedAt: now })
       .returning();
+    // Money of this call that was already taken (a charge the founder made after a review) had been given the
+    // date of a call nobody asked about. Now somebody has asked: it waits the 2 days of a call with a request,
+    // like a charge taken after the request. The date only ever moves later, and nothing of this call can have
+    // been collected yet: that is not possible before asking is over.
+    const withRequest = new Date(call.endsAt.getTime() + COLLECT_AFTER_REQUEST_MS);
+    await tx
+      .update(schema.payments)
+      .set({ transferDueAt: withRequest })
+      .where(and(eq(schema.payments.callId, call.id), eq(schema.payments.status, "charged"), inArray(schema.payments.transferStatus, ["not_due", "due"]), lt(schema.payments.transferDueAt, withRequest)));
     const expiry = (await openCharges(tx, call.id)).length > 0 ? await commonExpiry(tx, call.id) : null;
     const answerBy = expiry ? moneyTiming({ callEndsAt: call.endsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
     await queueRequestEmail(tx, call, request, answerBy ? { answerBy } : (await anyOnHold(tx, call.id)) ? "being_decided" : "taken");
