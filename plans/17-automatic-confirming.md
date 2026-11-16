@@ -2,7 +2,7 @@
 
 **Status:** plan only, not built. Written 15 November 2026. It builds on plan 16, part 1 (pull
 request 26: a host needs one confirmed social media account before approval). Astra has checked it
-against the code; what it found is at the end, and every point is worked in.
+against the code twice; what it found each time is at the end, and every point is worked in.
 
 ## What this is, and why
 
@@ -71,14 +71,19 @@ Next to an Instagram entry the page says, before the host starts: "This works fo
 Business accounts." For YouTube the page says "channel description" where it says "bio" for the
 others.
 
-**Which button a host sees** is decided by the server, from the network and the settings:
+**Which button a host sees** is decided by the server, from the network and the settings. The
+first line that fits is the one that counts:
 
-| The entry | Button |
+| The entry | What the host sees |
 | --- | --- |
-| Instagram or YouTube, its setting is there, not confirmed, code not run out | The code and **"Check now"**. Also for an entry that was already waiting for the founder. |
-| TikTok or X, or a network whose setting is missing | The code and **"I've done it"**, then "Waiting for us to check", as today. |
-| Confirmed | "Confirmed", as today. |
-| Code run out | "Add the account again", as today. |
+| 1. Confirmed | "Confirmed", as today. |
+| 2. Code run out | "Add the account again", as today. |
+| 3. Instagram or YouTube, and its settings are there | The code and **"Check now"**. Also for an entry that was already waiting for the founder. |
+| 4. Any other, after "I've done it" | "Waiting for us to check", as today. |
+| 5. Any other | The code and **"I've done it"**, as today. |
+
+The one action behind both buttons looks at the entry and the settings itself and takes the right
+path, whichever button was pressed.
 
 A form from an old page cannot push an Instagram or YouTube entry onto the founder's list when its
 setting is there: the server looks at the entry, not at which button was pressed. And a key that
@@ -92,8 +97,11 @@ X do, and so does anything that was already waiting there, or a network whose se
 Nothing on that list changes.
 
 **So that a broken key does not go unnoticed:** the admin page gets one line when it applies:
-"Automatic checks are failing: Meta refused our key 3 times in the last 24 hours." (The same for
-Google.) The founder does not read logs, so this is where it shows.
+"Automatic Instagram checks have been failing: Meta did not accept our key or our permission in
+3 checks in the last 24 hours." (The same for YouTube and Google.) It says what happened, not
+that the check is down right now. Only answers that are about our own key or permission are
+counted, never one that is about the host's account. The founder does not read logs, so this is
+where it shows.
 
 Approving a host is unchanged: the founder still looks at each profile, with its confirmed
 accounts next to it.
@@ -114,12 +122,13 @@ accounts next to it.
     answer with no channel in it is "no account we can read".
   - The requests, always fresh (nothing kept from an earlier answer), each with a time limit of a
     few seconds that covers waiting for the answer and reading it, and no second try.
-    - Instagram: Meta's Graph address, version v27.0 as tested. Our own account's number is asked
-      from Meta once with the key (`me/assigned_instagram_accounts`) and remembered while the
-      server runs; if that fails it is asked again next time, so one bad moment does not stick.
-      Then one request for the host's account by name.
+    - Instagram: Meta's Graph address, version v27.0 as tested: one request for the host's account
+      by name, asked as our own account. Our own account's number is a setting (below), so a check
+      is always exactly one request to Meta and nothing has to be looked up or remembered first.
     - YouTube: `channels` with `part=snippet` and `forHandle=@name`; the code is looked for in the
-      channel's description.
+      channel's description. (Tried for real on 15 November 2026: a channel that exists comes back
+      with its description and its handle; a handle that does not exist comes back as a good
+      answer with no channel in it.)
   - The name put into a request is the cleaned-up name the app already stores (small letters,
     numbers, dots, underscores and, on YouTube, hyphens), built into the address with the
     platform's own tool for that, so nothing a host types can change the request.
@@ -131,27 +140,37 @@ accounts next to it.
     cannot be read) comes out as one of the five results. Nothing from the request, its address or
     the answer is ever passed on in an error, because the key is in the address. What is written
     to the log is only: which network, which of the five results, and Meta's number.
-- **Two settings.** `INSTAGRAM_CHECK_TOKEN` (the key from Meta; it is on the founder's computer
-  already) and `YOUTUBE_API_KEY` (from Google). A network whose setting is missing works as today,
-  by hand. So the app runs without either.
+- **Three settings.** For Instagram, `INSTAGRAM_CHECK_TOKEN` (the key from Meta) and
+  `INSTAGRAM_CHECK_ACCOUNT_ID` (the number of our own Instagram account, which is not a secret;
+  both must be there). For YouTube, `YOUTUBE_API_KEY` (from Google). The two keys are on the
+  founder's computer already. A network whose settings are missing works as today, by hand. So
+  the app runs without any of them.
 - **The database: one small new table, `bio_checks`.** One row per automatic check: who, which
-  network, when, and how it ended (one of the five results, or "confirmed"). It does three jobs
-  that one more column on the account could not, because an entry can be removed and added again:
+  network, when it started, and how it ended. How it ended is empty while the check is under way,
+  and then one of: "found", "not found", "no account we can read", "asked too often", "our key or
+  permission was refused", "not available". The bio's text is never stored. Two indexes, by person
+  and time and by network and time. Rows are kept; at launch size nothing needs to clear them.
+  The table does three jobs that one more column on the account could not, because an entry can be
+  removed and added again:
   1. no more than one check every 30 seconds per person and network (a double press);
   2. no more than 10 checks an hour per person, and no more than 100 an hour for all of Instagram
-     together (half of what Meta is assumed to allow; the first request for our own account's
-     number counts too);
-  3. the line on the admin page about a refused key.
+     together (half of what Meta is assumed to allow). A check counts from the moment it starts,
+     whether or not it has ended and however it ended;
+  3. the line on the admin page.
   A person with several logins cannot be recognised as one person; the shared limit is what keeps
   them from using up Meta's allowance.
 - **`src/lib/profiles/profiles.ts`: one new function, "check now".**
-  1. One short step in the database, with the same one-at-a-time lock the email and
-     connection-test limits use: find this person's own entry (not confirmed, code not run out),
-     check the three limits, and write the row for this check. It hands back the exact name and
-     code it is about to check. Only when this step succeeds is anything asked of Meta or Google.
+  1. One short step in the database, under the same kind of one-at-a-time lock the email and
+     connection-test limits use. Two locks, always taken in this order: for Instagram, one for all
+     of Instagram (`bio-check:instagram:global`); then one for the person, for both networks
+     (`bio-check:user:<id>`). The time is read after the locks are held. Then: find this person's
+     own entry (not confirmed, code not run out), check the three limits, and write the row for
+     this check, all before the step ends. It hands back the exact name and code it is about to
+     check. Only when this step succeeds is anything asked of Meta or Google.
   2. Ask Meta or Google. This happens outside any database step, so nothing is held locked while
      waiting for another company's server.
-  3. Write how it ended onto the check's row.
+  3. Write how it ended onto the check's row ("found" when the code was in the bio, whatever
+     happens in the next step).
   4. Code found: confirm, with one guarded change that only applies if the entry is still this
      person's, on this network, with this name and this code, still not confirmed, and its code
      still not run out at that moment. It leaves "confirmed by" empty and clears "waiting for the
@@ -255,3 +274,18 @@ change. Its points, all worked in above:
    could not have worked as first written; more cases.
 9. "Shown on your page" was not true for a host who is not approved yet; the message now says
    "Account confirmed". The privacy sentence names the channel description.
+
+## Astra's second check, of the plan as it is now (15 November 2026)
+
+Verdict: ready with changes. It found the confirming steps sound, the table and its three limits
+reasonable, and the one line on the admin page enough. Its points, all worked in above:
+
+1. The two locks are now named, with their order.
+2. A check could have been two requests to Meta (one to look up our own account's number) while
+   being counted as one. Astra's fix was to count requests; the smaller fix taken here is to make
+   that number a setting, so a check is always one request.
+3. The admin page's line said more than is known. It now says what Meta answered and how often,
+   and counts only answers about our own key or permission.
+4. What a check's row holds while it is under way and after a good read; the bio's text is never
+   stored.
+5. The order in which the page decides what a host sees, and that one action serves both buttons.
