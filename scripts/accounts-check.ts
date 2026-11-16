@@ -62,6 +62,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
+  const { removeTestsOf } = await import("../src/lib/connection/tests");
   const { sendEmail, EMAIL_LIMITS } = await import("../src/lib/email");
   const { withNotice } = await import("../src/lib/notice");
   const profiles = await import("../src/lib/profiles/profiles");
@@ -465,6 +466,7 @@ async function main() {
       await db.delete(schema.socialAccounts).where(eq(schema.socialAccounts.userId, id));
       await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, id));
       await db.delete(schema.hostSettings).where(eq(schema.hostSettings.userId, id));
+      await removeTestsOf([id]);
       await db.delete(schema.user).where(eq(schema.user.id, id));
     }
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `check-${RUN}-%`));

@@ -1,7 +1,8 @@
 # Plan 12: Connection check before a call
 
-**Status:** planned, final version (15 November 2026). **To be built later**, by the founder's
-decision. Astra has checked the plan three times; what it found each time is at the end, and every
+**Status:** built (branch `module/connection-check-build`); what was built, what was decided along
+the way, the reviews and the checks are in `docs/module-record.md` under "Module 10". Below is the
+plan as it was approved (15 November 2026). Astra has checked the plan three times; what it found each time is at the end, and every
 point is worked in. A small
 part was written before the build was put on hold; see "Where the build stands".
 

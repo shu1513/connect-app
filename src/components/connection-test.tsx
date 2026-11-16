@@ -1,0 +1,152 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { WORDS, type Answer } from "@/lib/connection/answer";
+import { runConnectionTest, type RunningTest } from "@/lib/connection/run-test";
+
+/** No test starts by itself within this long of the last one finishing. */
+const NOT_AGAIN_FOR_MS = 15 * 60_000;
+/** A page opened longer than this before its moment does not wait for it (a browser cannot count that far). */
+const MAX_WAIT_MS = 24 * 3_600_000;
+/** Two small notes kept in this browser tab only, never on the server. The answer itself is not kept, even there. */
+const LAST_FINISHED = "connect:connection-test:finished";
+const joinedKey = (callId: string) => `connect:connection-test:joined:${callId}`;
+/** The call screen says so the moment the person presses "Join" (see call-room.tsx). */
+export const JOINING_EVENT = "connect:joining";
+
+function note(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null; // a browser that will not keep notes: the test may simply run again
+  }
+}
+function keep(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Joining and testing never depend on this.
+  }
+}
+
+/**
+ * "Test your connection": a short check of this device's connection to the
+ * video service, with a plain answer and a tip. It only ever warns; it never
+ * stops anyone from joining, and nobody else sees the answer.
+ *
+ * On a call's page it starts by itself, once, and pressing "Join" stops it at
+ * once. It does not start by itself again within 15 minutes of the last test,
+ * or on a call the person has already joined.
+ */
+export function ConnectionTest({
+  callId,
+  autoInMs,
+}: {
+  callId?: string;
+  /**
+   * How long from now the test may start by itself, worked out on the server from its own clock (so a device
+   * whose clock is wrong still starts it on time). Left out, or not positive: right away.
+   */
+  autoInMs?: number;
+}) {
+  const [state, setState] = useState<"idle" | "testing" | "joined" | Answer>("idle");
+  const running = useRef<RunningTest | null>(null);
+
+  const start = useCallback(() => {
+    running.current?.stop();
+    const test = runConnectionTest();
+    running.current = test;
+    setState("testing");
+    void test.result.then((answer) => {
+      if (running.current !== test) return; // stopped and replaced meanwhile
+      running.current = null;
+      if (answer === null) return;
+      keep(LAST_FINISHED, String(Date.now()));
+      setState(answer);
+    });
+  }, []);
+
+  // The wait is fixed when the box first appears. If the page around it is drawn again later, a test that is
+  // running is not stopped and the moment is not counted anew.
+  const [wait] = useState(() => autoInMs ?? 0);
+
+  useEffect(() => {
+    // The one start that happens by itself. It waits for its moment also on a page that was opened earlier and
+    // left open, and it looks at the two notes when that moment comes, not before.
+    const byItself = () => {
+      // A test the person started themselves is left to finish: starting another would stop it, and the
+      // new one would be refused for coming too soon after it.
+      if (running.current) return;
+      const last = Number(note(LAST_FINISHED));
+      const recently = Number.isFinite(last) && last > 0 && Date.now() - last < NOT_AGAIN_FOR_MS;
+      const alreadyJoined = callId ? note(joinedKey(callId)) === "1" : false;
+      if (!recently && !alreadyJoined) start();
+    };
+    // A tab in the background cannot be measured (the browser slows it down). So when the moment comes while the
+    // person is looking at something else, the start waits until they look at this page.
+    const whenSeen = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", whenSeen);
+      byItself();
+    };
+    let first: ReturnType<typeof setTimeout> | null =
+      Number.isFinite(wait) && wait < MAX_WAIT_MS
+        ? setTimeout(
+            () => {
+              first = null;
+              if (document.hidden) document.addEventListener("visibilitychange", whenSeen);
+              else byItself();
+            },
+            Math.max(0, wait),
+          )
+        : null;
+    const neverByItself = () => {
+      if (first) clearTimeout(first);
+      first = null;
+      document.removeEventListener("visibilitychange", whenSeen);
+    };
+
+    // Joining never waits for the test: the moment "Join" is pressed, the test is over, and one that was
+    // about to start by itself never does.
+    const onJoining = () => {
+      neverByItself();
+      running.current?.stop();
+      running.current = null;
+      if (callId) keep(joinedKey(callId), "1");
+      setState("joined");
+    };
+    window.addEventListener(JOINING_EVENT, onJoining);
+    return () => {
+      neverByItself();
+      window.removeEventListener(JOINING_EVENT, onJoining);
+      running.current?.stop();
+      running.current = null;
+    };
+  }, [wait, callId, start]);
+
+  // In the call, and after dropping out of it, nothing about the test is shown.
+  if (state === "joined") return null;
+
+  return (
+    <section className="mt-4 rounded border border-neutral-400/60 p-3 text-sm" aria-live="polite" data-connection-test={state}>
+      {state === "idle" && (
+        <p>
+          <button type="button" onClick={start} className="underline underline-offset-2">
+            Test your connection
+          </button>{" "}
+          <span className="opacity-70">(about 12 seconds; it does not use your camera or microphone)</span>
+        </p>
+      )}
+      {state === "testing" && <p className="opacity-80">Testing your connection… This takes about 12 seconds. You do not have to wait for it.</p>}
+      {state !== "idle" && state !== "testing" && (
+        <>
+          <p className={state === "weak" || state === "no_connection" ? "font-medium text-amber-700" : "font-medium"}>{WORDS[state].title}</p>
+          <p className="mt-1 opacity-80">{WORDS[state].tip}</p>
+          <button type="button" onClick={start} className="mt-2 underline underline-offset-2">
+            Test again
+          </button>
+        </>
+      )}
+    </section>
+  );
+}

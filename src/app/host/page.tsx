@@ -93,6 +93,9 @@ export default async function HostPage(props: PageProps<"/host">) {
         <Link href="/host/now" className="ml-4 underline underline-offset-2">
           Available now
         </Link>
+        <Link href="/connection-test" className="ml-4 underline underline-offset-2">
+          Test your connection
+        </Link>
       </p>
 
       {notice && (

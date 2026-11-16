@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CLOSE_LATE_SECONDS } from "@/lib/calls";
 import { ACCEPT_CLOSES_SECONDS, ASK_CLOSES_SECONDS, ASK_OPENS_SECONDS, choicesThatFit, COUNTDOWN_SECONDS, extensionPriceCents, MAX_EXTENSION_MINUTES, MIN_EXTENSION_MINUTES, WATCH_SECONDS } from "@/lib/extend/rules";
+import { JOINING_EVENT } from "@/components/connection-test";
 import { formatDuration } from "@/lib/format";
 import { QualityNotes } from "./quality-notes";
 
@@ -323,6 +324,8 @@ export function CallRoom(props: Props) {
   }
 
   async function join(values: LocalUserChoices) {
+    // A connection check that is still running stops at once. Joining does not wait for anything to do with it.
+    window.dispatchEvent(new Event(JOINING_EVENT));
     setJoining(true);
     setNotice(null);
     try {

@@ -1,5 +1,4 @@
-import { eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { saveAttendance } from "@/lib/attendance/save";
 import { readVideoEvent, type VideoEvent } from "@/lib/video/livekit";
 
 /**
@@ -19,32 +18,5 @@ export async function POST(request: Request) {
     return Response.json({ error: "Signature check failed." }, { status: 401 });
   }
 
-  // Only room and participant messages matter for attendance.
-  if (!event.roomName || !/^(room_|participant_)/.test(event.type)) {
-    return Response.json({ ok: true, saved: false });
-  }
-
-  const [call] = await db
-    .select({ id: schema.calls.id })
-    .from(schema.calls)
-    .where(eq(schema.calls.roomName, event.roomName));
-  if (!call) return Response.json({ ok: true, saved: false });
-
-  // A repeated message has the same ID and is silently skipped.
-  await db
-    .insert(schema.attendanceEvents)
-    .values({
-      provider: event.provider,
-      providerEventId: event.id,
-      callId: call.id,
-      type: event.type,
-      roomSessionId: event.roomSessionId,
-      participantIdentity: event.participantIdentity,
-      participantSessionId: event.participantSessionId,
-      providerTime: event.time,
-      payload: rawBody,
-    })
-    .onConflictDoNothing();
-
-  return Response.json({ ok: true, saved: true });
+  return Response.json({ ok: true, saved: await saveAttendance(event, rawBody) });
 }

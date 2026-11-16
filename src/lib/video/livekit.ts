@@ -1,8 +1,9 @@
 /**
- * The only file that talks to LiveKit. It does three things:
+ * The only file that talks to LiveKit. It does four things:
  *   1. hands out entry passes,
  *   2. closes rooms,
- *   3. translates LiveKit's messages into our own plain shape.
+ *   3. translates LiveKit's messages into our own plain shape,
+ *   4. makes the private one-person rooms of the connection check.
  *
  * Swapping to another video service means rewriting this file (and the call
  * screen), not the time calculation.
@@ -133,4 +134,40 @@ export async function removeFromRoom(roomName: string, userId: string): Promise<
   } catch (error) {
     if (!isNotFound(error)) throw error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// The connection check ("test your connection")
+// ---------------------------------------------------------------------------
+
+/** A check may only connect in its first minute. (This limits when it can start, not how long it stays: the helper closes the room.) */
+const TEST_PASS_LIFETIME = "1m";
+
+/**
+ * The room of one connection check, and the name it connects under. Both are made from the
+ * check's own number and nothing else: never a call's room, and never an account ID (which is
+ * what a person is called inside a real call). So a check can never be mistaken for someone
+ * being in a call.
+ */
+export function testRoomOf(testId: string): { roomName: string; identity: string } {
+  return { roomName: `check-${testId}`, identity: `check:${testId}` };
+}
+
+/**
+ * Makes the room for one connection check and returns the pass for it. The room takes one
+ * participant, and the pass can send into that room but not receive, so it is no use for
+ * anything but measuring.
+ */
+export async function openTestRoom(testId: string): Promise<string> {
+  const { roomName, identity } = testRoomOf(testId);
+  await roomService().createRoom({ name: roomName, maxParticipants: 1, emptyTimeout: 60, departureTimeout: 5 });
+  const token = new AccessToken(env("LIVEKIT_API_KEY"), env("LIVEKIT_API_SECRET"), { identity, ttl: TEST_PASS_LIFETIME });
+  token.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: false, canPublishData: false });
+  return token.toJwt();
+}
+
+/** Ends one connection check for good: its pass stops working and its room is deleted. True once LiveKit confirms the room is gone. */
+export async function closeTestRoom(testId: string): Promise<boolean> {
+  const { roomName, identity } = testRoomOf(testId);
+  return closeRoom(roomName, [identity]);
 }

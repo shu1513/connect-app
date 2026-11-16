@@ -1,3 +1,4 @@
+import { ConnectionTest } from "@/components/connection-test";
 import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
@@ -22,6 +23,12 @@ function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): str
   const when = hours === 1 ? "1 hour" : `${hours} hours`;
   return `You can cancel for free until ${when} before the call starts. After that, cancelling costs the full ${bookedPrice}, unless the host chooses to refund you.`;
 }
+
+/**
+ * The connection check starts by itself only when the call is this close: a check a day ahead
+ * says nothing about the connection at call time. Earlier, the person can start it with a click.
+ */
+const TEST_BY_ITSELF_WITHIN_MS = 30 * 60_000;
 
 export default async function CallPage(props: PageProps<"/calls/[id]">) {
   const { id } = await props.params;
@@ -133,6 +140,10 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           </p>
         </section>
       ) : (
+        <>
+        {/* Kept outside the call screen, which redraws every second and changes from the countdown to the camera
+            check: here the test is never restarted by that. It starts by itself only close to the call. */}
+        <ConnectionTest callId={call.id} autoInMs={call.startsAt.getTime() - TEST_BY_ITSELF_WITHIN_MS - now.getTime()} />
         <CallRoom
           callId={call.id}
           userName={user.name}
@@ -144,6 +155,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           otherName={other?.name ?? (role === "host" ? "The customer" : "The host")}
           pricePer15Cents={call.pricePer15Cents}
         />
+        </>
       )}
 
       {!call.cancelledAt && !call.safetyEndedAt && cancel !== "not_allowed" && (
