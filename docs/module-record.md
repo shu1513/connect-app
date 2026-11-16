@@ -88,10 +88,10 @@ when a module is merged. The full plan for each module is in `plans/`.
 | Stripe's $2 a month per paid host | Pass it to hosts | **Changed by the founder:** the company absorbs it, so hosts are not put off. |
 | What the customer pays for | The time the host was connected inside the booked time; no free waiting minutes | Agreed. Shown clearly before paying; the receipt separates time together from waiting. |
 | Cancelling | One rule set by us | **Changed by the founder:** the host sets the rule (free until the start [default], or 1, 12 or 24 hours before). Late cancelling follows Airbnb: full booked price, host may refund. A host can always cancel for free. |
-| When hosts are paid | Weekly, for calls that ended at least 7 days earlier | Agreed. **Changed by the founder on 16 November 2026 (module 12):** no weekly payday. A host collects with a button, from 2 days after a call, once every 24 hours, so that hosts get their money sooner and choose the moment themselves. |
+| When hosts are paid | Weekly, for calls that ended at least 7 days earlier | Agreed. **Changed by the founder on 15 November 2026 (module 12):** no weekly payday. A host collects with a button, from 2 days after a call, once every 24 hours, so that hosts get their money sooner and choose the moment themselves. |
 | Calls that "need review" | Never charged automatically; the founder decides before a deadline, otherwise the hold is released | Agreed. |
-| When the customer's money is taken | A few minutes after the call | **Changed by the founder on 16 November 2026 (module 11, `plans/13-connection-refunds.md`):** about 24 hours after the call, so that a customer can first ask for a refund and a lower charge costs no card fee. With a request, when the host answers, and at the latest about 24 hours after the request. Never later than 12 hours before the card's hold ends (for ordinary charges; calls under review keep their rule of a full day). A charge for cancelling late is still taken at once. |
-| Who can ask for a refund | Only the host or the founder could start one | **Changed by the founder on 16 November 2026:** the customer can ask, within 24 hours of the call, giving a reason. The host still decides. |
+| When the customer's money is taken | A few minutes after the call | **Changed by the founder on 15 November 2026 (module 11, `plans/13-connection-refunds.md`):** about 24 hours after the call, so that a customer can first ask for a refund and a lower charge costs no card fee. With a request, when the host answers, and at the latest about 24 hours after the request. Never later than 12 hours before the card's hold ends (for ordinary charges; calls under review keep their rule of a full day). A charge for cancelling late is still taken at once. |
+| Who can ask for a refund | Only the host or the founder could start one | **Changed by the founder on 15 November 2026:** the customer can ask, within 24 hours of the call, giving a reason. The host still decides. |
 | Refunds | The founder decides | **Changed by the founder:** the host decides refunds directly until their share has been sent; after that the founder does it by hand. Our fee is returned in the same proportion. |
 | If money is lost through our mistake | Company pays the host by hand | Agreed. |
 | Currency and countries | US dollars; hosts in the US only; customers anywhere | Agreed. |
@@ -656,7 +656,7 @@ Plan: `plans/12-connection-check.md`, checked three times by Astra and once by C
 
 Plan: `plans/13-connection-refunds.md`, ninth version, checked by Astra six times and by CodeRabbit before any code was written (pull request 18). Built after module 12, because it relies on hosts collecting their own earnings.
 
-**What the founder decided (16 November 2026)**
+**What the founder decided (15 November 2026)**
 
 | Question | Decided |
 | --- | --- |
@@ -733,17 +733,17 @@ Plan: `plans/13-connection-refunds.md`, ninth version, checked by Astra six time
 
 Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit before any code was written (pull request 18).
 
-**What the founder decided (16 November 2026)**
+**What the founder decided (15 November 2026)**
 
 | Question | Decided |
 | --- | --- |
-| How long before a call's money can be collected | 2 days after the call, down from 7. **Changed by the founder on 16 November 2026, after modules 10 to 12 were merged:** 24 hours and 10 minutes after the call (the moment the customer's time to ask is over) when the customer did not ask for a refund. With a refund request it stays 2 days, and never before the host has answered. See "A later change" below. |
+| How long before a call's money can be collected | 2 days after the call, down from 7. **Changed by the founder on 15 November 2026, after modules 10 to 12 were merged:** 24 hours and 10 minutes after the call (the moment the customer's time to ask is over) when the customer did not ask for a refund. With a refund request it stays 2 days, and never before the host has answered. See "A later change" below. |
 | Who starts the payment | The host, with a button. No automatic weekly payday any more. |
 | How often | Once every 24 hours, counted from the host's last collection. |
-| Money nobody collects | **Decided by the founder on 16 November 2026: no automatic sending.** Money a host does not collect stays until they collect it. The founder sees it on the admin page and settles old amounts by hand, and can run a final collection for a closed account. |
+| Money nobody collects | **Decided by the founder on 15 November 2026: no automatic sending.** Money a host does not collect stays until they collect it. The founder sees it on the admin page and settles old amounts by hand, and can run a final collection for a closed account. |
 
 **What was built**
-- **The date.** A host's share is ready 2 days after the call ends, to the minute, and never before the charge is recorded. (Since 16 November 2026: 24 hours and 10 minutes when the customer did not ask for a refund; see "A later change" below.) It is fixed when the charge is recorded and never moved. Charges made before this change keep the payday date they had and are collected with the button from that date on.
+- **The date.** A host's share is ready 2 days after the call ends, to the minute, and never before the charge is recorded. (Since 15 November 2026: 24 hours and 10 minutes when the customer did not ask for a refund; see "A later change" below.) It is fixed when the charge is recorded and never moved. Charges made before this change keep the payday date they had and are collected with the button from that date on.
 - **The button.** On Hosting, under "Getting paid": what is ready (with the amount that will be sent after the 25-cent charge), what is not ready yet and why for each call, and the result of the last collection as it really stands: sent, being checked, could not be sent. It also says when the host can collect again, and that Stripe pays the bank on its own schedule.
 - **One collection is a record of its own.** A press is accepted in one locked step: the same press arriving twice gets the collection it already made, the 24 hours are checked, and every share that is ready is locked, checked once more and written down as "being sent" with its exact amount, all before Stripe is asked. So two presses at once make one collection, and a crash never leaves a press that half happened.
 - **What holds a share back:** being inside its 2 days, a bank dispute, a refund on its way, a money action whose outcome is not known yet, and a message from Stripe about a dispute that has not been handled. The payout account is checked with Stripe at the moment of the press.
@@ -786,7 +786,7 @@ Plan: `plans/14-paying-hosts-sooner.md`, checked by Astra and by CodeRabbit befo
 
 ## A later change: a host's share is ready about 24 hours after the call when nobody asked for a refund
 
-**The founder's decision (16 November 2026).** Asked whether a host can collect 24 hours after a call when the customer did not ask for a refund, the builder answered that it was 2 days, and recommended keeping 2 days until real calls show how often something goes wrong after a charge. The founder decided: 24 hours when the customer has not asked for a refund.
+**The founder's decision (15 November 2026).** Asked whether a host can collect 24 hours after a call when the customer did not ask for a refund, the builder answered that it was 2 days, and recommended keeping 2 days until real calls show how often something goes wrong after a charge. The founder decided: 24 hours when the customer has not asked for a refund.
 
 **What changed**
 - A host's share is ready **once the customer's time to ask for a refund is over**, when there is no refund request on the call, and never before the charge is recorded. That is 24 hours and 10 minutes after the call ends: the customer's 24 hours, plus the 10 minutes in which a request sent in the last seconds is still accepted. The money for such a call is taken at that same moment, so in the ordinary case the share is ready the moment it is taken.
@@ -848,6 +848,6 @@ Also fixed: one check in the notifications script depended on how fast the compu
 - **For the lawyer (module 11):** the terms must say that the charge for a call is taken one to two days after it, that a customer can ask for a refund within 24 hours, that the host decides, and that a host cannot collect the money for a call with a request they have not answered. The privacy page must say that a grade of each person's connection is kept for 60 days for every call, and that with any refund request a summary of those grades, the customer's sentence and the host's message are kept for a year; Connect can see that summary for every request, the two people only when the reason is the connection.
 - **Friend tests of the connection check (module 10):** a weak connection, a real iPhone (Safari may answer "not measured"), hotel Wi-Fi, and mobile data on the move. The two limits (0.4 seconds, 3%) are starting values and may need adjusting afterwards. Also confirm in the LiveKit account what a connected minute costs.
 - **A friend test (module 11):** what the grades and the reasons look like on a call with a truly bad connection, and a real Visa card's hold from the call to the charge a day later.
-- **In Stripe (module 11):** confirm the real card fee and that the name on card statements says Connect. (An email to the customer when a hold is placed on their card: the founder decided on 16 November 2026 not to send one.)
-- **Hosts' money that nobody collects (module 12):** the founder decided on 16 November 2026 not to send it automatically. Still to ask: the lawyer, about holding hosts' money for a long time, and Stripe, about how long money earned by hosts may stay in Connect's balance.
+- **In Stripe (module 11):** confirm the real card fee and that the name on card statements says Connect. (An email to the customer when a hold is placed on their card: the founder decided on 15 November 2026 not to send one.)
+- **Hosts' money that nobody collects (module 12):** the founder decided on 15 November 2026 not to send it automatically. Still to ask: the lawyer, about holding hosts' money for a long time, and Stripe, about how long money earned by hosts may stay in Connect's balance.
 - **Putting module 12 live:** stop the always-on helper first, then update it together with the app, so the old weekly payday and the new button never run side by side.
