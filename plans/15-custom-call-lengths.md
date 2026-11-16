@@ -1,14 +1,14 @@
 # Plan 15: A customer picks the length of the call
 
 **Status:** plan only, not built. Written 15 November 2026. Astra has checked it against the code
-once; what it found is at the end, and every point is worked in. It builds on two changes that are
-not merged yet (calls as short as 5 minutes, pull request 24; the customer's 24 hours counted from
-the call's start, pull request 23), so the build starts after both are merged.
+twice; what it found each time is at the end, and every point is worked in. The two changes it
+builds on are merged (calls as short as 5 minutes, pull request 24; the customer's 24 hours counted
+from the call's start, pull request 23).
 
 ## What this is, and why
 
-Today a host ticks the call lengths they offer from a fixed list (15, 30, 45 and 60 minutes; 5 and
-10 are added by pull request 24), and a customer picks one of the ticked lengths. The founder's
+Today a host ticks the call lengths they offer from a fixed list (5, 10, 15, 30, 45 and
+60 minutes), and a customer picks one of the ticked lengths. The founder's
 point: a customer should be able to choose how many minutes they want, and 60 minutes should not be
 the most that can be booked.
 
@@ -21,22 +21,23 @@ picks any length in between.
 | --- | --- |
 | Who sets the range a customer can pick from? | **Each host**, on the calendar page: a shortest and a longest call. |
 | In what steps can a customer pick? | **Steps of 5 minutes** (5, 10, 15, 20 and so on). |
-| The longest call that can be booked | **Each host decides for themselves.** No short list of fixed lengths any more, and no limit chosen by Connect. |
-| A host who sets nothing | **Their longest call is 2 hours.** (Their shortest stays 30 minutes, the one length a new host has today.) |
+| The longest call that can be booked | **Each host decides for themselves**, anywhere from 5 minutes to 6 hours. No short list of fixed lengths any more. |
+| A host who sets nothing | **Their longest call is 2 hours.** (Their shortest stays 30 minutes, the one length a new calendar has today.) |
 
 ## Where the host's list ends: 6 hours
 
-The founder's decision is that the host sets their longest call, not Connect. A host's drop-down
-list still has to end somewhere, and it ends at **6 hours**. That is not a business rule; it is as
-far as the app works as it is built today:
+The founder's decision is that the host sets their longest call. Hosts choose within a ceiling of
+**6 hours**, which keeps the longest possible call what it is today. The ceiling is a choice, not
+something the code forces; these are the reasons for putting it there:
 
 1. **Six hours is the longest a call can be today** (60 minutes booked, plus added time), so no
    call becomes longer than calls can already be. A few things were sized for exactly that: the
    notes about connection quality allow for a 6-hour call, and the payment tests model one.
 2. **The customer's time to ask for a refund** is 24 hours counted from the call's start, and a
-   customer can only ask once the call is over. After a 6-hour call 18 hours are normally left
-   (a little less in the rare case that the card's hold ends unusually early). A call of a whole
-   day would leave none, so going far past 6 hours would need that rule to change first.
+   customer can only ask once the call is over. After a 6-hour call 18 hours are normally left.
+   (When a card's hold ends unusually early, that time can be a good deal shorter, as it already
+   can today.) A call of a whole day would leave none, so going far past 6 hours would need that
+   rule to change first.
 
 Said plainly, because it follows from the host deciding: the whole price is held on the customer's
 card at once, up to 2 days before the call. At the highest price a host can set ($1,000 per
@@ -65,7 +66,7 @@ is; longer instant calls would be a change of their own.
 On the calendar page the tick boxes "Call lengths you offer" are replaced by two drop-down lists:
 **Shortest call** and **Longest call**, each in steps of 5 minutes from 5 minutes to 6 hours. The
 shortest cannot be longer than the longest. A host who wants exactly one length sets both to it.
-A host who never opens the page offers 30 minutes to 2 hours.
+A newly created calendar starts with 30 minutes to 2 hours.
 The note about the price and the fixed 30 cents per paid call stays.
 
 ## How it works for a customer
@@ -92,11 +93,9 @@ now ("a 90-minute call").
 
 ## How it is built: as little as possible
 
-**Almost nothing changes in the database.** A host's lengths are stored today as a list
-("15,30,60") and every part of the app that checks a length asks "is it in the host's list?". That
-stays. The list simply holds every step between the host's shortest and longest call
-("10,15,20,25,30"). The one change: the list a new host starts with becomes 30 minutes to 2 hours
-(today it is 30 minutes only).
+**Nothing changes in the database.** A host's lengths are stored today as a list ("15,30,60") and
+every part of the app that checks a length asks "is it in the host's list?". That stays. The list
+simply holds every step between the host's shortest and longest call ("10,15,20,25,30").
 
 - `src/lib/booking/rules.ts`: the list of lengths a host can offer, `LENGTH_CHOICES_MINUTES`, keeps
   its name and becomes every step of 5 from 5 to 360 minutes. Everything that reads it keeps
@@ -105,11 +104,17 @@ stays. The list simply holds every step between the host's shortest and longest 
   both values first (whole numbers, steps of 5, from 5 to 360, shortest not longer than longest),
   refuses anything else with a plain message, and only then builds the list. The saving step
   itself still takes a list, so the check scripts keep working as they are.
+- `src/lib/booking/calendar.ts`: the place where a host's calendar is first created (when they
+  first open the calendar page) writes the starting list, 30 minutes to 2 hours, itself. Today it
+  leaves that to the database, which fills in "30". Calendars that already exist are not touched.
+  (A host is only offered to customers once they have a calendar and weekly hours, so there is no
+  host "without a setting" to give a default to.)
 - `src/app/h/[handle]/page.tsx`: the two drop-down lists for the customer.
 - `src/lib/extend/rules.ts` and `src/lib/extend/extend.ts`: the 6-hour limit. The rule that works
-  out how many minutes still fit is given the call's start as well as its end. Asking for more
-  time and accepting it already go through that one rule, under the call's lock, so one place is
-  enough.
+  out how many minutes still fit is given the call's start as well as its end. A request for more
+  time is checked against that rule under the call's lock. Accepting does not work it out again;
+  it refuses when the call's end is no longer the one the request was made for. So a request that
+  fitted when it was made cannot take the call past 6 hours, and one place is enough.
 - `src/lib/notifications/reminders.ts`: a small repair that longer calls make matter. The email
   "the room for your call is open now" is dropped if it could not be sent by the call's **end**.
   With a long call it could arrive hours late and still say the call "starts at" a time long
@@ -134,17 +139,24 @@ it.
   old tests that expected 20 and 90 minutes to be refused are changed), the length shown first
   (also when two are equally close), the words for a length, and the 6-hour limit on added time
   (a 4-hour call can go to 5 and then to 6 hours and no further; with less than 5 minutes left to
-  the limit nothing is offered; a 6-hour call cannot be made longer at all). A new host starts
-  with 30 minutes to 2 hours.
+  the limit nothing is offered; a 6-hour call cannot be made longer at all). Open times for a
+  6-hour call: hours that cross midnight, weekly hours shorter than the call (no open times), and a
+  day on which the clocks change. A hold that ends unusually early, and the earliest hold a card
+  can have, with a 6-hour call.
 - The booking script: a host with a range of 10 minutes to 2 hours; a 25-minute and a 90-minute
   call are asked for, accepted and priced right; a length outside the range and a length that is
   not a step of 5 are refused, whatever the browser sends. Saving a calendar with a shortest call
-  longer than the longest, or with values that are not steps of 5, is refused.
+  longer than the longest, or with values that are not steps of 5, is refused. A 6-hour call at
+  the highest price is asked for and accepted through booking itself, and its total is exactly
+  $24,000. A new calendar starts with 30 minutes to 2 hours, and a calendar that already exists
+  keeps its list when it is opened.
 - The instant-call script: only the lengths that still fit are offered, and never more than
   1 hour 55 minutes.
 - The added-time script: a long call cannot be taken past 6 hours.
 - A 6-hour call at a high price through the payment script's hold and charge, in Stripe's test
   mode.
+- The reminder: a "room is open" email that could not be sent in time is really dropped a few
+  minutes after the call's start.
 - By hand in a browser: the calendar page, a host's page with the two lists, a 25-minute booking
   from start to request, and the same on a phone-sized screen.
 - Then the usual: Astra reviews the code, and CodeRabbit reviews the pull request.
@@ -174,6 +186,23 @@ makes the change smaller still. Taken.
 ## The founder's answer on the top (15 November 2026)
 
 The plan first proposed a top of 4 hours chosen by Connect. The founder's answer: the host decides
-how long their longest call is, and a host who sets nothing gets 2 hours. Worked in above: no
-limit chosen by Connect, a default of 2 hours, and a host's list that ends at 6 hours only because
-that is as far as the app works today.
+how long their longest call is, and a host who sets nothing gets 2 hours; the host chooses between
+5 minutes and 6 hours. Worked in above.
+
+## Astra's second check, of the plan as it is now (15 November 2026)
+
+Verdict: ready with changes. It found nothing that breaks when a 6-hour call is booked up front:
+the hold on the card still has 18 hours to spare in the worst case, the customer normally has
+18 hours to ask for a refund, open times work for a 6-hour call (also across midnight and when the
+clocks change), $24,000 fits the database and Stripe, and a list of 72 lengths is small and not
+slow. Its points, all worked in above:
+
+1. Where the 2-hour default comes from: the code that first creates a host's calendar writes it.
+   No change to the database is needed, and existing calendars keep their lists.
+2. How the 6 hours are enforced when time is added, described as the code really works.
+3. "A little less" understated how much an early end of a card's hold can shorten the time to ask.
+4. More cases to check: a 6-hour call through booking itself, open times across midnight and a
+   clock change, early holds, existing calendars, and the dropped reminder.
+5. Six hours is a chosen ceiling that keeps today's longest call, not a limit the code forces; the
+   plan now says so.
+6. The two changes this builds on are merged; the opening now says so.
