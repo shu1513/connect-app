@@ -877,7 +877,7 @@ async function main() {
       const stranger = await send("/account", { jar: new Map() });
       check("someone who is not logged in is sent to the login page, with the way back", (stranger.location ?? "").includes("/login?next=%2Faccount"), stranger.location ?? "");
       const front = await send("/", { jar: new Map() });
-      check("at the front address they see the visitor's page, not anyone's calls", front.status === 200 && front.text.includes("Create an account") && !front.text.includes("Your calls"), String(front.status));
+      check("at the front address they see the visitor's page, not anyone's calls", front.status === 200 && front.text.includes("Go from following to talking.") && front.text.includes("Sign up") && !front.text.includes("Your calls"), String(front.status));
       const token = await send(`/api/calls/${randomUUID()}/token`, { method: "POST", jar: new Map() });
       check("and cannot ask for a call entry pass", token.status === 401, String(token.status));
 

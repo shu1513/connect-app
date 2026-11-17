@@ -1,4 +1,5 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
@@ -10,6 +11,8 @@ import { callsToRate } from "@/lib/ratings/ratings";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, requireUser } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
+
+const frontPageFont = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap" });
 
 const REQUEST_LABEL: Record<string, string> = {
   card: "card details needed to send it",
@@ -40,47 +43,66 @@ function paymentLine(all: Payment[]): string {
 
 /** What a visitor sees at the front address: what Connect is, and the ways in. */
 function FrontPage() {
-  const button = "rounded px-4 py-2 font-medium";
+  const focus = "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#c2410c]";
+  const footerLink = `inline-flex min-h-11 min-w-11 items-center justify-center underline underline-offset-2 hover:text-[#9a3412] ${focus}`;
   return (
-    <SitePage className="mx-auto w-full max-w-2xl px-4 py-14">
-      <h1 className="text-3xl font-semibold">A private video call, one to one</h1>
-      <p className="mt-3">
-        On Connect you book a video call with a host: someone whose advice, company or conversation you want. Just the two of you, for the
-        time you choose.
-      </p>
-
-      <ol className="mt-8 list-decimal space-y-3 pl-5 text-sm">
-        <li>
-          <span className="font-medium">Find a host.</span> Search by name, or by the name they use on social media.
-        </li>
-        <li>
-          <span className="font-medium">Ask for a time.</span> The host says yes or no. Nothing is charged when you ask.
-        </li>
-        <li>
-          <span className="font-medium">Talk.</span> You are charged after the call, and only for the time that counted. Calls are never recorded.
-        </li>
-      </ol>
-
-      <form action="/search" method="get" className="mt-8 flex max-w-md gap-2">
-        <label className="flex-1 text-sm">
-          <span className="sr-only">Find a host by name, handle or social media name</span>
-          <input name="q" type="search" maxLength={50} placeholder="Find a host: name, @handle or social media name" className="w-full rounded border border-neutral-400 bg-transparent px-3 py-2" />
-        </label>
-        <button type="submit" className="rounded border border-neutral-500 px-3 py-2 text-sm">
-          Search
-        </button>
-      </form>
-
-      <p className="mt-8 flex flex-wrap gap-3">
-        <Link href="/signup" className={`${button} bg-blue-600 text-white`}>
-          Create an account
+    <div className={`${frontPageFont.className} min-h-screen bg-[#fffbf7] text-[#1c1917]`}>
+      <header data-site-header="visitor" className="mx-auto flex max-w-[1040px] flex-wrap items-center justify-between gap-4 p-6">
+        <Link href="/" className={`inline-flex min-h-11 items-center text-[22px] font-extrabold ${focus}`}>
+          Connect
         </Link>
-        <Link href="/login" className={`${button} border border-neutral-500`}>
-          Log in
-        </Link>
-      </p>
-      <p className="mt-6 text-sm opacity-80">Want to take calls yourself? Create an account, then open &quot;Hosting&quot; to set up your page.</p>
-    </SitePage>
+        <nav aria-label="Main" className="flex flex-wrap items-center gap-5 text-[15px]">
+          <Link href="/login" className={`inline-flex min-h-11 min-w-11 items-center text-[#44403c] hover:underline ${focus}`}>
+            Log in
+          </Link>
+          <Link href="/signup" className={`inline-flex min-h-11 items-center rounded-full bg-[#1c1917] px-[18px] py-2.5 font-semibold text-white hover:bg-[#44403c] ${focus}`}>
+            Sign up
+          </Link>
+        </nav>
+      </header>
+
+      <main className="mx-auto max-w-[760px] px-6 pt-12 pb-10 text-center sm:pt-[72px]">
+        <div aria-hidden="true" className="mb-7 flex justify-center">
+          <div className="size-16 rounded-full border-4 border-[#fffbf7] bg-[#fdba74]" />
+          <div className="-ml-4 size-16 rounded-full border-4 border-[#fffbf7] bg-[#c2410c]" />
+        </div>
+        <h1 className="text-[36px] leading-[1.1] font-extrabold tracking-[-0.02em] sm:text-[52px]">Go from following to talking.</h1>
+        <p className="mx-auto mt-5 max-w-[560px] text-[19px] leading-[1.6] text-[#57534e]">
+          A private video call, just the two of you. You choose who, when and for how long.
+        </p>
+
+        <form action="/search" method="get" className="mx-auto mt-9 flex max-w-[560px] flex-col gap-2.5 rounded-[28px] bg-white p-2 shadow-[0_1px_2px_rgba(28,25,23,0.06),0_8px_24px_rgba(28,25,23,0.08)] sm:flex-row sm:rounded-full">
+          <label htmlFor="front-search" className="sr-only">Who would you like to talk to?</label>
+          <input
+            id="front-search"
+            name="q"
+            type="search"
+            maxLength={50}
+            placeholder="Who would you like to talk to?"
+            aria-describedby="front-search-hint"
+            className={`min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-[18px] py-3 text-base placeholder:text-[#78716c] ${focus}`}
+          />
+          <button type="submit" className={`min-h-11 cursor-pointer rounded-full bg-[#c2410c] px-6 py-3 text-base font-bold text-white hover:bg-[#9a3412] ${focus}`}>
+            Search
+          </button>
+        </form>
+        <p id="front-search-hint" className="mt-3.5 text-sm text-[#78716c]">Type a name or their @handle from Instagram, TikTok or YouTube.</p>
+        <p className="mt-10 flex flex-wrap items-center justify-center gap-2 text-[15px] text-[#57534e]">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c2410c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+          <span>Every host&apos;s ID is checked. Nothing is charged when you ask.</span>
+        </p>
+      </main>
+
+      <footer className="mx-auto flex max-w-[1040px] flex-wrap justify-center gap-x-5 px-6 pt-6 pb-12 text-sm text-[#57534e]">
+        <Link href="/host" className={`${footerLink} font-semibold text-[#9a3412]`}>Become a host</Link>
+        <Link href="/rules" className={footerLink}>Rules</Link>
+        <Link href="/terms" className={footerLink}>Terms</Link>
+        <Link href="/privacy" className={footerLink}>Privacy</Link>
+      </footer>
+    </div>
   );
 }
 

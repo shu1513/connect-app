@@ -11,8 +11,9 @@ import { SignOutButton } from "./sign-out-button";
  * the old links. Drawn with the page, the bar is always right for whoever is looking.
  *
  * `bare` is for the sign-up steps (log in, create an account, the welcome step): only the name of
- * the site, because someone in the middle of signing up cannot use the other pages yet. The one
- * page without this frame is the live call, where a bar would invite leaving the call by accident.
+ * the site, because someone in the middle of signing up cannot use the other pages yet. Two pages
+ * have no frame: the live call, where a bar would invite leaving the call by accident, and the
+ * visitor's front page, which draws its own top bar and footer in its own look (src/app/page.tsx).
  */
 export async function SitePage({ bare = false, className, children }: { bare?: boolean; className: string; children: React.ReactNode }) {
   return (
