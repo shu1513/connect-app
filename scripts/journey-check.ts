@@ -237,7 +237,7 @@ async function main() {
     const chosen = bookPath(handle, slot, 15);
     {
       const front = await page("/");
-      check("the front address explains Connect to a visitor", front.status === 200 && front.words.includes("A private video call, one to one") && barOf(front.text) === "visitor", String(front.status));
+      check("the front address explains Connect to a visitor", front.status === 200 && front.words.includes("Go from following to talking.") && front.words.includes("Sign up") && barOf(front.text) === "visitor", String(front.status));
       const found = await page(`/search?q=${encodeURIComponent(`Jo Journey ${RUN}`)}`);
       check("search finds the new host", found.status === 200 && linksOf(found.text).includes(`/h/${handle}`));
 

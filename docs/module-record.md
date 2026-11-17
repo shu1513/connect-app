@@ -958,6 +958,18 @@ Astra also noted three planned cases the script did not have yet (a replacement 
 
 ---
 
+## A later change: the new front page (17 November 2026)
+
+**How it was chosen.** Three directions were drawn on a design canvas (calm, warm, bold). The founder chose the warm one (B), cut it down to one screen, and asked for "simple, intuitive, and user friendly". Astra then drew its own front page without seeing the others; its headline, "Go from following to talking.", was taken into B. The canvas: https://claude.ai/artifact/FpwfGTrJkmgsDVxCUa5C9i (private to the founder).
+
+**What the page is now.** Warm off-white, the font Plus Jakarta Sans, the headline "Go from following to talking.", one sentence, one search box ("Who would you like to talk to?") that searches for real, a hint about Instagram, TikTok and YouTube names, one line of reassurance ("Every host's ID is checked. Nothing is charged when you ask."), and in the footer "Become a host", Rules, Terms and Privacy. The three steps and the longer explanations were left out on purpose.
+
+**Who built it.** Astra built it, at the founder's request; Claude reviewed it. Only the front page changed: it draws its own top bar (still marked as the visitor's bar, with Log in and Sign up) and footer, and every other page keeps the plain look for now. The font is loaded for this page only.
+
+**How it was checked.** Types, lint, 358 automatic tests; the accounts script (165) and the whole-journey script (63), whose front-page checks now look for the new words. In a browser: the page at computer and phone width (no sideways scrolling, the search box stacks on a phone), and a search from the front page that lands on the search results.
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.
