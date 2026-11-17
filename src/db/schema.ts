@@ -181,7 +181,10 @@ export const hostProfiles = pgTable("host_profiles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** A host's claim to a social media account, proven with a code in that account's bio. */
+/**
+ * A host's claim to a social media account, proven with a code in that account's bio or, for
+ * TikTok, by signing in there.
+ */
 export const socialAccounts = pgTable(
   "social_accounts",
   {
@@ -204,12 +207,22 @@ export const socialAccounts = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     confirmedBy: text("confirmed_by").references(() => user.id),
+    /**
+     * The network's own number for the account, kept as text. Only set when the account was proven
+     * by signing in at the network; empty for an account proven with a code. For TikTok it is the
+     * number TikTok gives the account for our app, so it only means something with that app's keys.
+     */
+    providerAccountId: text("provider_account_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("social_accounts_user_network_uq").on(t.userId, t.network),
     // The database itself guarantees one confirmed owner per name per network.
     uniqueIndex("social_accounts_confirmed_uq").on(t.network, t.nameKey).where(sql`${t.confirmedAt} is not null`),
+    // And one confirmed owner per account number, so a renamed account cannot be proven for a second host.
+    uniqueIndex("social_accounts_provider_uq")
+      .on(t.network, t.providerAccountId)
+      .where(sql`${t.confirmedAt} is not null and ${t.providerAccountId} is not null`),
   ],
 );
 

@@ -1,6 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { setVerifiedOnly } from "@/lib/booking/bookings";
@@ -19,6 +20,8 @@ import {
   socialNameReady,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
+import { TIKTOK_COOKIE, TIKTOK_COOKIE_PATH, tiktokSettings } from "@/lib/profiles/tiktok";
+import { startTikTokLogin, TIKTOK_OFF } from "@/lib/profiles/tiktok-login";
 import { requireActiveUser, requireUser } from "@/lib/session";
 
 function back(text: string): never {
@@ -191,4 +194,26 @@ export async function removeSocial(formData: FormData) {
     notice = problem(error);
   }
   back(notice);
+}
+
+/**
+ * "Connect your TikTok": sends the host to TikTok to log in there. A note of who started is kept
+ * in a cookie only this server can read and that is sent only to the return address.
+ */
+export async function connectTikTok() {
+  const user = await requireActiveUser();
+  const settings = tiktokSettings();
+  if (!settings) back(TIKTOK_OFF);
+  const [profile] = await db.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
+  if (!profile) back("Fill in your host profile first.");
+  const login = startTikTokLogin({ userId: user.id, now: new Date(), settings });
+  (await cookies()).set(TIKTOK_COOKIE, login.note, {
+    httpOnly: true,
+    secure: true,
+    // "lax" is what lets the cookie come back when TikTok returns the host to us.
+    sameSite: "lax",
+    path: TIKTOK_COOKIE_PATH,
+    maxAge: login.maxAgeSeconds,
+  });
+  redirect(login.url);
 }

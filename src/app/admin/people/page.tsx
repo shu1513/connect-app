@@ -83,9 +83,9 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
 
       {refused.map(({ network, count }) => (
         <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
-          Automatic {isNetwork(network) ? NETWORKS[network].label : network} checks have been failing: {network === "youtube" ? "Google" : "Meta"} did
-          not accept our key or our permission in {count} {count === 1 ? "check" : "checks"} in the last 24 hours. Hosts are told to try again
-          later; nobody is confirmed wrongly.
+          Automatic {isNetwork(network) ? NETWORKS[network].label : network} checks have been failing:{" "}
+          {network === "youtube" ? "Google" : network === "tiktok" ? "TikTok" : "Meta"} did not accept our key or our permission in {count}{" "}
+          {count === 1 ? "check" : "checks"} in the last 24 hours. Hosts are told to try again later; nobody is confirmed wrongly.
         </p>
       ))}
 

@@ -1,0 +1,2 @@
+ALTER TABLE "social_accounts" ADD COLUMN "provider_account_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "social_accounts_provider_uq" ON "social_accounts" USING btree ("network","provider_account_id") WHERE "social_accounts"."confirmed_at" is not null and "social_accounts"."provider_account_id" is not null;

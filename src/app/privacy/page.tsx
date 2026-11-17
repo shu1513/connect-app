@@ -14,6 +14,10 @@ export default function PrivacyPage() {
         To confirm an Instagram or YouTube account, we read its public bio (on YouTube, the channel&apos;s description)
         through Instagram&apos;s or YouTube&apos;s own service and look for the code. We do not keep the text.
       </p>
+      <p className="mt-4 text-sm">
+        When you connect TikTok by signing in there, we read the account&apos;s number and name, nothing else, and we keep
+        no key.
+      </p>
     </SitePage>
   );
 }
