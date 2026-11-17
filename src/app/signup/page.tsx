@@ -5,6 +5,7 @@ import { googleSignInConfigured } from "@/lib/auth";
 import { returnPath } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
+import { warm } from "@/components/warm-ui";
 
 export const metadata: Metadata = { title: "Create your account" };
 
@@ -15,8 +16,8 @@ export default async function SignUpPage(props: PageProps<"/signup">) {
   // Only someone who can get further is sent on. Anyone else stays here, so they can never be bounced back and forth.
   if (person && !person.closed && person.emailVerified) redirect(next);
   return (
-    <SitePage bare className="mx-auto w-full max-w-sm px-4 py-16">
-      <h1 className="text-2xl font-semibold">Create your account</h1>
+    <SitePage bare warm className={warm.auth}>
+      <h1 className={warm.title}>Create your account</h1>
       <SignUpForm google={googleSignInConfigured} next={next} />
     </SitePage>
   );

@@ -15,11 +15,12 @@ import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { getUser } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
+import { warm } from "@/components/warm-ui";
 
 // Always built fresh, so hiding or suspending a profile takes effect at once.
 export const dynamic = "force-dynamic";
 
-const lengthList = "mt-1 block rounded border border-neutral-400 bg-transparent px-3 py-2";
+const lengthList = `${warm.input} mt-1 block`;
 
 const CANCEL_RULE: Record<number, string> = {
   0: "Free to cancel any time before the call starts.",
@@ -59,16 +60,16 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
 
   return (
-    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <div className="flex items-center gap-4">
         <div
           aria-hidden
-          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-2xl font-semibold text-neutral-800"
+          className="flex size-16 shrink-0 items-center justify-center rounded-full bg-[#ffedd5] text-2xl font-bold text-[#9a3412]"
         >
           {(Array.from(profile.displayName)[0] ?? "").toUpperCase()}
         </div>
-        <div>
-          <h1 className="text-2xl font-semibold">{profile.displayName}</h1>
+        <div className="min-w-0">
+          <h1 className={warm.title}>{profile.displayName}</h1>
           <p className="text-sm opacity-70">@{profile.handle}</p>
           <p className="text-sm">
             <Rating shown={rating} newText="New on Connect" />
@@ -76,7 +77,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         </div>
       </div>
 
-      {profile.about && <p className="mt-6 whitespace-pre-line">{profile.about}</p>}
+      {profile.about && <p className="mt-6 whitespace-pre-line text-[#57534e]">{profile.about}</p>}
 
       {viewer && viewer.id !== profile.userId && (
         <p className="mt-4 text-sm">
@@ -87,7 +88,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       )}
 
       {profile.socials.length > 0 && (
-        <ul className="mt-6 space-y-1 text-sm">
+        <ul className="mt-4 space-y-1 text-sm">
           {profile.socials.map((social) => (
             <li key={social.network}>
               {social.label}:{" "}
@@ -100,7 +101,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         </ul>
       )}
 
-      <section className="mt-8 rounded border border-neutral-400 p-4">
+      <section className={`${warm.card} mt-6`}>
         <p className="text-lg font-semibold">
           {profile.pricePer15Cents === 0 ? "Free private video call" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}
         </p>
@@ -121,7 +122,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       </section>
 
       {now && (
-        <section className="mt-8 rounded border-2 border-green-700 p-4">
+        <section className={`${warm.available} mt-6`}>
           <h2 className="text-lg font-semibold">
             <span aria-hidden className="mr-2 inline-block h-3 w-3 rounded-full bg-green-600" />
             Available now
@@ -130,8 +131,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             {profile.displayName} can take a call right away. Choose a length; they answer within {NOW.answerMinutes} minutes and the call starts a minute after they accept.
             {now.offer.pricePer15Cents > 0 ? " You pay for the time you are both in the call." : ""}
           </p>
-          <form method="get" action={`/h/${profile.handle}/now`} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
-            <label className="block">
+          <form method="get" action={`/h/${profile.handle}/now`} className="mt-5 flex flex-wrap items-end gap-3 text-sm">
+            <label className="block min-w-0 max-w-full">
               Length
               <select name="length" defaultValue={firstLength(now.lengths) ?? undefined} className={lengthList}>
                 {now.lengths.map((minutes) => (
@@ -142,14 +143,14 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
                 ))}
               </select>
             </label>
-            <button type="submit" className="rounded bg-green-700 px-3 py-2 font-medium text-white">
+            <button type="submit" className={warm.button}>
               Call now
             </button>
           </form>
         </section>
       )}
 
-      <section id="ask" className="mt-8 scroll-mt-4">
+      <section id="ask" className={`${warm.card} mt-6 scroll-mt-4`}>
         <h2 className="text-lg font-semibold">{now ? "Or ask for a call later" : "Ask for a call"}</h2>
         {!offer || !chosen ? (
           <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls at the moment.</p>
@@ -160,8 +161,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             <p className="mt-2 text-sm">
               This sends a request. It does not reserve the time: others may ask for it too, and {profile.displayName} chooses.
             </p>
-            <form method="get" action={`/h/${profile.handle}#ask`} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
-              <label className="block">
+            <form method="get" action={`/h/${profile.handle}#ask`} className="mt-5 flex flex-wrap items-end gap-3 text-sm">
+              <label className="block min-w-0 max-w-full">
                 Length
                 <select name="length" defaultValue={chosen} className={lengthList}>
                   {offer.lengths.map((minutes) => (
@@ -172,14 +173,16 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
                   ))}
                 </select>
               </label>
-              <button type="submit" className="rounded border border-neutral-500 px-3 py-2">
+              <button type="submit" className={now ? warm.secondary : warm.button}>
                 Show times
               </button>
             </form>
             {starts.length === 0 ? (
               <p className="mt-4 text-sm opacity-70">There are no open times for this length right now. Please look again later.</p>
             ) : (
-              <SlotPicker starts={starts.map((s) => s.toISOString())} hrefBase={`/h/${profile.handle}/book?length=${chosen}`} />
+              <div className={warm.slots}>
+                <SlotPicker starts={starts.map((s) => s.toISOString())} hrefBase={`/h/${profile.handle}/book?length=${chosen}`} />
+              </div>
             )}
           </>
         )}

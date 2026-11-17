@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { timeZones } from "@/lib/time-zones";
 import { finishSignUp } from "./actions";
 import { SitePage } from "@/components/site-page";
+import { warm } from "@/components/warm-ui";
 
 export const metadata: Metadata = { title: "One last step" };
 
@@ -33,8 +34,8 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const returning = Boolean(row?.termsAcceptedAt);
 
   return (
-    <SitePage bare className="mx-auto w-full max-w-sm px-4 py-16">
-      <h1 className="text-2xl font-semibold">{returning ? "We have updated the rules" : "One last step"}</h1>
+    <SitePage bare warm className={warm.auth}>
+      <h1 className={warm.title}>{returning ? "We have updated the rules" : "One last step"}</h1>
       <p className="mt-2 text-sm opacity-70">
         {returning ? `${person.name}, please read and accept the current rules to carry on.` : `Welcome, ${person.name}. Your email address is confirmed.`}
       </p>

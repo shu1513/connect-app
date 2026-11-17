@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { NewPasswordForm } from "@/components/auth-forms";
 import { SitePage } from "@/components/site-page";
+import { warm } from "@/components/warm-ui";
 
 export const metadata: Metadata = { title: "Choose a new password" };
 
@@ -11,8 +12,8 @@ export default async function ResetPasswordPage(props: PageProps<"/reset-passwor
   const usable = typeof token === "string" && token.length > 0 && typeof error !== "string";
 
   return (
-    <SitePage bare className="mx-auto w-full max-w-sm px-4 py-16">
-      <h1 className="text-2xl font-semibold">Choose a new password</h1>
+    <SitePage bare warm className={warm.auth}>
+      <h1 className={warm.title}>Choose a new password</h1>
       {usable ? (
         <>
           <p className="mt-2 text-sm opacity-70">Saving it logs you out on every device, so only you can get back in.</p>

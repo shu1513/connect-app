@@ -1,5 +1,4 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
-import { Plus_Jakarta_Sans } from "next/font/google";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
@@ -11,8 +10,7 @@ import { callsToRate } from "@/lib/ratings/ratings";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, requireUser } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
-
-const frontPageFont = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap" });
+import { warm, warmFont } from "@/components/warm-ui";
 
 const REQUEST_LABEL: Record<string, string> = {
   card: "card details needed to send it",
@@ -43,10 +41,10 @@ function paymentLine(all: Payment[]): string {
 
 /** What a visitor sees at the front address: what Connect is, and the ways in. */
 function FrontPage() {
-  const focus = "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#c2410c]";
+  const focus = warm.focus;
   const footerLink = `inline-flex min-h-11 min-w-11 items-center justify-center underline underline-offset-2 hover:text-[#9a3412] ${focus}`;
   return (
-    <div className={`${frontPageFont.className} min-h-screen bg-[#fffbf7] text-[#1c1917]`}>
+    <div className={`${warmFont.className} ${warm.root}`}>
       <header data-site-header="visitor" className="mx-auto flex max-w-[1040px] flex-wrap items-center justify-between gap-4 p-6">
         <Link href="/" className={`inline-flex min-h-11 items-center text-[22px] font-extrabold ${focus}`}>
           Connect
@@ -71,7 +69,7 @@ function FrontPage() {
           A private video call, just the two of you. You choose who, when and for how long.
         </p>
 
-        <form action="/search" method="get" className="mx-auto mt-9 flex max-w-[560px] flex-col gap-2.5 rounded-[28px] bg-white p-2 shadow-[0_1px_2px_rgba(28,25,23,0.06),0_8px_24px_rgba(28,25,23,0.08)] sm:flex-row sm:rounded-full">
+        <form action="/search" method="get" className={`${warm.searchPill} mx-auto mt-9 max-w-[560px]`}>
           <label htmlFor="front-search" className="sr-only">Who would you like to talk to?</label>
           <input
             id="front-search"
@@ -80,9 +78,9 @@ function FrontPage() {
             maxLength={50}
             placeholder="Who would you like to talk to?"
             aria-describedby="front-search-hint"
-            className={`min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-[18px] py-3 text-base placeholder:text-[#78716c] ${focus}`}
+            className={`${warm.searchInput} ${focus}`}
           />
-          <button type="submit" className={`min-h-11 cursor-pointer rounded-full bg-[#c2410c] px-6 py-3 text-base font-bold text-white hover:bg-[#9a3412] ${focus}`}>
+          <button type="submit" className={`${warm.button} ${focus}`}>
             Search
           </button>
         </form>
