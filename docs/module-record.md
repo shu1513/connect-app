@@ -998,6 +998,20 @@ Astra also noted three planned cases the script did not have yet (a replacement 
 
 ---
 
+## A later change: the warm look on Hosting and admin, and so on every page (18 November 2026)
+
+**What changed.** The Hosting pages (the main page, calendar, requests, "Available now") and the admin pages (money, hosts and accounts, reports and safety, emails, the second-step setup) now have the warm look. With that, every page that uses the shared frame is warm, so the frame's on/off switch is gone: `SitePage` is always warm, and no page can be left plain by mistake. The one page still in its own look is the live call, which has no frame.
+
+**How.** No page was rewritten: the rules added for the customer's pages (in `warm-ui.css`) already restyle the buttons, fields and boxes these pages use. The stand-alone links on the admin pages got the large tap size.
+
+**Who built it.** Claude, at the founder's request; Astra reviewed it.
+
+**What the review found.** One real thing, fixed: the red "close account" button on the admin reports page also carried the grey button's class, so the warm rule for grey buttons had turned it grey; that rule now leaves red buttons alone. Astra also noted something older and outside this change: on the live call, a few coloured texts are slightly too faint when the computer is in dark mode. Left for the step that gives the call screen its look. CodeRabbit was not available for this change, so Claude read the whole change again in its place and found two small things: a note in the stylesheet that was out of date, and the box around a report's quoted text, which was a dark see-through box made for a dark page and is now a light one.
+
+**How it was checked.** Types, lint, 358 automatic tests, the build; all twelve check scripts (accounts 165, whole journey 63, safety 60, notifications 33, booking 116, call-now 74, more time 114, ratings 73, verified 30, refunds 112, connection 27, payments with payouts 145, against Stripe's test mode). In a browser: every Hosting page as the test host and every admin page as the test admin at computer width; each also measured at phone width (no sideways scrolling).
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.

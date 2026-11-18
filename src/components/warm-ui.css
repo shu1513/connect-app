@@ -1,8 +1,8 @@
 /*
- * The warm look of the visitor pages. Every rule is under a warm-* class, so a page only gets it
- * when it asks for it (SitePage with `warm`, or the front page). A plain stylesheet rather than a
- * CSS module: this app's Turbopack rule for *.css hands every .css file to Tailwind as plain CSS,
- * which leaves a module's class names undefined.
+ * The warm look of the site. Every rule is under a warm-* class: the shared page frame (SitePage)
+ * and the front page turn it on; the live call has no frame and keeps its own look. A plain
+ * stylesheet rather than a CSS module: this app's Turbopack rule for *.css hands every .css file
+ * to Tailwind as plain CSS, which leaves a module's class names undefined.
  */
 .warm-root {
   min-height: 100vh;
@@ -293,7 +293,7 @@
 /*
  * Pages written before the warm look share a small set of Tailwind styles: a blue main button, a
  * grey-bordered second button, grey-bordered fields and boxes. Inside a warm page those are given
- * the warm shapes and colours here, so such a page only has to turn the look on.
+ * the warm shapes and colours here, so those pages did not have to be rewritten.
  */
 .warm-page h1 {
   font-size: 30px;
@@ -322,13 +322,14 @@
   color: white;
 }
 
-.warm-page :is(button, a)[class~="border-neutral-500"] {
+/* Not a red (danger) button that also carries the grey border: it keeps its red. */
+.warm-page :is(button, a)[class~="border-neutral-500"]:not([class~="border-red-600"]) {
   border-color: #a8a29e;
   background: white;
   color: #1c1917;
 }
 
-.warm-page :is(button, a)[class~="border-neutral-500"]:hover {
+.warm-page :is(button, a)[class~="border-neutral-500"]:not([class~="border-red-600"]):hover {
   border-color: #c2410c;
   background: #fff7ed;
   color: #9a3412;
@@ -366,6 +367,12 @@
 .warm-page :is(section, li, p, div, form, pre)[class~="rounded"][class~="border-blue-600"] {
   border-color: #fdba74;
   background: #fff7ed;
+}
+
+/* A quoted text (what a report says) was a dark see-through box, made for a dark page. */
+.warm-page [class~="bg-neutral-800/40"] {
+  border-radius: 12px;
+  background: #f5f5f4;
 }
 
 /* Last, so it also holds for the pill-shaped buttons above. */

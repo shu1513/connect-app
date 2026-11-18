@@ -12,7 +12,7 @@ export default async function ResetPasswordPage(props: PageProps<"/reset-passwor
   const usable = typeof token === "string" && token.length > 0 && typeof error !== "string";
 
   return (
-    <SitePage bare warm className={warm.auth}>
+    <SitePage bare className={warm.auth}>
       <h1 className={warm.title}>Choose a new password</h1>
       {usable ? (
         <>

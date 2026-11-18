@@ -20,7 +20,7 @@ export default async function SearchPage(props: PageProps<"/search">) {
   const results = searched ? await searchHosts(typed, viewer?.id ?? null, new Date()) : [];
 
   return (
-    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <h1 className={warm.title}>Find a host</h1>
       <form action="/search" method="get" className={`${warm.searchPill} mt-6`}>
         <label className="min-w-0 flex-1">

@@ -2,10 +2,10 @@ import Link from "next/link";
 import { isAdmin } from "@/lib/payments/access";
 import { getUser } from "@/lib/session";
 import { SignOutButton } from "./sign-out-button";
-import { warm as styles, warmFont } from "./warm-ui";
+import { warm, warmFont } from "./warm-ui";
 
 /**
- * The frame of every page: the top bar, then the page itself.
+ * The frame of every page: the top bar, then the page itself, in the site's warm look.
  *
  * It is used by each page rather than by the one layout around all pages, on purpose: a layout is
  * not drawn again when someone moves between pages, so after logging in or out it would still show
@@ -14,15 +14,15 @@ import { warm as styles, warmFont } from "./warm-ui";
  * `bare` is for the sign-up steps (log in, create an account, the welcome step): only the name of
  * the site, because someone in the middle of signing up cannot use the other pages yet. Two pages
  * have no frame: the live call, where a bar would invite leaving the call by accident, and the
- * visitor's front page, which draws its own top bar and footer in its own look (src/app/page.tsx).
+ * visitor's front page, which draws its own top bar and footer (src/app/page.tsx).
  */
-export async function SitePage({ bare = false, warm = false, className, children }: { bare?: boolean; warm?: boolean; className: string; children: React.ReactNode }) {
-  const content = (
-    <>
-      <SiteHeader bare={bare} warm={warm} />
+export async function SitePage({ bare = false, className, children }: { bare?: boolean; className: string; children: React.ReactNode }) {
+  return (
+    <div className={`${warmFont.className} ${warm.root} ${warm.page}`}>
+      <SiteHeader bare={bare} />
       <main className={className}>{children}</main>
-      <footer className={warm ? styles.footer : "mt-auto border-t border-neutral-400/40"}>
-        <p className={warm ? styles.footerLinks : "mx-auto flex w-full max-w-5xl flex-wrap gap-x-5 gap-y-1 px-4 py-3 text-sm opacity-70"}>
+      <footer className={warm.footer}>
+        <p className={warm.footerLinks}>
           <Link href="/rules" className="underline-offset-2 hover:underline">
             Rules
           </Link>
@@ -34,52 +34,50 @@ export async function SitePage({ bare = false, warm = false, className, children
           </Link>
         </p>
       </footer>
-    </>
+    </div>
   );
-  return warm ? <div className={`${warmFont.className} ${styles.root} ${styles.page}`}>{content}</div> : content;
 }
 
-async function SiteHeader({ bare, warm }: { bare: boolean; warm: boolean }) {
+async function SiteHeader({ bare }: { bare: boolean }) {
   // The same look-up the page itself makes; it is done once per page view.
   const user = bare ? null : await getUser();
   const admin = user ? await isAdmin(user.id) : false;
-  const link = warm ? styles.navLink : "underline-offset-2 hover:underline";
   return (
-    <header data-site-header={bare ? "bare" : user ? "member" : "visitor"} className={warm ? styles.header : "border-b border-neutral-400/40"}>
-      <div className={warm ? styles.headerInner : "mx-auto flex w-full max-w-5xl flex-wrap items-baseline gap-x-5 gap-y-1 px-4 py-3 text-sm"}>
-        <Link href="/" className={warm ? styles.brand : "mr-1 text-base font-semibold"}>
+    <header data-site-header={bare ? "bare" : user ? "member" : "visitor"} className={warm.header}>
+      <div className={warm.headerInner}>
+        <Link href="/" className={warm.brand}>
           Connect
         </Link>
         {!bare && (
-          <nav aria-label="Main" className={warm ? styles.nav : "flex flex-wrap gap-x-5 gap-y-1"}>
+          <nav aria-label="Main" className={warm.nav}>
             {user && (
-              <Link href="/" className={link}>
+              <Link href="/" className={warm.navLink}>
                 Your calls
               </Link>
             )}
-            <Link href="/search" className={link}>
+            <Link href="/search" className={warm.navLink}>
               Find a host
             </Link>
             {user ? (
               <>
-                <Link href="/host" className={link}>
+                <Link href="/host" className={warm.navLink}>
                   Hosting
                 </Link>
-                <Link href="/account" className={link}>
+                <Link href="/account" className={warm.navLink}>
                   Your account
                 </Link>
                 {admin && (
-                  <Link href="/admin" className={link}>
+                  <Link href="/admin" className={warm.navLink}>
                     Admin
                   </Link>
                 )}
               </>
             ) : (
               <>
-                <Link href="/login" className={link}>
+                <Link href="/login" className={warm.navLink}>
                   Log in
                 </Link>
-                <Link href="/signup" className={warm ? styles.signup : link}>
+                <Link href="/signup" className={warm.signup}>
                   Create an account
                 </Link>
               </>

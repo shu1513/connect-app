@@ -54,7 +54,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   // A block either way looks, from here, exactly like a time that is no longer open.
   if (!offer || !stillOpen || (await isBlockedEitherWay(person.id, profile.userId))) {
     return (
-      <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">That time is no longer open</h1>
         <p className="mt-4 text-sm">
           <Link href={back} className="inline-flex min-h-11 items-center underline underline-offset-2">
@@ -66,7 +66,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   }
   if (person.id === profile.userId) {
     return (
-      <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">This is your own page</h1>
         <p className="mt-4 text-sm">You cannot book a call with yourself.</p>
       </SitePage>
@@ -82,7 +82,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   const hostZoneTime = whenFor({ timeZone: offer.timeZone }, startsAt);
 
   return (
-    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
         <Link href={back} className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Other times

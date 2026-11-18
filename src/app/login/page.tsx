@@ -35,7 +35,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
   const message = typeof error === "string" ? errorText(error) : typeof notice === "string" ? NOTICES[notice] : undefined;
 
   return (
-    <SitePage bare warm className={warm.auth}>
+    <SitePage bare className={warm.auth}>
       <h1 className={warm.title}>Log in</h1>
       {message && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
