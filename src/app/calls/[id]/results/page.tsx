@@ -249,6 +249,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
             monthFrozen={Boolean(p.monthId && frozenMonths.has(p.monthId))}
             billing={call.billing}
             addedMinutes={p.extensionId ? (extensionOf.get(p.extensionId)?.minutes ?? 0) : null}
+            memberCall={payment?.kind === "member_call"}
             waiting={
               toBeCharged.has(p.id)
                 ? { cents: toBeCharged.get(p.id) ?? null, takeAt: plan?.timing?.takeAt ?? null, decided: isDecided(plan?.request), askedFor: Boolean(plan?.request) }
@@ -337,6 +338,8 @@ function Receipt(props: {
   toCard: Array<{ sourceKey: string; amountCents: number; status: string }>;
   /** The payment's month is frozen by a bank dispute: nothing of it moves, so nothing is promised or offered here. */
   monthFrozen: boolean;
+  /** The call was booked with a membership. Time added to it is then paid from the membership or by card, and the heading says which. */
+  memberCall: boolean;
   billing: string;
   /** Null for the call's own payment. Otherwise the minutes this payment was asked for. */
   addedMinutes: number | null;
@@ -390,7 +393,13 @@ function Receipt(props: {
 
   return (
     <section className="mt-6 rounded border border-neutral-400 p-4">
-      <h2 className="text-lg font-semibold">{extra ? `Payment for ${props.addedMinutes} more minutes` : fromMembership ? "Paid from the membership" : "Payment"}</h2>
+      <h2 className="text-lg font-semibold">
+        {extra
+          ? `Payment for ${props.addedMinutes} more minutes${props.memberCall ? (fromMembership ? ", from the membership" : ", by card") : ""}`
+          : fromMembership
+            ? "Paid from the membership"
+            : "Payment"}
+      </h2>
       <p className="mt-1">{headline}</p>
       {waiting && waiting.cents !== null && (
         <p className="mt-1" data-to-be-charged>

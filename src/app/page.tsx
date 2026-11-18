@@ -41,8 +41,16 @@ function paymentLine(all: Payment[]): string {
   const parts: string[] = [];
   // A call booked with a membership is paid from the member's month: nothing is held or charged on a card for it.
   const fromMembership = own.kind === "member_call";
-  if (charged.length > 0) parts.push(`${fromMembership ? "Paid from the membership:" : "Charged"} ${formatMoney(charged.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0))}`);
-  if (held.length > 0) parts.push(`${formatMoney(held.reduce((sum, p) => sum + p.bookedCents, 0))} ${fromMembership ? "of membership time set aside" : "held"}${held.some((p) => p.needsReview) ? ", needs review" : ""}`);
+  // Each kind on its own: time added to a member's call can be paid by card, and that part is a card charge like any other.
+  const paid = (some: Payment[]) => formatMoney(some.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0));
+  const booked = (some: Payment[]) => formatMoney(some.reduce((sum, p) => sum + p.bookedCents, 0));
+  const fromMonth = (p: Payment) => p.kind === "member_call";
+  const byCard = (p: Payment) => p.kind !== "member_call";
+  if (charged.some(fromMonth)) parts.push(`Paid from the membership: ${paid(charged.filter(fromMonth))}`);
+  if (charged.some(byCard)) parts.push(`Charged ${paid(charged.filter(byCard))}${fromMembership ? " by card" : ""}`);
+  if (held.some(fromMonth)) parts.push(`${booked(held.filter(fromMonth))} of membership time set aside`);
+  if (held.some(byCard)) parts.push(`${booked(held.filter(byCard))} held${fromMembership ? " on the card" : ""}`);
+  if (held.some((p) => p.needsReview)) parts.push("needs review");
   return parts.length > 0 ? parts.join(", ") : fromMembership ? "Nothing used from the membership" : "Not charged";
 }
 
