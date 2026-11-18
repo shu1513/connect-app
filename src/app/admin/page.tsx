@@ -133,7 +133,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                 {payment.extensionId ? " This is the payment for more time that was added during the call; the call's own payment is decided separately." : ""}
               </p>
               <p className="mt-1">
-                <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
+                <Link href={`/calls/${call.id}/results`} className="inline-flex min-h-11 items-center underline underline-offset-2">
                   See the call&apos;s record
                 </Link>
               </p>

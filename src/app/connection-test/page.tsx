@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Test your connection" };
 export default async function ConnectionTestPage() {
   await requireUser("/connection-test");
   return (
-    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold">Test your connection</h1>
       <p className="mt-2 text-sm opacity-80">
         A short check of this device&apos;s connection to the video service, on the network you are on now. It takes about 12 seconds and does not

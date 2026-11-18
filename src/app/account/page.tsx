@@ -41,7 +41,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
-    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold">Your account</h1>
 
       {((typeof notice === "string" && NOTICES[notice]) || signed) && (

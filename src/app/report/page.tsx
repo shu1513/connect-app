@@ -23,7 +23,7 @@ export default async function ReportPage(props: PageProps<"/report">) {
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
-    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <h1 className="text-2xl font-semibold">Report</h1>
       {stopped && (
         <p className="mt-2 text-sm">

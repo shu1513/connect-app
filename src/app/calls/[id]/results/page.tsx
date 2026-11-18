@@ -123,7 +123,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   }[result.status];
 
   return (
-    <SitePage warm className="mx-auto w-full max-w-4xl px-4 py-10">
+    <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
       <p className="text-sm">
         <Link href="/" className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Your calls

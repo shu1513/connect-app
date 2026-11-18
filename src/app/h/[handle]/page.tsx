@@ -60,7 +60,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
 
   return (
-    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <div className="flex items-center gap-4">
         <div
           aria-hidden

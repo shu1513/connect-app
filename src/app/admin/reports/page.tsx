@@ -94,7 +94,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               </p>
               <p className="mt-1 opacity-70">Room name, for the video service&apos;s dashboard: {call.roomName}</p>
               <p className="mt-1">
-                <Link href={`/calls/${call.id}/results#refund`} className="underline underline-offset-2">
+                <Link href={`/calls/${call.id}/results#refund`} className="inline-flex min-h-11 items-center underline underline-offset-2">
                   Open the call
                 </Link>
               </p>
@@ -147,7 +147,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 )}
                 {snapshot.booking?.id && !snapshot.call?.id && (
                   <p className="mt-1">
-                    <Link href={`/bookings/${snapshot.booking.id}`} className="underline underline-offset-2">
+                    <Link href={`/bookings/${snapshot.booking.id}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
                       See the request
                     </Link>
                   </p>

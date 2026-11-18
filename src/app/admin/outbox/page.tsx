@@ -34,7 +34,7 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
   return (
     <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
       <p className="text-sm">
-        <Link href="/admin" className="underline underline-offset-2">
+        <Link href="/admin" className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Admin
         </Link>
       </p>

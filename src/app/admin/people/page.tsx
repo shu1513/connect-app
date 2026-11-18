@@ -69,7 +69,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
   return (
     <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
       <p className="text-sm">
-        <Link href="/admin" className="underline underline-offset-2">
+        <Link href="/admin" className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Admin
         </Link>
       </p>

@@ -1,7 +1,7 @@
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./warm-ui.css";
 
-// One font instance and one opt-in stylesheet for the visitor pages (see warm-ui.css).
+// One font instance and one stylesheet for the site's warm look (see warm-ui.css).
 export const warmFont = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap" });
 
 /** The warm look's class names, as the pages use them. */

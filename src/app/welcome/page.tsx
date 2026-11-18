@@ -34,7 +34,7 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const returning = Boolean(row?.termsAcceptedAt);
 
   return (
-    <SitePage bare warm className={warm.auth}>
+    <SitePage bare className={warm.auth}>
       <h1 className={warm.title}>{returning ? "We have updated the rules" : "One last step"}</h1>
       <p className="mt-2 text-sm opacity-70">
         {returning ? `${person.name}, please read and accept the current rules to carry on.` : `Welcome, ${person.name}. Your email address is confirmed.`}
