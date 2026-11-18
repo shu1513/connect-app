@@ -20,10 +20,16 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, lte, ne, or, sql } from "d
 import { db, schema } from "@/db";
 import type { Call, CallExtension, Payment } from "@/db/schema";
 import { endRequestsInTheWay, lockCalendars } from "@/lib/booking/bookings";
+import { membershipForMoreTime, returnEndedRequestMoney } from "@/lib/membership/calls";
+import { cardInUse } from "@/lib/membership/cards";
+import { lockMonthsOfCall } from "@/lib/membership/locks";
+import { setAside } from "@/lib/membership/months";
+import { memberCallCents } from "@/lib/membership/rules";
 import { releasePayment } from "@/lib/payments/actions";
 import { placeHoldWithSavedCard } from "@/lib/payments/hold";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { ownPaymentOf } from "@/lib/payments/own";
+import { DEFAULT_FEE_TERMS } from "@/lib/payments/pricing";
 import { holdCoversCall } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
@@ -36,6 +42,7 @@ type Reader = Pick<typeof db, "select">;
 export class ExtendError extends Error {}
 
 const NO_LONGER = "Time can no longer be added to this call.";
+const NO_CARD = "Time cannot be added to this call by card, because your membership has no saved card any more. The call ends as booked.";
 const ENDED = ["declined", "ran_out", "failed"] as const;
 
 function log(message: string, error?: unknown) {
@@ -95,11 +102,55 @@ async function minutesFitting(reader: Reader, call: Call): Promise<number> {
   return minutesThatFit({ startsAt: call.startsAt, endsAt: call.endsAt, breakMinutes: booking.breakMinutes, hostNextAt: await nextFor(call.hostId), customerNextAt: await nextFor(call.customerId) });
 }
 
-/** The customer's choices right now: how many minutes fit, and the call's price. */
-export async function addTimeChoices(call: Call): Promise<{ fits: number; pricePer15Cents: number }> {
-  // A call booked from a membership: time cannot be added to it yet (part 2b of the memberships plan adds it).
-  if ((await ownPaymentOf(call.id))?.kind === "member_call") return { fits: 0, pricePer15Cents: call.pricePer15Cents };
-  return { fits: await minutesFitting(db, call), pricePer15Cents: call.pricePer15Cents };
+export type AddTimeChoices = {
+  fits: number;
+  pricePer15Cents: number;
+  /**
+   * Only for a call that was booked with a membership: a request of up to this many minutes is paid
+   * from the membership. A longer one is paid by card, all of it, at the price above. (0: every
+   * request is paid by card.)
+   */
+  membershipCovers?: number;
+};
+
+/** The customer's choices right now: how many minutes fit, the call's price, and for a member's call how each choice would be paid. */
+export async function addTimeChoices(call: Call, now: Date = new Date()): Promise<AddTimeChoices> {
+  const choices = { fits: await minutesFitting(db, call), pricePer15Cents: call.pricePer15Cents };
+  const member = await membershipForMoreTime(db, call, now);
+  return member ? { ...choices, membershipCovers: member.coversMinutes } : choices;
+}
+
+/** How a request for more time is paid on a member's call, and what it costs. */
+export type Way = { paidFrom: "membership" | "card"; priceCents: number };
+
+/**
+ * How a request for these minutes on a member's call would be paid right now: from the membership
+ * when it covers the whole request (the member price for those minutes, rounded down, like a
+ * booking), otherwise by card, at the call's price for those minutes.
+ */
+function wayFor(member: NonNullable<Awaited<ReturnType<typeof membershipForMoreTime>>>, call: Call, minutes: number): Way {
+  return minutes <= member.coversMinutes
+    ? { paidFrom: "membership", priceCents: memberCallCents(member.locked.month.pricePer15Cents, minutes) }
+    : { paidFrom: "card", priceCents: extensionPriceCents(call.pricePer15Cents, minutes) };
+}
+
+/** Whether that is what the member's screen showed when they pressed: the same way, and for a card the same price. */
+const asShown = (way: Way, shown: Way | { paidFrom: "membership" } | undefined): boolean =>
+  shown?.paidFrom === way.paidFrom && (way.paidFrom === "membership" || ("priceCents" in shown && shown.priceCents === way.priceCents));
+
+/**
+ * On a member's call: how the request would be paid, or its card price, is no longer what the
+ * screen showed. Nothing was written, nothing is held and the host was not asked; `way` is how it
+ * stands now, for the member to press again.
+ */
+export class WayChanged extends ExtendError {
+  constructor(readonly way: Way) {
+    super(
+      way.paidFrom === "card"
+        ? "Your membership time no longer covers this. It would be paid by card: $" + (way.priceCents / 100).toFixed(2) + ". Nothing was asked yet; press again if you want it."
+        : "This can now be paid from your membership instead of your card. Nothing was asked yet; press again if you want it.",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -159,11 +210,14 @@ async function endExtension(extensionId: string, status: (typeof ENDED)[number],
 /** Lets go of the hold of a request that ended without being accepted. Does nothing for any other request. */
 async function releaseHoldOf(extensionId: string): Promise<void> {
   const [found] = await db
-    .select({ paymentId: schema.payments.id })
+    .select({ paymentId: schema.payments.id, kind: schema.payments.kind })
     .from(schema.payments)
     .innerJoin(schema.callExtensions, eq(schema.callExtensions.id, schema.payments.extensionId))
     .where(and(eq(schema.payments.extensionId, extensionId), inArray(schema.payments.status, ["awaiting_payment", "held"]), inArray(schema.callExtensions.status, [...ENDED])));
-  if (found) await releasePayment({ paymentId: found.paymentId, note: "The request for more time was not accepted, so nothing was charged for it." });
+  if (!found) return;
+  // Paid from a membership: there is no hold at Stripe. Its money goes back to where it came from, in a step with the month's locks.
+  if (found.kind === "member_call") await returnEndedRequestMoney(extensionId, new Date());
+  else await releasePayment({ paymentId: found.paymentId, note: "The request for more time was not accepted, so nothing was charged for it." });
 }
 
 // ---------------------------------------------------------------------------
@@ -190,9 +244,17 @@ async function savedCardOf(own: Payment, customerId: string): Promise<string | n
  * Returns "waiting" (the host has been asked) or "checking" (the bank's answer
  * is not known yet; the call screen follows it). Throws ExtendError, with
  * nothing added and nothing left held, when it cannot be done.
+ *
+ * On a call that was booked with a membership, the request is paid from the membership when it
+ * covers all of it, and otherwise by card (the membership's saved card, as an ordinary card
+ * payment). The screen says which, and sends what it showed (`shown`). The server decides again:
+ * if the way or the card price is no longer what was shown, nothing is written and nothing is
+ * asked of the host, and WayChanged is thrown with the way and the price as they are now, for the
+ * member to press again. A request shown as paid from the membership never becomes a card payment
+ * by itself, and the other way round.
  */
 export async function askForMoreTime(
-  input: { callId: string; customerId: string; minutes: number; now?: Date },
+  input: { callId: string; customerId: string; minutes: number; shown?: Way | { paidFrom: "membership" }; now?: Date },
   /** How the saved card is found. Only the journey script passes its own, to try a card the bank refuses. */
   lookUpCard: typeof savedCardOf = savedCardOf,
 ): Promise<{ extensionId: string; state: "waiting" | "checking" }> {
@@ -206,22 +268,44 @@ export async function askForMoreTime(
 
   const paid = seen.pricePer15Cents > 0;
   let cardId: string | null = null;
+  let memberCall = false;
+  /** On a member's call paid by card: the membership whose card in use is held. */
+  let membershipOfCard: string | null = null;
   if (paid) {
     const own = stripeConfigured() ? await ownPaymentOf(seen.id) : null;
-    if (own?.kind === "member_call") throw new ExtendError("Time cannot be added to a call that was booked with a membership yet. The call ends as booked.");
     if (!own || own.status !== "held") throw new ExtendError(NO_LONGER);
-    cardId = await lookUpCard(own, input.customerId).catch((error) => {
-      log(`could not look up the saved card for call ${seen.id}`, error);
-      throw new ExtendError("We could not reach the bank just now. Please try again.");
-    });
-    if (!cardId) throw new ExtendError("Time cannot be added to this call, because the card that paid for it was not saved. The call ends as booked.");
+    if (own.kind === "member_call") {
+      // Booked with a membership. How this request is paid is decided first, before any card is looked for.
+      memberCall = true;
+      if (!Number.isInteger(input.minutes)) throw new ExtendError("Enter a whole number of minutes.");
+      const member = await membershipForMoreTime(db, seen, clock());
+      if (!member || member.locked.membership.customerId !== input.customerId) throw new ExtendError(NO_LONGER);
+      const way = wayFor(member, seen, input.minutes);
+      if (!asShown(way, input.shown)) throw new WayChanged(way);
+      if (way.paidFrom === "card") {
+        // The membership's card in use (this member's own, kept for exactly this), never a card of another booking.
+        const card = await cardInUse(db, member.locked.membership.id);
+        if (!card) throw new ExtendError(NO_CARD);
+        cardId = card.stripePaymentMethodId;
+        membershipOfCard = member.locked.membership.id;
+      }
+    } else {
+      cardId = await lookUpCard(own, input.customerId).catch((error) => {
+        log(`could not look up the saved card for call ${seen.id}`, error);
+        throw new ExtendError("We could not reach the bank just now. Please try again.");
+      });
+      if (!cardId) throw new ExtendError("Time cannot be added to this call, because the card that paid for it was not saved. The call ends as booked.");
+    }
   }
 
   // The request and (for a paid call) its payment, in one step, with the call locked.
   let made: { extension: CallExtension; payment: Payment | null; call: Call };
   try {
     made = await db.transaction(async (tx) => {
+      // A month comes before a call in the order of locks. (Nothing to lock for a call paid by card.)
+      if (memberCall) await lockMonthsOfCall(tx, seen.id);
       const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, seen.id)).for("update");
+      // The clock is read after the last lock.
       const now = clock();
       const problem = (await whyNot(tx, call, now)) ?? windowProblem(call, now);
       if (problem) throw new ExtendError(problem);
@@ -241,6 +325,63 @@ export async function askForMoreTime(
         own = await ownPaymentOf(call.id, tx);
         const [host] = await tx.select({ payoutsReady: schema.hostSettings.payoutsReady }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, call.hostId));
         if (!own || own.status !== "held" || !host?.payoutsReady) throw new ExtendError(NO_LONGER);
+      }
+
+      if (own?.kind === "member_call") {
+        // Decided again with the month locked. If it is no longer what the screen showed (or what the card was looked up for), nothing is written.
+        const member = await membershipForMoreTime(tx, call, now);
+        if (!member) throw new ExtendError(NO_LONGER);
+        const way = wayFor(member, call, input.minutes);
+        if (!asShown(way, input.shown) || (way.paidFrom === "card") !== (cardId !== null)) throw new WayChanged(way);
+        const [extension] = await tx
+          .insert(schema.callExtensions)
+          .values({ callId: call.id, minutes: input.minutes, oldEndsAt: call.endsAt, newEndsAt, priceCents: way.priceCents, paidFrom: way.paidFrom })
+          .returning();
+        if (way.paidFrom === "membership") {
+          // Set aside in the month in this same step, as a payment of its own for exactly the extra minutes: the host can be asked at once.
+          const { month } = member.locked;
+          const { hostCausedCents } = await setAside(tx, month, way.priceCents);
+          await tx.insert(schema.payments).values({
+            kind: "member_call",
+            callId: call.id,
+            monthId: month.id,
+            extensionId: extension.id,
+            coversFrom: call.endsAt,
+            coversUntil: newEndsAt,
+            pricePer15Cents: month.pricePer15Cents,
+            bookedCents: way.priceCents,
+            hostCausedCents,
+            feePercentBps: month.feePercentBps,
+            // No extra 30 cents for added time from a membership: the month's fixed part is placed once.
+            feeFixedCents: 0,
+            feeForeignCardBps: month.feeForeignCardBps,
+            status: "held",
+            heldAt: now,
+            cardCountry: month.cardCountry,
+          });
+          return { extension, payment: null, call };
+        }
+        // By card: the membership's card in use is read again now that the membership is locked. If it was retired
+        // meanwhile (the membership ended or was paused a moment ago), or is another card, nothing is written.
+        const card = await cardInUse(tx, member.locked.membership.id);
+        if (!card || card.stripePaymentMethodId !== cardId) throw new ExtendError(NO_CARD);
+        // An ordinary card payment of its own (the usual fee, its own hold), not a copy of the call's terms. It is not part of the month's money.
+        const [payment] = await tx
+          .insert(schema.payments)
+          .values({
+            callId: call.id,
+            extensionId: extension.id,
+            coversFrom: call.endsAt,
+            coversUntil: newEndsAt,
+            currency: own.currency,
+            pricePer15Cents: call.pricePer15Cents,
+            bookedCents: way.priceCents,
+            feePercentBps: DEFAULT_FEE_TERMS.percentBps,
+            feeFixedCents: DEFAULT_FEE_TERMS.fixedCents,
+            feeForeignCardBps: DEFAULT_FEE_TERMS.foreignCardBps,
+          })
+          .returning();
+        return { extension, payment, call };
       }
 
       const [extension] = await tx
@@ -276,10 +417,10 @@ export async function askForMoreTime(
 
   // The hold, through the same path as the hold for a booked call. One try.
   const cardProblem = "Your card could not be used for the extra time (the bank said no, or wants you to approve it, which cannot be done during a call). Nothing was added and nothing is held.";
+  let held = false;
   try {
     const [customer] = await db.select().from(schema.user).where(eq(schema.user.id, input.customerId));
-    const result = await placeHoldWithSavedCard({ payment, call, customer, paymentMethodId: cardId!, now: clock(), inCall: true });
-    if (result === "held") return { extensionId: extension.id, state: "waiting" };
+    held = (await placeHoldWithSavedCard({ payment, call, customer, paymentMethodId: cardId!, now: clock(), inCall: true })) === "held";
   } catch (error) {
     // Not known yet whether the hold went through. The request stays open; the helper finds out,
     // and lets the hold go if the request has ended by then.
@@ -291,6 +432,14 @@ export async function askForMoreTime(
     await endExtension(extension.id, "failed", "the hold could not be placed", clock());
     // A refusal by our own rules (the call ended or was stopped meanwhile), or the bank could not be reached.
     throw new ExtendError(error instanceof MoneyError ? NO_LONGER : "We could not reach the bank in time. Nothing was added and nothing is held. You can try again.");
+  }
+  if (held) {
+    // A membership's card can be retired between the locked check and the hold (the membership ended or was paused in
+    // that very moment). A retired card keeps no new hold: the request ends, which lets the hold go. (If the host has
+    // answered already, the request is no longer open and stands as it is.)
+    const retired = membershipOfCard !== null && (await cardInUse(db, membershipOfCard))?.stripePaymentMethodId !== cardId;
+    if (retired && (await endExtension(extension.id, "failed", "the membership's card was retired", clock()))) throw new ExtendError(NO_CARD);
+    return { extensionId: extension.id, state: "waiting" };
   }
   await endExtension(extension.id, "failed", "the card could not be used", clock());
   throw new ExtendError(cardProblem);
@@ -350,7 +499,11 @@ export async function answerExtension(input: { extensionId: string; hostId: stri
       if (extension.priceCents > 0) {
         // The money for the extra minutes must be held, last long enough to be charged after the
         // longer call, and not be on its way out.
-        const held = payment?.status === "held" && payment.holdExpiresAt !== null && holdCoversCall({ now, holdExpiresAt: payment.holdExpiresAt, callEndsAt: extension.newEndsAt });
+        // (Money set aside in a membership is in place while it is set aside: there is no hold that could end.)
+        const held =
+          payment?.kind === "member_call"
+            ? payment.status === "held"
+            : payment?.status === "held" && payment.holdExpiresAt !== null && holdCoversCall({ now, holdExpiresAt: payment.holdExpiresAt, callEndsAt: extension.newEndsAt });
         if (!payment || !held) throw new ExtendError("The payment for the extra time is not in place, so it cannot be accepted.");
         // Nothing else may be under way on it (a release, say). The one exception is the hold itself:
         // when the bank's answer to it was lost but the hold is on record as held (Stripe told us in

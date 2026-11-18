@@ -1,7 +1,7 @@
 # Plan 21: Memberships, part two: member calls
 
-**Status:** 2a (the call) is built (18 November 2026; see "Built in 2a" at the end). 2b (extra
-time) is not built yet. Written 17 November 2026 by the builder alone (no
+**Status:** 2a (the call) and 2b (extra time) are built (18 November 2026; see "Built in 2a" and
+"Built in 2b" at the end). Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32 and from plan 20, which
 this part is built on top of. Astra's first check gave "not ready" and its second "ready with changes", small enough to make while building; every point of both is worked in below (the lists are at the end).
 
@@ -637,4 +637,52 @@ back": the helper already gives the money back at the limit when the record is n
 so a record that turns final later finds the payment closed. The case is only reachable when the
 helper was down across the limit, and telling the two apart would need a new stored moment for
 "when the record became final". A card payment behaves the same way today.
+
+## Built in 2b: where the code differs from this plan
+
+- **"The way changed" is a refusal with details, not a new kind of answer.** `askForMoreTime`
+  keeps the shape it has for every other call; when the way or the card price is no longer what
+  the screen showed it throws `WayChanged`, which carries the way and the price as they are now.
+  The address answers with that and the words for the member; nothing was written, nothing is
+  held and the host was not asked. So the existing script for added time passes unchanged.
+- **What the screen is given** is one number beside today's two: up to how many minutes the
+  membership would pay for (`membershipCovers`). A request of that many minutes or fewer is shown
+  as "from your membership"; a longer one as its card price "by card". The screen works out each
+  choice from it and sends what it showed.
+- **A press that says nothing about what was shown** (an old page) is treated as a mismatch on a
+  member's call: nothing is asked, and the way comes back for another press.
+- **The money of an ended request** goes back through `returnEndedRequestMoney`
+  (`membership/calls.ts`), called from the same place a card hold is let go, and found again by
+  the same scan of the helper if the app stopped in between.
+- **A membership that ended, was paused or was frozen during the call** pays for no more added
+  time: such a request is shown and paid by card, on the membership's card if it is still saved.
+  Without a saved card, time cannot be added, with a plain sentence.
+- **Played through the running app** (not only the script): the screen's data for a member's call
+  in its last minute, a press with nothing shown, with the wrong way and with too many minutes
+  (each refused with the way and the price as they are), and a matching press (the host asked at
+  once, the money set aside). The call screen itself needs a camera and a second person, so its
+  buttons were not pressed by hand.
+
+## Astra's reviews of the code of 2b (18 November 2026)
+
+**First round: not ready, three points and one check, all taken.** A membership's card that was
+retired a moment ago (the membership ended while the member pressed) could still have been held
+for added time: the card is now read again once the membership is locked. A request the
+membership could just pay for was sent to the card because of rounding (with exactly $1.66 free
+at $5.00 per 15 minutes, 5 minutes cost $1.666…, rounded down): what the money covers is now
+worked out by the same rounding as a booking's price, in one function with a test. And the page
+after a call showed the call's moment for a card charge that follows its own, earlier hold.
+
+**Second round: ready.** All four confirmed, and no defect found in a second pass over the whole
+change. Four checks in the script were made to prove a little more, as Astra suggested.
+
+## CodeRabbit's review of 2b (pull request 37, 18 November 2026)
+
+One comment, taken. The membership's card is checked with the membership locked, but the hold
+at Stripe is placed after that step has ended, so a card retired in that very moment (the
+membership ended or was paused) could still have received the hold. The card is now looked at
+once more right after the hold: if it is no longer the membership's card in use, the request
+ends, which lets the hold go, and the member is told that no card is saved any more. (A request
+the host has already answered by then stands as it is.) This last check cannot be played by the
+script, which cannot stop between the two steps; the scripts for added time pass with it.
 

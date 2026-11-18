@@ -56,7 +56,8 @@ async function main() {
   const { endCallForSafety } = await import("../src/lib/safety/calls");
   const { askForRefund, answerRequest, askBy, requestViewOf, RequestError } = await import("../src/lib/refunds/requests");
   const { rateCall } = await import("../src/lib/ratings/ratings");
-  const { addTimeChoices } = await import("../src/lib/extend/extend");
+  const { addTimeChoices, askForMoreTime, answerExtension, closeFinishedExtensions, WayChanged, ExtendError } = await import("../src/lib/extend/extend");
+  const { refundPayment } = await import("../src/lib/payments/actions");
   type Booking = import("../src/db/schema").Booking;
   type Call = import("../src/db/schema").Call;
 
@@ -147,7 +148,7 @@ async function main() {
   const refused = (work: Promise<unknown>) =>
     work.then(
       () => null,
-      (error: unknown) => (error instanceof BookingError || error instanceof MoneyError || error instanceof MembershipError || error instanceof RequestError ? error.message || "refused" : Promise.reject(error)),
+      (error: unknown) => (error instanceof BookingError || error instanceof MoneyError || error instanceof MembershipError || error instanceof RequestError || error instanceof ExtendError ? error.message || "refused" : Promise.reject(error)),
     );
   /** For races: a result that was refused must have been refused by a rule (in words for a person), never by a database error or a deadlock. */
   const byARule = (result: PromiseSettledResult<unknown>) => result.status === "fulfilled" || result.reason instanceof BookingError || result.reason instanceof MoneyError || result.reason instanceof MembershipError;
@@ -472,7 +473,7 @@ async function main() {
     await setSwitches({ requestsOff: false });
     check("the daily limit on requests applies to a member too: a fourth booking with one host in a day is refused", /a lot of requests today/.test((await refused(book(m, general[7]))) ?? ""));
     check("the card form is refused for a member's call", (await refused(startHold({ payment, call, customer: m.member, now: new Date() }))) !== null);
-    check("no extra time is offered for a member's call yet", (await addTimeChoices(call)).fits === 0);
+    check("the choices for more time on a member's call say what the membership covers", (await addTimeChoices(call)).membershipCovers !== undefined);
     await audit("after booking", m);
   });
 
@@ -703,6 +704,10 @@ async function main() {
     check("(a month of 30 minutes at $5.00: $10.00)", (await M(m.monthId)).totalCents === 1000);
     const calls: Call[] = [];
     for (let i = 0; i < 6; i++) calls.push((await booked(m, { nth: i * 3, length: 5 })).call);
+    // The same rounding for time added to a call: with exactly $1.66 free, 5 more minutes are covered (they cost $1.666…, rounded down).
+    await db.update(months).set({ freeCents: 166, expiredCents: 0, setAsideCents: 834 }).where(eq(months.id, m.monthId));
+    check("with exactly $1.66 free, 5 more minutes are paid from the membership, not by card", (await addTimeChoices(calls[0], nearEnd(calls[0]))).membershipCovers === 5);
+    await db.update(months).set({ freeCents: 4, expiredCents: 0, setAsideCents: 996 }).where(eq(months.id, m.monthId));
     check("a 5-minute call sets aside $1.66 (rounded down); six of them leave 4 cents", (await pay(calls[0])).bookedCents === 166 && (await places(m.monthId)) === "4/996/0/0/0/0", await places(m.monthId));
     check("with 4 cents left, nothing more is offered", (await B.memberBookingView(m.member.id, host.id, new Date()))?.lengths.length === 0);
     await bothThere(m, calls[0]);
@@ -1171,6 +1176,221 @@ async function main() {
     const held = (await unsentEarnings(new Date(c.call.endsAt.getTime() + 3 * DAY), host.id)).find((row) => row.payment?.id === afterAsk.id);
     check("and its share is held back until the host has answered", held?.heldBack === "request", held?.heldBack);
     await audit("at the end", m);
+  });
+
+  // ========================================================================
+  // Part 2b: time added during a member's call
+  // ========================================================================
+  /** A minute before the call's end: asking for more time is open. */
+  const nearEnd = (call: Call) => new Date(call.endsAt.getTime() - MIN);
+  const callNow = async (call: Call) => (await db.select().from(schema.calls).where(eq(schema.calls.id, call.id)))[0];
+  const askMore = (m: Made, call: Call, minutes: number, shown: { paidFrom: "membership" } | { paidFrom: "card"; priceCents: number } | undefined, now = nearEnd(call)) => askForMoreTime({ callId: call.id, customerId: m.member.id, minutes, shown, now });
+  const requestsOf = (call: Call) => db.select().from(schema.callExtensions).where(eq(schema.callExtensions.callId, call.id)).orderBy(schema.callExtensions.createdAt);
+  const requestById = async (id: string) => (await db.select().from(schema.callExtensions).where(eq(schema.callExtensions.id, id)))[0];
+  const paymentOfRequest = async (extensionId: string) => (await db.select().from(schema.payments).where(eq(schema.payments.extensionId, extensionId)))[0];
+  /** What the screen would be told, or the changed way a press was answered with. */
+  const changedTo = (work: Promise<unknown>) => work.then(() => null, (error: unknown) => (error instanceof WayChanged ? error.way : Promise.reject(error)));
+
+  journey("Extra time from the membership: asked, accepted, used in part, declined, not answered", async () => {
+    const host = await newHost();
+    const m = await member(host);
+    const a = await booked(m, { nth: 0 });
+    const choices = await addTimeChoices(a.call, nearEnd(a.call));
+    // $45.00 free at $7.50 per 15 minutes: 90 minutes of money, but one request is 60 minutes at most.
+    check("the choices say what the membership covers", choices.fits >= 15 && choices.membershipCovers === 90, `${choices.fits} ${choices.membershipCovers}`);
+    const notShown = await changedTo(askMore(m, a.call, 10, undefined));
+    const shownCard = await changedTo(askMore(m, a.call, 10, { paidFrom: "card", priceCents: 500 }));
+    check("a press that does not say what was shown, or says \"by card\" when the membership covers it, asks nothing and is told the way as it is", notShown?.paidFrom === "membership" && shownCard?.paidFrom === "membership" && shownCard.priceCents === 500 && (await requestsOf(a.call)).length === 0 && (await places(m.monthId)) === "4500/1500/0/0/0/0", `${JSON.stringify(notShown)} ${JSON.stringify(shownCard)}`);
+
+    const asked = await askMore(m, a.call, 10, { paidFrom: "membership" });
+    const request = await requestById(asked.extensionId);
+    const itsPayment = await paymentOfRequest(asked.extensionId);
+    check("10 more minutes from the membership: the host is asked at once, and $5.00 is set aside as a payment of its own for exactly those minutes", asked.state === "waiting" && request.paidFrom === "membership" && request.priceCents === 500 && itsPayment.kind === "member_call" && itsPayment.status === "held" && itsPayment.bookedCents === 500 && itsPayment.monthId === m.monthId && itsPayment.stripePaymentIntentId === null && itsPayment.feeFixedCents === 0 && itsPayment.coversFrom.getTime() === a.call.endsAt.getTime() && itsPayment.coversUntil.getTime() === a.call.endsAt.getTime() + 10 * MIN && (await places(m.monthId)) === "4000/2000/0/0/0/0", `${asked.state} ${await places(m.monthId)}`);
+    check("a second request while one is open is refused", /already asked/.test((await refused(askMore(m, a.call, 5, { paidFrom: "membership" }))) ?? ""));
+    await answerExtension({ extensionId: asked.extensionId, hostId: host.id, accept: true, now: new Date(a.call.endsAt.getTime() - 30_000) });
+    const longer = await callNow(a.call);
+    check("the host says yes: the same call runs 10 minutes longer", longer.endsAt.getTime() === a.call.endsAt.getTime() + 10 * MIN && (await requestById(asked.extensionId)).status === "accepted" && (await bookingById(a.booking.id)).totalCents === 2000);
+    // The host stays for the 30 minutes and 5 of the 10 added ones.
+    await attend(longer, [[host.id, 0, 2100], [m.member.id, 0, 2400]]);
+    await settle(longer);
+    const [own, extra] = [await pay(longer), await paymentOfRequest(asked.extensionId)];
+    check("each payment is used for its own stretch: $15.00 for the call, $2.50 for the 5 added minutes the host was there", own.chargedCents === 1500 && extra.status === "charged" && extra.chargedCents === 250, `${own.chargedCents} ${extra.status} ${extra.chargedCents}`);
+    // 4.9% of $15.00 is 74 cents, of $2.50 is 12 cents; the month's 30 cents once, on whichever was used first.
+    check("the month's 30 cents are placed once, with no extra 30 cents for the added time", (own.originalFeeCents ?? 0) + (extra.originalFeeCents ?? 0) === 116 && [own.feeFixedCents, extra.feeFixedCents].sort().join() === "0,30", `${own.originalFeeCents} ${extra.originalFeeCents}`);
+    check("what the added time did not use comes back, because of the host", (await places(m.monthId)) === "4250/0/1750/0/0/0" && (await M(m.monthId)).hostCausedCents === 250, `${await places(m.monthId)} ${(await M(m.monthId)).hostCausedCents}`);
+
+    const b = await booked(m, { nth: 3 });
+    const second = await askMore(m, b.call, 5, { paidFrom: "membership" });
+    check("(5 more minutes asked on another call: $2.50 set aside)", (await places(m.monthId)) === "2500/1750/1750/0/0/0", await places(m.monthId));
+    await answerExtension({ extensionId: second.extensionId, hostId: host.id, accept: false, now: nearEnd(b.call) });
+    const declined = await paymentOfRequest(second.extensionId);
+    check("declined: the money is back where it came from, once, and not as \"because of the host\"", (await requestById(second.extensionId)).status === "declined" && declined.status === "closed_uncharged" && (await places(m.monthId)) === "2750/1500/1750/0/0/0" && (await M(m.monthId)).hostCausedCents === 250, `${declined.status} ${await places(m.monthId)}`);
+    const third = await askMore(m, b.call, 5, { paidFrom: "membership" });
+    await closeFinishedExtensions(new Date(b.call.endsAt.getTime() + MIN));
+    check("not answered before the call ends: it runs out and the money is back", (await requestById(third.extensionId)).status === "ran_out" && (await paymentOfRequest(third.extensionId)).status === "closed_uncharged" && (await places(m.monthId)) === "2750/1500/1750/0/0/0", await places(m.monthId));
+    // The app stops after a request was marked as ended and before its money was back: the helper's scan finishes it.
+    const fourth = await askMore(m, b.call, 5, { paidFrom: "membership" });
+    await db.update(schema.callExtensions).set({ status: "declined", endedReason: "check", decidedAt: new Date() }).where(eq(schema.callExtensions.id, fourth.extensionId));
+    check("(a request marked as ended, its money still set aside)", (await paymentOfRequest(fourth.extensionId)).status === "held" && (await places(m.monthId)) === "2500/1750/1750/0/0/0");
+    await closeFinishedExtensions(nearEnd(b.call));
+    await closeFinishedExtensions(nearEnd(b.call));
+    check("the helper gives it back, once", (await paymentOfRequest(fourth.extensionId)).status === "closed_uncharged" && (await places(m.monthId)) === "2750/1500/1750/0/0/0", await places(m.monthId));
+    // An accepted request is never given back that way.
+    const fifth = await askMore(m, b.call, 5, { paidFrom: "membership" });
+    await answerExtension({ extensionId: fifth.extensionId, hostId: host.id, accept: true, now: new Date(b.call.endsAt.getTime() - 30_000) });
+    await closeFinishedExtensions(new Date(b.call.endsAt.getTime() + HOUR));
+    check("an accepted request keeps its money set aside until the call is settled", (await paymentOfRequest(fifth.extensionId)).status === "held" && (await places(m.monthId)) === "2500/1750/1750/0/0/0", await places(m.monthId));
+    const bLonger = await callNow(b.call);
+    const sixth = await askMore(m, bLonger, 5, { paidFrom: "membership" });
+    await answerExtension({ extensionId: sixth.extensionId, hostId: host.id, accept: false, now: nearEnd(bLonger) });
+    check("after five requests on one call, a sixth is refused", /as often as one call allows/.test((await refused(askMore(m, bLonger, 5, { paidFrom: "membership" }))) ?? "") && (await requestsOf(b.call)).length === 5);
+    await bothThere(m, bLonger);
+    await settle(bLonger);
+    check("the longer call is settled: the call and its accepted 5 minutes are used", (await pay(bLonger)).chargedCents === 1500 && (await paymentOfRequest(fifth.extensionId)).chargedCents === 250 && (await places(m.monthId)) === "2500/0/3500/0/0/0", await places(m.monthId));
+    await audit("after extra time from the membership", m);
+  });
+
+  // ========================================================================
+  journey("Extra time by card, and a way to pay that changes between the screen and the press", async () => {
+    const host = await newHost();
+    const m = await member(host);
+    const a = await booked(m, { nth: 0 });
+    // The rest of the month's money is gone (booked elsewhere, say): $1.00 is left.
+    await db.update(months).set({ freeCents: 100, expiredCents: 4400 }).where(eq(months.id, m.monthId));
+    const choices = await addTimeChoices(a.call, nearEnd(a.call));
+    // $1.00 at $7.50 per 15 minutes is 2 minutes: less than the 5 minutes a request must have, so every request is paid by card.
+    check("when the membership does not cover a request, the choices say so", choices.membershipCovers === 2, choices.membershipCovers);
+    const stale = await changedTo(askMore(m, a.call, 5, { paidFrom: "membership" }));
+    check("shown as \"from your membership\" when the money has just gone: nothing is asked or charged, and the card price comes back", stale?.paidFrom === "card" && stale.priceCents === 250 && (await requestsOf(a.call)).length === 0, JSON.stringify(stale));
+    const wrongPrice = await changedTo(askMore(m, a.call, 5, { paidFrom: "card", priceCents: 200 }));
+    check("a card price that is not the one in force is not charged either", wrongPrice?.paidFrom === "card" && wrongPrice.priceCents === 250 && (await requestsOf(a.call)).length === 0);
+
+    const asked = await askMore(m, a.call, 5, { paidFrom: "card", priceCents: 250 });
+    const request = await requestById(asked.extensionId);
+    const itsPayment = await paymentOfRequest(asked.extensionId);
+    const card = (await db.select().from(schema.membershipCards).where(and(eq(schema.membershipCards.membershipId, m.membershipId), sql`${schema.membershipCards.retiredAt} is null`)))[0];
+    const intent = await stripe().paymentIntents.retrieve(itsPayment.stripePaymentIntentId!);
+    check("5 more minutes by card: an ordinary card payment of its own, held on the membership's card, with the usual fee terms", asked.state === "waiting" && request.paidFrom === "card" && request.priceCents === 250 && itsPayment.kind === "card" && itsPayment.status === "held" && itsPayment.monthId === null && itsPayment.feeFixedCents === 30 && itsPayment.feePercentBps === 490 && itsPayment.feeForeignCardBps === 150 && intent.status === "requires_capture" && intent.amount === 250 && intent.payment_method === card.stripePaymentMethodId, `${asked.state} ${itsPayment.kind} ${itsPayment.status} ${intent.status}`);
+    check("nothing of the month moved for it", (await places(m.monthId)) === "100/1500/0/4400/0/0", await places(m.monthId));
+    await answerExtension({ extensionId: asked.extensionId, hostId: host.id, accept: true, now: new Date(a.call.endsAt.getTime() - 30_000) });
+    const longer = await callNow(a.call);
+    await bothThere(m, longer);
+
+    // One refund request for the whole call, answered for each charge.
+    await askForRefund({ callId: longer.id, customerId: m.member.id, reason: "other", note: "Please look.", seen: null, now: new Date(longer.endsAt.getTime() + HOUR) });
+    const view = await requestViewOf(longer);
+    check("one refund request covers both charges of the call, each to be answered", view?.open.length === 2 && view.open.some((p) => p.kind === "member_call") && view.open.some((p) => p.kind === "card"));
+    await answerRequest({ callId: longer.id, by: host.id, as: "host", answers: [{ paymentId: (await pay(longer)).id, choice: "less", maxCents: 1000 }, { paymentId: itsPayment.id, choice: "full" }], message: null, now: new Date(longer.endsAt.getTime() + 2 * HOUR) });
+    const [own, extra] = [await pay(longer), await paymentOfRequest(asked.extensionId)];
+    const charged = await stripe().paymentIntents.retrieve(extra.stripePaymentIntentId!);
+    // $2.50 by card: 4.9% is 12 cents, plus the usual 30 cents of a card payment.
+    check("the answer is applied to each: $10.00 used from the membership and $5.00 back; $2.50 charged to the card with its own fee", own.chargedCents === 1000 && own.loweredBy === "host" && extra.status === "charged" && extra.chargedCents === 250 && extra.originalFeeCents === 42 && charged.status === "succeeded" && charged.amount_received === 250 && (await ledger({ paymentId: extra.id }, "customer_charge")).total === 250, `${own.chargedCents} ${extra.status} ${extra.chargedCents} ${extra.originalFeeCents} ${charged.status}`);
+    check("the card charge is no part of the month: its places only show the call's own money", (await places(m.monthId)) === "600/0/1000/4400/0/0" && (await M(m.monthId)).hostCausedCents === 500, await places(m.monthId));
+
+    // Shown as "by card" when membership money has just come back: nothing is charged, and the membership's way is shown.
+    const b = await booked(m, { nth: 3 }).catch(() => null);
+    check("(with $6.00 left a 30-minute call cannot be booked; the month gets its money back for the next checks)", b === null);
+    await db.update(months).set({ freeCents: 4500, expiredCents: 500 }).where(eq(months.id, m.monthId));
+    const c = await booked(m, { nth: 3 });
+    const back = await changedTo(askMore(m, c.call, 5, { paidFrom: "card", priceCents: 250 }));
+    check("shown as \"by card\" when the membership covers it now: nothing is charged, and \"from your membership\" comes back for another press", back?.paidFrom === "membership" && (await requestsOf(c.call)).length === 0, JSON.stringify(back));
+
+    // Across the month's end: the longer call would end after the month, so it is paid by card.
+    await db.update(months).set({ endsAt: new Date(c.call.endsAt.getTime() + 7 * MIN) }).where(eq(months.id, m.monthId));
+    const atEnd = await addTimeChoices(c.call, nearEnd(c.call));
+    check("only as many minutes as end before the month ends are paid from the membership", atEnd.membershipCovers === 7, atEnd.membershipCovers);
+    const five = await askMore(m, c.call, 5, { paidFrom: "membership" });
+    await answerExtension({ extensionId: five.extensionId, hostId: host.id, accept: false, now: nearEnd(c.call) });
+    const pastEnd = await changedTo(askMore(m, c.call, 10, { paidFrom: "membership" }));
+    const tenByCard = await askMore(m, c.call, 10, { paidFrom: "card", priceCents: 500 });
+    check("10 minutes that would run past the month's end are paid by card, in full: one request is never split", pastEnd?.paidFrom === "card" && pastEnd.priceCents === 500 && (await requestById(tenByCard.extensionId)).paidFrom === "card" && (await paymentOfRequest(tenByCard.extensionId)).kind === "card" && (await paymentOfRequest(tenByCard.extensionId)).bookedCents === 500);
+    await answerExtension({ extensionId: tenByCard.extensionId, hostId: host.id, accept: false, now: nearEnd(c.call) });
+    const letGo = await stripe().paymentIntents.retrieve((await paymentOfRequest(tenByCard.extensionId)).stripePaymentIntentId!);
+    check("declined: the card's hold is let go", (await paymentOfRequest(tenByCard.extensionId)).status === "closed_uncharged" && letGo.status === "canceled", letGo.status);
+
+    // A booking and added time for the last free money at the same moment.
+    const racer = await member(host);
+    const d = await booked(racer, { nth: 6 });
+    await db.update(months).set({ freeCents: 1500, expiredCents: 3000 }).where(eq(months.id, racer.monthId));
+    const open = (await times(racer)).filter((at) => hourInNewYork(at) < 13);
+    const race = await Promise.allSettled([book(racer, open[9]), askMore(racer, d.call, 30, { paidFrom: "membership" })]);
+    const month = await M(racer.monthId);
+    const bookedIt = race[0].status === "fulfilled" && race[0].value.outcome === "booked";
+    const askedIt = race[1].status === "fulfilled";
+    check("a booking and added time for the last $15.00 at the same moment: exactly one gets it, and the other is refused by a rule", bookedIt !== askedIt && month.freeCents === 0 && month.setAsideCents === 3000 && race.every((r) => r.status === "fulfilled" || r.reason instanceof BookingError || r.reason instanceof WayChanged), `${race.map(whyNot)} ${placesOf(month).join("/")}`);
+
+    // The membership ends while a request is open, on a call that is under way.
+    const e = await member(host);
+    const live = await moveCall((await booked(e, { nth: 8 })).call, new Date(Date.now() - 29 * MIN));
+    const openOne = await askForMoreTime({ callId: live.id, customerId: e.member.id, minutes: 5, shown: { paidFrom: "membership" } });
+    await E.endByHost({ membershipId: e.membershipId, hostId: host.id, now: new Date() });
+    await helper(new Date());
+    check("the membership ends while a request is open: the call under way and the request are left alone", !(await callNow(live)).cancelledAt && (await requestById(openOne.extensionId)).status === "open" && (await paymentOfRequest(openOne.extensionId)).status === "held");
+    await closeFinishedExtensions(new Date(live.endsAt.getTime() + MIN));
+    const ended = await M(e.monthId);
+    const endedKey = ["callreturn", (await paymentOfRequest(openOne.extensionId)).id, "request_ended"].join(":");
+    const owedForIt = (await refundsOf(e.monthId)).filter((line) => line.sourceKey === endedKey);
+    // $60.00 paid: $15.00 still set aside for the call under way, and all the rest owed back ($42.50 free at the ending, and this request's $2.50).
+    check("when the request runs out, exactly its $2.50 is owed to the card, once, because the membership has ended", (await paymentOfRequest(openOne.extensionId)).status === "closed_uncharged" && owedForIt.length === 1 && owedForIt[0].amountCents === 250 && ended.setAsideCents === 1500 && ended.freeCents === 0 && ended.toPayBackCents + ended.paidBackCents === 4500, `${owedForIt.map((line) => line.amountCents)} ${placesOf(ended).join("/")}`);
+    const noCard = await refused(askForMoreTime({ callId: live.id, customerId: e.member.id, minutes: 5, shown: { paidFrom: "card", priceCents: 250 }, now: new Date(live.endsAt.getTime() - 30_000) }));
+    check("after the ending, more time on that call cannot be paid by card either: the membership's card is no longer saved", /no saved card/.test(noCard ?? ""), noCard);
+    await audit("the ended membership", e, { owed: true });
+    await audit("after extra time by card", m);
+  });
+
+  // ========================================================================
+  journey("A member's call with time added by card: each payment's own moment, one request, and the health check", async () => {
+    const host = await newHost();
+    const m = await member(host);
+    const a = await booked(m, { nth: 0 });
+    await db.update(months).set({ freeCents: 0, expiredCents: 4500 }).where(eq(months.id, m.monthId));
+    const asked = await askMore(m, a.call, 10, { paidFrom: "card", priceCents: 500 });
+    await answerExtension({ extensionId: asked.extensionId, hostId: host.id, accept: true, now: new Date(a.call.endsAt.getTime() - 30_000) });
+    const call = await callNow(a.call);
+    await bothThere(m, call);
+    // The card's hold is short: it ends 20 hours after the call's start, so its money must be taken 12 hours before that.
+    const extra = await paymentOfRequest(asked.extensionId);
+    await db.update(schema.payments).set({ holdExpiresAt: new Date(call.startsAt.getTime() + 20 * HOUR) }).where(eq(schema.payments.id, extra.id));
+    const plan = await moneyPlan(call);
+    check("the call's own moments do not move: the member can ask for the full 24 hours, whatever the card's hold", plan.timing?.askBy.getTime() === call.startsAt.getTime() + DAY && (await askBy(call, new Date(call.startsAt.getTime() + 23 * HOUR)))?.getTime() === call.startsAt.getTime() + DAY);
+    const finished = await callNow(call);
+    check("before the card payment's own moment, nothing is late", (await callOverdue(finished, new Date(call.startsAt.getTime() + 8 * HOUR))) === false);
+    check("5 minutes past the card payment's own moment (8 hours after the start), it is reported late, though the member's part is not due yet", (await callOverdue(finished, new Date(call.startsAt.getTime() + 8 * HOUR + 6 * MIN))) === true);
+    await settleFinishedCalls(new Date(call.startsAt.getTime() + 7 * HOUR));
+    check("before its own moment the card charge is not taken", (await paymentOfRequest(asked.extensionId)).status === "held");
+    await settleFinishedCalls(new Date(call.startsAt.getTime() + 8 * HOUR + MIN));
+    const takenEarly = await paymentOfRequest(asked.extensionId);
+    check("the card charge is taken at its own moment, early; the member's part waits for the call's moment", takenEarly.status === "charged" && takenEarly.chargedCents === 500 && (await pay(call)).status === "held", `${takenEarly.status} ${(await pay(call)).status}`);
+    check("after that nothing is late until the call's moment", (await callOverdue(finished, new Date(call.startsAt.getTime() + 12 * HOUR))) === false);
+
+    // The member asks at hour 10: one request. The member's part can still be lowered; the card's part was taken, so it is refunded.
+    await askForRefund({ callId: call.id, customerId: m.member.id, reason: "other", note: "Please look.", seen: null, now: new Date(call.startsAt.getTime() + 10 * HOUR) });
+    const view = await requestViewOf(call);
+    check("the one request lists what can still be lowered: the member's part", view?.open.length === 1 && view.open[0].kind === "member_call");
+    await answerRequest({ callId: call.id, by: host.id, as: "host", answers: [{ paymentId: (await pay(call)).id, choice: "less", maxCents: 900 }], message: null, now: new Date(call.startsAt.getTime() + 11 * HOUR) });
+    check("answered for the member's part: $9.00 used, $6.00 back", (await pay(call)).chargedCents === 900 && (await M(m.monthId)).freeCents === 600, await places(m.monthId));
+    await refundPayment({ paymentId: takenEarly.id, amountCents: 200, decidedBy: host.id, decidedAs: "host", reason: null, requestId: randomUUID() });
+    const refunded = await paymentOfRequest(asked.extensionId);
+    check("and refunded for the card's part: $2.00 back to the card at Stripe", refunded.refundedCents === 200 && (await stripe().refunds.list({ payment_intent: refunded.stripePaymentIntentId!, limit: 5 })).data.some((r) => r.amount === 200 && r.status === "succeeded"), refunded.refundedCents);
+
+    // A frozen month beside a card payment: the member's part is not reported, the card's part still is.
+    const n = await member(host);
+    const b = await booked(n, { nth: 3 });
+    await db.update(months).set({ freeCents: 0, expiredCents: 4500 }).where(eq(months.id, n.monthId));
+    const more = await askMore(n, b.call, 10, { paidFrom: "card", priceCents: 500 });
+    await answerExtension({ extensionId: more.extensionId, hostId: host.id, accept: true, now: new Date(b.call.endsAt.getTime() - 30_000) });
+    const second = await moveCall(await callNow(b.call), new Date(Date.now() - 2 * HOUR));
+    await db.update(schema.payments).set({ coversFrom: new Date(second.startsAt.getTime() + 30 * MIN), coversUntil: second.endsAt }).where(eq(schema.payments.extensionId, more.extensionId));
+    await db.update(schema.payments).set({ coversFrom: second.startsAt, coversUntil: new Date(second.startsAt.getTime() + 30 * MIN) }).where(and(eq(schema.payments.callId, second.id), sql`${schema.payments.extensionId} is null`));
+    await bothThere(n, second);
+    await E.recordMonthDispute(n.monthId, "open", new Date());
+    const late = new Date(second.startsAt.getTime() + DAY + HOUR);
+    check("beside a frozen month the card's part is still reported when it is late", (await callOverdue(await callNow(second), late)) === true);
+    await settleFinishedCalls(late);
+    check("it is taken as usual, and the member's part of the frozen month stays set aside and is not reported", (await paymentOfRequest(more.extensionId)).status === "charged" && (await pay(second)).status === "held" && (await callOverdue(await callNow(second), new Date(late.getTime() + HOUR))) === false, `${(await paymentOfRequest(more.extensionId)).status} ${(await pay(second)).status}`);
+    check("the frozen month's places did not move", (await places(n.monthId)) === "0/1500/0/4500/0/0", await places(n.monthId));
+    await audit("the frozen month beside a card payment", n, { frozen: true });
+    await audit("after the mixed call", m);
   });
 
   // ========================================================================

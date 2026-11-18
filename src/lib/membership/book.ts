@@ -29,7 +29,7 @@ import { hostForMember } from "./access";
 import { takeNow } from "./charge";
 import { lockMembership, lockMonth } from "./locks";
 import { setAside } from "./months";
-import { afterTheWait, isFrozen, memberCallCents } from "./rules";
+import { afterTheWait, isFrozen, memberCallCents, minutesCovered } from "./rules";
 
 export { memberCallCents };
 
@@ -89,7 +89,7 @@ export async function memberBookingView(viewerId: string, hostId: string, now: D
     const cents = memberCallCents(month.pricePer15Cents, minutes);
     return cents >= MIN_CHARGE_CENTS && cents <= freeCents;
   };
-  return { membership, month, offer, freeCents, minutesLeft: Math.floor((freeCents * 15) / month.pricePer15Cents), lengths: offer.lengths.filter(fits), monthEndsAt: month.endsAt! };
+  return { membership, month, offer, freeCents, minutesLeft: minutesCovered(freeCents, month.pricePer15Cents), lengths: offer.lengths.filter(fits), monthEndsAt: month.endsAt! };
 }
 
 /**

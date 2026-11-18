@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEADLINE_CUSHION_MS, TAKE_BEFORE_EXPIRY_MS } from "@/lib/payments/rules";
 import { bookedTotalCents } from "@/lib/payments/pricing";
-import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, memberCallCents, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
+import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, memberCallCents, minutesCovered, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -131,6 +131,26 @@ describe("what a member's call sets aside", () => {
   it("is never more than the usual price of a call of that length", () => {
     for (const price of [500, 733, 750, 999, 1001]) {
       for (let minutes = 5; minutes <= 360; minutes += 5) expect(memberCallCents(price, minutes)).toBeLessThanOrEqual(bookedTotalCents(price, minutes * 60));
+    }
+  });
+});
+
+describe("how many minutes free money pays for", () => {
+  it("is the longest length whose rounded-down price still fits", () => {
+    expect(minutesCovered(4500, 750)).toBe(90);
+    // $1.66 at $5.00 per 15 minutes: 5 minutes cost $1.666…, rounded down to $1.66, so they fit.
+    expect(minutesCovered(166, 500)).toBe(5);
+    expect(minutesCovered(165, 500)).toBe(4);
+    expect(minutesCovered(0, 750)).toBe(0);
+    expect(minutesCovered(4, 500)).toBe(0);
+  });
+  it("agrees with the price of a booking for every amount", () => {
+    for (const price of [500, 733, 750, 999, 1750]) {
+      for (let free = 0; free <= 6000; free += 7) {
+        const minutes = minutesCovered(free, price);
+        expect(memberCallCents(price, minutes)).toBeLessThanOrEqual(free);
+        expect(memberCallCents(price, minutes + 1)).toBeGreaterThan(free);
+      }
     }
   });
 });

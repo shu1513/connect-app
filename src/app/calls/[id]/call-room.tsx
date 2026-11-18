@@ -40,8 +40,11 @@ type Live = {
   extension: { id: string; minutes: number; priceCents: number; ready: boolean } | null;
   lastExtension: { id: string; minutes: number; status: string } | null;
   /** For the customer, while the server's clock says asking is open: how many more minutes fit. */
-  addTime: { fits: number; pricePer15Cents: number } | null;
+  addTime: { fits: number; pricePer15Cents: number; membershipCovers?: number } | null;
 };
+
+/** What the screen showed for a request on a member's call, sent along so the server never charges a way or a price that was not shown. */
+type Shown = { paidFrom: "membership" } | { paidFrom: "card"; priceCents: number };
 
 const POLL_MS = 2_000;
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -51,11 +54,18 @@ const minutesText = (minutes: number) => `${minutes} more minute${minutes === 1 
  * The customer's side of adding time: the choices that fit, each with its
  * price, and a box for another number of minutes.
  */
-function AddTime(props: { fits: number; pricePer15Cents: number; busy: boolean; onAsk: (minutes: number) => void }) {
+function AddTime(props: { fits: number; pricePer15Cents: number; membershipCovers?: number; busy: boolean; onAsk: (minutes: number, shown?: Shown) => void }) {
   const [other, setOther] = useState(false);
   const [typed, setTyped] = useState("");
   const paid = props.pricePer15Cents > 0;
-  const label = (minutes: number) => `+${minutes} min${paid ? ` ${dollars(extensionPriceCents(props.pricePer15Cents, minutes))}` : ""}`;
+  // A call booked with a membership: a request the membership covers is paid from it; a longer one by card, all of it.
+  const member = props.membershipCovers !== undefined;
+  const fromMembership = (minutes: number) => member && minutes <= (props.membershipCovers ?? 0);
+  const shownFor = (minutes: number): Shown | undefined =>
+    !member ? undefined : fromMembership(minutes) ? { paidFrom: "membership" } : { paidFrom: "card", priceCents: extensionPriceCents(props.pricePer15Cents, minutes) };
+  const priceWords = (minutes: number) =>
+    !paid ? "" : fromMembership(minutes) ? "from your membership" : `${dollars(extensionPriceCents(props.pricePer15Cents, minutes))}${member ? " by card" : ""}`;
+  const label = (minutes: number) => `+${minutes} min${paid ? ` ${member ? "· " : ""}${priceWords(minutes)}` : ""}`;
   const button = "rounded border border-blue-600 px-3 py-1.5 text-sm font-medium text-blue-600 disabled:opacity-50";
   if (props.fits < MIN_EXTENSION_MINUTES) {
     return <p className="text-sm opacity-80">Time cannot be added to this call: one of you has something else right after it.</p>;
@@ -67,7 +77,7 @@ function AddTime(props: { fits: number; pricePer15Cents: number; busy: boolean; 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">Add time:</span>
         {choicesThatFit(props.fits).map((minutes) => (
-          <button key={minutes} type="button" disabled={props.busy} onClick={() => props.onAsk(minutes)} className={button}>
+          <button key={minutes} type="button" disabled={props.busy} onClick={() => props.onAsk(minutes, shownFor(minutes))} className={button}>
             {label(minutes)}
           </button>
         ))}
@@ -88,8 +98,8 @@ function AddTime(props: { fits: number; pricePer15Cents: number; busy: boolean; 
               aria-label="Minutes to add"
               className="w-20 rounded border border-neutral-400 bg-transparent px-2 py-1"
             />
-            <span>minutes{paid && typedOk ? ` (${dollars(extensionPriceCents(props.pricePer15Cents, typedMinutes))})` : ""}</span>
-            <button type="button" disabled={props.busy || !typedOk} onClick={() => props.onAsk(typedMinutes)} className={button}>
+            <span>minutes{paid && typedOk ? ` (${priceWords(typedMinutes)})` : ""}</span>
+            <button type="button" disabled={props.busy || !typedOk} onClick={() => props.onAsk(typedMinutes, shownFor(typedMinutes))} className={button}>
               Ask
             </button>
           </span>
@@ -97,7 +107,13 @@ function AddTime(props: { fits: number; pricePer15Cents: number; busy: boolean; 
       </div>
       <p className="mt-1 text-xs opacity-70">
         {props.fits < MAX_EXTENSION_MINUTES ? `You can add up to ${props.fits} more minutes. ` : ""}
-        {paid ? "The price is held on your card when you ask, and let go if the host says no." : "The host is asked right away."}
+        {member
+          ? (props.membershipCovers ?? 0) >= MIN_EXTENSION_MINUTES
+            ? `Up to ${props.membershipCovers} more minutes are taken from your membership time, and are back if the host says no. A longer request is paid by card, all of it: the price is held on your membership's card when you ask, and let go if the host says no.`
+            : "Your membership time does not cover more time on this call, so it is paid by card: the price is held on your membership's card when you ask, and let go if the host says no."
+          : paid
+            ? "The price is held on your card when you ask, and let go if the host says no."
+            : "The host is asked right away."}
       </p>
     </div>
   );
@@ -216,6 +232,8 @@ export function CallRoom(props: Props) {
   const [answering, setAnswering] = useState(false);
   const [myRequest, setMyRequest] = useState<string | null>(null);
   const [extendNotice, setExtendNotice] = useState<string | null>(null);
+  // Whether the request being sent is paid by card (so the wait is for the bank), or from a membership or free (nothing to wait for).
+  const [askingByCard, setAskingByCard] = useState(false);
 
   // Answers can arrive out of order. One that was asked for before an answer already on screen is
   // dropped: otherwise a slow, older answer could put a request back on screen after it was accepted,
@@ -292,11 +310,12 @@ export function CallRoom(props: Props) {
     return () => clearTimeout(timer);
   }, [added]);
 
-  async function askFor(minutes: number) {
+  async function askFor(minutes: number, shown?: Shown) {
     setAsking(true);
+    setAskingByCard(props.pricePer15Cents > 0 && shown?.paidFrom !== "membership");
     setExtendNotice(null);
     try {
-      const response = await fetch(`/api/calls/${props.callId}/extend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ minutes }) });
+      const response = await fetch(`/api/calls/${props.callId}/extend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ minutes, shown }) });
       const body = await response.json().catch(() => ({}));
       if (response.ok) setMyRequest(body.extensionId);
       else setExtendNotice(body.error ?? "Time could not be added.");
@@ -423,10 +442,10 @@ export function CallRoom(props: Props) {
       )}
       {canAsk && live?.addTime && (
         <div className="mt-2">
-          <AddTime fits={live.addTime.fits} pricePer15Cents={live.addTime.pricePer15Cents} busy={asking} onAsk={askFor} />
+          <AddTime fits={live.addTime.fits} pricePer15Cents={live.addTime.pricePer15Cents} membershipCovers={live.addTime.membershipCovers} busy={asking} onAsk={askFor} />
         </div>
       )}
-      {props.role === "customer" && asking && !request && <p className="mt-2 text-sm">{props.pricePer15Cents > 0 ? "Checking your card…" : "Asking…"}</p>}
+      {props.role === "customer" && asking && !request && <p className="mt-2 text-sm">{askingByCard ? "Checking your card…" : "Asking…"}</p>}
       {props.role === "host" && request?.ready && (
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded border border-blue-600 px-3 py-2" role="alert">
           <span className="font-medium">

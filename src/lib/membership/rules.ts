@@ -54,6 +54,15 @@ export function memberCallCents(pricePer15Cents: number, minutes: number): numbe
   return Math.floor((pricePer15Cents * minutes) / 15);
 }
 
+/**
+ * The most whole minutes this much free money pays for: the longest length whose price, rounded
+ * down like a booking (`memberCallCents`), still fits. Not simply money divided by price: at $5.00
+ * per 15 minutes, $1.66 pays for 5 minutes ($1.666… rounded down), not for 4.
+ */
+export function minutesCovered(freeCents: number, pricePer15Cents: number): number {
+  return Math.max(0, Math.ceil(((freeCents + 1) * 15) / pricePer15Cents) - 1);
+}
+
 /** What a month costs. Exact: the time is always a whole number of half hours. */
 export function monthTotalCents(pricePer15Cents: number, includedMinutes: number): number {
   return (pricePer15Cents * includedMinutes) / 15;

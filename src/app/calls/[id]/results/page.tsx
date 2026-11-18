@@ -13,6 +13,7 @@ import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
 import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
+import { moneyTiming } from "@/lib/payments/rules";
 import { isDecided, moneyPlan } from "@/lib/payments/take";
 import { isFrozen } from "@/lib/membership/rules";
 import { requestViewOf } from "@/lib/refunds/requests";
@@ -89,6 +90,12 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
     const cents = record === null || !answer || answer.choice === "full" ? record : answer.choice === "less" ? Math.min(answer.maxCents ?? 0, record) : 0;
     toBeCharged.set(held.id, cents !== null && cents < MIN_CHARGE_CENTS ? 0 : cents);
   }
+  // When each payment's money is taken by itself. They share the call's moment, with one exception that settling
+  // makes too: time added by card to a call booked with a membership follows its own hold, which can end sooner.
+  const takeAtOf = (p: Payment): Date | null =>
+    payment?.kind === "member_call" && p.kind === "card" && p.holdExpiresAt
+      ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: plan?.request?.askedAt ?? null, holdExpiresAt: p.holdExpiresAt }).takeAt
+      : (plan?.timing?.takeAt ?? null);
   const extensionOf = new Map(extensions.map((e) => [e.id, e]));
   const addedMinutes = extensions.filter((e) => e.status === "accepted").reduce((sum, e) => sum + e.minutes, 0);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
@@ -249,9 +256,10 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
             monthFrozen={Boolean(p.monthId && frozenMonths.has(p.monthId))}
             billing={call.billing}
             addedMinutes={p.extensionId ? (extensionOf.get(p.extensionId)?.minutes ?? 0) : null}
+            memberCall={payment?.kind === "member_call"}
             waiting={
               toBeCharged.has(p.id)
-                ? { cents: toBeCharged.get(p.id) ?? null, takeAt: plan?.timing?.takeAt ?? null, decided: isDecided(plan?.request), askedFor: Boolean(plan?.request) }
+                ? { cents: toBeCharged.get(p.id) ?? null, takeAt: takeAtOf(p), decided: isDecided(plan?.request), askedFor: Boolean(plan?.request) }
                 : null
             }
           />
@@ -337,6 +345,8 @@ function Receipt(props: {
   toCard: Array<{ sourceKey: string; amountCents: number; status: string }>;
   /** The payment's month is frozen by a bank dispute: nothing of it moves, so nothing is promised or offered here. */
   monthFrozen: boolean;
+  /** The call was booked with a membership. Time added to it is then paid from the membership or by card, and the heading says which. */
+  memberCall: boolean;
   billing: string;
   /** Null for the call's own payment. Otherwise the minutes this payment was asked for. */
   addedMinutes: number | null;
@@ -390,7 +400,13 @@ function Receipt(props: {
 
   return (
     <section className="mt-6 rounded border border-neutral-400 p-4">
-      <h2 className="text-lg font-semibold">{extra ? `Payment for ${props.addedMinutes} more minutes` : fromMembership ? "Paid from the membership" : "Payment"}</h2>
+      <h2 className="text-lg font-semibold">
+        {extra
+          ? `Payment for ${props.addedMinutes} more minutes${props.memberCall ? (fromMembership ? ", from the membership" : ", by card") : ""}`
+          : fromMembership
+            ? "Paid from the membership"
+            : "Payment"}
+      </h2>
       <p className="mt-1">{headline}</p>
       {waiting && waiting.cents !== null && (
         <p className="mt-1" data-to-be-charged>

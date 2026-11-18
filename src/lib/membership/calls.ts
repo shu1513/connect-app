@@ -20,8 +20,8 @@ import { ownPaymentOf } from "@/lib/payments/own";
 import { attendanceChargeCents, countedSeconds, splitCharge } from "@/lib/payments/pricing";
 import { readyToCollectAt, REVIEW_WINDOW_MS } from "@/lib/payments/rules";
 import { lockMonthsOfCall, type LockedMonth } from "./locks";
-import { comeBack, finishIfSettled, spendSetAside } from "./months";
-import { afterTheWait, feeTermsFor, isFrozen } from "./rules";
+import { canBookFrom, comeBack, finishIfSettled, spendSetAside } from "./months";
+import { afterTheWait, feeTermsFor, isFrozen, minutesCovered } from "./rules";
 
 const months = schema.membershipMonths;
 
@@ -278,3 +278,50 @@ export async function decideMemberReview(input: { paymentId: string; amountCents
   if (done === "frozen") throw new MoneyError("This month's charge is disputed at the member's bank, so nothing of it moves until that is decided.");
   if (done === null) throw new MoneyError("Call not found.");
 }
+
+// ---------------------------------------------------------------------------
+// Part 2b: time added during a member's call
+// ---------------------------------------------------------------------------
+
+/**
+ * For a request for more time on a member's call: the month the call was booked from, and up to
+ * how many more minutes the membership would pay for right now. A request is paid from the
+ * membership only when the month's free money covers ALL of it and the longer call still ends
+ * before the month ends; anything else is paid by card, in full (one request is never split).
+ * Zero when that month can no longer be booked from (ended, paused, frozen, over).
+ * Null for a call that was not booked with a membership.
+ */
+export async function membershipForMoreTime(reader: Pick<Tx, "select">, call: Pick<Call, "id" | "endsAt">, now: Date): Promise<{ own: Payment; locked: LockedMonth; coversMinutes: number } | null> {
+  const own = await ownPaymentOf(call.id, reader);
+  if (!own || own.kind !== "member_call" || !own.monthId) return null;
+  const [row] = await reader
+    .select({ membership: schema.memberships, month: months })
+    .from(months)
+    .innerJoin(schema.memberships, eq(schema.memberships.id, months.membershipId))
+    .where(eq(months.id, own.monthId));
+  if (!row) return null;
+  if (!canBookFrom(row, now) || !row.month.endsAt) return { own, locked: row, coversMinutes: 0 };
+  const byMoney = minutesCovered(row.month.freeCents, row.month.pricePer15Cents);
+  const byMonthEnd = Math.floor((row.month.endsAt.getTime() - call.endsAt.getTime()) / 60_000);
+  return { own, locked: row, coversMinutes: Math.max(0, Math.min(byMoney, byMonthEnd)) };
+}
+
+/**
+ * A request for more time that was paid from the membership ended without being accepted
+ * (declined, not answered, failed): its money goes back to where it came from, once, in a step of
+ * its own with the month's locks. Never for an accepted request, and never before the request is
+ * marked as ended. Safe to run again: the helper's scan repeats it until it is done (a frozen
+ * month keeps the money set aside until its dispute is won).
+ */
+export async function returnEndedRequestMoney(extensionId: string, now: Date): Promise<void> {
+  const [seen] = await db.select({ id: schema.payments.id, callId: schema.payments.callId }).from(schema.payments).where(and(eq(schema.payments.extensionId, extensionId), eq(schema.payments.kind, "member_call")));
+  if (!seen?.callId) return;
+  await inCallStep(seen.callId, async (tx, call) => {
+    const payment = await lockPayment(tx, seen.id);
+    // (A request only changes state with its call locked, which this step holds.)
+    const [extension] = await tx.select({ status: schema.callExtensions.status }).from(schema.callExtensions).where(eq(schema.callExtensions.id, extensionId));
+    if (payment.status !== "held" || !extension || !["declined", "ran_out", "failed"].includes(extension.status)) return;
+    await closeMemberPayment(tx, call, payment, { usedCents: 0, note: "The request for more time was not accepted, so nothing was used for it.", what: "request_ended", hostCaused: "as_booked" }, afterTheWait(now));
+  });
+}
+
