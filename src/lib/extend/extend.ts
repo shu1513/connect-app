@@ -42,6 +42,7 @@ type Reader = Pick<typeof db, "select">;
 export class ExtendError extends Error {}
 
 const NO_LONGER = "Time can no longer be added to this call.";
+const NO_CARD = "Time cannot be added to this call by card, because your membership has no saved card any more. The call ends as booked.";
 const ENDED = ["declined", "ran_out", "failed"] as const;
 
 function log(message: string, error?: unknown) {
@@ -268,6 +269,8 @@ export async function askForMoreTime(
   const paid = seen.pricePer15Cents > 0;
   let cardId: string | null = null;
   let memberCall = false;
+  /** On a member's call paid by card: the membership whose card in use is held. */
+  let membershipOfCard: string | null = null;
   if (paid) {
     const own = stripeConfigured() ? await ownPaymentOf(seen.id) : null;
     if (!own || own.status !== "held") throw new ExtendError(NO_LONGER);
@@ -282,8 +285,9 @@ export async function askForMoreTime(
       if (way.paidFrom === "card") {
         // The membership's card in use (this member's own, kept for exactly this), never a card of another booking.
         const card = await cardInUse(db, member.locked.membership.id);
-        if (!card) throw new ExtendError("Time cannot be added to this call by card, because your membership has no saved card any more. The call ends as booked.");
+        if (!card) throw new ExtendError(NO_CARD);
         cardId = card.stripePaymentMethodId;
+        membershipOfCard = member.locked.membership.id;
       }
     } else {
       cardId = await lookUpCard(own, input.customerId).catch((error) => {
@@ -360,7 +364,7 @@ export async function askForMoreTime(
         // By card: the membership's card in use is read again now that the membership is locked. If it was retired
         // meanwhile (the membership ended or was paused a moment ago), or is another card, nothing is written.
         const card = await cardInUse(tx, member.locked.membership.id);
-        if (!card || card.stripePaymentMethodId !== cardId) throw new ExtendError("Time cannot be added to this call by card, because your membership has no saved card any more. The call ends as booked.");
+        if (!card || card.stripePaymentMethodId !== cardId) throw new ExtendError(NO_CARD);
         // An ordinary card payment of its own (the usual fee, its own hold), not a copy of the call's terms. It is not part of the month's money.
         const [payment] = await tx
           .insert(schema.payments)
@@ -413,10 +417,10 @@ export async function askForMoreTime(
 
   // The hold, through the same path as the hold for a booked call. One try.
   const cardProblem = "Your card could not be used for the extra time (the bank said no, or wants you to approve it, which cannot be done during a call). Nothing was added and nothing is held.";
+  let held = false;
   try {
     const [customer] = await db.select().from(schema.user).where(eq(schema.user.id, input.customerId));
-    const result = await placeHoldWithSavedCard({ payment, call, customer, paymentMethodId: cardId!, now: clock(), inCall: true });
-    if (result === "held") return { extensionId: extension.id, state: "waiting" };
+    held = (await placeHoldWithSavedCard({ payment, call, customer, paymentMethodId: cardId!, now: clock(), inCall: true })) === "held";
   } catch (error) {
     // Not known yet whether the hold went through. The request stays open; the helper finds out,
     // and lets the hold go if the request has ended by then.
@@ -428,6 +432,14 @@ export async function askForMoreTime(
     await endExtension(extension.id, "failed", "the hold could not be placed", clock());
     // A refusal by our own rules (the call ended or was stopped meanwhile), or the bank could not be reached.
     throw new ExtendError(error instanceof MoneyError ? NO_LONGER : "We could not reach the bank in time. Nothing was added and nothing is held. You can try again.");
+  }
+  if (held) {
+    // A membership's card can be retired between the locked check and the hold (the membership ended or was paused in
+    // that very moment). A retired card keeps no new hold: the request ends, which lets the hold go. (If the host has
+    // answered already, the request is no longer open and stands as it is.)
+    const retired = membershipOfCard !== null && (await cardInUse(db, membershipOfCard))?.stripePaymentMethodId !== cardId;
+    if (retired && (await endExtension(extension.id, "failed", "the membership's card was retired", clock()))) throw new ExtendError(NO_CARD);
+    return { extensionId: extension.id, state: "waiting" };
   }
   await endExtension(extension.id, "failed", "the card could not be used", clock());
   throw new ExtendError(cardProblem);

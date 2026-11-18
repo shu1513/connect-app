@@ -676,3 +676,13 @@ after a call showed the call's moment for a card charge that follows its own, ea
 **Second round: ready.** All four confirmed, and no defect found in a second pass over the whole
 change. Four checks in the script were made to prove a little more, as Astra suggested.
 
+## CodeRabbit's review of 2b (pull request 37, 18 November 2026)
+
+One comment, taken. The membership's card is checked with the membership locked, but the hold
+at Stripe is placed after that step has ended, so a card retired in that very moment (the
+membership ended or was paused) could still have received the hold. The card is now looked at
+once more right after the hold: if it is no longer the membership's card in use, the request
+ends, which lets the hold go, and the member is told that no card is saved any more. (A request
+the host has already answered by then stands as it is.) This last check cannot be played by the
+script, which cannot stop between the two steps; the scripts for added time pass with it.
+

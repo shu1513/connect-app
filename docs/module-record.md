@@ -1333,4 +1333,6 @@ The fourth of six pull requests, and the end of part two. The founder's switch i
 - Astra reviewed the code twice (not ready, ready). What mattered most: a membership's card that
   was retired a moment ago could still have been held for added time; and a request the
   membership could just pay for was sent to the card by a rounding difference.
+- CodeRabbit: one comment, taken (a card retired in the moment between the check and the hold
+  gets its hold let go again).
 
