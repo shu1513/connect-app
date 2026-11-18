@@ -389,3 +389,42 @@ Three comments, all small and all taken:
 3. **A pause that was saved could be reported as "nothing was changed"** if reading the result
    afterwards failed. The read is now apart from the save.
 
+## Built in 3b: where the code differs from this plan
+
+- **The card step reads through a function of its own.** `secretToPay` (`membership/charge.ts`)
+  is what a page load calls: it reads the secret of the payment the month already has, for its
+  member, while the month can still be paid and the payment is ready to be paid by hand. It makes
+  nothing and changes nothing. Only the actions ("Join", "Resume", "Continue to the card step",
+  "Pay now") call `payNow`, which is the one way to `intentFor`.
+- **"Pay now" is two steps on one page:** the button (an action) makes the payment ready, and the
+  page then shows the card form for that same payment. Opening the page from the email starts
+  nothing.
+- **A page with no card form to show** (the payment is not waiting for a card) asks the `sync`
+  address once and offers "Check again", so a hold the app has not heard of yet is found.
+- **An old invitation link** is answered by `oldInvitationFor` in `access.ts`: for the person it
+  was sent to it says the invitation is no longer open and why (ran out, taken back, replaced by
+  a newer one, already used); for anyone else it is "not found". It never opens a newer
+  invitation.
+- **The host's own page** shows an invited person a box with the link, and a member at the card
+  step, with a failed payment or paused a line and a link to the right page.
+- **The reminder's kind is read back from its subject.** When its turn to be sent comes,
+  `membershipReminderProblem` works out what the reminder would say now and drops it if that is
+  no longer what was written (a renewal that was stopped, an offer that was answered, a pause
+  that was taken back), or if the membership is paused, ended or in a later month.
+- **The page and the receipt name one moment** for a held amount: the last moment "Cancel now"
+  is offered. (The money is taken three minutes later; a member is not shown two times.)
+- **The check "nothing can start a membership"** is now four checks in
+  `scripts/membership-check.ts`: only the host's and the member's own pages reach the code that
+  changes a membership or pays for one; each of the host's seven and the member's eight actions
+  asks who is signed in; and no page that is only being opened can start a joining, a payment or
+  a change.
+- **The journey script** (`scripts/membership-journey-check.ts`, about 100 checks) posts every
+  form as the page drew it. What it pretends is in its header: the welcome step, the host's
+  approval and payout account, that two people had a call, and the waiting (a month's end, a
+  renewal and the reminder run with a later clock).
+- **Walked in a browser** at phone width and wide, as the test customer with the test host: the
+  invitation, joining with Stripe's test card, the member's page, "Cancel now", resuming with a
+  card that needs the bank's approval (failed once, then completed), a card step that ran out,
+  "Your account" and the host's page. Not walked by hand: a failed renewal with "Pay now" and the
+  cut in hours with three members, which the journey script covers through the real pages.
+

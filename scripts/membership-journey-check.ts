@@ -118,6 +118,7 @@ async function main() {
   const { memberBookingView, memberOpenTimes } = await import("../src/lib/membership/book");
   const { MEMBERSHIP_WORDING_VERSION: WORDING, agreementSentences } = await import("../src/lib/membership/wording");
   const { writeMembershipReminders, membershipReminderProblem } = await import("../src/lib/notifications/membership-reminders");
+  const { deliverEmails } = await import("../src/lib/notifications/delivery");
   const months = schema.membershipMonths;
 
   const up = await send("/login").catch(() => null);
@@ -287,6 +288,11 @@ async function main() {
     const added = await press(host, "/host/calendar", "Add hours", { weekday: "2", from: "09:00", to: "10:00", membersOnly: "on" });
     check("she adds an hour on Tuesdays for members only", added.found && (await page("/host/calendar", host)).words.includes("Members only") && (await page("/host", host)).words.includes("Room for 8 more members."), noticeOf(added));
 
+    const extra = await press(host, "/host/calendar", "Add hours", { weekday: "4", from: "09:00", to: "10:00" });
+    const [thursday] = await db.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, host.id), eq(schema.weeklyHours.weekday, 4)));
+    const quiet = await press(host, "/host/calendar", "Remove", {}, { where: (form) => form.fields.some(([name, value]) => name === "id" && value === thursday?.id) });
+    check("removing hours while she has no members and no invitations is saved at once, with nothing to choose", extra.found && quiet.found && quiet.location.startsWith("/host/calendar?") && /were removed/.test(noticeOf(quiet)) && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host.id))).length === 2, `${quiet.location}`);
+
     // ----------------------------------------------------------------------
     console.log("\n2. She invites a person she has had a call with");
     const alice = await signUp("Alice");
@@ -401,7 +407,11 @@ async function main() {
     const cancelled = await press(alice, `/memberships/${aliceId}`, "Cancel at the end of the month");
     const afterCancel = await page(`/memberships/${aliceId}`, alice);
     check("\"Cancel at the end of the month\" stops the renewal: the page says when it ends, and offers \"Keep my membership\"", cancelled.found && (await MS(aliceId)).memberStoppedAt !== null && afterCancel.words.includes("You cancelled.") && afterCancel.words.includes("Keep my membership") && afterCancel.words.includes("It does not renew"), noticeOf(cancelled));
-    check("a reminder that promised a renewal is no longer true, and would be dropped", (await membershipReminderProblem(month1.id, reminder!.subject)) !== null);
+    check("a reminder that promised a renewal is no longer true", (await membershipReminderProblem(month1.id, reminder!.subject)) !== null);
+    // The sender's own turn, with a pretend sending service: everything else to her goes out, the reminder is dropped.
+    await deliverEmails(new Date(), async () => ({ ok: true, providerId: `mjourney-${randomUUID()}` }), { toLike: alice.email });
+    const [dropped] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${month1.id}`));
+    check("so when its turn to be sent comes it is dropped, while her other emails go out", dropped?.status === "failed" && /no longer wanted/.test(dropped.lastError ?? "") && (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, alice.email), eq(schema.emailOutbox.status, "sent")))).length > 0, `${dropped?.status} ${dropped?.lastError}`);
     check("the host is told, and sees that it does not renew", Boolean(await emailTo(host.email, "has cancelled their membership")) && (await page("/host", host)).words.includes("They cancelled: their membership is paused when this month ends."));
     const kept = await press(alice, `/memberships/${aliceId}`, "Keep my membership");
     const afterKeep = await page(`/memberships/${aliceId}`, alice);
@@ -431,6 +441,12 @@ async function main() {
     await db.insert(schema.membershipCards).values({ membershipId: bob.membershipId, stripePaymentMethodId: failing.id, savedAt: new Date() });
     await C.takeNow(bob.monthId, new Date());
     const bobEnds = (await M(bob.monthId)).endsAt!;
+    // He has switched reminder emails off. This one is the notice of a payment, so it is sent all the same.
+    await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.id, bob.person.id));
+    await writeMembershipReminders(new Date(bobEnds.getTime() - 2 * DAY));
+    await deliverEmails(new Date(), async () => ({ ok: true, providerId: `mjourney-${randomUUID()}` }), { toLike: bob.person.email });
+    const [bobReminder] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${bob.monthId}`));
+    check("a member who switched reminder emails off still gets the reminder before a payment", bobReminder?.status === "sent" && bobReminder.body.includes("Your next payment: $60.00"), `${bobReminder?.status} ${bobReminder?.lastError}`);
     await closeMonth(bob.monthId, bobEnds);
     const bobMonth2 = (await monthsOf(bob.membershipId))[1];
     check("his renewal fails: he is not a paying member, and is told by email with the link to pay", (await MS(bob.membershipId)).status === "unpaid" && bobMonth2?.status === "to_pay" && Boolean((await emailTo(bob.person.email, "did not go through"))?.body.includes(`/memberships/${bob.membershipId}/pay`)), (await MS(bob.membershipId)).status);

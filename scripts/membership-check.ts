@@ -1926,8 +1926,8 @@ async function main() {
     check("a suspended host is reached by nobody", (await A.hostForMember(member.member.id, hidden.id)) === null);
     check("a host sees her own members and invitations, and nobody else's", (await A.membersOfHost(host.id)).some((row) => row.membership.id === m.membershipId) && (await A.membersOfHost(hidden.id)).every((row) => row.membership.hostId === hidden.id) && (await A.membershipsOf(m.member.id)).length === 1);
 
-    // With the host's pages built (part 3a): only her own pages reach the code that changes a membership, every action of hers
-    // asks who is signed in first, and nothing in the app can join, resume or pay yet (the member's pages are part 3b).
+    // With every page built (part three): only the host's and the member's own pages reach the code that changes a
+    // membership or pays for one; every action asks who is signed in; and no page that is only being opened can start a payment.
     const { readdirSync, readFileSync, statSync } = await import("node:fs");
     const uses: { path: string; text: string }[] = [];
     const walk = (dir: string) => {
@@ -1942,16 +1942,27 @@ async function main() {
     };
     walk("src/app");
     const hostsOwn = ["src/app/contacts/actions.ts", "src/app/host/membership-actions.ts", "src/app/host/membership.tsx", "src/app/host/membership/page.tsx"];
-    const elsewhere = uses.filter((file) => !hostsOwn.includes(file.path)).map((file) => file.path);
-    check("only the host's own pages reach the code that changes a membership", elsewhere.length === 0 && uses.length === hostsOwn.length, { elsewhere, found: uses.map((file) => file.path) });
+    const membersOwn = ["src/app/h/[handle]/membership/actions.ts", "src/app/h/[handle]/membership/page.tsx", "src/app/memberships/[id]/actions.ts", "src/app/memberships/[id]/pay/page.tsx", "src/app/api/memberships/[id]/sync/route.ts"];
+    const elsewhere = uses.filter((file) => !hostsOwn.includes(file.path) && !membersOwn.includes(file.path)).map((file) => file.path);
+    check("only the host's and the member's own pages reach the code that changes a membership or pays for one", elsewhere.length === 0 && uses.length === hostsOwn.length + membersOwn.length, { elsewhere, found: uses.map((file) => file.path) });
+    const actionsOf = (file: { text: string }) => file.text.split(/^export async function /m).slice(1);
     const actions = uses.filter((file) => file.text.startsWith("\"use server\""));
     // Each action that calls the membership code (not the page's older actions, such as saving a private note).
-    const changes = /\b(invite|takeBackInvitation|saveOffer|stopRenewal|undoStop|endByHost|takeBackLessTime)\(/;
-    const unasked = actions.flatMap((file) => file.text.split(/^export async function /m).slice(1).filter((action) => changes.test(action) && !action.includes("const user = await requireActiveUser();")).map((action) => `${file.path}: ${action.split("(")[0]}`));
-    const guarded = actions.flatMap((file) => file.text.split(/^export async function /m).slice(1).filter((action) => changes.test(action))).length;
-    check("each of her actions asks who is signed in, and uses that person as the host", actions.length === 2 && guarded === 7 && unasked.length === 0 && actions.every((file) => !/formData\.get\("hostId"\)/.test(file.text)), { actions: actions.map((file) => file.path), unasked });
-    const joins = uses.filter((file) => /membership\/charge["']/.test(file.text) || /import \{[^}]*\b(join|resume|payNow|cancelNow|acceptLessTime|declineLessTime)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
-    check("no page or address of the app can join, resume, pay or cancel as a member yet", joins.length === 0, joins);
+    const hostChanges = /\b(invite|takeBackInvitation|saveOffer|stopRenewal|undoStop|endByHost|takeBackLessTime)\(/;
+    const hostActions = actions.filter((file) => hostsOwn.includes(file.path));
+    const unasked = hostActions.flatMap((file) => actionsOf(file).filter((action) => hostChanges.test(action) && !action.includes("const user = await requireActiveUser();")).map((action) => `${file.path}: ${action.split("(")[0]}`));
+    const guarded = hostActions.flatMap((file) => actionsOf(file).filter((action) => hostChanges.test(action))).length;
+    check("each of the host's actions asks who is signed in, and uses that person as the host", hostActions.length === 2 && guarded === 7 && unasked.length === 0 && hostActions.every((file) => !/formData\.get\("hostId"\)/.test(file.text)), { actions: hostActions.map((file) => file.path), unasked });
+    // A member's actions: joining, resuming and paying ask who is signed in; the buttons of a membership go through one
+    // gate that also checks the membership is this person's own.
+    const memberActions = actions.filter((file) => membersOwn.includes(file.path));
+    const memberChanges = /\b(join|resume|payNow|stopRenewal|undoStop|cancelNow|acceptLessTime|declineLessTime)\(/;
+    const loose = memberActions.flatMap((file) => actionsOf(file).filter((action) => memberChanges.test(action) && !action.includes("const user = await requireActiveUser();") && !action.includes("await mine(formData);")).map((action) => `${file.path}: ${action.split("(")[0]}`));
+    const gate = memberActions.find((file) => file.path.endsWith("memberships/[id]/actions.ts"))?.text.match(/async function mine\([\s\S]*?\n}/)?.[0] ?? "";
+    check("each of the member's actions asks who is signed in, and the membership's buttons check it is that person's own", memberActions.length === 2 && memberActions.flatMap((file) => actionsOf(file).filter((action) => memberChanges.test(action))).length === 8 && loose.length === 0 && gate.includes("await requireUser()") && gate.includes("membershipFor(user.id") && memberActions.every((file) => !/formData\.get\("(customerId|memberId|userId)"\)/.test(file.text)), { loose, gate: gate.slice(0, 120) });
+    // "Starting is an action; loading is only reading": nothing that is drawn or fetched on opening a page may make or change a payment.
+    const starting = uses.filter((file) => !file.text.startsWith("\"use server\"") && /import \{[^}]*\b(join|resume|payNow|intentFor|tryHold|takeMonth|takeNow|cancelNow|stopRenewal|undoStop|saveOffer|invite)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
+    check("no page that is only being opened can start a joining, a payment or a change", starting.length === 0, starting);
   });
 
   // ========================================================================

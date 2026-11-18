@@ -34,7 +34,8 @@ export async function cancelAction(formData: FormData) {
   let notice: string;
   try {
     await stopRenewal({ membershipId, by: "member", actorId: userId, now: new Date() });
-    const after = await membershipFor(userId, membershipId);
+    // (Read apart from the save: a failed read never turns a saved cancellation into "nothing was changed".)
+    const after = await membershipFor(userId, membershipId).catch(() => null);
     notice =
       after?.membership.status === "paused"
         ? "Your membership is paused now. The open payment was cancelled and nothing more is charged."
@@ -63,7 +64,7 @@ export async function keepAction(formData: FormData) {
   let notice: string;
   try {
     await undoStop({ membershipId, by: "member", actorId: userId, now: new Date() });
-    const after = await membershipFor(userId, membershipId);
+    const after = await membershipFor(userId, membershipId).catch(() => null);
     notice = after?.membership.hostStoppedAt
       ? "Your own cancelling is taken back. Your membership is still set to pause when this month ends; this page says why."
       : "Your membership goes on. Nothing is charged today.";
