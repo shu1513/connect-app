@@ -468,3 +468,7 @@ Every point was checked against the code before it was taken.
 end and the next one still promised that no new month would start, although the helper can start
 it in the moment before the press. It says both outcomes now, like the other two.
 
+**Fourth round (not ready, one point, taken):** the sentence after "Cancel" still offered "Keep
+my membership", which can be closed by then (the founder's switch off, or the month over). It now
+says only that the membership will not renew, and the page shows what is open.
+

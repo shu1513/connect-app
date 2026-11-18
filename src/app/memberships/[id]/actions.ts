@@ -36,11 +36,12 @@ export async function cancelAction(formData: FormData) {
     await stopRenewal({ membershipId, by: "member", actorId: userId, now: new Date() });
     // (Read apart from the save: a failed read never turns a saved cancellation into "nothing was changed".)
     const after = await membershipFor(userId, membershipId).catch(() => null);
-    notice = !after
-      ? "Your membership is cancelled: it will not renew. This page shows how it stands now."
-      : after.membership.status === "paused"
+    // Said only as far as it is certain. Whether "Keep my membership" is still open (it needs the founder's switch, room,
+    // and a month that has not ended) is for the page to show.
+    notice =
+      after?.membership.status === "paused"
         ? "Your membership is paused now. The open payment was cancelled and nothing more is charged."
-        : "Your membership is cancelled. It runs to the end of the month you paid for and is then paused. Until then nothing changes, and you can switch it back on with \"Keep my membership\".";
+        : "Your membership is cancelled: it will not renew. This page shows how it stands now.";
   } catch (error) {
     notice = problem(error);
   }
