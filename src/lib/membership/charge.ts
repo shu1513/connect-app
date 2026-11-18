@@ -111,13 +111,13 @@ type IntentRequest = Stripe.PaymentIntentCreateParams;
  *      the founder. None: none was ever made, and the month is given up.
  * Returns null when the month has no PaymentIntent to pay with (given up, abandoned, or a problem).
  */
-export async function intentFor(monthId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null } | null> {
+export async function intentFor(monthId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; keepsCard: boolean } | null> {
   const seen = await monthById(monthId);
   if (!seen) throw new MoneyError("Month not found.");
   if (seen.stripePaymentIntentId) {
     if (seen.status !== "to_pay" || seen.endedHow || seen.problem) return null;
     const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId);
-    return { intentId: intent.id, clientSecret: intent.client_secret };
+    return { intentId: intent.id, clientSecret: intent.client_secret, keepsCard: intent.setup_future_usage === "off_session" };
   }
 
   // 2. The claim, written once.
@@ -203,7 +203,7 @@ export async function intentFor(monthId: string, now: Date = new Date()): Promis
     return null;
   }
   if (saved === "other") return intentFor(monthId, now);
-  return { intentId: found.id, clientSecret: found.client_secret };
+  return { intentId: found.id, clientSecret: found.client_secret, keepsCard: found.setup_future_usage === "off_session" };
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ export async function syncMonth(monthId: string, now: Date = new Date()): Promis
   // A month that is already in the books is never touched again, whatever message arrives.
   if (!seen.stripePaymentIntentId || IN_THE_BOOKS.includes(seen.status)) return seen;
 
-  const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge"] });
+  const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge", "payment_method"] });
   const charge = chargeOf(intent);
   let release = false;
 
@@ -342,10 +342,13 @@ export async function syncMonth(monthId: string, now: Date = new Date()): Promis
       let why = await whyNotAccept(tx, locked, intent, authorisedAt, now);
       let cardId: string | null = null;
       if (!why) {
-        const methodId = typeof intent.payment_method === "string" ? intent.payment_method : (intent.payment_method?.id ?? null);
+        // The card of this payment becomes the membership's card in use, if Stripe really kept it for
+        // the member (it always does, unless a try in the background and the member's own payment
+        // crossed; then the card in use stays as it was, and the next month's try tells the member).
+        const method = typeof intent.payment_method === "object" ? intent.payment_method : null;
         try {
-          if (!methodId) throw new MoneyError("The payment has no card.");
-          cardId = (await takeCardForMembership(tx, membership.id, methodId, now)).id;
+          if (!method) throw new MoneyError("The payment has no card.");
+          if (method.customer) cardId = (await takeCardForMembership(tx, membership.id, method.id, now)).id;
         } catch (error) {
           if (!(error instanceof MoneyError)) throw error;
           why = "card_step";
@@ -415,7 +418,10 @@ export async function syncMonth(monthId: string, now: Date = new Date()): Promis
 
 /** The request of one saved-card try. Recovery sends exactly the same one again under the same label. */
 export function confirmSavedCard(params: { intentId: string; paymentMethodId: string }, label: string): Promise<Stripe.PaymentIntent> {
-  return stripe().paymentIntents.confirm(params.intentId, { payment_method: params.paymentMethodId, off_session: true }, { idempotencyKey: label });
+  // Stripe refuses a try in the background while the payment still says "keep this card for later"
+  // (that needs the member present). The saved card is already kept, so the mark is taken off for
+  // this try; payNow puts it back when the member pays by hand with a card of their choice.
+  return stripe().paymentIntents.confirm(params.intentId, { payment_method: params.paymentMethodId, off_session: true, setup_future_usage: "" }, { idempotencyKey: label });
 }
 
 /**
@@ -476,7 +482,10 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
     .where(eq(months.id, input.monthId));
   if (!found || found.customerId !== input.memberId) return null;
   const intent = await intentFor(input.monthId, input.now ?? new Date());
-  return intent?.clientSecret ? { clientSecret: intent.clientSecret } : null;
+  if (!intent?.clientSecret) return null;
+  // The card the member pays with by hand is kept for the months that follow (a try with the saved card took that mark off).
+  if (!intent.keepsCard) await stripe().paymentIntents.update(intent.intentId, { setup_future_usage: "off_session" });
+  return { clientSecret: intent.clientSecret };
 }
 
 // ---------------------------------------------------------------------------
