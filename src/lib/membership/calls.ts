@@ -209,6 +209,8 @@ export async function settleCancelledMemberIn(tx: Tx, call: Pick<Call, "id" | "e
   const own = await ownPaymentOf(call.id, tx);
   if (!own || own.kind !== "member_call") return null;
   const payment = await lockPayment(tx, own.id);
+  // Money that waits for the founder's review is only ever decided by the founder (or by the review's time limit).
+  if (payment.needsReview) return null;
   const closed = call.cancelledLate
     ? await closeMemberPayment(tx, call, payment, { usedCents: payment.bookedCents, reason: "late_cancel", frozen: null, what: "late_cancel", hostCaused: "all" }, now)
     : await closeMemberPayment(tx, call, payment, { usedCents: 0, note: "The call was cancelled.", what: "cancelled", hostCaused: call.cancelledBy === "customer" ? "as_booked" : "all" }, now);

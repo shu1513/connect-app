@@ -560,3 +560,19 @@ payment. It also listed the routine places the new stage `paying` touches, which
   host's notice of at least a day keeps the two apart; the rule is in `slotInput`); the reminders
   (unchanged code, and they carry no words about a card); the mixed call's moments and its health
   check (they need added time, which is 2b).
+
+## Astra's reviews of the code of 2a (18 November 2026)
+
+**First round: not ready, ten points, all taken.** The one that mattered most: time a host gave
+back after a month was already finished would have been promised to the member's card and never
+sent, because the pay-back job only looks at months that are not finished. Such a month is now
+open again for that pay-back and is finished again once Stripe has confirmed it. The others: a
+first booking could have taken the month's money for a time the member was already taken at; an
+unfinished first booking could have been continued with the money of a different month, or for a
+different time; a request that ended while the money was being taken was reported as "booked";
+the "Members only" tick could be shown and then silently saved as hours for everyone; the page
+after a call ignored a dispute over the month; the words for a booking that ran out after the
+payment went through blamed the payment. In the check script, four checks that could pass
+without the thing they named were tightened, and collecting is now played with real test
+transfers (two member calls' shares and a card call's share in one collection).
+

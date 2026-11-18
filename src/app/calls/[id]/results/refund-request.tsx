@@ -122,8 +122,14 @@ export async function RefundRequest(props: {
   asking: string | null;
   /** For each charge an answer can still change: its label and what the record gives now. */
   charges: Array<{ paymentId: string; label: string; recordCents: number | null; bookedCents: number }>;
+  /** The call was booked with a membership: its money is membership time set aside in the member's month, never a hold on a card. */
+  fromMembership?: boolean;
+  /** That month's payment is disputed at the member's bank: nothing of it moves until the bank has decided, so nothing is promised here. */
+  monthFrozen?: boolean;
 }) {
   const { call, role, view, names } = props;
+  const fromMembership = Boolean(props.fromMembership);
+  const frozen = Boolean(props.monthFrozen);
   const now = new Date();
   const page = `/calls/${call.id}/results`;
 
@@ -238,19 +244,32 @@ export async function RefundRequest(props: {
 
       {request.status === "asked" && !view.answered && view.beingDecided && (
         <p className="mt-3 opacity-80">
-          The charge for this call is still being decided (its record is being looked at by Connect, or the money is just being taken). Nothing
-          has been taken from the card yet, and there is nothing to answer here until that is done.
+          {fromMembership
+            ? "What this call uses from the membership is still being decided (its record is being looked at by Connect). Nothing has been used yet, and there is nothing to answer here until that is done."
+            : "The charge for this call is still being decided (its record is being looked at by Connect, or the money is just being taken). Nothing has been taken from the card yet, and there is nothing to answer here until that is done."}
         </p>
       )}
       {request.status === "asked" && !view.answered && !view.nothingAtStake && !view.beingDecided && role === "customer" && (
         <p className="mt-3 opacity-80">
           Waiting for {names.host}&apos;s answer.
-          {view.answerBy ? (
-            <>
-              {" "}
-              Nothing is taken from your card before <LocalTime iso={view.answerBy.toISOString()} /> unless {names.host} answers sooner. If there is no
-              answer by then, the charge is taken in full; {names.host} can still refund you afterwards.
-            </>
+          {frozen ? (
+            " Your bank is looking at a dispute over this month's membership payment. Until the bank has decided, nothing of that month moves, whatever the answer."
+          ) : view.answerBy ? (
+            fromMembership ? (
+              <>
+                {" "}
+                Nothing of your membership time is used for this call before <LocalTime iso={view.answerBy.toISOString()} /> unless {names.host} answers
+                sooner. If there is no answer by then, the time is used in full; {names.host} can still give time back afterwards.
+              </>
+            ) : (
+              <>
+                {" "}
+                Nothing is taken from your card before <LocalTime iso={view.answerBy.toISOString()} /> unless {names.host} answers sooner. If there is no
+                answer by then, the charge is taken in full; {names.host} can still refund you afterwards.
+              </>
+            )
+          ) : fromMembership ? (
+            ` The membership time for this call has been used; ${names.host} can still give time back.`
           ) : (
             " The money for this call has been taken; a refund is still possible."
           )}
@@ -267,12 +286,29 @@ export async function RefundRequest(props: {
             <form action={answerRequestAction} className="max-w-xl">
               <input type="hidden" name="callId" value={call.id} />
               <p>
-                The money has not been taken yet.
-                {view.answerBy && (
+                {frozen ? (
+                  "The member's bank is disputing this month's membership payment. Until the bank has decided, nothing of that month moves. You can answer now; your answer is carried out once the dispute is decided in Connect's favour."
+                ) : fromMembership ? (
                   <>
-                    {" "}
-                    An answer before <LocalTime iso={view.answerBy.toISOString()} /> costs nothing: charging less or nothing loses no card fee. After
-                    that the full amount is taken, and a refund is still possible.
+                    Nothing has been used from the member&apos;s membership for this call yet.
+                    {view.answerBy && (
+                      <>
+                        {" "}
+                        If you answer before <LocalTime iso={view.answerBy.toISOString()} />, what you do not charge goes back to the member. After that the
+                        full amount is used, and you can still give time back.
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    The money has not been taken yet.
+                    {view.answerBy && (
+                      <>
+                        {" "}
+                        An answer before <LocalTime iso={view.answerBy.toISOString()} /> costs nothing: charging less or nothing loses no card fee. After
+                        that the full amount is taken, and a refund is still possible.
+                      </>
+                    )}
                   </>
                 )}{" "}
                 {role === "host" ? "You cannot collect the money for this call until you have answered." : ""}

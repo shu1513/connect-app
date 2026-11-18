@@ -50,7 +50,7 @@ async function main() {
   const { MembershipError } = await import("../src/lib/membership/rules");
   const { MEMBERSHIP_WORDING_VERSION: WORDING } = await import("../src/lib/membership/wording");
   const { askForCall, offerOf, openTimes, instantOffer, BookingError, requestsOfCustomer } = await import("../src/lib/booking/bookings");
-  const { mayKeepMemberHours } = await import("../src/lib/booking/calendar");
+  const { mayKeepMemberHours, addWeeklyHours } = await import("../src/lib/booking/calendar");
   const { block } = await import("../src/lib/safety/blocks");
   const { closeAccount } = await import("../src/lib/profiles/closing");
   const { endCallForSafety } = await import("../src/lib/safety/calls");
@@ -148,6 +148,9 @@ async function main() {
       () => null,
       (error: unknown) => (error instanceof BookingError || error instanceof MoneyError || error instanceof MembershipError || error instanceof RequestError ? error.message || "refused" : Promise.reject(error)),
     );
+  /** For races: a result that was refused must have been refused by a rule (in words for a person), never by a database error or a deadlock. */
+  const byARule = (result: PromiseSettledResult<unknown>) => result.status === "fulfilled" || result.reason instanceof BookingError || result.reason instanceof MoneyError || result.reason instanceof MembershipError;
+  const whyNot = (result: PromiseSettledResult<unknown>) => (result.status === "rejected" ? (result.reason instanceof Error ? result.reason.message : String(result.reason)) : "");
   /** The hour of the day in New York, to tell general hours (9 to 12) from member-only hours (13 to 15). */
   const hourInNewYork = (at: Date) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(at));
 
@@ -401,7 +404,9 @@ async function main() {
     check("both people are told it is booked", /uses 30 minutes of your membership/.test(await emailText(m.member.email, "is booked")) && /confirmed at once/.test(await emailText(host.email, "booked a call with you")));
     const again = await book(m, forPublic[0], { key });
     check("the same press twice books once and sets nothing aside again", again.booking.id === first.booking.id && (await places(m.monthId)) === "4500/1500/0/0/0/0");
-    check("that time is no longer open to the member, nor the 5-minute break after it", !(await times(m)).some((at) => at.getTime() === forPublic[0].getTime()));
+    const hostBusy = (await db.select().from(schema.busyEntries).where(and(eq(schema.busyEntries.bookingId, first.booking.id), eq(schema.busyEntries.userId, host.id))))[0];
+    check("the host is taken for the call and the 5-minute break after it; the member for the call", hostBusy.endsAt.getTime() === call.endsAt.getTime() + 5 * MIN && (await db.select().from(schema.busyEntries).where(and(eq(schema.busyEntries.bookingId, first.booking.id), eq(schema.busyEntries.userId, m.member.id))))[0].endsAt.getTime() === call.endsAt.getTime());
+    check("that time is no longer open to the member, and a call that would start inside the break is refused", !(await times(m)).some((at) => at.getTime() === forPublic[0].getTime()) && /no longer open/.test((await refused(book(m, new Date(call.endsAt.getTime())))) ?? ""));
     check("a booked member call is a call, not an open request, on the member's list", !(await requestsOfCustomer(m.member.id, new Date())).some((row) => row.booking.id === first.booking.id));
 
     const second = await book(m, membersOnly[0]);
@@ -469,9 +474,9 @@ async function main() {
     const notTaken = await book(n, open2[1], { key });
     check("when the taking is refused, nothing is booked and nothing is reserved", notTaken.outcome === "paying" && notTaken.booking.stage === "paying" && notTaken.booking.callId === null && (await db.select().from(schema.busyEntries).where(eq(schema.busyEntries.bookingId, notTaken.booking.id))).length === 0, `${notTaken.outcome} ${notTaken.booking.stage}`);
     check("the member's list shows the unfinished booking", (await requestsOfCustomer(n.member.id, new Date())).length > 0);
-    const pressedAgain = await refused(book(n, open2[1], { key }));
+    const pressedAgain = await book(n, open2[1], { key });
     const ended = await bookingById(notTaken.booking.id);
-    check("the same press again finds the month can no longer be booked from, and the request ends with words of its own", Boolean(pressedAgain) && ended.stage === "ran_out" && /could no longer be booked from/.test(ended.endedReason ?? "") && /No membership time was used/.test(await emailText(n.member.email, "was not booked")), `${pressedAgain} ${ended.stage} ${ended.endedReason}`);
+    check("the same press again finds the month can no longer be booked from, and the request ends with words of its own", pressedAgain.outcome === "not_booked" && ended.stage === "ran_out" && /could no longer be booked from/.test(ended.endedReason ?? "") && /No membership time was used/.test(await emailText(n.member.email, "was not booked")), `${pressedAgain.outcome} ${ended.stage} ${ended.endedReason}`);
     const laterPress = await book(n, open2[1], { key });
     check("an ended request is never brought back, and is never called booked", laterPress.outcome === "not_booked" && Boolean(laterPress.message) && laterPress.booking.stage === "ran_out", laterPress.outcome);
 
@@ -529,16 +534,48 @@ async function main() {
     const ranOut = await bookingById(old.id);
     check("after 30 minutes it ends by itself, and the month is still only held", ranOut.stage === "ran_out" && /not finished in time/.test(ranOut.endedReason ?? "") && (await M(p.monthId)).status === "held", `${ranOut.stage} ${ranOut.endedReason}`);
 
-    // The month is paid, and the time is gone in that very moment.
+    // The time is gone before the money is taken (the app had stopped after writing the request down): the money is NOT taken.
     const taker = await member(host);
     const open5 = (await times(p)).filter((at) => hourInNewYork(at) < 13);
-    const [paying] = await db
-      .insert(schema.bookings)
-      .values({ hostId: host.id, customerId: p.member.id, startsAt: open5[4], endsAt: new Date(open5[4].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 750, totalCents: 1500, freeCancelMinutes: 0, stage: "paying", source: "member", requestKey: randomUUID(), monthId: p.monthId, requestedAt: new Date() })
-      .returning();
+    const payingRow = async (who: Made, startsAt: Date) =>
+      (
+        await db
+          .insert(schema.bookings)
+          .values({ hostId: host.id, customerId: who.member.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 750, totalCents: 1500, freeCancelMinutes: 0, stage: "paying", source: "member", requestKey: randomUUID(), monthId: who.monthId, requestedAt: new Date() })
+          .returning()
+      )[0];
+    const press = (who: Made, row: Booking) => B.bookAsMember({ customer: who.member, hostId: host.id, startsAt: row.startsAt, lengthMinutes: 30, requestKey: row.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() });
+    const before = await payingRow(p, open5[4]);
     await book(taker, open5[4]);
-    const lost = await B.bookAsMember({ customer: p.member, hostId: host.id, startsAt: open5[4], lengthMinutes: 30, requestKey: paying.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() }).catch((error: Error) => ({ outcome: "threw", message: error.message, booking: paying }));
-    check("if the time is taken while the month's money is being taken, the month stays as it is and the member is told", lost.outcome !== "booked" && ["paying", "ran_out"].includes((await bookingById(paying.id)).stage) && (await M(p.monthId)).setAsideCents === 0, `${lost.outcome} ${lost.message}`);
+    const lostBefore = await press(p, before);
+    check(
+      "a request that was written down is checked again before the money is taken: the time is gone, so it ends and the month stays only held",
+      lostBefore.outcome === "not_booked" && /no longer open/.test(lostBefore.message ?? "") && (await bookingById(before.id)).stage === "ran_out" && (await M(p.monthId)).status === "held",
+      `${lostBefore.outcome} ${lostBefore.message} ${(await M(p.monthId)).status}`,
+    );
+    // The time is lost after the money was taken (Stripe took it, the app stopped, someone else booked the time meanwhile).
+    const late = await member(host, { take: false });
+    const after = await payingRow(late, open5[6]);
+    await C.takeNow(late.monthId, new Date());
+    await book(taker, open5[6]);
+    const lostAfter = await press(late, after);
+    const afterRow = await bookingById(after.id);
+    check(
+      "if the time was lost after the month's money was taken, the month stays paid, nothing is booked or reserved, and the member is told plainly",
+      lostAfter.outcome === "not_booked" && lostAfter.message === B.PAID_BUT_TIME_GONE && afterRow.stage === "ran_out" && afterRow.callId === null && afterRow.endedReason === B.PAID_BUT_TIME_GONE &&
+        (await db.select().from(schema.busyEntries).where(eq(schema.busyEntries.bookingId, after.id))).length === 0 && (await M(late.monthId)).status === "running" && (await places(late.monthId)) === "6000/0/0/0/0/0",
+      `${lostAfter.outcome} ${lostAfter.message} ${afterRow.stage} ${await places(late.monthId)}`,
+    );
+    // The member became busy elsewhere after the request was written down: also found before the money is taken.
+    const elsewhere2 = await person("host");
+    const wait = await payingRow(busy, open7[9]);
+    const [other2] = await db
+      .insert(schema.bookings)
+      .values({ hostId: elsewhere2.id, customerId: busy.member.id, startsAt: open7[9], endsAt: new Date(open7[9].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "accepted", requestKey: randomUUID(), requestedAt: new Date(Date.now() - 2 * DAY) })
+      .returning();
+    await db.insert(schema.busyEntries).values({ bookingId: other2.id, userId: busy.member.id, startsAt: other2.startsAt, endsAt: other2.endsAt });
+    const nowBusy = await press(busy, wait);
+    check("continuing a request for a time the member is now taken at ends it, and the month's money is not taken", nowBusy.outcome === "not_booked" && /already have a request or a call/.test(nowBusy.message ?? "") && (await M(busy.monthId)).status === "held", `${nowBusy.outcome} ${nowBusy.message} ${(await M(busy.monthId)).status}`);
 
     // The membership ends while a booking waits for its payment.
     const q = await member(host, { take: false });
@@ -857,6 +894,16 @@ async function main() {
     check("past 3 days after the call the founder can no longer decide", /deadline/.test((await refused(decideMemberReview({ paymentId: cPay.id, amountCents: 700, frozen: null, now: new Date(c.call.endsAt.getTime() + 3 * DAY + MIN) }))) ?? ""));
     await decide(cPay.id, 700, c.call);
     check("at the ceiling it is used", (await pay(c.call)).chargedCents === 700);
+    // "End call and report" in the 5 minutes before the start, and then a cancellation from a page that was still open.
+    const d = await booked(m, { nth: 3 });
+    const soon = await moveCall(d.call, new Date(Date.now() + 3 * MIN));
+    await endCallForSafety({ call: soon, by: host.id, now: new Date() }).catch((error) => console.log(`   (the room could not be closed from a script: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+    const beforeCancel = await places(m.monthId);
+    check("(the call was ended before its start, and its money waits for review)", (await pay(soon)).needsReview && Boolean((await db.select().from(schema.calls).where(eq(schema.calls.id, soon.id)))[0].safetyEndedAt));
+    const sneaky = await refused(cancelCall({ call: soon, payment: await pay(soon), by: "customer", now: new Date() }));
+    const still = await pay(soon);
+    check("a call that was ended with \"End call and report\" cannot be cancelled: its money stays for the founder's review", /no longer be cancelled/.test(sneaky ?? "") && still.status === "held" && still.needsReview && (await places(m.monthId)) === beforeCancel && !(await db.select().from(schema.calls).where(eq(schema.calls.id, soon.id)))[0].cancelledAt, `${sneaky} ${still.status} ${still.needsReview}`);
+    await decideMemberReview({ paymentId: still.id, amountCents: null, frozen: null, now: new Date() });
     await audit("after the reviews", m);
   });
 
@@ -953,10 +1000,12 @@ async function main() {
     const open = (await times(m)).filter((at) => hourInNewYork(at) < 13);
     const both = await Promise.allSettled([book(m, open[0]), book(m, open[2])]);
     const bookedNow = both.filter((r) => r.status === "fulfilled" && r.value.outcome === "booked").length;
-    check("two bookings for the last free money at the same moment: one is booked, one is refused", bookedNow === 1 && (await M(m.monthId)).freeCents === 0 && (await M(m.monthId)).setAsideCents === 1500, `${bookedNow} ${await places(m.monthId)}`);
+    const refusedOne = both.find((r) => r.status === "rejected");
+    check("two bookings for the last free money at the same moment: one is booked, and the other is refused for lack of time left", bookedNow === 1 && Boolean(refusedOne) && byARule(refusedOne!) && /enough membership time/.test(whyNot(refusedOne!)) && (await M(m.monthId)).freeCents === 0 && (await M(m.monthId)).setAsideCents === 1500, `${bookedNow} ${both.map(whyNot)} ${await places(m.monthId)}`);
     await db.update(months).set({ expiredCents: 0, freeCents: 4500 }).where(eq(months.id, m.monthId));
     const same = await Promise.allSettled([book(m, open[4]), book(m, open[4])]);
-    check("two different presses for the same time: one is booked", same.filter((r) => r.status === "fulfilled" && r.value.outcome === "booked").length === 1 && (await M(m.monthId)).setAsideCents === 3000, await places(m.monthId));
+    const refusedSame = same.find((r) => r.status === "rejected");
+    check("two different presses for the same time: one is booked, and the other is told the time is gone", same.filter((r) => r.status === "fulfilled" && r.value.outcome === "booked").length === 1 && Boolean(refusedSame) && byARule(refusedSame!) && /no longer open|already have a request or a call/.test(whyNot(refusedSame!)) && (await M(m.monthId)).setAsideCents === 3000, `${same.map(whyNot)} ${await places(m.monthId)}`);
     await audit("after the races", m);
 
     // A booking and "Cancel now" on a month that is only held.
@@ -968,7 +1017,8 @@ async function main() {
     const membership = await MS(n.membershipId);
     const wasBooked = race[0].status === "fulfilled" && race[0].value.outcome === "booked";
     const consistent = wasBooked ? month.status === "running" && month.setAsideCents === 1500 && membership.status === "active" : month.setAsideCents === 0 && (month.status !== "running" || membership.status === "active");
-    check("a booking and \"Cancel now\" at the same moment: either the call is booked from a paid month, or nothing is booked; never a call without its money", consistent, `${race.map((r) => r.status)} booked=${wasBooked} ${month.status} ${membership.status} ${await places(n.monthId)}`);
+    check("a booking and \"Cancel now\" at the same moment: each is carried out or refused by a rule, never by a database error", race.every(byARule), race.map(whyNot));
+    check("and either the call is booked from a paid month, or nothing is booked; never a call without its money", consistent, `${race.map((r) => r.status)} booked=${wasBooked} ${month.status} ${membership.status} ${await places(n.monthId)}`);
     const intent = await stripe().paymentIntents.retrieve(month.stripePaymentIntentId!);
     check("and Stripe agrees with the month", month.status === "running" ? intent.status === "succeeded" : intent.status === "canceled" || intent.status === "requires_capture", intent.status);
 
@@ -989,7 +1039,11 @@ async function main() {
     const race3 = await Promise.allSettled([book(p, open4[10]), closeMonth(p.monthId, end)]);
     const month3 = await M(p.monthId);
     const booked3 = race3[0].status === "fulfilled" && race3[0].value.outcome === "booked";
-    check("a booking and the month's end at the same moment: the six places hold either way", sum(placesOf(month3)) === 6000 && month3.setAsideCents === (booked3 ? 1500 : 0), `${booked3} ${placesOf(month3).join("/")}`);
+    check(
+      "a booking and the closing of the month at the same moment: the booking is made or refused by a rule; the month is closed with the call's money set aside, or finished with none",
+      race3[1].status === "fulfilled" && month3.status === (booked3 ? "closed" : "finished") && byARule(race3[0]) && sum(placesOf(month3)) === 6000 && month3.setAsideCents === (booked3 ? 1500 : 0) && month3.freeCents === 0,
+      `${race3.map(whyNot)} ${booked3} ${month3.status} ${placesOf(month3).join("/")}`,
+    );
   });
 
   // ========================================================================
@@ -1007,7 +1061,10 @@ async function main() {
       const someone = await person("member");
       await talked(host, someone);
       check("nobody can be invited", (await refused(J.invite({ hostId: host.id, customerId: someone.id, now: new Date() }))) !== null);
-      check("a host who already has hours for members can still add such hours; someone with none cannot", (await mayKeepMemberHours(host.id)) === true && (await mayKeepMemberHours(someone.id)) === false);
+      check("with the switch off, a host who already has hours for members may still keep such hours; someone with none may not", (await mayKeepMemberHours(host.id)) === true && (await mayKeepMemberHours(someone.id)) === false);
+      await addWeeklyHours(host.id, { weekday: 3, from: "16:00", to: "17:00", membersOnly: true });
+      const [added] = await db.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, host.id), eq(schema.weeklyHours.weekday, 3), eq(schema.weeklyHours.startMinute, 16 * 60)));
+      check("hours added with the tick are saved as hours for members only", added?.membersOnly === true && added.endMinute === 17 * 60);
     } finally {
       await setSwitches({ memberships: "named", membershipsHosts: named });
     }
@@ -1046,7 +1103,8 @@ async function main() {
     const later = new Date(Math.max(callsMoment(memberCall.call).getTime(), startsAt.getTime() + DAY + 4 * MIN));
     await runPaymentJobs(later);
     const cardPaid = (await db.select().from(schema.payments).where(eq(schema.payments.id, paid.payment.id)))[0];
-    check("a card call goes through the same jobs exactly as before: $10.00 charged at Stripe, with its own fee", cardPaid.status === "charged" && cardPaid.chargedCents === 1000 && cardPaid.originalFeeCents === 79 && (await ledger({ paymentId: cardPaid.id }, "customer_charge")).total === 1000, `${cardPaid.status} ${cardPaid.chargedCents} ${cardPaid.originalFeeCents}`);
+    const cardIntent = await stripe().paymentIntents.retrieve(cardPaid.stripePaymentIntentId!);
+    check("a card call goes through the same jobs exactly as before: $10.00 charged at Stripe, with its own fee", cardIntent.status === "succeeded" && cardIntent.amount_received === 1000 && cardPaid.status === "charged" && cardPaid.chargedCents === 1000 && cardPaid.originalFeeCents === 79 && (await ledger({ paymentId: cardPaid.id }, "customer_charge")).total === 1000, `${cardPaid.status} ${cardPaid.chargedCents} ${cardPaid.originalFeeCents}`);
     check("and the member's call beside it is used from the month", (await pay(memberCall.call)).chargedCents === 1500);
     const earnings = await unsentEarnings(new Date(later.getTime() + 2 * DAY), general.id);
     check("both shares are the host's to collect: the card call's and the member call's", earnings.length === 2, earnings.length);

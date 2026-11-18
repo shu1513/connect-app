@@ -226,6 +226,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           view={request}
           names={{ host: nameOf.get(call.hostId) ?? "the host", customer: nameOf.get(call.customerId) ?? "the customer" }}
           asking={typeof query.ask === "string" ? query.ask : null}
+          fromMembership={payment?.kind === "member_call"}
+          monthFrozen={Boolean(payment?.monthId && frozenMonths.has(payment.monthId))}
           charges={(request?.open ?? []).map((p) => ({
             paymentId: p.id,
             label: p.extensionId ? `The ${extensionOf.get(p.extensionId)?.minutes ?? ""} minutes added during the call` : "The call itself",
