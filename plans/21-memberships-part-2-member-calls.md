@@ -2,7 +2,7 @@
 
 **Status:** a plan only; nothing is built. Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32 and from plan 20, which
-this part is built on top of. Astra's first check gave "not ready"; every point is worked in below (the list is at the end).
+this part is built on top of. Astra's first check gave "not ready" and its second "ready with changes", small enough to make while building; every point of both is worked in below (the lists are at the end).
 
 **The rulebook is `plans/19-memberships.md`.** This plan builds its part two ("The three parts",
 "Part two: member calls, complete"). It states no rule of its own; every decision is the
@@ -158,6 +158,11 @@ repeated here. How it is carried out:
     booked call or the plain reason it could not be booked. The member's list of requests
     (`requestsOfCustomer`, `bookings.ts:856`, which today takes only the sources `customer` and
     `now`) includes a `paying` booking.
+    - **The stage's place in the code.** `canMoveBooking` (`booking/rules.ts:116`) learns
+    `paying` to `accepted` or `ran_out`. The host's list of requests keeps showing only
+    `waiting`. The email for a request that ran out says "nothing was held or charged"
+    (`booking/emails.ts:168`), which is not true here (the month's payment may have gone
+    through); a `paying` booking that ends gets words of its own.
   - **Ending.** A small job of its own ends a `paying` booking after 30 minutes, or at once when
     its month is given up or its membership stops being bookable, with the stage `ran_out` and a
     reason that says which. An ended request is never brought back.
@@ -298,16 +303,23 @@ aside until the dispute is won.
 - `booking/emails.ts` gets "booked with your membership" for both people (no "accepted", no
   hold), and for a member's call the cancellation emails say that the time is back in the
   membership or will be paid back, whichever is true.
-- `health.ts`: a `member_call` payment that is still set aside more than 5 minutes after the
-  moment its call's money should have been used or given back.
+- `health.ts`: today it works out one moment for a whole call from its earliest hold
+  (`health.ts:43`). It now asks, for each payment, the same question settling asks: is this
+  payment past its own moment? So a card payment for added time with a short hold is reported
+  when it is late, a later one is not reported early, and a `member_call` payment is reported
+  when it is still set aside 5 minutes past the call's moment. A `member_call` payment of a
+  frozen month is never reported; a card payment on the same call still is, because it is not
+  part of the month.
 
 ### The pages of 2a
 
 - **The calendar page:** the "Members only" tick on a stretch of hours.
 - **The host's page and the booking page** (`app/h/[handle]/page.tsx`, `.../book/page.tsx`): for
   a member whose month is running or held, the box and the times of the rulebook's "Booking",
-  and the summary with "Book", beside the ordinary form. They open for a member also when the
-  host's page is hidden.
+  and the summary with "Book", beside the ordinary form. Whether the person looking is a
+  member of this host is asked of part one's `access.ts`, which is also how the two pages open
+  for a member when the host's page is hidden; the public reader of a host's page is not
+  loosened.
 - **The booking's own page** (`app/bookings/[id]/page.tsx`): a member's booking while the
   month's payment is being taken, booked, or not booked and why.
 - **The page after a call** (`app/calls/[id]/results/page.tsx`) and the home page's line for a
@@ -406,6 +418,9 @@ the test customer; the money record; work still owed; the outcome written out).
   month, the one carrying the fixed fee, given back.
 - *"Call now" and the ordinary way:* a host whose hours are all for members can still be called
   now; a member with too little time left asks the ordinary way.
+- *The health check on a mixed call* (in 2b): added time by card with a short hold that is late
+  (reported); a second one whose moment has not come (not reported); both beside a frozen
+  month (the member's part not reported, the card's part still is).
 - *Around the call:* a rating by each side; the reminders; a booking on a hidden host's page;
   the health check answering "not healthy" for a member's money that is overdue, and not for a
   frozen month's.
@@ -470,3 +485,13 @@ Also taken: the pages a member's call needs move into 2a and extra time is switc
 2b; the month's card country is carried onto each member payment; a `done` line in `refunds`
 means the call was adjusted, not that money reached the card; what was said about ratings and
 contacts is corrected; and the proof names each place the first booking can stop.
+
+## Astra's second check (17 November 2026)
+
+Verdict: **ready with changes**, one small one, to be made while building; no further round on
+the plan. It found all six earlier points and all its advice resolved, no remaining way to set
+money aside twice, use it and leave it free, return it to a month that cannot be booked from,
+lose a return, pay a host early or send a member's payment to the card code, and that 2a and 2b
+can each be merged alone. The one point, written in above: the health check has to judge each
+payment by its own moment, as settling now does, and must not report a frozen month's member
+payment. It also listed the routine places the new stage `paying` touches, which are written in.

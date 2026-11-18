@@ -575,6 +575,11 @@ name in the rulebook's "How the parts connect".
   the page in part three that shows it before the host confirms. It returns, with the answer, a short mark of the state it was
   worked out from, as a refund request's `seen` does today (`refunds/requests.ts:46`). Saving
   takes that mark, works the answer out again and refuses if the mark no longer fits.
+- **`access.ts`**: who may see an invitation, a membership, a payment and a host's members, and
+  the way a member or an invited person reaches a host whose page is hidden, without loosening
+  the public reader of a host's page (`publicProfile`, `profiles/profiles.ts:203`). It is here,
+  and not with the pages, because part two's pages are the first to need it. Each function
+  answers "not found" in the same way for someone else's and for something that does not exist.
 - **`wording.ts`**: the sentences a member agrees to and their version, in one place. `join.ts`
   records the version; the page in part three shows the sentences from here, so the two can
   never differ.

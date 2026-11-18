@@ -868,7 +868,7 @@ anything here without this table being changed first.
 | `offers.ts` (saving the membership, **and working out what a change would do without saving it**), `join.ts` (inviting, taking back, "Join", resuming), `ending.ts` (the two stops and their undoing, "Cancel now", ending, the offer of less time), `changeWeeklyHours` (**and working out what a cut would need without saving it**), `wording.ts` (the sentences a member agrees to, and their version) | 1b | 3a and 3b: every button calls one of these and nothing else |
 | The emails that report an event, with links to the pages below | 1a, 1b, 2a | the pages exist from 3a and 3b on |
 | Booking as a member, the member's view of the host's page and of the booking page, the page after a call, the call screen's choices for more time, the "Members only" tick | 2a, 2b | 3b's journey walks through them |
-| `access.ts`: who may see an invitation, a membership, a payment, a host's members | 3a | 3a, 3b: called before every page and in every action |
+| `access.ts`: who may see an invitation, a membership, a payment, a host's members; and the way a member or an invited person reaches a host whose page is hidden | 1b | 2a (the host's page and the booking page as a member sees them); 3a, 3b (before every page and in every action) |
 | The check scripts `membership-check.ts`, `member-calls-check.ts`, `membership-journey-check.ts`, each making its members through the functions of the parts before it | 1a/1b, 2a/2b, 3b | each later part runs all the earlier ones unchanged |
 
 **The addresses of the new pages**, fixed here because emails written in part one link to pages
@@ -879,6 +879,7 @@ built in part three:
 | The invitation, joining and resuming | `/h/<host's handle>/membership` (an invitation's link adds `?invite=<invite id>`) |
 | One membership, for its member | `/memberships/<membership id>` (an offer of less time links here with `?offer=<offer id>`) |
 | Paying after a failed payment | `/memberships/<membership id>/pay` |
+| The address the card form asks after Stripe answered | `/api/memberships/<membership id>/sync` |
 | The host's "Membership" part | `/host#membership` |
 | The step for a cut in hours | `/host/calendar/cut` |
 | The founder's page | `/admin/memberships` |

@@ -71,8 +71,8 @@ whatever that choice is, like a receipt, because it is the notice of a charge.
 ## Who may see what (`src/lib/membership/access.ts`)
 
 Knowing who is logged in is not the same as being allowed: `getUser()` (`lib/session.ts:66`) says
-who someone is, also when their account is paused, and `SitePage` only draws the frame. So one
-small server-only reader stands in front of every page and every action of this part, and is
+who someone is, also when their account is paused, and `SitePage` only draws the frame. So one small server-only reader, which part one built (the rulebook's "How the parts connect")
+and part two's pages already use, stands in front of every page and every action of this part, and is
 called before anything is drawn or sent, also the page's title and whatever is handed to a
 component in the browser:
 
