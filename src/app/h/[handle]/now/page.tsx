@@ -36,7 +36,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   // A block either way looks, from here, exactly like a host who is not available.
   if (!open || !open.lengths.includes(minutes) || (await isBlockedEitherWay(person.id, profile.userId))) {
     return (
-      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">{profile.displayName} is not available right now</h1>
         <p className="mt-4 text-sm">
           <Link href={`/h/${profile.handle}`} className="underline underline-offset-2">
@@ -49,7 +49,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   }
   if (person.id === profile.userId) {
     return (
-      <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+      <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">This is your own page</h1>
         <p className="mt-4 text-sm">You cannot book a call with yourself.</p>
       </SitePage>
@@ -61,7 +61,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   if ((!paid || open.offer.verifiedOnly) && !idConfirmed) return <ConfirmIdFirst reason={paid ? "host" : "free"} hostName={profile.displayName} next={here} />;
 
   return (
-    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
         <Link href={`/h/${profile.handle}`} className="underline underline-offset-2">
           ← Back

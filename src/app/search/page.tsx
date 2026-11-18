@@ -47,7 +47,7 @@ export default async function SearchPage(props: PageProps<"/search">) {
           {results.map((host) => (
             <li key={host.handle} className={`${warm.card} text-sm`}>
               <p className="flex flex-wrap items-center gap-x-3 text-lg font-bold">
-                <Link href={`/h/${host.handle}`} className="underline decoration-[#c2410c] underline-offset-4">
+                <Link href={`/h/${host.handle}`} className="inline-flex min-h-11 items-center underline decoration-[#c2410c] underline-offset-4">
                   {host.displayName}
                 </Link>{" "}
                 <span className="text-sm font-normal text-[#57534e]">@{host.handle}</span>

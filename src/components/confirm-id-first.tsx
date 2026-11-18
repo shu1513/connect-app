@@ -8,7 +8,7 @@ import { SitePage } from "./site-page";
  */
 export function ConfirmIdFirst({ reason, hostName, next }: { reason: "free" | "host"; hostName: string; next: string }) {
   return (
-    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
       <h1 className="text-2xl font-semibold">One thing first</h1>
       <p className="mt-4 text-sm">
         {reason === "free" ? "Before your first free call, please confirm who you are" : `${hostName} only takes calls from people who have confirmed their ID. Please confirm who you are`}
