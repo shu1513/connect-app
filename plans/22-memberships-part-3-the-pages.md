@@ -99,7 +99,7 @@ No change to the database.
 
 - **Hosting, "Membership"** (`app/host/page.tsx`, a new `app/host/membership.tsx` drawn into it,
   `app/host/actions.ts`): the switch, the member price, the time included, the sentence with the
-  monthly amount, room ("Your weekly hours offer ... Room for ... more"), and before a change is saved the page of the rulebook's "Changing the membership": a
+  monthly amount, room, worked out by part one's `room.ts` ("Your weekly hours offer ... Room for ... more"), and before a change is saved the page of the rulebook's "Changing the membership": a
   second page, drawn on the server from the function in `offers.ts` that works a change out
   without saving it, with the numbers and a "Save this change" button. That button is an
   ordinary form carrying the proposed values and the short mark of what was shown; saving
@@ -148,16 +148,17 @@ No change to the database.
   version, so the page and the record can never differ. It opens for an invited person (the link carries the invitation's `invite_id`) and for a
   paused member, also when the host's page is hidden. The host's own page
   (`app/h/[handle]/page.tsx`) shows an invited person a box with a link to it, as the rulebook's
-  "Inviting" says. "Join" and "Resume" call `join.ts`; the
-  page then shows the card form.
+  "Inviting" says. "Join" and "Resume" call `join.ts`, each form carrying a request id made when the page
+  was drawn (part one's `request_id`), so a double press joins once; the page then shows the
+  card form.
 - **The card form** (a new `app/h/[handle]/membership/card-form.tsx`): Stripe's `Elements` and
   `PaymentElement`, like the booking's card step, with `confirmPayment` (`redirect:
   "if_required"`, and as `return_url` this same page) on the month's PaymentIntent. What makes
   the payment a hold and keeps the card (`capture_method`, `setup_future_usage`, card only) was
   set on the server when part one made the PaymentIntent; the browser sets none of it. A hold
   that went through shows as "waiting to be taken", not as "succeeded".
-  - **Starting is an action; loading is only reading.** "Join", "Resume" and "Pay now" are the
-    actions that may call `intentFor`. A page load never does: it reads the secret of the
+  - **Starting is an action; loading is only reading.** "Join" and "Resume" (through `join.ts`) and "Pay now" (through part one's `payNow`)
+    are the only actions that may call `intentFor`. A page load never does: it reads the secret of the
     PaymentIntent the month already has, for the member only and never from a cache shared
     between people, and if there is none yet it says "one moment" and offers the button again.
     So opening or reloading the page never restarts a joining, never makes a second month and

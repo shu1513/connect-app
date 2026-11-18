@@ -871,6 +871,14 @@ anything here without this table being changed first.
 | `access.ts`: who may see an invitation, a membership, a payment, a host's members; and the way a member or an invited person reaches a host whose page is hidden | 1b | 2a (the host's page and the booking page as a member sees them); 3a, 3b (before every page and in every action) |
 | The check scripts `membership-check.ts`, `member-calls-check.ts`, `membership-journey-check.ts`, each making its members through the functions of the parts before it | 1a/1b, 2a/2b, 3b | each later part runs all the earlier ones unchanged |
 
+**What a link or a form carries.** An invitation's link carries its `invite_id`, an offer of less
+time its `offer_id`, and a "Join" or "Resume" form a `request_id` made when the page was drawn;
+all three are part one's, and part three's pages only pass them on.
+
+**The founder's switch in the check scripts.** Each script turns it on in the local database
+for the journeys that start or renew a membership and off again at its end, and has a journey
+of its own for what goes on working while it is off.
+
 **The addresses of the new pages**, fixed here because emails written in part one link to pages
 built in part three:
 

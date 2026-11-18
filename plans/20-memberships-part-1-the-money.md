@@ -536,9 +536,11 @@ it: the host's hours, what is promised to whom, room for someone new, and the on
 who keeps their place, all by the rulebook's "Room for members" and "The builder's choices".
 Every caller holds the host's calendar lock.
 
-### Emails written in 1a
+### Emails written in 1a (`src/lib/membership/emails.ts`)
 
-Each in the step of its event: the monthly receipt; payment failed (with or without "your bank
+Their links use the addresses fixed in the rulebook's "How the parts connect"; those pages are
+built in part three, and until then only the check script receives these emails. Each in the
+step of its event: the monthly receipt; payment failed (with or without "your bank
 wants your approval"); a payment given up and the membership paused; paused for lack of room or
 because memberships are not being renewed; a pay-back; ended because of a dispute.
 
@@ -591,14 +593,16 @@ name in the rulebook's "How the parts connect".
   back on; the host's own "End membership"; the offer of less time, each action carrying the
   `offer_id` it was shown.
 - **`jobs.ts`** grows: invitations that ran out; offers of less time settled at the month's end.
-- **Emails written in 1b**: invited, taken back, run out; joined; "Cancel now"; renewal stopped
+- **Emails written in 1b** (the same `emails.ts`): invited, taken back, run out; joined; "Cancel now"; renewal stopped
   and switched back on; paused by the member's or the host's choice; resumed; a lower price from
   the next month; an offer of less time and its outcome; ended.
 
 ## The order it can safely go in
 
 Nothing is live, so each pull request is merged in one go: the migration, then the code, then
-the scripts. The old code works on the new tables. After 1a the switch exists and is off, and no
+the scripts. The check script turns the founder's switch on in the local database for the
+journeys that start or renew a membership, turns it off again when it ends, and has journeys of
+its own for what happens while it is off. The old code works on the new tables. After 1a the switch exists and is off, and no
 code path can start a membership: only the check script makes one, directly in the database.
 
 ## How each "done when" is proven

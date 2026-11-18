@@ -112,8 +112,9 @@ is, also for a host whose weekly hours are all for members. The stretches are to
 time for a call later is worked out and checked: `slotInput` (`:159`), used by `openTimes` and by
 `checkMayAsk`, takes only the general stretches for everyone who is not booking as a member,
 before they are joined together. So such a host has no times for a call later for the public,
-and nothing else changes. Adding a stretch takes the tick (`addWeeklyHours`); the tick does not
-change the week's total, so it never starts the step for a cut in hours.
+and nothing else changes. Adding a stretch takes the tick (`addWeeklyHours`), and so does part one's `changeWeeklyHours`,
+which was built before the column existed and gets it here; the tick does not change the week's
+total, so it never starts the step for a cut in hours.
 
 ### Booking as a member (`src/lib/membership/book.ts`)
 
@@ -346,8 +347,8 @@ was booked from a membership" and its list under "Added time". How:
   can be asked at once. If not, and the screen had shown `membership`: nothing is written, and
   the answer carries the card price for the member to press again. If the screen had shown
   `card` with this price: the request (`paid_from` "card") and a `card` payment with the
-  ordinary fee terms (`DEFAULT_FEE_TERMS`, not the call's), and the hold is placed on the
-  membership's card in use (`membership_cards`) through `placeHoldWithSavedCard`, as today.
+  ordinary fee terms (`DEFAULT_FEE_TERMS`, not the call's), and the hold is placed on the membership's card in use (read through part one's
+  `cards.ts`) through `placeHoldWithSavedCard`, as today.
   `savedCardOf` is not used for such a call.
 - **Accepting** (`answerExtension`): a `member_call` payment that is `held` is "in place"; the
   check on the hold's end stays for a `card` payment. Accepting takes no lock on a month,
@@ -374,7 +375,9 @@ before after each. With the switch off, a member exists only where the check scr
 ## How each "done when" is proven
 
 A new script, `scripts/member-calls-check.ts`, built like plan 20's: a membership and a month
-made through part one's own functions, calls attended by writing the attendance record as
+made through part one's own functions (inviting, joining, the hold), for which the script turns
+the founder's switch on in the local database, as plan 20's script does, and off again when it
+ends; calls attended by writing the attendance record as
 `payments-check.ts` does, a made-up `now`, interruptions played at the real place. After every
 step it makes plan 20's comparisons (the six places; Stripe asked afresh, every PaymentIntent of
 the test customer; the money record; work still owed; the outcome written out).
@@ -383,7 +386,7 @@ the test customer; the money record; work still owed; the outcome written out).
 | --- | --- |
 | Test calls come out right across a month's end, with refund requests, with disputes and with early endings | "Calls", "Across the month's end", "Refund requests", "Disputes and endings" below. |
 | Two bookings, or a booking and added time, can never spend the same money | "At the same moment" below, and the database's check on a month's places. |
-| No call's money needs part three; months already paid for stay usable with the switch off; nobody can buy a membership | Every journey ends with the helper having nothing left to do; the journeys run with the switch off; the twelve existing scripts and plan 20's script pass unchanged. |
+| No call's money needs part three; months already paid for stay usable with the switch off; nobody can buy a membership | Every journey ends with the helper having nothing left to do; a journey of its own turns the switch off with a month running and a call booked (the call takes place and is settled, another can be booked from that month, nothing renews, nobody can join); the twelve existing scripts and plan 20's script pass unchanged. |
 
 **Journeys in 2a**
 
