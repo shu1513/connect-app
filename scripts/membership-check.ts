@@ -50,6 +50,12 @@ async function main() {
   const Room = await import("../src/lib/membership/room");
   const { membershipsToLookAt } = await import("../src/lib/membership/health");
   const { monthEnd } = await import("../src/lib/membership/rules");
+  const { block } = await import("../src/lib/safety/blocks");
+  const { pauseAccount } = await import("../src/lib/safety/reports");
+  const { closeAccount } = await import("../src/lib/profiles/closing");
+  const { decideProfile, updateHostProfile, ProfileError } = await import("../src/lib/profiles/profiles");
+  const { addWeeklyHours, removeWeeklyHours, CalendarError } = await import("../src/lib/booking/calendar");
+  const { RULES } = await import("../src/lib/terms");
 
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -115,6 +121,52 @@ async function main() {
     }
     return C.syncMonth(monthId, new Date());
   }
+  /** The member's own payment reaches Stripe, and we have not heard of it yet. */
+  async function confirmOnly(monthId: string, card = "pm_card_visa") {
+    const [owner] = await db.select({ customerId: schema.memberships.customerId }).from(months).innerJoin(schema.memberships, eq(schema.memberships.id, months.membershipId)).where(eq(months.id, monthId));
+    await C.payNow({ monthId, memberId: owner.customerId });
+    await stripe().paymentIntents.confirm((await M(monthId)).stripePaymentIntentId!, { payment_method: card, return_url: "https://example.com/return" });
+  }
+  /** The member resumes (the real resuming is part 1b's): a new period, a new agreement, a new first month at the card step. Returns the new month. */
+  async function resume(m: Made): Promise<string> {
+    const at = new Date();
+    return db.transaction(async (tx) => {
+      await L.lockCalendar(tx, m.host.id);
+      const before = await L.lockMembership(tx, m.membershipId);
+      const [agreement] = await tx.insert(schema.membershipAgreements).values({ membershipId: m.membershipId, requestId: randomUUID(), kind: "resumed", offerVersion: 1, pricePer15Cents: 750, minutes: 120, cardWordingVersion: "check", firstMonthNumber: 0, at }).returning();
+      const [again] = await tx.update(schema.memberships).set({ status: "joining", period: before.period + 1, agreementId: agreement.id, pausedAt: null, memberStoppedAt: null, hostStoppedAt: null }).where(eq(schema.memberships.id, m.membershipId)).returning();
+      const month = await C.writeDownMonth(tx, again, { originKey: `agreement:${agreement.id}`, agreementId: agreement.id, pricePer15Cents: 750, includedMinutes: 120, cardStepExpiresAt: new Date(at.getTime() + 30 * MIN) }, at);
+      return month.id;
+    });
+  }
+  /** A finished booking of this member with this host, for the card checks. */
+  async function booking(host: Person, member: Person): Promise<string> {
+    const startsAt = new Date(Date.now() - DAY);
+    const [row] = await db
+      .insert(schema.bookings)
+      .values({ hostId: host.id, customerId: member.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "ran_out", requestKey: randomUUID() })
+      .returning();
+    return row.id;
+  }
+  /** Stripe's test card that is always disputed: waits until the dispute on the month's charge exists. */
+  async function disputeOn(monthId: string): Promise<string | undefined> {
+    const intentId = (await M(monthId)).stripePaymentIntentId!;
+    for (let i = 0; i < 30; i++) {
+      const found = (await stripe().disputes.list({ payment_intent: intentId, limit: 1 })).data[0]?.id;
+      if (found) return found;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    return undefined;
+  }
+  async function disputeBecomes(disputeId: string, wanted: string): Promise<string> {
+    let status = "";
+    for (let i = 0; i < 30 && status !== wanted; i++) {
+      status = (await stripe().disputes.retrieve(disputeId)).status;
+      if (status !== wanted) await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    return status;
+  }
+
   /** A member whose first month is held. */
   async function held(host: Person, card = "pm_card_visa"): Promise<Made> {
     const m = await atCardStep(host);
@@ -135,6 +187,9 @@ async function main() {
     await db.insert(schema.membershipCards).values({ membershipId: m.membershipId, stripePaymentMethodId: method.id, savedAt: new Date() });
     return method.id;
   }
+
+  /** Makes another of Stripe's test cards the card in use (as saveCard), for a member whose months are still open. */
+  const saveCardKeeping = saveCard;
 
   // ------------------------------------------------------------------------
   // Reading
@@ -248,6 +303,11 @@ async function main() {
       await db.delete(schema.membershipAgreements).where(inArray(schema.membershipAgreements.membershipId, ids));
       await db.delete(schema.membershipInvitations).where(inArray(schema.membershipInvitations.membershipId, ids));
       await db.delete(schema.memberships).where(inArray(schema.memberships.id, ids));
+    }
+    const theirBookings = (await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(like(schema.bookings.hostId, "mc-%"), like(schema.bookings.customerId, "mc-%")))).map((row) => row.id);
+    if (theirBookings.length > 0) {
+      await db.delete(schema.bookingCards).where(inArray(schema.bookingCards.bookingId, theirBookings));
+      await db.delete(schema.bookings).where(inArray(schema.bookings.id, theirBookings));
     }
     if (!everything) return;
     // The people themselves, at the very end. Anything that still points at one is left for the next run.
@@ -531,6 +591,635 @@ async function main() {
     check("the member is told, and it gave no time and no new month", (await emails(c.member.email, "paid back to your card")) === 1 && (await monthsOf(c.membershipId)).length === 1 && (await MS(c.membershipId)).status === "paused");
     await audit("after money taken while giving up", c);
   });
+
+  // ========================================================================
+  journey("The card step: it runs out, a hold comes in time or too late, no room, and the switch", async () => {
+    const host = await newHost();
+    const a = await atCardStep(host, { cardStepMs: -MIN });
+    const b = await atCardStep(host, { cardStepMs: -MIN });
+    await db.update(schema.memberships).set({ inviteExpiresAt: new Date(Date.now() - MIN) }).where(eq(schema.memberships.id, b.membershipId));
+    await helper(new Date());
+    check("no hold by the end of the card step: the month is given up, and nothing was ever asked of Stripe", (await M(a.monthId)).status === "given_up" && (await M(a.monthId)).endedHow === "card_step" && (await M(a.monthId)).stripePaymentIntentId === null);
+    check("the joining is undone, and the invitation stands while it has time left", (await MS(a.membershipId)).status === "invited" && (await MS(a.membershipId)).currentMonthId === null);
+    const over = await MS(b.membershipId);
+    check("with the invitation over too, it ends quietly: this person was never a member", over.status === "ended" && over.cleanupDoneAt !== null && (await emails(b.member.email, "has ended")) === 0, over.status);
+
+    const c = await atCardStep(host);
+    await confirmOnly(c.monthId);
+    await db.update(months).set({ cardStepExpiresAt: new Date(Date.now() + 5_000) }).where(eq(months.id, c.monthId));
+    await helper(new Date(Date.now() + HOUR), 1);
+    check("a hold that came in time counts, also when the helper only looks an hour later", (await M(c.monthId)).status === "held" && (await MS(c.membershipId)).status === "active", (await M(c.monthId)).status);
+
+    const d = await atCardStep(host);
+    await confirmOnly(d.monthId);
+    await db.update(months).set({ cardStepExpiresAt: new Date(Date.now() - HOUR) }).where(eq(months.id, d.monthId));
+    await C.syncMonth(d.monthId, new Date());
+    check("a hold that came after the card step's time is let go, and nothing starts", (await M(d.monthId)).status === "given_up" && (await M(d.monthId)).endedHow === "card_step" && (await intentOf(d.monthId)).status === "canceled" && (await MS(d.membershipId)).status === "invited", (await M(d.monthId)).status);
+    for (const m of [a, c, d]) await audit("after the card step", m);
+
+    // Room for exactly one member: 30 minutes a week is 2 hours in four weeks.
+    const small = await newHost({ weeklyMinutes: 30 });
+    const first = await held(small);
+    check("the first member has the host's only place", (await M(first.monthId)).status === "held" && (await Room.roomLeft(db, small.id, new Date())) === 0);
+    const second = await atCardStep(small);
+    await pay(second.monthId);
+    check("a hold that comes back when there is no room is let go, and nothing starts", (await M(second.monthId)).status === "given_up" && (await M(second.monthId)).endedHow === "no_room" && (await intentOf(second.monthId)).status === "canceled" && (await MS(second.membershipId)).status === "invited", (await M(second.monthId)).endedHow);
+    await audit("after a hold without room", second);
+
+    const unnamed = await newHost({ named: false });
+    const e = await atCardStep(unnamed);
+    await pay(e.monthId);
+    check("for a host the founder has not named, a hold is let go and nothing starts", (await M(e.monthId)).status === "given_up" && (await intentOf(e.monthId)).status === "canceled" && (await MS(e.membershipId)).status === "invited", (await M(e.monthId)).status);
+    await setSwitches({ memberships: "named", membershipsHosts: [] });
+    const f = await atCardStep(host);
+    await pay(f.monthId);
+    check("with \"named hosts\" and nobody named, memberships are on for nobody", (await M(f.monthId)).status === "given_up" && (await MS(f.membershipId)).status === "invited");
+    await setSwitches({ memberships: "off" });
+    const g = await atCardStep(host);
+    await pay(g.monthId);
+    check("with the switch off, nothing starts either", (await M(g.monthId)).status === "given_up" && (await intentOf(g.monthId)).status === "canceled");
+    await setSwitches({ memberships: "named", membershipsHosts: named });
+    await audit("after the switch refused a hold", g);
+  });
+
+  // ========================================================================
+  journey("Stripe reports a different amount; and a charge first found after the fact", async () => {
+    const host = await newHost();
+    const a = await held(host);
+    await stripe().paymentIntents.capture((await M(a.monthId)).stripePaymentIntentId!, { amount_to_capture: 5000 });
+    await C.syncMonth(a.monthId, new Date());
+    await C.syncMonth(a.monthId, new Date());
+    let month = await M(a.monthId);
+    check("a different amount than the whole: the month gives no time and stays out of the six places", month.status === "held" && sum(placesOf(month)) === 0 && month.takenCents === 5000 && Boolean(month.problem), month);
+    check("the real amount is on the month's money record, once", (await ledger({ monthId: a.monthId }, "customer_charge")).total === 5000 && (await ledger({ monthId: a.monthId }, "customer_charge")).lines === 1);
+    await helper(new Date(Date.now() + 80 * HOUR));
+    check("nothing is tried on it; it waits for the founder", (await M(a.monthId)).status === "held" && (await operations(a.monthId, "capture")).length === 0);
+    check("the founder sees it on the admin page, and the health check says so", (await membershipsToLookAt(new Date())).withProblem.some((row) => row.month.id === a.monthId) && (await healthProblems(new Date())).some((line) => line.includes("needs the founder")));
+    await audit("after an odd amount", a);
+    await db.update(months).set({ problem: null, status: "given_up", endedHow: "cancelled_at_stripe" }).where(eq(months.id, a.monthId)); // out of the way of the next part
+
+    const b = await running(host);
+    await saveCard(b, "pm_card_chargeCustomerFail");
+    await closeMonth(b.monthId, (await M(b.monthId)).endsAt!);
+    const renewal = (await monthsOf(b.membershipId))[1];
+    check("(the renewal is waiting for a payment)", (await M(renewal.id)).status === "to_pay" && (await MS(b.membershipId)).status === "unpaid");
+    await confirmOnly(renewal.id);
+    await stripe().paymentIntents.capture(renewal.stripePaymentIntentId ?? (await M(renewal.id)).stripePaymentIntentId!); // taken without our code ever accepting the hold
+    await C.syncMonth(renewal.id, new Date());
+    await C.syncMonth(renewal.id, new Date());
+    month = await M(renewal.id);
+    check("a charge on a month we never accepted: recorded once, all of it owed back, no time given", month.status === "closed" && month.toPayBackCents === 6000 && (await refundsOf(renewal.id)).length === 1 && (await refundsOf(renewal.id))[0].sourceKey === `late:${renewal.id}`, month.status);
+    const membership = await MS(b.membershipId);
+    check("it was the current month: the membership is paused and its card retired", membership.status === "paused" && membership.currentMonthId === null && (await cardsOf(b.membershipId)).every((card) => card.retiredAt !== null), membership.status);
+    await helper(new Date());
+    check("paid back in full, and never renewed or replaced", (await M(renewal.id)).status === "finished" && (await M(renewal.id)).paidBackCents === 6000 && (await monthsOf(b.membershipId)).length === 2);
+    await audit("after a charge found after the fact", b);
+  });
+
+  // ========================================================================
+  journey("Pay-backs: owed once, tried as often as needed, each answer applied only to its own try", async () => {
+    const host = await newHost();
+    const a = await running(host);
+    // $15.00 of the free money came back because of the host (part two's calls will do this; here it is put on the month).
+    await db.update(months).set({ hostCausedCents: 1500 }).where(eq(months.id, a.monthId));
+    await db.update(schema.memberships).set({ memberStoppedAt: new Date() }).where(eq(schema.memberships.id, a.membershipId));
+    const end = (await M(a.monthId)).endsAt!;
+    await closeMonth(a.monthId, end);
+    let month = await M(a.monthId);
+    check("at the month's end the host-caused $15.00 is owed back to the card, and the other $45.00 has expired", month.status === "closed" && month.toPayBackCents === 1500 && month.expiredCents === 4500 && month.freeCents === 0 && month.hostCausedCents === 0, month);
+    const expired = await expiredPayment(a.monthId);
+    // $45.00: 4.9% is $2.205, rounded to $2.21, plus the month's 30 cents: $2.51. The host earns $42.49.
+    check("the host earns on the $45.00 only: fee $2.51, share $42.49", expired.chargedCents === 4500 && expired.originalFeeCents === 251 && expired.originalHostShareCents === 4249, `${expired.originalFeeCents} ${expired.originalHostShareCents}`);
+    check("the member stopped the renewal, so the membership is paused at the month's end and nothing new is charged", (await MS(a.membershipId)).status === "paused" && (await MS(a.membershipId)).pausedReason === "member" && (await monthsOf(a.membershipId)).length === 1);
+    let [line] = await refundsOf(a.monthId);
+    check("owed, with no try started yet", line.status === "owed" && line.sourceKey === `monthend:${a.monthId}` && (await operations(a.monthId, "refund")).length === 0);
+    await helper(end);
+    month = await M(a.monthId);
+    [line] = await refundsOf(a.monthId);
+    check("the helper sends it; Stripe confirms; the month is finished", line.status === "done" && month.paidBackCents === 1500 && month.toPayBackCents === 0 && month.status === "finished", `${line.status} ${month.status}`);
+    await audit("after a month-end pay-back", a);
+
+    const b = await running(host);
+    const owe = (key: string, cents: number) =>
+      db.transaction(async (tx) => {
+        const locked = await L.lockForMonth(tx, b.monthId);
+        return P.owePayBack(tx, locked.month, { amountCents: cents, sourceKey: key, reason: "A check." });
+      });
+    const once = await owe(`check:${b.monthId}:1`, 1000);
+    const twice = await owe(`check:${b.monthId}:1`, 1000);
+    check("the same event owing twice owes once", once.created && !twice.created && (await M(b.monthId)).toPayBackCents === 1000 && (await M(b.monthId)).freeCents === 5000);
+    const tooMuch = await owe(`check:${b.monthId}:2`, 5001).catch((error) => error);
+    check("never more than the month has free", tooMuch instanceof MoneyError && (await M(b.monthId)).toPayBackCents === 1000);
+
+    // Stripe refuses the first try (the payment's id is made wrong for a moment).
+    const real = (await M(b.monthId)).stripePaymentIntentId!;
+    await db.update(months).set({ stripePaymentIntentId: "pi_not_a_real_payment" }).where(eq(months.id, b.monthId));
+    await P.sendPayBack(once.refund.id, new Date());
+    await db.update(months).set({ stripePaymentIntentId: real }).where(eq(months.id, b.monthId));
+    [line] = await refundsOf(b.monthId);
+    check("a try Stripe refuses leaves the money \"to be paid back\"; the next try will be a new one", line.status === "owed" && line.attempt === 2 && line.lastFailedAt !== null && (await M(b.monthId)).toPayBackCents === 1000, line);
+    check("the founder will see it once it has been owed for an hour", (await membershipsToLookAt(new Date(Date.now() + 61 * MIN))).payBacks.some((row) => row.refund.id === line.id));
+    await db.transaction(async (tx) => P.applyPayBackOutcome(tx, await L.lockForMonth(tx, b.monthId), { refundId: line.id, attempt: 1, stripeRefundId: "re_late_answer", status: "done" }, new Date()));
+    check("a late answer about the first try does not touch the second", (await refundsOf(b.monthId))[0].status === "owed" && (await refundsOf(b.monthId))[0].attempt === 2 && (await M(b.monthId)).paidBackCents === 0);
+    await helper(new Date(Date.now() + 30 * MIN), 1);
+    check("it is not tried again within the hour", (await operations(b.monthId, "refund")).length === 1);
+    await helper(new Date(Date.now() + 61 * MIN), 1);
+    [line] = await refundsOf(b.monthId);
+    const atStripe = await stripe().refunds.list({ payment_intent: real, limit: 10 });
+    check("an hour later it is sent again, as try 2, and goes through", line.status === "done" && (await operations(b.monthId, "refund")).length === 2 && atStripe.data.length === 1 && atStripe.data[0].metadata?.attempt === "2" && atStripe.data[0].metadata?.refundId === line.id, line.status);
+    await db.transaction(async (tx) => P.applyPayBackOutcome(tx, await L.lockForMonth(tx, b.monthId), { refundId: line.id, attempt: 2, stripeRefundId: null, status: "failed" }, new Date()));
+    check("a late \"failed\" cannot reopen a pay-back that is done", (await refundsOf(b.monthId))[0].status === "done" && (await M(b.monthId)).paidBackCents === 1000);
+
+    // An answer that never arrived, found again after 23 hours.
+    const never = await owe(`check:${b.monthId}:3`, 700);
+    const params = (refund: { id: string; attempt: number; amountCents: number }) => ({ intentId: real, amountCents: refund.amountCents, monthId: b.monthId, refundId: refund.id, attempt: refund.attempt });
+    const write = async (refund: { id: string; attempt: number; amountCents: number }) => {
+      const label = `monthrefund:${refund.id}:${refund.attempt}:1`;
+      const [operation] = await db.insert(schema.moneyOperations).values({ monthId: b.monthId, kind: "refund", label, params: JSON.stringify(params(refund)) }).returning();
+      return { label, id: operation.id };
+    };
+    let written = await write(never.refund);
+    await age(written.id, 25 * HOUR);
+    await reconcileOperations(new Date());
+    [, line] = await refundsOf(b.monthId).then((rows) => rows.sort((x, y) => x.createdAt.getTime() - y.createdAt.getTime()));
+    check("written down but never sent, and too old to repeat: Stripe is asked, has none, and it is owed again as a new try", line.status === "owed" && line.attempt === 2 && (await stripe().refunds.list({ payment_intent: real, limit: 10 })).data.length === 1, line);
+
+    if (process.argv.includes("--long")) {
+      // More than 100 refunds on one payment, so that the one we look for is not on Stripe's first page.
+      for (let i = 0; i < 101; i++) {
+        const small = await owe(`check:${b.monthId}:small:${i}`, 1);
+        await P.sendPayBack(small.refund.id, new Date());
+      }
+      check("(101 one-cent pay-backs went through)", (await M(b.monthId)).paidBackCents === 1101, (await M(b.monthId)).paidBackCents);
+    }
+    await db.update(schema.membershipRefunds).set({ lastFailedAt: null }).where(eq(schema.membershipRefunds.id, line.id));
+    written = await write(line);
+    await P.refundAtStripe(params(line), written.label); // Stripe did it; the answer never reached us
+    await age(written.id, 25 * HOUR);
+    await reconcileOperations(new Date());
+    line = (await refundsOf(b.monthId)).find((row) => row.id === line.id)!;
+    const all = await stripe().refunds.list({ payment_intent: real, limit: 100 }).autoPagingToArray({ limit: 1000 });
+    check("sent, the answer lost, and too old to repeat: found among all of the payment's refunds by its line and its try, and recorded once", line.status === "done" && all.filter((refund) => refund.metadata?.refundId === line.id).length === 1 && (await M(b.monthId)).toPayBackCents === 0, line.status);
+    await audit("after pay-backs", b);
+  });
+
+  // ========================================================================
+  journey("A real bank dispute that is lost: the month is frozen, and the membership ends", async () => {
+    const host = await newHost();
+    const m = await running(host, "pm_card_createDispute"); // Stripe's test card that is always disputed
+    const disputeId = await disputeOn(m.monthId);
+    check("Stripe opened a dispute on the month's charge", Boolean(disputeId));
+    if (!disputeId) return;
+    await handleStripeEvent({ type: "charge.dispute.created", data: { object: { id: disputeId } } });
+    await handleStripeEvent({ type: "charge.dispute.created", data: { object: { id: disputeId } } });
+    let month = await M(m.monthId);
+    const membership = await MS(m.membershipId);
+    check("the dispute is recorded on the month", month.dispute === "open");
+    check("the membership ends at once and for good, and both are told once", membership.status === "ended" && membership.endedBy === "connect" && (await emails(m.member.email, "has ended")) === 1 && (await emails(host.email, "membership has ended")) === 1, membership.status);
+    await helper(new Date());
+    month = await M(m.monthId);
+    check("the month is frozen as it stands: nothing is paid back from it", month.freeCents === 6000 && month.toPayBackCents === 0 && (await refundsOf(m.monthId)).length === 0 && (await MS(m.membershipId)).cleanupDoneAt !== null, month);
+    const refused = await db.transaction(async (tx) => Mo.owePayBack(tx, (await L.lockForMonth(tx, m.monthId)).month, { amountCents: 100, sourceKey: `check:${m.monthId}`, reason: "A check." })).catch((error) => error);
+    check("a pay-back from a frozen month is refused", refused instanceof MoneyError);
+
+    await stripe().disputes.update(disputeId, { evidence: { uncategorized_text: "losing_evidence" } });
+    check("Stripe says the dispute was lost", (await disputeBecomes(disputeId, "lost")) === "lost");
+    await handleStripeEvent({ type: "charge.dispute.closed", data: { object: { id: disputeId } } });
+    await helper((await M(m.monthId)).endsAt!);
+    month = await M(m.monthId);
+    check("lost: the month stays frozen past its end. Nothing expires to the host, nothing is paid back, nothing renews", month.dispute === "lost" && month.status === "closed" && month.freeCents === 6000 && (await expiredPayment(m.monthId)) === undefined && (await monthsOf(m.membershipId)).length === 1, month);
+    check("the founder sees the disputed month", (await membershipsToLookAt(new Date())).disputed.some((row) => row.month.id === m.monthId));
+    await audit("after a lost dispute", m);
+  });
+
+  // ========================================================================
+  journey("A dispute first heard of when it is already won; and a dispute over a month from before a pause", async () => {
+    const host = await newHost();
+    const m = await running(host, "pm_card_createDispute");
+    const disputeId = await disputeOn(m.monthId);
+    check("Stripe opened a dispute", Boolean(disputeId));
+    if (disputeId) {
+      await stripe().disputes.update(disputeId, { evidence: { uncategorized_text: "winning_evidence" } });
+      check("Stripe says the dispute was won", (await disputeBecomes(disputeId, "won")) === "won");
+      // The first message we ever handle arrives only now.
+      await handleStripeEvent({ type: "charge.dispute.closed", data: { object: { id: disputeId } } });
+      let month = await M(m.monthId);
+      check("opened and won before we handled a single message: the membership is ended all the same", month.dispute === "won" && (await MS(m.membershipId)).status === "ended");
+      check("won: the month is not frozen, and the money that is still free is owed back, because the membership has ended", month.toPayBackCents === 6000 && month.freeCents === 0 && (await refundsOf(m.monthId))[0]?.sourceKey === `won:${m.monthId}`, month);
+      await helper(new Date());
+      month = await M(m.monthId);
+      check("and paid back by the helper", month.paidBackCents === 6000 && (await refundsOf(m.monthId))[0].status === "done", `${month.paidBackCents} ${(await refundsOf(m.monthId))[0].status} ${(await operations(m.monthId, "refund")).map((o) => o.error).join()}`);
+      await audit("after a won dispute", m);
+    }
+
+    // A member pauses, resumes, and their bank then disputes a month from before the pause.
+    const p = await running(host);
+    await db.update(schema.memberships).set({ memberStoppedAt: new Date() }).where(eq(schema.memberships.id, p.membershipId));
+    await closeMonth(p.monthId, (await M(p.monthId)).endsAt!);
+    check("(paused at the month's end)", (await MS(p.membershipId)).status === "paused");
+    const second = await resume(p);
+    await pay(second);
+    await C.takeNow(second, new Date());
+    check("(resumed: a new period, a new month, running)", (await MS(p.membershipId)).period === 2 && (await M(second)).status === "running" && (await M(second)).period === 2);
+    await E.recordMonthDispute(p.monthId, "open", new Date());
+    check("a dispute over the old month ends the membership the two have now", (await MS(p.membershipId)).status === "ended" && (await M(p.monthId)).dispute === "open" && (await M(second)).dispute === "none");
+    await helper(new Date());
+    check("the new month's free money is paid back; the old month is frozen as it stood", (await M(second)).paidBackCents === 6000 && (await refundsOf(second))[0].sourceKey === `ending:${second}` && (await M(p.monthId)).expiredCents === 6000 && (await M(p.monthId)).status === "finished");
+    await audit("after a dispute over an old month", p);
+  });
+
+  // ========================================================================
+  journey("Endings from today's app: a block, a closed account, a paused account, a suspended host", async () => {
+    const [founder] = await db.select().from(schema.user).where(eq(schema.user.email, "admin@test.local"));
+    if (!founder) throw new Error("Run `npm run seed` first.");
+    const host = await newHost();
+    const a = await held(host);
+    await block({ blockerId: a.member.id, blockedId: host.id, now: new Date() });
+    let membership = await MS(a.membershipId);
+    check("a block ends the membership in the same step, for good", membership.status === "ended" && membership.endedBy === "connect" && membership.currentMonthId === null, membership.status);
+    check("its hold is let go at once, and the clean-up is done", (await M(a.monthId)).status === "given_up" && (await M(a.monthId)).endedHow === "ending" && (await intentOf(a.monthId)).status === "canceled" && membership.cleanupDoneAt !== null, (await M(a.monthId)).status);
+    check("both are told, without a word about who did what", (await emails(a.member.email, "has ended")) === 1 && (await emails(host.email, "membership has ended")) === 1);
+    await audit("after a block", a);
+
+    const b = await running(host);
+    await closeAccount({ userId: b.member.id, by: founder.id });
+    membership = await MS(b.membershipId);
+    let month = await M(b.monthId);
+    check("a closed account ends the membership; all free money of the month is owed back", membership.status === "ended" && month.toPayBackCents + month.paidBackCents === 6000 && month.freeCents === 0 && (await refundsOf(b.monthId))[0].sourceKey === `ending:${b.monthId}`, `${membership.status} ${month.toPayBackCents}`);
+    await helper(new Date());
+    await helper((await M(b.monthId)).endsAt!);
+    month = await M(b.monthId);
+    check("paid back to the card; at the month's end nothing expires to the host and nothing renews", month.status === "finished" && month.paidBackCents === 6000 && month.expiredCents === 0 && (await expiredPayment(b.monthId)) === undefined && (await monthsOf(b.membershipId)).length === 1, month.status);
+    await audit("after a closed account", b);
+
+    const host2 = await newHost();
+    const c = await running(host2);
+    await pauseAccount({ adminId: founder.id, userId: host2.id, ruleKey: RULES[0].key, note: "", requestId: randomUUID() });
+    check("a host's account paused by the founder ends her memberships", (await MS(c.membershipId)).status === "ended" && (await M(c.monthId)).freeCents === 0);
+
+    const host3 = await newHost();
+    const other = await newHost();
+    const d = await running(host3);
+    const own = await atCardStep(other, { member: host3 }); // the host is herself a member of another host
+    await pay(own.monthId);
+    await decideProfile({ userId: host3.id, decision: "suspended", by: founder.id });
+    check("suspending a host ends the memberships she offers", (await MS(d.membershipId)).status === "ended");
+    check("her own membership with another host goes on", (await MS(own.membershipId)).status === "active" && (await M(own.monthId)).status === "held");
+    await helper(new Date());
+    for (const m of [c, d]) await audit("after a paused or suspended host", m);
+    await db.update(schema.user).set({ pausedAt: null, pausedReason: null }).where(eq(schema.user.id, host2.id));
+  });
+
+  // ========================================================================
+  journey("An ending across a month's end, in either order of the two jobs", async () => {
+    const host = await newHost();
+    const endAt = async (m: Made, at: Date) => db.transaction(async (tx) => S.endMembership(tx, await L.lockMembership(tx, m.membershipId), { by: "host", reason: "a check" }, at));
+    // Ended a minute BEFORE the month's end; the app stops; the helper is back after the end.
+    for (const order of ["the closing first", "the clean-up first"] as const) {
+      const m = await running(host);
+      const end = (await M(m.monthId)).endsAt!;
+      await endAt(m, new Date(end.getTime() - MIN));
+      const later = new Date(end.getTime() + HOUR);
+      if (order === "the closing first") await closeMonth(m.monthId, later);
+      else await E.cleanUpEnding(m.membershipId, later);
+      await helper(later);
+      const month = await M(m.monthId);
+      check(`ended a minute before the month's end, ${order}: the free money is paid back and nothing expires`, month.status === "finished" && month.paidBackCents === 6000 && month.expiredCents === 0 && (await expiredPayment(m.monthId)) === undefined && (await MS(m.membershipId)).cleanupDoneAt !== null, month);
+      await audit(`after an ending before the month's end (${order})`, m);
+    }
+    // Ended a minute AFTER the month's end, with the closing job late.
+    for (const order of ["the closing first", "the clean-up first"] as const) {
+      const m = await running(host);
+      const end = (await M(m.monthId)).endsAt!;
+      await endAt(m, new Date(end.getTime() + MIN));
+      const later = new Date(end.getTime() + HOUR);
+      if (order === "the closing first") await closeMonth(m.monthId, later);
+      else await E.cleanUpEnding(m.membershipId, later);
+      await helper(later);
+      const month = await M(m.monthId);
+      check(`ended a minute after the month's end, ${order}: the unused money has expired and nothing is paid back`, month.status === "finished" && month.expiredCents === 6000 && month.paidBackCents === 0 && (await refundsOf(m.monthId)).length === 0 && (await monthsOf(m.membershipId)).length === 1, month);
+      await audit(`after an ending after the month's end (${order})`, m);
+    }
+  });
+
+  // ========================================================================
+  journey("Renewals that are refused: no room, a host not named, the offer off, a stop; and a lower price", async () => {
+    // Room for two members (an hour a week is 4 hours in four weeks); then the host's hours are cut to room for one.
+    const host = await newHost({ weeklyMinutes: 60 });
+    const older = await running(host);
+    const newer = await running(host);
+    await db.update(schema.weeklyHours).set({ endMinute: 570 }).where(eq(schema.weeklyHours.hostId, host.id));
+    await closeMonth(newer.monthId, (await M(newer.monthId)).endsAt!);
+    await closeMonth(older.monthId, (await M(older.monthId)).endsAt!);
+    const paused = await MS(newer.membershipId);
+    check("without room, the newer member is paused at the renewal and nothing is charged", paused.status === "paused" && paused.pausedReason === "no_room" && (await monthsOf(newer.membershipId)).length === 1 && (await emails(newer.member.email, "is paused")) === 1, paused.status);
+    check("their old month finished in the usual way", (await M(newer.monthId)).status === "finished" && (await M(newer.monthId)).expiredCents === 6000);
+    check("the longest-standing member who fits keeps their place, whichever renewal came first", (await MS(older.membershipId)).status === "active" && (await monthsOf(older.membershipId)).length === 2 && (await monthsOf(older.membershipId))[1].status === "held");
+    await audit("after a renewal without room", newer);
+    await audit("after a renewal with room", older);
+
+    // A host the founder takes off the list is treated as if the switch had gone off for her.
+    const host2 = await newHost();
+    const heldOne = await held(host2);
+    const runningOne = await running(host2);
+    named.splice(named.indexOf(host2.id), 1);
+    await setSwitches({ membershipsHosts: named });
+    check("a month that has started goes on: its held money is still taken", (await C.takeNow(heldOne.monthId, new Date())).status === "running");
+    await closeMonth(runningOne.monthId, (await M(runningOne.monthId)).endsAt!);
+    const off = await MS(runningOne.membershipId);
+    check("at its end there is no renewal: the member is paused, and nothing is charged", off.status === "paused" && off.pausedReason === "switch" && (await monthsOf(runningOne.membershipId)).length === 1 && (await M(runningOne.monthId)).status === "finished", off.pausedReason);
+    await audit("after a host was taken off the list", runningOne);
+
+    const host3 = await newHost();
+    const a = await running(host3);
+    const b = await running(host3);
+    const c = await running(host3);
+    await db.update(schema.memberships).set({ hostStoppedAt: new Date() }).where(eq(schema.memberships.id, a.membershipId));
+    await closeMonth(a.monthId, (await M(a.monthId)).endsAt!);
+    check("the host paused this member after the month: paused at its end", (await MS(a.membershipId)).status === "paused" && (await MS(a.membershipId)).pausedReason === "host" && (await MS(a.membershipId)).hostStoppedAt === null);
+    await db.update(schema.membershipOffers).set({ pricePer15Cents: 600 }).where(eq(schema.membershipOffers.hostId, host3.id));
+    await closeMonth(b.monthId, (await M(b.monthId)).endsAt!);
+    const cheaper = (await monthsOf(b.membershipId))[1];
+    check("the host lowered the member price: the next month is written down at the lower price, for the same time", cheaper.pricePer15Cents === 600 && cheaper.includedMinutes === 120 && cheaper.totalCents === 4800 && (await intentOf(cheaper.id)).amount === 4800 && cheaper.status === "held", cheaper);
+    await db.update(schema.membershipOffers).set({ on: false }).where(eq(schema.membershipOffers.hostId, host3.id));
+    await closeMonth(c.monthId, (await M(c.monthId)).endsAt!);
+    check("the host's membership is switched off: paused at the month's end", (await MS(c.membershipId)).status === "paused" && (await MS(c.membershipId)).pausedReason === "offer_off" && (await monthsOf(c.membershipId)).length === 1);
+    for (const m of [a, b, c]) await audit("after a refused or cheaper renewal", m);
+  });
+
+  // ========================================================================
+  journey("Today's app: the regular price, weekly hours, and a card that is a booking's or a membership's, never both", async () => {
+    const host = await newHost();
+    const m = await held(host);
+    const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
+    const price = (cents: number) => updateHostProfile(host.id, { displayName: profile.displayName, about: profile.about, pricePer15Cents: cents }).then(() => null, (error: unknown) => error as Error);
+    const below = await price(700);
+    check("the regular price cannot go below the member price", below instanceof ProfileError && /member price/.test(below.message), below?.message);
+    check("and a host who offers a membership cannot make her calls free", (await price(0)) instanceof ProfileError);
+    check("a regular price at or above the member price is saved", (await price(750)) === null && (await price(1200)) === null);
+    await db.update(schema.membershipOffers).set({ on: false }).where(eq(schema.membershipOffers.hostId, host.id));
+    check("with the membership switched off, a month that is still held keeps the floor", (await price(700)) instanceof ProfileError);
+    await db.update(schema.membershipOffers).set({ on: true }).where(eq(schema.membershipOffers.hostId, host.id));
+
+    const [hours] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host.id));
+    const cut = await removeWeeklyHours(host.id, hours.id).then(() => null, (error: unknown) => error as Error);
+    check("weekly hours cannot be cut below what the host's members need", cut instanceof CalendarError && /members/.test(cut.message) && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host.id))).length === 1, cut?.message);
+    await addWeeklyHours(host.id, { weekday: 3, from: "09:00", to: "12:00" });
+    check("with enough hours left, a stretch can be removed", (await removeWeeklyHours(host.id, hours.id).then(() => null, (error: unknown) => error as Error)) === null && (await Room.hostMinutes(db, host.id)) === 720);
+    const free = await newHost();
+    const [freeHours] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, free.id));
+    await removeWeeklyHours(free.id, freeHours.id);
+    check("a host without members removes hours as before", (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, free.id))).length === 0);
+
+    const membersCard = (await cardsOf(m.membershipId))[0].stripePaymentMethodId;
+    const bookingId = await booking(host, m.member);
+    const seen = (id: string, card: string) => db.transaction((tx) => Cards.bookingCardSeen(tx, id, card));
+    const take = (membershipId: string, card: string) => db.transaction((tx) => Cards.takeCardForMembership(tx, membershipId, card, new Date())).then(() => true, (error: unknown) => (error instanceof MoneyError ? false : Promise.reject(error)));
+    check("a membership's card offered to a booking is refused, and the booking job never removes it", (await seen(bookingId, membersCard)) === false && (await db.transaction((tx) => Cards.bookingMayRemoveCard(tx, bookingId, membersCard, new Date()))) === false && (await db.select().from(schema.bookingCards)).every((row) => row.stripePaymentMethodId !== membersCard));
+
+    const customer = await stripeCustomerFor(m.member);
+    const attach = async (testCard = "pm_card_mastercard") => (await stripe().paymentMethods.attach(testCard, { customer })).id;
+    const bookingsCard = await attach();
+    check("a booking learns its card: remembered as a booking's", (await seen(bookingId, bookingsCard)) === true);
+    check("a booking's card offered as a membership's is refused", (await take(m.membershipId, bookingsCard)) === false);
+    check("also after the booking job removed it a moment before, because the booking's line remains", (await db.transaction((tx) => Cards.bookingMayRemoveCard(tx, bookingId, bookingsCard, new Date()))) === true && (await take(m.membershipId, bookingsCard)) === false);
+    const unfinished = await attach();
+    await db.update(schema.bookings).set({ stripePaymentMethodId: unfinished }).where(eq(schema.bookings.id, bookingId));
+    check("and a card on a booking whose card step is not finished", (await take(m.membershipId, unfinished)) === false);
+
+    // The real way in: a renewal paid by hand with a card that is a booking's is not accepted.
+    const n = await atCardStep(host);
+    const theirs = (await stripe().paymentMethods.attach("pm_card_visa", { customer: await stripeCustomerFor(n.member) })).id;
+    await seen(await booking(host, n.member), theirs);
+    await pay(n.monthId, theirs);
+    check("a month paid with a booking's card is not accepted: the hold is let go", (await M(n.monthId)).status === "given_up" && (await intentOf(n.monthId)).status === "canceled" && (await cardsOf(n.membershipId)).length === 0, (await M(n.monthId)).status);
+
+    for (const order of ["membership first", "booking first"] as const) {
+      const card = await attach();
+      const results = order === "membership first" ? await Promise.all([take(m.membershipId, card), seen(bookingId, card)]) : await Promise.all([seen(bookingId, card), take(m.membershipId, card)]).then(([s, t]) => [t, s]);
+      check(`both reach for the same card at the same moment (${order}): exactly one gets it`, results[0] !== results[1], results);
+    }
+    check("the card in use is the membership's own all along, or the one it just took", (await cardsOf(m.membershipId)).filter((card) => card.retiredAt === null).length === 1);
+  });
+
+  // ========================================================================
+  journey("Interruptions: the app stops between writing a step down and hearing Stripe's answer", async () => {
+    const host = await newHost();
+    const paymentsOf = async (member: Person) => stripe().paymentIntents.list({ customer: await stripeCustomerFor(member), limit: 100 }).autoPagingToArray({ limit: 1000 });
+
+    const a = await atCardStep(host);
+    const [x, y] = await Promise.all([C.intentFor(a.monthId), C.intentFor(a.monthId)]);
+    check("two callers at once: one claim, one payment", x !== null && x.intentId === y?.intentId && (await paymentsOf(a.member)).length === 1);
+    const id = x!.intentId;
+    await db.update(months).set({ stripePaymentIntentId: null }).where(eq(months.id, a.monthId)); // made at Stripe, its id never saved
+    check("made and not saved, inside 23 hours: the same request again gives the same payment", (await C.intentFor(a.monthId))?.intentId === id && (await paymentsOf(a.member)).length === 1);
+    await db.update(months).set({ stripePaymentIntentId: null, intentRequestedAt: new Date(Date.now() - 25 * HOUR) }).where(eq(months.id, a.monthId));
+    await helper(new Date());
+    check("after 23 hours nothing is created: the helper finds the one that was made, by the month", (await M(a.monthId)).stripePaymentIntentId === id && (await paymentsOf(a.member)).length === 1 && (await M(a.monthId)).status === "to_pay");
+    check("the claim itself was never reset", (await M(a.monthId)).intentRequest !== null && (await M(a.monthId)).intentRequestedAt!.getTime() < Date.now() - 24 * HOUR);
+    await audit("after a payment was found again", a);
+
+    const b = await atCardStep(host);
+    await db.update(months).set({ intentRequestedAt: new Date(Date.now() - 25 * HOUR), intentRequest: JSON.stringify({ customer: await stripeCustomerFor(b.member), amount: 6000, currency: "usd" }) }).where(eq(months.id, b.monthId));
+    check("claimed, never made, and too old: none is created; the month is given up and the joining undone", (await C.intentFor(b.monthId)) === null && (await M(b.monthId)).status === "given_up" && (await M(b.monthId)).endedHow === "cancelled_at_stripe" && (await paymentsOf(b.member)).length === 0 && (await MS(b.membershipId)).status === "invited", (await M(b.monthId)).status);
+
+    const c = await atCardStep(host);
+    const abandoned = (await C.intentFor(c.monthId))!.intentId;
+    await db.transaction(async (tx) => {
+      const locked = await L.lockForMonth(tx, c.monthId);
+      await tx.update(months).set({ stripePaymentIntentId: null, endedHow: "card_step" }).where(eq(months.id, c.monthId));
+      await S.settleAfterGivenUp(tx, locked, "card_step", new Date());
+    });
+    check("given up while Stripe was answering: its secret goes to nobody", (await C.intentFor(c.monthId)) === null && (await C.payNow({ monthId: c.monthId, memberId: c.member.id })) === null);
+    await helper(new Date());
+    check("the payment is saved and cancelled, so it can never go through", (await M(c.monthId)).stripePaymentIntentId === abandoned && (await M(c.monthId)).status === "given_up" && (await stripe().paymentIntents.retrieve(abandoned)).status === "canceled", (await M(c.monthId)).status);
+    await audit("after a month given up while its payment was being made", c);
+
+    const d = await atCardStep(host);
+    const one = (await C.intentFor(d.monthId))!.intentId;
+    const two = await stripe().paymentIntents.create({ amount: 6000, currency: "usd", customer: await stripeCustomerFor(d.member), capture_method: "manual", metadata: { monthId: d.monthId } });
+    await db.update(months).set({ stripePaymentIntentId: null, intentRequestedAt: new Date(Date.now() - 25 * HOUR) }).where(eq(months.id, d.monthId));
+    check("two payments for one month at Stripe: none is used, and it goes to the founder", (await C.intentFor(d.monthId)) === null && (await M(d.monthId)).stripePaymentIntentId === null && Boolean((await M(d.monthId)).problem));
+    await stripe().paymentIntents.cancel(one);
+    await stripe().paymentIntents.cancel(two.id);
+    await db.update(months).set({ problem: null, status: "given_up", endedHow: "cancelled_at_stripe" }).where(eq(months.id, d.monthId));
+
+    // (A host of their own for the rest: the first host's places are taken by the journeys above.)
+    const host2 = await newHost();
+    // The taking: written down, never sent.
+    const e = await held(host2);
+    const pi = (await M(e.monthId)).stripePaymentIntentId!;
+    const [capture] = await db.insert(schema.moneyOperations).values({ monthId: e.monthId, kind: "capture", label: `monthcapture:${e.monthId}:1`, params: JSON.stringify({ intentId: pi, amountCents: 6000 }) }).returning();
+    await C.takeNow(e.monthId, new Date());
+    check("while a taking has no answer, no second one starts beside it", (await M(e.monthId)).status === "held" && (await operations(e.monthId, "capture")).length === 1);
+    await age(capture.id, 2 * MIN);
+    await helper(new Date(), 1);
+    check("the helper sends the same request again, and the month runs", (await M(e.monthId)).status === "running" && (await intentOf(e.monthId)).amount_received === 6000 && (await ledger({ monthId: e.monthId }, "customer_charge")).lines === 1);
+    await audit("after a taking that was never sent", e);
+
+    // The taking: Stripe did it, the answer was lost, and it is too old to repeat.
+    const f = await held(host2);
+    const pf = (await M(f.monthId)).stripePaymentIntentId!;
+    const [lost] = await db.insert(schema.moneyOperations).values({ monthId: f.monthId, kind: "capture", label: `monthcapture:${f.monthId}:1`, params: JSON.stringify({ intentId: pf, amountCents: 6000 }) }).returning();
+    await stripe().paymentIntents.capture(pf, { amount_to_capture: 6000 }, { idempotencyKey: `monthcapture:${f.monthId}:1` });
+    await age(lost.id, 25 * HOUR);
+    await helper(new Date(), 1);
+    check("taken at Stripe, the answer lost, too old to repeat: Stripe is asked, and it is recorded once", (await M(f.monthId)).status === "running" && (await M(f.monthId)).freeCents === 6000 && (await ledger({ monthId: f.monthId }, "customer_charge")).lines === 1);
+    await audit("after a taking whose answer was lost", f);
+
+    // A try with the saved card whose answer never arrived.
+    const g = await running(host2);
+    const T = (await M(g.monthId)).endsAt!;
+    const renewalId = await db.transaction(async (tx) => {
+      const locked = await L.lockForMonth(tx, g.monthId);
+      return (await C.writeDownMonth(tx, locked.membership, { originKey: `renewal:${g.monthId}`, agreementId: locked.membership.agreementId!, pricePer15Cents: 750, includedMinutes: 120, tryNow: true }, T)).id;
+    });
+    const tryIntent = (await C.intentFor(renewalId))!.intentId;
+    const savedCard = (await cardsOf(g.membershipId))[0].stripePaymentMethodId;
+    const [tried] = await db.insert(schema.moneyOperations).values({ monthId: renewalId, kind: "hold", label: `monthhold:${renewalId}:1:1`, params: JSON.stringify({ intentId: tryIntent, paymentMethodId: savedCard }) }).returning();
+    await C.tryHold(renewalId, T);
+    await runMembershipJobs(T);
+    check("a try with no answer keeps its number, and no new one starts beside it", (await operations(renewalId, "hold")).length === 1 && (await M(renewalId)).try === 1 && (await M(renewalId)).status === "to_pay" && (await MS(g.membershipId)).status === "active");
+    await age(tried.id, 2 * MIN);
+    await reconcileOperations(new Date());
+    check("the helper sends the same request again under the same name, and the hold is in place", (await M(renewalId)).status === "held" && (await operations(renewalId, "hold")).length === 1 && (await operations(renewalId, "hold"))[0].status === "succeeded", (await M(renewalId)).status);
+    await db.update(months).set({ status: "finished", expiredCents: 6000, freeCents: 0 }).where(eq(months.id, g.monthId)); // the old month is not this journey's subject
+    await audit("after a try whose answer never arrived", g);
+
+    // Letting a hold go: written down, never sent.
+    const h = await held(host2);
+    await db.transaction(async (tx) => {
+      const locked = await L.lockForMonth(tx, h.monthId);
+      await tx.update(months).set({ endedHow: "cancel_now" }).where(eq(months.id, h.monthId));
+      await S.settleAfterGivenUp(tx, locked, "cancel_now", new Date());
+    });
+    const [release] = await db.insert(schema.moneyOperations).values({ monthId: h.monthId, kind: "release", label: `monthrelease:${h.monthId}:1`, params: JSON.stringify({ intentId: (await M(h.monthId)).stripePaymentIntentId }) }).returning();
+    await age(release.id, 2 * MIN);
+    await helper(new Date(), 1);
+    check("a letting-go that was written down and never sent is finished by the helper", (await M(h.monthId)).status === "given_up" && (await intentOf(h.monthId)).status === "canceled" && (await operations(h.monthId, "release")).length === 1);
+    await audit("after a letting-go that was never sent", h);
+  });
+
+  // ========================================================================
+  journey("Old work after a resume: a month from before a pause never changes the membership of today", async () => {
+    const host = await newHost();
+    // A month from before the pause is still running when the member has resumed.
+    const a = await running(host);
+    const now2 = await resume(a);
+    await pay(now2);
+    await closeMonth(a.monthId, (await M(a.monthId)).endsAt!);
+    check("an old month closes like any other and renews nothing", (await M(a.monthId)).status === "finished" && (await M(a.monthId)).expiredCents === 6000 && (await monthsOf(a.membershipId)).length === 2);
+    check("the membership of today is untouched", (await MS(a.membershipId)).status === "active" && (await MS(a.membershipId)).currentMonthId === now2 && (await MS(a.membershipId)).period === 2 && (await M(now2)).status === "held");
+    await audit("after an old month closed", a);
+
+    // An old month's hold is lost after the resume.
+    const b = await held(host);
+    const current = await resume(b);
+    await pay(current, "pm_card_mastercard");
+    await stripe().paymentIntents.cancel((await M(b.monthId)).stripePaymentIntentId!);
+    await C.syncMonth(b.monthId, new Date());
+    await handleStripeEvent({ type: "payment_intent.canceled", data: { object: { metadata: { monthId: b.monthId } } } });
+    check("an old month that loses its hold is closed as not paid, and gets no replacement", (await M(b.monthId)).status === "given_up" && (await monthsOf(b.membershipId)).length === 2);
+    check("the member is not told a payment failed, and stays active on the new month", (await emails(b.member.email, "did not go through")) === 0 && (await MS(b.membershipId)).status === "active" && (await MS(b.membershipId)).currentMonthId === current);
+    await audit("after an old month lost its hold", b);
+
+    // An old month's payment fails after the resume.
+    const c = await running(host);
+    const T = (await M(c.monthId)).endsAt!;
+    const old = await db.transaction(async (tx) => {
+      const locked = await L.lockForMonth(tx, c.monthId);
+      return (await C.writeDownMonth(tx, locked.membership, { originKey: `renewal:${c.monthId}`, agreementId: locked.membership.agreementId!, pricePer15Cents: 750, includedMinutes: 120, tryNow: true }, T)).id;
+    });
+    const fresh = await resume(c);
+    await pay(fresh, "pm_card_mastercard");
+    await saveCardKeeping(c, "pm_card_chargeCustomerFail");
+    await C.tryHold(old, T);
+    check("an old month whose try fails records it on itself only", (await M(old)).try === 2 && (await M(old)).status === "to_pay" && (await MS(c.membershipId)).status === "active" && (await MS(c.membershipId)).currentMonthId === fresh && (await emails(c.member.email, "did not go through")) === 0, (await M(old)).try);
+  });
+
+  // ========================================================================
+  journey("The health check: each thing the helper should have done by now makes it \"not healthy\"", async () => {
+    const host = await newHost();
+    const lines = async () => (await healthProblems(new Date())).filter((line) => /membership/.test(line));
+    check("with nothing late, the membership work is healthy", (await lines()).length === 0, await lines());
+    const says = async (label: string, part: string, make: () => Promise<unknown>, undo: () => Promise<unknown>) => {
+      await make();
+      const found = await lines();
+      check(`not healthy: ${label}`, found.length === 1 && found[0].includes(part), found);
+      await undo();
+    };
+    const tenAgo = new Date(Date.now() - 10 * MIN);
+    const a = await atCardStep(host);
+    const set = (monthId: string, values: Partial<typeof months.$inferInsert>) => db.update(months).set(values).where(eq(months.id, monthId));
+    await says("a payment asked of Stripe 6 minutes ago whose id is not saved", "asked of Stripe", () => set(a.monthId, { intentRequestedAt: tenAgo, intentRequest: "{}" }), () => set(a.monthId, { intentRequestedAt: null, intentRequest: null }));
+    await says("a try that is 5 minutes late", "try of a membership payment", () => set(a.monthId, { nextTryAt: tenAgo }), () => set(a.monthId, { nextTryAt: null }));
+    await says("a payment that should have been given up", "given up", () => set(a.monthId, { giveUpAt: tenAgo }), () => set(a.monthId, { giveUpAt: null }));
+    const b = await held(host);
+    const takeAt = (await M(b.monthId)).takeAt;
+    await says("held money 5 minutes past the moment it should have been taken", "held money", () => set(b.monthId, { takeAt: tenAgo }), () => set(b.monthId, { takeAt }));
+    const c = await running(host);
+    const endsAt = (await M(c.monthId)).endsAt;
+    await says("a month 5 minutes past its end that is not closed or renewed", "past its end", () => set(c.monthId, { endsAt: tenAgo }), () => set(c.monthId, { endsAt }));
+    await says("a month that needs the founder", "needs the founder", () => set(c.monthId, { problem: "a check" }), () => set(c.monthId, { problem: null }));
+    const owed = await db.transaction(async (tx) => P.owePayBack(tx, (await L.lockForMonth(tx, c.monthId)).month, { amountCents: 100, sourceKey: `check:${c.monthId}`, reason: "A check." }));
+    const createdAt = (at: Date) => db.update(schema.membershipRefunds).set({ createdAt: at }).where(eq(schema.membershipRefunds.id, owed.refund.id));
+    await says("a pay-back owed for more than 2 hours", "pay-back", () => createdAt(new Date(Date.now() - 3 * HOUR)), () => createdAt(new Date()));
+    await db.transaction(async (tx) => S.endMembership(tx, await L.lockMembership(tx, b.membershipId), { by: "host", reason: "a check" }, new Date(Date.now() - 20 * MIN)));
+    await says("an ending not cleaned up after 10 minutes", "cleaned up", async () => undefined, () => E.cleanUpEnding(b.membershipId, new Date()));
+    await helper(new Date());
+    check("and healthy again once the helper has done its work", (await lines()).length === 0, await lines());
+  });
+
+  // ========================================================================
+  if (process.argv.includes("--payouts")) {
+    journey("Collecting: expired member time reaches the host only through \"Collect earnings\", from the month's own charge", async () => {
+      const { collectEarnings, unsentEarnings } = await import("../src/lib/payments/collect");
+      const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");
+      const [seeded] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
+      const settings = seeded ? await getHostSettings(seeded.id) : null;
+      const ready = seeded && settings?.stripeAccountId ? await refreshPayoutsReady(seeded.id) : false;
+      check("the test host's payout account is ready", Boolean(ready));
+      if (!seeded || !settings?.stripeAccountId || !ready) return console.log("   Set up payouts for host@test.local on the Hosting page first.");
+      const account = settings.stripeAccountId;
+      const host = await newHost();
+      // One payout account belongs to one host at a time, so the new host takes over the test account for this journey.
+      const give = (from: string, to: string) =>
+        db.transaction(async (tx) => {
+          await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, from));
+          await tx.update(schema.hostSettings).set({ stripeAccountId: account, payoutsReady: true }).where(eq(schema.hostSettings.userId, to));
+        });
+      await give(seeded.id, host.id);
+      try {
+        const press = (now: Date) => collectEarnings({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now }).then(() => null, (error: unknown) => error as Error);
+        const m = await running(host);
+        await db.update(schema.memberships).set({ memberStoppedAt: new Date() }).where(eq(schema.memberships.id, m.membershipId));
+        const end = (await M(m.monthId)).endsAt!;
+        check("nothing goes to the host before the time is used or has expired: a running month has nothing to collect", (await press(new Date(end.getTime() - MIN))) instanceof MoneyError && (await unsentEarnings(new Date(end.getTime() + 2 * DAY), host.id)).length === 0);
+        await closeMonth(m.monthId, end);
+        const early = await press(new Date(end.getTime() + DAY - 1000));
+        check("the expired money cannot be collected before 24 hours after the month's end", early instanceof MoneyError, early?.message);
+        const pressed = await press(new Date(end.getTime() + DAY));
+        const payment = await expiredPayment(m.monthId);
+        // $56.76 earned, less the 25-cent collection charge: $56.51 sent.
+        check("at 24 hours the press is accepted: $56.51 is sent, after the 25-cent collection charge", pressed === null && payment.transferStatus === "sent" && payment.transferCents === 5651 && payment.payoutFeeCents === 25, `${pressed?.message} ${payment.transferStatus} ${payment.transferCents}`);
+        const transfers = (await stripe().transfers.list({ transfer_group: m.monthId, limit: 10 })).data;
+        check("one transfer at Stripe, to the host's account, from the month's own charge and in the month's group", transfers.length === 1 && transfers[0].amount === 5651 && transfers[0].destination === account && transfers[0].source_transaction === (await M(m.monthId)).stripeChargeId, transfers.length);
+        check("the money record matches", (await ledger({ paymentId: payment.id }, "host_transfer")).total === -5651 && (await ledger({ paymentId: payment.id }, "payout_fee")).total === 25);
+
+        const n = await running(host);
+        await db.update(schema.memberships).set({ memberStoppedAt: new Date() }).where(eq(schema.memberships.id, n.membershipId));
+        const end2 = (await M(n.monthId)).endsAt!;
+        await closeMonth(n.monthId, end2);
+        await E.recordMonthDispute(n.monthId, "open", new Date());
+        const earning = (await unsentEarnings(new Date(end2.getTime() + 3 * DAY), host.id)).find((row) => row.month?.id === n.monthId);
+        const refused = await press(new Date(end2.getTime() + 3 * DAY));
+        check("a share of a month whose charge is disputed is held back", Boolean(earning?.heldBack) && refused instanceof MoneyError && (await expiredPayment(n.monthId)).transferStatus === "not_due", earning?.heldBack);
+      } finally {
+        await give(host.id, seeded.id);
+        await refreshPayoutsReady(seeded.id).catch(() => undefined);
+      }
+    });
+  }
 
   // ------------------------------------------------------------------------
   // Running
