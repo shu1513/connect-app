@@ -164,6 +164,7 @@ function resultOf(booking: Booking): MemberBookingResult {
   return { booking, outcome: "not_booked", message: booking.endedReason ?? "This booking could not be made. Please choose a time again." };
 }
 
+const NOT_IN_TIME = "This booking was not finished in time. Please choose a time again.";
 const WRONG_MONTH = "The month this booking was made from can no longer be booked from. Please choose a time again.";
 
 /**
@@ -201,6 +202,9 @@ async function saveAsPaying(asked: Input, found: { membership: Membership; month
       if (again.customerId !== customer.id) throw new BookingError(OUT_OF_DATE);
       if (again.stage !== "paying") return again;
       mustBeSameRequest(again, input, month.id);
+      // A request in its last minute is ended here instead of being continued: the job that ends it after 30 minutes
+      // must never end it while the month's money is being taken for it.
+      if (again.createdAt.getTime() <= input.now.getTime() - (PAYING_MS - MINUTE)) throw new BookingError(NOT_IN_TIME);
       await mustBeBookable(tx, { ...input, membership, month, moneyStillHeld: true, exceptBookingId: again.id });
       return again;
     }
@@ -385,7 +389,14 @@ export async function bookAsMember(input: Input): Promise<MemberBookingResult> {
     return resultOf(await bookInOneStep(input, found));
   } catch (error) {
     const lost = isOverlap(error) ? NOT_OPEN : error instanceof BookingError ? error.message : null;
-    if (lost === null) throw error;
+    if (lost === null) {
+      // Something else went wrong while the call was being written (the database, say). If a request was written down,
+      // its month is paid by now: the member is sent to it and told so, and "Finish booking" tries the same request again.
+      const waiting = await savedNow().catch(() => undefined);
+      if (waiting?.stage !== "paying") throw error;
+      console.error(`[membership] could not write the call of member booking ${waiting.id} after its month was paid; the same press continues it`, error);
+      return { booking: waiting, outcome: "paying", message: "Your month's payment went through, but the call is not booked yet. Press \"Finish booking\" to try again." };
+    }
     // Was a request written down (by this press or an earlier one, while the month's money was being taken)? Read it as it is now.
     const saved = await savedNow();
     // None, or a form that does not match it: only this press is refused.
@@ -413,6 +424,12 @@ export async function runPayingBookings(now: Date): Promise<void> {
     const gone = row.membershipStatus !== "active" || Boolean(row.endedHow) || !inMonth(row.monthStatus);
     const late = row.booking.createdAt.getTime() <= now.getTime() - PAYING_MS;
     if (!gone && !late) continue;
+    // While the month's money is being taken for it (the taking is written down and has no answer yet), a request
+    // is not ended for being late: its press is still at work, and tells the member what became of it.
+    if (!gone && row.booking.monthId) {
+      const [taking] = await db.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.monthId, row.booking.monthId), eq(schema.moneyOperations.kind, "capture"), eq(schema.moneyOperations.status, "started"))).limit(1);
+      if (taking) continue;
+    }
     // Said as it is: if the month's money was taken meanwhile, the payment did go through, and only the booking was not finished.
     const reason = gone ? "Your membership could no longer be booked from." : row.monthStatus === "running" ? "This booking was not finished in time. Your month's payment went through; please choose a time again." : "This month's payment was not finished in time.";
     await endPaying(row.booking.id, reason, now).catch((error) =>

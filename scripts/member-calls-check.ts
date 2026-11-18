@@ -65,6 +65,7 @@ async function main() {
   const DAY = 24 * HOUR;
   const RUN = randomUUID().slice(0, 8);
   const months = schema.membershipMonths;
+  if (process.argv.includes("--only")) throw new Error("--only needs journey numbers, for example --only=3 or --only=1,4.");
   const only = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7).split(",").map(Number);
   type Person = { id: string; name: string; email: string };
   let made = 0;
@@ -245,6 +246,7 @@ async function main() {
       const back = sum(atStripe.filter((refund) => refund.status === "succeeded").map((refund) => refund.amount));
       if (back !== month.paidBackCents) problems.push(`month ${month.number}: Stripe paid back ${back}, the month says ${month.paidBackCents}`);
       const owed = (await refundsOf(month.id)).filter((line) => line.status !== "done");
+      if (sum(owed.map((line) => line.amountCents)) !== month.toPayBackCents) problems.push(`month ${month.number}: ${month.toPayBackCents} is to be paid back, but the pay-backs still open add up to ${sum(owed.map((line) => line.amountCents))}`);
       if (owed.length > 0 && !opts.owed && !opts.frozen) problems.push(`month ${month.number} has a pay-back that is not done`);
       const started = await db.select().from(schema.moneyOperations).where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.status, "started")));
       if (started.length > 0) problems.push(`month ${month.number} has an action without an answer`);
@@ -264,21 +266,41 @@ async function main() {
       await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, holder.userId));
       await tx.update(schema.hostSettings).set({ stripeAccountId: holder.stripeAccountId }).where(eq(schema.hostSettings.userId, seeded.id));
     });
+    const { refreshPayoutsReady } = await import("../src/lib/payments/hosts");
+    await refreshPayoutsReady(seeded.id).catch(() => undefined);
     console.log("   (the test payout account was given back to host@test.local)");
   }
 
-  /** `pair`: instead of this script's own people, the membership between two seeded test accounts that `--demo` made, and its calls. */
-  async function wipe(everything = false, pair?: { hostId: string; customerId: string }) {
-    const quiet = async (step: () => Promise<unknown>) => step().catch((error) => console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+  /** Clean-up steps that failed. The run does not count as passed while its own test data is left behind. */
+  let cleanUpFailures = 0;
+  /** Lets go of a hold at Stripe and waits for the answer. A payment that is already cancelled or taken is fine. */
+  async function letGoAtStripe(intentId: string) {
+    try {
+      await stripe().paymentIntents.cancel(intentId);
+    } catch {
+      const intent = await stripe().paymentIntents.retrieve(intentId).catch(() => null);
+      if (!intent || (intent.status !== "canceled" && intent.status !== "succeeded")) {
+        cleanUpFailures++;
+        console.log(`   (clean-up: the test hold ${intentId} could not be let go at Stripe)`);
+      }
+    }
+  }
+  /** `demo`: instead of this script's own people, exactly the one membership `--demo` made between the two seeded test accounts, and its calls. */
+  async function wipe(everything = false, demo?: { membershipId: string }) {
+    const quiet = async (step: () => Promise<unknown>) =>
+      step().catch((error) => {
+        cleanUpFailures++;
+        console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`);
+      });
     await payoutAccountBack();
     const all = await db
       .select({ id: schema.memberships.id })
       .from(schema.memberships)
-      .where(pair ? and(eq(schema.memberships.hostId, pair.hostId), eq(schema.memberships.customerId, pair.customerId)) : or(like(schema.memberships.hostId, "mk-%"), like(schema.memberships.customerId, "mk-%")));
+      .where(demo ? eq(schema.memberships.id, demo.membershipId) : or(like(schema.memberships.hostId, "mk-%"), like(schema.memberships.customerId, "mk-%")));
     const ids = all.map((row) => row.id);
     const theirMonths = ids.length > 0 ? await db.select().from(months).where(inArray(months.membershipId, ids)) : [];
     const monthIds = theirMonths.map((month) => month.id);
-    const theirCalls = pair
+    const theirCalls = demo
       ? [
           // The calls booked from those months, and the one call the demo wrote so that the host could invite.
           ...(monthIds.length > 0 ? (await db.select({ id: schema.payments.callId }).from(schema.payments).where(inArray(schema.payments.monthId, monthIds))).flatMap((row) => (row.id ? [row.id] : [])) : []),
@@ -287,17 +309,14 @@ async function main() {
       : (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(like(schema.calls.hostId, "mk-%"), like(schema.calls.customerId, "mk-%")))).map((row) => row.id);
     // Nothing stays held on a test card.
     for (const month of theirMonths) {
-      if (month.stripePaymentIntentId && (month.status === "to_pay" || month.status === "held")) await stripe().paymentIntents.cancel(month.stripePaymentIntentId).catch(() => undefined);
+      if (month.stripePaymentIntentId && (month.status === "to_pay" || month.status === "held")) await letGoAtStripe(month.stripePaymentIntentId);
     }
-    const paymentIds = (
-      await db
-        .select({ id: schema.payments.id, intent: schema.payments.stripePaymentIntentId, status: schema.payments.status })
-        .from(schema.payments)
-        .where(or(theirCalls.length > 0 ? inArray(schema.payments.callId, theirCalls) : undefined, monthIds.length > 0 ? inArray(schema.payments.monthId, monthIds) : undefined, sql`false`))
-    ).map((row) => {
-      if (row.intent && row.status === "held") void stripe().paymentIntents.cancel(row.intent).catch(() => undefined);
-      return row.id;
-    });
+    const theirPayments = await db
+      .select({ id: schema.payments.id, intent: schema.payments.stripePaymentIntentId, status: schema.payments.status })
+      .from(schema.payments)
+      .where(or(theirCalls.length > 0 ? inArray(schema.payments.callId, theirCalls) : undefined, monthIds.length > 0 ? inArray(schema.payments.monthId, monthIds) : undefined, sql`false`));
+    for (const row of theirPayments) if (row.intent && (row.status === "held" || row.status === "awaiting_payment")) await letGoAtStripe(row.intent);
+    const paymentIds = theirPayments.map((row) => row.id);
     if (theirCalls.length > 0) {
       const requests = (await db.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(inArray(schema.refundRequests.callId, theirCalls))).map((row) => row.id);
       if (requests.length > 0) await quiet(() => db.delete(schema.refundRequestAnswers).where(inArray(schema.refundRequestAnswers.requestId, requests)));
@@ -319,7 +338,7 @@ async function main() {
         .select({ id: schema.bookings.id })
         .from(schema.bookings)
         .where(
-          pair
+          demo
             ? or(theirCalls.length > 0 ? inArray(schema.bookings.callId, theirCalls) : undefined, monthIds.length > 0 ? inArray(schema.bookings.monthId, monthIds) : undefined, sql`false`)
             : or(like(schema.bookings.hostId, "mk-%"), like(schema.bookings.customerId, "mk-%")),
         )
@@ -346,7 +365,7 @@ async function main() {
       await quiet(() => db.delete(schema.membershipInvitations).where(inArray(schema.membershipInvitations.membershipId, ids)));
       await quiet(() => db.delete(schema.memberships).where(inArray(schema.memberships.id, ids)));
     }
-    if (!everything || pair) return;
+    if (!everything || demo) return;
     const steps: Array<() => Promise<unknown>> = [
       () => db.delete(schema.collections).where(like(schema.collections.hostId, "mk-%")),
       () => db.delete(schema.blocks).where(or(like(schema.blocks.blockerId, "mk-%"), like(schema.blocks.blockedId, "mk-%"))),
@@ -1024,6 +1043,8 @@ async function main() {
     const wasBooked = race[0].status === "fulfilled" && race[0].value.outcome === "booked";
     const consistent = wasBooked ? month.status === "running" && month.setAsideCents === 1500 && membership.status === "active" : month.setAsideCents === 0 && (month.status !== "running" || membership.status === "active");
     check("a booking and \"Cancel now\" at the same moment: each is carried out or refused by a rule, never by a database error", race.every(byARule), race.map(whyNot));
+    const cancelled = race[1].status === "fulfilled" && membership.status === "paused" && month.status === "given_up";
+    check("one of the two took effect: the call is booked from a paid month, or the membership is paused with the hold let go", wasBooked !== cancelled, `booked=${wasBooked} cancelled=${cancelled} ${month.status} ${membership.status}`);
     check("and either the call is booked from a paid month, or nothing is booked; never a call without its money", consistent, `${race.map((r) => r.status)} booked=${wasBooked} ${month.status} ${membership.status} ${await places(n.monthId)}`);
     const intent = await stripe().paymentIntents.retrieve(month.stripePaymentIntentId!);
     check("and Stripe agrees with the month", month.status === "running" ? intent.status === "succeeded" : intent.status === "canceled" || intent.status === "requires_capture", intent.status);
@@ -1231,22 +1252,39 @@ async function main() {
   //   --demo-off  takes it away again and turns the founder's switch off
   // ------------------------------------------------------------------------
   if (process.argv.includes("--demo") || process.argv.includes("--demo-off")) {
-    const account = async (email: string) => (await db.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.email, email)))[0];
-    const [host, customer] = [await account("host@test.local"), await account("customer@test.local")];
-    if (!host || !customer) throw new Error("The seeded test accounts are missing. Run scripts/seed.ts first.");
-    await wipe(false, { hostId: host.id, customerId: customer.id });
-    await db.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, host.id), eq(schema.weeklyHours.membersOnly, true)));
+    // What the demo made is written down in a small local file, so that taking it away removes exactly that and nothing
+    // the two test accounts had before or got since (a membership made by hand in the browser, the host's own hours).
+    const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+    const NOTE = "node_modules/.cache/member-calls-demo.json";
+    type Note = { membershipId: string; hostId: string; hours: string[]; offerMade: boolean };
     if (process.argv.includes("--demo-off")) {
-      await db.delete(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, host.id));
+      if (!existsSync(NOTE)) {
+        console.log("No demo membership is written down, so nothing was taken away.");
+        process.exit(0);
+      }
+      const note = JSON.parse(readFileSync(NOTE, "utf8")) as Note;
+      await wipe(false, { membershipId: note.membershipId });
+      if (note.hours.length > 0) await db.delete(schema.weeklyHours).where(inArray(schema.weeklyHours.id, note.hours));
+      if (note.offerMade) await db.delete(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, note.hostId));
       await setSwitches({ memberships: "off", membershipsHosts: [] });
+      rmSync(NOTE);
       console.log("The demo membership is gone, and the founder's memberships switch is off.");
       process.exit(0);
     }
+    if (existsSync(NOTE)) throw new Error("A demo membership is already there. Take it away first: npx tsx scripts/member-calls-check.ts --demo-off");
+    const account = async (email: string) => (await db.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.email, email)))[0];
+    const [host, customer] = [await account("host@test.local"), await account("customer@test.local")];
+    if (!host || !customer) throw new Error("The seeded test accounts are missing. Run scripts/seed.ts first.");
+    const [theirs] = await db.select({ id: schema.memberships.id }).from(schema.memberships).where(and(eq(schema.memberships.hostId, host.id), eq(schema.memberships.customerId, customer.id), sql`${schema.memberships.status} <> 'ended'`));
+    if (theirs) throw new Error("The two test accounts already have a membership that this demo did not make. It is left alone, and no demo was set up.");
+    const before = await switches();
+    if (before.memberships !== "off" || before.membershipsHosts.length > 0) throw new Error("The memberships switch is not off in this database. The demo would overwrite it. Set it to off first.");
     const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
     if (!profile || !(await offerOf(host.id))) throw new Error("The seeded host has no approved page with a calendar and weekly hours. Set those up in the app first.");
     await setSwitches({ memberships: "named", membershipsHosts: [host.id] });
-    await db.insert(schema.membershipOffers).values({ hostId: host.id, on: true, pricePer15Cents: Math.max(500, profile.pricePer15Cents - 250), includedMinutes: 120 }).onConflictDoNothing();
-    for (const weekday of [1, 2, 3, 4, 5, 6, 7]) await db.insert(schema.weeklyHours).values({ hostId: host.id, weekday, startMinute: 20 * 60, endMinute: 22 * 60, membersOnly: true });
+    const offerMade = (await db.insert(schema.membershipOffers).values({ hostId: host.id, on: true, pricePer15Cents: Math.max(500, profile.pricePer15Cents - 250), includedMinutes: 120 }).onConflictDoNothing().returning({ hostId: schema.membershipOffers.hostId })).length > 0;
+    const hours: string[] = [];
+    for (const weekday of [1, 2, 3, 4, 5, 6, 7]) hours.push((await db.insert(schema.weeklyHours).values({ hostId: host.id, weekday, startMinute: 20 * 60, endMinute: 22 * 60, membersOnly: true }).returning({ id: schema.weeklyHours.id }))[0].id);
     const startsAt = new Date(Date.now() - 2 * DAY);
     const [call] = await db.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), roomName: `membercalls-demo-${randomUUID()}`, pricePer15Cents: 1000, closedAt: new Date(startsAt.getTime() + 31 * MIN) }).returning();
     for (const who of [host.id, customer.id]) {
@@ -1254,6 +1292,8 @@ async function main() {
     }
     const invitation = await J.invite({ hostId: host.id, customerId: customer.id, now: new Date() });
     const started = await J.join({ customerId: customer.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
+    mkdirSync("node_modules/.cache", { recursive: true });
+    writeFileSync(NOTE, JSON.stringify({ membershipId: started.membershipId, hostId: host.id, hours, offerMade } satisfies Note));
     await C.payNow({ monthId: started.monthId, memberId: customer.id });
     await stripe().paymentIntents.confirm((await M(started.monthId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
     await C.syncMonth(started.monthId, new Date());
@@ -1271,6 +1311,8 @@ async function main() {
   check("before anything: the founder's memberships switch is off", true);
   await wipe();
   try {
+    // The journeys book: "no new requests" is off for them, and put back as it was at the end.
+    await setSwitches({ requestsOff: false });
     for (const [index, [title, run]] of journeys.entries()) {
       if (only && !only.includes(index + 1)) continue;
       console.log(`\n${index + 1}. ${title}`);
@@ -1287,6 +1329,7 @@ async function main() {
   }
   const afterwards = await switches();
   check("afterwards: the founder's memberships switch is off again, with nobody named", afterwards.memberships === "off" && afterwards.membershipsHosts.length === 0);
+  check("the script's own test data was cleaned up", cleanUpFailures === 0, `${cleanUpFailures} step(s) failed`);
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);

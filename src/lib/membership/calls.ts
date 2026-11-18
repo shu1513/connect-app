@@ -141,61 +141,72 @@ async function inCallStep<T>(callId: string, work: (tx: Tx, call: Call) => Promi
   });
 }
 
-/** Whether the month of this payment is frozen, read without a lock: a first look, so the settle jobs pass over it cheaply. */
-async function monthIsFrozen(monthId: string): Promise<boolean> {
-  const [month] = await db.select({ dispute: months.dispute }).from(months).where(eq(months.id, monthId));
+/** Whether the month of this payment is frozen. (Without a lock it is a first look, so the settle jobs pass over such a month cheaply; inside a locked step it is the answer.) */
+export async function monthIsFrozen(monthId: string, reader: Pick<Tx, "select"> = db): Promise<boolean> {
+  const [month] = await reader.select({ dispute: months.dispute }).from(months).where(eq(months.id, monthId));
   return !month || isFrozen(month);
 }
 
 /** The last moment a member's call can wait for the founder's decision or for its record: 3 days after the call. There is no hold that could end sooner. */
 export const memberDecisionDeadline = (call: Pick<Call, "endsAt">): Date => new Date(call.endsAt.getTime() + REVIEW_WINDOW_MS);
 
+/** What a call's record says about one payment's stretch right now: not final yet, for the founder to review, or an amount. */
+async function recordOf(reader: Pick<Tx, "select">, call: Call, payment: Payment, now: Date): Promise<{ is: "not_final" } | { is: "review"; reason: string } | { is: "amount"; cents: number }> {
+  const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil }, reader);
+  if (!attendance.final || !call.closedAt) return { is: "not_final" };
+  if (attendance.result.status !== "complete" || !attendance.result.totals) return { is: "review", reason: attendance.result.reasons.join(" ") || "The call's record is incomplete." };
+  return { is: "amount", cents: attendanceChargeCents({ pricePer15Cents: payment.pricePer15Cents, bookedSeconds: attendance.bookedSeconds, countedSeconds: countedSeconds(call, attendance.result.totals) }) };
+}
+
 /**
  * What the helper does with a member payment of a call that has ended (the counterpart of
  * `settleOne` in payments/jobs.ts). Gives back "ordinary" when the record is final and gives an
  * amount: that money is then used at the call's moment, with the call's other charges (take.ts).
+ *
+ * A first look is taken without locks. Whatever it leads to is decided again inside the locked
+ * step, from the record as it is then: a late message from the video service that arrives in
+ * between must never make money come back, or go to review, on a record that no longer says so.
  */
 export async function settleMemberOne(found: Payment, call: Call, now: Date): Promise<"ordinary" | void> {
   if (found.kind !== "member_call" || found.status !== "held" || !found.monthId) return;
   if (await monthIsFrozen(found.monthId)) return;
 
-  /** Everything set aside comes back, if the payment still stands as it was seen. */
-  const allBack = (what: string, note: string, underReview: boolean) =>
+  /** One locked step for this payment, if it still stands as it was seen (held, and under review or not). */
+  const inStep = (underReview: boolean, work: (tx: Tx, locked: Call, payment: Payment) => Promise<void>) =>
     inCallStep(call.id, async (tx, locked) => {
       const payment = await lockPayment(tx, found.id);
-      if (payment.status !== "held" || payment.needsReview !== underReview) return;
-      await closeMemberPayment(tx, locked, payment, { usedCents: 0, note, what, hostCaused: "all" }, now);
+      if (payment.status === "held" && payment.needsReview === underReview) await work(tx, locked, payment);
     });
+  const allBack = (tx: Tx, locked: Call, payment: Payment, what: string, note: string) => closeMemberPayment(tx, locked, payment, { usedCents: 0, note, what, hostCaused: "all" }, now).then(() => undefined);
 
   const deadline = memberDecisionDeadline(call);
   if (found.needsReview) {
-    if (now >= deadline) await allBack("undecided", "No decision was made in time, so the time set aside came back.", true);
+    if (now >= deadline) await inStep(true, (tx, locked, payment) => allBack(tx, locked, payment, "undecided", "No decision was made in time, so the time set aside came back."));
     return;
   }
 
-  const attendance = await loadAttendance(call, now, { from: found.coversFrom, until: found.coversUntil });
-  if (!attendance.final || !call.closedAt) {
-    if (now >= deadline) await allBack("not_final", "The call's record was not final in time, so the time set aside came back.", false);
+  const seen = await recordOf(db, call, found, now);
+  if (seen.is === "not_final") {
+    if (now < deadline) return;
+    await inStep(false, async (tx, locked, payment) => {
+      if ((await recordOf(tx, locked, payment, now)).is === "not_final") await allBack(tx, locked, payment, "not_final", "The call's record was not final in time, so the time set aside came back.");
+    });
     return;
   }
-
-  if (attendance.result.status === "complete" && attendance.result.totals) {
-    const amountCents = attendanceChargeCents({ pricePer15Cents: found.pricePer15Cents, bookedSeconds: attendance.bookedSeconds, countedSeconds: countedSeconds(call, attendance.result.totals) });
-    if (amountCents === 0) {
-      await allBack("nothing_owed", "Nothing was owed for this call.", false);
-      return;
-    }
-    return "ordinary";
+  if (seen.is === "amount") {
+    if (seen.cents > 0) return "ordinary";
+    await inStep(false, async (tx, locked, payment) => {
+      const fresh = await recordOf(tx, locked, payment, now);
+      if (fresh.is === "amount" && fresh.cents === 0) await allBack(tx, locked, payment, "nothing_owed", "Nothing was owed for this call.");
+    });
+    return;
   }
 
   // The record is incomplete or contradicts itself: the founder reviews it, as for a card payment.
-  await db.transaction(async (tx) => {
-    const payment = await lockPayment(tx, found.id);
-    if (payment.status !== "held" || payment.needsReview) return;
-    await tx
-      .update(schema.payments)
-      .set({ needsReview: true, reviewReason: attendance.result.reasons.join(" ") || "The call's record is incomplete.", updatedAt: new Date() })
-      .where(eq(schema.payments.id, payment.id));
+  await inStep(false, async (tx, locked, payment) => {
+    const fresh = await recordOf(tx, locked, payment, now);
+    if (fresh.is !== "review") return;
+    await tx.update(schema.payments).set({ needsReview: true, reviewReason: fresh.reason, updatedAt: new Date() }).where(eq(schema.payments.id, payment.id));
   });
 }
 

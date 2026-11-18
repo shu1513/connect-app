@@ -7,6 +7,7 @@ import type { Call, Payment } from "@/db/schema";
 import { releaseBookingOfCall } from "@/lib/booking/release";
 import { settleCancelledMemberCall, settleCancelledMemberIn } from "@/lib/membership/calls";
 import { lockMonthsOfCall } from "@/lib/membership/locks";
+import { afterTheWait } from "@/lib/membership/rules";
 import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
 import { syncHold } from "./hold";
@@ -64,12 +65,15 @@ export async function cancelCall(input: {
   await db.transaction(async (tx) => {
     // A month comes before a call in the order of locks.
     if (fromMembership) await lockMonthsOfCall(tx, call.id);
+    // The month's locks can make this step wait. Whether the call has started is judged by the clock now, so a call
+    // that started while it waited is left alone (a call under way is never cancelled).
+    const at = fromMembership ? afterTheWait(now) : now;
     const marked = await tx
       .update(schema.calls)
       .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
       // Not a call that was ended with "End call and report" (possible from 5 minutes before the start): it is over,
       // and its money waits for the founder's review. A cancellation must never decide it instead.
-      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), neverPaid ? isNull(schema.calls.closedAt) : gt(schema.calls.startsAt, now)))
+      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), neverPaid ? isNull(schema.calls.closedAt) : gt(schema.calls.startsAt, at)))
       .returning();
     if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
     const memberMoney = fromMembership ? await settleCancelledMemberIn(tx, marked[0], now) : null;

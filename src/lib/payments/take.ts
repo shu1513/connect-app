@@ -17,7 +17,7 @@ import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment, RefundRequest } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
-import { closeMemberPayment } from "@/lib/membership/calls";
+import { closeMemberPayment, monthIsFrozen } from "@/lib/membership/calls";
 import { lockMonthsOfCall } from "@/lib/membership/locks";
 import { capturePlan, releasePlan, type Lowered } from "./actions";
 import {
@@ -173,6 +173,9 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
       // A hold that has run out can no longer be charged; the job that closes such payments does that.
       // (Money set aside in a membership has no hold, and is never skipped for that.)
       if (!fromMonth && (!payment.holdExpiresAt || payment.holdExpiresAt <= now)) continue;
+      // Nothing of a frozen month moves, and nothing about it is decided either: it is not sent to review now,
+      // so that an answer already saved is still applied to the record as it stands once the dispute is won.
+      if (fromMonth && (!payment.monthId || (await monthIsFrozen(payment.monthId, tx)))) continue;
 
       // Before any money is taken, the record is looked at again.
       const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil }, tx);
