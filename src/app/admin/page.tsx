@@ -42,14 +42,15 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   // so money that nobody collects, or that belongs to a host who can no longer log in, stays in sight.
   const uncollected = new Map<string, { totalCents: number; readyCents: number; oldestReady: Date | null }>();
   for (const earning of await unsentEarnings(new Date())) {
-    const row = uncollected.get(earning.call.hostId) ?? { totalCents: 0, readyCents: 0, oldestReady: null };
+    // By whose money it is: the call's host or, for expired member time (which has no call), its membership's host.
+    const row = uncollected.get(earning.hostId) ?? { totalCents: 0, readyCents: 0, oldestReady: null };
     row.totalCents += earning.shareCents;
     const readyAt = earning.payment.transferDueAt;
     if (earning.heldBack === null && readyAt) {
       row.readyCents += earning.shareCents;
       if (!row.oldestReady || readyAt < row.oldestReady) row.oldestReady = readyAt;
     }
-    uncollected.set(earning.call.hostId, row);
+    uncollected.set(earning.hostId, row);
   }
   const uncollectedTotal = [...uncollected.values()].reduce((sum, row) => sum + row.totalCents, 0);
 

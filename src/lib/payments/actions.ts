@@ -13,6 +13,7 @@ import { schema } from "@/db";
 import { queueRefundEmail } from "@/lib/refunds/emails";
 import type { Payment } from "@/db/schema";
 import { addLedgerEntry, MoneyError, runMoneyOperation, type OperationPlan, type Tx } from "./operations";
+import { cardPayment } from "./own";
 import { MIN_CHARGE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
 import { canMovePayment, decisionDeadline, readyToCollectAt } from "./rules";
 import { stripe } from "./stripe";
@@ -62,6 +63,8 @@ export async function applyCaptured(
   stripeChargeId: string | null,
   tx: Tx,
 ): Promise<void> {
+  // Only ever a card payment: a membership's payment is "used" by its month, never charged here.
+  const card = cardPayment(payment);
   const { feeCents, hostShareCents } = splitCharge(
     amountCents,
     { percentBps: payment.feePercentBps, fixedCents: payment.feeFixedCents, foreignCardBps: payment.feeForeignCardBps },
@@ -70,7 +73,7 @@ export async function applyCaptured(
   // One moment for "charged at" and for the date the host's share becomes ready.
   const chargedAt = new Date();
   // Without a refund request the host's share is ready a day after the call; with one, two days (rules.ts).
-  const [asked] = hostShareCents > 0 ? await tx.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, payment.callId)).limit(1) : [];
+  const [asked] = hostShareCents > 0 ? await tx.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, card.callId)).limit(1) : [];
   await tx
     .update(schema.payments)
     .set({
@@ -146,6 +149,7 @@ export function capturePlan(input: CaptureInput): OperationPlan<CaptureParams, {
     kind: "capture",
     labelBase: `capture:${input.paymentId}`,
     prepare: async (payment, tx) => {
+      cardPayment(payment);
       if (!canMovePayment(payment.status as never, "charged")) throw new MoneyError("This payment is not being held.");
       if (!payment.stripePaymentIntentId) throw new MoneyError("This payment has no hold at Stripe.");
       // The payment of a request for more time can only be charged if the host accepted that request.
@@ -227,6 +231,7 @@ export function releasePlan(input: { paymentId: string; note: string; lowered?: 
     kind: "release",
     labelBase: `release:${input.paymentId}`,
     prepare: async (payment) => {
+      cardPayment(payment);
       if (!canMovePayment(payment.status as never, "closed_uncharged")) {
         throw new MoneyError("This payment has already been charged or closed.");
       }
@@ -252,6 +257,7 @@ export function releasePlan(input: { paymentId: string; note: string; lowered?: 
 export async function releasePayment(input: { paymentId: string; note: string }): Promise<void> {
   const [before] = await paymentById(input.paymentId);
   if (!before) throw new MoneyError("Payment not found.");
+  cardPayment(before);
 
   // Nothing at Stripe to cancel: the customer never started paying.
   if (!before.stripePaymentIntentId) {
@@ -335,6 +341,7 @@ export async function refundPayment(input: {
     kind: "refund",
     labelBase: `refund:${refundId}`,
     prepare: async (payment, tx) => {
+      cardPayment(payment);
       if (payment.status !== "charged" || payment.chargedCents === null) throw new MoneyError("Nothing has been charged for this call.");
       if (payment.transferStatus === "sent") {
         throw new MoneyError("The host has already been paid for this call. A refund now has to go through support.");
@@ -389,7 +396,15 @@ export async function refundPayment(input: {
 // Send the host's share
 // ---------------------------------------------------------------------------
 
-export type TransferParams = { amountCents: number; payoutFeeCents: number; destination: string; callId: string };
+/**
+ * `group` is the group the transfer belongs to at Stripe: the call's id for a card payment, the
+ * month's id for a payment that belongs to a membership's month (the same group the month's own
+ * PaymentIntent carries). A transfer written down before memberships existed has only `callId`.
+ */
+export type TransferParams = { amountCents: number; payoutFeeCents: number; destination: string; group?: string; callId?: string };
+
+/** The group a transfer belongs to at Stripe, whichever way it was written down. */
+export const transferGroup = (params: Pick<TransferParams, "group" | "callId">): string => params.group ?? params.callId!;
 
 export async function applyTransferSent(payment: Payment, params: TransferParams, stripeTransferId: string | null, tx: Tx): Promise<void> {
   await tx
@@ -416,7 +431,7 @@ export async function transferAtStripe(payment: Payment, params: TransferParams,
       currency: payment.currency,
       destination: params.destination,
       source_transaction: payment.stripeChargeId!,
-      transfer_group: params.callId,
+      transfer_group: transferGroup(params),
       metadata: { paymentId: payment.id },
     },
     { idempotencyKey: label },

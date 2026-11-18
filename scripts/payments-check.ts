@@ -856,14 +856,14 @@ async function main() {
           check("the founder cannot collect for a host whose account is open", whileOpen instanceof MoneyError && (await collectionsOf(h)).length === 0 && (await sent(k)).transfers.length === 0, whileOpen?.message);
           await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, h));
           const listed = (await unsentEarnings(T)).find((e) => e.payment.id === k.payment.id);
-          check("the founder's list of uncollected money includes the closed host's share", listed?.call.hostId === h && listed.shareCents === 1238 && listed.heldBack === null);
+          check("the founder's list of uncollected money includes the closed host's share", listed?.hostId === h && listed.shareCents === 1238 && listed.heldBack === null);
           const id = randomUUID();
           const pressed = await final(id);
           const pk = await sent(k);
           const [record] = await db.select().from(schema.collections).where(eq(schema.collections.id, id));
           check("the founder's final collection sends it to that host's own account, under the same rules", pressed === null && pk.status === "sent" && pk.cents === 1238 - 25 && pk.transfers[0]?.destination === account, pressed?.message);
           check("and the record says who pressed", record?.hostId === h && record.startedBy === founder.id);
-          check("nothing is left on the founder's list for that host", !(await unsentEarnings(T)).some((e) => e.call.hostId === h));
+          check("nothing is left on the founder's list for that host", !(await unsentEarnings(T)).some((e) => e.hostId === h));
         }
 
         console.log("\n28. A real bank dispute at Stripe, which we then lose");

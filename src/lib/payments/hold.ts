@@ -9,6 +9,7 @@ import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import type Stripe from "stripe";
 import { lockPayment, MoneyError, runMoneyOperation, type Tx } from "./operations";
+import { cardPayment } from "./own";
 import { bookedTotalCents, DEFAULT_FEE_TERMS, MIN_PRICE_PER_15_CENTS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
 import { stripe } from "./stripe";
@@ -59,6 +60,8 @@ type Payer = { id: string; name: string; email: string };
  * of a request for more time it is the request itself: it must still be open.
  */
 async function tooLateToHold(reader: Pick<typeof db, "select">, payment: Pick<Payment, "callId" | "extensionId">, at: Date): Promise<boolean> {
+  // A payment without a call is never a card payment, so no hold on it can ever count.
+  if (!payment.callId) return true;
   if (payment.extensionId) {
     const [extension] = await reader.select({ status: schema.callExtensions.status }).from(schema.callExtensions).where(eq(schema.callExtensions.id, payment.extensionId));
     return extension?.status !== "open";
@@ -94,6 +97,8 @@ async function holdIntentFor(input: {
   inCall?: boolean;
 }): Promise<{ held: true } | { held: false; intentId: string; clientSecret: string }> {
   const { payment, call, customer, now } = input;
+  // Before anything is made at Stripe: only a card payment ever gets a hold.
+  cardPayment(payment);
   if (customer.id !== call.customerId) throw new MoneyError("Only the customer can pay for this call.");
   if (call.cancelledAt) throw new MoneyError("This call was cancelled.");
   if (payment.status === "held") return { held: true };
@@ -295,6 +300,7 @@ async function paymentStatus(paymentId: string): Promise<string | undefined> {
 export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
   const [before] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
   if (!before) throw new MoneyError("Payment not found.");
+  if (before.kind !== "card") return before; // a membership's payment has no hold at Stripe to ask about
   if (!before.stripePaymentIntentId || (before.status !== "awaiting_payment" && before.status !== "held")) return before;
 
   const intent = await stripe().paymentIntents.retrieve(before.stripePaymentIntentId, { expand: ["latest_charge"] });
@@ -325,6 +331,7 @@ export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
  * the charge, so the customer's money is never left unaccounted for.
  */
 async function recordLateCharge(tx: Tx, payment: Payment, amountReceived: number, chargeId: string | null): Promise<void> {
+  const card = cardPayment(payment);
   const attempts = await tx
     .select()
     .from(schema.moneyOperations)
@@ -344,7 +351,7 @@ async function recordLateCharge(tx: Tx, payment: Payment, amountReceived: number
   }
   const explained = params !== null;
   if (!params) {
-    const [call] = await tx.select({ endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId));
+    const [call] = await tx.select({ endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, card.callId));
     params = { amountCents: amountReceived, reason: "attendance", frozen: null, callEndsAt: call.endsAt.toISOString(), pricedThroughEventId: null };
   }
   await applyCaptured(payment, params, amountReceived, chargeId, tx);

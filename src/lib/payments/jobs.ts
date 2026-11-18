@@ -27,6 +27,7 @@ import {
   markRefundFailed,
   releasePayment,
   transferAtStripe,
+  transferGroup,
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
@@ -95,8 +96,19 @@ export async function reconcileOperations(now: Date): Promise<void> {
     );
 
   for (const operation of stuck) {
+    // An action owned by a membership's month is checked by the membership code, with the month's own locks.
+    if (!operation.paymentId) {
+      try {
+        const { recoverMonthOperation } = await import("@/lib/membership/recover");
+        await recoverMonthOperation(operation, now);
+      } catch (error) {
+        log(`could not check unfinished ${operation.kind} on month ${operation.monthId}; will retry`, error);
+      }
+      continue;
+    }
+    const paymentId = operation.paymentId;
     try {
-      const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, operation.paymentId));
+      const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
       const params = JSON.parse(operation.params);
       // Measured on the real clock, right before acting, so a slow pass can never repeat a request too late.
       const canRepeat = () => Date.now() - operation.createdAt.getTime() < LABEL_SAFE_MS;
@@ -190,14 +202,19 @@ export async function reconcileOperations(now: Date): Promise<void> {
         // (unless it is too old to repeat: see below).
         if (params.amountCents < 1) {
           // Nothing goes to Stripe for this one; it follows the rest of its collection.
-          if (!(await settleEmptyShare(operation, params))) continue; // the rest is not known yet: look again next pass
+          if (!(await settleEmptyShare({ id: operation.id, paymentId }, params))) continue; // the rest is not known yet: look again next pass
         } else {
           let transferId: string | undefined;
           if (canRepeat()) {
             transferId = (await transferAtStripe(payment, params, operation.label)) ?? undefined;
           } else {
-            const list = await stripe().transfers.list({ transfer_group: params.callId, limit: 100 });
-            transferId = list.data.find((t) => t.metadata?.paymentId === payment.id)?.id;
+            // Every page: a membership's month can have many transfers in its group.
+            for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 })) {
+              if (transfer.metadata?.paymentId === payment.id) {
+                transferId = transfer.id;
+                break;
+              }
+            }
           }
           if (transferId === undefined) {
             // The share was never sent. It is simply ready again for a later collection.
@@ -214,10 +231,10 @@ export async function reconcileOperations(now: Date): Promise<void> {
         // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
         const params = JSON.parse(operation.params);
         if (operation.kind === "refund") await db.transaction((tx) => markRefundFailed(params.refundId, tx));
-        await failOperation(operation.id, operation.paymentId, stripeErrorMessage(error));
+        await failOperation(operation.id, paymentId, stripeErrorMessage(error));
         // A refused charge usually means the hold is gone. Record the hold's real state.
-        if (operation.kind === "capture") await syncHold(operation.paymentId, now).catch(() => undefined);
-        log(`unfinished ${operation.kind} on payment ${operation.paymentId} was refused by Stripe`);
+        if (operation.kind === "capture") await syncHold(paymentId, now).catch(() => undefined);
+        log(`unfinished ${operation.kind} on payment ${paymentId} was refused by Stripe`);
       } else {
         log(`could not check unfinished ${operation.kind} on payment ${operation.paymentId}; will retry`, error);
       }
