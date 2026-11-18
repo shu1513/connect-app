@@ -464,3 +464,7 @@ Every point was checked against the code before it was taken.
    from the whole subject. It is now read from the subject's fixed ending.
 5. **One new check of the journey script** said more than it proved.
 
+**Third round (not ready, one point, taken):** the cancel button in the moment between a month's
+end and the next one still promised that no new month would start, although the helper can start
+it in the moment before the press. It says both outcomes now, like the other two.
+
