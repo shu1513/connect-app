@@ -13,7 +13,7 @@
  * it, and a small job ends one that is not finished.
  */
 import { randomUUID } from "node:crypto";
-import { and, eq, gt, or, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking, Membership, MembershipMonth } from "@/db/schema";
 import { BookingError, busyOf, endRequestsInTheWay, isOverlap, lockCalendars, offerOf, slotInput, type Offer } from "@/lib/booking/bookings";
@@ -142,7 +142,9 @@ async function mustBeBookable(
   // invited this person, and the time they paid for is the limit.
   // One thing those limits also stopped is kept, narrowly: booking a time and cancelling it again, over and over (each
   // booking ends other people's waiting requests for that time and writes to the host). Only bookings the member undid
-  // themselves count; ones that are kept, or that the host or Connect cancelled, never do.
+  // themselves count; ones that are kept, or that the host or Connect cancelled, never do. A first booking that was
+  // not finished never counts either: it held no time, wrote to nobody, and can end through no fault of the member
+  // (the month was paid but the time was taken meanwhile).
   const [undone] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.bookings)
@@ -151,10 +153,11 @@ async function mustBeBookable(
         eq(schema.bookings.customerId, customer.id),
         eq(schema.bookings.source, "member"),
         gt(schema.bookings.endedAt, new Date(now.getTime() - 24 * 60 * MINUTE)),
-        or(and(eq(schema.bookings.stage, "cancelled"), eq(schema.bookings.endedReason, "cancelled by the customer")), eq(schema.bookings.stage, "ran_out")),
+        eq(schema.bookings.stage, "cancelled"),
+        eq(schema.bookings.endedReason, "cancelled by the customer"),
       ),
     );
-  if (undone.n >= UNDONE_BOOKINGS_PER_DAY) throw new BookingError("You have cancelled or not finished several bookings today. Please try again tomorrow.");
+  if (undone.n >= UNDONE_BOOKINGS_PER_DAY) throw new BookingError("You have cancelled several bookings today. Please try again tomorrow.");
   // The time must be open for a member: general or member-only hours, the host's notice, how far ahead, time off, and nothing in the way.
   if (!isOpenStart(startsAt, slotInput(offer, await busyOf(tx, hostId, now), lengthMinutes, now, "member"))) throw new BookingError(NOT_OPEN);
   // And the member must be free then. Said now, before a month's money is taken for a booking that could never be made.

@@ -678,10 +678,10 @@ of its own, not "ask" followed by "accept". It keeps, from today's two steps:
   one person flooding a host with requests she has to answer, and a member's booking needs no
   answer, is paid for, and is limited by the time they have). A member's bookings are not counted
   in the limits on ordinary requests either. One narrow limit takes their place: a member who has
-  undone 5 of their own member bookings in 24 hours (cancelled them, or left a first booking
-  unfinished) cannot book as a member again until the next day, because each booking ends other
-  people's waiting requests for that time and writes to the host. Bookings that are kept, and
-  ones the host or Connect cancelled, never count;
+  cancelled 5 of their own member bookings in 24 hours cannot book as a member again until the
+  next day, because each booking ends other people's waiting requests for that time and writes
+  to the host. Bookings that are kept, ones the host or Connect cancelled, and a first booking
+  that was not finished (it held no time and wrote to nobody) never count;
 - from accepting: the host approved and their payout account ready, read inside the step; the
   member price, the cancelling rule and "the host's time counts" fixed on the call; the host taken
   for the call and its break and the member for the call, with the database refusing any overlap

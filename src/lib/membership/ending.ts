@@ -272,7 +272,7 @@ export async function undoStop(input: { membershipId: string; by: "member" | "ho
     if (!month?.endsAt || afterTheWait(now) >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
     await mustBeOpen(tx, membership.hostId, membership.customerId, { forTheHost: by === "host" });
     // What still stops the renewal afterwards, if anything. Room is needed only if nothing does.
-    const left = by === "member" ? (membership.hostStoppedAt ? ("host" as const) : null) : membership.memberStoppedAt ? ("member" as const) : membership.offerStoppedAt ? ("offer_off" as const) : null;
+    const left = by === "member" ? (membership.hostStoppedAt ? (membership.pausedReason === "offer" ? ("declined" as const) : ("host" as const)) : null) : membership.memberStoppedAt ? ("member" as const) : membership.offerStoppedAt ? ("offer_off" as const) : null;
     if (!left && !(await wouldKeepPlace(tx, membership, membership.ownMinutes ?? 0))) {
       throw new MembershipError(by === "member" ? "The host's hours have no room for your next month, so the membership cannot be switched back on. It will be paused when this month ends, and you can resume it when there is room." : "Your weekly hours have no room for this member's next month.");
     }

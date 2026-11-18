@@ -229,7 +229,7 @@ export async function queueRenewalStoppedEmail(tx: Writer, membership: Membershi
  * One side takes its stop back. To both, and saying how things really stand: if another stop is
  * still there (`left` names whose), the membership is still paused at the month's end.
  */
-export async function queueRenewalBackEmail(tx: Writer, membership: Membership, by: "member" | "host", at: Date, left: "member" | "host" | "offer_off" | null): Promise<void> {
+export async function queueRenewalBackEmail(tx: Writer, membership: Membership, by: "member" | "host", at: Date, left: "member" | "host" | "declined" | "offer_off" | null): Promise<void> {
   const found = await peopleOf(tx, membership);
   if (!found) return;
   const { member, host, hostName } = found;
@@ -237,12 +237,14 @@ export async function queueRenewalBackEmail(tx: Writer, membership: Membership, 
   const still = "it is still paused when the month you paid for ends";
   const forMember = {
     host: `You switched your membership with ${hostName} back on. But ${hostName} has paused it after this month, so ${still}. Only ${hostName} can take that back.`,
+    declined: `You switched your membership with ${hostName} back on. But you said "No thanks" to the smaller time ${hostName} offered, so ${still}. You can resume it later, when ${hostName} has room.`,
     member: `${hostName} has taken back the pause. But you cancelled your membership yourself, so ${still}, unless you switch it back on with "Keep my membership".`,
     offer_off: `${hostName} has taken back the pause. But the membership was switched off for a while during this month, which stopped your renewal, so ${still}, unless you switch it back on with "Keep my membership".`,
     none: `${by === "member" ? "You switched your membership back on" : `${hostName} has taken back the pause`}. Your membership with ${hostName} renews as before at the end of the month you paid for. Nothing is charged today.`,
   }[left ?? "none"];
   const forHost = {
     host: `${member.name} has switched their membership back on. Your own pause after this month still stands, so it is paused when their paid month ends unless you take the pause back.`,
+    declined: `${member.name} has switched their membership back on. But they said "No thanks" to the smaller time you offered, and that stands, so it is still paused when their paid month ends. They can resume it later, when you have room.`,
     member: `You took back the pause for ${member.name}. They cancelled their membership themselves, so it is still paused when their paid month ends unless they switch it back on.`,
     offer_off: `You took back the pause for ${member.name}. Their renewal is still stopped, because your membership was switched off for a while during this month. Only they can bring it back, with "Keep my membership".`,
     none: by === "member" ? `${member.name} has switched their membership back on. It renews as before.` : `You took back the pause for ${member.name}. Their membership renews as before.`,

@@ -64,9 +64,9 @@ export function minutesCovered(freeCents: number, pricePer15Cents: number): numb
 }
 
 /**
- * A member who has undone this many of their own member bookings in 24 hours (cancelled them, or
- * left a first booking unfinished) cannot book as a member again until that eases. Bookings that
- * are kept are never limited. It is there for one thing: each booking ends other people's waiting
+ * A member who has cancelled this many of their own member bookings in 24 hours cannot book as a
+ * member again until that eases. Bookings that are kept are never limited, and a first booking
+ * that was not finished does not count (it held no time and wrote to nobody). It is there for one thing: each booking ends other people's waiting
  * requests for that time and writes to the host, so booking and cancelling over and over must stop.
  */
 export const UNDONE_BOOKINGS_PER_DAY = 5;

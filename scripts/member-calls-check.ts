@@ -703,12 +703,19 @@ async function main() {
     await settleCancelledCalls(new Date());
     check("the helper finds nothing left to settle for the cancelled calls", (await M(m.monthId)).setAsideCents === 3000);
     // Booking and cancelling over and over: the member has cancelled two bookings themselves today; three more make five.
+    let unfinishedCounted = 0;
     for (let i = 0; i < 3; i++) {
+      if (i === 2) {
+        // Four cancelled so far. A first booking that ended without being finished (here: paid, but the time was gone) is on record too.
+        const [one] = await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, m.member.id), eq(schema.bookings.stage, "cancelled"))).limit(1);
+        unfinishedCounted = (await db.insert(schema.bookings).values({ ...one, id: randomUUID(), requestKey: randomUUID(), callId: null, stage: "ran_out", endedReason: B.PAID_BUT_TIME_GONE, endedAt: new Date() }).returning()).length;
+      }
       const again = await booked(m, { nth: 6 + i });
       await cancelCall({ call: again.call, payment: await pay(again.call), by: "customer", now: new Date() });
     }
     const loop = await refused(book(m, (await times(m)).filter((at) => hourInNewYork(at) < 13)[9]));
-    check("after five bookings a member cancelled themselves in one day, booking as a member waits until tomorrow", /cancelled or not finished several bookings/.test(loop ?? "") && (await M(m.monthId)).setAsideCents === 3000, loop);
+    check("a first booking that was not finished is not counted: with four cancelled and one unfinished, the fifth booking was still made", unfinishedCounted === 1);
+    check("after five bookings a member cancelled themselves in one day, booking as a member waits until tomorrow", /cancelled several bookings today/.test(loop ?? "") && (await M(m.monthId)).setAsideCents === 3000, loop);
     check("the booking the host cancelled is not counted against the member", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, m.member.id), eq(schema.bookings.stage, "cancelled")))).length === 6);
     await audit("after cancelling", m);
   });
