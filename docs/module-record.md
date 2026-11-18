@@ -1336,3 +1336,39 @@ The fourth of six pull requests, and the end of part two. The founder's switch i
 - CodeRabbit: one comment, taken (a card retired in the moment between the check and the hold
   gets its hold let go again).
 
+## Memberships: two founder decisions and one narrow guard (pull request 38, 18 November 2026)
+
+A small pull request between part two and part three. The founder's switch is still off.
+
+**What it does**
+- **A "No thanks" always stands.** A member who says "No thanks" to an offer of less time keeps
+  the month they paid for and is paused when it ends. The host cannot undo that pause
+  (`membership/ending.ts`, `undoStop`); the member can resume later, when there is room. If such
+  a member cancels and then keeps their membership again, both emails say how it really stands.
+- **No daily limit on requests holds a member's booking back** (`membership/book.ts`,
+  `booking/bookings.ts`). The limits of 3 with one host and 10 in total are there to stop one
+  person flooding a host with requests she has to answer. A member's booking needs no answer, is
+  paid for, and is limited by the time they have. A member's bookings are not counted against
+  their ordinary requests either. There was never a limit on how many different people may book
+  one host, and there is none now.
+- **One narrow guard in their place:** a member who has cancelled 5 of their own member bookings
+  in 24 hours cannot book as a member again until the next day, because each booking ends other
+  people's waiting requests for that time and writes to the host. Bookings that are kept, ones
+  the host or Connect cancelled, and a first booking that was not finished never count.
+
+**The database:** nothing new.
+
+**How it was checked**
+- `scripts/membership-check.ts` (the host's undo is refused after a "No thanks"; the emails after
+  the member cancels and keeps it again) and `scripts/member-calls-check.ts` (a fourth booking
+  with ten requests on record is made; member bookings are not counted against ordinary
+  requests; five self-cancelled bookings refuse the next one, and an unfinished first booking
+  beside four cancelled ones does not), both against Stripe's test area.
+- All fourteen scripts, `tsc`, `eslint`, `vitest` (395 tests) and the build passed on the code
+  before CodeRabbit's review; after its two points the two membership scripts were run again.
+- Astra checked the first version (ready). The guard and the removal of the limit of 10 in total
+  came after that check.
+- CodeRabbit: two comments, both taken. The guard had also counted a first booking that ended
+  unfinished, which can happen through no fault of the member (the month was paid but the time
+  was taken meanwhile); and after a "No thanks" an email told the host she could take the pause
+  back, which she no longer can.

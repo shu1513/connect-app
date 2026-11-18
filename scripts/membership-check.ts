@@ -1817,6 +1817,18 @@ async function main() {
     check("all four are offered 1 hour; with these offers her 4 hours are enough", offers.every(Boolean) && (await Room.minutesMembersNeed(db, host3.id)) === 240);
     await answer("decline", members[0], offers[0]);
     check("\"No thanks\": the member keeps the month and is stopped, with the reason kept", (await MS(members[0].membershipId)).offerId === null && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).ownMinutes === 120);
+    const undone = await refusal(E.undoStop({ membershipId: members[0].membershipId, by: "host", actorId: host3.id, now: new Date() }));
+    check("a \"No thanks\" always stands: the host cannot undo that pause", /that stands/.test(undone ?? "") && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).pausedReason === "offer", undone);
+    // The member cancels and then keeps the membership after all: their own stop is gone, the "No thanks" still stands, and nobody is told the host could take it back.
+    await E.stopRenewal({ membershipId: members[0].membershipId, by: "member", actorId: members[0].member.id, now: new Date() });
+    await E.undoStop({ membershipId: members[0].membershipId, by: "member", actorId: members[0].member.id, now: new Date() });
+    const toldHost = await emailText(host3.email, "still set to pause");
+    const toldMember = await emailText(members[0].member.email, "still set to pause");
+    check(
+      "after a \"No thanks\", a member who cancels and keeps it again is told the truth, and so is the host: nobody can take that pause back",
+      /said "No thanks"/.test(toldHost) && !/unless you take the pause back/.test(toldHost) && /said "No thanks"/.test(toldMember) && !/can take that back/.test(toldMember) && (await MS(members[0].membershipId)).memberStoppedAt === null && (await MS(members[0].membershipId)).pausedReason === "offer",
+      `${toldHost}\n${toldMember}`,
+    );
     await closeMonth(members[0].monthId, (await M(members[0].monthId)).endsAt!);
     await closeMonth(members[1].monthId, (await M(members[1].monthId)).endsAt!);
     check("at the month's end: \"No thanks\" and no answer are both paused, told why, and nothing is charged", (await MS(members[0].membershipId)).status === "paused" && (await MS(members[0].membershipId)).pausedReason === "offer" && (await MS(members[1].membershipId)).status === "paused" && (await MS(members[1].membershipId)).pausedReason === "offer" && (await monthsOf(members[1].membershipId)).length === 1);

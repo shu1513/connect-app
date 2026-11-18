@@ -176,9 +176,6 @@ async function main() {
     const open = (await times(m, opts.length ?? 30)).filter((at) => (opts.memberOnly ? hourInNewYork(at) >= 13 : hourInNewYork(at) < 13));
     const result = await book(m, open[opts.nth ?? 0], { length: opts.length });
     if (result.outcome !== "booked") throw new Error(`could not book: ${result.outcome} ${result.message}`);
-    // The daily limit on requests (3 to one host in 24 hours) applies to a member too; journey 1 checks it.
-    // So that a journey can book more than that, each booking is made to look two days old.
-    await db.update(schema.bookings).set({ requestedAt: new Date(Date.now() - 2 * DAY) }).where(eq(schema.bookings.id, result.booking.id));
     return { booking: result.booking, call: await callOf(result.booking) };
   }
   /** Moves a booked call to another time (into the past, to play a call that took place or is under way), with its payment's stretch. */
@@ -471,7 +468,18 @@ async function main() {
     await setSwitches({ requestsOff: true });
     check("with the founder's \"no new requests\" switch on, nothing is booked", /not taking new requests/.test((await refused(book(m, general[7]))) ?? ""));
     await setSwitches({ requestsOff: false });
-    check("the daily limit on requests applies to a member too: a fourth booking with one host in a day is refused", /a lot of requests today/.test((await refused(book(m, general[7]))) ?? ""));
+    // Three bookings with this host today, and seven more requests of this person on record: ten in 24 hours.
+    // No daily limit holds a member's booking back: nothing keeps a host from being booked by her own member.
+    const fillers = await db
+      .insert(schema.bookings)
+      .values(Array.from({ length: 7 }, () => ({ hostId: host.id, customerId: m.member.id, startsAt: general[9], endsAt: new Date(general[9].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "taken_back", requestKey: randomUUID(), requestedAt: new Date() })))
+      .returning({ id: schema.bookings.id });
+    const fourth = await book(m, general[10]);
+    check("a fourth booking with the same host on one day, and an eleventh request in all, is still made: the time a member paid for is their only limit", fourth.outcome === "booked" && (await places(m.monthId)) === "0/6000/0/0/0/0", `${fourth.outcome} ${await places(m.monthId)}`);
+    await db.delete(schema.bookings).where(inArray(schema.bookings.id, fillers.map((row) => row.id)));
+    // And the other way round: four bookings as a member today do not use up the member's ordinary requests with this host.
+    const ordinaryToo = await askForCall({ customer: m.member, hostId: host.id, startsAt: (await openTimes((await offerOf(host.id))!, 30, new Date())).at(-1)!, lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: true, seen: { pricePer15Cents: 1000, freeCancelMinutes: 0 }, now: new Date() }).then((made) => made.booking.stage, (error: Error) => error.message);
+    check("bookings made as a member are not counted against the limits on ordinary requests", ordinaryToo === "card", ordinaryToo);
     check("the card form is refused for a member's call", (await refused(startHold({ payment, call, customer: m.member, now: new Date() }))) !== null);
     check("the choices for more time on a member's call say what the membership covers", (await addTimeChoices(call)).membershipCovers !== undefined);
     await audit("after booking", m);
@@ -694,6 +702,21 @@ async function main() {
     check("a late cancellation uses everything that was set aside", late === "late_charge" && latePayment.status === "charged" && latePayment.chargedCents === 1500 && latePayment.chargeReason === "late_cancel" && (await M(m.monthId)).usedCents === 1500, `${late} ${latePayment.status}`);
     await settleCancelledCalls(new Date());
     check("the helper finds nothing left to settle for the cancelled calls", (await M(m.monthId)).setAsideCents === 3000);
+    // Booking and cancelling over and over: the member has cancelled two bookings themselves today; three more make five.
+    let unfinishedCounted = 0;
+    for (let i = 0; i < 3; i++) {
+      if (i === 2) {
+        // Four cancelled so far. A first booking that ended without being finished (here: paid, but the time was gone) is on record too.
+        const [one] = await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, m.member.id), eq(schema.bookings.stage, "cancelled"))).limit(1);
+        unfinishedCounted = (await db.insert(schema.bookings).values({ ...one, id: randomUUID(), requestKey: randomUUID(), callId: null, stage: "ran_out", endedReason: B.PAID_BUT_TIME_GONE, endedAt: new Date() }).returning()).length;
+      }
+      const again = await booked(m, { nth: 6 + i });
+      await cancelCall({ call: again.call, payment: await pay(again.call), by: "customer", now: new Date() });
+    }
+    const loop = await refused(book(m, (await times(m)).filter((at) => hourInNewYork(at) < 13)[9]));
+    check("a first booking that was not finished is not counted: with four cancelled and one unfinished, the fifth booking was still made", unfinishedCounted === 1);
+    check("after five bookings a member cancelled themselves in one day, booking as a member waits until tomorrow", /cancelled several bookings today/.test(loop ?? "") && (await M(m.monthId)).setAsideCents === 3000, loop);
+    check("the booking the host cancelled is not counted against the member", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, m.member.id), eq(schema.bookings.stage, "cancelled")))).length === 6);
     await audit("after cancelling", m);
   });
 

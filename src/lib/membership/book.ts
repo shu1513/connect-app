@@ -13,12 +13,11 @@
  * it, and a small job ends one that is not finished.
  */
 import { randomUUID } from "node:crypto";
-import { and, eq, gt, ne, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking, Membership, MembershipMonth } from "@/db/schema";
 import { BookingError, busyOf, endRequestsInTheWay, isOverlap, lockCalendars, offerOf, slotInput, type Offer } from "@/lib/booking/bookings";
 import { queueBookingEmails } from "@/lib/booking/emails";
-import { LIMITS } from "@/lib/booking/rules";
 import { isOpenStart, openStarts } from "@/lib/booking/slots";
 import type { Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
@@ -29,7 +28,7 @@ import { hostForMember } from "./access";
 import { takeNow } from "./charge";
 import { lockMembership, lockMonth } from "./locks";
 import { setAside } from "./months";
-import { afterTheWait, isFrozen, memberCallCents, minutesCovered } from "./rules";
+import { afterTheWait, isFrozen, memberCallCents, minutesCovered, UNDONE_BOOKINGS_PER_DAY } from "./rules";
 
 export { memberCallCents };
 
@@ -37,7 +36,6 @@ type Person = { id: string; name: string; email: string };
 type Reader = Pick<typeof db, "select">;
 
 const MINUTE = 60_000;
-const DAY = 24 * 60 * MINUTE;
 /** A booking that is waiting for its month's payment is ended after this long. */
 export const PAYING_MS = 30 * MINUTE;
 const OUT_OF_DATE = "This form is out of date. Please reload the page.";
@@ -112,7 +110,7 @@ export async function memberOpenTimes(view: MemberBookingView, lengthMinutes: nu
  */
 async function mustBeBookable(
   tx: Tx,
-  input: { customer: Person; hostId: string; membership: Membership; month: MembershipMonth; startsAt: Date; lengthMinutes: number; seen: { pricePer15Cents: number; freeCancelMinutes: number }; now: Date; moneyStillHeld: boolean; exceptBookingId?: string },
+  input: { customer: Person; hostId: string; membership: Membership; month: MembershipMonth; startsAt: Date; lengthMinutes: number; seen: { pricePer15Cents: number; freeCancelMinutes: number }; now: Date; moneyStillHeld: boolean },
 ): Promise<{ offer: Offer; cents: number }> {
   const { customer, hostId, membership, month, startsAt, lengthMinutes, now } = input;
   const [me] = await tx.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, customer.id));
@@ -139,12 +137,27 @@ async function mustBeBookable(
   const cents = memberCallCents(month.pricePer15Cents, lengthMinutes);
   if (cents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be booked.");
   if (cents > (month.status === "held" ? month.totalCents : month.freeCents)) throw new BookingError("You do not have enough membership time left for this call. You can still ask for it the ordinary way.");
-  // The daily limit on requests, as for any customer. (This booking itself, if it was already written down while its month's money was taken, is not counted against itself.)
-  const sentSince = and(gt(schema.bookings.requestedAt, new Date(now.getTime() - DAY)), input.exceptBookingId ? ne(schema.bookings.id, input.exceptBookingId) : undefined);
-  const count = async (...conditions: Parameters<typeof and>) => (await tx.select({ n: sql<number>`count(*)::int` }).from(schema.bookings).where(and(eq(schema.bookings.customerId, customer.id), sentSince, ...conditions)))[0].n;
-  if ((await count(eq(schema.bookings.hostId, hostId))) >= LIMITS.sentPerHostPerDay || (await count()) >= LIMITS.sentPerDay) {
-    throw new BookingError("You have made a lot of requests today. Please try again tomorrow.");
-  }
+  // No daily limit on requests applies to a member's booking (the founder's decision): those limits are there to keep
+  // one person from flooding a host with requests she has to answer. A member's booking needs no answer, the host
+  // invited this person, and the time they paid for is the limit.
+  // One thing those limits also stopped is kept, narrowly: booking a time and cancelling it again, over and over (each
+  // booking ends other people's waiting requests for that time and writes to the host). Only bookings the member undid
+  // themselves count; ones that are kept, or that the host or Connect cancelled, never do. A first booking that was
+  // not finished never counts either: it held no time, wrote to nobody, and can end through no fault of the member
+  // (the month was paid but the time was taken meanwhile).
+  const [undone] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.bookings)
+    .where(
+      and(
+        eq(schema.bookings.customerId, customer.id),
+        eq(schema.bookings.source, "member"),
+        gt(schema.bookings.endedAt, new Date(now.getTime() - 24 * 60 * MINUTE)),
+        eq(schema.bookings.stage, "cancelled"),
+        eq(schema.bookings.endedReason, "cancelled by the customer"),
+      ),
+    );
+  if (undone.n >= UNDONE_BOOKINGS_PER_DAY) throw new BookingError("You have cancelled several bookings today. Please try again tomorrow.");
   // The time must be open for a member: general or member-only hours, the host's notice, how far ahead, time off, and nothing in the way.
   if (!isOpenStart(startsAt, slotInput(offer, await busyOf(tx, hostId, now), lengthMinutes, now, "member"))) throw new BookingError(NOT_OPEN);
   // And the member must be free then. Said now, before a month's money is taken for a booking that could never be made.
@@ -205,7 +218,7 @@ async function saveAsPaying(asked: Input, found: { membership: Membership; month
       // A request in its last minute is ended here instead of being continued: the job that ends it after 30 minutes
       // must never end it while the month's money is being taken for it.
       if (again.createdAt.getTime() <= input.now.getTime() - (PAYING_MS - MINUTE)) throw new BookingError(NOT_IN_TIME);
-      await mustBeBookable(tx, { ...input, membership, month, moneyStillHeld: true, exceptBookingId: again.id });
+      await mustBeBookable(tx, { ...input, membership, month, moneyStillHeld: true });
       return again;
     }
     // Everything about the booking is checked first; the money is only taken for a booking that could be made.
@@ -261,7 +274,7 @@ async function bookInOneStep(asked: Input, found: { membership: Membership; mont
       if (again.stage !== "paying") return again;
       mustBeSameRequest(again, input, month.id);
     }
-    const { offer, cents } = await mustBeBookable(tx, { ...input, membership, month, moneyStillHeld: false, exceptBookingId: again?.id });
+    const { offer, cents } = await mustBeBookable(tx, { ...input, membership, month, moneyStillHeld: false });
     const endsAt = new Date(input.startsAt.getTime() + input.lengthMinutes * MINUTE);
     const busyUntil = new Date(endsAt.getTime() + offer.breakMinutes * MINUTE);
 
