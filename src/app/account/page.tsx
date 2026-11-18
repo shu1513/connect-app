@@ -115,7 +115,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Hosting</h2>
         <p className="mt-2 text-sm">
-          <Link href="/host" className="underline underline-offset-2">
+          <Link href="/host" className="inline-flex min-h-11 items-center underline underline-offset-2">
             Your host profile, payouts and calendar
           </Link>
         </p>

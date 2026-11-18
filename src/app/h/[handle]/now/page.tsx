@@ -63,7 +63,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   return (
     <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
-        <Link href={`/h/${profile.handle}`} className="underline underline-offset-2">
+        <Link href={`/h/${profile.handle}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Back
         </Link>
       </p>

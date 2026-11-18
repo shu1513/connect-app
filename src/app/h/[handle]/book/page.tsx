@@ -57,7 +57,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
       <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
         <h1 className="text-2xl font-semibold">That time is no longer open</h1>
         <p className="mt-4 text-sm">
-          <Link href={back} className="underline underline-offset-2">
+          <Link href={back} className="inline-flex min-h-11 items-center underline underline-offset-2">
             Choose another time
           </Link>
         </p>
@@ -84,7 +84,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   return (
     <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
-        <Link href={back} className="underline underline-offset-2">
+        <Link href={back} className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Other times
         </Link>
       </p>

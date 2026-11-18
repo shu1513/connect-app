@@ -992,7 +992,7 @@ Astra also noted three planned cases the script did not have yet (a replacement 
 
 **Who built it.** Claude, at the founder's request; Astra reviewed it.
 
-**What the review found.** Three small things, all fixed: the grey hint text inside fields was too faint (now 4.8:1), "Forgot password?" and a host's name in the search results had lost their large tap size, and a busy button showed a pointing hand instead of the wait cursor.
+**What the review found.** Three small things, all fixed: the grey hint text inside fields was too faint (now 4.8:1), "Forgot password?" and a host's name in the search results had lost their large tap size, and a busy button showed a pointing hand instead of the wait cursor. CodeRabbit then pointed out that links standing alone on their own line (a way back, "Choose another time") were small to tap; every such link, about twenty, now has the large tap size.
 
 **How it was checked.** Types, lint, 358 automatic tests, the build; the accounts (165), whole-journey (63), booking (116), safety (60), ratings (73), refunds (112), call-now (74) and verified (30) scripts. In a browser as the test customer: every page above at computer width; Your calls, a call's results, the account, contacts and the asking page at phone width (no sideways scrolling). The visitor pages were looked at again, logged out.
 

@@ -81,7 +81,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
 
       {viewer && viewer.id !== profile.userId && (
         <p className="mt-4 text-sm">
-          <Link href={`/report?profile=${profile.handle}`} className="underline underline-offset-2 opacity-70">
+          <Link href={`/report?profile=${profile.handle}`} className="inline-flex min-h-11 items-center underline underline-offset-2 opacity-70">
             Report this page
           </Link>
         </p>

@@ -23,7 +23,7 @@ export default async function CheckEmailPage(props: PageProps<"/check-email">) {
       <ResendConfirmationForm next={next} />
 
       <p className="mt-8 text-sm">
-        <Link href={next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`} className="underline underline-offset-2">
+        <Link href={next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
           Back to log in
         </Link>
       </p>

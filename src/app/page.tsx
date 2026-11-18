@@ -143,7 +143,7 @@ export default async function HomePage(props: PageProps<"/">) {
     <SitePage warm className="mx-auto w-full max-w-3xl px-4 py-10">
       <h1 className="text-2xl font-semibold">Your calls</h1>
       <p className="mt-2 text-sm">
-        <Link href="/contacts" className="underline underline-offset-2">
+        <Link href="/contacts" className="inline-flex min-h-11 items-center underline underline-offset-2">
           People you have talked to
         </Link>
       </p>

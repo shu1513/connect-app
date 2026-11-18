@@ -24,8 +24,9 @@
   outline-offset: 4px;
 }
 
-/* Buttons, and links that stand alone like one (the bars, a time to pick, a pill), are easy to tap.
-   A link inside a sentence stays plain text, so the words around it keep their spaces and lines. */
+/* Buttons, and the links of the bars, the times to pick and the pills, are easy to tap. A link
+   inside a sentence stays plain text, so the words around it keep their spaces and lines. A link
+   alone on its line (a way back, a next step) asks for the size itself: inline-flex min-h-11. */
 .warm-page button,
 .warm-page :is(.warm-header, .warm-footerLinks, .warm-slots) a,
 .warm-page a[class~="rounded"] {

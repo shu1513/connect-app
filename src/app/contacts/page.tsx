@@ -40,7 +40,7 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
               </p>
               {contact.hostHandle && (
                 <p className="mt-2">
-                  <Link href={`/h/${contact.hostHandle}`} className="underline underline-offset-2">
+                  <Link href={`/h/${contact.hostHandle}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
                     Their page: book another call
                   </Link>
                 </p>

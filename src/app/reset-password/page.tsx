@@ -25,7 +25,7 @@ export default async function ResetPasswordPage(props: PageProps<"/reset-passwor
             This link has expired or was already used.
           </p>
           <p className="mt-4 text-sm">
-            <Link href="/forgot-password" className="underline underline-offset-2">
+            <Link href="/forgot-password" className="inline-flex min-h-11 items-center underline underline-offset-2">
               Ask for a new link
             </Link>
           </p>

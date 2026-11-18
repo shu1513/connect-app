@@ -125,7 +125,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   return (
     <SitePage warm className="mx-auto w-full max-w-4xl px-4 py-10">
       <p className="text-sm">
-        <Link href="/" className="underline underline-offset-2">
+        <Link href="/" className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Your calls
         </Link>
       </p>
@@ -184,7 +184,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
 
       {bookAgain && !call.safetyEndedAt && (
         <p className="mt-4 text-sm">
-          <Link href={bookAgain} className="underline underline-offset-2">
+          <Link href={bookAgain} className="inline-flex min-h-11 items-center underline underline-offset-2">
             Book another call with {nameOf.get(call.hostId)}
           </Link>
         </p>
