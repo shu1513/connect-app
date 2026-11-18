@@ -289,7 +289,8 @@ now, when it will be taken, and that cancelling before then, with nothing booked
 left, the moment it expires, the date and amount of the next payment, and how to cancel. For a
 member with an open offer of less time it says instead: "Accept by 14 December, 3:10 pm, to go on
 with 1 hour a month for $30.00. Otherwise your membership is paused then." A member who is going
-to be paused is told that, and not promised a payment.
+to be paused is told that, and not promised a payment. This email is sent whatever the person
+chose for reminder emails, like a receipt, because it is the notice of a payment.
 
 ## The money
 
@@ -369,7 +370,7 @@ So at any moment, not only at the end, the six places add up to exactly what the
 - The host was not in the room for all of the booked time.
 - The host answered a refund request with "less" or "nothing", or gave money back with the refund
   form.
-- The founder lowered or dropped the charge after a review.
+- The founder lowered or dropped the charge after a review, or did not decide a review in time.
 
 It does not count when the member cancels in time: then each part of the booking goes back to
 where it came from, and the plain part can expire like any unused time.
@@ -559,7 +560,9 @@ customer".
 
 - `membership_offers`: one per host. On or off, the member price per 15 minutes, the minutes
   included, and a version number that goes up with every change.
-- `memberships`: one per host and customer. Where it stands (invited, active, renewal stopped,
+- `memberships`: one live one per host and customer. A pause keeps it; after an ending, a new
+  invitation starts a new one, so an ended membership keeps its months, its cards and its
+  unfinished clean-up to itself. Where it stands (invited, active, renewal stopped,
   unpaid, paused, ended), whether the member stopped the renewal and whether the host did (two separate marks,
   each cleared only by its own side; the offer being off is not stored on the membership), who or
   what paused or ended it and when, since when it has run without a break, the member's own price per 15 minutes and own time
@@ -789,6 +792,11 @@ Delivers:
 - The rules that protect money wherever they are enforced: the terms a member agreed to, the price rule against the regular price, the rule that a month
   starts only when there is room for it in the host's weekly hours, and the membership's saved card
   being safe from the job that removes cards.
+- The emails that report an event of this part, each written in the same step as its event.
+  Among them is the monthly receipt, which reports the hold. (The list of receipts on "Your
+  account" is part three.)
+- A short list for the founder of months that went wrong, pay-backs that failed and months under
+  dispute. (The full admin page is part three.)
 - The founder's switch, enforced on the server, and off.
 
 Done when:
@@ -826,7 +834,8 @@ Done when:
 Delivers:
 
 - The host's offer, inviting, joining with the recorded agreement, the "Pay now" page for a failed
-  payment, cancelling, resuming, the member list, monthly receipts, the reminder, and the admin page.
+  payment, cancelling, resuming, the member list, the list of monthly receipts on "Your account", the
+  reminder, and the full admin page.
 - Every remaining page, connected to what parts one and two built. It adds no money rule.
 
 Done when:
