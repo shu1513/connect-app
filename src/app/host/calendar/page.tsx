@@ -6,7 +6,7 @@ import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_C
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
-import { addHours, addOff, removeHours, removeOff, saveChoices } from "./actions";
+import { addHours, addOff, editHours, removeHours, removeOff, saveChoices } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Your calendar" };
@@ -58,7 +58,7 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
         ) : (
           <ul className="mt-3 space-y-1 text-sm">
             {hours.map((h) => (
-              <li key={h.id} className="flex items-center gap-3">
+              <li key={h.id} className="flex flex-wrap items-center gap-3">
                 <span className="w-56">
                   {DAYS[h.weekday - 1]}, {clockText(h.startMinute)} to {clockText(h.endMinute)}
                   {h.membersOnly && <span className="ml-2 rounded border border-neutral-400 px-1.5 py-0.5 text-xs">Members only</span>}
@@ -69,6 +69,40 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
                     Remove
                   </button>
                 </form>
+                {/* Changing or moving a stretch is one change, never a removal first and an addition later: so a cut in hours is seen as what it is. */}
+                <details className="basis-full">
+                  <summary className="cursor-pointer underline underline-offset-2">Change these hours</summary>
+                  <form action={editHours} className="mt-2 flex flex-wrap items-end gap-2">
+                    <input type="hidden" name="remove" value={h.id} />
+                    <label>
+                      Day
+                      <select name="weekday" defaultValue={h.weekday} className={`${field} block`}>
+                        {DAYS.map((day, i) => (
+                          <option key={day} value={i + 1}>
+                            {day}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      From
+                      <input name="from" type="time" required defaultValue={clockText(h.startMinute)} className={`${field} block`} />
+                    </label>
+                    <label>
+                      To
+                      <input name="to" type="time" required defaultValue={h.endMinute === 1440 ? "00:00" : clockText(h.endMinute)} className={`${field} block`} />
+                    </label>
+                    {forMembers && (
+                      <label className="flex min-h-11 items-center gap-2">
+                        <input name="membersOnly" type="checkbox" defaultChecked={h.membersOnly} />
+                        Members only
+                      </label>
+                    )}
+                    <button type="submit" className={button}>
+                      Save
+                    </button>
+                  </form>
+                </details>
               </li>
             ))}
           </ul>
