@@ -190,7 +190,7 @@ export async function workOutCut(reader: Reader, hostId: string, now: Date): Pro
   }
 
   const mark = createHash("sha256")
-    .update(JSON.stringify({ hoursAfter, rows: rows.map(({ membership, monthStatus, monthEndsAt }) => [membership.id, membership.status, membership.ownMinutes, membership.ownPricePer15Cents, membership.memberStoppedAt?.getTime() ?? null, membership.hostStoppedAt?.getTime() ?? null, membership.offerStoppedAt?.getTime() ?? null, membership.offerId, membership.inviteId, membership.currentMonthId, monthStatus, monthEndsAt?.getTime() ?? null]) }))
+    .update(JSON.stringify({ hoursAfter, invitationsTakenBack, rows: rows.map(({ membership, monthStatus, monthEndsAt }) => [membership.id, membership.status, membership.ownMinutes, membership.ownPricePer15Cents, membership.memberStoppedAt?.getTime() ?? null, membership.hostStoppedAt?.getTime() ?? null, membership.offerStoppedAt?.getTime() ?? null, membership.offerId, membership.inviteId, membership.currentMonthId, monthStatus, monthEndsAt?.getTime() ?? null]) }))
     .digest("hex")
     .slice(0, 24);
   return { hoursAfter, needed, owedThisMonth, members, leaving: paying.filter(({ membership }) => stopped(membership)).map(({ membership }) => membership.id), invitationsTakenBack, mark };

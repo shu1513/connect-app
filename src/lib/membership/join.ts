@@ -21,12 +21,14 @@ import { writeDownMonth } from "./charge";
 import { queueInvitationOverEmail, queueInvitedEmail } from "./emails";
 import { lockCalendar, lockMembership } from "./locks";
 import { roomLeft } from "./room";
-import { CARD_STEP_MS, INVITATION_MS, INVITATIONS_PER_PERSON, INVITATIONS_WINDOW_MS, MembershipError, timeWords } from "./rules";
+import { afterTheWait, CARD_STEP_MS, INVITATION_MS, INVITATIONS_PER_PERSON, INVITATIONS_WINDOW_MS, MembershipError, timeWords } from "./rules";
 import { MEMBERSHIP_WORDING_VERSION } from "./wording";
 
 const IS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_OPEN = "This invitation is no longer open.";
 const NOT_AVAILABLE = "This membership is not available at the moment.";
+/** What the person agrees to is the wording the page showed them, never one that changed while it was open. */
+const STALE_WORDING = "The wording of this page has changed since you opened it. Please read it again before you agree.";
 
 /** The two people's rows, locked in one order (the way a profile decision locks a person). */
 export async function lockPeople(tx: Tx, ids: string[]): Promise<Map<string, { pausedAt: Date | null; closedAt: Date | null }>> {
@@ -203,11 +205,15 @@ async function agreeAndStart(tx: Tx, membership: Membership, offer: MembershipOf
 /**
  * "Join": the invited person pressed the button with the box ticked, before the invitation's 24
  * hours were over. `requestId` was made when the page was drawn, so a second press gets the month
- * the first one made. Returns the month to pay (charge.ts, `payNow`).
+ * the first one made. `wordingVersion` is the version of the sentences the page showed. Returns
+ * the month to pay (charge.ts, `payNow`).
  */
-export async function join(input: { customerId: string; inviteId: string; requestId: string; agreed: boolean; now: Date }): Promise<{ membershipId: string; monthId: string }> {
-  const { customerId, inviteId, requestId, now } = input;
-  if (!IS_ID.test(inviteId) || !IS_ID.test(requestId)) throw new MembershipError(NOT_OPEN);
+export async function join(input: { customerId: string; inviteId: string; requestId: string; agreed: boolean; wordingVersion: string; now: Date }): Promise<{ membershipId: string; monthId: string }> {
+  const { customerId } = input;
+  if (!IS_ID.test(input.inviteId) || !IS_ID.test(input.requestId)) throw new MembershipError(NOT_OPEN);
+  // Ids are compared as the database stores them.
+  const inviteId = input.inviteId.toLowerCase();
+  const requestId = input.requestId.toLowerCase();
   if (!input.agreed) throw new MembershipError("Please tick the box to agree before you join.");
   return db.transaction(async (tx) => {
     // Found by the link's own id, and only for the person it was sent to. Someone else's and one that does not exist look the same.
@@ -219,8 +225,10 @@ export async function join(input: { customerId: string; inviteId: string; reques
     await lockCalendar(tx, found.hostId);
     const before = await alreadyAsked(tx, requestId, found.id);
     if (before) return before;
+    if (input.wordingVersion !== MEMBERSHIP_WORDING_VERSION) throw new MembershipError(STALE_WORDING);
     const offer = await mustBeOpen(tx, found.hostId, customerId);
     const membership = await lockMembership(tx, found.id);
+    const now = afterTheWait(input.now);
     if (membership.status !== "invited" || membership.inviteId !== inviteId) throw new MembershipError(NOT_OPEN);
     // The 24 hours are checked here too, so a late helper never lets an old invitation through.
     if (!membership.inviteExpiresAt || membership.inviteExpiresAt <= now) throw new MembershipError("This invitation has run out. Ask the host to invite you again.");
@@ -237,9 +245,11 @@ export async function join(input: { customerId: string; inviteId: string; reques
  * membership as it is now (`offerVersion` is the version the page showed, so nobody agrees to
  * terms they did not see), a new agreement, and room for one more member now.
  */
-export async function resume(input: { customerId: string; membershipId: string; requestId: string; agreed: boolean; offerVersion: number; now: Date }): Promise<{ membershipId: string; monthId: string }> {
-  const { customerId, membershipId, requestId, now } = input;
-  if (!IS_ID.test(membershipId) || !IS_ID.test(requestId)) throw new MembershipError("Membership not found.");
+export async function resume(input: { customerId: string; membershipId: string; requestId: string; agreed: boolean; offerVersion: number; wordingVersion: string; now: Date }): Promise<{ membershipId: string; monthId: string }> {
+  const { customerId } = input;
+  if (!IS_ID.test(input.membershipId) || !IS_ID.test(input.requestId)) throw new MembershipError("Membership not found.");
+  const membershipId = input.membershipId.toLowerCase();
+  const requestId = input.requestId.toLowerCase();
   if (!input.agreed) throw new MembershipError("Please tick the box to agree before you resume.");
   return db.transaction(async (tx) => {
     const [found] = await tx.select({ hostId: schema.memberships.hostId }).from(schema.memberships).where(and(eq(schema.memberships.id, membershipId), eq(schema.memberships.customerId, customerId)));
@@ -247,8 +257,10 @@ export async function resume(input: { customerId: string; membershipId: string; 
     await lockCalendar(tx, found.hostId);
     const before = await alreadyAsked(tx, requestId, membershipId);
     if (before) return before;
+    if (input.wordingVersion !== MEMBERSHIP_WORDING_VERSION) throw new MembershipError(STALE_WORDING);
     const offer = await mustBeOpen(tx, found.hostId, customerId);
     const membership = await lockMembership(tx, membershipId);
+    const now = afterTheWait(input.now);
     if (membership.status !== "paused") throw new MembershipError(membership.status === "ended" ? "This membership has ended. Coming back needs a new invitation from the host." : "This membership is not paused.");
     // What the person agrees to is the membership the page showed them, never one the host changed in the meantime.
     if (offer.version !== input.offerVersion) throw new MembershipError("The host changed the membership while this page was open. Please look at it again before you resume.");

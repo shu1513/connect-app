@@ -17,7 +17,7 @@ export function agreementSentences(input: { hostName: string; monthlyCents: numb
     `If ${hostName} lowers the member price, you pay less from your next month; your time stays the same.`,
     `Each month gives you ${timeWords(includedMinutes)} of calls with ${hostName}. Time you have not used when a month ends expires and is not paid back.`,
     `You can cancel at any time on "Your account"; your membership then runs to the end of the month you paid for.`,
-    `At the start of each month the amount is first only held on your card. It is taken when you make your first booking of that month, or after 72 hours, whichever comes first (sooner if your card's hold ends sooner; "Your account" shows the exact time). If you cancel before it is taken, nothing is charged.`,
+    `At the start of each month the amount is first only held on your card. It is taken when you make your first booking of that month, or after 72 hours, whichever comes first (sooner if your card's hold ends sooner; "Your account" shows the exact time). Until it is taken you can choose "Cancel now": then nothing is charged for that month and your membership is paused that day. (Cancelling the normal way does not let the hold go: the month is yours, and its amount is taken.)`,
   ];
 }
 

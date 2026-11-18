@@ -76,6 +76,8 @@ export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: strin
       await pauseMembership(tx, membership, membership.pausedReason ?? how, now, true);
     } else if (membership.inviteExpiresAt && membership.inviteExpiresAt > now) {
       await tx.update(schema.memberships).set({ status: "invited", currentMonthId: null, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
+      // The invitation stands again, so its own line says "open" again (it said "accepted" from the moment "Join" was pressed).
+      if (membership.inviteId) await tx.update(schema.membershipInvitations).set({ outcome: "open" }).where(and(eq(schema.membershipInvitations.inviteId, membership.inviteId), eq(schema.membershipInvitations.outcome, "accepted")));
     } else {
       await endMembership(tx, membership, { by: "connect", reason: "the invitation ran out before joining was finished" }, now);
     }

@@ -573,12 +573,11 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
     return null;
   }
   // The card the member pays with by hand is kept for the months that follow (a try with the saved card took that mark off).
-  if (!intent.keepsCard) {
-    await stripe().paymentIntents.update(intent.intentId, { setup_future_usage: "off_session" });
-    // Looked at once more after Stripe answered: the secret of a month given up meanwhile goes to nobody.
-    const still = await monthById(input.monthId);
-    if (!still || still.status !== "to_pay" || still.endedHow || still.problem) return null;
-  }
+  if (!intent.keepsCard) await stripe().paymentIntents.update(intent.intentId, { setup_future_usage: "off_session" });
+  // Looked at once more after Stripe answered, by the real clock: the secret of a month that was given up, or whose time ran out, meanwhile goes to nobody.
+  const still = await monthById(input.monthId);
+  const after = new Date(Math.max(at.getTime(), Date.now()));
+  if (!still || still.status !== "to_pay" || still.endedHow || still.problem || (still.cardStepExpiresAt && still.cardStepExpiresAt <= after) || (still.giveUpAt && still.giveUpAt <= after)) return null;
   return { clientSecret: intent.clientSecret };
 }
 

@@ -91,7 +91,7 @@ async function workOut(reader: Reader, hostId: string, input: OfferInput): Promi
   const paying = members.filter((member) => member.status === "active" || member.status === "unpaid");
   const lowered = input.on ? paying.filter((member) => member.own !== null && member.own > price).map((member) => ({ membershipId: member.id, fromPricePer15Cents: member.own!, toPricePer15Cents: price, minutes: member.minutes ?? 0 })) : [];
   const mark = createHash("sha256")
-    .update(JSON.stringify({ current: current ? [current.on, current.pricePer15Cents, current.includedMinutes, current.version] : null, regular: profile?.pricePer15Cents ?? null, hours, open, members: members.map((member) => [member.id, member.status, member.own, member.minutes, member.inviteId, member.offerId, member.stopped?.getTime() ?? null, member.monthId, member.monthStatus]) }))
+    .update(JSON.stringify({ confirms: [input.on, price, minutes], current: current ? [current.on, current.pricePer15Cents, current.includedMinutes, current.version] : null, regular: profile?.pricePer15Cents ?? null, hours, open, members: members.map((member) => [member.id, member.status, member.own, member.minutes, member.inviteId, member.offerId, member.stopped?.getTime() ?? null, member.monthId, member.monthStatus]) }))
     .digest("hex")
     .slice(0, 24);
   return {
@@ -197,7 +197,8 @@ async function lowerPrices(tx: Tx, lowered: OfferChange["lowered"], offerVersion
     const [member] = await tx
       .update(schema.memberships)
       .set({ ownPricePer15Cents: change.toPricePer15Cents, updatedAt: now })
-      .where(and(eq(schema.memberships.id, change.membershipId), sql`${schema.memberships.ownPricePer15Cents} > ${change.toPricePer15Cents}`))
+      // Still a paying member under the lock (an account can be closed at any moment), and still at a higher price.
+      .where(and(eq(schema.memberships.id, change.membershipId), inArray(schema.memberships.status, ["active", "unpaid"]), sql`${schema.memberships.ownPricePer15Cents} > ${change.toPricePer15Cents}`))
       .returning();
     if (!member) continue;
     const [last] = await tx.select({ number: sql<number>`coalesce(max(${schema.membershipMonths.number}), 0)::int` }).from(schema.membershipMonths).where(eq(schema.membershipMonths.membershipId, member.id));

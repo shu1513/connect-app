@@ -158,6 +158,8 @@ export async function queueInvitedEmail(tx: Writer, membership: Membership, inpu
   await queueEmail(tx, {
     to: member.email,
     key: `membership-invited:${input.inviteId}`,
+    // Never delivered after the invitation itself has run out.
+    expiresAt: input.expiresAt,
     subject: `${hostName} invites you to a membership`,
     text:
       `Hi ${member.name},\n\n${hostName} invites you to become a member: ${timeWords(input.minutes)} of calls each month for ${money(monthly)} a month (${money(input.pricePer15Cents)} per 15 minutes). As a member you book without waiting for an answer, also in times kept for members.\n\n` +
@@ -258,7 +260,7 @@ export async function queueLowerPriceEmail(tx: Writer, membership: Membership, i
   await queueEmail(tx, {
     to: member.email,
     key: `membership-price:${membership.id}:${input.offerVersion}`,
-    subject: `Your membership with ${hostName} costs less from your next month`,
+    subject: `Your membership with ${hostName} will cost less`,
     text:
       `Hi ${member.name},\n\n${hostName} has lowered the member price. ` +
       (input.openMonthCents !== null

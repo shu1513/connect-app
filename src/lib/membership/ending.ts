@@ -20,7 +20,7 @@ import { endInvitation, lockPeople, mustBeOpen } from "./join";
 import { lockCalendar, lockForMonth, lockMembership, lockMonth, type LockedMonth } from "./locks";
 import { finishIfSettled, owePayBack, setDispute } from "./months";
 import { wouldKeepPlace } from "./room";
-import { isFrozen, MembershipError } from "./rules";
+import { afterTheWait, isFrozen, MembershipError } from "./rules";
 import { endMembership } from "./state";
 
 // Ending at once and pausing (the rulebook's "How the parts connect" hands them over with the clean-up).
@@ -246,7 +246,7 @@ export async function undoStop(input: { membershipId: string; by: "member" | "ho
     if (membership.status !== "active" || !membership.currentMonthId) throw new MembershipError("This membership can no longer be switched back on. If it is paused, it can be resumed.");
     if (!(by === "member" ? membership.memberStoppedAt || membership.offerStoppedAt : membership.hostStoppedAt)) return; // nothing of this side's to undo
     const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
-    if (!month?.endsAt || now >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
+    if (!month?.endsAt || afterTheWait(now) >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
     await mustBeOpen(tx, membership.hostId, membership.customerId, { forTheHost: by === "host" });
     // What still stops the renewal afterwards, if anything. Room is needed only if nothing does.
     const left = by === "member" ? (membership.hostStoppedAt ? ("host" as const) : null) : membership.memberStoppedAt ? ("member" as const) : membership.offerStoppedAt ? ("offer_off" as const) : null;
@@ -277,6 +277,9 @@ export async function cancelNow(input: { membershipId: string; memberId: string;
     if (month.status !== "held" && month.status !== "to_pay") {
       throw new MembershipError("This month's payment has already been taken, so it can no longer be cancelled at no charge. You can still cancel at the end of the month.");
     }
+    // If the money is being taken at this very moment, its outcome is not known yet: nothing is promised until it is.
+    const [taking] = await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.kind, "capture"), eq(schema.moneyOperations.status, "started")));
+    if (taking) throw new MembershipError("This month's payment is being taken at this moment. Please try again in a minute.");
     await giveUpInStep(tx, { membership, month }, "cancel_now", now);
     return month.id;
   });
@@ -308,7 +311,8 @@ async function openOffer(tx: Tx, membership: Membership, offerId: string, now: D
     throw new MembershipError("This offer is no longer open.");
   }
   const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.offerMonthId!));
-  if (!month?.endsAt || now >= month.endsAt) throw new MembershipError("This offer is no longer open.");
+  // Judged by the moment the answer is really taken (the membership is locked by now), not by when it was sent.
+  if (!month?.endsAt || afterTheWait(now) >= month.endsAt) throw new MembershipError("This offer is no longer open.");
   return { offeredMinutes: membership.offeredMinutes };
 }
 

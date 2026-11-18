@@ -959,8 +959,10 @@ checked against the code.
   and the lock on the two people. The answers to an offer of less time are in `ending.ts`; the
   offer itself is made in the step that cuts the hours, `changeWeeklyHours` in
   `booking/calendar.ts`.
-- **An invitation is a membership row** with the status `invited`. One that is taken back or runs
-  out is closed as ended with nothing to clean up, so a new invitation always makes a new row.
+- **An invitation is a membership row** with the status `invited`. Inviting the same person again
+  while it is open keeps that row and gives it a new invitation id (the old link stops working).
+  One that is taken back or runs out is closed as ended with nothing to clean up, and inviting
+  after that makes a new row.
 - **When the host changes the price or the time, or switches her membership off,** a joining or
   resuming that is still at the card step is undone in the same step, like an open invitation.
 - **Room for bringing someone back** (a stopped renewal switched back on, an offer of less time
@@ -1003,3 +1005,40 @@ that was already over; a "Join" that was never finished kept a hidden page open.
 **Third round: ready.** Two small points, both fixed: the clock is read again once the lock is
 held when a cut in hours is saved, and the "paused" email says that the host switched the
 membership off, not that it is off now.
+
+## CodeRabbit's review of 1b (pull request 35, 18 November 2026)
+
+About 31 comments: 8 marked major, 2 outside the changed lines, about 21 smaller.
+
+**Taken**
+- **Deadlines are judged when a step really happens**, not when it was asked for. A request can
+  arrive just before a deadline and wait for a lock until after it. "Join" (the 24 hours), "Keep
+  my membership" and the answers to an offer of less time (the month's end), and "Pay now" (the
+  card step's time and the 7 days) now read the clock again once they hold their locks.
+- **"Cancel now" promises nothing while the money is being taken at that very moment.** The member
+  is asked to try again in a minute, instead of being told "nothing was charged" and then charged
+  and paid back.
+- **The wording a person agrees to is the wording the page showed**: "Join" and "Resume" name its
+  version and are refused if it changed while the page was open.
+- **A confirmation belongs to the terms it was worked out for**: the mark of a membership preview
+  now includes the switch, price and time the host is confirming.
+- **The sentences a member agrees to** now tell "Cancel now" apart from cancelling the normal way,
+  which does not let the hold go. (One for the lawyer's reading before launch, like the rest.)
+- Invitations that ran out are ended last in the helper's round, and a failure there never stops
+  the money work. An invitation email is never delivered after the invitation ran out. An
+  invitation's own record says "open" again when a "Join" is undone. A link typed in capitals
+  works. A price is only lowered for someone who is still a paying member. A stretch of hours
+  that is no longer there cannot be "moved". At the card step, a hidden page is open for the
+  card step's time, not the invitation's.
+- The rulebook now names all three stops, lists the stored statuses correctly, and says that the
+  host can undo the pause after a "No thanks" while the month runs.
+
+**Not taken, and why**
+- *Invitations kept when the same cut pauses a member whose payment was open.* By the rulebook's
+  row 12, invitations give way before members; the host invites again.
+- *The record of a lowered price naming month 5 when a lost hold makes month 5 a replacement at
+  the old price.* The months themselves are right; the line records when the price was lowered.
+- *Following imports to prove no page can start a membership.* The check looks for direct use,
+  and there are no membership pages yet; part three's own review covers its pages.
+- *A time limit on waiting for a host's calendar lock in the helper.* Every job that touches a
+  host's calendar waits for that lock in the same way; the invitations now run last.

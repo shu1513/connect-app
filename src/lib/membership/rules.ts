@@ -9,6 +9,13 @@ import type { FeeTerms } from "@/lib/payments/pricing";
 /** A problem the person can understand and act on. Its message is safe to show them. */
 export class MembershipError extends Error {}
 
+/**
+ * The moment something is really decided: the clock read again once the locks are held. A request
+ * can arrive just before a deadline and wait for a lock until after it; a deadline is judged by
+ * when the step happens, not by when it was asked for. (A later `asOf`, as the check scripts pass, stands.)
+ */
+export const afterTheWait = (asOf: Date): Date => new Date(Math.max(asOf.getTime(), Date.now()));
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;

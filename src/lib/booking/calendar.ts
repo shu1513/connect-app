@@ -70,8 +70,11 @@ export type MemberChoice = { membershipId: string; choice: "keep" | "less" | "pa
 /** Applies one change to the weekly hours, inside the caller's step. Checks the typed times as before. */
 async function applyHoursChange(tx: Tx, userId: string, change: HoursChange): Promise<void> {
   if (change.remove !== undefined) {
-    if (!/^[0-9a-f-]{36}$/i.test(change.remove)) return;
-    await tx.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, change.remove), eq(schema.weeklyHours.hostId, userId)));
+    const valid = /^[0-9a-f-]{36}$/i.test(change.remove);
+    const removed = valid ? await tx.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, change.remove), eq(schema.weeklyHours.hostId, userId))).returning({ id: schema.weeklyHours.id }) : [];
+    // A stretch that is being changed or moved must still be there: otherwise this would add hours instead of moving them.
+    if (change.add && removed.length === 0) throw new CalendarError("Those hours were changed in the meantime. Please look at your calendar again.");
+    if (!valid) return;
   }
   if (change.add) {
     const start = minutesOf(change.add.from);
@@ -134,9 +137,9 @@ export async function changeWeeklyHours(userId: string, change: HoursChange, cho
     now = new Date(Math.max(asOf.getTime(), Date.now()));
     const before = await hostMinutes(tx, userId);
     await applyHoursChange(tx, userId, change);
+    // Hours that stay the same or grow promise nothing less: nothing more to do, and no member is looked at.
+    if ((await hostMinutes(tx, userId)) >= before) return [];
     const cut = await workOutCut(tx, userId, now);
-    // Hours that stay the same or grow promise nothing less: nothing more to do.
-    if (cut.hoursAfter >= before) return [];
     if (cut.needed > cut.hoursAfter && !choices) {
       // Thrown inside the step, so the hours stay as they were.
       throw new CalendarError(`Your members' time would no longer fit: for their next months they need ${timeWords(cut.needed)} a month, and these hours would offer ${timeWords(cut.hoursAfter)}. Choose for each member whether to keep them, offer less time or pause them after this month.`);

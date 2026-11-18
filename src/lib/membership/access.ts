@@ -37,8 +37,8 @@ export async function hostForMember(viewerId: string, hostId: string, now: Date 
   if (!link) return null;
   // Someone who was never a member yet: the invitation opens the page for its 24 hours, and a "Join"
   // for its card step, also when the helper has not closed either yet.
-  const neverAMember = link.status === "invited" || (link.status === "joining" && !link.since);
-  if (neverAMember && !(link.inviteExpiresAt && link.inviteExpiresAt > now) && !(link.status === "joining" && link.cardStepExpiresAt && link.cardStepExpiresAt > now)) return null;
+  if (link.status === "invited" && !(link.inviteExpiresAt && link.inviteExpiresAt > now)) return null;
+  if (link.status === "joining" && !link.since && !(link.cardStepExpiresAt && link.cardStepExpiresAt > now)) return null;
   const [row] = await db
     .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status })
     .from(schema.hostProfiles)
