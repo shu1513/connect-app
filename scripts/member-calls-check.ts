@@ -453,7 +453,7 @@ async function main() {
     await setSwitches({ requestsOff: false });
     check("the daily limit on requests applies to a member too: a fourth booking with one host in a day is refused", /a lot of requests today/.test((await refused(book(m, general[7]))) ?? ""));
     check("the card form is refused for a member's call", (await refused(startHold({ payment, call, customer: m.member, now: new Date() }))) !== null);
-    check("time cannot be added to a member's call yet", (await addTimeChoices(call)).fits === 0);
+    check("no extra time is offered for a member's call yet", (await addTimeChoices(call)).fits === 0);
     await audit("after booking", m);
   });
 
@@ -805,7 +805,8 @@ async function main() {
     check("a second, different amount is a second giving back", (await pay(d.call)).refundedCents === 800);
     check("more than is left is refused", /more than what is left/.test((await refused(give(800, randomUUID()))) ?? ""));
     const [line] = await db.select().from(schema.refunds).where(eq(schema.refunds.id, formId));
-    check("each is a line among the refunds that is done at once, with no Stripe refund", line.status === "done" && line.stripeRefundId === null && line.decidedAs === "host" && Boolean(line.finishedAt));
+    const givenLines = await db.select().from(schema.refunds).where(eq(schema.refunds.paymentId, dPay.id));
+    check("each of the two is a line among the refunds that is done at once, with no Stripe refund", Boolean(line) && givenLines.length === 2 && givenLines.every((row) => row.status === "done" && row.stripeRefundId === null && row.decidedAs === "host" && Boolean(row.finishedAt)) && sum(givenLines.map((row) => row.amountCents)) === 800, givenLines.length);
 
     // An open request answered by time given back.
     const e = await booked(m, { nth: 0 });
@@ -932,7 +933,7 @@ async function main() {
     check("the call that took place is not settled either", (await pay(a.call)).status === "held" && (await places(m.monthId)) === "3000/3000/0/0/0/0");
     const finished = (await db.select().from(schema.calls).where(eq(schema.calls.id, a.call.id)))[0];
     check("and nothing of it counts as late for the health check", (await callOverdue(finished, new Date(callsMoment(a.call).getTime() + HOUR))) === false);
-    check("no length can be booked from a frozen month", (await B.memberBookingView(m.member.id, host.id, new Date())) === null);
+    check("a frozen month gives the member no view to book from", (await B.memberBookingView(m.member.id, host.id, new Date())) === null);
     await db.update(schema.payments).set({ needsReview: true, reviewReason: "check" }).where(eq(schema.payments.id, (await pay(a.call)).id));
     check("the founder cannot decide a payment of it", /disputed/.test((await refused(decideMemberReview({ paymentId: (await pay(a.call)).id, amountCents: 1500, frozen: null, now: new Date() }))) ?? "") && (await pay(a.call)).status === "held");
     await db.update(schema.payments).set({ needsReview: false, reviewReason: null }).where(eq(schema.payments.id, (await pay(a.call)).id));
@@ -985,7 +986,7 @@ async function main() {
     await block({ blockerId: host.id, blockedId: n.member.id, now: new Date() });
     await helper(new Date());
     check("a block ends the membership and cancels the member's call, with the money to the card", (await MS(n.membershipId)).status === "ended" && Boolean((await callOf(blockedCall.booking)).cancelledAt) && (await M(n.monthId)).paidBackCents === 6000, await places(n.monthId));
-    check("a blocked pair cannot book", (await B.memberBookingView(n.member.id, host.id, new Date())) === null);
+    check("after the block the member has no view to book from", (await B.memberBookingView(n.member.id, host.id, new Date())) === null);
     await audit("after the block", n);
 
     const o = await member(host);
@@ -1112,7 +1113,8 @@ async function main() {
     check("a card call goes through the same jobs exactly as before: $10.00 charged at Stripe, with its own fee", cardIntent.status === "succeeded" && cardIntent.amount_received === 1000 && cardPaid.status === "charged" && cardPaid.chargedCents === 1000 && cardPaid.originalFeeCents === 79 && (await ledger({ paymentId: cardPaid.id }, "customer_charge")).total === 1000, `${cardPaid.status} ${cardPaid.chargedCents} ${cardPaid.originalFeeCents}`);
     check("and the member's call beside it is used from the month", (await pay(memberCall.call)).chargedCents === 1500);
     const earnings = await unsentEarnings(new Date(later.getTime() + 2 * DAY), general.id);
-    check("both shares are the host's to collect: the card call's and the member call's", earnings.length === 2, earnings.length);
+    const sharesOf = (paymentId: string) => earnings.filter((row) => row.payment?.id === paymentId && !row.heldBack).length;
+    check("both shares are the host's to collect, neither held back: the card call's and the member call's", earnings.length === 2 && sharesOf(cardPaid.id) === 1 && sharesOf((await pay(memberCall.call)).id) === 1, earnings.map((row) => row.heldBack));
     void acceptCollection;
     await audit("at the end", n);
   });

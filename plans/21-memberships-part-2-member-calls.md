@@ -595,3 +595,10 @@ unpaid-call job no longer try to cancel a call that was ended with "End call and
 new refusal would have been reported as work left over); two sentences about where uncharged
 time goes were made exact; two more checks in the script were tightened.
 
+**Fourth round: the earlier fixes confirmed; two timing edges, two sentences and five labels, all
+taken.** Giving time back and both booking steps now read the clock again once their locks are
+held (a refund request asked while a give-back waited counts as answered by it; a press just
+before the host's notice begins that only arrives after it is refused). The notice after
+cancelling a member's call points to the payment instead of guessing what became of the time, and
+the page after a call says where returned time went at the time, not where it is now.
+

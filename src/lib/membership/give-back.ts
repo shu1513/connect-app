@@ -19,14 +19,14 @@ import { splitAfterRefunds } from "@/lib/payments/pricing";
 import { queueTimeBackEmail } from "@/lib/refunds/emails";
 import { lockMonthsOfCall } from "./locks";
 import { finishIfSettled, giveUsedBack } from "./months";
-import { isFrozen } from "./rules";
+import { afterTheWait, isFrozen } from "./rules";
 
 const IS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Returns where the time went: back into the membership ("free"), or to the member's card ("card"). */
 export async function giveTimeBack(input: { paymentId: string; amountCents: number; decidedBy: string; decidedAs: "host" | "admin"; reason: string | null; requestId: string; now?: Date }): Promise<"free" | "card"> {
   if (!IS_ID.test(input.requestId)) throw new MoneyError("This refund request is not valid. Reload the page and try again.");
-  const now = input.now ?? new Date();
+  const asked = input.now ?? new Date();
   const [seen] = await db.select({ callId: schema.payments.callId }).from(schema.payments).where(eq(schema.payments.id, input.paymentId));
   if (!seen?.callId) throw new MoneyError("Payment not found.");
   const callId = seen.callId;
@@ -36,6 +36,8 @@ export async function giveTimeBack(input: { paymentId: string; amountCents: numb
     await lockMonthsOfCall(tx, callId);
     await tx.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.id, callId)).for("update");
     const payment = await lockPayment(tx, input.paymentId);
+    // The moment of the step, read once the locks are held: a refund request that was asked while this waited counts as answered by it.
+    const now = afterTheWait(asked);
     if (payment.kind !== "member_call" || !payment.monthId) throw new MoneyError("This payment is not part of a membership.");
 
     // The same press again: it was given back once, and that stands.

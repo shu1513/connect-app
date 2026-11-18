@@ -29,7 +29,7 @@ import { hostForMember } from "./access";
 import { takeNow } from "./charge";
 import { lockMembership, lockMonth } from "./locks";
 import { setAside } from "./months";
-import { isFrozen, memberCallCents } from "./rules";
+import { afterTheWait, isFrozen, memberCallCents } from "./rules";
 
 export { memberCallCents };
 
@@ -188,12 +188,14 @@ function mustBeSameTerms(saved: Booking, input: Input): void {
  * that was already written down (the same press again), everything is checked again, so the money
  * is never taken for a booking that can no longer be made.
  */
-async function saveAsPaying(input: Input, found: { membership: Membership; month: MembershipMonth }): Promise<Booking> {
-  const { customer, hostId } = input;
+async function saveAsPaying(asked: Input, found: { membership: Membership; month: MembershipMonth }): Promise<Booking> {
+  const { customer, hostId } = asked;
   return db.transaction(async (tx) => {
     await lockCalendars(tx, [hostId, customer.id]);
     const membership = await lockMembership(tx, found.membership.id);
     const month = await lockMonth(tx, found.month.id);
+    // The clock is read again now that the locks are held: the host's notice and every other deadline are judged by when the step happens.
+    const input: Input = { ...asked, now: afterTheWait(asked.now) };
     const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey)).for("update");
     if (again) {
       if (again.customerId !== customer.id) throw new BookingError(OUT_OF_DATE);
@@ -238,12 +240,16 @@ async function endPaying(bookingId: string, reason: string, now: Date): Promise<
 }
 
 /** The booking step: everything checked again under the locks, and everything written in one go. */
-async function bookInOneStep(input: Input, found: { membership: Membership; month: MembershipMonth }): Promise<Booking> {
-  const { customer, hostId, now } = input;
+async function bookInOneStep(asked: Input, found: { membership: Membership; month: MembershipMonth }): Promise<Booking> {
+  const { customer, hostId } = asked;
   return db.transaction(async (tx) => {
     await lockCalendars(tx, [hostId, customer.id]);
     const membership = await lockMembership(tx, found.membership.id);
     const month = await lockMonth(tx, found.month.id);
+    // The clock is read again now that the locks are held (and, at a first booking, after the month's money was taken):
+    // a press just before the host's notice begins that only gets here after it is refused.
+    const input: Input = { ...asked, now: afterTheWait(asked.now) };
+    const { now } = input;
     const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey)).for("update");
     if (again) {
       if (again.customerId !== customer.id) throw new BookingError(OUT_OF_DATE);

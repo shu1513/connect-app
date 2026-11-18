@@ -33,10 +33,11 @@ export async function cancelCallAction(formData: FormData) {
     notice =
       outcome === "late_charge"
         ? fromMembership
-          ? "The call was cancelled after the free period, so the membership time booked for it was used."
+          ? // What became of the time is on the page this goes to (used; or kept as it is while the month's payment is disputed).
+            "The call was cancelled after the free period. The payment below says what became of the membership time booked for it."
           : "The call was cancelled after the free period, so the booked price is charged."
         : fromMembership
-          ? "The call was cancelled. Nothing was used from the membership for it."
+          ? "The call was cancelled. The payment below says what became of the membership time booked for it."
           : "The call was cancelled. Nothing is charged.";
   } catch (error) {
     notice = message(error);

@@ -360,14 +360,15 @@ function Receipt(props: {
   const cameBack = payment.status === "held" ? 0 : payment.bookedCents - (payment.chargedCents ?? 0);
   const returned = props.toCard.find((line) => line.sourceKey.startsWith("callreturn:"));
   const whose = role === "customer" ? "your" : "the member's";
-  const whereBack = returned ? (returned.status === "done" ? `paid back to ${whose} card` : `being paid back to ${whose} card`) : "back in the membership as time";
+  // Said as what happened then: time that went back into the membership may since have been booked again, or paid back at the month's end.
+  const whereBack = returned ? (returned.status === "done" ? `was paid back to ${whose} card` : `is being paid back to ${whose} card`) : "was returned to the membership as time";
   const headline = fromMembership
     ? payment.status === "held"
       ? payment.needsReview
         ? `${formatMoney(payment.bookedCents)} of membership time is set aside. This call's record needs review, so nothing is used until the review is decided.`
         : `${formatMoney(payment.bookedCents)} of membership time is set aside for ${extra ? "this extra time" : "this call"}. What is used is worked out after the call.`
       : payment.status === "closed_uncharged"
-        ? `Nothing was used from the membership for ${extra ? "this extra time" : "this call"}. The ${formatMoney(payment.bookedCents)} set aside is ${whereBack}.`
+        ? `Nothing was used from the membership for ${extra ? "this extra time" : "this call"}. The ${formatMoney(payment.bookedCents)} set aside ${whereBack}.`
         : payment.loweredBy && payment.recordCents !== null
           ? `Used ${formatMoney(payment.chargedCents ?? 0)} of ${formatMoney(payment.recordCents)} from the membership, lowered by ${payment.loweredBy === "admin" ? "Connect" : "the host"}.`
           : `Used ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} set aside from the membership.`
@@ -435,7 +436,7 @@ function Receipt(props: {
               <Row label="Time the host waited" value={formatDuration(Math.max(0, frozenHost - frozenTogether))} />
             </>
           )}
-          {fromMembership && cameBack > 0 && <Row label="Not used" value={`${formatMoney(cameBack)}, ${whereBack}`} />}
+          {fromMembership && cameBack > 0 && <Row label="Not used" value={`${formatMoney(cameBack)}: it ${whereBack}`} />}
           {payment.refundedCents > 0 && <Row label={fromMembership ? "Given back afterwards" : "Refunded"} value={formatMoney(payment.refundedCents)} />}
           <Row label={fromMembership ? "Paid from the membership" : "Paid by the customer"} value={formatMoney(paid)} />
           {role !== "customer" && (
@@ -537,7 +538,7 @@ function Receipt(props: {
 /** Where time given back after a member's call went: into the membership again, or (as money) to the member's card. */
 function givenBackWhere(toCard: Array<{ sourceKey: string; status: string }>, refundId: string, whose: string): string {
   const line = toCard.find((entry) => entry.sourceKey === `giveback:${refundId}`);
-  if (!line) return "back in the membership as time";
+  if (!line) return "returned to the membership as time";
   return line.status === "done" ? `paid back to ${whose} card` : `being paid back to ${whose} card`;
 }
 
