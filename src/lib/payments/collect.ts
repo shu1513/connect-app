@@ -173,6 +173,8 @@ export async function acceptCollection(input: {
     if (callIds.length > 0) await tx.select({ id: schema.calls.id }).from(schema.calls).where(inArray(schema.calls.id, callIds)).orderBy(asc(schema.calls.id)).for("update");
     const locked: Payment[] = [];
     for (const { id } of candidates) locked.push(await lockPayment(tx, id));
+    // Looked at again now that the locks are held: a dispute message may have come in while we waited for them.
+    if (await disputeMessageWaiting(tx)) throw new MoneyError(DISPUTE_MESSAGE_WAITING);
     const judged = await heldBackNow(tx, locked, now);
     const ready = locked
       .filter((p) => p.status === "charged" && (p.transferStatus === "not_due" || p.transferStatus === "due") && p.stripeChargeId)

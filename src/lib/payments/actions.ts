@@ -401,10 +401,10 @@ export async function refundPayment(input: {
  * month's id for a payment that belongs to a membership's month (the same group the month's own
  * PaymentIntent carries). A transfer written down before memberships existed has only `callId`.
  */
-export type TransferParams = { amountCents: number; payoutFeeCents: number; destination: string; group?: string; callId?: string };
+export type TransferParams = { amountCents: number; payoutFeeCents: number; destination: string } & ({ group: string; callId?: string } | { group?: undefined; callId: string });
 
 /** The group a transfer belongs to at Stripe, whichever way it was written down. */
-export const transferGroup = (params: Pick<TransferParams, "group" | "callId">): string => params.group ?? params.callId!;
+export const transferGroup = (params: { group: string } | { group?: undefined; callId: string }): string => params.group ?? params.callId;
 
 export async function applyTransferSent(payment: Payment, params: TransferParams, stripeTransferId: string | null, tx: Tx): Promise<void> {
   await tx

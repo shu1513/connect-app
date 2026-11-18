@@ -278,16 +278,18 @@ async function recordFailedTry(tx: Tx, locked: LockedMonth, input: { needsAction
     .returning();
   if (isCurrent(locked) && ["active", "unpaid"].includes(membership.status)) {
     await tx.update(schema.memberships).set({ status: "unpaid", updatedAt: now }).where(eq(schema.memberships.id, membership.id));
-    await queuePaymentFailedEmail(tx, membership, failed, { failedTry: month.try, needsAction: input.needsAction, giveUpAt: failed.giveUpAt! });
+    await queuePaymentFailedEmail(tx, membership, failed, { failedTry: month.try, needsAction: input.needsAction, giveUpAt: failed.giveUpAt!, noCard: input.noCard, triedAgain: failed.nextTryAt !== null });
   }
 }
 
 /** Why a hold that has arrived cannot be accepted, or null if it can. */
-async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentIntent, authorisedAt: Date, now: Date): Promise<"ending" | "card_step" | "no_room" | "switch" | null> {
+async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentIntent, authorisedAt: Date, now: Date): Promise<"ending" | "card_step" | "no_room" | "switch" | "given_up" | null> {
   const { membership, month } = locked;
   if (intent.amount !== month.totalCents || intent.metadata?.monthId !== month.id) return "card_step";
   if (!isCurrent(locked) || !["joining", "unpaid", "active"].includes(membership.status)) return "ending";
   if (month.cardStepExpiresAt && authorisedAt > month.cardStepExpiresAt) return "card_step";
+  // The 7 days count by the bank's own time too: a hold placed in time counts when it is found late, one placed after them does not.
+  if (month.giveUpAt && authorisedAt > month.giveUpAt) return "given_up";
   if (!(await membershipsOnFor(membership.hostId, tx))) return "switch";
   const kind = month.originKey.split(":")[0];
   if (kind === "renewal") {
@@ -626,6 +628,21 @@ export async function abandonMonth(monthId: string, how: string, now: Date = new
   return (await monthById(monthId))!;
 }
 
+/**
+ * Cancels a payment at Stripe. One that is already cancelled, or was taken in this very moment,
+ * is an answer and not a failure. Used by the direct path and by recovery alike.
+ */
+export async function cancelAtStripe(intentId: string, label?: string): Promise<{ stripeId: string; result: { status: string; amountReceived: number; chargeId: string | null } }> {
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await stripe().paymentIntents.cancel(intentId, {}, label ? { idempotencyKey: label } : undefined);
+  } catch (error) {
+    intent = await stripe().paymentIntents.retrieve(intentId);
+    if (intent.status !== "canceled" && intent.status !== "succeeded") throw error;
+  }
+  return { stripeId: intent.id, result: { status: intent.status, amountReceived: intent.amount_received, chargeId: chargeIdOf(intent) } };
+}
+
 /** Records how a letting-go ended: taken in that very moment (owed back in full), or the cancellation is finished. */
 export async function applyLetGo(tx: Tx, month: MembershipMonth, result: { status: string; amountReceived: number; chargeId: string | null }, now: Date): Promise<void> {
   if (result.status === "succeeded") await applyTaken(tx, month, { cents: result.amountReceived, chargeId: result.chargeId }, now);
@@ -653,18 +670,7 @@ export async function letHoldGo(monthId: string, now: Date = new Date()): Promis
         if (!month.endedHow || !month.stripePaymentIntentId || IN_THE_BOOKS.includes(month.status)) throw new MoneyError("This month is not being given up.");
         return { intentId: month.stripePaymentIntentId };
       },
-      execute: async (params, label) => {
-        let intent: Stripe.PaymentIntent;
-        try {
-          intent = await stripe().paymentIntents.cancel(params.intentId, {}, { idempotencyKey: label });
-        } catch (error) {
-          // Already cancelled, or taken in this very moment: either is an answer, not a failure.
-          intent = await stripe().paymentIntents.retrieve(params.intentId);
-          if (intent.status !== "canceled" && intent.status !== "succeeded") throw error;
-        }
-        const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
-        return { stripeId: intent.id, result: { status: intent.status, amountReceived: intent.amount_received, chargeId } };
-      },
+      execute: (params, label) => cancelAtStripe(params.intentId, label),
       apply: ({ month }, _params, outcome, tx) => applyLetGo(tx, month, outcome.result, now),
     });
   } catch (error) {

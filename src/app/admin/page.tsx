@@ -188,7 +188,8 @@ export default async function AdminPage(props: PageProps<"/admin">) {
           <ul className="mt-2 list-disc pl-5 text-sm" data-memberships-to-look-at>
             {members.withProblem.map(({ month, hostId, customerId }) => (
               <li key={`problem-${month.id}`}>
-                {nameOf.get(hostId)} (host) and {nameOf.get(customerId)} (member), month {month.number}: {month.problem}
+                {nameOf.get(hostId)} (host) and {nameOf.get(customerId)} (member), month {month.number}: {month.problem}{" "}
+                <span className="opacity-70">Payment at Stripe: {month.stripePaymentIntentId ?? "none"}.</span>
               </li>
             ))}
             {members.disputed.map(({ month, hostId, customerId }) => (
@@ -196,7 +197,8 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                 {nameOf.get(hostId)} (host) and {nameOf.get(customerId)} (member), month {month.number}:{" "}
                 {month.dispute === "lost"
                   ? "the member's bank decided against us. The month stays frozen; please settle it by hand."
-                  : "the member's bank is disputing the charge. Nothing of this month is paid back or collected until it decides."}
+                  : "the member's bank is disputing the charge. Nothing new of this month is paid back or collected until it decides (a step that was already written down is still finished)."}{" "}
+                <span className="opacity-70">Charge at Stripe: {month.stripeChargeId ?? "none"}.</span>
               </li>
             ))}
             {members.payBacks.map(({ refund, hostId, customerId }) => (

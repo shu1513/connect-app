@@ -16,6 +16,7 @@ export const MEMBERSHIP_LATE_MS = 5 * MINUTE_MS;
 export const INTENT_UNSAVED_MS = 6 * MINUTE_MS;
 export const PAY_BACK_LATE_MS = 120 * MINUTE_MS;
 export const ENDING_LATE_MS = 10 * MINUTE_MS;
+export const GIVING_UP_LATE_MS = 15 * MINUTE_MS;
 
 export async function membershipHealthProblems(now: Date): Promise<string[]> {
   const late = new Date(now.getTime() - MEMBERSHIP_LATE_MS);
@@ -31,6 +32,9 @@ export async function membershipHealthProblems(now: Date): Promise<string[]> {
     problems.push("a try of a membership payment is more than 5 minutes late");
   }
   if (await any(and(eq(months.status, "to_pay"), isNull(months.endedHow), lt(months.giveUpAt, late)))) problems.push("a membership payment should have been given up more than 5 minutes ago");
+  if (await any(and(inArray(months.status, ["to_pay", "held"]), isNotNull(months.endedHow), lt(months.updatedAt, new Date(now.getTime() - GIVING_UP_LATE_MS))))) {
+    problems.push("a membership payment that was given up is still open at Stripe after 15 minutes");
+  }
   if (await any(and(eq(months.status, "running"), lt(months.endsAt, late)))) problems.push("a membership month is more than 5 minutes past its end and is not closed or renewed");
 
   const [owed] = await db
@@ -64,7 +68,8 @@ export async function membershipsToLookAt(now: Date) {
       .from(schema.membershipRefunds)
       .innerJoin(months, eq(months.id, schema.membershipRefunds.monthId))
       .innerJoin(schema.memberships, eq(schema.memberships.id, months.membershipId))
-      .where(and(inArray(schema.membershipRefunds.status, ["owed", "at_stripe"]), lt(schema.membershipRefunds.createdAt, new Date(now.getTime() - 60 * MINUTE_MS))))
+      // A pay-back that waits for a bank's decision on a dispute is shown with the dispute, not here.
+      .where(and(inArray(schema.membershipRefunds.status, ["owed", "at_stripe"]), lt(schema.membershipRefunds.createdAt, new Date(now.getTime() - 60 * MINUTE_MS)), or(eq(schema.membershipRefunds.status, "at_stripe"), notInArray(months.dispute, ["open", "lost"]))))
       .orderBy(schema.membershipRefunds.createdAt)
       .limit(100),
   ]);

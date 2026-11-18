@@ -83,7 +83,15 @@ export async function removeRetiredCards(now: Date): Promise<number> {
   const retired = await db
     .select()
     .from(schema.membershipCards)
-    .where(and(isNotNull(schema.membershipCards.retiredAt), isNull(schema.membershipCards.removedAt), lte(schema.membershipCards.retiredAt, now)))
+    .where(
+      and(
+        isNotNull(schema.membershipCards.retiredAt),
+        isNull(schema.membershipCards.removedAt),
+        lte(schema.membershipCards.retiredAt, now),
+        // Cards that are still needed are left out here already, so they never fill the batch. (Checked again under the lock below.)
+        sql`not exists (select 1 from ${schema.membershipMonths} where ${schema.membershipMonths.membershipId} = ${schema.membershipCards.membershipId} and ${schema.membershipMonths.status} in ('to_pay', 'held'))`,
+      ),
+    )
     .limit(25);
   let removed = 0;
   for (const card of retired) {

@@ -13,6 +13,9 @@ import { BLOCKING_DISPUTE } from "./disputes";
 import { syncHold } from "./hold";
 import { stripe } from "./stripe";
 
+/** An id as our database makes them. Anything else in a message's notes is not ours and is never looked up. */
+const IS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type StripeMessage = { type: string; data: { object: Record<string, unknown> } };
 
 export async function handleStripeEvent(event: StripeMessage): Promise<void> {
@@ -22,14 +25,14 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     // The hold was placed, or ended. Ask Stripe for the real state and record it.
     // A membership month's payment: the same nudge, to the month's own code.
     const monthId = (object.metadata as Record<string, string> | undefined)?.monthId;
-    if (monthId && /^[0-9a-f-]{36}$/i.test(monthId)) {
+    if (monthId && IS_ID.test(monthId)) {
       const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, monthId));
       if (month) await syncMonth(monthId, new Date());
       return;
     }
     const paymentId = (object.metadata as Record<string, string> | undefined)?.paymentId;
     // Not one of ours (for example made by another copy of the app in the same Stripe test area): nothing to do.
-    if (!paymentId || !/^[0-9a-f-]{36}$/i.test(paymentId)) return;
+    if (!paymentId || !IS_ID.test(paymentId)) return;
     const [known] = await db.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.id, paymentId));
     if (known) await syncHold(paymentId, new Date());
     return;

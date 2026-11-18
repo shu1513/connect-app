@@ -900,3 +900,49 @@ two have by then.
   answer is thrown away, a frozen month is put right, a refused try is not repeated). It cannot
   hold one of Stripe's answers back in the middle of a step, and the app has no test set-up that
   could. Astra agreed that building one is not needed for this merge.
+
+## CodeRabbit's review of 1a (pull request 34, 18 November 2026)
+
+About 47 comments: 13 marked major, 4 more outside the changed lines, about 30 smaller. Each was
+checked against the code.
+
+**Taken**
+- A hold placed after the 7 days is not accepted (it counted before, if the helper had been down
+  when the 7 days ran out). A hold placed in time still counts when it is found late.
+- Asking Stripe what it has is not the action itself. If the asking fails, the action stays
+  unanswered instead of being recorded as refused. This was also true of the existing recovery of
+  transfers and refunds for calls, and is fixed there too.
+- A month that is waiting out a refusal no longer takes a place in the helper's batch, so it can
+  never keep others from their turn (takings, lettings-go, retired cards, dispute looks).
+- Collecting looks for a waiting dispute message again once it holds its locks.
+- The moment of an ending is taken once the locks are held, so the same ending cannot fall on
+  different sides of a month's end depending on which job is first.
+- A failure in the membership work never holds up the booking work of the same round.
+- A refusal can no longer overwrite an action the helper has already recorded.
+- The "payment failed" email no longer promises a new try when there is none. For a short hold the
+  receipt shows the moment the money is taken as the last one for "Cancel now" (the rulebook's
+  row 7). The health check reports a payment that was given up and is still open at Stripe.
+- The founder's switch: "off" is saved at once, whatever is typed in the list of hosts.
+- The check scripts: the script refuses to run when the switch is not off, gives the test payout
+  account back after an interrupted run, and checks that each month's payment at Stripe is the
+  one the month has saved; the safety script no longer assumes the memberships switch is off.
+
+**Not taken, and why**
+- *A second dispute on the same charge that is opened and won before any message is handled*
+  would not end a later membership. Telling disputes apart needs their Stripe ids stored. It is
+  very rare, and it is an open point for the founder's page in part three.
+- *An old answer about a dispute arriving in the same instant as a newer one.* The window is a few
+  thousandths of a second; Stripe is read again after recording, and once an hour by the helper.
+- *"Never made" after one look, more than 23 hours later.* This is the app's standing rule for
+  every money action since the payments module, not something this part introduces.
+- *A person at the card step should keep their place against a renewal.* By the rulebook's row
+  12, members come before invitations, and a joining is an invitation being taken up. If the
+  hours no longer hold both, the joining is undone and nothing is charged.
+- *A card used by two bookings.* Unchanged from today: each booking's card step makes a card of
+  its own.
+- *A test database that can be thrown away.* All check scripts share the local database, which
+  holds only test data before launch.
+- *An admin row for each expired-time payment in "All payments".* The founder's membership page is
+  part three's.
+- Smaller timing points that correct themselves within the hour, or that belong to 1b (an offer of
+  less time that has just run out).

@@ -51,11 +51,11 @@ describe("first a hold, then the money", () => {
     expect(timing.offeredUntil.getTime() - authorisedAt.getTime()).toBe(72 * HOUR);
     expect(timing.takeAt.getTime() - authorisedAt.getTime()).toBe(72 * HOUR + 3 * 60_000);
   });
-  it("moves both earlier when the card's hold ends sooner: the money is taken 12 hours before the hold ends", () => {
+  it("with a short hold, takes the money 12 hours before the hold ends and shows that moment as the last one for Cancel now", () => {
     const holdExpiresAt = new Date(authorisedAt.getTime() + 2 * DAY);
     const timing = holdTiming({ authorisedAt, holdExpiresAt });
     expect(timing.takeAt.getTime()).toBe(holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS);
-    expect(timing.takeAt.getTime() - timing.offeredUntil.getTime()).toBe(DEADLINE_CUSHION_MS);
+    expect(timing.offeredUntil.getTime()).toBe(timing.takeAt.getTime());
   });
 });
 

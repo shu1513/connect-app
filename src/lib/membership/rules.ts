@@ -69,12 +69,14 @@ export const CANCEL_NOW_MS = 72 * HOUR_MS;
  * The moments around a month's hold, counted from the bank's own time for it.
  * `offeredUntil` is the last moment the page offers "Cancel now"; the money is taken 3 minutes
  * later (the app's cushion for a press in the last second). When the card's hold ends sooner than
- * that needs, both move earlier: the money is taken 12 hours before the hold ends.
+ * that needs, the money is taken 12 hours before the hold ends, and that moment is the one shown.
  */
 export function holdTiming(input: { authorisedAt: Date; holdExpiresAt: Date }): { offeredUntil: Date; takeAt: Date } {
   const usual = input.authorisedAt.getTime() + CANCEL_NOW_MS + DEADLINE_CUSHION_MS;
-  const takeAt = Math.min(usual, input.holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS);
-  return { offeredUntil: new Date(takeAt - DEADLINE_CUSHION_MS), takeAt: new Date(takeAt) };
+  const early = input.holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS;
+  // The rulebook's row 7: with a short hold, the page and the receipt show that earlier moment itself.
+  if (early < usual) return { offeredUntil: new Date(early), takeAt: new Date(early) };
+  return { offeredUntil: new Date(usual - DEADLINE_CUSHION_MS), takeAt: new Date(usual) };
 }
 
 // ---------------------------------------------------------------------------

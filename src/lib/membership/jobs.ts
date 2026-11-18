@@ -41,22 +41,12 @@ async function each(what: string, ids: Array<{ id: string }>, job: (monthId: str
   }
 }
 
-/** Whether Stripe refused this kind of action on this month a short while ago, so it is not tried again every few seconds. */
-async function refusedRecently(monthId: string, kind: OperationKind, now: Date): Promise<boolean> {
-  const [refused] = await db
-    .select({ id: schema.moneyOperations.id })
-    .from(schema.moneyOperations)
-    .where(
-      and(
-        eq(schema.moneyOperations.monthId, monthId),
-        eq(schema.moneyOperations.kind, kind),
-        eq(schema.moneyOperations.status, "failed"),
-        sql`${schema.moneyOperations.finishedAt} > ${new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS).toISOString()}::timestamptz`,
-      ),
-    )
-    .limit(1);
-  return Boolean(refused);
-}
+/**
+ * Not refused by Stripe for this kind of action in the last hour. Part of the query itself, so
+ * months that are waiting out a refusal never fill the batch and keep others from their turn.
+ */
+const notRefusedRecently = (kind: OperationKind, now: Date) =>
+  sql`not exists (select 1 from ${schema.moneyOperations} where ${schema.moneyOperations.monthId} = ${months.id} and ${schema.moneyOperations.kind} = ${kind} and ${schema.moneyOperations.status} = 'failed' and ${schema.moneyOperations.finishedAt} > ${new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS).toISOString()}::timestamptz)`;
 
 const open = and(isNull(months.endedHow), isNull(months.problem));
 
@@ -102,19 +92,15 @@ export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
   //    And months that are being given up, whose payment is not cancelled yet.
   await each(
     "let go of the payment",
-    await db.select({ id: months.id }).from(months).where(and(inArray(months.status, ["to_pay", "held"]), isNotNull(months.endedHow))).limit(BATCH),
-    async (id) => {
-      if (!(await refusedRecently(id, "release", now))) await letHoldGo(id, now);
-    },
+    await db.select({ id: months.id }).from(months).where(and(inArray(months.status, ["to_pay", "held"]), isNotNull(months.endedHow), notRefusedRecently("release", now))).limit(BATCH),
+    (id) => letHoldGo(id, now),
   );
 
   // 4. Held money whose time to be taken has come.
   await each(
     "take the month's money",
-    await db.select({ id: months.id }).from(months).where(and(eq(months.status, "held"), open, lte(months.takeAt, now))).orderBy(months.takeAt).limit(BATCH),
-    async (id) => {
-      if (!(await refusedRecently(id, "capture", now))) await takeMonth(id, now);
-    },
+    await db.select({ id: months.id }).from(months).where(and(eq(months.status, "held"), open, lte(months.takeAt, now), notRefusedRecently("capture", now))).orderBy(months.takeAt).limit(BATCH),
+    (id) => takeMonth(id, now),
   );
 
   // 5. New tries with the saved card, on their days.

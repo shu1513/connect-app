@@ -43,7 +43,7 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
   });
   // The account is closed from here on, whatever happens next. First what keeps people safe (requests and
   // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
-  const callsNotEnded = await endRequestsAndCallsOf(input.userId, now);
+  const callsNotEnded = await endRequestsAndCallsOf(input.userId, new Date());
   await cleanUpEndedMemberships(endedMemberships, now);
   return { callsNotEnded };
 }

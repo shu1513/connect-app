@@ -89,8 +89,11 @@ export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: strin
 async function endAll(tx: Tx, ids: string[], input: { by: string; reason: string }, now: Date): Promise<string[]> {
   const locked: Membership[] = [];
   for (const id of [...ids].sort()) locked.push(await lockMembership(tx, id));
+  // The moment of the ending is taken now that the locks are held, not from before the wait for them: whether a
+  // month's unused money is paid back or has expired depends on which side of the month's end the ending falls.
+  const at = new Date(Math.max(now.getTime(), Date.now()));
   const ended: string[] = [];
-  for (const membership of locked) if (await endMembership(tx, membership, input, now)) ended.push(membership.id);
+  for (const membership of locked) if (await endMembership(tx, membership, input, at)) ended.push(membership.id);
   return ended;
 }
 
@@ -123,11 +126,10 @@ export async function endMembershipsOf(tx: Tx, userId: string, input: { by: stri
  */
 export async function cleanUpEndedMemberships(membershipIds: string[], now: Date): Promise<void> {
   if (membershipIds.length === 0) return;
-  try {
-    // Loaded here, not at the top: the clean-up talks to Stripe, and this file must stay free of that.
-    const { cleanUpEnding } = await import("./ending");
-    for (const id of membershipIds) await cleanUpEnding(id, now);
-  } catch (error) {
-    console.error("[membership] the clean-up of ended memberships did not finish; the helper will retry", error);
+  // Loaded here, not at the top: the clean-up talks to Stripe, and this file must stay free of that.
+  const ending = await import("./ending").catch(() => null);
+  for (const id of membershipIds) {
+    // One that fails is left to the helper; the others are still done now.
+    await ending?.cleanUpEnding(id, new Date(Math.max(now.getTime(), Date.now()))).catch((error) => console.error(`[membership] the clean-up of ended membership ${id} did not finish; the helper will retry`, error));
   }
 }

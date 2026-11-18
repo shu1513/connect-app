@@ -69,6 +69,19 @@ async function afterCheckingRefusedCharge(payment: Payment, now: Date): Promise<
   return refused ? syncHold(payment.id, now) : payment;
 }
 
+/**
+ * Asking Stripe what it has is not the action itself. If the asking fails, even with a clear "no"
+ * (no permission, say), that proves nothing about the action: it stays unanswered and is looked
+ * at again, instead of being recorded as refused.
+ */
+async function lookUp<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    throw new Error(`Could not look this up at Stripe: ${stripeErrorMessage(error)}`);
+  }
+}
+
 function log(message: string, error?: unknown) {
   // Expected refusals (already done, waiting, not allowed) are not errors.
   if (error instanceof MoneyError || error instanceof OutcomeUnknownError) {
@@ -181,7 +194,7 @@ export async function reconcileOperations(now: Date): Promise<void> {
             { idempotencyKey: operation.label },
           );
         } else {
-          const list = await stripe().refunds.list({ payment_intent: payment.stripePaymentIntentId!, limit: 100 });
+          const list = await lookUp(() => stripe().refunds.list({ payment_intent: payment.stripePaymentIntentId!, limit: 100 }));
           refund = list.data.find((r) => r.metadata?.refundId === params.refundId);
         }
         if (!refund || refund.status === "failed" || refund.status === "canceled") {
@@ -209,12 +222,14 @@ export async function reconcileOperations(now: Date): Promise<void> {
             transferId = (await transferAtStripe(payment, params, operation.label)) ?? undefined;
           } else {
             // Every page: a membership's month can have many transfers in its group.
-            for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 })) {
-              if (transfer.metadata?.paymentId === payment.id) {
-                transferId = transfer.id;
-                break;
+            await lookUp(async () => {
+              for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 })) {
+                if (transfer.metadata?.paymentId === payment.id) {
+                  transferId = transfer.id;
+                  break;
+                }
               }
-            }
+            });
           }
           if (transferId === undefined) {
             // The share was never sent. It is simply ready again for a later collection.

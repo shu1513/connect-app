@@ -239,6 +239,7 @@ async function main() {
       const mine = intents.filter((intent) => intent.metadata?.monthId === month.id);
       if (mine.length > 1) problems.push(`month ${month.number} has ${mine.length} payments at Stripe`);
       const intent = mine[0];
+      if ((intent?.id ?? null) !== month.stripePaymentIntentId) problems.push(`month ${month.number}: Stripe's payment for it is ${intent?.id}, the month has ${month.stripePaymentIntentId} saved`);
       const places = sum(placesOf(month));
       const charged = await ledger({ monthId: month.id }, "customer_charge");
       const refunded = await ledger({ monthId: month.id }, "customer_refund");
@@ -274,7 +275,20 @@ async function main() {
   // ------------------------------------------------------------------------
   // Cleaning up: only this script's own people (ids starting "mc-")
   // ------------------------------------------------------------------------
+  /** If an earlier run stopped while one of its hosts held the test payout account, the seeded host gets it back before anything is deleted. */
+  async function payoutAccountBack() {
+    const [holder] = await db.select().from(schema.hostSettings).where(and(like(schema.hostSettings.userId, "mc-%"), sql`${schema.hostSettings.stripeAccountId} is not null`));
+    const [seeded] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, "host@test.local"));
+    if (!holder || !seeded) return;
+    await db.transaction(async (tx) => {
+      await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, holder.userId));
+      await tx.update(schema.hostSettings).set({ stripeAccountId: holder.stripeAccountId }).where(eq(schema.hostSettings.userId, seeded.id));
+    });
+    console.log("   (the test payout account was given back to host@test.local)");
+  }
+
   async function wipe(everything = false) {
+    await payoutAccountBack();
     const mine = or(like(schema.memberships.hostId, "mc-%"), like(schema.memberships.customerId, "mc-%"));
     const all = await db.select({ id: schema.memberships.id }).from(schema.memberships).where(mine);
     const ids = all.map((row) => row.id);
@@ -623,8 +637,8 @@ async function main() {
     check("a hold that came in time counts, also when the helper only looks an hour later", (await M(c.monthId)).status === "held" && (await MS(c.membershipId)).status === "active", (await M(c.monthId)).status);
 
     const d = await atCardStep(host);
-    await confirmOnly(d.monthId);
     await db.update(months).set({ cardStepExpiresAt: new Date(Date.now() - HOUR) }).where(eq(months.id, d.monthId));
+    await confirmOnly(d.monthId);
     await C.syncMonth(d.monthId, new Date());
     check("a hold that came after the card step's time is let go, and nothing starts", (await M(d.monthId)).status === "given_up" && (await M(d.monthId)).endedHow === "card_step" && (await intentOf(d.monthId)).status === "canceled" && (await MS(d.membershipId)).status === "invited", (await M(d.monthId)).status);
     for (const m of [a, c, d]) await audit("after the card step", m);
@@ -686,6 +700,18 @@ async function main() {
     await helper(new Date());
     check("paid back in full, and never renewed or replaced", (await M(renewal.id)).status === "finished" && (await M(renewal.id)).paidBackCents === 6000 && (await monthsOf(b.membershipId)).length === 2);
     await audit("after a charge found after the fact", b);
+
+    // The helper was down when the 7 days ran out, and the member paid after them.
+    const c = await running(host);
+    await saveCard(c, "pm_card_chargeCustomerFail");
+    await closeMonth(c.monthId, (await M(c.monthId)).endsAt!);
+    const late = (await monthsOf(c.membershipId))[1];
+    await db.update(months).set({ giveUpAt: new Date(Date.now() - HOUR) }).where(eq(months.id, late.id));
+    await confirmOnly(late.id);
+    await helper(new Date());
+    month = await M(late.id);
+    check("a hold placed after the 7 days is not accepted: it is let go, and the membership is paused", month.status === "given_up" && month.endedHow === "given_up" && (await intentOf(late.id)).status === "canceled" && (await MS(c.membershipId)).status === "paused", `${month.status} ${month.endedHow}`);
+    await audit("after a hold placed too late", c);
   });
 
   // ========================================================================
@@ -1259,8 +1285,20 @@ async function main() {
     const owed = await db.transaction(async (tx) => P.owePayBack(tx, (await L.lockForMonth(tx, c.monthId)).month, { amountCents: 100, sourceKey: `check:${c.monthId}`, reason: "A check." }));
     const createdAt = (at: Date) => db.update(schema.membershipRefunds).set({ createdAt: at }).where(eq(schema.membershipRefunds.id, owed.refund.id));
     await says("a pay-back owed for more than 2 hours", "pay-back", () => createdAt(new Date(Date.now() - 3 * HOUR)), () => createdAt(new Date()));
-    await db.transaction(async (tx) => S.endMembership(tx, await L.lockMembership(tx, b.membershipId), { by: "host", reason: "a check" }, new Date(Date.now() - 20 * MIN)));
-    await says("an ending not cleaned up after 10 minutes", "cleaned up", async () => undefined, () => E.cleanUpEnding(b.membershipId, new Date()));
+    // (The member with the running month: an ended membership with a payment still open would, rightly, show two lines.)
+    await db.transaction(async (tx) => S.endMembership(tx, await L.lockMembership(tx, c.membershipId), { by: "host", reason: "a check" }, new Date(Date.now() - 20 * MIN)));
+    await says("an ending not cleaned up after 10 minutes", "cleaned up", async () => undefined, () => E.cleanUpEnding(c.membershipId, new Date()));
+    await says(
+      "a payment that was given up and is still open at Stripe after 15 minutes",
+      "still open at Stripe",
+      () =>
+        db.transaction(async (tx) => {
+          const locked = await L.lockForMonth(tx, b.monthId);
+          await tx.update(months).set({ endedHow: "cancel_now", updatedAt: new Date(Date.now() - 20 * MIN) }).where(eq(months.id, b.monthId));
+          await S.settleAfterGivenUp(tx, locked, "cancel_now", new Date());
+        }),
+      () => C.letHoldGo(b.monthId, new Date()),
+    );
     await helper(new Date());
     check("and healthy again once the helper has done its work", (await lines()).length === 0, await lines());
   });
@@ -1377,8 +1415,13 @@ async function main() {
   // ------------------------------------------------------------------------
   // Running
   // ------------------------------------------------------------------------
+  if (only && (only.length === 0 || only.some((n) => !Number.isInteger(n) || n < 1 || n > journeys.length))) {
+    throw new Error(`--only takes journey numbers from 1 to ${journeys.length}${process.argv.includes("--payouts") ? "" : " (the last one, collecting, needs --payouts)"}.`);
+  }
   const before = await switches();
-  check("before anything: the founder's memberships switch is off", before.memberships === "off", before.memberships);
+  // Checked before anything is written: this script sets the switch and its list, and puts both back to "off" at the end.
+  if (before.memberships !== "off" || before.membershipsHosts.length > 0) throw new Error("The memberships switch is not off in this database. This script would overwrite it. Set it to off first.");
+  check("before anything: the founder's memberships switch is off", true);
   await wipe();
   try {
     for (const [index, [title, run]] of journeys.entries()) {

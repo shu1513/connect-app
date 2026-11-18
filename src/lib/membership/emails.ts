@@ -56,7 +56,7 @@ export async function queueReceiptEmail(tx: Writer, membership: Membership, mont
 }
 
 /** A monthly payment did not go through. Sent once for each try that failed. */
-export async function queuePaymentFailedEmail(tx: Writer, membership: Membership, month: MembershipMonth, input: { failedTry: number | "lost"; needsAction: boolean; giveUpAt: Date }): Promise<void> {
+export async function queuePaymentFailedEmail(tx: Writer, membership: Membership, month: MembershipMonth, input: { failedTry: number | "lost"; needsAction: boolean; giveUpAt: Date; noCard?: boolean; triedAgain?: boolean }): Promise<void> {
   const found = await peopleOf(tx, membership);
   if (!found) return;
   const { member, hostName } = found;
@@ -66,9 +66,9 @@ export async function queuePaymentFailedEmail(tx: Writer, membership: Membership
     subject: `Your membership payment for ${hostName} did not go through`,
     text:
       `Hi ${member.name},\n\nWe could not hold ${money(month.totalCents)} on your card for the next month of your membership with ${hostName}. ` +
-      (input.failedTry === "lost" ? "Your bank released the hold on your card before the payment was taken. " : input.needsAction ? "Your bank wants you to approve this payment yourself. " : "Your bank refused it. ") +
+      (input.failedTry === "lost" ? "Your bank released the hold on your card before the payment was taken. " : input.noCard ? "We have no card of yours to try. " : input.needsAction ? "Your bank wants you to approve this payment yourself. " : "Your bank refused it. ") +
       `Until it goes through you have no membership time and cannot book as a member.\n\n` +
-      `You can pay here: ${payPage(membership)}\n\nWe will also try your card again. If no payment has gone through by ${whenFor(member, input.giveUpAt)}, your membership is paused. Nothing is charged while it is paused, and you can resume it whenever you like.\n`,
+      `You can pay here: ${payPage(membership)}\n\n${input.triedAgain === false ? "We will not try by ourselves again. " : "We will also try your card again. "}If no payment has gone through by ${whenFor(member, input.giveUpAt)}, your membership is paused. Nothing is charged while it is paused, and you can resume it whenever you like.\n`,
   });
 }
 

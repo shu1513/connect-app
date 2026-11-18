@@ -155,11 +155,13 @@ export async function completeOwnedOperation<Row, P, R>(
       const message = stripeErrorMessage(error);
       await db.transaction(async (tx) => {
         const row = await plan.owner.lock(tx);
-        await tx
+        // Only an action that is still unanswered: the helper may have recorded its real outcome meanwhile.
+        const marked = await tx
           .update(schema.moneyOperations)
           .set({ status: "failed", error: message, finishedAt: new Date() })
-          .where(eq(schema.moneyOperations.id, started.operationId));
-        await plan.onRefused?.(row, started.params, message, tx);
+          .where(and(eq(schema.moneyOperations.id, started.operationId), eq(schema.moneyOperations.status, "started")))
+          .returning({ id: schema.moneyOperations.id });
+        if (marked.length > 0) await plan.onRefused?.(row, started.params, message, tx);
       });
       throw new MoneyError(message);
     }

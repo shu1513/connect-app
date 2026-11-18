@@ -10,7 +10,7 @@ import type { schema } from "@/db";
 import { captureAtStripe } from "@/lib/payments/actions";
 import { failOwnedOperation, finishOwnedOperation } from "@/lib/payments/operations";
 import { isDefiniteRefusal, stripe, stripeErrorMessage } from "@/lib/payments/stripe";
-import { applyLetGo, applyTaken, confirmSavedCard, LABEL_SAFE_MS, syncMonth } from "./charge";
+import { applyLetGo, applyTaken, cancelAtStripe, confirmSavedCard, LABEL_SAFE_MS, syncMonth } from "./charge";
 import { monthOwner } from "./locks";
 import { applyPayBackOutcome, outcomeStatus, refundAtStripe, type PayBackOutcome, type PayBackParams } from "./payback";
 
@@ -22,12 +22,16 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
   // Measured on the real clock, right before acting, so a slow pass can never repeat a request too late.
   const canRepeat = () => Date.now() - operation.createdAt.getTime() < LABEL_SAFE_MS;
   const giveUp = (why: string) => failOwnedOperation(operation.id, owner, why);
+  // Set right before a request that changes something at Stripe. A clear "no" to that request means it
+  // did not happen. A "no" to a mere look-up (no permission, say) proves nothing: the action stays unanswered.
+  let asked = false;
   const payBack = (stripeRefundId: string | null, status: PayBackOutcome["status"]): PayBackOutcome => ({ refundId: params.refundId, attempt: params.attempt, stripeRefundId, status });
 
   try {
     if (operation.kind === "hold") {
       // A try with the saved card. What it achieved is always read from Stripe by syncMonth.
       if (canRepeat()) {
+        asked = true;
         await confirmSavedCard({ intentId: params.intentId, paymentMethodId: params.paymentMethodId }, operation.label);
         await finishOwnedOperation(operation.id, owner, params.intentId, async () => undefined);
       } else {
@@ -39,6 +43,7 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
       await syncMonth(monthId, now);
     } else if (operation.kind === "capture") {
       if (canRepeat() && Number.isInteger(params.amountCents)) {
+        asked = true;
         const outcome = await captureAtStripe(params.intentId, params.amountCents, operation.label);
         await finishOwnedOperation(operation.id, owner, outcome.stripeId, ({ month }, tx) => applyTaken(tx, month, { cents: outcome.result.amountReceived, chargeId: outcome.result.chargeId }, now));
       } else {
@@ -53,15 +58,14 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
         }
       }
     } else if (operation.kind === "release") {
-      let intent = await stripe().paymentIntents.retrieve(params.intentId);
-      // Letting go is always safe to do again.
-      if (intent.status !== "canceled" && intent.status !== "succeeded") intent = await stripe().paymentIntents.cancel(params.intentId);
-      const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
-      const result = { status: intent.status, amountReceived: intent.amount_received, chargeId };
-      await finishOwnedOperation(operation.id, owner, intent.id, ({ month }, tx) => applyLetGo(tx, month, result, now));
+      // Letting go is always safe to do again. Already cancelled (by another helper a moment ago, say) or taken is an answer too.
+      asked = true;
+      const outcome = await cancelAtStripe(params.intentId);
+      await finishOwnedOperation(operation.id, owner, outcome.stripeId, ({ month }, tx) => applyLetGo(tx, month, outcome.result, now));
     } else if (operation.kind === "refund") {
       let refund: { id: string; status: string | null } | undefined;
       if (canRepeat()) {
+        asked = true;
         refund = await refundAtStripe(params as PayBackParams, operation.label);
       } else {
         // Every page, and the line and the attempt together: a month can have many refunds on its one charge.
@@ -81,7 +85,7 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
     }
     console.log(`[membership] checked unfinished ${operation.kind} on month ${monthId}`);
   } catch (error) {
-    if (!isDefiniteRefusal(error)) throw error;
+    if (!asked || !isDefiniteRefusal(error)) throw error;
     // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
     const message = stripeErrorMessage(error);
     if (operation.kind === "refund") await failOwnedOperation(operation.id, owner, message, (locked, tx) => applyPayBackOutcome(tx, locked, payBack(null, "failed"), now));

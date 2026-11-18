@@ -172,6 +172,10 @@ export async function runDisputeLooks(now: Date): Promise<void> {
     .orderBy(months.updatedAt)
     .limit(25);
   for (const { id } of open) {
-    await refreshMonthDispute(id, now).catch((error) => console.error(`[membership] could not ask about the dispute over month ${id}; will retry`, error));
+    await refreshMonthDispute(id, now).catch(async (error) => {
+      console.error(`[membership] could not ask about the dispute over month ${id}; will retry in an hour`, error);
+      // It still takes its turn, so one that keeps failing cannot keep the others from being asked about.
+      await db.update(months).set({ updatedAt: now }).where(eq(months.id, id)).catch(() => undefined);
+    });
   }
 }

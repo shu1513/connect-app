@@ -1154,6 +1154,10 @@ memberships straight into the local database.
 - Astra reviewed the code three times (not ready, not ready, ready). The finding that mattered
   most: after a cut in hours, closing the older member's month first could have paused the wrong
   member. All findings are at the end of `plans/20-memberships-part-1-the-money.md`.
+- CodeRabbit: about 47 comments. About half were taken. The ones that mattered most: a hold placed
+  after the 7 days was still accepted if the helper had been down; and a failed look-up at Stripe
+  could be recorded as "Stripe refused", also in the existing recovery of transfers and refunds
+  for calls. What was not taken, and why, is at the end of plan 20.
 
 **Found by testing against Stripe.** Stripe refuses a try in the background on a saved card while
 the payment is still marked "keep this card for later". The try now takes that mark off, and
@@ -1164,5 +1168,9 @@ the payment is still marked "keep this card for later". The try now takes that m
   dispute. The founder decides before the switch goes on whether that is wanted.
 - A refund that Stripe first reports as gone through and later as failed is not handled, for
   memberships as for calls today.
+- A second dispute on a charge whose first dispute was already won, and which is itself opened
+  and won before any message about it is handled, does not end a later membership of the same two.
+- The admin page lists expired member time in a host's uncollected total, not as a row of its own
+  under "All payments". The founder's membership page (part three) will.
 - `scripts/stripe-webhook-setup.ts` now asks for two more kinds of message. It has to be run
   again before memberships are tried through the browser (part three).
