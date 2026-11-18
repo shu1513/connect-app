@@ -54,7 +54,7 @@ What each side gets:
 | More time than the host offers | Not allowed. The time of **all of a host's members together** can never be more than the host's weekly hours offer in four weeks. Five members with 2 hours each need a host with at least 10 hours a month. |
 | When a host cuts their hours and not everyone fits any more | The host chooses, in the same step as cutting the hours, what happens to each member: keep them, offer them less time, or pause them after this month. The page shows her first who is affected, and which open invitations will be taken back. |
 | Less time instead of a pause | The host can offer a member a smaller time at that member's own price per 15 minutes, so they pay less. The member accepts or says no. If they say no, or do not answer before their month ends, they are paused. |
-| The founder's switch | A switch on the admin page, "Memberships", off until the whole feature is built and tried. While it is off nobody can invite or join and no month is renewed. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
+| The founder's switch | A switch on the admin page, "Memberships", off until the whole feature is built and tried. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
 | How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
 | How the monthly payment is taken | Connect charges the member's saved card itself each month, first as a hold and then for real (see "The monthly payment"). Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
 
@@ -312,7 +312,7 @@ The money is taken for real at the first of these two moments:
 Until then the member can press "Cancel now": the hold is let go, nothing was ever charged, and
 there is no card fee. If a bank lets a hold go by itself before the money is taken (rare), that
 month is closed as not paid: the member has no time, and a new month with the same price and time
-is tried as a failed payment.
+is tried as a failed payment. (One exception: a member with an open offer of less time is paused instead, and nothing new is tried.)
 
 While a month is only held, none of its money is in any of the places below: there is nothing to
 set aside, use or pay back. The places are filled only when Stripe has confirmed that the **whole**
@@ -394,8 +394,10 @@ because the membership has ended, and money that was already used or had already
 it is. If Connect loses, the month stays frozen and the founder settles it by hand, as for a
 disputed call today.
 
-Freezing stops new steps. A transfer or a pay-back that had already been sent to Stripe is still
-followed up until its outcome is known.
+Freezing stops new steps. A transfer or a pay-back that was already written down before the
+freeze, whether or not it had reached Stripe yet, is still carried out or checked under the name
+it was written down with, until its outcome is known. "Frozen" means the dispute is open or
+lost; a month whose dispute was won is not frozen.
 
 ### The arithmetic
 
@@ -448,7 +450,8 @@ followed up until its outcome is known.
   as soon as it is back, as long as the hold still stands.
 - **A hold that is gone** before the money was taken (the bank let it go, or it ran out): Stripe
   cannot take or hold that payment again. That month is closed as not paid, and a new month with
-  the same price and time gets a payment of its own and goes the failed-payment way, with the
+  the same price and time gets a payment of its own and goes the failed-payment way (but for a
+  member with an open offer of less time, who is paused instead), with the
   7 days counted from the moment the hold was found to be gone. No booking was made from the old
   month, so nothing has to be undone.
 - **"Cancel now"** lets the hold go and gives the month up. It, the taking and a first booking
@@ -475,7 +478,7 @@ followed up until its outcome is known.
 | The member cancels the membership | Nothing changes until the paid month ends: bookings stay, time can still be booked and used, and money that comes back can be booked again. No new month is charged. Until that day the member can switch it back on; after it the membership is paused and can be resumed. |
 | The member presses "Cancel now" in the first 72 hours, with nothing booked from that month | The hold is let go, nothing is charged, and the membership is paused. It is only offered while the month's money has not been taken, and the first booking takes the money, so "nothing booked" is true by itself. |
 | The member's first booking of a month | Everything about the booking is checked first. Then the month's money is taken, and then the call is booked. If Stripe refuses, or its answer does not arrive, nothing is booked and the member is told to try again in a moment. If the money was taken but the time was lost in that moment (someone else got it), the month stays paid, and the member is told plainly: "Your month's payment went through, but that time is no longer open. Please choose another." |
-| A bank lets the hold go before the money is taken | That month is closed as not paid. The member has no member time and gets the "payment failed" email; a new month with the same terms is tried. |
+| A bank lets the hold go before the money is taken | That month is closed as not paid. The member has no member time and gets the "payment failed" email; a new month with the same terms is tried. A member with an open offer of less time is paused instead. |
 | The host cuts their weekly hours so that not all members fit | She cannot save the cut until she has chosen, for each member who would get a next month, to keep them, offer them less time or pause them, so that those she keeps fit. Months that have started go on. Nobody can be invited, join or resume while there is no room. |
 | A member is offered less time | Accept: the smaller time and the lower amount from the next month that is written down, at their own price. "No thanks" or no answer before their month ends: paused when it ends. The running month is the same either way. |
 | A member who stopped their own renewal wants it back after the host cut her hours | Only if there is room for their next month. Otherwise it is refused, and they are paused when the month ends, as they had chosen. |
@@ -487,7 +490,7 @@ followed up until its outcome is known.
 | The host does not show up, or comes late | Only the host's time in the room counts, so the rest comes back in the same way. |
 | A call in the last hours of a month | It is settled a day later, as always. What it uses goes to the host; what comes back goes to the card. |
 | Someone else has asked for the same time and is waiting for the host's answer | The member's booking takes the time. The other request ends with the usual "the host accepted another request" email. A call that is already accepted is never touched. |
-| The member asks for a refund after a call | As today: the host answers "in full", "less" or "nothing". What is not charged comes back to the member's month, or to the card once the month has ended. |
+| The member asks for a refund after a call | As today: the host answers "in full", "less" or "nothing". What is not charged comes back to the member's month, or to the card once the month has ended or the membership was ended early (and waits while the month is frozen by a dispute). |
 | A member's call goes to the founder's review | The money stays set aside until the founder decides. There is no card hold that could run out, so the limit is the founder's own: 3 days after the call, as today. With no decision by then, the money comes back. |
 | A pay-back that Stripe refuses | The money stays "to be paid back". The helper tries again, and the founder sees it on the admin page until it has gone through. |
 | The host ends one membership | It ends at once. The member's upcoming member calls are cancelled and all free money of the month is paid back to the card. A call that is under way is left to finish and is settled as usual; whatever comes back from it later goes to the card. |
@@ -543,8 +546,9 @@ kind on each payment, with the month as the one place that owns the money.
 **The month owns the money.** Every step that moves a month's money (set aside, used, come back,
 expired, to be paid back, paid back, frozen by a dispute, a share written down for collecting)
 takes the month's lock first and changes the month's numbers and the payment in the same database
-step. The order of locks is the same everywhere: the two calendars, the host's collection, the
-membership, the month, the call, its payments, then request and refund records. Stopping a
+step. The order of locks is the same everywhere: the two calendars, the person and
+profile rows, the host's collection, the membership, the month, the call, its payments, then
+request and refund records (plan 20, "The order of locks", has it in full). Stopping a
 renewal, switching back on, a renewal coming due, "Cancel now" and ending early all take the
 membership's lock, so only one of them can win. Everything that reads or changes room (an
 invitation, joining, resuming, a renewal, a change of the offer, a change of weekly hours) takes
@@ -644,9 +648,11 @@ customer".
     a new payment.
 - `jobs.ts`: what the always-on helper does: invitations that have run out, renewals, new tries, reminders, closing months,
   pay-backs, endings, and finishing anything that was written down and not confirmed.
-- `emails.ts`: invitation; joined (to both); the monthly receipt; the reminder; payment failed; a pay-back; paused, with the reason (the member's own choice, the host's, no
+- `emails.ts`: invitation; joined (to both); the monthly receipt; payment failed; a pay-back; paused, with the reason (the member's own choice, the host's, no
   room, a payment given up); an invitation taken back or run out; a lower price from the next month; an offer of less time,
-  and what became of it; ended (to both).
+  and what became of it; ended (to both). The reminder before a month's end is written and timed
+  by part three's `notifications/membership-reminders.ts`, which is added to the helper's
+  reminder loop.
 
 **Booking as a member** (`book.ts`, using the pieces of `src/lib/booking/bookings.ts`) is one step
 of its own, not "ask" followed by "accept". It keeps, from today's two steps:
@@ -843,8 +849,9 @@ Done when:
 
 - The whole journey passes in a browser, also at phone size, including a failed payment, a
   cancellation, and the founder's switch turned off while months are running.
-- Merging this part does not turn anything on. The founder turns the switch on, after the points
-  under "Before this can go live".
+- Merging this part does not turn anything on. The founder turns the switch on twice over: once
+  for the friend test, with nobody but the two friends able to use it, and for everyone only
+  after the lawyer's and Stripe's points under "Before this can go live".
 
 ### How the parts connect
 
@@ -858,18 +865,23 @@ anything here without this table being changed first.
 | `bookings.month_id`, `weekly_hours.members_only`, `call_extensions.paid_from` (migration `0028_member_calls`) | 2a | 2b, 3a, 3b |
 | No database change | | 3a, 3b |
 | `months.ts`: the month's lock, and the movements open, expire, owe a pay-back, a pay-back done, the dispute's state | 1a | 2a adds set aside, used and come back **to this same file** |
-| `charge.ts`: `intentFor(month)`, `syncMonth(monthId, now)`, `takeNow(monthId)`, `payNow` | 1a | 2a (the first booking calls `takeNow`); 3b (the card form reads `intentFor`'s secret and then calls `syncMonth`) |
-| `payback.ts`: owing a pay-back once under a `source_key` | 1a | 2a (`callreturn:<payment id>:<what>`) |
-| `room.ts`: the host's hours, room for someone new, who keeps their place | 1a | 1b, 3a (the numbers on the "Membership" part and in the step for a cut in hours) |
-| `cards.ts`: the lock on a card, the membership's card in use | 1a | 2b (added time by card) |
+| `charge.ts`: `intentFor(month)`, `syncMonth(monthId, now)`, `takeNow(monthId)`, `payNow` | 1a | 2a (the first booking calls `takeNow`); 3b ("Pay now" calls `payNow`; only an action may call `intentFor`, and a page load reads the secret of a PaymentIntent the month already has; the card form then asks `syncMonth`) |
+| `payback.ts`: owing a pay-back once under a `source_key` | 1a | 2a: `callreturn:<payment id>:<what>` for what a call gives back, and `giveback:<the refund form's id>` from `membership/give-back.ts` for time a host or the founder gives back |
+| `room.ts`: the host's hours, room for someone new, who keeps their place | 1a | 1b, 3a (the numbers on the "Membership" part) |
+| `room.ts`: working out what a cut in hours would need without saving it; saving is `changeWeeklyHours` in `booking/calendar.ts`. Like the preview in `offers.ts`, it returns a short mark of the state it was worked out from, which saving checks | 1b | 3a (the step for a cut in hours) |
+| On a membership, `period` and `current_month_id`: only the current month of the current period may change the membership's state; an older month still settles its own money and must never be skipped by a job or left off a page | 1a | every later part |
+| What "frozen" means: a month whose dispute is `open` or `lost`. Nothing of it is booked, used, given back, paid back or collected; `won` is not frozen | 1a | 2a, 2b, 3a |
+| `cards.ts`: the lock on a card, the membership's card in use, the record of every card a membership ever had, and the rule that a booking's card is never a membership's | 1a | 2b (added time by card) |
 | Ending at once and pausing, with the clean-up; **the one place in the clean-up that cancels a membership's upcoming member calls**, which does nothing in part one | 1a | 2a fills that place |
 | Collecting from a month's charge: the host found through the month, the month's group on the transfer, a disputed month held back | 1a | 2a (a member call's share needs nothing more) |
 | The guards that keep a payment that is not `card` out of the card code | 1a | 2a, 2b rely on them |
-| `offers.ts` (saving the membership, **and working out what a change would do without saving it**), `join.ts` (inviting, taking back, "Join", resuming), `ending.ts` (the two stops and their undoing, "Cancel now", ending, the offer of less time), `changeWeeklyHours` (**and working out what a cut would need without saving it**), `wording.ts` (the sentences a member agrees to, and their version) | 1b | 3a and 3b: every button calls one of these and nothing else |
-| The emails that report an event, with links to the pages below | 1a, 1b, 2a | the pages exist from 3a and 3b on |
+| `offers.ts` (saving the membership, **and working out what a change would do without saving it**), `join.ts` (inviting, taking back, "Join", resuming), `ending.ts` (the two stops and their undoing, "Cancel now", ending, the offer of less time), `changeWeeklyHours`, `wording.ts` (the sentences a member agrees to, and their version) | 1b | 3a and 3b: every button for managing a membership calls one of these and nothing else (paying is `charge.ts`, above) |
+| The emails that report an event, with links to the pages below (`membership/emails.ts`) | 1a, 1b, 2a | the pages exist from 3a and 3b on |
+| The reminder before a month's end: `notifications/membership-reminders.ts`, in the helper's reminder loop, under the key `month-reminder:<month id>` | 3b | |
+| The booking stage `paying` for a member's first booking of a month: nothing reserved, continued by the same request key, ended by a job of its own after 30 minutes or when the month or membership can no longer be booked from, never touched by the card step's clean-up | 2a | 3b's journey |
 | Booking as a member, the member's view of the host's page and of the booking page, the page after a call, the call screen's choices for more time, the "Members only" tick | 2a, 2b | 3b's journey walks through them |
 | `access.ts`: who may see an invitation, a membership, a payment, a host's members; and the way a member or an invited person reaches a host whose page is hidden | 1b | 2a (the host's page and the booking page as a member sees them); 3a, 3b (before every page and in every action) |
-| The check scripts `membership-check.ts`, `member-calls-check.ts`, `membership-journey-check.ts`, each making its members through the functions of the parts before it | 1a/1b, 2a/2b, 3b | each later part runs all the earlier ones unchanged |
+| The check scripts `membership-check.ts`, `member-calls-check.ts`, `membership-journey-check.ts`, each making its members through the functions of the parts before it (but 1a's, which puts its test memberships straight into the database, since nothing that makes one exists yet) | 1a/1b, 2a/2b, 3b | each later part runs all the earlier ones unchanged |
 
 **What a link or a form carries.** An invitation's link carries its `invite_id`, an offer of less
 time its `offer_id`, and a "Join" or "Resume" form a `request_id` made when the page was drawn;
@@ -897,7 +909,9 @@ emails.
 
 ### For every part
 
-The existing twelve check scripts pass unchanged, the part's own checks pass, both reviews are
+The existing twelve check scripts pass, with only the few lines 1a has to adjust in them (named
+in plan 20) and with everything they test kept; later parts run them unchanged. The part's own
+checks pass, both reviews are
 dealt with, and the record is updated.
 
 ### What a short plan for a part holds
@@ -940,7 +954,10 @@ one they are a member of.
   month's free money; the days a failed payment is tried again.
 - **One rule checked after every step of every journey:** the six places of each month add up to
   exactly what was paid.
-- **A new script, `scripts/membership-check.ts`**, against Stripe's test area, with journeys for:
+- **New scripts against Stripe's test area.** The journeys below are one list for the whole
+  feature. They are shared out among three scripts, each part's plan saying which are its own:
+  `membership-check.ts` (part one), `member-calls-check.ts` (part two) and
+  `membership-journey-check.ts` (part three). Journeys for:
   - joining; a refused card at joining; two presses at once;
   - a month in which everything is used; one in which nothing is used;
   - a call the host cancels that is booked again, and one that is not; money that came back
@@ -1085,7 +1102,8 @@ that. Its points, all worked in above:
    bookings, and finished. Money set aside for a call that is not settled yet (a late call, an
    open refund request, a review) waits for that call. A pay-back Stripe refuses is still owed.
 3. **Refunds and disputes.** The draft said two different things about where a refund goes. The
-   rule is now one: back to the month while it runs, to the card after. It also promised refunds
+   rule is now one: back to the month while it runs, to the card after (later made exact: also
+   to the card once a membership was ended early, and nowhere while a dispute freezes the month). It also promised refunds
    the app cannot make after a host has collected; that limit is now stated. A dispute is kept on
    the month, so it also covers a month with no calls yet.
 4. **Never charged twice.** The draft wrote a month down only once it was paid. It is now written
@@ -1186,7 +1204,8 @@ The plan had a table of ten points "still to confirm". The founder's answers, al
   included than 20 hours (the builder chose 100 hours a month); and a cancelled membership can be
   switched back on, which Astra had advised leaving out and the builder had cut.
 - **Added:** a member who cancels within 3 days of a monthly payment, with nothing booked from
-  that month, can have the month back in full. The founder had first asked whether a member who
+  that month, can have the month back in full (since replaced by the hold: nothing is taken in
+  the first 72 hours, so nothing has to be paid back). The founder had first asked whether a member who
   cancels should get back whatever they had not spent. The builder advised against that as a
   general rule, because nobody would then ever let time expire, and proposed the 3 days instead.
 - **When it is built:** before launch, so that Connect launches with memberships.
@@ -1232,7 +1251,8 @@ comes before the public launch.
   once.
 - **More time than the host offers.** The founder asked what happens when a host offers 100 hours
   to a member and their calendar does not hold 100 hours in a month. That is now refused: the time
-  included can never be more than the host's weekly hours offer in four weeks, checked when the
+  included can never be more than the host's weekly hours offer in four weeks (a lower price can
+  always be saved, see "Changing the membership"), checked when the
   offer is saved and whenever a month is about to start.
 - **Room is counted for all members together.** The founder's example: five members at 2 hours
   each, and a host with 2 hours a month. Comparing each member alone with the host's hours would
@@ -1276,8 +1296,9 @@ and the checks for resuming hold. Its points, all worked in above:
 6. **What a member agreed to is kept for every joining and resuming**, not overwritten.
 7. **Switching the offer off** leaves a month that is only held to go on, and pauses at once a
    membership whose payment was being tried again.
-8. **The states of a month are spelled out**, and nothing is given before the whole amount is
-   confirmed taken.
+8. **The states of a month are spelled out**, and no money is put in any of the six places, or
+   set aside for a call, before the whole amount is confirmed taken. (A month that is only held
+   does give its time to book; the first booking takes the money.)
 9. **"Costs nothing" was too absolute.** There is no card fee, but a bank may show a hold like a
    charge for days, and Stripe's optional checks can cost a few cents.
 
@@ -1342,3 +1363,17 @@ only once this rule was complete. Its points on the new rule, all worked in abov
 
 Taken from its two optional cuts: one offer at a time, and the email's button opening the same
 page as "Your account", so there is one way to accept.
+
+## Astra's check of how the parts connect (18 November 2026)
+
+Astra read this rulebook and the three part plans side by side, for hand-overs only. Verdict:
+**sound with changes**. It found no function a later part needs and an earlier one does not
+build, no job that needs a later database change, no page a real person could reach that leads
+nowhere while the switch is off, and no money a later pull request has to repair. Its points,
+all worked in, were places where two documents said slightly different things: when a payment's
+outcome may still be read; what "frozen" means; what the founder's switch stops; when the switch
+is on for the friend test; which script holds which journeys; and which emails are written in
+which part. The builder's own name-by-name read before it had found six more, also fixed: the
+wording, the "who may see what" check and the two previews belong in part one; the check scripts
+need the switch on locally; the "Members only" tick reaches the hours function in part two; and
+part three names what it calls.

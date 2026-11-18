@@ -256,8 +256,9 @@ rulebook's limit.
 
 The host's refund form and the founder's go here for a `member_call` payment, where a card
 payment goes to `refundPayment`. The same limits, in the same order (`actions.ts:338-349`):
-something was used; the share was not sent; no dispute on the month; nothing written down and
-unfinished on this payment; not more than is left. Then, in one step with the month locked: used
+something was used; the share was not sent; the month is not frozen (its dispute `open` or
+`lost`; a dispute that was won does not block); nothing written down and unfinished on this
+payment; not more than is left. Then, in one step with the month locked: used
 becomes free or owed back, by the rulebook's step 4; the payment's `refunded_cents` and its fee
 and share shrink as `splitAfterRefunds` gives; and a line is added to `refunds` that is `done` at once (the person who decided, as host
 or as admin, the reason, the time it was finished, and no Stripe refund id), so that

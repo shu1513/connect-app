@@ -542,7 +542,8 @@ Their links use the addresses fixed in the rulebook's "How the parts connect"; t
 built in part three, and until then only the check script receives these emails. Each in the
 step of its event: the monthly receipt; payment failed (with or without "your bank
 wants your approval"); a payment given up and the membership paused; paused for lack of room or
-because memberships are not being renewed; a pay-back; ended because of a dispute.
+because memberships are not being renewed; a pay-back; ended, with the reason, for every ending 1a can cause (a dispute, a block, a paused
+or closed account, a suspension).
 
 ### The places in today's app that must know about a membership (in 1a)
 
@@ -580,8 +581,11 @@ name in the rulebook's "How the parts connect".
 - **`access.ts`**: who may see an invitation, a membership, a payment and a host's members, and
   the way a member or an invited person reaches a host whose page is hidden, without loosening
   the public reader of a host's page (`publicProfile`, `profiles/profiles.ts:203`). It is here,
-  and not with the pages, because part two's pages are the first to need it. Each function
-  answers "not found" in the same way for someone else's and for something that does not exist.
+  and not with the pages, because part two's pages are the first to need it. Each function answers "not found" in the same way for someone else's and for something that
+  does not exist. For a payment it answers two different questions: **may this person start or
+  confirm this month's payment, or be given its secret** (the member, and only while the month
+  may still be paid), and **may this person see or refresh this month's outcome** (the member,
+  always, also after the payment step has closed).
 - **`wording.ts`**: the sentences a member agrees to and their version, in one place. `join.ts`
   records the version; the page in part three shows the sentences from here, so the two can
   never differ.
@@ -595,7 +599,7 @@ name in the rulebook's "How the parts connect".
 - **`jobs.ts`** grows: invitations that ran out; offers of less time settled at the month's end.
 - **Emails written in 1b** (the same `emails.ts`): invited, taken back, run out; joined; "Cancel now"; renewal stopped
   and switched back on; paused by the member's or the host's choice; resumed; a lower price from
-  the next month; an offer of less time and its outcome; ended.
+  the next month; an offer of less time and its outcome; ended by the host's own choice.
 
 ## The order it can safely go in
 
@@ -650,8 +654,9 @@ from the others:
   tried); a payment that goes through while it is being given up, while its membership is being
   ended, and after room was lost (owed back in full each time).
 - *Old work after a resume:* a month from before a pause closing, failing, losing its hold and
-  getting a late message after the membership was resumed (the new period untouched, nothing
-  renewed from the old month); a joining pressed twice (one agreement, one month).
+  getting a late message after the membership was resumed (the new period untouched, nothing renewed from the old month). These use memberships and
+  months put into the database by the script; the joining and resuming that really raise a
+  period are 1b's.
 - *Tries:* a try that comes back without a hold, then the next days' tries (each runs); a try
   with no answer (no new one beside it).
 - *Months:* everything expires; a renewal; a renewal without room and one with the switch off
@@ -698,8 +703,9 @@ from the others:
 **Journeys added in 1b:** the rulebook's list under "How it will be checked" for room, the price
 that only goes down, invitations, the two stops, "Cancel now", an offer of less time, a cut in
 hours, pausing and resuming, and each of the four places that end a membership with the app
-stopped right after its change is saved; an abandoned joining; a new invitation while the old
-membership's clean-up is still running; resuming twice.
+stopped right after its change is saved; a joining pressed twice (one agreement, one month); an
+abandoned joining; a new invitation while the old membership's clean-up is still running;
+resuming twice.
 
 **Broken on purpose**, one at a time, and the script must fail each time. The rulebook's three:
 the month-end pay-back; nothing to the host before time is used (in part one: collecting from a

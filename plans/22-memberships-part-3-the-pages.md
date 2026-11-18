@@ -79,8 +79,12 @@ component in the browser:
 - **An invitation:** the logged-in person it was sent to, for that host, and for exactly that
   invitation (the link carries its `invite_id`; an old link never opens a newer invitation).
 - **A membership and its receipts:** that membership's member.
-- **Paying, and every action about a payment:** that member, that month, and only while the
-  month may still be paid.
+- **Starting or confirming a payment, and being given its secret:** that member, that month,
+  and only while the month may still be paid.
+- **Seeing or refreshing a payment's outcome** (the `sync` address, and the page after it):
+  that member, for that month, always, also after the payment step has closed. Otherwise a
+  member coming back from their bank after the helper finished the payment would be refused
+  the very result they came back for.
 - **The host's controls:** the logged-in host, for her own memberships.
 - **The founder's page:** `requireAdmin()` (`lib/admin-gate.ts`), with everything it checks
   today, not only a look in the list of admins.
@@ -136,7 +140,9 @@ host has one: the "Membership" part says "Memberships are not open yet" and offe
 founder's switch", months that have started go on: the host still sees her members and can still
 pause and end them, a member still sees their membership, its receipts and its buttons to
 cancel, and the founder's page shows everything. Only what starts something new is refused:
-saving a membership as on, inviting, joining, resuming, and switching a renewal back on.
+switching a membership on, inviting, joining, resuming, and switching a renewal back on. Editing
+a membership that is already on stays possible where the rulebook allows it, such as lowering
+the member price, and so does switching it off.
 
 ## 3b: the member's pages
 
@@ -267,8 +273,9 @@ card, a real bank's hold on a statement, a real renewal a month later, and two r
 
 ## What stays off after part three
 
-The founder's switch. Turning it on is the founder's step, after the lawyer's and Stripe's points
-and the friend test of the rulebook's "Before this can go live".
+The founder's switch. Turning it on is the founder's step, in two stages, by the rulebook's
+"Before this can go live": first for the friend test, with nobody else able to use it, and for
+everyone only after the lawyer's and Stripe's points and that test.
 
 ## Questions for Astra's check
 
