@@ -56,6 +56,14 @@ async function main() {
   const { decideProfile, updateHostProfile, ProfileError } = await import("../src/lib/profiles/profiles");
   const { addWeeklyHours, removeWeeklyHours, CalendarError } = await import("../src/lib/booking/calendar");
   const { RULES } = await import("../src/lib/terms");
+  const J = await import("../src/lib/membership/join");
+  const O = await import("../src/lib/membership/offers");
+  const A = await import("../src/lib/membership/access");
+  const { MembershipError } = await import("../src/lib/membership/rules");
+  const { MEMBERSHIP_WORDING_VERSION: WORDING } = await import("../src/lib/membership/wording");
+  const { changeWeeklyHours, previewWeeklyHoursChange } = await import("../src/lib/booking/calendar");
+  const { publicProfile } = await import("../src/lib/profiles/profiles");
+  type MemberChoice = import("../src/lib/booking/calendar").MemberChoice;
 
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -78,14 +86,15 @@ async function main() {
     return row;
   }
   /** A host with a regular price of $10.00, 3 hours a week (12 hours in four weeks), and a membership of 2 hours at $7.50: $60.00 a month. */
-  async function newHost(opts: { weeklyMinutes?: number; named?: boolean } = {}): Promise<Person> {
+  async function newHost(opts: { weeklyMinutes?: number; named?: boolean; offer?: boolean } = {}): Promise<Person> {
     const p = await person("host");
     const stamp = new Date();
     await db.insert(schema.hostProfiles).values({ userId: p.id, handle: `mc${RUN}${made}`, handleKey: `mc${RUN}${made}`, displayName: `Host ${made}`, pricePer15Cents: 1000, status: "approved", usConfirmedAt: stamp });
-    await db.insert(schema.hostSettings).values({ userId: p.id }).onConflictDoNothing();
+    // (Marked as able to be paid: a payout account cannot be made ready from a script. Only the collecting journey sends money, and it borrows the real test account.)
+    await db.insert(schema.hostSettings).values({ userId: p.id, payoutsReady: true }).onConflictDoNothing();
     await db.insert(schema.hostCalendars).values({ userId: p.id, timeZone: "America/New_York", lengths: "30", noticeHours: 24, horizonWeeks: 2, breakMinutes: 5 });
     await db.insert(schema.weeklyHours).values({ hostId: p.id, weekday: 1, startMinute: 540, endMinute: 540 + (opts.weeklyMinutes ?? 180) });
-    await db.insert(schema.membershipOffers).values({ hostId: p.id, on: true, pricePer15Cents: 750, includedMinutes: 120 });
+    if (opts.offer !== false) await db.insert(schema.membershipOffers).values({ hostId: p.id, on: true, pricePer15Cents: 750, includedMinutes: 120 });
     if (opts.named !== false) {
       named.push(p.id);
       await setSwitches({ memberships: "named", membershipsHosts: named });
@@ -318,6 +327,11 @@ async function main() {
       await db.delete(schema.membershipInvitations).where(inArray(schema.membershipInvitations.membershipId, ids));
       await db.delete(schema.memberships).where(inArray(schema.memberships.id, ids));
     }
+    const theirBookings = (await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(like(schema.bookings.hostId, "mc-%"), like(schema.bookings.customerId, "mc-%")))).map((row) => row.id);
+    if (theirBookings.length > 0) {
+      await db.delete(schema.bookingCards).where(inArray(schema.bookingCards.bookingId, theirBookings));
+      await db.delete(schema.bookings).where(inArray(schema.bookings.id, theirBookings));
+    }
     const theirCalls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(like(schema.calls.hostId, "mc-%"), like(schema.calls.customerId, "mc-%")))).map((row) => row.id);
     if (theirCalls.length > 0) {
       const callPayments = (await db.select({ id: schema.payments.id }).from(schema.payments).where(inArray(schema.payments.callId, theirCalls))).map((row) => row.id);
@@ -329,11 +343,6 @@ async function main() {
       }
       await db.delete(schema.attendanceEvents).where(inArray(schema.attendanceEvents.callId, theirCalls));
       await db.delete(schema.calls).where(inArray(schema.calls.id, theirCalls));
-    }
-    const theirBookings = (await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(like(schema.bookings.hostId, "mc-%"), like(schema.bookings.customerId, "mc-%")))).map((row) => row.id);
-    if (theirBookings.length > 0) {
-      await db.delete(schema.bookingCards).where(inArray(schema.bookingCards.bookingId, theirBookings));
-      await db.delete(schema.bookings).where(inArray(schema.bookings.id, theirBookings));
     }
     if (!everything) return;
     // The people themselves, at the very end. Anything that still points at one is left for the next run.
@@ -1301,6 +1310,529 @@ async function main() {
     );
     await helper(new Date());
     check("and healthy again once the helper has done its work", (await lines()).length === 0, await lines());
+  });
+
+  // ========================================================================
+  // Part 1b: how a membership comes to exist and what people do with it. From here on memberships
+  // are made the real way: the host invites, the person joins, and pays.
+  // ========================================================================
+  const refusal = (work: Promise<unknown>) => work.then(() => null, (error: unknown) => (error instanceof MembershipError || error instanceof CalendarError ? error.message : Promise.reject(error)));
+  /** The two have had a call, with this host as the host: over, not cancelled, and both were there. */
+  async function talked(host: Person, member: Person) {
+    const startsAt = new Date(Date.now() - 2 * DAY);
+    const [call] = await db.insert(schema.calls).values({ hostId: host.id, customerId: member.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), roomName: `membercheck-${randomUUID()}`, pricePer15Cents: 1000, closedAt: new Date(startsAt.getTime() + 31 * MIN) }).returning();
+    await db.insert(schema.bookings).values({ hostId: host.id, customerId: member.id, startsAt, endsAt: call.endsAt, lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "accepted", requestKey: randomUUID(), callId: call.id });
+    for (const who of [host.id, member.id]) {
+      await db.insert(schema.attendanceEvents).values({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: call.id, type: "participant_joined", roomSessionId: "RM_membercheck", participantIdentity: who, participantSessionId: `PA_${randomUUID().slice(0, 8)}`, providerTime: startsAt, payload: "{}" });
+    }
+  }
+  /** Someone the host has talked to, invited now (or at `at`). */
+  async function invited(host: Person, opts: { member?: Person; at?: Date } = {}) {
+    const member = opts.member ?? (await person("member"));
+    if (!opts.member) await talked(host, member);
+    const invitation = await J.invite({ hostId: host.id, customerId: member.id, now: opts.at ?? new Date() });
+    return { host, member, ...invitation };
+  }
+  /** A member the real way: invited, joined with the box ticked, and (unless told otherwise) paid. */
+  async function joined(host: Person, opts: { pay?: boolean; take?: boolean; member?: Person } = {}): Promise<Made> {
+    const invitation = await invited(host, { member: opts.member });
+    const started = await J.join({ customerId: invitation.member.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, now: new Date() });
+    if (opts.pay !== false) await pay(started.monthId);
+    if (opts.take) await C.takeNow(started.monthId, new Date());
+    return { host, member: invitation.member, ...started };
+  }
+  const offerOf = async (host: Person) => (await db.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, host.id)))[0];
+  const agreementsOf = (membershipId: string) => db.select().from(schema.membershipAgreements).where(eq(schema.membershipAgreements.membershipId, membershipId)).orderBy(schema.membershipAgreements.at);
+  const invitationLines = (membershipId: string) => db.select().from(schema.membershipInvitations).where(eq(schema.membershipInvitations.membershipId, membershipId)).orderBy(schema.membershipInvitations.sentAt);
+  const save = async (host: Person, input: { on: boolean; pricePer15Cents: number; includedMinutes: number }) => O.saveOffer(host.id, input, (await O.previewOfferChange(host.id, input)).mark, new Date());
+  const setHours = (host: Person, minutesAWeek: number) => db.update(schema.weeklyHours).set({ endMinute: 540 + minutesAWeek }).where(eq(schema.weeklyHours.hostId, host.id));
+
+  // ========================================================================
+  journey("The host's membership: setting it up, what she is shown before saving, and a price that only goes down", async () => {
+    const host = await newHost({ offer: false });
+    const input = { on: true, pricePer15Cents: 750, includedMinutes: 120 };
+    check("a member price above the regular price is refused", /regular price/.test((await O.previewOfferChange(host.id, { ...input, pricePer15Cents: 1050 })).problem ?? ""));
+    check("time that is not on the list is refused", Boolean((await O.previewOfferChange(host.id, { ...input, includedMinutes: 45 })).problem));
+    check("an offer that does not fit in her hours even once is refused", /weekly hours offer 12 hours/.test((await O.previewOfferChange(host.id, { ...input, includedMinutes: 750 })).problem ?? ""), (await O.previewOfferChange(host.id, { ...input, includedMinutes: 750 })).problem);
+    await db.update(schema.hostSettings).set({ payoutsReady: false }).where(eq(schema.hostSettings.userId, host.id));
+    check("a host whose payout account is not ready cannot offer a membership", /payout account/.test((await refusal(save(host, input))) ?? ""));
+    await db.update(schema.hostSettings).set({ payoutsReady: true }).where(eq(schema.hostSettings.userId, host.id));
+    const preview = await O.previewOfferChange(host.id, input);
+    check("the preview saves nothing", preview.problem === null && (await offerOf(host)) === undefined);
+    await O.saveOffer(host.id, input, preview.mark, new Date());
+    check("saved: switched on, $7.50 per 15 minutes, 2 hours, its first version", (await offerOf(host)).on && (await offerOf(host)).pricePer15Cents === 750 && (await offerOf(host)).includedMinutes === 120 && (await offerOf(host)).version === 1);
+    check("the same confirmation a second time is refused: the page was worked out from a state that is gone", /changed while this page was open/.test((await refusal(O.saveOffer(host.id, input, preview.mark, new Date()))) ?? ""));
+
+    const a = await joined(host, { take: true });
+    const b = await joined(host);
+    const waiting = await invited(host);
+    // Lowering the price: what she is shown, with numbers.
+    const lower = { ...input, pricePer15Cents: 600 };
+    const shown = await O.previewOfferChange(host.id, lower);
+    // Two members at 2 hours each pay $1.50 less per 15 minutes: $12.00 less a month each, $24.00 together.
+    check("before saving she is shown who pays less, by how much, and which invitations are taken back", shown.lowered.length === 2 && shown.lessPerMonthCents === 2400 && shown.invitationsTakenBack === 1 && shown.termsChanged, shown);
+    check("and nothing is saved by looking", (await MS(a.membershipId)).ownPricePer15Cents === 750 && (await MS(waiting.membershipId)).status === "invited");
+    await O.saveOffer(host.id, lower, shown.mark, new Date());
+    check("saved: both members' own price is lowered for good, with a line on record, and they are told", (await MS(a.membershipId)).ownPricePer15Cents === 600 && (await MS(b.membershipId)).ownPricePer15Cents === 600 && (await agreementsOf(a.membershipId)).at(-1)?.kind === "price_lowered" && (await emails(a.member.email, "costs less from your next month")) === 1);
+    check("the months that are running or held keep the price they were written down with", (await M(a.monthId)).pricePer15Cents === 750 && (await M(a.monthId)).totalCents === 6000 && (await M(b.monthId)).totalCents === 6000 && (await intentOf(b.monthId)).amount === 6000);
+    check("the open invitation was for the membership as it stood: it is taken back, and the person is told", (await MS(waiting.membershipId)).status === "ended" && (await invitationLines(waiting.membershipId))[0].outcome === "taken_back" && (await emails(waiting.member.email, "no longer open")) === 1);
+    check("an old link no longer works", (await refusal(J.join({ customerId: waiting.member.id, inviteId: waiting.inviteId, requestId: randomUUID(), agreed: true, now: new Date() }))) === "This invitation is no longer open.");
+
+    await save(host, { ...input, pricePer15Cents: 700 });
+    check("raised again: members keep the lowest price they ever had", (await MS(a.membershipId)).ownPricePer15Cents === 600 && (await offerOf(host)).pricePer15Cents === 700 && (await offerOf(host)).version === 3);
+    const newer = await joined(host);
+    check("a new member pays the new price", (await MS(newer.membershipId)).ownPricePer15Cents === 700 && (await M(newer.monthId)).totalCents === 5600 && (await intentOf(newer.monthId)).amount === 5600);
+    await closeMonth(a.monthId, (await M(a.monthId)).endsAt!);
+    const next = (await monthsOf(a.membershipId))[1];
+    check("the older member's next month is written down at their own, lower price: $48.00 for the same 2 hours", next.pricePer15Cents === 600 && next.totalCents === 4800 && next.includedMinutes === 120 && next.status === "held", next);
+
+    await save(host, { on: true, pricePer15Cents: 700, includedMinutes: 60 });
+    check("the time changed: only new invitations get it; members keep their time", (await MS(a.membershipId)).ownMinutes === 120 && (await MS(newer.membershipId)).ownMinutes === 120 && (await offerOf(host)).includedMinutes === 60);
+    for (const m of [a, b, newer]) await audit("after changes to the host's membership", m);
+  });
+
+  // ========================================================================
+  journey("Switching the host's membership off, and on again", async () => {
+    const host = await newHost();
+    const heldOne = await joined(host);
+    const trying = await joined(host, { take: true });
+    await saveCard(trying, "pm_card_chargeCustomerFail");
+    await closeMonth(trying.monthId, (await M(trying.monthId)).endsAt!);
+    const unpaid = (await monthsOf(trying.membershipId))[1];
+    const open = await invited(host);
+    const atCard = await joined(host, { pay: false });
+    check("(one month held, one payment being tried, one invitation open, one person at the card step)", (await M(heldOne.monthId)).status === "held" && (await MS(trying.membershipId)).status === "unpaid" && (await MS(atCard.membershipId)).status === "joining");
+    const off = { on: false, pricePer15Cents: 750, includedMinutes: 120 };
+    const shown = await O.previewOfferChange(host.id, off);
+    check("she is shown what switching off does", shown.switchingOff && shown.invitationsTakenBack === 2 && shown.renewalsStopping === 1 && shown.pausedAtOnce === 1, shown);
+    await O.saveOffer(host.id, off, shown.mark, new Date());
+    check("the invitation is taken back, and the joining at the card step is undone", (await MS(open.membershipId)).status === "ended" && (await MS(atCard.membershipId)).status === "ended" && (await M(atCard.monthId)).status === "given_up");
+    const paused = await MS(trying.membershipId);
+    check("the member whose payment was being tried is paused at once, and that payment is cancelled", paused.status === "paused" && paused.pausedReason === "offer_off" && (await M(unpaid.id)).status === "given_up" && (await intentOf(unpaid.id)).status === "canceled", paused.status);
+    check("the month that had started goes on, also one whose money is only held", (await MS(heldOne.membershipId)).status === "active" && (await M(heldOne.monthId)).status === "held" && (await C.takeNow(heldOne.monthId, new Date())).status === "running");
+    check("nobody can resume while it is off", /not offering a membership/.test((await refusal(J.resume({ customerId: trying.member.id, membershipId: trying.membershipId, requestId: randomUUID(), agreed: true, now: new Date() }))) ?? ""));
+    await db.update(schema.memberships).set({ memberStoppedAt: new Date() }).where(eq(schema.memberships.id, heldOne.membershipId));
+    check("and a stopped renewal cannot be switched back on", /not offering a membership/.test((await refusal(E.undoStop({ membershipId: heldOne.membershipId, by: "member", actorId: heldOne.member.id, now: new Date() }))) ?? ""));
+    await db.update(schema.memberships).set({ memberStoppedAt: null }).where(eq(schema.memberships.id, heldOne.membershipId));
+    await closeMonth(heldOne.monthId, (await M(heldOne.monthId)).endsAt!);
+    check("at its month's end that member is paused, and nothing is charged", (await MS(heldOne.membershipId)).status === "paused" && (await MS(heldOne.membershipId)).pausedReason === "offer_off" && (await monthsOf(heldOne.membershipId)).length === 1);
+
+    await save(host, { on: true, pricePer15Cents: 750, includedMinutes: 120 });
+    check("switching it on again charges nobody by itself", (await MS(heldOne.membershipId)).status === "paused" && (await monthsOf(heldOne.membershipId)).length === 1 && (await offerOf(host)).version === 1);
+    const back = await J.resume({ customerId: heldOne.member.id, membershipId: heldOne.membershipId, requestId: randomUUID(), agreed: true, now: new Date() });
+    await pay(back.monthId, "pm_card_mastercard");
+    check("a paused member can then resume", (await MS(heldOne.membershipId)).status === "active" && (await M(back.monthId)).status === "held");
+    for (const m of [heldOne, trying, atCard]) await audit("after the membership was switched off and on", m);
+  });
+
+  // ========================================================================
+  journey("Inviting: who, how often, a place that is held, taking back, and running out", async () => {
+    const host = await newHost({ weeklyMinutes: 60 }); // room for two members
+    const stranger = await person("stranger");
+    check("only someone she has had a call with can be invited", /already had a call/.test((await refusal(J.invite({ hostId: host.id, customerId: stranger.id, now: new Date() }))) ?? ""));
+    check("and not herself", Boolean(await refusal(J.invite({ hostId: host.id, customerId: host.id, now: new Date() }))));
+    const T = new Date();
+    const first = await invited(host, { at: T });
+    const membership = await MS(first.membershipId);
+    check("invited: open for 24 hours, for the membership as it stands, and the person gets the link", membership.status === "invited" && membership.inviteExpiresAt?.getTime() === T.getTime() + DAY && membership.inviteMinutes === 120 && membership.inviteOfferVersion === 1 && (await emails(first.member.email, "invites you to a membership")) === 1);
+    check("the invitation holds its place", (await Room.roomLeft(db, host.id, T)) === 120);
+    const second = await invited(host, { at: T });
+    const third = await person("member");
+    await talked(host, third);
+    check("invitations up to the last place, and one more is refused", (await Room.roomLeft(db, host.id, T)) === 0 && /no room for another member/.test((await refusal(J.invite({ hostId: host.id, customerId: third.id, now: T }))) ?? ""));
+
+    const again = await J.invite({ hostId: host.id, customerId: first.member.id, now: new Date(T.getTime() + HOUR) });
+    check("inviting the same person again makes a new invitation with a new 24 hours, on the same place", again.membershipId === first.membershipId && again.inviteId !== first.inviteId && (await MS(first.membershipId)).inviteExpiresAt?.getTime() === T.getTime() + HOUR + DAY && (await Room.roomLeft(db, host.id, T)) === 0);
+    check("the old link stops working", (await refusal(J.join({ customerId: first.member.id, inviteId: first.inviteId, requestId: randomUUID(), agreed: true, now: new Date(T.getTime() + 2 * HOUR) }))) === "This invitation is no longer open.");
+    await J.invite({ hostId: host.id, customerId: first.member.id, now: new Date(T.getTime() + 2 * HOUR) });
+    check("a fourth invitation to one person in 30 days is refused", /3 times in the last 30 days/.test((await refusal(J.invite({ hostId: host.id, customerId: first.member.id, now: new Date(T.getTime() + 3 * HOUR) }))) ?? ""));
+    check("someone else's link shows nothing, exactly like one that does not exist", (await A.invitationFor(second.member.id, again.inviteId)) === null && (await A.invitationFor(second.member.id, randomUUID())) === null && (await A.invitationFor(second.member.id, second.inviteId, T))?.expired === false);
+
+    await J.takeBackInvitation({ hostId: host.id, membershipId: second.membershipId, now: T });
+    check("taken back: it ends, its place is free, and the person is told", (await MS(second.membershipId)).status === "ended" && (await Room.roomLeft(db, host.id, T)) === 120 && (await emails(second.member.email, "no longer open")) === 1 && (await emails(host.email, "has run out")) === 0);
+    check("a link that was taken back does not work", (await refusal(J.join({ customerId: second.member.id, inviteId: second.inviteId, requestId: randomUUID(), agreed: true, now: T }))) === "This invitation is no longer open.");
+
+    const other = await invited(host, { member: third, at: T });
+    await helper(new Date(T.getTime() + DAY - MIN), 1);
+    check("a minute before its 24 hours are over the invitation is open", (await MS(other.membershipId)).status === "invited");
+    check("\"Join\" after the 24 hours is refused, also when the helper has not been by yet", /has run out/.test((await refusal(J.join({ customerId: third.id, inviteId: other.inviteId, requestId: randomUUID(), agreed: true, now: new Date(T.getTime() + DAY) }))) ?? ""));
+    await helper(new Date(T.getTime() + DAY), 1);
+    check("at 24 hours it ends by itself, its place is free again, and both are told", (await MS(other.membershipId)).status === "ended" && (await invitationLines(other.membershipId))[0].outcome === "ran_out" && (await emails(third.email, "no longer open")) === 1 && (await emails(host.email, "has run out")) === 1);
+    const anew = await J.invite({ hostId: host.id, customerId: third.id, now: new Date(T.getTime() + DAY) });
+    check("she can invite the same person again: a new membership row, the old one closed", anew.membershipId !== other.membershipId && (await MS(anew.membershipId)).status === "invited");
+
+    // What stands in the way of an invitation.
+    const host2 = await newHost();
+    const guest = await person("member");
+    await talked(host2, guest);
+    const tryInvite = () => refusal(J.invite({ hostId: host2.id, customerId: guest.id, now: new Date() }));
+    await db.insert(schema.blocks).values({ blockerId: guest.id, blockedId: host2.id });
+    check("a block either way: refused, without saying why", (await tryInvite()) === "This person cannot become a member at the moment.");
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, guest.id));
+    await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, guest.id));
+    check("a paused account: refused", Boolean(await tryInvite()));
+    await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, guest.id));
+    await db.update(schema.hostSettings).set({ verifiedOnly: true }).where(eq(schema.hostSettings.userId, host2.id));
+    check("a host who only takes people with a confirmed ID cannot invite someone without one", /confirmed their ID/.test((await tryInvite()) ?? ""));
+    await db.update(schema.hostSettings).set({ verifiedOnly: false }).where(eq(schema.hostSettings.userId, host2.id));
+    await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, host2.id));
+    check("a host whose page is not approved cannot invite", Boolean(await tryInvite()));
+    await db.update(schema.hostProfiles).set({ status: "approved" }).where(eq(schema.hostProfiles.userId, host2.id));
+    const m = await joined(host2, { member: guest });
+    check("someone who is already a member cannot be invited", (await tryInvite()) === "This person is already a member.");
+    await E.cancelNow({ membershipId: m.membershipId, memberId: guest.id, now: new Date() });
+    check("a paused member needs no invitation: they can resume by themselves", /resume by themselves/.test((await tryInvite()) ?? ""));
+    await audit("after invitations", m);
+  });
+
+  // ========================================================================
+  journey("Joining: the box, one agreement however often it is pressed, the card step, and a refused card", async () => {
+    const host = await newHost();
+    const invitation = await invited(host);
+    const requestId = randomUUID();
+    const press = (id = requestId, agreed = true, who = invitation.member.id) => J.join({ customerId: who, inviteId: invitation.inviteId, requestId: id, agreed, now: new Date() });
+    check("without the box ticked nothing happens", /tick the box/.test((await refusal(press(requestId, false))) ?? "") && (await MS(invitation.membershipId)).status === "invited");
+    const outsider = await person("stranger");
+    check("someone else cannot use the link", (await refusal(press(randomUUID(), true, outsider.id))) === "This invitation is no longer open.");
+    const [one, two] = await Promise.all([press(), press()]);
+    const three = await press();
+    const membership = await MS(invitation.membershipId);
+    const agreements = await agreementsOf(invitation.membershipId);
+    check("\"Join\" pressed twice at once, and once more: one agreement and one month", one.monthId === two.monthId && one.monthId === three.monthId && agreements.length === 1 && (await monthsOf(invitation.membershipId)).length === 1);
+    check("what was agreed is on record: the version of her membership, the price, the time, the wording, and when", agreements[0].kind === "joined" && agreements[0].offerVersion === 1 && agreements[0].pricePer15Cents === 750 && agreements[0].minutes === 120 && agreements[0].cardWordingVersion === WORDING && agreements[0].firstMonthNumber === 1);
+    check("the place is theirs for the card step; nothing is charged yet", membership.status === "joining" && membership.period === 1 && (await M(one.monthId)).status === "to_pay" && (await M(one.monthId)).cardStepExpiresAt !== null && (await M(one.monthId)).agreementId === agreements[0].id && (await invitationLines(invitation.membershipId))[0].outcome === "accepted");
+    check("only this person may pay, and only while the month can be paid", (await A.mayPay(invitation.member.id, one.monthId)) && !(await A.mayPay(outsider.id, one.monthId)) && (await A.maySeePayment(outsider.id, one.monthId)) === null);
+
+    await pay(one.monthId, "pm_card_chargeDeclined");
+    check("a refused card at joining: nothing starts, and no \"payment failed\" email (the person is at the card form)", (await M(one.monthId)).status === "to_pay" && (await MS(invitation.membershipId)).status === "joining" && (await emails(invitation.member.email, "did not go through")) === 0);
+    await pay(one.monthId, "pm_card_visa");
+    const month = await M(one.monthId);
+    check("with a good card the first month's amount is held, and the membership starts at that moment", month.status === "held" && (await MS(invitation.membershipId)).status === "active" && (await MS(invitation.membershipId)).since?.getTime() === month.authorisedAt?.getTime());
+    check("the member has the receipt; the host is told she has a new member", (await emails(invitation.member.email, "for this month")) === 1 && (await emails(host.email, "is now a member")) === 1);
+    check("the payment step is closed, and the member can still see what became of it", !(await A.mayPay(invitation.member.id, one.monthId)) && (await A.maySeePayment(invitation.member.id, one.monthId))?.status === "held" && (await A.membershipFor(invitation.member.id, invitation.membershipId))?.months.length === 1 && (await A.membershipFor(outsider.id, invitation.membershipId)) === null);
+    await audit("after joining", { host, member: invitation.member, membershipId: invitation.membershipId, monthId: one.monthId });
+
+    // "Join" pressed just before the 24 hours are over, with the hold arriving after them.
+    const T = new Date();
+    const late = await invited(host, { at: new Date(T.getTime() - DAY + MIN) });
+    const inTime = await J.join({ customerId: late.member.id, inviteId: late.inviteId, requestId: randomUUID(), agreed: true, now: T });
+    await helper(new Date(T.getTime() + 2 * MIN), 1);
+    check("pressed a minute before the invitation ran out: the helper leaves it alone while the card step runs", (await MS(late.membershipId)).status === "joining");
+    await pay(inTime.monthId);
+    check("the hold arrives after the 24 hours: joined all the same", (await MS(late.membershipId)).status === "active" && (await M(inTime.monthId)).status === "held");
+
+    // The card step is left unfinished.
+    const left = await joined(host, { pay: false });
+    await helper(new Date(Date.now() + 31 * MIN), 1);
+    check("an unfinished card step is undone: nothing is charged, and the invitation stands for the rest of its 24 hours", (await M(left.monthId)).status === "given_up" && (await MS(left.membershipId)).status === "invited" && (await MS(left.membershipId)).currentMonthId === null);
+    const [line] = await invitationLines(left.membershipId);
+    const second = await J.join({ customerId: left.member.id, inviteId: line.inviteId, requestId: randomUUID(), agreed: true, now: new Date() });
+    await pay(second.monthId);
+    check("they can press \"Join\" again: a new agreement and a new month, and this time it is held", second.monthId !== left.monthId && (await M(second.monthId)).status === "held" && (await M(second.monthId)).number === 2 && (await agreementsOf(left.membershipId)).length === 2 && (await MS(left.membershipId)).period === 2);
+    await audit("after an unfinished card step", left);
+
+    // A new invitation while the clean-up of the old, ended membership is still to be done.
+    const old = await joined(host);
+    await db.transaction(async (tx) => S.endMembership(tx, await L.lockMembership(tx, old.membershipId), { by: "host", reason: "the host ended it" }, new Date()));
+    const fresh = await J.invite({ hostId: host.id, customerId: old.member.id, now: new Date() });
+    check("invited again while the old membership's clean-up is still to be done: a membership of its own", fresh.membershipId !== old.membershipId && (await MS(old.membershipId)).cleanupDoneAt === null && (await MS(fresh.membershipId)).status === "invited");
+    await helper(new Date(), 1);
+    check("the helper cleans up the old one (its hold is let go) and leaves the new one alone", (await MS(old.membershipId)).cleanupDoneAt !== null && (await M(old.monthId)).status === "given_up" && (await intentOf(old.monthId)).status === "canceled" && (await MS(fresh.membershipId)).status === "invited");
+    await audit("after a new invitation beside an old ending", old);
+  });
+
+  // ========================================================================
+  journey("Cancelling, \"Keep my membership\", the host's pause, and \"Cancel now\"", async () => {
+    const host = await newHost();
+    const m = await joined(host, { take: true });
+    const end = (await M(m.monthId)).endsAt!;
+    const stop = (by: "member" | "host", made = m, now = new Date()) => E.stopRenewal({ membershipId: made.membershipId, by, actorId: by === "member" ? made.member.id : host.id, now });
+    const undo = (by: "member" | "host", made = m, now = new Date()) => refusal(E.undoStop({ membershipId: made.membershipId, by, actorId: by === "member" ? made.member.id : host.id, now }));
+    check("someone else cannot cancel it, and learns nothing about it", (await refusal(E.stopRenewal({ membershipId: m.membershipId, by: "member", actorId: host.id, now: new Date() }))) === "Membership not found.");
+    await stop("member");
+    await stop("member");
+    check("the member cancels: only the renewal is stopped, and both are told once", (await MS(m.membershipId)).memberStoppedAt !== null && (await MS(m.membershipId)).status === "active" && (await M(m.monthId)).status === "running" && (await M(m.monthId)).freeCents === 6000 && (await emails(m.member.email, "ends on its paid month")) === 1 && (await emails(host.email, "has cancelled their membership")) === 1);
+    check("\"Keep my membership\" brings it back, and nothing is charged", (await undo("member")) === null && (await MS(m.membershipId)).memberStoppedAt === null && (await monthsOf(m.membershipId)).length === 1 && (await emails(host.email, "keeps their membership")) === 1);
+
+    await stop("host");
+    check("the host pauses a member after this month: the member is told, and keeps the month", (await MS(m.membershipId)).hostStoppedAt !== null && (await emails(m.member.email, "has paused your membership after this month")) === 1);
+    check("a member cannot undo the host's pause", (await undo("member")) === null && (await MS(m.membershipId)).hostStoppedAt !== null);
+    await stop("member");
+    check("both have stopped it; the host undoes hers: it is still stopped", (await undo("host")) === null && (await MS(m.membershipId)).hostStoppedAt === null && (await MS(m.membershipId)).memberStoppedAt !== null);
+    check("after the paid month has ended it can no longer be switched back on", /month has ended/.test((await undo("member", m, end)) ?? ""));
+    await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: m.member.id });
+    check("not with a block either", Boolean(await undo("member")));
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, host.id));
+    await closeMonth(m.monthId, end);
+    check("at the month's end the membership is paused, and nothing new is charged", (await MS(m.membershipId)).status === "paused" && (await MS(m.membershipId)).pausedReason === "member" && (await monthsOf(m.membershipId)).length === 1);
+    await audit("after cancelling the normal way", m);
+
+    // Switching back on needs room for the member's next month.
+    const small = await newHost({ weeklyMinutes: 60 });
+    const stays = await joined(small, { take: true });
+    const leaves = await joined(small, { take: true });
+    await E.stopRenewal({ membershipId: leaves.membershipId, by: "member", actorId: leaves.member.id, now: new Date() });
+    await setHours(small, 30);
+    check("a member who stopped their own renewal cannot switch back on once the hours have no room for it", /no room for your next month/.test((await refusal(E.undoStop({ membershipId: leaves.membershipId, by: "member", actorId: leaves.member.id, now: new Date() }))) ?? "") && (await MS(stays.membershipId)).status === "active");
+
+    // "Cancel now", while the month's amount is only held.
+    const a = await joined(host);
+    await E.cancelNow({ membershipId: a.membershipId, memberId: a.member.id, now: new Date() });
+    check("\"Cancel now\": the hold is let go, nothing is charged, and the membership is paused today", (await M(a.monthId)).status === "given_up" && (await intentOf(a.monthId)).status === "canceled" && (await intentOf(a.monthId)).amount_received === 0 && (await MS(a.membershipId)).status === "paused" && (await MS(a.membershipId)).pausedReason === "cancel_now");
+    check("pressed again: there is nothing left to cancel", /already paused/.test((await refusal(E.cancelNow({ membershipId: a.membershipId, memberId: a.member.id, now: new Date() }))) ?? ""));
+    const b = await joined(host, { take: true });
+    check("once the money has been taken, only the normal way is left", /already been taken/.test((await refusal(E.cancelNow({ membershipId: b.membershipId, memberId: b.member.id, now: new Date() }))) ?? "") && (await M(b.monthId)).status === "running");
+    const c = await joined(host);
+    await E.stopRenewal({ membershipId: c.membershipId, by: "member", actorId: c.member.id, now: new Date() });
+    await E.cancelNow({ membershipId: c.membershipId, memberId: c.member.id, now: new Date() });
+    check("a member who chose \"at the end of the month\" can still press \"Cancel now\" while the amount is only held", (await MS(c.membershipId)).status === "paused" && (await M(c.monthId)).status === "given_up");
+
+    // At the same moment as the taking, and as the host ending it: one outcome each time.
+    const d = await joined(host);
+    await Promise.all([refusal(E.cancelNow({ membershipId: d.membershipId, memberId: d.member.id, now: new Date() })), C.takeMonth(d.monthId, new Date())]);
+    await helper(new Date());
+    const dMonth = await M(d.monthId);
+    const dOutcome = dMonth.status === "given_up" ? "cancelled" : dMonth.status === "running" ? "taken" : dMonth.status === "finished" && dMonth.paidBackCents === 6000 ? "taken and paid back in full" : `unexpected: ${dMonth.status}`;
+    check(`"Cancel now" and the taking at the same moment: one outcome (${dOutcome})`, !dOutcome.startsWith("unexpected") && (dOutcome === "taken" ? (await MS(d.membershipId)).status === "active" : (await MS(d.membershipId)).status === "paused"), dOutcome);
+    const e = await joined(host);
+    await Promise.all([refusal(E.cancelNow({ membershipId: e.membershipId, memberId: e.member.id, now: new Date() })), E.endByHost({ membershipId: e.membershipId, hostId: host.id, now: new Date() })]);
+    await helper(new Date());
+    check("\"Cancel now\" and the host ending the membership at the same moment: the hold is let go once, and the membership is paused or ended", (await M(e.monthId)).status === "given_up" && (await intentOf(e.monthId)).status === "canceled" && ["paused", "ended"].includes((await MS(e.membershipId)).status));
+    for (const made of [a, b, c, d, e]) await audit("after Cancel now", made);
+
+    // Without a running month (a payment is being tried), a stop pauses at once.
+    const f = await joined(host, { take: true });
+    await saveCard(f, "pm_card_chargeCustomerFail");
+    await closeMonth(f.monthId, (await M(f.monthId)).endsAt!);
+    const open = (await monthsOf(f.membershipId))[1];
+    await E.stopRenewal({ membershipId: f.membershipId, by: "host", actorId: host.id, now: new Date() });
+    check("\"Pause after this month\" on a member whose payment is being tried pauses at once and cancels the open payment", (await MS(f.membershipId)).status === "paused" && (await MS(f.membershipId)).pausedReason === "host" && (await M(open.id)).status === "given_up" && (await intentOf(open.id)).status === "canceled");
+
+    // The host's own "End membership".
+    await E.endByHost({ membershipId: b.membershipId, hostId: host.id, now: new Date() });
+    await helper(new Date());
+    check("\"End membership\": ended at once and for good, and all free money of the month is paid back", (await MS(b.membershipId)).status === "ended" && (await MS(b.membershipId)).endedBy === "host" && (await M(b.monthId)).paidBackCents === 6000 && (await emails(b.member.email, "has ended")) === 1);
+    await E.endByHost({ membershipId: a.membershipId, hostId: host.id, now: new Date() });
+    check("a paused member can be ended too; coming back then needs a new invitation", (await MS(a.membershipId)).status === "ended" && /new invitation/.test((await refusal(J.resume({ customerId: a.member.id, membershipId: a.membershipId, requestId: randomUUID(), agreed: true, now: new Date() }))) ?? ""));
+    for (const made of [b, f]) await audit("after the host's pause and ending", made);
+  });
+
+  // ========================================================================
+  journey("Resuming after a pause: the host's membership as it is then, agreed to again", async () => {
+    const host = await newHost();
+    const m = await joined(host);
+    await E.cancelNow({ membershipId: m.membershipId, memberId: m.member.id, now: new Date() });
+    await save(host, { on: true, pricePer15Cents: 700, includedMinutes: 60 });
+    const requestId = randomUUID();
+    const press = (id = requestId, agreed = true) => J.resume({ customerId: m.member.id, membershipId: m.membershipId, requestId: id, agreed, now: new Date() });
+    check("resuming needs the box ticked again", /tick the box/.test((await refusal(press(requestId, false))) ?? ""));
+    const [one, two] = await Promise.all([press(), press()]);
+    check("\"Resume\" pressed twice: one agreement, one month", one.monthId === two.monthId && (await agreementsOf(m.membershipId)).length === 2 && (await monthsOf(m.membershipId)).length === 2);
+    const month = await pay(one.monthId, "pm_card_mastercard");
+    const membership = await MS(m.membershipId);
+    check("a new month starts at the host's membership as it is now: 1 hour for $28.00", month.status === "held" && month.totalCents === 2800 && month.includedMinutes === 60 && month.period === 2 && membership.status === "active" && membership.ownPricePer15Cents === 700 && membership.ownMinutes === 60, month);
+    const [joinedUnder, resumedUnder] = await agreementsOf(m.membershipId);
+    const all = await monthsOf(m.membershipId);
+    check("each month shows the agreement it was started under", joinedUnder.kind === "joined" && resumedUnder.kind === "resumed" && resumedUnder.offerVersion === 2 && all[0].agreementId === joinedUnder.id && all[1].agreementId === resumedUnder.id);
+    check("the host is told they are back; \"since\" counts from this resuming", (await emails(host.email, "has resumed their membership")) === 1 && membership.since?.getTime() === month.authorisedAt?.getTime());
+    await E.cancelNow({ membershipId: m.membershipId, memberId: m.member.id, now: new Date() });
+    const third = await press(randomUUID());
+    await pay(third.monthId, "pm_card_visa");
+    check("paused and resumed a second time: a third period with its own agreement", (await MS(m.membershipId)).period === 3 && (await agreementsOf(m.membershipId)).length === 3 && (await M(third.monthId)).status === "held");
+    await audit("after resuming twice", m);
+
+    // A card step that is not finished leaves the member paused, as they were.
+    const n = await joined(host);
+    await E.cancelNow({ membershipId: n.membershipId, memberId: n.member.id, now: new Date() });
+    const half = await J.resume({ customerId: n.member.id, membershipId: n.membershipId, requestId: randomUUID(), agreed: true, now: new Date() });
+    await helper(new Date(Date.now() + 31 * MIN), 1);
+    check("a resuming that is not finished: paused again as before, nothing charged, no second \"paused\" email", (await MS(n.membershipId)).status === "paused" && (await MS(n.membershipId)).pausedReason === "cancel_now" && (await M(half.monthId)).status === "given_up" && (await emails(n.member.email, "is paused")) === 1);
+
+    // What stands in the way of resuming.
+    const tryResume = () => refusal(J.resume({ customerId: n.member.id, membershipId: n.membershipId, requestId: randomUUID(), agreed: true, now: new Date() }));
+    await db.insert(schema.blocks).values({ blockerId: n.member.id, blockedId: host.id });
+    check("not with a block", (await tryResume()) === "This membership is not available at the moment.");
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, n.member.id));
+    await setSwitches({ memberships: "off" });
+    check("not with the founder's switch off", (await tryResume()) === "Memberships are not open at the moment.");
+    await setSwitches({ memberships: "named", membershipsHosts: named });
+    await audit("after a resuming that was not finished", n);
+
+    // Two paused members, one place.
+    const small = await newHost({ weeklyMinutes: 30 });
+    const p = await joined(small);
+    await E.cancelNow({ membershipId: p.membershipId, memberId: p.member.id, now: new Date() });
+    const q = await joined(small);
+    await E.cancelNow({ membershipId: q.membershipId, memberId: q.member.id, now: new Date() });
+    const both = await Promise.all([p, q].map((made) => refusal(J.resume({ customerId: made.member.id, membershipId: made.membershipId, requestId: randomUUID(), agreed: true, now: new Date() }))));
+    check("two paused members resuming for one place at the same moment: one gets it, the other is told there is no room", both.filter((answer) => answer === null).length === 1 && both.filter((answer) => /no room/.test(answer ?? "")).length === 1, both);
+    const winner = both[0] === null ? p : q;
+    const loser = both[0] === null ? q : p;
+    await pay((await MS(winner.membershipId)).currentMonthId!, "pm_card_mastercard");
+    await E.cancelNow({ membershipId: winner.membershipId, memberId: winner.member.id, now: new Date() });
+    await helper(new Date(), 1);
+    check("when the place frees up, the other can resume", (await refusal(J.resume({ customerId: loser.member.id, membershipId: loser.membershipId, requestId: randomUUID(), agreed: true, now: new Date() }))) === null);
+  });
+
+  // ========================================================================
+  journey("A cut in hours: the host chooses for each member, and can offer less time", async () => {
+    // Five members at 2 hours each, with a host who offers exactly 10 hours a month.
+    const host = await newHost({ weeklyMinutes: 150 });
+    const five: Made[] = [];
+    for (let i = 0; i < 5; i++) five.push(await joined(host));
+    const [hours] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host.id));
+    const toTwoHours = { remove: hours.id, add: { weekday: 1, from: "09:00", to: "09:30" } };
+    const cut = await previewWeeklyHoursChange(host.id, toTwoHours);
+    check("she is shown what her members need, what she would offer, and what she still owes this month", cut.needed === 600 && cut.hoursAfter === 120 && cut.owedThisMonth === 600 && cut.members.length === 5, cut);
+    check("to start with, the newest members are set to \"pause\" until the others fit", cut.members[0].membershipId === five[0].membershipId && cut.members.map((member) => member.suggested).join() === "keep,pause,pause,pause,pause");
+    check("looking saves nothing", (await Room.hostMinutes(db, host.id)) === 600);
+    check("the cut cannot be saved until she has chosen", /Choose for each member/.test((await refusal(changeWeeklyHours(host.id, toTwoHours))) ?? "") && (await Room.hostMinutes(db, host.id)) === 600);
+    const choose = (choices: Array<"keep" | "pause">) => ({ mark: cut.mark, members: five.map((m, index) => ({ membershipId: m.membershipId, choice: choices[index] })) });
+    check("nor while the members she keeps do not fit", /members you keep need 4 hours/.test((await refusal(changeWeeklyHours(host.id, toTwoHours, choose(["keep", "keep", "pause", "pause", "pause"])))) ?? ""));
+    await changeWeeklyHours(host.id, toTwoHours, choose(["pause", "pause", "keep", "pause", "pause"]));
+    const stopped = await Promise.all(five.map(async (m) => (await MS(m.membershipId)).hostStoppedAt !== null));
+    check("she can keep any one of the five, not only the oldest: the cut and her choices are saved in one step", (await Room.hostMinutes(db, host.id)) === 120 && stopped.join() === "true,true,false,true,true", stopped);
+    check("months that have started are not touched, and the paused members are told", (await M(five[0].monthId)).status === "held" && (await MS(five[0].membershipId)).status === "active" && (await emails(five[0].member.email, "has paused your membership after this month")) === 1);
+    const [rowNow] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host.id));
+    check("a confirmation from a page that is out of date is refused, and nothing is saved", /changed while this page was open/.test((await refusal(changeWeeklyHours(host.id, { remove: rowNow.id }, choose(["pause", "pause", "pause", "pause", "pause"])))) ?? "") && (await Room.hostMinutes(db, host.id)) === 120);
+    check("undoing a pause needs room", /no room for this member/.test((await refusal(E.undoStop({ membershipId: five[0].membershipId, by: "host", actorId: host.id, now: new Date() }))) ?? ""));
+    await setHours(host, 60);
+    check("adding hours back undoes nothing by itself; she undoes it", (await MS(five[0].membershipId)).hostStoppedAt !== null && (await refusal(E.undoStop({ membershipId: five[0].membershipId, by: "host", actorId: host.id, now: new Date() }))) === null && (await MS(five[0].membershipId)).hostStoppedAt === null);
+    for (const m of [five[1], five[2]]) {
+      await C.takeNow(m.monthId, new Date()); // (by its end a month's money has long been taken)
+      await closeMonth(m.monthId, (await M(m.monthId)).endsAt!);
+    }
+    check("at their months' ends the paused member is paused and the kept one renews", (await MS(five[1].membershipId)).status === "paused" && (await MS(five[1].membershipId)).pausedReason === "host" && (await monthsOf(five[2].membershipId)).length === 2);
+
+    // Less time instead of a pause.
+    const host2 = await newHost({ weeklyMinutes: 60 }); // 4 hours a month
+    const older = await joined(host2, { take: true });
+    const newer = await joined(host2, { take: true });
+    const [hours2] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host2.id));
+    const toThreeHours = { remove: hours2.id, add: { weekday: 1, from: "09:00", to: "09:45" } };
+    const moved = await previewWeeklyHoursChange(host2.id, { remove: hours2.id, add: { weekday: 4, from: "14:00", to: "15:00" } });
+    check("a stretch moved to another time in one go is no cut: nothing to choose", moved.hoursAfter === 240 && moved.needed === 240 && moved.members.every((member) => member.suggested === "keep"));
+    const cut2 = await previewWeeklyHoursChange(host2.id, toThreeHours);
+    const less = (minutes: number) => ({ mark: cut2.mark, members: [{ membershipId: older.membershipId, choice: "keep" as const }, { membershipId: newer.membershipId, choice: "less" as const, minutes }] });
+    check("less time must be less than the member has, in half hours", Boolean(await refusal(changeWeeklyHours(host2.id, toThreeHours, less(120)))) && Boolean(await refusal(changeWeeklyHours(host2.id, toThreeHours, less(45)))));
+    await changeWeeklyHours(host2.id, toThreeHours, less(60));
+    const offered = await MS(newer.membershipId);
+    check("the newer member is offered 1 hour instead of 2, and gets the email with both amounts", offered.offerId !== null && offered.offeredMinutes === 60 && offered.offerMonthId === newer.monthId && offered.ownMinutes === 120 && (await emails(newer.member.email, "offers you less time")) === 1);
+    check("while the offer is open, the smaller time is what is kept for their next month", (await Room.minutesMembersNeed(db, host2.id)) === 180);
+    const cut3 = await previewWeeklyHoursChange(host2.id, { add: { weekday: 2, from: "09:00", to: "09:15" } });
+    check("a member with an open offer is shown with it", cut3.members.find((member) => member.membershipId === newer.membershipId)?.openOfferMinutes === 60);
+    const answer = (what: "accept" | "decline", made: Made, offerId: string) => refusal((what === "accept" ? E.acceptLessTime : E.declineLessTime)({ membershipId: made.membershipId, memberId: made.member.id, offerId, now: new Date() }));
+    check("an old or made-up button does nothing", (await answer("accept", newer, randomUUID())) === "This offer is no longer open." && (await answer("accept", older, offered.offerId!)) === "This offer is no longer open.");
+    await Promise.all([answer("accept", newer, offered.offerId!), answer("accept", newer, offered.offerId!)]);
+    const accepted = await MS(newer.membershipId);
+    const record = (await agreementsOf(newer.membershipId)).at(-1)!;
+    check("accepted (pressed twice): one new agreement on record, nothing charged, and the running month is unchanged", accepted.offerId === null && accepted.ownMinutes === 60 && record.kind === "less_time" && record.minutes === 60 && record.pricePer15Cents === 750 && (await agreementsOf(newer.membershipId)).length === 2 && (await M(newer.monthId)).includedMinutes === 120 && (await monthsOf(newer.membershipId)).length === 1);
+    check("both are told", (await emails(newer.member.email, "the offer of less time")) === 1 && (await emails(host2.email, "your offer of less time")) === 1);
+    await closeMonth(newer.monthId, (await M(newer.monthId)).endsAt!);
+    const smaller = (await monthsOf(newer.membershipId))[1];
+    check("from the next month: the smaller time at the member's own price, $30.00 instead of $60.00", smaller.includedMinutes === 60 && smaller.totalCents === 3000 && smaller.agreementId === record.id && smaller.status === "held" && (await intentOf(smaller.id)).amount === 3000, smaller);
+    await audit("after an accepted offer of less time", newer);
+
+    // "No thanks", no answer, and the host taking it back.
+    const host3 = await newHost({ weeklyMinutes: 120 }); // 8 hours a month
+    const members: Made[] = [];
+    for (let i = 0; i < 4; i++) members.push(await joined(host3, { take: true }));
+    const [hours3] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host3.id));
+    const toFour = { remove: hours3.id, add: { weekday: 1, from: "09:00", to: "10:00" } };
+    const cut4 = await previewWeeklyHoursChange(host3.id, toFour);
+    await changeWeeklyHours(host3.id, toFour, { mark: cut4.mark, members: members.map((m) => ({ membershipId: m.membershipId, choice: "less" as const, minutes: 60 })) });
+    const offers = await Promise.all(members.map(async (m) => (await MS(m.membershipId)).offerId!));
+    check("all four are offered 1 hour; with these offers her 4 hours are enough", offers.every(Boolean) && (await Room.minutesMembersNeed(db, host3.id)) === 240);
+    await answer("decline", members[0], offers[0]);
+    check("\"No thanks\": the member keeps the month and is stopped, with the reason kept", (await MS(members[0].membershipId)).offerId === null && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).ownMinutes === 120);
+    await closeMonth(members[0].monthId, (await M(members[0].monthId)).endsAt!);
+    await closeMonth(members[1].monthId, (await M(members[1].monthId)).endsAt!);
+    check("at the month's end: \"No thanks\" and no answer are both paused, told why, and nothing is charged", (await MS(members[0].membershipId)).status === "paused" && (await MS(members[0].membershipId)).pausedReason === "offer" && (await MS(members[1].membershipId)).status === "paused" && (await MS(members[1].membershipId)).pausedReason === "offer" && (await monthsOf(members[1].membershipId)).length === 1);
+    check("after the month's end the offer can no longer be accepted", (await answer("accept", members[1], offers[1])) === "This offer is no longer open.");
+    const takeBack = (m: Made, keep: boolean) => refusal(E.takeBackLessTime({ membershipId: m.membershipId, hostId: host3.id, keep, now: new Date() }));
+    check("the host takes an offer back and keeps the member with their old time, now that there is room", (await takeBack(members[2], true)) === null && (await MS(members[2].membershipId)).offerId === null && (await MS(members[2].membershipId)).hostStoppedAt === null && (await MS(members[2].membershipId)).ownMinutes === 120);
+    check("the old button then says the offer is no longer open", (await answer("accept", members[2], offers[2])) === "This offer is no longer open.");
+    await setHours(host3, 45); // she cuts again, to 3 hours a month
+    check("keeping the last one with their old time too would no longer fit; taking the offer back with a pause does", /no room for this member's full time/.test((await takeBack(members[3], true)) ?? "") && (await takeBack(members[3], false)) === null && (await MS(members[3].membershipId)).hostStoppedAt !== null && (await MS(members[3].membershipId)).offerId === null);
+
+    // A second cut with an offer still open; a payment being tried; an invitation that gives way; all hours gone.
+    const host4 = await newHost({ weeklyMinutes: 90 }); // 6 hours a month
+    const withOffer = await joined(host4, { take: true });
+    const tryingToPay = await joined(host4, { take: true });
+    const open = await invited(host4); // the third and last place
+    const [hours4] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host4.id));
+    const first = await previewWeeklyHoursChange(host4.id, { remove: hours4.id, add: { weekday: 1, from: "09:00", to: "09:45" } });
+    check("the invitation that no longer fits beside what she owes is named before she saves", first.invitationsTakenBack.length === 1 && first.invitationsTakenBack[0] === open.membershipId && first.hoursAfter === 180);
+    await changeWeeklyHours(host4.id, { remove: hours4.id, add: { weekday: 1, from: "09:00", to: "09:45" } }, { mark: first.mark, members: [{ membershipId: withOffer.membershipId, choice: "less", minutes: 60 }, { membershipId: tryingToPay.membershipId, choice: "keep" }] });
+    check("invitations give way before members: it is taken back with the cut, and the person is told", (await MS(open.membershipId)).status === "ended" && (await emails(open.member.email, "no longer open")) === 1);
+    await saveCard(tryingToPay, "pm_card_chargeCustomerFail");
+    await closeMonth(tryingToPay.monthId, (await M(tryingToPay.monthId)).endsAt!);
+    check("(one member with an open offer, one whose payment is being tried)", (await MS(tryingToPay.membershipId)).status === "unpaid" && (await MS(withOffer.membershipId)).offerId !== null);
+    const [row4] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host4.id));
+    const toNothing = { remove: row4.id };
+    const last = await previewWeeklyHoursChange(host4.id, toNothing);
+    const second = (a: MemberChoice["choice"], b: MemberChoice["choice"], minutes?: number) => ({ mark: last.mark, members: [{ membershipId: withOffer.membershipId, choice: a, minutes }, { membershipId: tryingToPay.membershipId, choice: b, minutes }] });
+    check("no second offer while one is open, and none to a member whose payment is being tried", /whose month has started and who has no open offer/.test((await refusal(changeWeeklyHours(host4.id, toNothing, second("less", "pause", 30)))) ?? "") && /whose month has started/.test((await refusal(changeWeeklyHours(host4.id, toNothing, second("pause", "less", 30)))) ?? ""));
+    await changeWeeklyHours(host4.id, toNothing, second("pause", "pause"));
+    await helper(new Date(), 1);
+    const unpaidMonth = (await monthsOf(tryingToPay.membershipId))[1];
+    check("all weekly hours removed, by pausing everyone: the open offer is taken back, and the payment being tried is cancelled at once", (await Room.hostMinutes(db, host4.id)) === 0 && (await MS(withOffer.membershipId)).offerId === null && (await MS(withOffer.membershipId)).hostStoppedAt !== null && (await MS(tryingToPay.membershipId)).status === "paused" && (await intentOf(unpaidMonth.id)).status === "canceled");
+    check("the member's running month is untouched by all of it", (await M(withOffer.monthId)).status === "running" && (await M(withOffer.monthId)).freeCents === 6000);
+    for (const m of [withOffer, tryingToPay]) await audit("after all hours were removed", m);
+  });
+
+  // ========================================================================
+  journey("With the founder's switch off nothing can start; a hidden host page; and no page can start a membership yet", async () => {
+    const host = await newHost();
+    const m = await joined(host, { take: true });
+    const paused = await joined(host);
+    await E.cancelNow({ membershipId: paused.membershipId, memberId: paused.member.id, now: new Date() });
+    const waiting = await invited(host);
+    const guest = await person("member");
+    await talked(host, guest);
+    await E.stopRenewal({ membershipId: m.membershipId, by: "member", actorId: m.member.id, now: new Date() });
+    await setSwitches({ memberships: "off" });
+    const closed = "Memberships are not open at the moment.";
+    check("off: nobody can invite", (await refusal(J.invite({ hostId: host.id, customerId: guest.id, now: new Date() }))) === closed);
+    check("off: nobody can join, also with an invitation from before", (await refusal(J.join({ customerId: waiting.member.id, inviteId: waiting.inviteId, requestId: randomUUID(), agreed: true, now: new Date() }))) === closed);
+    check("off: nobody can resume", (await refusal(J.resume({ customerId: paused.member.id, membershipId: paused.membershipId, requestId: randomUUID(), agreed: true, now: new Date() }))) === closed);
+    check("off: no renewal can be switched back on", (await refusal(E.undoStop({ membershipId: m.membershipId, by: "member", actorId: m.member.id, now: new Date() }))) === closed);
+    check("off: a host cannot raise her price or change the time", (await O.previewOfferChange(host.id, { on: true, pricePer15Cents: 800, includedMinutes: 120 })).problem === closed && (await O.previewOfferChange(host.id, { on: true, pricePer15Cents: 750, includedMinutes: 60 })).problem === closed);
+    await save(host, { on: true, pricePer15Cents: 700, includedMinutes: 120 });
+    check("off: she can still look after what exists: lower her member price", (await offerOf(host)).pricePer15Cents === 700 && (await MS(m.membershipId)).ownPricePer15Cents === 700);
+    await E.stopRenewal({ membershipId: m.membershipId, by: "host", actorId: host.id, now: new Date() });
+    await E.endByHost({ membershipId: paused.membershipId, hostId: host.id, now: new Date() });
+    await save(host, { on: false, pricePer15Cents: 700, includedMinutes: 120 });
+    check("off: and pause a member, end a member, and switch her membership off", (await MS(m.membershipId)).hostStoppedAt !== null && (await MS(paused.membershipId)).status === "ended" && !(await offerOf(host)).on);
+    check("off: the month that has started keeps working to its end", (await M(m.monthId)).status === "running" && (await M(m.monthId)).freeCents === 6000);
+    await setSwitches({ memberships: "named", membershipsHosts: named });
+
+    // A host who hides her page from the public keeps her members.
+    const hidden = await newHost();
+    const member = await joined(hidden);
+    const stranger = await person("stranger");
+    await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, hidden.id));
+    const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hidden.id));
+    check("a hidden page stays closed to the public", (await publicProfile(profile.handle)) === null);
+    check("her member still reaches her, and may book; a stranger does not", (await A.hostForMember(member.member.id, hidden.id))?.canBook === true && (await A.hostForMember(stranger.id, hidden.id)) === null);
+    await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, hidden.id));
+    check("while her page waits to be approved again, the member can look but not book", (await A.hostForMember(member.member.id, hidden.id))?.canBook === false);
+    await db.update(schema.hostProfiles).set({ status: "suspended" }).where(eq(schema.hostProfiles.userId, hidden.id));
+    check("a suspended host is reached by nobody", (await A.hostForMember(member.member.id, hidden.id)) === null);
+    check("a host sees her own members and invitations, and nobody else's", (await A.membersOfHost(host.id)).some((row) => row.membership.id === m.membershipId) && (await A.membersOfHost(hidden.id)).every((row) => row.membership.hostId === hidden.id) && (await A.membershipsOf(m.member.id)).length === 1);
+
+    // Until part three there is no page and no address that could start a membership.
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const starts: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = `${dir}/${name}`;
+        if (statSync(path).isDirectory()) walk(path);
+        else if (/\.(ts|tsx)$/.test(name) && /membership\/(join|offers|ending|charge)["']/.test(readFileSync(path, "utf8"))) starts.push(path);
+      }
+    };
+    walk("src/app");
+    check("no page or address of the app can invite, join, resume, pay or cancel yet", starts.length === 0, starts);
   });
 
   // ========================================================================

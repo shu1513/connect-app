@@ -94,14 +94,14 @@ export async function memberPriceFloor(reader: Reader, hostId: string): Promise<
 }
 
 /**
- * Whether this member would keep their place if they wanted a next month, with this much time:
- * for switching a stopped renewal back on, and for taking back an offer of less time. The same
- * one calculation, with this member put in.
+ * Whether there is room for this member's next month, with this much time, BESIDE everyone who
+ * already wants one: for switching a stopped renewal back on, and for taking back an offer of
+ * less time. Stricter than the safety net on purpose: bringing one member back must never be what
+ * costs another member their place, however long either has been a member.
  */
-export async function wouldKeepPlace(reader: Reader, membership: Pick<Membership, "id" | "hostId" | "since" | "createdAt">, minutes: number): Promise<boolean> {
+export async function wouldKeepPlace(reader: Reader, membership: Pick<Membership, "id" | "hostId">, minutes: number): Promise<boolean> {
   const others = (await wantingNextMonth(reader, membership.hostId)).filter((member) => member.id !== membership.id);
-  const kept = placesKept({ hostMinutes: await hostMinutes(reader, membership.hostId), members: [...others, { id: membership.id, since: membership.since ?? membership.createdAt, minutes }] });
-  return kept.has(membership.id);
+  return others.reduce((sum, member) => sum + member.minutes, 0) + minutes <= (await hostMinutes(reader, membership.hostId));
 }
 
 export type CutMember = {

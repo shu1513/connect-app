@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEADLINE_CUSHION_MS, TAKE_BEFORE_EXPIRY_MS } from "@/lib/payments/rules";
-import { feeTermsFor, giveUpAt, holdTiming, isFrozen, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
+import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -101,5 +101,16 @@ describe("time in words", () => {
     expect(timeWords(90)).toBe("1 hour 30 minutes");
     expect(timeWords(30)).toBe("30 minutes");
     expect(timeWords(0)).toBe("0 minutes");
+  });
+});
+
+describe("an offer of less time", () => {
+  it("must be at least 30 minutes, in half hours, and less than the member has now", () => {
+    expect(lessTimeProblem({ offeredMinutes: 60, minutesNow: 120 })).toBeNull();
+    expect(lessTimeProblem({ offeredMinutes: 30, minutesNow: 60 })).toBeNull();
+    expect(lessTimeProblem({ offeredMinutes: 120, minutesNow: 120 })).toMatch(/less than the member has now/);
+    expect(lessTimeProblem({ offeredMinutes: 150, minutesNow: 120 })).toMatch(/less than the member has now/);
+    expect(lessTimeProblem({ offeredMinutes: 45, minutesNow: 120 })).toMatch(/steps of 30 minutes/);
+    expect(lessTimeProblem({ offeredMinutes: 0, minutesNow: 120 })).toMatch(/at least 30 minutes/);
   });
 });
