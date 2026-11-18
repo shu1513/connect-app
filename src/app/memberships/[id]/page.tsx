@@ -151,8 +151,7 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
         {membership.status === "paused" && (
           <>
             <p>
-              <strong>Paused</strong>
-              {membership.pausedReason && PAUSED_WHY[membership.pausedReason] ? `, because ${PAUSED_WHY[membership.pausedReason]}` : ""}. It costs nothing and gives no member time. You can still book {hostName} like any customer.
+              <strong>Paused{membership.pausedReason && PAUSED_WHY[membership.pausedReason] ? `, because ${PAUSED_WHY[membership.pausedReason]}` : ""}.</strong> It costs nothing and gives no member time. You can still book {hostName} like any customer.
             </p>
             <p className="mt-2 opacity-80">Resuming is like joining again: you get {hostName}&apos;s membership as it is then, tick the box, enter a card, and a new month starts.</p>
             {host ? (
@@ -169,8 +168,7 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
 
         {membership.status === "ended" && (
           <p>
-            <strong>Ended</strong>
-            {membership.endedReason ? `: ${membership.endedReason}` : ""}. You are not charged for it again. It cannot be resumed or switched back on; coming back needs a new invitation from {hostName}. Your receipts, and anything paid back, are below.
+            <strong>Ended{membership.endedReason ? `: ${membership.endedReason}` : ""}.</strong> You are not charged for it again. It cannot be resumed or switched back on; coming back needs a new invitation from {hostName}. Your receipts, and anything paid back, are below.
           </p>
         )}
       </section>
