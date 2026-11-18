@@ -7,8 +7,7 @@ import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
 import { db } from "@/db";
 import type { MembershipOffer } from "@/db/schema";
-import { offerOf, openTimes } from "@/lib/booking/bookings";
-import { firstLength } from "@/lib/booking/rules";
+import { openTimesForInvited } from "@/lib/membership/book";
 import { hostForMemberByHandle, invitationFor, membershipFor, oldInvitationFor, ownMembershipByHandle, type HostForMember } from "@/lib/membership/access";
 import { secretToPay } from "@/lib/membership/charge";
 import { offerOfHost } from "@/lib/membership/offers";
@@ -107,7 +106,9 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
     // over: never the card form, and never a way to start or continue a payment.
     if (!host && !ranOut) notFound();
     // Read only: the secret of the payment this month already has, for its member, while it can still be paid.
-    const secret = ranOut ? null : await secretToPay({ monthId: month.id, memberId: user.id, now });
+    // If the payment service cannot be reached, the page still opens and says so; nothing else is offered meanwhile.
+    const read = ranOut ? { secret: null, reached: true } : await secretToPay({ monthId: month.id, memberId: user.id, now }).then((secret) => ({ secret, reached: true }), () => ({ secret: null, reached: false }));
+    const secret = read.secret;
     return (
       <Frame title={`Your membership with ${hostName}: your card`} back={host ? { href: `/h/${host.handle}`, text: host.displayName } : undefined}>
         {notice && <Notice text={notice} />}
@@ -136,11 +137,16 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
             <MembershipCardForm membershipId={mine.id} monthId={month.id} clientSecret={secret.clientSecret} publishableKey={stripePublishableKey()} button={`Hold ${formatMoney(month.totalCents)} and start my membership`} />
             <p className="mt-3 text-sm opacity-70">The amount is only held now. It is taken when you make your first booking of the month, or after 72 hours, whichever comes first. Your card is kept for the monthly payment.</p>
           </>
+        ) : !read.reached ? (
+          <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+            We could not reach the payment service just now, so the card form cannot be shown. Nothing was charged. Please reload this page in a moment.
+          </p>
         ) : (
           <>
             <p className="mt-4 text-sm">One moment: your payment is not ready for your card yet, or it is already being looked at.</p>
             <form action={payNowAction} className="mt-3">
               <input type="hidden" name="membership" value={mine.id} />
+              <input type="hidden" name="month" value={month.id} />
               <input type="hidden" name="from" value="join" />
               <button type="submit" className={warm.button}>
                 Continue to the card step
@@ -254,9 +260,7 @@ async function Invitation(props: { invite: string; host: HostForMember; offer: M
     );
   }
   // The host's open times for the coming weeks, as a member would find them (general hours and hours for members only).
-  const calendar = host.canBook ? await offerOf(host.userId, db, { forMember: true }) : null;
-  const length = calendar ? firstLength(calendar.lengths) : null;
-  const times = calendar && length ? (await openTimes(calendar, length, now)).slice(0, 8) : [];
+  const times = host.canBook ? await openTimesForInvited(host.userId, now) : [];
   return (
     <Frame title={`${host.displayName} invites you to a membership`} back={{ href: `/h/${host.handle}`, text: host.displayName }}>
       {props.notice && <Notice text={props.notice} />}

@@ -95,6 +95,9 @@ export async function payNowAction(formData: FormData) {
   }
   let to = back;
   try {
+    // The payment the page showed is the one that is made ready, never a later month's the member has not seen.
+    const shown = String(formData.get("month") ?? "");
+    if (shown && shown !== membership.currentMonthId) throw new MembershipError("Your membership has moved on since this page was opened. Nothing was started. Please look at it again.");
     const ready = membership.currentMonthId ? await payNow({ monthId: membership.currentMonthId, memberId: user.id }) : null;
     if (!ready) to = withNotice(back, "There is nothing to pay at the moment. This page shows how your payment stands.");
   } catch (error) {

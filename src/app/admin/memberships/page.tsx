@@ -32,7 +32,7 @@ const MONTH_STATE: Record<string, string> = {
 };
 const ENDED_HOW: Record<string, string> = {
   cancel_now: "the member chose \"Cancel now\"",
-  given_up: "no payment in 7 days",
+  given_up: "not paid in 7 days, or cancelled while its payment was open",
   ending: "the membership ended",
   card_step: "the card step ran out",
   no_room: "no room in the host's hours",

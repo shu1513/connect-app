@@ -81,7 +81,14 @@ function textFor(input: { kind: Kind; why: string; membership: Membership; month
   const left = timeWords(minutesCovered(month.status === "held" ? month.totalCents : month.freeCents, month.pricePer15Cents));
   const [fact] = factsOf(kind, input.why, membership, month);
   const page = `${appUrl()}/memberships/${membership.id}`;
-  const lines = [`Hi ${member.name},`, "", `Your month with ${hostName} ends on ${ends}. You have ${left} left. Time you have not used by then expires and is not paid back.`, ""];
+  // (The time left is said as of the moment of writing: a booking made before this is read uses some of it.)
+  const lines = [
+    `Hi ${member.name},`,
+    "",
+    `Your month with ${hostName} ends on ${ends}. As this is written you have ${left} left. Time you have not used by then expires and is not paid back.` +
+      (month.hostCausedCents > 0 ? ` (The one exception: time that came back to you because ${hostName} cancelled a call is paid back to your card if you do not use it.)` : ""),
+    "",
+  ];
   if (kind === "renewal") {
     lines.push(`${fact}, on ${ends}. It is first only held on your card.`, "", `To cancel before then, use "Cancel membership" here: ${page}`);
   } else if (kind === "offer") {

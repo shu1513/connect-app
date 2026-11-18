@@ -12,8 +12,13 @@ type Props = { membershipId: string; monthId: string; clientSecret: string; publ
  * again from what the server then knows. Returns the month's state as the server recorded it.
  */
 async function askServer(membershipId: string, monthId: string): Promise<{ status?: string; ended?: boolean; needsAction?: boolean } | null> {
-  const response = await fetch(`/api/memberships/${membershipId}/sync`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ month: monthId }) });
-  return response.ok ? await response.json().catch(() => null) : null;
+  try {
+    const response = await fetch(`/api/memberships/${membershipId}/sync`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ month: monthId }) });
+    return response.ok ? await response.json().catch(() => null) : null;
+  } catch {
+    // The connection dropped. Nothing is known, and nothing is claimed: the callers say so and stay usable.
+    return null;
+  }
 }
 
 /**

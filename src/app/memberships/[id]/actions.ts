@@ -21,11 +21,11 @@ function problem(error: unknown): string {
 }
 
 /** The membership the form is about, as this person's own; anyone else's and one that does not exist go to "Your account". */
-async function mine(formData: FormData): Promise<{ userId: string; membershipId: string; page: string }> {
+async function mine(formData: FormData): Promise<{ userId: string; membershipId: string; currentMonthId: string | null; page: string }> {
   const user = await requireUser();
   const found = await membershipFor(user.id, String(formData.get("membership") ?? ""));
   if (!found) redirect("/account");
-  return { userId: user.id, membershipId: found.membership.id, page: `/memberships/${found.membership.id}` };
+  return { userId: user.id, membershipId: found.membership.id, currentMonthId: found.membership.currentMonthId, page: `/memberships/${found.membership.id}` };
 }
 
 /** "Cancel membership", the normal way: the renewal is stopped. (With a payment still open there is no month to run out: it is paused at once.) */
@@ -40,7 +40,7 @@ export async function cancelAction(formData: FormData) {
     // and a month that has not ended) is for the page to show.
     notice =
       after?.membership.status === "paused"
-        ? "Your membership is paused now. The open payment was cancelled and nothing more is charged."
+        ? "Your membership is paused now. Nothing more is charged."
         : "Your membership is cancelled: it will not renew. This page shows how it stands now.";
   } catch (error) {
     notice = problem(error);
@@ -50,9 +50,13 @@ export async function cancelAction(formData: FormData) {
 
 /** "Cancel now, nothing is charged": while the month's amount is only held. */
 export async function cancelNowAction(formData: FormData) {
-  const { userId, membershipId, page } = await mine(formData);
-  let notice = "Your membership is paused as of now, and nothing is charged for this month. The hold on your card is let go; your bank may still show it for a few days.";
+  const { userId, membershipId, currentMonthId, page } = await mine(formData);
+  // (The hold is let go right after the pause is saved; if Stripe cannot be reached at that moment, the helper does it. So: "is being let go".)
+  let notice = "Your membership is paused as of now, and nothing is charged for this month. The hold on your card is being let go; your bank may still show it for a few days.";
   try {
+    // "Cancel now" is for the month the page showed. If another month is the current one by now (the page was left open across a renewal), nothing is cancelled.
+    const shown = String(formData.get("month") ?? "");
+    if (shown && shown !== currentMonthId) throw new MembershipError("Your membership has moved on to another month since this page was opened. Nothing was changed. Please look at it again.");
     await cancelNow({ membershipId, memberId: userId, now: new Date() });
   } catch (error) {
     notice = problem(error);

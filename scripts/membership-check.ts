@@ -1961,8 +1961,11 @@ async function main() {
     const gate = memberActions.find((file) => file.path.endsWith("memberships/[id]/actions.ts"))?.text.match(/async function mine\([\s\S]*?\n}/)?.[0] ?? "";
     check("each of the member's actions asks who is signed in, and the membership's buttons check it is that person's own", memberActions.length === 2 && memberActions.flatMap((file) => actionsOf(file).filter((action) => memberChanges.test(action))).length === 8 && loose.length === 0 && gate.includes("await requireUser()") && gate.includes("membershipFor(user.id") && memberActions.every((file) => !/formData\.get\("(customerId|memberId|userId)"\)/.test(file.text)), { loose, gate: gate.slice(0, 120) });
     // "Starting is an action; loading is only reading": nothing that is drawn or fetched on opening a page may make or change a payment.
-    const starting = uses.filter((file) => !file.text.startsWith("\"use server\"") && /import \{[^}]*\b(join|resume|payNow|intentFor|tryHold|takeMonth|takeNow|cancelNow|stopRenewal|undoStop|saveOffer|invite)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
-    check("no page that is only being opened can start a joining, a payment or a change", starting.length === 0, starting);
+    // (Recording what Stripe shows, `syncMonth`, can start a membership too: it belongs to the one address the card form posts to, never to a page.)
+    const isRoute = (file: { path: string }) => file.path.endsWith("/route.ts");
+    const starting = uses.filter((file) => !file.text.startsWith("\"use server\"") && !isRoute(file) && /import \{[^}]*\b(join|resume|payNow|intentFor|syncMonth|tryHold|takeMonth|takeNow|cancelNow|stopRenewal|undoStop|saveOffer|invite)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
+    const routes = uses.filter(isRoute);
+    check("no page that is only being opened can start a joining, a payment or a change, and the one address that asks Stripe only answers a post", starting.length === 0 && routes.length === 1 && routes.every((file) => /export async function POST\(/.test(file.text) && !/export async function (GET|PUT|PATCH|DELETE)\(/.test(file.text)), { starting, routes: routes.map((file) => file.path) });
   });
 
   // ========================================================================

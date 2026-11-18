@@ -216,7 +216,15 @@ async function main() {
     const theirMonths = memberships.length > 0 ? await db.select().from(months).where(inArray(months.membershipId, memberships)) : [];
     const monthIds = theirMonths.map((month) => month.id);
     // Nothing stays held on a test card.
-    for (const month of theirMonths) if (month.stripePaymentIntentId && (month.status === "to_pay" || month.status === "held")) await stripe().paymentIntents.cancel(month.stripePaymentIntentId).catch(() => undefined);
+    for (const month of theirMonths) {
+      if (!month.stripePaymentIntentId || (month.status !== "to_pay" && month.status !== "held")) continue;
+      const intentId = month.stripePaymentIntentId;
+      await stripe().paymentIntents.cancel(intentId).catch(async () => {
+        // Already cancelled is fine. Anything else is said with the payment's id, since its month is about to be removed here.
+        const left = await stripe().paymentIntents.retrieve(intentId).catch(() => null);
+        if (left?.status !== "canceled") console.log(`   (clean-up: the test payment ${intentId} could not be cancelled and is "${left?.status ?? "unknown"}"; cancel it in Stripe's test dashboard)`);
+      });
+    }
     const bookings = (await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(inArray(schema.bookings.hostId, ids), inArray(schema.bookings.customerId, ids)))).map((row) => row.id);
     const calls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)))).map((row) => row.id);
     const payments = [
@@ -255,6 +263,12 @@ async function main() {
     ];
     for (const step of steps) await step().catch((error) => console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
   }
+
+  // Like the other membership scripts: the founder's switch must be off, with nobody named, before anything is written.
+  // (This script sets it for its own host and puts it back to off at the end; a setting someone made by hand must not be lost.)
+  const { switches } = await import("../src/lib/safety/switches");
+  const atStart = await switches();
+  if (atStart.memberships !== "off" || atStart.membershipsHosts.length > 0) throw new Error("The founder's memberships switch is not off in this database. Turn it off (Admin, Reports and safety) before running this script.");
 
   await wipe();
   // Attempt limits are per network address, and every request here comes from the same one.
@@ -411,7 +425,7 @@ async function main() {
     check("more than three days before the month ends, no reminder is written", (await writeMembershipReminders(new Date(ends1.getTime() - 4 * DAY))) === 0 && !(await emailTo(alice.email, "renews soon", 1)));
     await writeMembershipReminders(new Date(ends1.getTime() - 2 * DAY));
     const reminder = await emailTo(alice.email, "renews soon");
-    check("inside the three days she gets one reminder: the time left, the next payment and how to cancel", Boolean(reminder) && reminder!.body.includes("You have 1 hour 30 minutes left") && reminder!.body.includes("Your next payment: $60.00 for 2 hours") && reminder!.body.includes(`/memberships/${aliceId}`) && !/unsubscribe/i.test(reminder!.body), reminder?.body);
+    check("inside the three days she gets one reminder: the time left, the next payment and how to cancel", Boolean(reminder) && reminder!.body.includes("As this is written you have 1 hour 30 minutes left") && reminder!.body.includes("Your next payment: $60.00 for 2 hours") && reminder!.body.includes(`/memberships/${aliceId}`) && !/unsubscribe/i.test(reminder!.body), reminder?.body);
     await writeMembershipReminders(new Date(ends1.getTime() - DAY));
     check("it is written once, and ends with the month", (await emailTo(alice.email, "renews soon"))?.count === 1 && (await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${month1.id}`)))[0]?.expiresAt?.getTime() === ends1.getTime());
     check("while nothing changed, the reminder is still true when its turn to be sent comes", (await membershipReminderProblem(month1.id, reminder!.subject, reminder!.body)) === null);
@@ -439,6 +453,8 @@ async function main() {
     check("when the month ends, the next one is written and held on her saved card", month2?.status === "held" && (await MS(aliceId)).currentMonthId === month2.id && (await M(month1.id)).expiredCents === 4500, `${month2?.status}`);
     const renewed = await page(`/memberships/${aliceId}`, alice);
     check("her page shows both receipts, what expired, and offers \"Cancel now\" again", renewed.words.includes("Month 2") && renewed.words.includes("Month 1") && renewed.words.includes("Expired: $45.00") && renewed.words.includes("Cancel now, nothing is charged"));
+    const oldMonth = await press(alice, `/memberships/${aliceId}`, "Cancel now, nothing is charged", { month: month1.id });
+    check("a \"Cancel now\" form that names an earlier month cancels nothing", oldMonth.found && /moved on to another month/.test(noticeOf(oldMonth)) && (await MS(aliceId)).status === "active" && (await M(month2.id)).status === "held", noticeOf(oldMonth));
     const cancelNow = await press(alice, `/memberships/${aliceId}`, "Cancel now, nothing is charged");
     const paused = await page(`/memberships/${aliceId}`, alice);
     check("\"Cancel now\" pauses her today and charges nothing for the new month", cancelNow.found && (await MS(aliceId)).status === "paused" && (await M(month2.id)).status === "given_up" && paused.words.includes("Paused, because you cancelled it") && paused.words.includes("Nothing was charged") && paused.words.includes("Resume membership"), noticeOf(cancelNow));
@@ -467,14 +483,22 @@ async function main() {
     const unpaid = await page(`/memberships/${bob.membershipId}`, bob.person);
     check("his page says so, that he has no member time, until when, and offers \"Pay now\"", unpaid.words.includes("Your monthly payment did not go through.") && unpaid.words.includes("Pay now: $60.00") && unpaid.words.includes("your membership is paused") && !unpaid.words.includes("left this month"));
     check("he cannot book as a member meanwhile", (await memberBookingView(bob.person.id, host.id, new Date())) === null);
+    const intentsOfBob = async () => (await stripe().paymentIntents.list({ customer: bobCustomer, limit: 100 })).data.length;
+    const beforeOpening = { month: JSON.stringify(await M(bobMonth2.id)), intents: await intentsOfBob() };
     const payPage = await page(`/memberships/${bob.membershipId}/pay`, bob.person);
-    check("the \"Pay now\" page shows the amount and a button; opening it starts nothing and hands out no secret yet", payPage.status === 200 && payPage.words.includes("$60.00 for 2 hours") && formsOf(payPage.text).some((f) => f.buttons.includes("Pay now")) && !payPage.text.includes("_secret_"), String(payPage.status));
+    check(
+      "the \"Pay now\" page shows the amount and a button; opening it hands out no secret, writes nothing to the month, and makes no payment at Stripe",
+      payPage.status === 200 && payPage.words.includes("$60.00 for 2 hours") && formsOf(payPage.text).some((f) => f.buttons.includes("Pay now")) && !payPage.text.includes("_secret_") && JSON.stringify(await M(bobMonth2.id)) === beforeOpening.month && (await intentsOfBob()) === beforeOpening.intents,
+      String(payPage.status),
+    );
+    const otherMonth = await press(bob.person, `/memberships/${bob.membershipId}/pay`, "Pay now", { month: bob.monthId });
+    check("a \"Pay now\" form that names another month than the one to pay starts nothing", otherMonth.found && /moved on since this page was opened/.test(noticeOf(otherMonth)) && JSON.stringify(await M(bobMonth2.id)) === beforeOpening.month, noticeOf(otherMonth));
     const payNow = await press(bob.person, `/memberships/${bob.membershipId}/pay`, "Pay now");
     const cardPage = await page(`/memberships/${bob.membershipId}/pay`, bob.person);
     check("\"Pay now\" makes the payment ready, and the page then shows the card form for the same payment", payNow.found && payNow.location.startsWith(`/memberships/${bob.membershipId}/pay`) && cardPage.text.includes("_secret_") && (await M(bobMonth2.id)).stripePaymentIntentId === bobMonth2.stripePaymentIntentId, `${payNow.location}`);
     const bobPaid = await payInBrowser(bob.person, bob.membershipId, bobMonth2.id);
     const backToPage = await page(`/memberships/${bob.membershipId}/pay`, bob.person);
-    check("with a working card the month is held, he is a member again, and the page leads back to his membership", bobPaid.json?.status === "held" && (await MS(bob.membershipId)).status === "active" && backToPage.location.startsWith(`/memberships/${bob.membershipId}`), JSON.stringify(bobPaid.json));
+    check("with a working card the month is held, he is a member again, and the page leads back to his membership", bobPaid.json?.status === "held" && (await MS(bob.membershipId)).status === "active" && backToPage.location.split("?")[0] === `/memberships/${bob.membershipId}`, `${JSON.stringify(bobPaid.json)} ${backToPage.location}`);
 
     // ----------------------------------------------------------------------
     console.log("\n10. The host lowers her price; a paused member resumes on the membership as it is now");
@@ -626,7 +650,7 @@ async function main() {
   }
 
   const [left] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user).where(like(schema.user.email, "mjourney-%"));
-  check("the script's own test data was cleaned up, and the founder's switch is off again", left.n === 0 && (await (await import("../src/lib/safety/switches")).switches()).memberships === "off", `${left.n} people left`);
+  check("the script's own test data was cleaned up, and the founder's switch is off again", left.n === 0 && (await switches()).memberships === "off", `${left.n} people left`);
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

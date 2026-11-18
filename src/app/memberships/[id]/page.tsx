@@ -23,7 +23,8 @@ export const dynamic = "force-dynamic";
 const button = "rounded border border-neutral-500 px-3 py-1.5 text-sm";
 const NOT_CHARGED: Record<string, string> = {
   cancel_now: "you chose \"Cancel now\"",
-  given_up: "no payment went through in 7 days",
+  // (A month is given up after 7 days without a payment, and also when the member or the host cancels while its payment is still open.)
+  given_up: "its payment did not go through, or was cancelled before it did",
   ending: "the membership ended",
   card_step: "the card step was not finished in time",
   no_room: "the host's hours had no room",
@@ -52,10 +53,11 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
   const now = new Date();
 
   // The host as this member may see her (also when her page is hidden). An ended membership still names her.
-  const [host, [profile], open, payBacks] = await Promise.all([
+  const [host, [profile], open, [hostOffer], payBacks] = await Promise.all([
     hostForMember(user.id, membership.hostId, now),
     db.select({ displayName: schema.hostProfiles.displayName, handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, membership.hostId)),
     membershipsOnFor(membership.hostId),
+    db.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId)),
     months.length > 0 ? db.select().from(schema.membershipRefunds).where(inArray(schema.membershipRefunds.monthId, months.map((month) => month.id))) : Promise.resolve([] as MembershipRefund[]),
   ]);
   const hostName = host?.displayName ?? profile?.displayName ?? "your host";
@@ -111,7 +113,7 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
           </p>
         )}
 
-        {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} frozen={frozen} nextCents={nextCents} now={now} />}
+        {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} offerOn={Boolean(hostOffer?.on)} frozen={frozen} nextCents={nextCents} now={now} />}
 
         {membership.status === "active" && !started && (
           <>
@@ -251,8 +253,10 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
 const lastFreeMoment = (month: MembershipMonth): Date | null => (month.authorisedAt && month.holdExpiresAt ? holdTiming({ authorisedAt: month.authorisedAt, holdExpiresAt: month.holdExpiresAt }).offeredUntil : month.takeAt);
 
 /** A membership with a month that has started: the time, the hold, whether and when it renews, and the buttons. */
-function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; frozen: boolean; nextCents: number; now: Date }) {
+function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; offerOn: boolean; frozen: boolean; nextCents: number; now: Date }) {
   const { membership, month, hostName, now } = props;
+  // A month whose payment has a problem the founder must look at (Stripe took a part, or holds more than one payment): its time is not there to book.
+  const troubled = Boolean(month.problem);
   const held = month.status === "held";
   const freeCents = held ? month.totalCents : month.freeCents;
   const endsAt = month.endsAt!;
@@ -267,15 +271,22 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
 
   return (
     <>
-      <p>
-        <strong>{timeWords(minutesCovered(freeCents, month.pricePer15Cents))} left this month</strong>, until <LocalTime iso={endsAt.toISOString()} />. Your price is {formatMoney(month.pricePer15Cents)} per 15 minutes.
-      </p>
+      {troubled ? (
+        <p role="alert" className="rounded border border-red-600 p-3">
+          There is a problem with this month&apos;s payment, and we are looking into it. Until it is settled, this month&apos;s time cannot be booked. You do not need to do anything; we will write to you. The month runs until{" "}
+          <LocalTime iso={endsAt.toISOString()} />.
+        </p>
+      ) : (
+        <p>
+          <strong>{timeWords(minutesCovered(freeCents, month.pricePer15Cents))} left this month</strong>, until <LocalTime iso={endsAt.toISOString()} />. Your price is {formatMoney(month.pricePer15Cents)} per 15 minutes.
+        </p>
+      )}
       {props.frozen && (
         <p role="alert" className="mt-2 rounded border border-red-600 p-3">
           This month is frozen, because its payment is disputed with your bank. Until that is settled its time cannot be booked, used or paid back.
         </p>
       )}
-      {held && (
+      {held && !troubled && (
         <p className="mt-2">
           This month&apos;s {formatMoney(month.totalCents)} is <strong>held on your card, not yet taken</strong>. It is taken when you make your first booking of the month
           {cancelNowUntil ? (
@@ -288,7 +299,7 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
       )}
       {!props.canBook ? (
         <p className="mt-2">No new bookings can be made at the moment, because {hostName}&apos;s page is being checked. Your membership, your time and your receipts stay as they are.</p>
-      ) : props.hostHandle && !props.frozen ? (
+      ) : props.hostHandle && !props.frozen && !troubled ? (
         <p className="mt-2">
           <Link href={`/h/${props.hostHandle}#member`} className="inline-flex min-h-11 items-center underline underline-offset-2">
             Book a call with your membership
@@ -316,7 +327,13 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
       {saidNo && <p className="mt-1">You said &quot;No thanks&quot; to the smaller time {hostName} offered, so your membership is paused when this month ends. You can resume it later when there is room.</p>}
       {membership.hostStoppedAt && !saidNo && <p className="mt-1">{hostName} has paused your membership after this month. Only {hostName} can take that back. You can resume by yourself afterwards, when there is room.</p>}
 
-      {ownStop && (
+      {ownStop && !(props.open && props.offerOn) && (
+        <p className="mt-3">
+          &quot;Keep my membership&quot; is not open at the moment, because {!props.offerOn ? `${hostName} is not offering a membership right now` : "memberships are not being renewed at the moment"}. If that changes before this month ends, the button is here
+          again. Otherwise your membership is paused then, and you can resume it later.
+        </p>
+      )}
+      {ownStop && props.open && props.offerOn && (
         <form action={keepAction} className="mt-3">
           <input type="hidden" name="membership" value={membership.id} />
           <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
@@ -353,6 +370,8 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
             {canCancelNow && (
               <form action={cancelNowAction}>
                 <input type="hidden" name="membership" value={membership.id} />
+                {/* The month whose hold this button is about. */}
+                <input type="hidden" name="month" value={month.id} />
                 <button type="submit" className={button}>
                   Cancel now, nothing is charged
                 </button>
@@ -393,7 +412,11 @@ function Receipt({ month, payBacks }: { month: MembershipMonth; payBacks: Member
       </p>
       <p className="mt-1">
         {timeWords(month.includedMinutes)} at {formatMoney(month.pricePer15Cents)} per 15 minutes: {formatMoney(month.totalCents)}.{" "}
-        {month.status === "given_up" || (month.status === "to_pay" && month.endedHow) ? (
+        {month.problem ? (
+          <>
+            This month&apos;s payment has a problem that we are looking into{paid > 0 ? `; ${formatMoney(paid)} was taken so far` : ""}.
+          </>
+        ) : month.status === "given_up" || (month.status === "to_pay" && month.endedHow) ? (
           <>Nothing was charged{month.endedHow && NOT_CHARGED[month.endedHow] ? `, because ${NOT_CHARGED[month.endedHow]}` : ""}.</>
         ) : month.status === "to_pay" ? (
           <>Not paid yet.</>

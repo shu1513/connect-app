@@ -18,6 +18,7 @@ import { db, schema } from "@/db";
 import type { Booking, Membership, MembershipMonth } from "@/db/schema";
 import { BookingError, busyOf, endRequestsInTheWay, isOverlap, lockCalendars, offerOf, slotInput, type Offer } from "@/lib/booking/bookings";
 import { queueBookingEmails } from "@/lib/booking/emails";
+import { firstLength } from "@/lib/booking/rules";
 import { isOpenStart, openStarts } from "@/lib/booking/slots";
 import type { Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
@@ -101,6 +102,18 @@ export async function memberOpenTimes(view: MemberBookingView, lengthMinutes: nu
   const starts = openStarts(slotInput(view.offer, busy, lengthMinutes, now, "member"));
   const general = new Set(openStarts(slotInput({ ...view.offer, weekly: view.offer.weekly.filter((stretch) => !stretch.membersOnly) }, busy, lengthMinutes, now, "member")).map((start) => start.getTime()));
   return starts.filter((start) => start.getTime() + lengthMinutes * MINUTE <= view.monthEndsAt.getTime()).map((startsAt) => ({ startsAt, membersOnly: !general.has(startsAt.getTime()) }));
+}
+
+/**
+ * The host's next open times as a member would find them, for an invited person who is not a
+ * member yet: general hours and hours for members only, with the host's notice alone as the
+ * earliest start. Only a preview for the invitation page; booking checks everything again.
+ */
+export async function openTimesForInvited(hostId: string, now: Date, count = 8): Promise<Date[]> {
+  const offer = await offerOf(hostId, db, { forMember: true });
+  const length = offer ? firstLength(offer.lengths) : null;
+  if (!offer || !length) return [];
+  return openStarts(slotInput(offer, await busyOf(db, hostId, now), length, now, "member")).slice(0, count);
 }
 
 /**

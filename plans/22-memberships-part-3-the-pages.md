@@ -475,3 +475,31 @@ says only that the membership will not renew, and the page shows what is open.
 **Fifth round: ready.** No finding left about money moving wrongly or about anyone seeing another
 person's data.
 
+## CodeRabbit's review of 3b (pull request 40, 18 November 2026)
+
+Eighteen comments, all marked minor. Seventeen were taken, each in its smallest form:
+
+- **The pages.** The invitation's open times are worked out as a member would find them (hours
+  for members only were missing). A month whose payment has a problem the founder must look at
+  is shown as that, not as an ordinary hold with time to book. "Keep my membership" is replaced
+  by a sentence when it cannot work (the host's membership or the founder's switch is off). The
+  card step and "Pay now" still open, and say so, when the payment service cannot be reached.
+  A given-up month's receipt no longer says "no payment in 7 days" when the member or the host
+  cancelled its open payment.
+- **The buttons.** "Cancel now" and "Pay now" carry the month the page showed; if another month
+  is the current one by the time of the press, nothing is done. The sentence after "Cancel now"
+  says the hold "is being let go" (the helper finishes it if Stripe cannot be reached), and the
+  one after "Cancel" no longer says a payment was cancelled when none was open.
+- **The card form** stays usable when the connection drops while it asks the server.
+- **The reminder** says the time left "as this is written", and names the one exception to
+  "expires and is not paid back": time that came back because the host cancelled a call.
+- **The checks.** The page-load check also refuses `syncMonth` in a page, and the one address
+  that asks Stripe may only answer a post. The journey script refuses to start unless the
+  founder's switch is off, proves that opening "Pay now" writes nothing and makes no payment at
+  Stripe, checks the exact destination after paying, and names a test payment it could not
+  cancel while cleaning up.
+
+Not taken: clearing only this script's own rate-limit rows. The script clears the whole table, on
+a local test database only, as the older journey and accounts scripts do; every request comes
+from one network address, so the rows cannot be told apart.
+

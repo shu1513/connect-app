@@ -45,7 +45,9 @@ export default async function PayPage(props: PageProps<"/memberships/[id]/pay">)
   const hostName = profile?.displayName ?? "your host";
   const toPay = membership.status === "unpaid" && month && month.status === "to_pay" && !month.endedHow && !(month.giveUpAt && month.giveUpAt <= now) ? month : null;
   // Read only: the secret of the payment this month already has, when it is ready to be paid by hand.
-  const secret = toPay ? await secretToPay({ monthId: toPay.id, memberId: user.id, now }) : null;
+  // If the payment service cannot be reached, the page still opens and says so, with the way back to the membership.
+  const read = toPay ? await secretToPay({ monthId: toPay.id, memberId: user.id, now }).then((secret) => ({ secret, reached: true }), () => ({ secret: null, reached: false })) : { secret: null, reached: true };
+  const secret = read.secret;
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -96,10 +98,16 @@ export default async function PayPage(props: PageProps<"/memberships/[id]/pay">)
                 The amount is only held at first. It is taken when you make your first booking of the month, or after 72 hours, whichever comes first. The card you use here is kept for the monthly payment from now on.
               </p>
             </>
+          ) : !read.reached ? (
+            <p role="alert" className="mt-4 rounded border border-red-600 p-3">
+              We could not reach the payment service just now, so the card form cannot be shown. Nothing was charged. Please reload this page in a moment.
+            </p>
           ) : (
             <>
               <form action={payNowAction} className="mt-4">
                 <input type="hidden" name="membership" value={membership.id} />
+                {/* The month this page shows: if another month is the one to pay by the time the button is pressed, nothing is started. */}
+                <input type="hidden" name="month" value={toPay.id} />
                 <button type="submit" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
                   Pay now
                 </button>
