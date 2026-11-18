@@ -1,6 +1,7 @@
 # Plan 21: Memberships, part two: member calls
 
-**Status:** a plan only; nothing is built. Written 17 November 2026 by the builder alone (no
+**Status:** 2a (the call) is built (18 November 2026; see "Built in 2a" at the end). 2b (extra
+time) is not built yet. Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32 and from plan 20, which
 this part is built on top of. Astra's first check gave "not ready" and its second "ready with changes", small enough to make while building; every point of both is worked in below (the lists are at the end).
 
@@ -513,3 +514,49 @@ lose a return, pay a host early or send a member's payment to the card code, and
 can each be merged alone. The one point, written in above: the health check has to judge each
 payment by its own moment, as settling now does, and must not report a frozen month's member
 payment. It also listed the routine places the new stage `paying` touches, which are written in.
+
+## Built in 2a: where the code differs from this plan
+
+- **Cancelling a member's call moves its money in the same step as the cancellation.** There is
+  nothing to ask Stripe, so the call is marked cancelled, the booking ended, both people's time
+  freed and the money returned (or, when cancelled late, used) together, and the email is written
+  in that step with what really happened: time back in the membership, money to the card, or
+  kept while the month's dispute is open. The helper's job for cancelled calls only has work left
+  for a month that was frozen at the time.
+- **Files.** The money of a member's call after the booking is in `membership/calls.ts`
+  (`closeMemberPayment` is the one step that closes such a payment together with the month's
+  numbers; `settleMemberOne`, `settleCancelledMemberIn`, `decideMemberReview` call it), not
+  spread over `payments/jobs.ts` and `take.ts`. Those two only hand a `member_call` payment over.
+  `settleOrdinaryCharges` uses and returns member money in its own locked step, with the call's
+  other charges.
+- **One lock helper**, `lockMonthsOfCall` (`locks.ts`): every step that settles, cancels, reviews
+  or gives back for a call takes the membership and the month first, then the call, then its
+  payments.
+- **A call's shared moments** are worked out in one place, `timingOfCall` (`take.ts`), which
+  `moneyPlan`, the refund-request steps and the health check read. Each payment's own limit is
+  `holdEndFor`.
+- **The emails of 2a** are in `booking/emails.ts` (booked, not booked, cancelled) and
+  `refunds/emails.ts` (time given back), beside the emails of the calls they are about, not in
+  `membership/emails.ts`. The rulebook's table says so now.
+- **`access.ts` has one more way in**, `hostForMemberByHandle`, for the two pages whose address
+  carries the host's handle.
+- **Member-only times are marked** with a star and the words "A time for members only" in the
+  list of times and on the summary.
+- **The "Members only" tick** is shown to a host who may offer a membership (the founder's
+  switch covers her) or who already has such hours, and is only accepted from such a host.
+- **The daily limit on requests applies as the rulebook says**: at most 3 bookings with one host
+  in 24 hours, and 10 in all, also for a member. The founder is told, because a member with many
+  hours may meet it.
+- **Time given back is recorded at the moment of the step**, so an open refund request that was
+  asked before it counts as answered.
+- **A demo mode in the check script** (`--demo`, `--demo-off`) leaves one real member between the
+  two seeded test accounts in the local database, for looking at the pages by hand.
+- **Played by hand in a browser, at phone size:** the host's page as a member (time left, the
+  held month's sentence, the times), the summary with "Book", a first booking that took the
+  month's money and booked, the booking's own page, the home page's line, the call's page,
+  cancelling there (the time was back at once), the page after the call for both people, and the
+  calendar page's tick and labels.
+- **Not played by the script, and why:** an instant request landing on a member's booking (the
+  host's notice of at least a day keeps the two apart; the rule is in `slotInput`); the reminders
+  (unchanged code, and they carry no words about a card); the mixed call's moments and its health
+  check (they need added time, which is 2b).

@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TimeZoneSelect } from "@/components/time-zone-select";
-import { calendarOf, clockText, hoursAndTimeOff, inZone } from "@/lib/booking/calendar";
+import { calendarOf, clockText, hoursAndTimeOff, inZone, mayKeepMemberHours } from "@/lib/booking/calendar";
 import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, lengthWords, NOTICE_CHOICES_HOURS, readLengths } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
-import { membershipsOnFor } from "@/lib/safety/switches";
 import { requireUser } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
 import { addHours, addOff, removeHours, removeOff, saveChoices } from "./actions";
@@ -19,8 +18,8 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
   const notice = readNotice("/host/calendar", await props.searchParams);
   const calendar = await calendarOf(user.id, user.timeZone);
   const { hours, off } = await hoursAndTimeOff(user.id, new Date());
-  // The "Members only" tick is offered to a host who may offer a membership, or who already has such hours.
-  const forMembers = (await membershipsOnFor(user.id)) || hours.some((h) => h.membersOnly);
+  // The "Members only" tick is offered to a host who may offer a membership, or who already has such hours (one rule, also the action's).
+  const forMembers = await mayKeepMemberHours(user.id);
   // A host sets a shortest and a longest call. A list saved before that (ticked lengths) shows as its two ends.
   const saved = readLengths(calendar.lengths);
   const lengths = saved.length > 0 ? saved : DEFAULT_LENGTHS;

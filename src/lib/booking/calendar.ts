@@ -17,6 +17,7 @@ import { lockCalendar, lockMembership, lockMonth } from "@/lib/membership/locks"
 import { hostMinutes, workOutCut, type Cut } from "@/lib/membership/room";
 import { lessTimeProblem, timeWords } from "@/lib/membership/rules";
 import type { Tx } from "@/lib/payments/operations";
+import { membershipsOnFor } from "@/lib/safety/switches";
 
 /** A problem the host can fix. Its message is safe to show them. */
 export class CalendarError extends Error {}
@@ -243,6 +244,18 @@ export async function addTimeOff(userId: string, timeZone: string, input: { from
 export async function removeTimeOff(userId: string, id: string): Promise<void> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
   await db.delete(schema.timeOff).where(and(eq(schema.timeOff.id, id), eq(schema.timeOff.hostId, userId)));
+}
+
+/**
+ * Whether this host may keep hours for members only: the founder's memberships switch covers her,
+ * or she already has such hours (months that are paid for go on while the switch is off, and so
+ * do her members' hours). The calendar page and its action both ask here, so the tick is never
+ * shown and then ignored.
+ */
+export async function mayKeepMemberHours(userId: string): Promise<boolean> {
+  if (await membershipsOnFor(userId)) return true;
+  const [has] = await db.select({ id: schema.weeklyHours.id }).from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.membersOnly, true))).limit(1);
+  return Boolean(has);
 }
 
 export async function hoursAndTimeOff(userId: string, now: Date) {

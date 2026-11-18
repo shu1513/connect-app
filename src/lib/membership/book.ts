@@ -147,11 +147,21 @@ async function mustBeBookable(
   }
   // The time must be open for a member: general or member-only hours, the host's notice, how far ahead, time off, and nothing in the way.
   if (!isOpenStart(startsAt, slotInput(offer, await busyOf(tx, hostId, now), lengthMinutes, now, "member"))) throw new BookingError(NOT_OPEN);
+  // And the member must be free then. Said now, before a month's money is taken for a booking that could never be made.
+  // (The database still has the last word when the booking is written.)
+  if ((await busyOf(tx, customer.id, startsAt)).some((taken) => taken.start < endsAt && taken.end > startsAt)) throw new BookingError("You already have a request or a call at that time.");
   return { offer, cents };
 }
 
 type Input = { customer: Person; hostId: string; startsAt: Date; lengthMinutes: number; requestKey: string; seen: { pricePer15Cents: number; freeCancelMinutes: number }; now: Date };
 export type MemberBookingResult = { booking: Booking; outcome: "booked" | "paying" | "not_booked"; message?: string };
+
+/** What a booking's own stage says became of it. Never "booked" for a request that ended without a call. */
+function resultOf(booking: Booking): MemberBookingResult {
+  if (booking.stage === "accepted" || booking.stage === "cancelled") return { booking, outcome: "booked" };
+  if (booking.stage === "paying") return { booking, outcome: "paying" };
+  return { booking, outcome: "not_booked", message: booking.endedReason ?? "This booking could not be made. Please choose a time again." };
+}
 
 /** The step that writes a member's request down while its month's money is still to be taken: nothing is reserved for either person. */
 async function saveAsPaying(input: Input, found: { membership: Membership; month: MembershipMonth }): Promise<Booking> {
@@ -291,20 +301,27 @@ export async function bookAsMember(input: Input): Promise<MemberBookingResult> {
 
   let [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
   if (booking && booking.customerId !== customer.id) throw new BookingError(OUT_OF_DATE);
-  if (booking?.stage === "accepted" || booking?.stage === "cancelled") return { booking, outcome: "booked" };
-  if (booking && booking.stage !== "paying") return { booking, outcome: "not_booked", message: "This booking could not be made. Please choose a time again." };
+  if (booking && booking.stage !== "paying") return resultOf(booking);
+  // A request that was written down is continued as it was written down: the same host, time and length.
+  if (booking && (booking.hostId !== input.hostId || booking.startsAt.getTime() !== input.startsAt.getTime() || booking.lengthMinutes !== input.lengthMinutes)) throw new BookingError(OUT_OF_DATE);
 
   const found = await bookableMonth(db, customer.id, input.hostId, now);
   if (!found) {
     if (booking) await endPaying(booking.id, "Your membership could no longer be booked from.", now);
     throw new BookingError(NO_MEMBERSHIP);
   }
+  // And from the month it was written down for. If the member has a new month by now (they cancelled that one
+  // and resumed), the old request ends: money of another month is never taken for it. They book again from the page.
+  if (booking && booking.monthId !== found.month.id) {
+    const reason = "The month this booking was made from can no longer be booked from. Please choose a time again.";
+    return resultOf((await endPaying(booking.id, reason, now)) ?? (await db.select().from(schema.bookings).where(eq(schema.bookings.id, booking.id)))[0]);
+  }
 
   let paidJustNow = false;
   if (found.month.status === "held") {
     // The first booking of the month: the request is written down, and then the month's money is taken.
     booking ??= await saveAsPaying(input, found);
-    if (booking.stage !== "paying") return { booking, outcome: booking.stage === "accepted" ? "booked" : "not_booked" };
+    if (booking.stage !== "paying") return resultOf(booking);
     const notYet: MemberBookingResult = { booking, outcome: "paying", message: "We could not take this month's payment yet. Please try again in a moment." };
     const taken = await takeNow(found.month.id, now).catch((error) => {
       console.error(`[membership] could not take the money of month ${found.month.id} for a first booking; the same press continues it`, error);
@@ -317,7 +334,8 @@ export async function bookAsMember(input: Input): Promise<MemberBookingResult> {
   }
 
   try {
-    return { booking: await bookInOneStep(input, found), outcome: "booked" };
+    // (The booking step gives back a request that ended meanwhile as it is: its own stage says what became of it.)
+    return resultOf(await bookInOneStep(input, found));
   } catch (error) {
     const lost = isOverlap(error) ? NOT_OPEN : error instanceof BookingError ? error.message : null;
     if (lost === null) throw error;
@@ -346,7 +364,9 @@ export async function runPayingBookings(now: Date): Promise<void> {
     const gone = row.membershipStatus !== "active" || Boolean(row.endedHow) || !inMonth(row.monthStatus);
     const late = row.booking.createdAt.getTime() <= now.getTime() - PAYING_MS;
     if (!gone && !late) continue;
-    await endPaying(row.booking.id, gone ? "Your membership could no longer be booked from." : "This month's payment was not finished in time.", now).catch((error) =>
+    // Said as it is: if the month's money was taken meanwhile, the payment did go through, and only the booking was not finished.
+    const reason = gone ? "Your membership could no longer be booked from." : row.monthStatus === "running" ? "This booking was not finished in time. Your month's payment went through; please choose a time again." : "This month's payment was not finished in time.";
+    await endPaying(row.booking.id, reason, now).catch((error) =>
       console.error(`[membership] could not end unfinished member booking ${row.booking.id}; will retry`, error),
     );
   }

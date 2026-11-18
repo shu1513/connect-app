@@ -50,6 +50,7 @@ async function main() {
   const { MembershipError } = await import("../src/lib/membership/rules");
   const { MEMBERSHIP_WORDING_VERSION: WORDING } = await import("../src/lib/membership/wording");
   const { askForCall, offerOf, openTimes, instantOffer, BookingError, requestsOfCustomer } = await import("../src/lib/booking/bookings");
+  const { mayKeepMemberHours } = await import("../src/lib/booking/calendar");
   const { block } = await import("../src/lib/safety/blocks");
   const { closeAccount } = await import("../src/lib/profiles/closing");
   const { endCallForSafety } = await import("../src/lib/safety/calls");
@@ -251,9 +252,22 @@ async function main() {
   // ------------------------------------------------------------------------
   // Cleaning up: only this script's own people (ids starting "mk-")
   // ------------------------------------------------------------------------
+  /** If an earlier run stopped while one of its hosts held the test payout account, the seeded host gets it back before anything is deleted. */
+  async function payoutAccountBack() {
+    const [holder] = await db.select().from(schema.hostSettings).where(and(like(schema.hostSettings.userId, "mk-%"), sql`${schema.hostSettings.stripeAccountId} is not null`));
+    const [seeded] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, "host@test.local"));
+    if (!holder || !seeded) return;
+    await db.transaction(async (tx) => {
+      await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, holder.userId));
+      await tx.update(schema.hostSettings).set({ stripeAccountId: holder.stripeAccountId }).where(eq(schema.hostSettings.userId, seeded.id));
+    });
+    console.log("   (the test payout account was given back to host@test.local)");
+  }
+
   /** `pair`: instead of this script's own people, the membership between two seeded test accounts that `--demo` made, and its calls. */
   async function wipe(everything = false, pair?: { hostId: string; customerId: string }) {
     const quiet = async (step: () => Promise<unknown>) => step().catch((error) => console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+    await payoutAccountBack();
     const all = await db
       .select({ id: schema.memberships.id })
       .from(schema.memberships)
@@ -458,8 +472,8 @@ async function main() {
     const pressedAgain = await refused(book(n, open2[1], { key }));
     const ended = await bookingById(notTaken.booking.id);
     check("the same press again finds the month can no longer be booked from, and the request ends with words of its own", Boolean(pressedAgain) && ended.stage === "ran_out" && /could no longer be booked from/.test(ended.endedReason ?? "") && /No membership time was used/.test(await emailText(n.member.email, "was not booked")), `${pressedAgain} ${ended.stage} ${ended.endedReason}`);
-    const laterPress = await book(n, open2[1], { key }).then((r) => r.outcome, () => "refused");
-    check("an ended request is never brought back", laterPress === "not_booked" || laterPress === "refused", laterPress);
+    const laterPress = await book(n, open2[1], { key });
+    check("an ended request is never brought back, and is never called booked", laterPress.outcome === "not_booked" && Boolean(laterPress.message) && laterPress.booking.stage === "ran_out", laterPress.outcome);
 
     // The request was saved and the app stopped before the money was taken: the 30 minutes run out.
     const o = await member(host, { take: false });
@@ -475,6 +489,34 @@ async function main() {
     const continued = await B.bookAsMember({ customer: o.member, hostId: host.id, startsAt: open3[2], lengthMinutes: 30, requestKey: stuck.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() });
     check("the same press continues it: the money is taken and the call booked, on the same booking", continued.outcome === "booked" && continued.booking.id === stuck.id && (await M(o.monthId)).status === "running" && (await places(o.monthId)) === "4500/1500/0/0/0/0", `${continued.outcome} ${await places(o.monthId)}`);
     await audit("after continuing", o);
+    // A request that was written down for another month is never continued with this month's money.
+    const [otherMonth] = await db
+      .insert(schema.bookings)
+      .values({ hostId: host.id, customerId: o.member.id, startsAt: open3[4], endsAt: new Date(open3[4].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 750, totalCents: 1500, freeCancelMinutes: 0, stage: "paying", source: "member", requestKey: randomUUID(), monthId: m.monthId, requestedAt: new Date() })
+      .returning();
+    const wrongMonth = await B.bookAsMember({ customer: o.member, hostId: host.id, startsAt: open3[4], lengthMinutes: 30, requestKey: otherMonth.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() });
+    check("a request written down for another month ends instead of being booked from this one", wrongMonth.outcome === "not_booked" && (await bookingById(otherMonth.id)).stage === "ran_out" && (await places(o.monthId)) === "4500/1500/0/0/0/0", `${wrongMonth.outcome} ${await places(o.monthId)}`);
+    const [sameKey] = await db
+      .insert(schema.bookings)
+      .values({ hostId: host.id, customerId: o.member.id, startsAt: open3[5], endsAt: new Date(open3[5].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 750, totalCents: 1500, freeCancelMinutes: 0, stage: "paying", source: "member", requestKey: randomUUID(), monthId: o.monthId, requestedAt: new Date() })
+      .returning();
+    const otherTime = await refused(B.bookAsMember({ customer: o.member, hostId: host.id, startsAt: open3[6], lengthMinutes: 30, requestKey: sameKey.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() }));
+    check("a request is only continued for the time it was written down for", /out of date/.test(otherTime ?? "") && (await bookingById(sameKey.id)).stage === "paying", otherTime);
+    await db.update(schema.bookings).set({ createdAt: new Date(Date.now() - 31 * MIN) }).where(eq(schema.bookings.id, sameKey.id));
+    await runMembershipJobs(new Date());
+    check("when it runs out and the month's money was taken meanwhile, it says the payment went through", /payment went through/.test((await bookingById(sameKey.id)).endedReason ?? ""), (await bookingById(sameKey.id)).endedReason);
+
+    // The member is already taken at that time (a call with someone else): said before the month's money is taken.
+    const busy = await member(host, { take: false });
+    const open7 = (await times(busy)).filter((at) => hourInNewYork(at) < 13);
+    const elsewhere = await person("host");
+    const [theirs] = await db
+      .insert(schema.bookings)
+      .values({ hostId: elsewhere.id, customerId: busy.member.id, startsAt: open7[7], endsAt: new Date(open7[7].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "accepted", requestKey: randomUUID(), requestedAt: new Date(Date.now() - 2 * DAY) })
+      .returning();
+    await db.insert(schema.busyEntries).values({ bookingId: theirs.id, userId: busy.member.id, startsAt: theirs.startsAt, endsAt: theirs.endsAt });
+    const taken = await refused(book(busy, open7[7]));
+    check("a first booking at a time the member is already taken is refused before the month's money is taken", /already have a request or a call/.test(taken ?? "") && (await M(busy.monthId)).status === "held" && (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, busy.member.id), eq(schema.bookings.stage, "paying")))).length === 0, `${taken} ${(await M(busy.monthId)).status}`);
 
     const p = await member(host, { take: false });
     const open4 = (await times(p)).filter((at) => hourInNewYork(at) < 13);
@@ -668,6 +710,13 @@ async function main() {
     await helper(new Date(end.getTime() + 5 * DAY));
     const done = await M(m.monthId);
     check("the pay-backs go through and the month is finished", done.status === "finished" && placesOf(done).join("/") === "0/0/1600/1500/0/2900", `${done.status} ${placesOf(done).join("/")}`);
+    // The host has not collected yet, and gives $4.00 of the first call back after the month is finished.
+    const lateGift = await giveTimeBack({ paymentId: (await pay(a.call)).id, amountCents: 400, decidedBy: host.id, decidedAs: "host", reason: null, requestId: randomUUID(), now: new Date(end.getTime() + 6 * DAY) });
+    const reopened = await M(m.monthId);
+    check("time given back after the month was finished is owed to the card, and the month is open for that again", lateGift === "card" && reopened.status === "closed" && placesOf(reopened).join("/") === "0/0/1200/1500/400/2900", `${lateGift} ${reopened.status} ${placesOf(reopened).join("/")}`);
+    await helper(new Date(end.getTime() + 6 * DAY + HOUR));
+    const again = await M(m.monthId);
+    check("that pay-back is sent too, and the month is finished again", again.status === "finished" && placesOf(again).join("/") === "0/0/1200/1500/0/3300", `${again.status} ${placesOf(again).join("/")}`);
     await audit("after the month's end", m);
   });
 
@@ -717,20 +766,16 @@ async function main() {
     check("each is a line among the refunds that is done at once, with no Stripe refund", line.status === "done" && line.stripeRefundId === null && line.decidedAs === "host" && Boolean(line.finishedAt));
 
     // An open request answered by time given back.
-    const aPay = await pay(a.call);
-    void aPay;
-    await ask(d.call).catch(() => undefined);
     const e = await booked(m, { nth: 0 });
     await bothThere(m, e.call);
-    await settle(e.call);
-    await ask(e.call).catch(() => undefined);
+    // Its money is used by the founder's decision a few minutes after the call, so the member can still ask afterwards.
+    await db.update(schema.payments).set({ needsReview: true, reviewReason: "check" }).where(eq(schema.payments.id, (await pay(e.call)).id));
+    await decideMemberReview({ paymentId: (await pay(e.call)).id, amountCents: 1500, frozen: null, now: new Date(e.call.endsAt.getTime() + 10 * MIN) });
+    await ask(e.call);
     const openRequest = await requestViewOf(e.call);
-    if (openRequest && !openRequest.answered) {
-      await giveTimeBack({ paymentId: (await pay(e.call)).id, amountCents: 200, decidedBy: host.id, decidedAs: "host", reason: null, requestId: randomUUID(), now: new Date(e.call.startsAt.getTime() + DAY + 2 * HOUR) });
-      check("an open request counts as answered once time was given back", (await requestViewOf(e.call))?.answered === true);
-    } else {
-      check("(no request could be opened on the last call, so that check is skipped)", true);
-    }
+    check("(the member asked after the money was used: the request is open, with nothing left that an answer could lower)", openRequest?.answered === false && openRequest.open.length === 0, openRequest?.answered);
+    await giveTimeBack({ paymentId: (await pay(e.call)).id, amountCents: 200, decidedBy: host.id, decidedAs: "host", reason: null, requestId: randomUUID(), now: new Date(e.call.endsAt.getTime() + 2 * HOUR) });
+    check("an open request counts as answered once time was given back", (await requestViewOf(e.call))?.answered === true);
 
     // While the share is written down for collecting, and once it is sent: refused.
     const cPay = await pay(c.call);
@@ -793,17 +838,10 @@ async function main() {
     await db.insert(schema.attendanceEvents).values({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: b.call.id, type: "participant_left", roomSessionId: "RM_odd", participantIdentity: m.member.id, participantSessionId: "PA_never_joined", providerTime: new Date(b.call.startsAt.getTime() + 60_000), payload: "{}" });
     await settle(b.call);
     const bPay = await pay(b.call);
-    if (bPay.needsReview) {
-      check("a record that does not add up goes to the founder's review, not to a guess", bPay.status === "held");
-    } else {
-      // The record was readable after all; put it under review by hand so the founder's buttons are still played.
-      if (bPay.status === "held") await db.update(schema.payments).set({ needsReview: true, reviewReason: "check" }).where(eq(schema.payments.id, bPay.id));
-      check("(the odd record was readable; the payment is put under review by hand)", true);
-    }
-    if ((await pay(b.call)).status === "held") {
-      const answeredBefore = await refused(decide(bPay.id, null, b.call));
-      check("the founder releases it: nothing is used, all of it comes back", answeredBefore === null && (await pay(b.call)).status === "closed_uncharged", answeredBefore);
-    }
+    check("a record that does not add up goes to the founder's review, not to a guess", bPay.needsReview && bPay.status === "held", `${bPay.status} ${bPay.needsReview}`);
+    const beforeRelease = await M(m.monthId);
+    const released = await refused(decide(bPay.id, null, b.call));
+    check("the founder releases it: nothing is used, all of it comes back, because of the host", released === null && (await pay(b.call)).status === "closed_uncharged" && (await M(m.monthId)).freeCents === beforeRelease.freeCents + 1500 && (await M(m.monthId)).hostCausedCents === beforeRelease.hostCausedCents + 1500, released);
 
     // An answer accepted before the review stays the most the member pays.
     await bothThere(m, c.call);
@@ -900,16 +938,10 @@ async function main() {
 
     const o = await member(host);
     const closing = await booked(o, { nth: 3 });
-    await closeAccount({ userId: o.member.id, by: "user", now: new Date() } as never).catch(async () => {
-      // The script cannot close an account the page's way in every setup; ending as Connect does is the same step for the membership.
-      await db.transaction(async (tx) => {
-        const { lockMembership } = await import("../src/lib/membership/locks");
-        const { endMembership } = await import("../src/lib/membership/state");
-        await endMembership(tx, await lockMembership(tx, o.membershipId), { by: "connect", reason: "the account was closed" }, new Date());
-      });
-    });
+    await closeAccount({ userId: o.member.id, by: o.member.id });
     await helper(new Date());
-    check("a closed account: the membership has ended, the call is cancelled and everything goes back to the card", (await MS(o.membershipId)).status === "ended" && Boolean((await callOf(closing.booking)).cancelledAt) && (await M(o.monthId)).paidBackCents === 6000, `${(await MS(o.membershipId)).status} ${await places(o.monthId)}`);
+    const [closedUser] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, o.member.id));
+    check("a closed account: the account is closed, the membership has ended, the call is cancelled and everything goes back to the card", Boolean(closedUser.closedAt) && (await MS(o.membershipId)).status === "ended" && Boolean((await callOf(closing.booking)).cancelledAt) && (await M(o.monthId)).paidBackCents === 6000, `${closedUser.closedAt} ${(await MS(o.membershipId)).status} ${await places(o.monthId)}`);
     await audit("after the closed account", o);
   });
 
@@ -975,14 +1007,16 @@ async function main() {
       const someone = await person("member");
       await talked(host, someone);
       check("nobody can be invited", (await refused(J.invite({ hostId: host.id, customerId: someone.id, now: new Date() }))) !== null);
+      check("a host who already has hours for members can still add such hours; someone with none cannot", (await mayKeepMemberHours(host.id)) === true && (await mayKeepMemberHours(someone.id)) === false);
     } finally {
       await setSwitches({ memberships: "named", membershipsHosts: named });
     }
     const offer = (await offerOf(host.id))!;
     check("a host whose weekly hours are all for members has no times for a call later for the public", (await openTimes(offer, 30, new Date())).length === 0);
-    await db.update(schema.hostCalendars).set({ availableUntil: new Date(Date.now() + HOUR) } as never).where(eq(schema.hostCalendars.userId, host.id)).catch(() => undefined);
-    const now = await instantOffer(host.id, new Date()).catch(() => null);
-    check("\"call now\" reads the host's offer as before, also for such a host", now === null || now.offer.hostId === host.id);
+    // The host switches "available now" on (her page is open and was seen a moment ago).
+    await db.update(schema.hostCalendars).set({ availableUntil: new Date(Date.now() + 2 * HOUR), availableSeenAt: new Date() }).where(eq(schema.hostCalendars.userId, host.id));
+    const now = await instantOffer(host.id, new Date());
+    check("such a host can still be called now: \"call now\" is not narrowed by member-only hours", now !== null && now.offer.hostId === host.id && now.lengths.includes(30), now?.lengths);
 
     // A member with too little time left asks the ordinary way.
     const general = await newHost();
@@ -1016,7 +1050,6 @@ async function main() {
     check("and the member's call beside it is used from the month", (await pay(memberCall.call)).chargedCents === 1500);
     const earnings = await unsentEarnings(new Date(later.getTime() + 2 * DAY), general.id);
     check("both shares are the host's to collect: the card call's and the member call's", earnings.length === 2, earnings.length);
-    void collectEarnings;
     void acceptCollection;
     await audit("at the end", n);
   });
@@ -1053,6 +1086,79 @@ async function main() {
     check("and its share is held back until the host has answered", held?.heldBack === "request", held?.heldBack);
     await audit("at the end", m);
   });
+
+  // ========================================================================
+  if (process.argv.includes("--payouts")) {
+    journey("Collecting: a member call's share reaches the host through \"Collect earnings\", from the month's own charge", async () => {
+      const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");
+      const [seeded] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
+      const settings = seeded ? await getHostSettings(seeded.id) : null;
+      const ready = seeded && settings?.stripeAccountId ? await refreshPayoutsReady(seeded.id) : false;
+      check("the test host's payout account is ready", Boolean(ready));
+      if (!seeded || !settings?.stripeAccountId || !ready) return console.log("   Set up payouts for host@test.local on the Hosting page first.");
+      const account = settings.stripeAccountId;
+      const host = await newHost();
+      // One payout account belongs to one host at a time, so the new host takes over the test account for this journey.
+      const give = (from: string, to: string) =>
+        db.transaction(async (tx) => {
+          await tx.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, from));
+          await tx.update(schema.hostSettings).set({ stripeAccountId: account, payoutsReady: true }).where(eq(schema.hostSettings.userId, to));
+        });
+      await give(seeded.id, host.id);
+      try {
+        const press = (now: Date) => collectEarnings({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now }).then(() => null, (error: unknown) => error as Error);
+        const m = await member(host);
+        const a = await booked(m, { nth: 0 });
+        const b = await booked(m, { nth: 1 });
+        await bothThere(m, a.call);
+        await bothThere(m, b.call);
+        check("nothing of a member's call can be collected while its money is only set aside", (await press(new Date(b.call.endsAt.getTime() + 3 * DAY))) instanceof MoneyError);
+        await settle(a.call);
+        await settle(b.call);
+        const early = await press(new Date(a.call.endsAt.getTime() + DAY - MIN));
+        check("a member call's share cannot be collected before 24 hours after the call", early instanceof MoneyError && (await pay(a.call)).transferStatus === "not_due", early?.message);
+        // A card call with the same host, charged the ordinary way.
+        const caller = await person("caller");
+        const startsAt = new Date(Math.ceil((Date.now() + 600_000) / 1000) * 1000);
+        const paid = await db.transaction(async (tx) => {
+          const [call] = await tx.insert(schema.calls).values({ hostId: host.id, customerId: caller.id, startsAt, endsAt: new Date(startsAt.getTime() + 15 * MIN), roomName: `membercalls-${randomUUID()}`, pricePer15Cents: 1000 }).returning();
+          await createPaymentForCall(tx, call);
+          const [payment] = await tx.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
+          return { call, payment };
+        });
+        await startHold({ payment: paid.payment, call: paid.call, customer: caller, now: new Date() });
+        const [withIntent] = await db.select().from(schema.payments).where(eq(schema.payments.id, paid.payment.id));
+        await stripe().paymentIntents.confirm(withIntent.stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+        await syncHold(paid.payment.id, new Date());
+        await attend(paid.call, [[host.id, 0, 900], [caller.id, 0, 900]]);
+        await settleFinishedCalls(new Date(startsAt.getTime() + DAY + 4 * MIN));
+        const cardShare = async () => (await db.select().from(schema.payments).where(eq(schema.payments.id, paid.payment.id)))[0];
+        check("(the card call was charged $10.00: the host's share is $9.21)", (await cardShare()).originalHostShareCents === 921, (await cardShare()).status);
+
+        const pressed = await press(new Date(b.call.endsAt.getTime() + 3 * DAY));
+        const [pa, pb, pc] = [await pay(a.call), await pay(b.call), await cardShare()];
+        // $13.96 (with the month's 30 cents) + $14.26 + $9.21 = $37.43; one 25-cent collection charge: $37.18 sent.
+        const sent = (pa.transferCents ?? 0) + (pb.transferCents ?? 0) + (pc.transferCents ?? 0);
+        const fees = (pa.payoutFeeCents ?? 0) + (pb.payoutFeeCents ?? 0) + (pc.payoutFeeCents ?? 0);
+        check("one press sends two member calls' shares and a card call's share together, with one collection charge", pressed === null && [pa, pb, pc].every((p) => p.transferStatus === "sent") && sent === 3718 && fees === 25, `${pressed?.message} ${pa.transferStatus} ${pb.transferStatus} ${pc.transferStatus} ${sent} ${fees}`);
+        const month = await M(m.monthId);
+        const inMonthsGroup = (await stripe().transfers.list({ transfer_group: m.monthId, limit: 10 })).data;
+        const inCallsGroup = (await stripe().transfers.list({ transfer_group: paid.call.id, limit: 10 })).data;
+        check(
+          "at Stripe: the member calls' transfers name the month's charge and group, the card call's its own",
+          inMonthsGroup.length === 2 && inMonthsGroup.every((t) => t.source_transaction === month.stripeChargeId && t.destination === account) && inCallsGroup.length === 1 && inCallsGroup[0].source_transaction === pc.stripeChargeId && sum([...inMonthsGroup, ...inCallsGroup].map((t) => t.amount)) === 3718,
+          `${inMonthsGroup.length} ${inCallsGroup.length}`,
+        );
+        check("what went to the host from the month is never more than what was used", sum(inMonthsGroup.map((t) => t.amount)) <= month.usedCents);
+        const tooLate = await refused(giveTimeBack({ paymentId: pa.id, amountCents: 100, decidedBy: host.id, decidedAs: "host", reason: null, requestId: randomUUID() }));
+        check("once the share is collected, time can no longer be given back through the app", /already been paid/.test(tooLate ?? ""), tooLate);
+        await audit("after collecting", m);
+      } finally {
+        await give(host.id, seeded.id);
+        await refreshPayoutsReady(seeded.id).catch(() => undefined);
+      }
+    });
+  }
 
   // ------------------------------------------------------------------------
   // For looking at the pages by hand: a real member between the two seeded test accounts.

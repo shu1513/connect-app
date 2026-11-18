@@ -20,6 +20,11 @@ const REQUEST_LABEL: Record<string, string> = {
   ran_out: "ended without an answer",
   taken_back: "you took it back",
 };
+/** A booking a member made with their membership time that is not (or not yet) a call. */
+const MEMBER_REQUEST_LABEL: Record<string, string> = {
+  paying: "this month's payment is being taken; open it to finish the booking",
+  ran_out: "not booked",
+};
 const STATE_LABEL = { not_open_yet: "Not open yet", open: "Open now", closed: "Ended" } as const;
 
 /**
@@ -214,7 +219,7 @@ export default async function HomePage(props: PageProps<"/">) {
                 <Link href={`/bookings/${booking.id}`} className="underline underline-offset-2">
                   {hostName}, <LocalTime iso={booking.startsAt.toISOString()} />
                 </Link>
-                : {REQUEST_LABEL[booking.stage] ?? booking.stage}
+                : {(booking.source === "member" ? MEMBER_REQUEST_LABEL[booking.stage] : REQUEST_LABEL[booking.stage]) ?? booking.stage}
               </li>
             ))}
           </ul>

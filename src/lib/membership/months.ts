@@ -282,9 +282,11 @@ async function returnFrom(tx: Tx, locked: LockedMonth, from: "setAsideCents" | "
     .onConflictDoNothing()
     .returning({ id: schema.membershipRefunds.id });
   if (owed.length === 0) return null;
+  // A month that was already finished has something owed back again (time given back before the host collected):
+  // it is "closed" once more, so the pay-back job sends it, and it is finished again when Stripe has confirmed.
   await tx
     .update(months)
-    .set({ [from]: sql`${column} - ${input.cents}`, toPayBackCents: sql`${months.toPayBackCents} + ${input.cents}`, updatedAt: input.now })
+    .set({ [from]: sql`${column} - ${input.cents}`, toPayBackCents: sql`${months.toPayBackCents} + ${input.cents}`, status: sql`case when ${months.status} = 'finished' then 'closed' else ${months.status} end`, updatedAt: input.now })
     .where(eq(months.id, month.id));
   return "card";
 }

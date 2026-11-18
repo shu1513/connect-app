@@ -14,6 +14,7 @@ import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
 import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { isDecided, moneyPlan } from "@/lib/payments/take";
+import { isFrozen } from "@/lib/membership/rules";
 import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
@@ -68,6 +69,10 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // member could no longer book from that month). Everything else that came back is membership time again.
   const memberPayments = payments.filter((p) => p.kind === "member_call").map((p) => p.id);
   const toCard = memberPayments.length > 0 ? await db.select().from(schema.membershipRefunds).where(inArray(schema.membershipRefunds.paymentId, memberPayments)) : [];
+  // A month whose charge the member's bank is disputing is frozen: nothing of it is used, given back, paid back or collected.
+  const monthIds = payments.flatMap((p) => (p.kind === "member_call" && p.monthId ? [p.monthId] : []));
+  const disputed = monthIds.length > 0 ? await db.select({ id: schema.membershipMonths.id, dispute: schema.membershipMonths.dispute }).from(schema.membershipMonths).where(inArray(schema.membershipMonths.id, monthIds)) : [];
+  const frozenMonths = new Set(disputed.filter(isFrozen).map((month) => month.id));
   // Where the money stands: the charges still on hold, what the record gives for each right now, and when they are taken.
   const now = new Date();
   const plan = payments.length > 0 ? await moneyPlan(call) : null;
@@ -239,6 +244,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
             callId={call.id}
             refunds={refunds.filter((r) => r.paymentId === p.id)}
             toCard={toCard.filter((line) => line.paymentId === p.id)}
+            monthFrozen={Boolean(p.monthId && frozenMonths.has(p.monthId))}
             billing={call.billing}
             addedMinutes={p.extensionId ? (extensionOf.get(p.extensionId)?.minutes ?? 0) : null}
             waiting={
@@ -327,6 +333,8 @@ function Receipt(props: {
   refunds: Array<{ id: string; amountCents: number; status: string; decidedAs: string; reason: string | null; createdAt: Date }>;
   /** For a payment from a membership: what of it is owed back to the member's card (see above). */
   toCard: Array<{ sourceKey: string; amountCents: number; status: string }>;
+  /** The payment's month is frozen by a bank dispute: nothing of it moves, so nothing is promised or offered here. */
+  monthFrozen: boolean;
   billing: string;
   /** Null for the call's own payment. Otherwise the minutes this payment was asked for. */
   addedMinutes: number | null;
@@ -341,7 +349,7 @@ function Receipt(props: {
   const paid = (payment.chargedCents ?? 0) - payment.refundedCents;
   const frozenHost = payment.frozenHostSeconds;
   const frozenTogether = payment.frozenTogetherSeconds;
-  const canRefund = role === "host" && payment.status === "charged" && payment.transferStatus !== "sent" && paid > 0 && !payment.disputeOpen;
+  const canRefund = role === "host" && payment.status === "charged" && payment.transferStatus !== "sent" && paid > 0 && !payment.disputeOpen && !props.monthFrozen;
 
   const extra = props.addedMinutes !== null;
   // Paid from a membership: money set aside in the member's month, never a hold or a charge on a card.
@@ -375,7 +383,7 @@ function Receipt(props: {
             ? // Never mistaken for what the call's record gave: it says who lowered it.
               `Charged ${formatMoney(payment.chargedCents ?? 0)} of ${formatMoney(payment.recordCents)}, lowered by ${payment.loweredBy === "admin" ? "Connect" : "the host"}.`
             : `Charged ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} ${extra ? "held" : "booked"}.`;
-  const waiting = payment.status === "held" && !payment.needsReview ? props.waiting : null;
+  const waiting = payment.status === "held" && !payment.needsReview && !props.monthFrozen ? props.waiting : null;
 
   return (
     <section className="mt-6 rounded border border-neutral-400 p-4">
@@ -438,7 +446,9 @@ function Receipt(props: {
               <Row
                 label="Payout"
                 value={
-                  payment.transferStatus === "sent"
+                  props.monthFrozen && payment.transferStatus !== "sent"
+                    ? "Held back while the month's payment is disputed"
+                    : payment.transferStatus === "sent"
                     ? `Sent ${formatMoney(payment.transferCents ?? 0)}${payment.payoutFeeCents ? ` after a ${formatMoney(payment.payoutFeeCents)} collection charge` : ""}`
                     : payment.transferStatus === "not_owed"
                       ? "Nothing to pay out"
@@ -460,6 +470,12 @@ function Receipt(props: {
         <p className="mt-3 text-sm text-amber-700">The call&apos;s record changed after it was charged. The charge was not changed; it has been flagged for a check.</p>
       )}
       {payment.disputeOpen && <p className="mt-3 text-sm text-amber-700">The customer&apos;s bank is disputing this charge.</p>}
+      {props.monthFrozen && (
+        <p className="mt-3 text-sm text-amber-700">
+          The member&apos;s bank is disputing the membership payment of this month. Until the bank has decided, nothing of that month moves: nothing is used, given
+          back, paid back or collected.
+        </p>
+      )}
 
       {refunds.length > 0 && (
         <ul className="mt-3 text-sm">
