@@ -23,9 +23,9 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
   if (!state.passed && (state.pending || state.triesLeft < IDENTITY_TRIES)) state = await refreshIdentity(user.id).catch(() => state);
 
   return (
-    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
-        <Link href={next ?? "/account"} className="underline underline-offset-2">
+        <Link href={next ?? "/account"} className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← {next ? "Back to where you were" : "Your account"}
         </Link>
       </p>

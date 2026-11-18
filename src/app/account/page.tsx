@@ -41,7 +41,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
-    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold">Your account</h1>
 
       {((typeof notice === "string" && NOTICES[notice]) || signed) && (
@@ -115,7 +115,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Hosting</h2>
         <p className="mt-2 text-sm">
-          <Link href="/host" className="underline underline-offset-2">
+          <Link href="/host" className="inline-flex min-h-11 items-center underline underline-offset-2">
             Your host profile, payouts and calendar
           </Link>
         </p>

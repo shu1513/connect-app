@@ -81,9 +81,9 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   }
 
   return (
-    <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
+    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
-        <Link href={role === "host" ? "/host/requests" : "/"} className="underline underline-offset-2">
+        <Link href={role === "host" ? "/host/requests" : "/"} className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← {role === "host" ? "Requests for calls" : "Your calls"}
         </Link>
       </p>

@@ -24,12 +24,17 @@
   outline-offset: 4px;
 }
 
-.warm-page :is(a, button) {
+/* Buttons, and the links of the bars, the times to pick and the pills, are easy to tap. A link
+   inside a sentence stays plain text, so the words around it keep their spaces and lines. A link
+   alone on its line (a way back, a next step) asks for the size itself: inline-flex min-h-11. */
+.warm-page button,
+.warm-page :is(.warm-header, .warm-footerLinks, .warm-slots) a,
+.warm-page a[class~="rounded"] {
   min-height: 44px;
   min-width: 44px;
 }
 
-.warm-page a {
+.warm-page :is(.warm-header, .warm-footerLinks, .warm-slots) a {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
@@ -47,6 +52,11 @@
 
 .warm-page :is([role="alert"], [class~="text-red-600"]) {
   color: #b91c1c;
+}
+
+/* A table keeps its words whole; on a narrow screen it scrolls sideways inside its own box. */
+.warm-page table {
+  overflow-wrap: normal;
 }
 
 .warm-header {
@@ -157,11 +167,6 @@
   color: #9a3412;
 }
 
-.warm-page button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
 .warm-input,
 .warm-auth input:not([type="checkbox"]):not([type="hidden"]),
 .warm-auth select {
@@ -264,6 +269,14 @@
   background: #fff7ed;
 }
 
+/* On a phone the links go under the site's name, so a logged-in person's name sits beside it. */
+@media (max-width: 639px) {
+  .warm-headerInner > nav {
+    order: 1;
+    width: 100%;
+  }
+}
+
 @media (min-width: 640px) {
   .warm-searchPill {
     flex-direction: row;
@@ -275,4 +288,88 @@
     margin-top: 48px;
     padding: 32px;
   }
+}
+
+/*
+ * Pages written before the warm look share a small set of Tailwind styles: a blue main button, a
+ * grey-bordered second button, grey-bordered fields and boxes. Inside a warm page those are given
+ * the warm shapes and colours here, so such a page only has to turn the look on.
+ */
+.warm-page h1 {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.warm-page :is(button, a)[class~="rounded"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 9999px;
+  padding: 10px 18px;
+  font-weight: 600;
+}
+
+.warm-page :is(button, a)[class~="bg-blue-600"] {
+  background: #c2410c;
+  color: white;
+}
+
+.warm-page :is(button, a)[class~="bg-blue-600"]:hover {
+  background: #9a3412;
+  color: white;
+}
+
+.warm-page :is(button, a)[class~="border-neutral-500"] {
+  border-color: #a8a29e;
+  background: white;
+  color: #1c1917;
+}
+
+.warm-page :is(button, a)[class~="border-neutral-500"]:hover {
+  border-color: #c2410c;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.warm-page :is(input, select, textarea)[class~="border-neutral-400"] {
+  min-height: 44px;
+  border-color: #a8a29e;
+  border-radius: 12px;
+  background: white;
+  padding: 10px 14px;
+  font-size: 16px;
+  color: #1c1917;
+}
+
+.warm-page :is(input, textarea)[class~="border-neutral-400"]::placeholder {
+  color: #78716c;
+  opacity: 1;
+}
+
+.warm-page input:is([type="checkbox"], [type="radio"]) {
+  accent-color: #c2410c;
+}
+
+/* Boxes: a list entry, a section, a notice. */
+.warm-page :is(section, li, p, div, form, pre)[class~="rounded"]:is([class~="border"], [class~="border-2"]) {
+  border-radius: 16px;
+  background: white;
+}
+
+.warm-page :is(section, li, p, div, form, pre):is([class~="border-neutral-400"], [class~="border-neutral-500"]) {
+  border-color: #e7e5e4;
+}
+
+.warm-page :is(section, li, p, div, form, pre)[class~="rounded"][class~="border-blue-600"] {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+/* Last, so it also holds for the pill-shaped buttons above. */
+.warm-page button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }

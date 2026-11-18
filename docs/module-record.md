@@ -984,6 +984,20 @@ Astra also noted three planned cases the script did not have yet (a replacement 
 
 ---
 
+## A later change: the warm look on the customer's pages (18 November 2026)
+
+**What changed.** The warm look now also covers what a logged-in customer sees: Your calls, asking for a call (also "call now"), a request's page, a call's results, Your account, confirming your ID, People you have talked to, Report, the paused-account page, the connection test and the email-choices page. Nothing those pages do or say changed. Still plain: Hosting, the admin pages, and the live call.
+
+**How.** Each page turns the look on (`SitePage` with `warm`). These older pages share a small set of styles (a blue main button, a grey-bordered second button, grey-bordered fields and boxes), so `warm-ui.css` restyles those inside a warm page in one place and the pages themselves were not rewritten. Two earlier rules changed: a link inside a sentence is plain text again (as a small box it swallowed the spaces next to it), and only buttons and stand-alone links keep the large tap size; a table keeps its words whole and scrolls sideways in its own box on a phone. On a phone the top bar puts the links under the site's name.
+
+**Who built it.** Claude, at the founder's request; Astra reviewed it.
+
+**What the review found.** Three small things, all fixed: the grey hint text inside fields was too faint (now 4.8:1), "Forgot password?" and a host's name in the search results had lost their large tap size, and a busy button showed a pointing hand instead of the wait cursor. CodeRabbit then pointed out that links standing alone on their own line (a way back, "Choose another time") were small to tap; every such link, about twenty, now has the large tap size.
+
+**How it was checked.** Types, lint, 358 automatic tests, the build; the accounts (165), whole-journey (63), booking (116), safety (60), ratings (73), refunds (112), call-now (74) and verified (30) scripts. In a browser as the test customer: every page above at computer width; Your calls, a call's results, the account, contacts and the asking page at phone width (no sideways scrolling). The visitor pages were looked at again, logged out.
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.

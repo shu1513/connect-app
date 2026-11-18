@@ -18,7 +18,7 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
   const contacts = await contactsOf(user.id, new Date());
 
   return (
-    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+    <SitePage warm className="mx-auto w-full max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold">People you have talked to</h1>
       <p className="mt-2 text-sm opacity-70">Everyone you have had a call with. Someone you have blocked, or who has blocked you, is not listed.</p>
 
@@ -40,7 +40,7 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
               </p>
               {contact.hostHandle && (
                 <p className="mt-2">
-                  <Link href={`/h/${contact.hostHandle}`} className="underline underline-offset-2">
+                  <Link href={`/h/${contact.hostHandle}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
                     Their page: book another call
                   </Link>
                 </p>

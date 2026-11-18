@@ -14,7 +14,7 @@ export default async function PausedPage() {
   if (!user.paused) redirect("/");
   const [row] = await db.select({ reason: schema.user.pausedReason }).from(schema.user).where(eq(schema.user.id, user.id));
   return (
-    <SitePage className="mx-auto w-full max-w-xl px-4 py-16">
+    <SitePage warm className="mx-auto w-full max-w-xl px-4 py-16">
       <h1 className="text-2xl font-semibold">Your account is paused</h1>
       <p className="mt-4 text-sm">
         You can still log in and see your past calls and receipts, but you cannot book, host or join calls for now.

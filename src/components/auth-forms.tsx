@@ -158,7 +158,7 @@ export function LoginForm({ google, next }: { google: boolean; next: string }) {
         </button>
       </form>
       <p className="mt-4 text-sm">
-        <Link href="/forgot-password" className="underline underline-offset-2">
+        <Link href="/forgot-password" className="inline-flex min-h-11 items-center underline underline-offset-2">
           Forgot password?
         </Link>
       </p>
