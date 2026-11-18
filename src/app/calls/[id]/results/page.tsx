@@ -13,6 +13,7 @@ import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
 import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
+import { moneyTiming } from "@/lib/payments/rules";
 import { isDecided, moneyPlan } from "@/lib/payments/take";
 import { isFrozen } from "@/lib/membership/rules";
 import { requestViewOf } from "@/lib/refunds/requests";
@@ -89,6 +90,12 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
     const cents = record === null || !answer || answer.choice === "full" ? record : answer.choice === "less" ? Math.min(answer.maxCents ?? 0, record) : 0;
     toBeCharged.set(held.id, cents !== null && cents < MIN_CHARGE_CENTS ? 0 : cents);
   }
+  // When each payment's money is taken by itself. They share the call's moment, with one exception that settling
+  // makes too: time added by card to a call booked with a membership follows its own hold, which can end sooner.
+  const takeAtOf = (p: Payment): Date | null =>
+    payment?.kind === "member_call" && p.kind === "card" && p.holdExpiresAt
+      ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: plan?.request?.askedAt ?? null, holdExpiresAt: p.holdExpiresAt }).takeAt
+      : (plan?.timing?.takeAt ?? null);
   const extensionOf = new Map(extensions.map((e) => [e.id, e]));
   const addedMinutes = extensions.filter((e) => e.status === "accepted").reduce((sum, e) => sum + e.minutes, 0);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
@@ -252,7 +259,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
             memberCall={payment?.kind === "member_call"}
             waiting={
               toBeCharged.has(p.id)
-                ? { cents: toBeCharged.get(p.id) ?? null, takeAt: plan?.timing?.takeAt ?? null, decided: isDecided(plan?.request), askedFor: Boolean(plan?.request) }
+                ? { cents: toBeCharged.get(p.id) ?? null, takeAt: takeAtOf(p), decided: isDecided(plan?.request), askedFor: Boolean(plan?.request) }
                 : null
             }
           />

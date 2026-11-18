@@ -21,7 +21,7 @@ import { attendanceChargeCents, countedSeconds, splitCharge } from "@/lib/paymen
 import { readyToCollectAt, REVIEW_WINDOW_MS } from "@/lib/payments/rules";
 import { lockMonthsOfCall, type LockedMonth } from "./locks";
 import { canBookFrom, comeBack, finishIfSettled, spendSetAside } from "./months";
-import { afterTheWait, feeTermsFor, isFrozen } from "./rules";
+import { afterTheWait, feeTermsFor, isFrozen, minutesCovered } from "./rules";
 
 const months = schema.membershipMonths;
 
@@ -301,7 +301,7 @@ export async function membershipForMoreTime(reader: Pick<Tx, "select">, call: Pi
     .where(eq(months.id, own.monthId));
   if (!row) return null;
   if (!canBookFrom(row, now) || !row.month.endsAt) return { own, locked: row, coversMinutes: 0 };
-  const byMoney = Math.floor((row.month.freeCents * 15) / row.month.pricePer15Cents);
+  const byMoney = minutesCovered(row.month.freeCents, row.month.pricePer15Cents);
   const byMonthEnd = Math.floor((row.month.endsAt.getTime() - call.endsAt.getTime()) / 60_000);
   return { own, locked: row, coversMinutes: Math.max(0, Math.min(byMoney, byMonthEnd)) };
 }

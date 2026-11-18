@@ -704,6 +704,10 @@ async function main() {
     check("(a month of 30 minutes at $5.00: $10.00)", (await M(m.monthId)).totalCents === 1000);
     const calls: Call[] = [];
     for (let i = 0; i < 6; i++) calls.push((await booked(m, { nth: i * 3, length: 5 })).call);
+    // The same rounding for time added to a call: with exactly $1.66 free, 5 more minutes are covered (they cost $1.666…, rounded down).
+    await db.update(months).set({ freeCents: 166, expiredCents: 0, setAsideCents: 834 }).where(eq(months.id, m.monthId));
+    check("with exactly $1.66 free, 5 more minutes are paid from the membership, not by card", (await addTimeChoices(calls[0], nearEnd(calls[0]))).membershipCovers === 5);
+    await db.update(months).set({ freeCents: 4, expiredCents: 0, setAsideCents: 996 }).where(eq(months.id, m.monthId));
     check("a 5-minute call sets aside $1.66 (rounded down); six of them leave 4 cents", (await pay(calls[0])).bookedCents === 166 && (await places(m.monthId)) === "4/996/0/0/0/0", await places(m.monthId));
     check("with 4 cents left, nothing more is offered", (await B.memberBookingView(m.member.id, host.id, new Date()))?.lengths.length === 0);
     await bothThere(m, calls[0]);
@@ -1325,7 +1329,12 @@ async function main() {
     await closeFinishedExtensions(new Date(live.endsAt.getTime() + MIN));
     const ended = await M(e.monthId);
     const endedKey = ["callreturn", (await paymentOfRequest(openOne.extensionId)).id, "request_ended"].join(":");
-    check("when the request runs out, its money is owed to the card, because the membership has ended", (await paymentOfRequest(openOne.extensionId)).status === "closed_uncharged" && (await refundsOf(e.monthId)).some((line) => line.sourceKey === endedKey) && ended.setAsideCents === 1500, placesOf(ended).join("/"));
+    const owedForIt = (await refundsOf(e.monthId)).filter((line) => line.sourceKey === endedKey);
+    // $60.00 paid: $15.00 still set aside for the call under way, and all the rest owed back ($42.50 free at the ending, and this request's $2.50).
+    check("when the request runs out, exactly its $2.50 is owed to the card, once, because the membership has ended", (await paymentOfRequest(openOne.extensionId)).status === "closed_uncharged" && owedForIt.length === 1 && owedForIt[0].amountCents === 250 && ended.setAsideCents === 1500 && ended.freeCents === 0 && ended.toPayBackCents + ended.paidBackCents === 4500, `${owedForIt.map((line) => line.amountCents)} ${placesOf(ended).join("/")}`);
+    const noCard = await refused(askForMoreTime({ callId: live.id, customerId: e.member.id, minutes: 5, shown: { paidFrom: "card", priceCents: 250 }, now: new Date(live.endsAt.getTime() - 30_000) }));
+    check("after the ending, more time on that call cannot be paid by card either: the membership's card is no longer saved", /no saved card/.test(noCard ?? ""), noCard);
+    await audit("the ended membership", e, { owed: true });
     await audit("after extra time by card", m);
   });
 

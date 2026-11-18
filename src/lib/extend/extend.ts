@@ -357,7 +357,11 @@ export async function askForMoreTime(
           });
           return { extension, payment: null, call };
         }
-        // By card: an ordinary card payment of its own (the usual fee, its own hold), not a copy of the call's terms. It is not part of the month's money.
+        // By card: the membership's card in use is read again now that the membership is locked. If it was retired
+        // meanwhile (the membership ended or was paused a moment ago), or is another card, nothing is written.
+        const card = await cardInUse(tx, member.locked.membership.id);
+        if (!card || card.stripePaymentMethodId !== cardId) throw new ExtendError("Time cannot be added to this call by card, because your membership has no saved card any more. The call ends as booked.");
+        // An ordinary card payment of its own (the usual fee, its own hold), not a copy of the call's terms. It is not part of the month's money.
         const [payment] = await tx
           .insert(schema.payments)
           .values({
