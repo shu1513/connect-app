@@ -111,13 +111,13 @@ type IntentRequest = Stripe.PaymentIntentCreateParams;
  *      the founder. None: none was ever made, and the month is given up.
  * Returns null when the month has no PaymentIntent to pay with (given up, abandoned, or a problem).
  */
-export async function intentFor(monthId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; keepsCard: boolean } | null> {
+export async function intentFor(monthId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; keepsCard: boolean; status: Stripe.PaymentIntent.Status } | null> {
   const seen = await monthById(monthId);
   if (!seen) throw new MoneyError("Month not found.");
   if (seen.stripePaymentIntentId) {
     if (seen.status !== "to_pay" || seen.endedHow || seen.problem) return null;
     const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId);
-    return { intentId: intent.id, clientSecret: intent.client_secret, keepsCard: intent.setup_future_usage === "off_session" };
+    return { intentId: intent.id, clientSecret: intent.client_secret, keepsCard: intent.setup_future_usage === "off_session", status: intent.status };
   }
 
   // 2. The claim, written once.
@@ -203,7 +203,7 @@ export async function intentFor(monthId: string, now: Date = new Date()): Promis
     return null;
   }
   if (saved === "other") return intentFor(monthId, now);
-  return { intentId: found.id, clientSecret: found.client_secret, keepsCard: found.setup_future_usage === "off_session" };
+  return { intentId: found.id, clientSecret: found.client_secret, keepsCard: found.setup_future_usage === "off_session", status: found.status };
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +483,11 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
   if (!found || found.customerId !== input.memberId) return null;
   const intent = await intentFor(input.monthId, input.now ?? new Date());
   if (!intent?.clientSecret) return null;
+  if (!["requires_payment_method", "requires_confirmation", "requires_action"].includes(intent.status)) {
+    // Stripe already has a payment on it (a hold we have not heard of yet, perhaps): there is nothing left to pay. Record how it stands.
+    await syncMonth(input.monthId, input.now ?? new Date());
+    return null;
+  }
   // The card the member pays with by hand is kept for the months that follow (a try with the saved card took that mark off).
   if (!intent.keepsCard) await stripe().paymentIntents.update(intent.intentId, { setup_future_usage: "off_session" });
   return { clientSecret: intent.clientSecret };
