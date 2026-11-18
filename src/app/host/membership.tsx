@@ -147,6 +147,9 @@ function Member(props: { membership: Membership; month: MembershipMonth | null; 
   const paused = membership.status === "paused";
   const started = month && (month.status === "running" || month.status === "held") && month.endsAt && month.endsAt > now ? month : null;
   const freeCents = started ? (started.status === "held" ? started.totalCents : started.freeCents) : 0;
+  // A month still to be paid (a payment that failed, or a renewal being taken right now) is no month that has started:
+  // pausing cancels that payment and pauses at once. Judged by the month, as the library does.
+  const openPayment = month?.status === "to_pay";
   const saidNo = Boolean(membership.hostStoppedAt) && membership.pausedReason === "offer";
   const stops = Boolean(membership.memberStoppedAt || membership.hostStoppedAt || membership.offerStoppedAt);
 
@@ -168,6 +171,7 @@ function Member(props: { membership: Membership; month: MembershipMonth | null; 
       {paused && <p className="mt-1">Paused: they pay nothing and have no member time. They can resume by themselves when there is room. If you do not want them to come back, end the membership.</p>}
       {membership.status === "joining" && <p className="mt-1">Is at the card step right now.</p>}
       {membership.status === "unpaid" && <p className="mt-1">Their monthly payment did not go through. They have no member time until it does; it is tried again, and given up after 7 days. Pausing them cancels that payment and pauses them at once.</p>}
+      {membership.status === "active" && openPayment && <p className="mt-1">Their payment for the next month is being taken right now. Pausing them now cancels that payment and pauses them at once.</p>}
       {started && (
         <p className="mt-1">
           {timeWords(minutesCovered(freeCents, started.pricePer15Cents))} left this month. The month ends on <LocalTime iso={started.endsAt!.toISOString()} />
@@ -222,7 +226,7 @@ function Member(props: { membership: Membership; month: MembershipMonth | null; 
           <form action={pauseMemberAction}>
             <input type="hidden" name="membershipId" value={membership.id} />
             <button type="submit" className={smallButton}>
-              {membership.status === "unpaid" ? "Pause now" : "Pause after this month"}
+              {openPayment ? "Pause now" : "Pause after this month"}
             </button>
           </form>
         )}

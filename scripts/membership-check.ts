@@ -1814,6 +1814,9 @@ async function main() {
     const cut4 = await previewWeeklyHoursChange(host3.id, toFour);
     await changeWeeklyHours(host3.id, toFour, { mark: cut4.mark, members: members.map((m) => ({ membershipId: m.membershipId, choice: "less" as const, minutes: 60 })) });
     const offers = await Promise.all(members.map(async (m) => (await MS(m.membershipId)).offerId!));
+    // The same form sent again: the stretch it was about is gone, so it is no cut any more. Nothing is saved, and nobody is told otherwise.
+    const again = await refusal(changeWeeklyHours(host3.id, { remove: hours3.id }, { mark: cut4.mark, members: members.map((m) => ({ membershipId: m.membershipId, choice: "pause" as const })) }));
+    check("choices sent for hours that were changed meanwhile save nothing, and say so", /changed in the meantime/.test(again ?? "") && (await MS(members[3].membershipId)).hostStoppedAt === null, again);
     check("all four are offered 1 hour; with these offers her 4 hours are enough", offers.every(Boolean) && (await Room.minutesMembersNeed(db, host3.id)) === 240);
     await answer("decline", members[0], offers[0]);
     check("\"No thanks\": the member keeps the month and is stopped, with the reason kept", (await MS(members[0].membershipId)).offerId === null && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).ownMinutes === 120);

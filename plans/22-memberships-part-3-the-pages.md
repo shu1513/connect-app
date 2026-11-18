@@ -315,3 +315,31 @@ right (with two additions, taken in), and nothing over-built. Its points, all wr
 6. **The two "show it, then save it" pages** now say how what was shown is carried: an ordinary
    form with a mark of the state.
 7. **The reminder:** where it runs, its footer, and an end so it cannot arrive late.
+
+## Built in 3a: where the code differs from this plan
+
+- **The host's actions** are in a file of their own, `app/host/membership-actions.ts`, not in
+  `app/host/actions.ts`. The page that shows a change before it is saved is at `/host/membership`
+  and reads the proposed values from its address; saving posts them back with the mark.
+- **"Who may be invited"** is one question asked once for the whole contacts page:
+  `invitingFor(hostId)` in `membership/access.ts` (may this host invite at all, and her
+  memberships by customer).
+- **The step for a cut in hours** is shown whenever a cut would touch someone: members who no
+  longer fit, and also invitations that would be taken back while every member still fits (the
+  invited people are named). A host without members or invitations never sees it. The step is
+  only ever about a stretch of the signed-in host's own hours; anything else in its address
+  shows a refusal and no form.
+- **With the founder's switch off** and memberships existing, the part says "Memberships are not
+  open at the moment" above the member list, and no member row promises a renewal.
+- **A member whose payment is still open** has "Pause now" instead of "Pause after this month":
+  pausing cancels that payment and pauses them at once, and the sentence afterwards says so.
+- **The founder's page** reads every membership, with no cut-off, so that its counts are whole.
+  It will need pages once there are thousands.
+- **The check "nothing can start a membership"** of part one became three checks in
+  `scripts/membership-check.ts`: only the host's own pages reach the code that changes a
+  membership; each of her seven actions asks who is signed in; and nothing in the app can join,
+  resume, pay or cancel as a member yet (that is 3b).
+- **The whole journey in a browser and its script** come with 3b, as planned. For 3a the pages
+  were looked at in the running app as the test host and the test founder, also at phone width,
+  with the switch on for the test host and again with it off.
+

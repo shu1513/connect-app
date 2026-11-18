@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import { CalendarError, clockText, previewWeeklyHoursChange, type HoursChange } from "@/lib/booking/calendar";
+import { hostMinutes } from "@/lib/membership/room";
 import { MEMBERSHIP, timeWords } from "@/lib/membership/rules";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
@@ -52,7 +53,7 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
 
   // This step is only ever about a stretch of the signed-in host's own hours that is removed or changed. Anything else in
   // the address (no stretch, a made-up one, another host's) shows nothing and offers nothing to save.
-  const [removed] = /^[0-9a-f-]{36}$/i.test(change.remove ?? "")
+  const [removed] = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(change.remove ?? "")
     ? await db.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, change.remove!), eq(schema.weeklyHours.hostId, user.id)))
     : [];
   if (!removed) return refused("Those hours are no longer in your calendar. Nothing was changed. Please look at your calendar again.");
@@ -64,6 +65,8 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
     if (!(error instanceof CalendarError)) throw error;
     return refused(error.message);
   }
+  // Choices for members belong to a cut. A change that does not make the week shorter is saved on the calendar page, with nothing to choose.
+  if (cut.hoursAfter >= (await hostMinutes(db, user.id))) return refused("This change does not make your week shorter, so there is nothing to choose for your members. Nothing was changed. You can make it on your calendar page.");
 
   // The invitations that would be taken back are named. They are looked up as this host's own, like everything here.
   const invited = cut.invitationsTakenBack.length > 0 ? await db.select({ customerId: schema.memberships.customerId }).from(schema.memberships).where(and(inArray(schema.memberships.id, cut.invitationsTakenBack), eq(schema.memberships.hostId, user.id))) : [];
