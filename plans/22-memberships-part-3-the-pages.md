@@ -472,3 +472,6 @@ it in the moment before the press. It says both outcomes now, like the other two
 my membership", which can be closed by then (the founder's switch off, or the month over). It now
 says only that the membership will not renew, and the page shows what is open.
 
+**Fifth round: ready.** No finding left about money moving wrongly or about anyone seeing another
+person's data.
+
