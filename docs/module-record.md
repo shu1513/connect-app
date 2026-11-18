@@ -978,7 +978,7 @@ Astra also noted three planned cases the script did not have yet (a replacement 
 
 **Who built it.** Astra, at the founder's request; Claude reviewed it.
 
-**What the review found.** One real fault: Astra put the styles in a "CSS module", and in this app every `.css` file goes through Tailwind as plain CSS, so the module's class names came out empty and the pages showed unstyled (dark, no layout). Astra's own checks could not see this; it only showed in the browser. The styles are now a plain stylesheet whose every rule sits under a `warm-` class, so a page gets them only when it asks.
+**What the review found.** One real fault: Astra put the styles in a "CSS module", and in this app every `.css` file goes through Tailwind as plain CSS, so the module's class names came out empty and the pages showed unstyled (dark, no layout). Astra's own checks could not see this; it only showed in the browser. The styles are now a plain stylesheet whose every rule sits under a `warm-` class, so a page gets them only when it asks. CodeRabbit then caught a leftover of that change: three boxes (the sign-up forms, the text pages, "Available now") still borrowed the card look with a module-only line that plain CSS ignores, so they showed without their white card. They now share the card's rule directly.
 
 **How it was checked.** Types, lint, 358 automatic tests; the accounts (165), whole-journey (63), safety (60) and booking (116) scripts, which visit these pages; the build. In a browser: search, a host's page, log in, Rules and the front page at computer width, a host's page at phone width (no sideways scrolling), and every page in scope confirmed to carry the warm look.
 

@@ -177,7 +177,10 @@
   color: #1c1917;
 }
 
-.warm-card {
+.warm-card,
+.warm-auth,
+.warm-document,
+.warm-available {
   border: 1px solid #e7e5e4;
   border-radius: 24px;
   background: white;
@@ -194,7 +197,6 @@
 
 .warm-auth,
 .warm-document {
-  composes: card;
   width: calc(100% - 32px);
   margin: 32px auto 48px;
 }
@@ -258,7 +260,6 @@
 }
 
 .warm-available {
-  composes: card;
   border-color: #c2410c;
   background: #fff7ed;
 }
