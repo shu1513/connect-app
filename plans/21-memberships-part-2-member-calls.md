@@ -607,3 +607,34 @@ is lost, and the pages and emails said "until the bank has decided" for that cas
 say that the month's payment is frozen because of a dispute, and that nothing of it moves while
 that lasts. With that corrected, Astra's last open point is closed.
 
+## CodeRabbit's review of 2a (pull request 36, 18 November 2026)
+
+Sixteen comments: eight on the code, eight smaller ones on the check script.
+
+**Taken.**
+- **The call's record is read again inside the locked step** before a member's money comes back
+  in full or is sent to the founder's review. A late message from the video service that arrives
+  between the first look and the step can no longer decide the wrong thing.
+- **A frozen month's payment is passed over before anything about it is decided**, also in the
+  step that applies a saved answer, so it is not sent to review during the dispute and the answer
+  is applied to the record as it stands once the dispute is won.
+- **Cancelling a member's call judges "has it started" by the clock after its locks**, so a call
+  that started while the cancellation waited is left alone.
+- **A first booking in its last minute** (of its 30) is ended instead of continued, and the job
+  that ends such bookings leaves one alone while its month's money is being taken. So a request
+  is never ended while the money is on its way for it.
+- **After the month was paid, an error while the call is written** sends the member to the saved
+  booking, with words that say the payment went through and a button to finish, instead of to a
+  fresh form.
+- **The check script:** the demo removes only what it made (written down in a small local file)
+  and refuses to start over a membership it did not make; clean-up that fails makes the run
+  fail; holds are let go at Stripe before their records are deleted; `--only` without numbers is
+  refused; the amount owed back is compared with the pay-backs still open; the "Cancel now" race
+  must have one winner; and two smaller ones.
+
+**Not taken.** "A record that becomes final only after the 3-day limit should give the money
+back": the helper already gives the money back at the limit when the record is not final then,
+so a record that turns final later finds the payment closed. The case is only reachable when the
+helper was down across the limit, and telling the two apart would need a new stored moment for
+"when the record became final". A card payment behaves the same way today.
+

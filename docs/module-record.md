@@ -1226,3 +1226,67 @@ membership). The member calls' migration in part two is now `0029`.
   normal way. They are for the lawyer's reading before launch, with the rest.
 - The open points of 1a still stand (a bank's question that never becomes a dispute; a refund
   that fails after Stripe said it went through; a second dispute on one charge).
+
+## Memberships, part two, 2a: a member books calls with their membership time (pull request 36, 18 November 2026)
+
+The third of six pull requests. The founder's switch is still off: nobody can buy a membership,
+and the check script plays both people. The pages that offer, invite, join and manage a
+membership are part three; the pages a booked member call needs are in this one.
+
+**What it does**
+- **Member-only hours** (`booking/bookings.ts`, `slots.ts`, the calendar page): a host marks a
+  stretch of weekly hours "Members only". Nobody else is shown those times or can ask for them.
+- **Booking as a member** (`membership/book.ts`): on the host's page a member sees their time left
+  and the times they can book. A booking is confirmed at once and sets money aside in the
+  member's month, rounded down so every minute shown can be booked. The host's notice, the
+  cancelling rule, the "confirmed ID only" rule and the daily limit on requests apply.
+- **The first booking of a month** whose money is only held takes the money first and books only
+  when Stripe has confirmed it. In between, the request waits at a stage of its own (`paying`)
+  with nothing reserved; "Finish booking" continues it, and it ends by itself after 30 minutes.
+- **After the call** (`membership/calls.ts`, `payments/take.ts`): the usual rule and the usual
+  time. What the call takes is "used" and the host collects its share like any other; the rest
+  comes back, as time while the member can still book from that month, otherwise to their card.
+  The month's 30 cents are placed once, on the first amount that is used or expires.
+- **Cancelling** moves the money in the same step: in time it comes back, by the host it comes
+  back and counts as "because of the host", late it is used.
+- **The founder's review, refund requests and "give time back"** (`membership/give-back.ts`) work
+  for a member's call with the limits a card payment has.
+- **Endings and disputes:** an ended membership cancels its upcoming member calls and the money
+  goes to the card; a call under way is left to finish. A month whose payment is disputed is
+  frozen: nothing of it is booked, used, given back, paid back or collected.
+- **Pages:** the host's page and the booking page as a member sees them (also when the host's
+  page is hidden), the booking's own page, the page after a call, the home page's line, the
+  founder's deadline, the calendar's tick.
+- **Changed for every call:** a call that was ended with "End call and report" can no longer be
+  cancelled afterwards; its money waits for the founder's review.
+
+**The database:** migration `0029_member_calls` (`bookings.month_id`, `weekly_hours.members_only`,
+`call_extensions.paid_from`, the last one for 2b).
+
+**How it was checked**
+- A new script, `scripts/member-calls-check.ts`: 14 journeys and about 200 checks against
+  Stripe's test area, with real test transfers for two member calls' shares and a card call's
+  share in one collection. Broken on purpose three times (money set aside twice; used and also
+  left free; a member's payment sent to the card code): it failed each time.
+- The twelve existing check scripts, `scripts/membership-check.ts --payouts`, `tsc`, `eslint`,
+  `vitest` (393 tests) and the build pass.
+- By hand in a browser at phone size: the member's box and times, a first booking that took the
+  month's money, the booking's page, cancelling, the page after the call for both people, the
+  calendar's tick.
+- Astra reviewed the code five times; every point was taken. What mattered most: time given back
+  after a month was finished would have been promised to the card and never sent; a cancellation
+  could have decided money that was waiting for the founder's review; and a first booking that
+  was continued after an interruption could have taken the month's money for a booking that was
+  no longer possible.
+- CodeRabbit: 16 comments, 15 taken. What mattered most: the call's record is now read again
+  inside the locked step before money comes back or goes to review. What was not taken, and why,
+  is at the end of `plans/21-memberships-part-2-member-calls.md`.
+
+**Open points**
+- **For the founder:** the daily limit on requests (3 with one host in 24 hours, 10 in all) also
+  applies to a member's bookings, as the rulebook says. A member with many hours may meet it.
+- **Local testing:** each run of the check scripts leaves test calls whose room is never marked
+  closed, and after many runs joining a call as the seeded customer takes minutes (the safety
+  script then stops). Marking old, settled test calls as closed in the local database fixes it.
+- Extra time during a member's call is 2b; until then such a call offers none.
+
