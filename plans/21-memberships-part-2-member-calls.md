@@ -2,7 +2,7 @@
 
 **Status:** a plan only; nothing is built. Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32 and from plan 20, which
-this part is built on top of. Astra's check is at the end.
+this part is built on top of. Astra's first check gave "not ready"; every point is worked in below (the list is at the end).
 
 **The rulebook is `plans/19-memberships.md`.** This plan builds its part two ("The three parts",
 "Part two: member calls, complete"). It states no rule of its own; every decision is the
@@ -20,10 +20,14 @@ script plays both people.
 **Two pull requests:**
 
 1. **2a, the call.** Member-only hours, booking, joining, settling after the call, cancelling,
-   reviews, refund requests and giving time back, collecting, what an ending does to calls.
-2. **2b, extra time and the pages.** Added time from the membership or by card, and the changes
-   the host's page, the booking page, the page after a call, the call screen and the calendar
-   page need.
+   the founder's review, refund requests and giving time back, collecting, what an ending does
+   to calls, and the pages a booked member call needs: the host's page and the booking page as a
+   member sees them, the booking's own page, the page after a call, the calendar page's tick.
+   Until 2b, a member's call offers no extra time.
+2. **2b, extra time.** Added time from the membership or by card, and what the call screen and
+   the page after a call show for it.
+
+Each is usable and reviewable alone: 2a leaves no money that needs 2b.
 
 ## What is in, and what is left out
 
@@ -79,10 +83,9 @@ it.
   payment copies the call's fee terms (`:259`); accepting needs a hold that outlasts the longer
   call (`:350`); a request that ends lets its hold go through `releasePayment` (`:164`). Asking
   locks the call first (`:221`). The address the call screen uses sends only the minutes.
-- **Ratings** accept a call only when its booking's source is `customer` or `now`
-  (`ratings/rules.ts:45`, `ratings/ratings.ts:129`). **Reminders** go to every booking but those
-  made by a script or on the spot (`notifications/reminders.ts:38`). **Contacts** and the host's
-  notes need `requestedAt` on the booking (`people/contacts.ts:124`,
+- **Ratings** can be given, and a call is listed as waiting for one, only when its booking's
+  source is `customer` or `now` (`ratings/rules.ts:45`, `ratings/ratings.ts:129`). **Reminders** go to every booking but those
+  made by a script or on the spot (`notifications/reminders.ts:38`). The host's notes and the host's view of a booking need `requestedAt` on the booking (`people/contacts.ts:124`,
   `app/bookings/[id]/page.tsx:55`).
 - **The "accepted" email** promises a hold on the card (`booking/emails.ts:149`), and the
   cancellation emails say "You pay nothing" (`:189`, `:195`).
@@ -103,12 +106,14 @@ came from host-caused money.
 
 ### Member-only hours (`booking/bookings.ts`, `booking/slots.ts`, `booking/calendar.ts`)
 
-`Offer.weekly` carries `membersOnly` for each stretch. `offerOf` gets a second way of being
-asked, "for a member": everyone else gets only the general stretches, filtered out before they
-are joined together, and a host with none of those is not bookable by the public (the check at
-`:91` counts general stretches for the public). Adding a stretch takes the tick
-(`addWeeklyHours`); the tick does not change the week's total, so it never starts the step for a
-cut in hours.
+`Offer.weekly` carries `membersOnly` for each stretch. `offerOf` itself is not narrowed: "call
+now" reads it too (`instantOffer`, `bookings.ts:138`), and the rulebook leaves "call now" as it
+is, also for a host whose weekly hours are all for members. The stretches are told apart where a
+time for a call later is worked out and checked: `slotInput` (`:159`), used by `openTimes` and by
+`checkMayAsk`, takes only the general stretches for everyone who is not booking as a member,
+before they are joined together. So such a host has no times for a call later for the public,
+and nothing else changes. Adding a stretch takes the tick (`addWeeklyHours`); the tick does not
+change the week's total, so it never starts the step for a cut in hours.
 
 ### Booking as a member (`src/lib/membership/book.ts`)
 
@@ -118,7 +123,10 @@ repeated here. How it is carried out:
 
 - **Open times for a member:** `openStarts` with the host's notice alone as the earliest start
   (the way a free call is treated today, without the lead time a card hold needs), every stretch
-  of the host, and only times whose call ends before the month ends. The lengths offered are the
+  of the host, and, of the times it
+  returns, only those whose call ends before the month ends (the break after it may reach past
+  the end); the same is checked again when the booking is made. Only this calculation is shared
+  with a free call: a member's call is a paid call in every other way. The lengths offered are the
   host's lengths whose price fits in the month's free money, by the rulebook's "Setting aside".
 - **The locks,** in part one's order: both calendars, the membership, the month. Then everything
   is read again and checked.
@@ -133,14 +141,34 @@ repeated here. How it is carried out:
   "booked" emails.
 - **A second press** with the same request key returns the booking the first one made and sets
   nothing aside again.
+- **The ordinary way stays beside it.** A member whose free money does not cover what they want
+  still has the ordinary form on the host's page (general times, the regular price, the host's
+  answer), by the rulebook's row "When a member's time is used up". "Call now" is ordinary for
+  a member too.
 - **The first booking of a month whose money is only held:** the order is the rulebook's (under
-  "Booking as a member"). The request is written down as a booking at the stage `card`, which
-  today means "made, and the money step is not finished"; then `takeNow(month)`; then the booking
-  step above turns that booking into an accepted one, checking everything again. A press with
-  the same key after an interruption continues from where it stopped. A request whose taking
-  never comes through is ended by the helper's existing job for unfinished card steps, and the
-  month is as `syncMonth` left it. What the member is told when the money was taken and the time
-  was lost is the rulebook's row "The member's first booking of a month".
+  "Booking as a member"). The request is written down as a booking at a stage of its own,
+  `paying` ("made by a member; the month's money is being taken"), with its request key and
+  nothing reserved for either person. Then `takeNow(month)`. Then the booking step above turns
+  that booking into an accepted one, checking everything again. `paying` is not `card`: the card
+  step's code (`cardStepFor`, `finishCardStep`), its page text ("enter your card", "nothing is
+  held") and its clean-up job (`endUnfinishedCardSteps`, which ends every old `card` booking
+  with "the card was not entered in time") never see it.
+  - **Continuing.** A press with the same key continues from where it stopped. The booking's own
+    page (`app/bookings/[id]/page.tsx`) shows "We are taking this month's payment", then the
+    booked call or the plain reason it could not be booked. The member's list of requests
+    (`requestsOfCustomer`, `bookings.ts:856`, which today takes only the sources `customer` and
+    `now`) includes a `paying` booking.
+  - **Ending.** A small job of its own ends a `paying` booking after 30 minutes, or at once when
+    its month is given up or its membership stops being bookable, with the stage `ran_out` and a
+    reason that says which. An ended request is never brought back.
+  - **Every place it can stop,** each with its own check: the request saved and the taking not
+    written down (the same press starts it; nothing is reserved); the taking written down and
+    Stripe silent (part one finishes that same action; nothing is booked from an unknown
+    answer); Stripe took the money and our record is missing (found once); the month paid and
+    no booking yet (everything is checked again; if the time is gone, the month stays paid and
+    the member is told, by the rulebook's row "The member's first booking of a month"); the
+    booking saved and the answer lost (the same key returns it); and the 30 minutes, or an
+    ending, arriving during any of these.
 
 ### Joining the call (`payments/rules.ts`, the room pass, the call page)
 
@@ -163,19 +191,35 @@ Stripe.
   can run out; a review's limit is the rulebook's (the row "A member's call goes to the founder's
   review"); "nothing owed" and "not decided in time" are a **come back**, not a release at
   Stripe.
-- **`settleOrdinaryCharges`.** Today one shared moment comes from the earliest hold of the call.
-  It becomes: the call's shared moments (until when the member can ask, until when the host's
-  answer counts) come from the call's start and the request, limited by the earliest end among
-  its **card** holds if it has any; and each payment is then decided by its own kind. A card
-  payment keeps every rule it has, including "skip when the hold ran out". A `member_call`
-  payment is never skipped for having no hold. `moneyTiming` and `takeDecision` take "no hold
-  end" as a value.
+- **`settleOrdinaryCharges`, and the moments of a call.** Today one shared moment for a call
+  comes from the earliest of its card holds, and both the customer's time to ask and the taking
+  of every charge follow it. The two are separated:
+  - **A call's time to ask and to answer.** For a call whose own payment is `member_call`, they
+    come from the call's start and from the request alone, by the rulebook's row on reviews and
+    its "Card payments of the same call" line: a card hold on added time never shortens them.
+    For every other call they are worked out exactly as today.
+  - **Each payment's own moment.** A `member_call` payment is used or given back at the call's
+    moment. A `card` payment of the same call keeps today's safety limit against its own hold,
+    so with a short hold it can be taken before the member's time to ask is over.
+  - **One request, one answer form, as today.** The form lists the charges that can still be
+    lowered; a charge that was already taken is answered with the refund form or a "no". That
+    is what happens today when one charge of a call was taken early after a review, and
+    `answerRequest`, `declineRequest` and the form need no new case for it.
+  `moneyTiming`, `takeDecision`, `moneyPlan` (which feeds the page after a call and the admin
+  page) and `commonExpiry` take "no hold end" as a value. A card payment keeps every rule it
+  has, including "skip when the hold ran out"; a `member_call` payment is never skipped for
+  having no hold.
+- **A month that is frozen** (its dispute open or lost, plan 20): none of the three movements
+  runs for it. A call of that month that was cancelled, or took place and is not settled, keeps
+  its money set aside until the dispute is won; the settle jobs pass over it without counting it
+  as late, and the founder's short list shows it. This is plan 20's "lost: nothing moves".
 - **Using.** For a `member_call` payment the amount is worked out exactly as today (the record,
   the answer to a refund request, the 50-cent rule), by the rulebook's "Using". It is applied in
   the same locked step, with no action written down for Stripe: the payment becomes `charged`
   with the fields a card payment gets from `applyCaptured` (the amount, the reason, the frozen
-  totals, the marker of the record, "lowered by", the day it can be collected), the fee by the
-  rulebook's "The fee" (the month's fixed part placed here if the month has not placed it yet),
+  totals, the marker of the record, "lowered by", the day it can be collected), the fee by the rulebook's "The fee" (the month's fixed part placed here if the
+  month has not placed it yet; the month's card country copied onto the payment when it is
+  made, because `actions.ts:24` reads the extra 1.5% for a card from abroad from the payment),
   the month's charge as the charge its transfer names, and the fee and host's share on its money
   record. No "charged to the customer" line. In `months.ts`: set aside becomes used, and the
   rest comes back.
@@ -189,6 +233,19 @@ Stripe.
 - **A record that changes after the money was used** is flagged as today (`flagChangedRecords`
   reads calls and does not ask Stripe).
 
+### The founder's review (`app/admin/actions.ts`, `app/admin/page.tsx`)
+
+"End call and report" sends every unsettled payment of a call to review (`safety/calls.ts:29`),
+so this must work for a member's call from 2a on. Today the founder's two buttons call
+`capturePayment` and `releasePayment` (`admin/actions.ts:40`), which part one closes to a
+payment that is not `card`. For a `member_call` payment they go to the month's movements
+instead, with the same ceilings a card payment has in `capturePlan` (`actions.ts:153-183`): the
+amount set aside, the time before the call was stopped, an answer to a refund request that was
+already accepted, and an added-time request that was not accepted. The admin page works out the
+last moment to decide from the hold's end, or the call's end without one (`admin/page.tsx:126`),
+which would show a moment before the call is over; for a `member_call` payment it shows the
+rulebook's limit.
+
 ### Giving time back after the money was used (`src/lib/membership/give-back.ts`)
 
 The host's refund form and the founder's go here for a `member_call` payment, where a card
@@ -196,16 +253,24 @@ payment goes to `refundPayment`. The same limits, in the same order (`actions.ts
 something was used; the share was not sent; no dispute on the month; nothing written down and
 unfinished on this payment; not more than is left. Then, in one step with the month locked: used
 becomes free or owed back, by the rulebook's step 4; the payment's `refunded_cents` and its fee
-and share shrink as `splitAfterRefunds` gives; and a line is added to `refunds` that is `done` at
-once, with who decided and why, so that `refundedSince` finds it and an open refund request
-counts as answered. The member's email says what really happened: time back in the membership,
+and share shrink as `splitAfterRefunds` gives; and a line is added to `refunds` that is `done` at once (the person who decided, as host
+or as admin, the reason, the time it was finished, and no Stripe refund id), so that
+`refundedSince` finds it and an open refund request counts as answered. **The form's own id
+identifies it,** as it does for a card refund today (`calls/[id]/actions.ts:67`,
+`actions.ts:329`): that id is the id of the `refunds` line and part of the pay-back's source key
+(`giveback:<id>`), so the same press twice gives back once, and two different partial amounts
+are two. The line, the month's numbers, the payment, its money record and the email are saved
+together. A `done` line here means the call's amount was adjusted; whether money has reached the
+card is read from the pay-back, and the page after the call says which. The member's email says what really happened: time back in the membership,
 or money back to the card.
 
 ### Refund requests (`refunds/requests.ts`)
 
 `askBy`, `requestViewOf`, `askForRefund` and `writeAnswerReminders` read their moments from the
 call's shared timing above, so a call with no card hold at all still has its time to ask and to
-answer. Saving an answer is unchanged; it is carried out by `settleOrdinaryCharges`. The sentence
+answer. Saving an answer is unchanged; it is carried out by `settleOrdinaryCharges`. These steps
+keep their own locks (the call, then its payments) and take none on a month; the month's money
+moves afterwards in the settling step, which takes its locks in the right order. The sentence
 about 50 cents is worded for a member's call where it names a card.
 
 ### Collecting
@@ -220,13 +285,14 @@ a card payment (`requests.ts:220` works on payments of the call whatever their k
 The clean-up of an ending cancels the membership's upcoming member calls through `cancelCall`,
 as the founder's cancellation, so each one's money comes back; with the membership ended it is
 owed to the card. A call under way is left alone; when it is settled, what comes back is owed to
-the card. A dispute does the same and the month stays frozen: money is still moved between the
-month's places, and nothing is sent to the card or to the host while it is frozen.
+the card. A dispute cancels the
+upcoming member calls too, and the month is frozen as plan 20 says: their money stays set
+aside until the dispute is won.
 
 ### Ratings, reminders, emails, the health check
 
-- `rateState` (`ratings/rules.ts:45`) and the average (`ratings/ratings.ts:129`) accept the
-  source `member`.
+- `rateState` (`ratings/rules.ts:45`) and the list of calls waiting for a rating
+  (`callsToRate`, `ratings/ratings.ts:129`) accept the source `member`.
 - Reminders already go to a member's booking; their wording is read once for anything about a
   card.
 - `booking/emails.ts` gets "booked with your membership" for both people (no "accepted", no
@@ -235,7 +301,22 @@ month's places, and nothing is sent to the card or to the host while it is froze
 - `health.ts`: a `member_call` payment that is still set aside more than 5 minutes after the
   moment its call's money should have been used or given back.
 
-## 2b: extra time, and the pages
+### The pages of 2a
+
+- **The calendar page:** the "Members only" tick on a stretch of hours.
+- **The host's page and the booking page** (`app/h/[handle]/page.tsx`, `.../book/page.tsx`): for
+  a member whose month is running or held, the box and the times of the rulebook's "Booking",
+  and the summary with "Book", beside the ordinary form. They open for a member also when the
+  host's page is hidden.
+- **The booking's own page** (`app/bookings/[id]/page.tsx`): a member's booking while the
+  month's payment is being taken, booked, or not booked and why.
+- **The page after a call** (`app/calls/[id]/results/page.tsx`) and the home page's line for a
+  call (`app/page.tsx`): "paid from your membership", what was used and what came back, and
+  time given back, told apart from money paid back to the card.
+- **No extra time yet.** For a call whose own payment is `member_call`, `addTimeChoices` offers
+  nothing and `askForMoreTime` refuses with a plain sentence, until 2b.
+
+## 2b: extra time
 
 ### Added time (`extend/extend.ts`, `extend/rules.ts`, `api/calls/[id]/extend`)
 
@@ -249,32 +330,29 @@ was booked from a membership" and its list under "Added time". How:
   in that order and everything is read again. If the month's free money covers the request and
   the longer call still ends before the month ends: the request (`paid_from` "membership") and
   its `member_call` payment (the request's own minutes, the amount set aside, its host-caused
-  part) are written and the money set aside in one step, and the host can be asked at once. If
-  not, and the screen had shown `membership`: nothing is written, and the answer carries the
-  card price for the member to press again. If the screen had shown `card` with this price: the
-  request (`paid_from` "card") and a `card` payment with the ordinary fee terms
-  (`DEFAULT_FEE_TERMS`, not the call's), and the hold is placed on the membership's card in use
-  (`membership_cards`) through `placeHoldWithSavedCard`, as today. `savedCardOf` is not used for
-  such a call.
+  part, the month's card country) are written and the money set aside in one step, and the host
+  can be asked at once. If not, and the screen had shown `membership`: nothing is written, and
+  the answer carries the card price for the member to press again. If the screen had shown
+  `card` with this price: the request (`paid_from` "card") and a `card` payment with the
+  ordinary fee terms (`DEFAULT_FEE_TERMS`, not the call's), and the hold is placed on the
+  membership's card in use (`membership_cards`) through `placeHoldWithSavedCard`, as today.
+  `savedCardOf` is not used for such a call.
 - **Accepting** (`answerExtension`): a `member_call` payment that is `held` is "in place"; the
-  check on the hold's end stays for a `card` payment.
-- **A request that ends** (`endExtension`, `releaseHoldOf`, `closeFinishedExtensions`): for a
-  `member_call` payment the money comes back to where it came from, once, after the request is
-  marked as ended, and never for an accepted request; for a `card` payment as today.
+  check on the hold's end stays for a `card` payment. Accepting takes no lock on a month,
+  because the money was set aside when the member asked.
+- **A request that ends** (`endExtension`, `releaseHoldOf`, `closeFinishedExtensions`): the
+  request is marked as ended first, as today; for a `member_call` payment the money then comes
+  back to where it came from in a step of its own that takes the month's locks in the right
+  order, once, and never for an accepted request. If the app stops between the two, the
+  helper's scan for ended requests with money still held finishes it, as it does for a card
+  hold today.
 - **Settling** is 2a's: each payment by its own stretch and its own kind.
 
-### The pages
+### What 2b shows
 
-- **The calendar page:** the "Members only" tick on a stretch of hours.
-- **The host's page and the booking page** (`app/h/[handle]/page.tsx`, `.../book/page.tsx`): for
-  a member whose month is running or held, the box and the times of the rulebook's "Booking",
-  and the summary with "Book". They open for a member also when the host's page is hidden.
-- **The page after a call** (`app/calls/[id]/results/page.tsx`), the home page's line for a call
-  (`app/page.tsx`) and the booking page (`app/bookings/[id]/page.tsx`): "paid from your
-  membership", what was used and what came back, time given back, and added time by how it was
-  paid.
 - **The call screen** (`app/calls/[id]/call-room.tsx`): each choice for more time says how it
   would be paid, and a changed price is shown for another press.
+- **The page after a call:** added time by how it was paid.
 
 ## The order it can safely go in
 
@@ -302,9 +380,8 @@ the test customer; the money record; work still owed; the outcome written out).
   host's notice; across the month's end; the same press twice; a time someone else is waiting
   for (theirs ends, with its email); an instant request at the same time (cannot meet, because
   of the notice); a blocked pair, a paused account, the host not approved, the host's ID rule.
-- *The first booking:* the money taken and the call booked; the taking refused; no answer from
-  Stripe, then the same press again; the time lost between the two (the month paid, nothing
-  booked, the member told); the app stopping after the taking.
+- *The first booking:* each place it can stop, as listed under "Booking as a member"; the taking
+  refused; the 30 minutes running out, and the membership ending, during each.
 - *Calls:* the host there for all of it; for part of it; not at all; the member not there; a
   late cancellation; the member's cancellation in time (each part back where it came from); the
   host's cancellation (all of it host-caused); a call stopped with "End call and report"; a
@@ -317,8 +394,22 @@ the test customer; the money record; work still owed; the outcome written out).
   used; not answered; the form after the money was used, while the month runs (time back) and
   after its end (to the card); refused once the host has collected, and while the share is
   written down for collecting; an open request answered by time given back.
-- *Collecting:* a call's share with the month's fixed fee on the first amount of the month and
-  not on the second; a card call and a member call in one collection; held back by a request.
+- *The founder's review:* "End call and report" on a member's call, then the founder's own two
+  buttons: charging within each ceiling and refused above it, releasing, and not deciding.
+- *A mixed call's moments* (in 2b): a member's call with added time by card whose hold is
+  short: the card charge is taken early, the member can still ask for the full 24 hours, and
+  the one request is answered for the member's part and refunded for the card's.
+- *A frozen month:* a call cancelled and a call not yet settled when a dispute opens (nothing
+  moves, nothing counts as late); won (settled, owed back); lost (still nothing).
+- *Giving back:* the same partial amount pressed twice (once); two different partial amounts
+  (both); while a share is written down for collecting (refused); the first amount of the
+  month, the one carrying the fixed fee, given back.
+- *"Call now" and the ordinary way:* a host whose hours are all for members can still be called
+  now; a member with too little time left asks the ordinary way.
+- *Around the call:* a rating by each side; the reminders; a booking on a hidden host's page;
+  the health check answering "not healthy" for a member's money that is overdue, and not for a
+  frozen month's.
+- *Collecting:* a call's share with the month's fixed fee on the first amount of the month and not on the second; a card call and a member call in one collection; held back by a request.
 - *Disputes and endings:* a membership ended with a call booked and with one under way; the
   same for a block, a closed account and a dispute; a dispute won and lost with calls settled
   before and after.
@@ -330,15 +421,17 @@ the test customer; the money record; work still owed; the outcome written out).
 **Journeys in 2b**
 
 - *Added time:* from the membership, accepted, used in part (the host leaves); declined; not
-  answered; failed for lack of room in the calendar; shown as "membership" when the money has
+  answered; the app stopping after a request is ended and before its money is back; failed for lack of room in the calendar; shown as "membership" when the money has
   just been booked elsewhere (a card price comes back, nothing is charged); by card, with its
   own fee and hold; across the month's end (by card); the fifth request; one call with its own
   payment from the month and added time by card, with one refund request answered for both; a
   booking and added time for the last free money at the same moment; the membership ended while
   a request is open.
-- *By hand in a browser,* also at phone size, with a membership the script made: the calendar
-  page's tick; the host's page and the booking page as a member and as a stranger; a booking;
-  the page after the call; the call screen's choices for more time on a free test of the path.
+- *By hand in a browser,* also at phone size, with a membership the script made and a call
+  booked through `bookAsMember` itself (the script-only `createTestCall` makes an ordinary card
+  call and cannot show any of this): in 2a the calendar page's tick, the host's page and the
+  booking page as a member and as a stranger, a booking, the booking's own page, the page after
+  the call; in 2b the call screen's choices for more time on a real member's call.
 
 **Broken on purpose**, one at a time, and the script must fail each time: money set aside twice
 for one booking; a call's money used and also left free; a member's payment sent to the card
@@ -355,12 +448,25 @@ before it is called ready. Both are written into `docs/module-record.md`.
 
 The founder's switch. Nobody can become a member except through the check script.
 
-## Questions for Astra's check
+## Astra's first check of this plan (17 November 2026)
 
-1. Is using the booking stage `card` for a member's first booking that waits for the taking
-   sound against everything that reads that stage today?
-2. Is "the call's shared moments from its card holds only, each payment decided by its own kind"
-   a complete replacement for `commonExpiry` in `take.ts`, `requests.ts` and `health.ts`?
-3. Is recording time given back as a `done` line in `refunds` right for everything that reads
-   that table?
-4. Is the cut between 2a and 2b right?
+Verdict: **not ready**. It found the main design sound and nothing to cut, and these points, all
+worked in above:
+
+1. **Added time by card could have cut the member's time to ask for a refund**, because one
+   shared moment came from the card's hold. A call's time to ask and to answer, and each
+   payment's own moment, are now two things.
+2. **A disputed month:** this plan let money move inside a frozen month, against plan 20. It now
+   follows plan 20: nothing moves until the dispute is won.
+3. **The founder's review** of a member's call had no working buttons. They are in 2a.
+4. **Giving time back** had lost the protection against the same press twice. The form's own id
+   identifies it, as for a card refund.
+5. **The first booking's waiting stage:** reusing the card step's stage would have let the card
+   step's clean-up and page text reach it. It has a stage of its own.
+6. **"Call now"** would have been switched off for a host whose hours are all for members.
+   Member-only hours are now told apart only where times for a call later are worked out.
+
+Also taken: the pages a member's call needs move into 2a and extra time is switched off until
+2b; the month's card country is carried onto each member payment; a `done` line in `refunds`
+means the call was adjusted, not that money reached the card; what was said about ratings and
+contacts is corrected; and the proof names each place the first booking can stop.

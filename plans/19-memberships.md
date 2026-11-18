@@ -679,7 +679,8 @@ member booking cannot land on an instant request; the check script proves it.
 **Changes to existing code**
 
 - Open times (`bookings.ts`, `slots.ts`): member-only hours are left out for everyone else before
-  hours are joined together; a host with only member-only hours is not bookable by the public.
+  hours are joined together; a host with only member-only hours has no times for a
+  call later for the public ("call now" is not affected).
   Saving weekly hours takes the host's calendar lock (today not every calendar edit does), so a
   time cannot change kind while it is being booked.
 - Joining a call (`payments/rules.ts`, the pass for the room, the call page): today a paid call
@@ -867,6 +868,7 @@ anything here without this table being changed first.
 | `offers.ts` (saving the membership, **and working out what a change would do without saving it**), `join.ts` (inviting, taking back, "Join", resuming), `ending.ts` (the two stops and their undoing, "Cancel now", ending, the offer of less time), `changeWeeklyHours` (**and working out what a cut would need without saving it**), `wording.ts` (the sentences a member agrees to, and their version) | 1b | 3a and 3b: every button calls one of these and nothing else |
 | The emails that report an event, with links to the pages below | 1a, 1b, 2a | the pages exist from 3a and 3b on |
 | Booking as a member, the member's view of the host's page and of the booking page, the page after a call, the call screen's choices for more time, the "Members only" tick | 2a, 2b | 3b's journey walks through them |
+| `access.ts`: who may see an invitation, a membership, a payment, a host's members | 3a | 3a, 3b: called before every page and in every action |
 | The check scripts `membership-check.ts`, `member-calls-check.ts`, `membership-journey-check.ts`, each making its members through the functions of the parts before it | 1a/1b, 2a/2b, 3b | each later part runs all the earlier ones unchanged |
 
 **The addresses of the new pages**, fixed here because emails written in part one link to pages
@@ -874,8 +876,8 @@ built in part three:
 
 | Page | Address |
 | --- | --- |
-| The invitation, joining and resuming | `/h/<host's handle>/membership` |
-| One membership, for its member | `/memberships/<membership id>` |
+| The invitation, joining and resuming | `/h/<host's handle>/membership` (an invitation's link adds `?invite=<invite id>`) |
+| One membership, for its member | `/memberships/<membership id>` (an offer of less time links here with `?offer=<offer id>`) |
 | Paying after a failed payment | `/memberships/<membership id>/pay` |
 | The host's "Membership" part | `/host#membership` |
 | The step for a cut in hours | `/host/calendar/cut` |

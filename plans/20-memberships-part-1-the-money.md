@@ -568,12 +568,13 @@ name in the rulebook's "How the parts connect".
   until part three. `room.ts` gets what a cut in hours needs, as a function that works it out
   **without saving anything** (what members need, what is still owed this month, which
   invitations give way, who would have to be paused or offered less), for the step in part
-  three. Saving works it out again and refuses if it changed.
+  three. It returns a mark in the same way, and saving refuses if the mark no longer fits.
 - **`offers.ts`**: saving the host's membership, under the calendar lock, by the rulebook's
   "Changing the membership". And a second function that works out what a change would do (who
   pays less and by how much, which invitations are taken back) **without saving anything**, for
-  the page in part three that shows it before the host confirms. Saving works it out again and
-  refuses if the answer is no longer the one that was shown.
+  the page in part three that shows it before the host confirms. It returns, with the answer, a short mark of the state it was
+  worked out from, as a refund request's `seen` does today (`refunds/requests.ts:46`). Saving
+  takes that mark, works the answer out again and refuses if the mark no longer fits.
 - **`wording.ts`**: the sentences a member agrees to and their version, in one place. `join.ts`
   records the version; the page in part three shows the sentences from here, so the two can
   never differ.
