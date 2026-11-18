@@ -126,9 +126,12 @@ export async function previewWeeklyHoursChange(userId: string, change: HoursChan
  * Months that have started are never touched. Open invitations give way before members: the ones
  * that no longer fit beside what she owes are taken back, the oldest staying first.
  */
-export async function changeWeeklyHours(userId: string, change: HoursChange, choices?: { mark: string; members: MemberChoice[] }, now: Date = new Date()): Promise<void> {
+export async function changeWeeklyHours(userId: string, change: HoursChange, choices?: { mark: string; members: MemberChoice[] }, asOf: Date = new Date()): Promise<void> {
+  let now = asOf;
   const letGo = await db.transaction(async (tx) => {
     await lockCalendar(tx, userId);
+    // The clock is read again now that the lock is held: an offer of less time must still be answerable when it is saved, not when the wait for the lock began.
+    now = new Date(Math.max(asOf.getTime(), Date.now()));
     const before = await hostMinutes(tx, userId);
     await applyHoursChange(tx, userId, change);
     const cut = await workOutCut(tx, userId, now);

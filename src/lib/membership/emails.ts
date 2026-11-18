@@ -77,7 +77,8 @@ const PAUSED_WHY: Record<string, string> = {
   cancel_now: "you cancelled it",
   member: "you cancelled it, and the month you paid for has ended",
   host: "the host paused it",
-  offer_off: "the host is not offering a membership at the moment",
+  // Said as what happened, not as how things stand now: the membership may be on again by the time this is read.
+  offer_off: "the host switched the membership off",
   switch: "memberships are not being renewed at the moment",
   no_room: "the host's hours no longer have room for it",
   offer: "the offer of less time was not accepted",

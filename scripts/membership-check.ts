@@ -143,7 +143,7 @@ async function main() {
       await L.lockCalendar(tx, m.host.id);
       const before = await L.lockMembership(tx, m.membershipId);
       const [agreement] = await tx.insert(schema.membershipAgreements).values({ membershipId: m.membershipId, requestId: randomUUID(), kind: "resumed", offerVersion: 1, pricePer15Cents: 750, minutes: 120, cardWordingVersion: "check", firstMonthNumber: 0, at }).returning();
-      const [again] = await tx.update(schema.memberships).set({ status: "joining", period: before.period + 1, agreementId: agreement.id, pausedAt: null, memberStoppedAt: null, hostStoppedAt: null }).where(eq(schema.memberships.id, m.membershipId)).returning();
+      const [again] = await tx.update(schema.memberships).set({ status: "joining", period: before.period + 1, agreementId: agreement.id, pausedAt: null, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null }).where(eq(schema.memberships.id, m.membershipId)).returning();
       const month = await C.writeDownMonth(tx, again, { originKey: `agreement:${agreement.id}`, agreementId: agreement.id, pricePer15Cents: 750, includedMinutes: 120, cardStepExpiresAt: new Date(at.getTime() + 30 * MIN) }, at);
       return month.id;
     });

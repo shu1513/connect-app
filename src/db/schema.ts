@@ -1147,8 +1147,10 @@ export const membershipOffers = pgTable(
  *   paused    no month and no payment; the member can resume without a new invitation
  *   ended     over for good; coming back needs a new invitation, which makes a new row
  *
- * "The renewal is stopped" is not a status: it is memberStoppedAt and hostStoppedAt, two separate
- * marks, each cleared only by its own side.
+ * "The renewal is stopped" is not a status: it is memberStoppedAt (the member cancelled),
+ * hostStoppedAt (the host paused them after this month) and offerStoppedAt (the host switched her
+ * membership off during the month), three separate marks. The host clears only her own; the
+ * member's "Keep my membership" clears the other two.
  *
  * period and currentMonthId keep old work away from a resumed membership: period goes up at every
  * joining and resuming, and only the month in currentMonthId may change the membership's state.
