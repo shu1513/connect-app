@@ -315,3 +315,77 @@ right (with two additions, taken in), and nothing over-built. Its points, all wr
 6. **The two "show it, then save it" pages** now say how what was shown is carried: an ordinary
    form with a mark of the state.
 7. **The reminder:** where it runs, its footer, and an end so it cannot arrive late.
+
+## Built in 3a: where the code differs from this plan
+
+- **The host's actions** are in a file of their own, `app/host/membership-actions.ts`, not in
+  `app/host/actions.ts`. The page that shows a change before it is saved is at `/host/membership`
+  and reads the proposed values from its address; saving posts them back with the mark.
+- **"Who may be invited"** is one question asked once for the whole contacts page:
+  `invitingFor(hostId)` in `membership/access.ts` (may this host invite at all, and her
+  memberships by customer).
+- **The step for a cut in hours** is shown whenever a cut would touch someone: members who no
+  longer fit, and also invitations that would be taken back while every member still fits (the
+  invited people are named). A host without members or invitations never sees it. The step is
+  only ever about a stretch of the signed-in host's own hours; anything else in its address
+  shows a refusal and no form.
+- **With the founder's switch off** and memberships existing, the part says "Memberships are not
+  open at the moment" above the member list, and no member row promises a renewal.
+- **A member whose payment is still open** has "Pause now" instead of "Pause after this month":
+  pausing cancels that payment and pauses them at once, and the sentence afterwards says so.
+- **The founder's page** reads every membership, with no cut-off, so that its counts are whole.
+  It will need pages once there are thousands.
+- **The check "nothing can start a membership"** of part one became three checks in
+  `scripts/membership-check.ts`: only the host's own pages reach the code that changes a
+  membership; each of her seven actions asks who is signed in; and nothing in the app can join,
+  resume, pay or cancel as a member yet (that is 3b).
+- **The whole journey in a browser and its script** come with 3b, as planned. For 3a the pages
+  were looked at in the running app as the test host and the test founder, also at phone width,
+  with the switch on for the test host and again with it off.
+
+## Astra's reviews of the code of 3a (18 November 2026)
+
+Three rounds: not ready, not ready, ready. Every point was checked against the code before it
+was taken; all were.
+
+**First round (eight points):**
+1. The step for a cut in hours looked the removed stretch up by its id alone, so an address with
+   another host's id showed that host's day and times. It is now looked up as the signed-in
+   host's own, and anything else shows a refusal and no form.
+2. The step's save did not keep the calendar's rule for "Members only".
+3. A cut that took invitations back while every member still fit was saved without being shown
+   first; and the step only gave a count. It is now shown, with the names.
+4. The rewritten check counted an older action of the contacts page (saving a note) and could
+   never pass. It now looks at the seven membership actions.
+5. The founder's page read only the 300 memberships changed last, so its counts could miss an
+   old one with money still open.
+6. A member's row said "renews then" also when the founder's switch was off or an offer of less
+   time was unanswered.
+7. Pausing a member whose payment was still open said they would be paused at the month's end
+   and that it could be undone; they are paused at once.
+8. A dispute that was won still counted under "Months under dispute".
+
+**Second round (three points):**
+1. The step's save answered "saved" when the hours had been changed in another tab meanwhile and
+   the change was no cut any more: the library returned before it looked at the mark or the
+   choices. Choices sent for a change that does not make the week shorter are now refused inside
+   the step (`changeWeeklyHours`), and the page refuses to show choices for such a change.
+2. "Pause now" was only shown for a failed payment, not while a renewal is being taken. It now
+   follows the month ("still to be paid"), as the library does.
+3. A stretch's id was checked only for its length and letters; it is now checked in full before
+   it reaches the database.
+
+## CodeRabbit's review of 3a (pull request 39, 18 November 2026)
+
+Three comments, all small and all taken:
+
+1. **A cut worked out as touching nobody could still take an invitation back** if hours were
+   removed in another tab in the same moment: the save without choices took invitations back
+   without looking. The calendar page now saves such a cut with the mark of what it just worked
+   out and every member kept, so a change in between saves nothing and she looks again.
+2. **"Pause after this month" on the step for a cut** was also shown for a member whose payment is
+   still open, who is paused at once. The step now judges by the month (`openPayment` in
+   `room.ts`, as saving does) and says "Pause now".
+3. **A pause that was saved could be reported as "nothing was changed"** if reading the result
+   afterwards failed. The read is now apart from the save.
+

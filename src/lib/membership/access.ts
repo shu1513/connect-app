@@ -9,6 +9,7 @@ import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership, MembershipMonth, MembershipOffer } from "@/db/schema";
 import { handleProblem, tidyHandle } from "@/lib/profiles/handles";
+import { membershipsOnFor } from "@/lib/safety/switches";
 
 const IS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -102,6 +103,17 @@ export async function membersOfHost(hostId: string): Promise<Array<{ membership:
     .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.memberships.currentMonthId))
     .where(and(eq(schema.memberships.hostId, hostId), ne(schema.memberships.status, "ended")))
     .orderBy(schema.memberships.createdAt);
+}
+
+/**
+ * For "People you have talked to", as a host: whether she can invite anyone right now (her
+ * membership is switched on and memberships are open for her), and where each person she has a
+ * membership or an invitation with stands. Only her own; keyed by the other person.
+ */
+export async function invitingFor(hostId: string): Promise<{ canInvite: boolean; byCustomer: Map<string, Membership> }> {
+  const [offer] = await db.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, hostId));
+  const links = await db.select().from(schema.memberships).where(and(eq(schema.memberships.hostId, hostId), ne(schema.memberships.status, "ended")));
+  return { canInvite: Boolean(offer?.on) && (await membershipsOnFor(hostId)), byCustomer: new Map(links.map((link) => [link.customerId, link])) };
 }
 
 async function monthOf(viewerId: string, monthId: string): Promise<MembershipMonth | null> {

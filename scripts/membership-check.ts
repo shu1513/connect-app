@@ -1814,6 +1814,9 @@ async function main() {
     const cut4 = await previewWeeklyHoursChange(host3.id, toFour);
     await changeWeeklyHours(host3.id, toFour, { mark: cut4.mark, members: members.map((m) => ({ membershipId: m.membershipId, choice: "less" as const, minutes: 60 })) });
     const offers = await Promise.all(members.map(async (m) => (await MS(m.membershipId)).offerId!));
+    // The same form sent again: the stretch it was about is gone, so it is no cut any more. Nothing is saved, and nobody is told otherwise.
+    const again = await refusal(changeWeeklyHours(host3.id, { remove: hours3.id }, { mark: cut4.mark, members: members.map((m) => ({ membershipId: m.membershipId, choice: "pause" as const })) }));
+    check("choices sent for hours that were changed meanwhile save nothing, and say so", /changed in the meantime/.test(again ?? "") && (await MS(members[3].membershipId)).hostStoppedAt === null, again);
     check("all four are offered 1 hour; with these offers her 4 hours are enough", offers.every(Boolean) && (await Room.minutesMembersNeed(db, host3.id)) === 240);
     await answer("decline", members[0], offers[0]);
     check("\"No thanks\": the member keeps the month and is stopped, with the reason kept", (await MS(members[0].membershipId)).offerId === null && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).ownMinutes === 120);
@@ -1833,6 +1836,19 @@ async function main() {
     await closeMonth(members[1].monthId, (await M(members[1].monthId)).endsAt!);
     check("at the month's end: \"No thanks\" and no answer are both paused, told why, and nothing is charged", (await MS(members[0].membershipId)).status === "paused" && (await MS(members[0].membershipId)).pausedReason === "offer" && (await MS(members[1].membershipId)).status === "paused" && (await MS(members[1].membershipId)).pausedReason === "offer" && (await monthsOf(members[1].membershipId)).length === 1);
     check("after the month's end the offer can no longer be accepted", (await answer("accept", members[1], offers[1])) === "This offer is no longer open.");
+    // A cut that touches nobody, saved the way the calendar page saves it: with the mark of what was just worked out and
+    // every member kept. If anything changed in between, nothing is saved, so no invitation is taken back unseen.
+    const host5 = await newHost({ weeklyMinutes: 240 }); // 16 hours a month
+    const kept5 = await joined(host5, { take: true });
+    const [hours5] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host5.id));
+    const toThree = { remove: hours5.id, add: { weekday: 1, from: "09:00", to: "12:00" } }; // 12 hours a month
+    const quiet = await previewWeeklyHoursChange(host5.id, toThree);
+    const keepAll = (cut: typeof quiet) => ({ mark: cut.mark, members: cut.members.map((member) => ({ membershipId: member.membershipId, choice: "keep" as const })) });
+    const arrived = await invited(host5);
+    const outOfDate = await refusal(changeWeeklyHours(host5.id, toThree, keepAll(quiet)));
+    check("a cut that touched nobody when it was worked out is not saved if something changed in between", quiet.invitationsTakenBack.length === 0 && /changed while this page was open/.test(outOfDate ?? "") && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.id, hours5.id))).length === 1, outOfDate);
+    await changeWeeklyHours(host5.id, toThree, keepAll(await previewWeeklyHoursChange(host5.id, toThree)));
+    check("worked out again, it is saved: the member is kept, and the invitation that still fits stays", (await Room.minutesMembersNeed(db, host5.id)) === 120 && (await MS(kept5.membershipId)).hostStoppedAt === null && (await MS(arrived.membershipId)).status === "invited" && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.id, hours5.id))).length === 0);
     const takeBack = (m: Made, keep: boolean, offerId: string, now = new Date()) => refusal(E.takeBackLessTime({ membershipId: m.membershipId, hostId: host3.id, offerId, keep, now }));
     check("a take-back button from an older offer, or one pressed after the member's month has ended, does nothing", (await takeBack(members[2], true, randomUUID())) === "This offer is no longer open." && (await takeBack(members[2], true, offers[2], (await M(members[2].monthId)).endsAt!)) === "This offer is no longer open." && (await MS(members[2].membershipId)).offerId === offers[2]);
     check("the host takes an offer back and keeps the member with their old time, now that there is room", (await takeBack(members[2], true, offers[2])) === null && (await MS(members[2].membershipId)).offerId === null && (await MS(members[2].membershipId)).hostStoppedAt === null && (await MS(members[2].membershipId)).ownMinutes === 120);
@@ -1910,18 +1926,32 @@ async function main() {
     check("a suspended host is reached by nobody", (await A.hostForMember(member.member.id, hidden.id)) === null);
     check("a host sees her own members and invitations, and nobody else's", (await A.membersOfHost(host.id)).some((row) => row.membership.id === m.membershipId) && (await A.membersOfHost(hidden.id)).every((row) => row.membership.hostId === hidden.id) && (await A.membershipsOf(m.member.id)).length === 1);
 
-    // Until part three there is no page and no address that could start a membership.
+    // With the host's pages built (part 3a): only her own pages reach the code that changes a membership, every action of hers
+    // asks who is signed in first, and nothing in the app can join, resume or pay yet (the member's pages are part 3b).
     const { readdirSync, readFileSync, statSync } = await import("node:fs");
-    const starts: string[] = [];
+    const uses: { path: string; text: string }[] = [];
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         const path = `${dir}/${name}`;
         if (statSync(path).isDirectory()) walk(path);
-        else if (/\.(ts|tsx)$/.test(name) && /membership\/(join|offers|ending|charge)["']/.test(readFileSync(path, "utf8"))) starts.push(path);
+        else if (/\.(ts|tsx)$/.test(name)) {
+          const text = readFileSync(path, "utf8");
+          if (/membership\/(join|offers|ending|charge)["']/.test(text)) uses.push({ path, text });
+        }
       }
     };
     walk("src/app");
-    check("no page or address of the app can invite, join, resume, pay or cancel yet", starts.length === 0, starts);
+    const hostsOwn = ["src/app/contacts/actions.ts", "src/app/host/membership-actions.ts", "src/app/host/membership.tsx", "src/app/host/membership/page.tsx"];
+    const elsewhere = uses.filter((file) => !hostsOwn.includes(file.path)).map((file) => file.path);
+    check("only the host's own pages reach the code that changes a membership", elsewhere.length === 0 && uses.length === hostsOwn.length, { elsewhere, found: uses.map((file) => file.path) });
+    const actions = uses.filter((file) => file.text.startsWith("\"use server\""));
+    // Each action that calls the membership code (not the page's older actions, such as saving a private note).
+    const changes = /\b(invite|takeBackInvitation|saveOffer|stopRenewal|undoStop|endByHost|takeBackLessTime)\(/;
+    const unasked = actions.flatMap((file) => file.text.split(/^export async function /m).slice(1).filter((action) => changes.test(action) && !action.includes("const user = await requireActiveUser();")).map((action) => `${file.path}: ${action.split("(")[0]}`));
+    const guarded = actions.flatMap((file) => file.text.split(/^export async function /m).slice(1).filter((action) => changes.test(action))).length;
+    check("each of her actions asks who is signed in, and uses that person as the host", actions.length === 2 && guarded === 7 && unasked.length === 0 && actions.every((file) => !/formData\.get\("hostId"\)/.test(file.text)), { actions: actions.map((file) => file.path), unasked });
+    const joins = uses.filter((file) => /membership\/charge["']/.test(file.text) || /import \{[^}]*\b(join|resume|payNow|cancelNow|acceptLessTime|declineLessTime)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
+    check("no page or address of the app can join, resume, pay or cancel as a member yet", joins.length === 0, joins);
   });
 
   // ========================================================================

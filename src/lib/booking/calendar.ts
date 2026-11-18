@@ -71,7 +71,7 @@ export type MemberChoice = { membershipId: string; choice: "keep" | "less" | "pa
 /** Applies one change to the weekly hours, inside the caller's step. Checks the typed times as before. */
 async function applyHoursChange(tx: Tx, userId: string, change: HoursChange): Promise<void> {
   if (change.remove !== undefined) {
-    const valid = /^[0-9a-f-]{36}$/i.test(change.remove);
+    const valid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(change.remove);
     const removed = valid ? await tx.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, change.remove), eq(schema.weeklyHours.hostId, userId))).returning({ id: schema.weeklyHours.id }) : [];
     // A stretch that is being changed or moved must still be there: otherwise this would add hours instead of moving them.
     if (change.add && removed.length === 0) throw new CalendarError("Those hours were changed in the meantime. Please look at your calendar again.");
@@ -140,7 +140,12 @@ export async function changeWeeklyHours(userId: string, change: HoursChange, cho
     const before = await hostMinutes(tx, userId);
     await applyHoursChange(tx, userId, change);
     // Hours that stay the same or grow promise nothing less: nothing more to do, and no member is looked at.
-    if ((await hostMinutes(tx, userId)) >= before) return [];
+    if ((await hostMinutes(tx, userId)) >= before) {
+      // Choices for members belong to a cut. If this change no longer makes the week shorter (the stretch was changed or
+      // removed meanwhile), nothing is saved, so that nobody is told their choices were kept when they were not looked at.
+      if (choices) throw new CalendarError("These hours were changed in the meantime, so there is nothing to choose for your members any more. Nothing was saved. Please look at your calendar again.");
+      return [];
+    }
     const cut = await workOutCut(tx, userId, now);
     if (cut.needed > cut.hoursAfter && !choices) {
       // Thrown inside the step, so the hours stay as they were.
