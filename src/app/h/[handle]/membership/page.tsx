@@ -108,7 +108,7 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
           <strong>
             {formatMoney(month.totalCents)} a month for {timeWords(month.includedMinutes)}
           </strong>{" "}
-          of calls with {host.displayName}. Enter your card: the first month&apos;s amount is then held on it, and your membership starts at that moment.
+          of calls with {host.displayName}.{ranOut ? "" : " Enter your card: the first month's amount is then held on it, and your membership starts at that moment."}
         </p>
         {ranOut ? (
           <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">

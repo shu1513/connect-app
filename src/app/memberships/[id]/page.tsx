@@ -218,6 +218,9 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
   );
 }
 
+/** The one moment a held month's page and receipt name: until then "Cancel now" is offered, and the money is taken right after it. */
+const lastFreeMoment = (month: MembershipMonth): Date | null => (month.authorisedAt && month.holdExpiresAt ? holdTiming({ authorisedAt: month.authorisedAt, holdExpiresAt: month.holdExpiresAt }).offeredUntil : month.takeAt);
+
 /** A membership with a month that has started: the time, the hold, whether and when it renews, and the buttons. */
 function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; frozen: boolean; nextCents: number; now: Date }) {
   const { membership, month, hostName, now } = props;
@@ -225,7 +228,7 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
   const freeCents = held ? month.totalCents : month.freeCents;
   const endsAt = month.endsAt!;
   // The last moment "Cancel now" is offered: 72 hours after the bank's own time for the hold, or sooner if the card's hold ends sooner.
-  const cancelNowUntil = held ? (month.authorisedAt && month.holdExpiresAt ? holdTiming({ authorisedAt: month.authorisedAt, holdExpiresAt: month.holdExpiresAt }).offeredUntil : month.takeAt) : null;
+  const cancelNowUntil = held ? lastFreeMoment(month) : null;
   const canCancelNow = Boolean(cancelNowUntil && cancelNowUntil > now);
   const saidNo = Boolean(membership.hostStoppedAt) && membership.pausedReason === "offer";
   const stopped = Boolean(membership.memberStoppedAt || membership.hostStoppedAt || membership.offerStoppedAt);
@@ -368,10 +371,10 @@ function Receipt({ month, payBacks }: { month: MembershipMonth; payBacks: Member
         ) : month.status === "held" ? (
           <>
             Held on your card, not yet taken
-            {month.takeAt ? (
+            {lastFreeMoment(month) ? (
               <>
                 {" "}
-                (taken at your first booking, or by <LocalTime iso={month.takeAt.toISOString()} />)
+                (taken at your first booking, or on <LocalTime iso={lastFreeMoment(month)!.toISOString()} />)
               </>
             ) : null}
             .
