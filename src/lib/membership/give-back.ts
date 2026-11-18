@@ -64,7 +64,7 @@ export async function giveTimeBack(input: { paymentId: string; amountCents: numb
 
     const [refund] = await tx
       .insert(schema.refunds)
-      .values({ id: input.requestId, paymentId: payment.id, amountCents: input.amountCents, decidedBy: input.decidedBy, decidedAs: input.decidedAs, reason: input.reason, status: "done", finishedAt: now })
+      .values({ id: input.requestId, paymentId: payment.id, amountCents: input.amountCents, decidedBy: input.decidedBy, decidedAs: input.decidedAs, reason: input.reason, status: "done", createdAt: now, finishedAt: now })
       .returning();
 
     // Used becomes free again or owed to the card. Given back by the host or by Connect: it counts as "because of the host".
