@@ -468,15 +468,18 @@ async function main() {
     await setSwitches({ requestsOff: true });
     check("with the founder's \"no new requests\" switch on, nothing is booked", /not taking new requests/.test((await refused(book(m, general[7]))) ?? ""));
     await setSwitches({ requestsOff: false });
-    // Three bookings with this host today. The limit of 3 with one host does not hold a member back; the limit of 10 in all does.
+    // Three bookings with this host today, and seven more requests of this person on record: ten in 24 hours.
+    // No daily limit holds a member's booking back: nothing keeps a host from being booked by her own member.
     const fillers = await db
       .insert(schema.bookings)
       .values(Array.from({ length: 7 }, () => ({ hostId: host.id, customerId: m.member.id, startsAt: general[9], endsAt: new Date(general[9].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "taken_back", requestKey: randomUUID(), requestedAt: new Date() })))
       .returning({ id: schema.bookings.id });
-    check("the daily limit on requests in all (10 in 24 hours) applies to a member too", /a lot of requests today/.test((await refused(book(m, general[10]))) ?? ""));
-    await db.delete(schema.bookings).where(inArray(schema.bookings.id, fillers.map((row) => row.id)));
     const fourth = await book(m, general[10]);
-    check("a fourth booking with the same host on one day is made: the time a member paid for is their limit", fourth.outcome === "booked" && (await places(m.monthId)) === "0/6000/0/0/0/0", `${fourth.outcome} ${await places(m.monthId)}`);
+    check("a fourth booking with the same host on one day, and an eleventh request in all, is still made: the time a member paid for is their only limit", fourth.outcome === "booked" && (await places(m.monthId)) === "0/6000/0/0/0/0", `${fourth.outcome} ${await places(m.monthId)}`);
+    await db.delete(schema.bookings).where(inArray(schema.bookings.id, fillers.map((row) => row.id)));
+    // And the other way round: four bookings as a member today do not use up the member's ordinary requests with this host.
+    const ordinaryToo = await askForCall({ customer: m.member, hostId: host.id, startsAt: (await openTimes((await offerOf(host.id))!, 30, new Date())).at(-1)!, lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: true, seen: { pricePer15Cents: 1000, freeCancelMinutes: 0 }, now: new Date() }).then((made) => made.booking.stage, (error: Error) => error.message);
+    check("bookings made as a member are not counted against the limits on ordinary requests", ordinaryToo === "card", ordinaryToo);
     check("the card form is refused for a member's call", (await refused(startHold({ payment, call, customer: m.member, now: new Date() }))) !== null);
     check("the choices for more time on a member's call say what the membership covers", (await addTimeChoices(call)).membershipCovers !== undefined);
     await audit("after booking", m);

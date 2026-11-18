@@ -227,7 +227,9 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { id?: string; custome
   const mine = eq(schema.bookings.customerId, booking.customerId);
   const thisHost = eq(schema.bookings.hostId, offer.hostId);
   const waiting = eq(schema.bookings.stage, "waiting");
-  const sentSince = gt(schema.bookings.requestedAt, new Date(now.getTime() - DAY));
+  // Requests sent in the last 24 hours. A booking made with a membership is not a request (it needs no answer and is
+  // paid for already), so it is not counted here: booking as a member never uses up someone's ordinary requests.
+  const sentSince = and(gt(schema.bookings.requestedAt, new Date(now.getTime() - DAY)), ne(schema.bookings.source, "member"));
 
   if ((await count(mine, thisHost, waiting)) >= LIMITS.waitingPerHost) {
     throw new BookingError(`You already have ${LIMITS.waitingPerHost} requests waiting with this host. Wait for an answer, or take one back.`);

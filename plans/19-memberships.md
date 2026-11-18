@@ -673,9 +673,11 @@ of its own, not "ask" followed by "accept". It keeps, from today's two steps:
 - from asking: no booking with yourself; one booking per press of the button (a second press gets
   the booking the first one made, and sets nothing aside again); the price and cancelling rule the
   member saw must still be the ones in force; both accounts active; Connect taking requests; no
-  block either way; the host's "confirmed ID only" switch; the daily limit on requests in all (10 in 24 hours),
-  but not the limit of 3 with one host (the founder's decision, 18 November 2026: the time a
-  member paid for is their limit, and the host invited them);
+  block either way; the host's "confirmed ID only" switch; and none of the daily limits on requests (the founder's decision, 18 November 2026:
+  nothing should keep a host from being booked by her own member; those limits are there to stop
+  one person flooding a host with requests she has to answer, and a member's booking needs no
+  answer, is paid for, and is limited by the time they have). A member's bookings are not counted
+  in the limits on ordinary requests either;
 - from accepting: the host approved and their payout account ready, read inside the step; the
   member price, the cancelling rule and "the host's time counts" fixed on the call; the host taken
   for the call and its break and the member for the call, with the database refusing any overlap
