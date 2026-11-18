@@ -251,13 +251,23 @@ async function main() {
   // ------------------------------------------------------------------------
   // Cleaning up: only this script's own people (ids starting "mk-")
   // ------------------------------------------------------------------------
-  async function wipe(everything = false) {
+  /** `pair`: instead of this script's own people, the membership between two seeded test accounts that `--demo` made, and its calls. */
+  async function wipe(everything = false, pair?: { hostId: string; customerId: string }) {
     const quiet = async (step: () => Promise<unknown>) => step().catch((error) => console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
-    const theirCalls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(like(schema.calls.hostId, "mk-%"), like(schema.calls.customerId, "mk-%")))).map((row) => row.id);
-    const all = await db.select({ id: schema.memberships.id }).from(schema.memberships).where(or(like(schema.memberships.hostId, "mk-%"), like(schema.memberships.customerId, "mk-%")));
+    const all = await db
+      .select({ id: schema.memberships.id })
+      .from(schema.memberships)
+      .where(pair ? and(eq(schema.memberships.hostId, pair.hostId), eq(schema.memberships.customerId, pair.customerId)) : or(like(schema.memberships.hostId, "mk-%"), like(schema.memberships.customerId, "mk-%")));
     const ids = all.map((row) => row.id);
     const theirMonths = ids.length > 0 ? await db.select().from(months).where(inArray(months.membershipId, ids)) : [];
     const monthIds = theirMonths.map((month) => month.id);
+    const theirCalls = pair
+      ? [
+          // The calls booked from those months, and the one call the demo wrote so that the host could invite.
+          ...(monthIds.length > 0 ? (await db.select({ id: schema.payments.callId }).from(schema.payments).where(inArray(schema.payments.monthId, monthIds))).flatMap((row) => (row.id ? [row.id] : [])) : []),
+          ...(await db.select({ id: schema.calls.id }).from(schema.calls).where(like(schema.calls.roomName, "membercalls-demo-%"))).map((row) => row.id),
+        ]
+      : (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(like(schema.calls.hostId, "mk-%"), like(schema.calls.customerId, "mk-%")))).map((row) => row.id);
     // Nothing stays held on a test card.
     for (const month of theirMonths) {
       if (month.stripePaymentIntentId && (month.status === "to_pay" || month.status === "held")) await stripe().paymentIntents.cancel(month.stripePaymentIntentId).catch(() => undefined);
@@ -287,7 +297,16 @@ async function main() {
       await quiet(() => db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.paymentId, paymentIds)));
       await quiet(() => db.delete(schema.payments).where(inArray(schema.payments.id, paymentIds)));
     }
-    const theirBookings = (await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(like(schema.bookings.hostId, "mk-%"), like(schema.bookings.customerId, "mk-%")))).map((row) => row.id);
+    const theirBookings = (
+      await db
+        .select({ id: schema.bookings.id })
+        .from(schema.bookings)
+        .where(
+          pair
+            ? or(theirCalls.length > 0 ? inArray(schema.bookings.callId, theirCalls) : undefined, monthIds.length > 0 ? inArray(schema.bookings.monthId, monthIds) : undefined, sql`false`)
+            : or(like(schema.bookings.hostId, "mk-%"), like(schema.bookings.customerId, "mk-%")),
+        )
+    ).map((row) => row.id);
     if (theirBookings.length > 0) {
       await quiet(() => db.delete(schema.busyEntries).where(inArray(schema.busyEntries.bookingId, theirBookings)));
       await quiet(() => db.delete(schema.bookingCards).where(inArray(schema.bookingCards.bookingId, theirBookings)));
@@ -310,7 +329,7 @@ async function main() {
       await quiet(() => db.delete(schema.membershipInvitations).where(inArray(schema.membershipInvitations.membershipId, ids)));
       await quiet(() => db.delete(schema.memberships).where(inArray(schema.memberships.id, ids)));
     }
-    if (!everything) return;
+    if (!everything || pair) return;
     const steps: Array<() => Promise<unknown>> = [
       () => db.delete(schema.collections).where(like(schema.collections.hostId, "mk-%")),
       () => db.delete(schema.blocks).where(or(like(schema.blocks.blockerId, "mk-%"), like(schema.blocks.blockedId, "mk-%"))),
@@ -1034,6 +1053,43 @@ async function main() {
     check("and its share is held back until the host has answered", held?.heldBack === "request", held?.heldBack);
     await audit("at the end", m);
   });
+
+  // ------------------------------------------------------------------------
+  // For looking at the pages by hand: a real member between the two seeded test accounts.
+  //   --demo      makes it (a membership whose first month is held, on a host with member-only hours) and leaves it there
+  //   --demo-off  takes it away again and turns the founder's switch off
+  // ------------------------------------------------------------------------
+  if (process.argv.includes("--demo") || process.argv.includes("--demo-off")) {
+    const account = async (email: string) => (await db.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.email, email)))[0];
+    const [host, customer] = [await account("host@test.local"), await account("customer@test.local")];
+    if (!host || !customer) throw new Error("The seeded test accounts are missing. Run scripts/seed.ts first.");
+    await wipe(false, { hostId: host.id, customerId: customer.id });
+    await db.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, host.id), eq(schema.weeklyHours.membersOnly, true)));
+    if (process.argv.includes("--demo-off")) {
+      await db.delete(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, host.id));
+      await setSwitches({ memberships: "off", membershipsHosts: [] });
+      console.log("The demo membership is gone, and the founder's memberships switch is off.");
+      process.exit(0);
+    }
+    const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
+    if (!profile || !(await offerOf(host.id))) throw new Error("The seeded host has no approved page with a calendar and weekly hours. Set those up in the app first.");
+    await setSwitches({ memberships: "named", membershipsHosts: [host.id] });
+    await db.insert(schema.membershipOffers).values({ hostId: host.id, on: true, pricePer15Cents: Math.max(500, profile.pricePer15Cents - 250), includedMinutes: 120 }).onConflictDoNothing();
+    for (const weekday of [1, 2, 3, 4, 5, 6, 7]) await db.insert(schema.weeklyHours).values({ hostId: host.id, weekday, startMinute: 20 * 60, endMinute: 22 * 60, membersOnly: true });
+    const startsAt = new Date(Date.now() - 2 * DAY);
+    const [call] = await db.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), roomName: `membercalls-demo-${randomUUID()}`, pricePer15Cents: 1000, closedAt: new Date(startsAt.getTime() + 31 * MIN) }).returning();
+    for (const who of [host.id, customer.id]) {
+      await db.insert(schema.attendanceEvents).values({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: call.id, type: "participant_joined", roomSessionId: "RM_membercalls_demo", participantIdentity: who, participantSessionId: `PA_${randomUUID().slice(0, 8)}`, providerTime: startsAt, payload: "{}" });
+    }
+    const invitation = await J.invite({ hostId: host.id, customerId: customer.id, now: new Date() });
+    const started = await J.join({ customerId: customer.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
+    await C.payNow({ monthId: started.monthId, memberId: customer.id });
+    await stripe().paymentIntents.confirm((await M(started.monthId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+    await C.syncMonth(started.monthId, new Date());
+    console.log(`The demo membership is ready: customer@test.local is a member of @${profile.handle}, with this month's money held (the first booking takes it).`);
+    console.log(`Open /h/${profile.handle} as the customer. Take it away again with: npx tsx scripts/member-calls-check.ts --demo-off`);
+    process.exit(0);
+  }
 
   // ------------------------------------------------------------------------
   // Running
