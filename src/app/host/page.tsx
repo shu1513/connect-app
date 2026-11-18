@@ -28,6 +28,7 @@ import {
 } from "./actions";
 import { SitePage } from "@/components/site-page";
 import { Earnings } from "./earnings";
+import { MembershipPart } from "./membership";
 
 export const metadata: Metadata = { title: "Hosting" };
 
@@ -395,6 +396,8 @@ export default async function HostPage(props: PageProps<"/host">) {
         {/* Also shown while the payout account is not ready: money already earned is still theirs to see. */}
         {stripeConfigured() && settings.stripeAccountId && <Earnings hostId={user.id} payoutsReady={settings.payoutsReady} now={now} />}
       </section>
+
+      <MembershipPart hostId={user.id} regularPricePer15Cents={profile?.pricePer15Cents ?? null} payoutsReady={Boolean(settings.payoutsReady) && stripeConfigured()} now={now} />
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Your cancelling rule</h2>
