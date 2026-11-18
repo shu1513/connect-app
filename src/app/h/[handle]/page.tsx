@@ -5,7 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SlotPicker } from "@/components/slot-picker";
 import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
-import { hostForMemberByHandle } from "@/lib/membership/access";
+import { hostForMemberByHandle, membershipsOf } from "@/lib/membership/access";
 import { memberBookingView, memberOpenTimes } from "@/lib/membership/book";
 import { timeWords } from "@/lib/membership/rules";
 import { NOW } from "@/lib/booking/now-rules";
@@ -67,6 +67,9 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const { length, mlength } = await props.searchParams;
   // A member of this host: their time left and the times they can book with it, beside the ordinary way.
   const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
+  // Their own membership with this host, whatever state it is in: an invitation, the card step, a failed payment or a pause each get a line and a link.
+  const own = viewer && viewer.id !== profile.userId && !blocked ? (await membershipsOf(viewer.id)).find((membership) => membership.hostId === profile.userId && membership.status !== "ended") : undefined;
+  const invitedUntil = own?.status === "invited" && own.inviteId && own.inviteExpiresAt && own.inviteExpiresAt > new Date() ? own.inviteExpiresAt : null;
   const memberChosen = !memberView || memberView.lengths.length === 0 ? null : typeof mlength === "string" && memberView.lengths.includes(Number(mlength)) ? Number(mlength) : firstLength(memberView.lengths);
   const memberTimes = memberView && memberChosen ? await memberOpenTimes(memberView, memberChosen, new Date()) : [];
   // The length the customer chose stays chosen; before any choice, the offered length closest to 30 minutes is shown.
@@ -139,6 +142,37 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         )}
       </section>
 
+      {own && invitedUntil && (
+        <section className={`${warm.card} mt-6`}>
+          <h2 className="text-lg font-semibold">{profile.displayName} invites you to a membership</h2>
+          <p className="mt-1 text-sm">
+            A fixed amount each month, as talk time with {profile.displayName} at a lower price. The invitation is open until <LocalTime iso={invitedUntil.toISOString()} />. Nothing is charged unless you join.
+          </p>
+          <p className="mt-3">
+            <Link href={`/h/${profile.handle}/membership?invite=${own.inviteId}`} className={warm.button}>
+              See the invitation
+            </Link>
+          </p>
+        </section>
+      )}
+      {own && (own.status === "joining" || own.status === "unpaid" || own.status === "paused") && (
+        <section className={`${warm.card} mt-6`}>
+          <h2 className="text-lg font-semibold">Your membership</h2>
+          <p className="mt-1 text-sm">
+            {own.status === "joining"
+              ? "You are at the card step: you are a member once your card is entered."
+              : own.status === "unpaid"
+                ? "Your monthly payment did not go through. Until it does you have no member time."
+                : "Your membership is paused. It costs nothing and gives no member time."}
+          </p>
+          <p className="mt-3">
+            <Link href={own.status === "unpaid" ? `/memberships/${own.id}/pay` : own.status === "paused" ? `/memberships/${own.id}` : `/h/${profile.handle}/membership`} className={warm.secondary}>
+              {own.status === "joining" ? "Go to the card step" : own.status === "unpaid" ? "Pay now" : "See your membership, or resume it"}
+            </Link>
+          </p>
+        </section>
+      )}
+
       {memberView && (
         <section id="member" className={`${warm.card} mt-6 scroll-mt-4`}>
           <h2 className="text-lg font-semibold">Your membership</h2>
@@ -146,6 +180,13 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             <strong>{timeWords(memberView.minutesLeft)} left</strong>, until <LocalTime iso={memberView.monthEndsAt.toISOString()} />. Your price is{" "}
             {formatMoney(memberView.month.pricePer15Cents)} per 15 minutes.
           </p>
+          {own && (
+            <p className="mt-1 text-sm">
+              <Link href={`/memberships/${own.id}`} className="underline underline-offset-2">
+                Your receipts, your next payment, and cancelling
+              </Link>
+            </p>
+          )}
           {memberView.month.status === "held" && (
             <p className="mt-2 text-sm opacity-70">
               This month&apos;s {formatMoney(memberView.month.totalCents)} is only held on your card so far. It is taken when you make your first booking of the month.

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { ChangePasswordForm } from "@/components/auth-forms";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { db, schema } from "@/db";
+import { membershipsOf } from "@/lib/membership/access";
 import { readNotice } from "@/lib/notice";
 import { Rating } from "@/components/rating";
 import { averageFor } from "@/lib/ratings/ratings";
@@ -25,6 +26,15 @@ const NOTICES: Record<string, string> = {
   zone: "Please choose your time zone from the list.",
 };
 
+const MEMBERSHIP_STATE: Record<string, string> = {
+  invited: "Invited",
+  joining: "At the card step",
+  active: "Member",
+  unpaid: "Payment did not go through",
+  paused: "Paused",
+  ended: "Ended",
+};
+
 export default async function AccountPage(props: PageProps<"/account">) {
   const user = await requireUser("/account");
   const query = await props.searchParams;
@@ -38,6 +48,13 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const [{ reminders }] = await db.select({ reminders: schema.user.reminderEmails }).from(schema.user).where(eq(schema.user.id, user.id));
   const [asHost, asCustomer] = await Promise.all([averageFor(user.id, "host", new Date()), averageFor(user.id, "customer", new Date())]);
   const idConfirmed = (await identityState(user.id)).passed;
+  // The person's own memberships as a member (also paused and ended ones, for their receipts).
+  const memberships = await membershipsOf(user.id);
+  const hostNames = new Map(
+    memberships.length > 0
+      ? (await db.select({ id: schema.hostProfiles.userId, name: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, memberships.map((membership) => membership.hostId)))).map((row) => [row.id, row.name])
+      : [],
+  );
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -111,6 +128,23 @@ export default async function AccountPage(props: PageProps<"/account">) {
           </p>
         )}
       </section>
+
+      {memberships.length > 0 && (
+        <section id="memberships" className="mt-10 scroll-mt-4">
+          <h2 className="text-lg font-semibold">Memberships</h2>
+          <p className="mt-1 text-sm opacity-70">Your memberships with hosts: your time, your receipts, and cancelling or resuming.</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {memberships.map((membership) => (
+              <li key={membership.id}>
+                <Link href={`/memberships/${membership.id}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                  {hostNames.get(membership.hostId) ?? "A host"}
+                </Link>
+                <span className="ml-2 opacity-70">{MEMBERSHIP_STATE[membership.status] ?? ""}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Hosting</h2>

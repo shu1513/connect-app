@@ -81,6 +81,20 @@ export async function invitationFor(viewerId: string, inviteId: string, now: Dat
   return { membership, offer, host, expired };
 }
 
+/**
+ * What became of an invitation whose link no longer opens: for the person it was sent to and nobody
+ * else. So an old link can say "this invitation is no longer open" instead of "not found", and
+ * never opens a newer invitation. Null for someone else's link and for one that does not exist.
+ */
+export async function oldInvitationFor(viewerId: string, inviteId: string): Promise<{ outcome: string } | null> {
+  if (!IS_ID.test(inviteId)) return null;
+  const [found] = await db
+    .select({ outcome: schema.membershipInvitations.outcome })
+    .from(schema.membershipInvitations)
+    .where(and(eq(schema.membershipInvitations.inviteId, inviteId.toLowerCase()), eq(schema.membershipInvitations.customerId, viewerId)));
+  return found ?? null;
+}
+
 /** One membership with its months, the newest first, for its member only. */
 export async function membershipFor(viewerId: string, membershipId: string): Promise<{ membership: Membership; months: MembershipMonth[] } | null> {
   if (!IS_ID.test(membershipId)) return null;

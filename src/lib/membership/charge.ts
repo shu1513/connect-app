@@ -581,6 +581,33 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
   return { clientSecret: intent.clientSecret };
 }
 
+/**
+ * For a page that is only being loaded: the secret of the PaymentIntent this month ALREADY has,
+ * for its member only, while the month can still be paid and the payment is ready to be made by
+ * hand (an action made it so: "Join", "Resume" or "Pay now", through `payNow`). It reads; it never
+ * makes a PaymentIntent, never changes one and never moves a deadline. Null otherwise.
+ */
+export async function secretToPay(input: { monthId: string; memberId: string; now?: Date }): Promise<{ clientSecret: string } | null> {
+  const [found] = await db
+    .select({ customerId: schema.memberships.customerId })
+    .from(months)
+    .innerJoin(schema.memberships, eq(schema.memberships.id, months.membershipId))
+    .where(eq(months.id, input.monthId));
+  if (!found || found.customerId !== input.memberId) return null;
+  const at = input.now ?? new Date();
+  const open = (month: MembershipMonth | undefined, when: Date) =>
+    Boolean(month && month.status === "to_pay" && !month.endedHow && !month.problem && !(month.cardStepExpiresAt && month.cardStepExpiresAt <= when) && !(month.giveUpAt && month.giveUpAt <= when));
+  const due = await monthById(input.monthId);
+  if (!due?.stripePaymentIntentId || !open(due, at)) return null;
+  const intent = await stripe().paymentIntents.retrieve(due.stripePaymentIntentId);
+  // Only a payment that waits for the member, with the card set to be kept for the months that follow.
+  if (!intent.client_secret || intent.setup_future_usage !== "off_session" || !["requires_payment_method", "requires_confirmation", "requires_action"].includes(intent.status)) return null;
+  // Looked at once more after Stripe answered, by the real clock: the secret of a month that was given up meanwhile goes to nobody.
+  const still = await monthById(input.monthId);
+  if (!open(still, new Date(Math.max(at.getTime(), Date.now()))) || still!.stripePaymentIntentId !== intent.id) return null;
+  return { clientSecret: intent.client_secret };
+}
+
 // ---------------------------------------------------------------------------
 // Taking the money
 // ---------------------------------------------------------------------------
