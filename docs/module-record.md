@@ -1290,3 +1290,47 @@ membership are part three; the pages a booked member call needs are in this one.
   script then stops). Marking old, settled test calls as closed in the local database fixes it.
 - Extra time during a member's call is 2b; until then such a call offers none.
 
+## Memberships, part two, 2b: extra time during a member's call (pull request 37, 18 November 2026)
+
+The fourth of six pull requests, and the end of part two. The founder's switch is still off.
+
+**What it does**
+- **Extra time on a call that was booked with a membership** (`extend/extend.ts`,
+  `membership/calls.ts`): when the member's free time covers the whole request and the longer
+  call still ends before their month ends, it is taken from the membership: set aside in the
+  same step, the host asked at once, and no extra 30 cents. Otherwise the whole request is paid
+  by card, on the card saved for the membership, as an ordinary card payment with the usual fee.
+  One request is never split between the two.
+- **Never a way or a price the member did not see.** The call screen says for each choice how it
+  would be paid and sends what it showed. The server decides again with the month locked; if the
+  way or the card price is no longer that, nothing is asked of the host and nothing is held, and
+  the member is shown how it stands now and presses again.
+- **A request that is declined, runs out or fails** gives its money back where it came from,
+  once; an accepted one never. If the app stops in between, the helper finishes it.
+- **After the call** each payment is settled for its own stretch and by its own kind (2a's code):
+  a card charge for added time follows its own hold, while the member's time to ask for a refund
+  stays the full 24 hours. One refund request covers the whole call.
+- **A membership that ended, was paused or is frozen** pays for no more added time; without a
+  saved card, time cannot be added.
+
+**The database:** nothing new (`call_extensions.paid_from` came with migration `0029`).
+
+**How it was checked**
+- `scripts/member-calls-check.ts` now has 17 journeys (three new) and about 250 checks against
+  Stripe's test area: from the membership (accepted, used in part, declined, not answered, the
+  app stopping in between, the fifth request), by card (its own fee and hold, across the month's
+  end, the way changing in both directions, a booking and added time for the last free money at
+  the same moment, the membership ending while a request is open), and a call with both kinds
+  (each payment's own moment, one refund request, the health check, a frozen month beside a card
+  payment).
+- The existing script for added time on card calls passes unchanged, as do the eleven other
+  existing scripts, `scripts/membership-check.ts --payouts`, `tsc`, `eslint`, `vitest` (395
+  tests) and the build.
+- Through the running app: the screen's data for a member's call in its last minute, presses
+  that did not match what was shown (each refused with the way and the price as they are), and a
+  matching press. The call screen's own buttons were not pressed by hand (they need a camera and
+  a second person).
+- Astra reviewed the code twice (not ready, ready). What mattered most: a membership's card that
+  was retired a moment ago could still have been held for added time; and a request the
+  membership could just pay for was sent to the card by a rounding difference.
+
