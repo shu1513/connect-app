@@ -308,8 +308,9 @@ export const siteSwitches = pgTable("site_switches", {
   /**
    * Memberships: "off", "named" (on for the hosts in membershipsHosts only) or "everyone".
    * Three words and not a yes/no with a list, so that an empty list can never mean "everyone".
+   * On for everyone unless the founder says otherwise (the founder's decision, 18 November 2026).
    */
-  memberships: text("memberships").notNull().default("off"),
+  memberships: text("memberships").notNull().default("everyone"),
   /** The account IDs of the hosts the founder named, separated by commas. Only read when memberships is "named". */
   membershipsHosts: text("memberships_hosts").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

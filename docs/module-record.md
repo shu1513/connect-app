@@ -1476,3 +1476,36 @@ month later, and two real people. The friend test is for those.
 that never becomes a dispute ends the membership today, like a real dispute; and switching a
 membership off cancels a payment that is still open, also if the card was held a moment before.
 
+## Memberships: on for everyone from day one (18 November 2026)
+
+The founder's decision after the build: "I want the membership feature to be on from day 1 for
+all hosts, so hosts can invite someone to be a member."
+
+**What changed**
+- The founder's memberships switch starts as "on for everyone" (`site_switches.memberships`,
+  migration `0030_memberships_on`, and `switches()` when no switch was ever saved). The migration
+  also turns a saved "off" on, once: until now "off" was only ever the default.
+- The switch itself is unchanged: on the admin page, "Reports and safety", the founder can turn
+  memberships off or limit them to named hosts, and the rules for "off" hold from then on.
+- The three membership check scripts no longer need the switch to be off: each remembers the
+  position it finds, works from "off" for its own journeys, and puts the position back.
+
+**Two rules that had leaned on the switch** (found by Astra; with the switch on for everyone
+they have to stand by themselves):
+- Hours "for members only" are for a host who offers a membership herself (her own membership
+  switched on), not for every host the founder's switch covers. Otherwise a host who cannot have
+  members could have hidden her hours from ordinary customers.
+- Switching a membership on needs an approved host page. (Nobody could have joined a host whose
+  page was not approved, but she should not get that far.) One that is already on can still be
+  looked after while her page waits: a lower price, or switching it off.
+
+**How it was checked:** all fourteen check scripts and the journey through the pages, run with the
+local switch on for everyone; `tsc`, `eslint`, `vitest`. Astra reviewed the change three times
+(not ready, not ready, ready): the two rules above, and the check scripts putting the switch
+back also when their own set-up fails.
+
+**What it means before launch:** the lawyer's and Stripe's points in `plans/19`, "Before this
+can go live", now have to be settled before the site goes live, because memberships go live with
+it. A host still needs an approved page, a price above zero, a ready payout account and her own
+membership switched on before anyone can join.
+

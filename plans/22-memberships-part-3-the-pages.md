@@ -285,6 +285,9 @@ The founder's switch. Turning it on is the founder's step, in two stages, by the
 "Before this can go live": first for the friend test, for the one host who takes part, and for
 everyone only after the lawyer's and Stripe's points and that test.
 
+(Changed after the build, on 18 November 2026: the founder decided that memberships are on for
+every host from day one. See the rulebook, "The founder's decision after the build".)
+
 ## Questions for Astra's check
 
 1. Is `confirmPayment` on a PaymentIntent with `capture_method: "manual"` and

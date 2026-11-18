@@ -54,7 +54,7 @@ What each side gets:
 | More time than the host offers | Not allowed. The time of **all of a host's members together** can never be more than the host's weekly hours offer in four weeks. Five members with 2 hours each need a host with at least 10 hours a month. |
 | When a host cuts their hours and not everyone fits any more | The host chooses, in the same step as cutting the hours, what happens to each member: keep them, offer them less time, or pause them after this month. The page shows her first who is affected, and which open invitations will be taken back. |
 | Less time instead of a pause | The host can offer a member a smaller time at that member's own price per 15 minutes, so they pay less. The member accepts or says no. If they say no, or do not answer before their month ends, they are paused. |
-| The founder's switch | A switch on the admin page, "Memberships", with three positions: **off**, **on for the hosts the founder names**, and **on for everyone**. It is off until the whole feature is built and tried, and "on for the hosts the founder names" is how the friend test is run while nobody else can use memberships. A host who is not named, or who is taken off the list, is treated exactly as if the switch were off for her; with nobody named, memberships are on for nobody. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
+| The founder's switch | A switch on the admin page, "Memberships", with three positions: **off**, **on for the hosts the founder names**, and **on for everyone**. **It is on for everyone from day one** (the founder's decision of 18 November 2026, after the build; until then it was off while the feature was built and tried). The switch is there to stop memberships, or to limit them to the hosts the founder names, not to start them. A host who is not named, or who is taken off the list, is treated exactly as if the switch were off for her; with nobody named, memberships are on for nobody. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
 | How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
 | How the monthly payment is taken | Connect charges the member's saved card itself each month, first as a hold and then for real (see "The monthly payment"). Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
 
@@ -870,9 +870,10 @@ Done when:
 
 - The whole journey passes in a browser, also at phone size, including a failed payment, a
   cancellation, and the founder's switch turned off while months are running.
-- Merging this part does not turn anything on. The founder turns the switch on twice over: once
-  for the friend test, for the one host who takes part, and for everyone only
-  after the lawyer's and Stripe's points under "Before this can go live".
+- Merging this part does not turn anything on. (After the build, on 18 November 2026, the founder
+  decided that memberships are on for everyone from day one: see "The founder's decision after
+  the build" at the end. The lawyer's and Stripe's points under "Before this can go live" are
+  then points for the launch of the site itself.)
 
 ### How the parts connect
 
@@ -909,9 +910,9 @@ anything here without this table being changed first.
 time its `offer_id`, and a "Join" or "Resume" form a `request_id` made when the page was drawn;
 all three are part one's, and part three's pages only pass them on.
 
-**The founder's switch in the check scripts.** Each script sets it (its position and its list) in the local database
-for the journeys that start or renew a membership and off again at its end, and has a journey
-of its own for what goes on working while it is off.
+**The founder's switch in the check scripts.** Each script remembers the position it finds (on for everyone is the
+default), sets the switch and its list in the local database for its own journeys, starting from off, and puts the
+remembered position back at its end. Each has a journey of its own for what goes on working while it is off.
 
 **The addresses of the new pages**, fixed here because emails written in part one link to pages
 built in part three:
@@ -1105,9 +1106,11 @@ one they are a member of.
   charging saved cards monthly is covered by the live account's agreement, and what the live
   account allows for one large charge and for the transfers made from it.
 - **A friend test, before the public launch:** one real host and one real member through a whole
-  month, including a real renewal on a real card, with the founder's switch on for that one host only. The
-  lawyer's and Stripe's points above have to be settled before memberships are sold to anyone
-  else.
+  month, including a real renewal on a real card. Since the founder's decision of 18 November
+  2026 memberships are on for every host from the site's first day, so the lawyer's and Stripe's
+  points above have to be settled before the site itself goes live, not at a later switch. (To
+  run the friend test with nobody else able to use memberships, the founder can set the switch
+  to "on for the hosts the founder names" for that time.)
 
 ## Astra's check of this plan (17 November 2026)
 
@@ -1420,3 +1423,25 @@ all were taken, each as a small change:
    the moment before it was sent. It is looked at again when it is sent.
 7. **"Only the two friends"** during the friend test had no way to be enforced: the switch was
    on or off for everyone. It now has a middle position, for the hosts the founder names.
+
+## The founder's decision after the build (18 November 2026): on from day one
+
+With all six pull requests merged and the switch off, the founder decided: **"I want the
+membership feature to be on from day 1 for all hosts, so hosts can invite someone to be a
+member."**
+
+- The switch's position is "on for everyone" unless the founder saves something else: the
+  column's default, what the code reads when no switch was ever saved, and, once, any saved
+  "off" (which until then had only ever been the default, never a choice) is turned on by
+  migration `0030_memberships_on`. A list of named hosts is left as it is.
+- Nothing else changes. Every rule that asks "are memberships on for this host?" asks as before.
+  The switch stays on the admin page, "Reports and safety", with its three positions: the
+  founder can turn memberships off, or limit them to named hosts, at any time, and everything
+  the rulebook says about "off" holds from that moment.
+- A host still has to do her own part before anyone can join: an approved page, a price above
+  zero, a payout account that is ready, and her own membership switched on with a member price
+  and a time.
+- **What this moves:** the lawyer's points (monthly charges that renew by themselves, paid time
+  that expires) and Stripe's points under "Before this can go live" were to be settled before
+  the switch went on for everyone. They now have to be settled before the site itself goes live.
+

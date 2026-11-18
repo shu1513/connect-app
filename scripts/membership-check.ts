@@ -1924,6 +1924,15 @@ async function main() {
     check("while her page waits to be approved again, the member can look but not book", (await A.hostForMember(member.member.id, hidden.id))?.canBook === false);
     await db.update(schema.hostProfiles).set({ status: "suspended" }).where(eq(schema.hostProfiles.userId, hidden.id));
     check("a suspended host is reached by nobody", (await A.hostForMember(member.member.id, hidden.id)) === null);
+    // Memberships are on for every host: so a host whose page is not approved must be stopped by her own page's state, not by the founder's switch.
+    const unapproved = await newHost({ offer: false });
+    const { mayKeepMemberHours } = await import("../src/lib/booking/calendar");
+    check("hours for members only are for a host who offers a membership herself, not for every host the founder's switch covers", (await mayKeepMemberHours(unapproved.id)) === false && (await mayKeepMemberHours((await newHost()).id)) === true);
+    await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, unapproved.id));
+    const early = await refusal(save(unapproved, { on: true, pricePer15Cents: 700, includedMinutes: 120 }));
+    await db.update(schema.hostProfiles).set({ status: "suspended" }).where(eq(schema.hostProfiles.userId, unapproved.id));
+    const never = await refusal(save(unapproved, { on: true, pricePer15Cents: 700, includedMinutes: 120 }));
+    check("a host whose page waits for approval, or is suspended, cannot switch a membership on", /must be approved/.test(early ?? "") && /must be approved/.test(never ?? "") && (await db.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, unapproved.id))).length === 0, `${early} / ${never}`);
     check("a host sees her own members and invitations, and nobody else's", (await A.membersOfHost(host.id)).some((row) => row.membership.id === m.membershipId) && (await A.membersOfHost(hidden.id)).every((row) => row.membership.hostId === hidden.id) && (await A.membershipsOf(m.member.id)).length === 1);
 
     // With every page built (part three): only the host's and the member's own pages reach the code that changes a
@@ -2083,12 +2092,14 @@ async function main() {
   if (only && (only.length === 0 || only.some((n) => !Number.isInteger(n) || n < 1 || n > journeys.length))) {
     throw new Error(`--only takes journey numbers from 1 to ${journeys.length}${process.argv.includes("--payouts") ? "" : " (the last one, collecting, needs --payouts)"}.`);
   }
+  // This script sets the founder's memberships switch and its list for its own hosts. Whatever position it finds (on for
+  // everyone is the default) is remembered here and put back at the end; its journeys start from "off", with nobody named.
   const before = await switches();
-  // Checked before anything is written: this script sets the switch and its list, and puts both back to "off" at the end.
-  if (before.memberships !== "off" || before.membershipsHosts.length > 0) throw new Error("The memberships switch is not off in this database. This script would overwrite it. Set it to off first.");
-  check("before anything: the founder's memberships switch is off", true);
-  await wipe();
+  console.log(`(The founder's memberships switch is "${before.memberships}"${before.membershipsHosts.length > 0 ? ` with ${before.membershipsHosts.length} named` : ""}; it is put back at the end.)`);
   try {
+    // (Inside the step that puts the switch back: if even the first clean-up fails, the position found is restored.)
+    await setSwitches({ memberships: "off", membershipsHosts: [] });
+    await wipe();
     for (const [index, [title, run]] of journeys.entries()) {
       if (only && !only.includes(index + 1)) continue;
       console.log(`\n${index + 1}. ${title}`);
@@ -2100,11 +2111,11 @@ async function main() {
       await wipe();
     }
   } finally {
-    await setSwitches({ memberships: "off", membershipsHosts: [] });
+    await setSwitches({ memberships: before.memberships, membershipsHosts: before.membershipsHosts });
     await wipe(true);
   }
   const afterwards = await switches();
-  check("afterwards: the founder's memberships switch is off again, with nobody named", afterwards.memberships === "off" && afterwards.membershipsHosts.length === 0);
+  check("afterwards: the founder's memberships switch is as it was before the script, with the same hosts named", afterwards.memberships === before.memberships && afterwards.membershipsHosts.join(",") === before.membershipsHosts.join(","), `${afterwards.memberships} ${afterwards.membershipsHosts.length}`);
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
