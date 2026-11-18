@@ -59,20 +59,19 @@ export async function cancelNowAction(formData: FormData) {
   redirect(withNotice(page, notice));
 }
 
-/** "Keep my membership": takes back the member's own cancelling (and the stop from the host's switch). It never takes back the host's pause. */
+/** "Keep my membership": takes back the member's own cancelling (and the stop from the host's switch). It never takes back the host's pause, and its sentence never promises a renewal by itself. */
 export async function keepAction(formData: FormData) {
   const { userId, membershipId, page } = await mine(formData);
   let notice: string;
   try {
     await undoStop({ membershipId, by: "member", actorId: userId, now: new Date() });
     const after = await membershipFor(userId, membershipId).catch(() => null);
-    // A renewal is only promised when the membership was read again and nothing stands in its way.
+    // What was done is said; a renewal is not promised here. The page knows every condition for one (the host's pause, an
+    // offer to answer, the founder's switch), also when this form was an old one from another tab.
     notice =
-      !after || after.membership.status !== "active"
-        ? "Your own cancelling is taken back. Nothing is charged today. This page shows how your membership stands now."
-        : after.membership.hostStoppedAt
-          ? "Your own cancelling is taken back. Your membership is still set to pause when this month ends; this page says why."
-          : "Your membership goes on. Nothing is charged today.";
+      after?.membership.status === "active" && after.membership.hostStoppedAt
+        ? "Your own cancelling is taken back. Your membership is still set to pause when this month ends; this page says why."
+        : "Your own cancelling is taken back, and nothing is charged today. This page shows your next payment, or what still stands in its way.";
   } catch (error) {
     notice = problem(error);
   }

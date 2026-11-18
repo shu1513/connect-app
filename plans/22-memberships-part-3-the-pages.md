@@ -428,3 +428,39 @@ Three comments, all small and all taken:
   "Your account" and the host's page. Not walked by hand: a failed renewal with "Pay now" and the
   cut in hours with three members, which the journey script covers through the real pages.
 
+## Astra's reviews of the code of 3b (18 November 2026)
+
+Every point was checked against the code before it was taken.
+
+**First round (not ready, eight points, all taken):**
+1. **A payment whose way back arrives after a deadline** could be told "you are not a member,
+   nothing was charged", or get "not found", although a hold placed in time still counts and the
+   helper would start the membership a moment later. The card step after its time, and "Pay now"
+   after the time to pay, now ask the bank first and claim nothing before that. A first-time
+   joiner still reaches the card step's page then, through `ownMembershipByHandle`.
+2. **No way to cancel while a renewal is being taken**, or in the moment between a month's end
+   and the next one. The page keeps a cancel button there.
+3. **"Keep my membership" could say "your membership goes on"** when reading the result failed
+   or another stop remained. It says so only when that was read.
+4. **A reminder could go out with an amount that had changed** (the host lowered her price, or
+   another offer replaced the one it named). The sentence a reminder is about is looked for
+   again when it is sent.
+5. **An open offer came before the founder's switch** in the reminder's words and on the page.
+6. **The reminder's subject said "in 3 days"** also when written late.
+7. **An offer's link kept silent** after the month had ended and before the helper tidied up.
+8. **Three checks of the journey script proved less than they said.**
+
+**Second round (not ready, five points, all taken):**
+1. **The cancel button for a payment that is still open promised "nothing is charged"** although
+   the payment can go through in the moment before the press. Its words now say both outcomes.
+2. **The way a first-time joiner still reaches a card step that ran out** also showed the live
+   card form when the host's page was closed to them for another reason (a declined profile).
+   While the host's page is closed to a person, only the "time is over, we are checking" view is
+   shown. (The automated security check on the commit found the same.)
+3. **An old "Keep my membership" form** from another tab could still be answered with "your
+   membership goes on" after the founder's switch went off. The answer now says what was done
+   and leaves the renewal to the page.
+4. **A host who changed her name** would have lost her member the reminder: its kind was read
+   from the whole subject. It is now read from the subject's fixed ending.
+5. **One new check of the journey script** said more than it proved.
+

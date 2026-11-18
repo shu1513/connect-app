@@ -103,6 +103,9 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
     const month = found?.months.find((m) => m.id === mine.currentMonthId);
     if (!month) notFound();
     const ranOut = month.status !== "to_pay" || Boolean(month.endedHow) || Boolean(month.cardStepExpiresAt && month.cardStepExpiresAt <= now);
+    // While the host's page is closed to this person, the only thing shown is what became of a card step whose time is
+    // over: never the card form, and never a way to start or continue a payment.
+    if (!host && !ranOut) notFound();
     // Read only: the secret of the payment this month already has, for its member, while it can still be paid.
     const secret = ranOut ? null : await secretToPay({ monthId: month.id, memberId: user.id, now });
     return (

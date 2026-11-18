@@ -338,7 +338,12 @@ async function main() {
     // Pretended: the card step's 30 minutes ran out a moment ago, and the helper has not been by yet.
     await db.update(months).set({ cardStepExpiresAt: new Date(Date.now() - MIN) }).where(eq(months.id, month1.id));
     const tooLate = await page(`/h/${handle}/membership`, alice);
-    check("a card step whose time ran out still opens for its own member, hands out no secret, and asks the bank before it claims anything", tooLate.status === 200 && tooLate.words.includes("The time for the card step is over. We are checking with the bank") && !tooLate.text.includes("_secret_") && tooLate.words.includes("Check again") && (await page(`/h/${handle}/membership`, stranger)).status === 404, `${tooLate.status} ${tooLate.words.slice(0, 300)}`);
+    const asked = await send(`/api/memberships/${aliceId}/sync`, { json: { month: month1.id }, jar: alice.jar });
+    check(
+      "a card step whose time ran out still opens for its own member: no secret, no claim about the payment, a \"Check again\" button, and the address that button asks answers her with the month as it stands",
+      tooLate.status === 200 && tooLate.words.includes("The time for the card step is over. We are checking with the bank") && !tooLate.text.includes("_secret_") && tooLate.words.includes("Check again") && asked.status === 200 && asked.json?.status === "to_pay" && (await page(`/h/${handle}/membership`, stranger)).status === 404,
+      `${tooLate.status} ${JSON.stringify(asked.json)} ${tooLate.words.slice(0, 200)}`,
+    );
     await db.update(months).set({ cardStepExpiresAt: month1.cardStepExpiresAt }).where(eq(months.id, month1.id));
     const paid = await payInBrowser(alice, aliceId, month1.id);
     check("with a test card entered, the app finds the hold at Stripe itself: the month is held, and she is a member", paid.status === 200 && paid.json?.status === "held" && (await MS(aliceId)).status === "active", JSON.stringify(paid.json));
@@ -478,6 +483,10 @@ async function main() {
     await writeMembershipReminders(new Date((await M(bobMonth2.id)).endsAt!.getTime() - 2 * DAY));
     const [bobSecond] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${bobMonth2.id}`));
     check("a reminder for his second month is waiting, and says $60.00", Boolean(bobSecond?.body.includes("Your next payment: $60.00 for 2 hours")) && (await membershipReminderProblem(bobMonth2.id, bobSecond.subject, bobSecond.body)) === null);
+    await db.update(schema.hostProfiles).set({ displayName: "Renamed Host" }).where(eq(schema.hostProfiles.userId, host.id));
+    const renamed = await membershipReminderProblem(bobMonth2.id, bobSecond.subject, bobSecond.body);
+    await db.update(schema.hostProfiles).set({ displayName: hostName }).where(eq(schema.hostProfiles.userId, host.id));
+    check("a host who changes her name does not lose her member the reminder: what it says about the payment is unchanged", renamed === null, renamed);
     const lower = await page("/host/membership?on=1&price=6.00&minutes=120", host);
     check("before she saves a lower price, the host is shown who pays less and what it costs her", lower.words.includes("1 member pays $7.50 per 15 minutes now") && lower.words.includes("Together they will pay $12.00 less a month"), lower.words.slice(0, 600));
     const lowered = await press(host, "/host/membership?on=1&price=6.00&minutes=120", "Save this change");

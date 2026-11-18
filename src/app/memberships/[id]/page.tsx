@@ -136,7 +136,9 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
                   Cancel membership
                 </button>
                 <span className="ml-2 opacity-70">
-                  {current?.status === "to_pay" ? "The payment that is being taken is cancelled and your membership is paused at once. Nothing is charged for the new month." : "No new month is started, and your membership is paused."}
+                  {current?.status === "to_pay"
+                    ? "If the payment is still open when you press this, it is cancelled, your membership is paused at once and nothing is charged for the new month. If it has gone through by then, the new month is yours, and your membership ends when that month is over."
+                    : "No new month is started, and your membership is paused."}
                 </span>
               </form>
             )}
@@ -168,7 +170,9 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
               <button type="submit" className={button}>
                 Cancel membership
               </button>
-              <span className="ml-2 opacity-70">The open payment is cancelled and your membership is paused at once. Nothing is charged.</span>
+              <span className="ml-2 opacity-70">
+                If the payment is still open when you press this, it is cancelled, your membership is paused at once and nothing is charged. If it has gone through by then, that month is yours, and your membership ends when it is over.
+              </span>
             </form>
           </>
         )}

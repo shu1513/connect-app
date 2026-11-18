@@ -30,11 +30,13 @@ function appUrl(): string {
 type Kind = "renewal" | "offer" | "pause";
 
 // (No countdown in the subject: a reminder written late, after the helper was down, would then give the wrong one. The text names the exact moment.)
-const SUBJECT: Record<Kind, (hostName: string) => string> = {
-  renewal: (hostName) => `Your membership with ${hostName} renews soon`,
-  offer: (hostName) => `Your membership with ${hostName}: an offer to answer before your month ends`,
-  pause: (hostName) => `Your membership with ${hostName} will be paused when your month ends`,
+// Each kind's subject ends in fixed words: by them a queued reminder's kind is read back, whatever the host is called by then.
+const SUBJECT_END: Record<Kind, string> = {
+  renewal: " renews soon",
+  offer: ": an offer to answer before your month ends",
+  pause: " will be paused when your month ends",
 };
+const subjectFor = (kind: Kind, hostName: string) => `Your membership with ${hostName}${SUBJECT_END[kind]}`;
 
 /**
  * How things stand for a month that has started, as of now. "A renewal is coming" needs all of:
@@ -111,7 +113,7 @@ export async function writeMembershipReminders(now: Date): Promise<number> {
       queueEmail(tx, {
         to: member.email,
         key: keyFor(month.id),
-        subject: SUBJECT[kind](hostName),
+        subject: subjectFor(kind, hostName),
         text: textFor({ kind, why, membership, month, member, hostName }),
         // It announces what happens when the month ends: after that moment it would be wrong.
         expiresAt: month.endsAt!,
@@ -140,6 +142,6 @@ export async function membershipReminderProblem(monthId: string, subject: string
   const { membership } = row;
   if (membership.status !== "active" || membership.currentMonthId !== monthId) return "the membership is paused, ended or in a later month";
   const { kind, why } = await standing(membership);
-  if (SUBJECT[kind](await hostNameOf(membership.hostId)) !== subject) return "the membership changed after this reminder was written";
+  if (!subject.endsWith(SUBJECT_END[kind])) return "the membership changed after this reminder was written";
   return factsOf(kind, why, membership, row.month).every((fact) => body.includes(fact)) ? null : "what this reminder says about the payment is no longer so";
 }
