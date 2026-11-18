@@ -102,6 +102,9 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         <Link href="/admin/outbox" className="ml-4 underline underline-offset-2">
           Emails
         </Link>
+        <Link href="/admin/memberships" className="ml-4 underline underline-offset-2">
+          Memberships
+        </Link>
       </p>
 
       {notice && (

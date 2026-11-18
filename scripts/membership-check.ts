@@ -1910,18 +1910,29 @@ async function main() {
     check("a suspended host is reached by nobody", (await A.hostForMember(member.member.id, hidden.id)) === null);
     check("a host sees her own members and invitations, and nobody else's", (await A.membersOfHost(host.id)).some((row) => row.membership.id === m.membershipId) && (await A.membersOfHost(hidden.id)).every((row) => row.membership.hostId === hidden.id) && (await A.membershipsOf(m.member.id)).length === 1);
 
-    // Until part three there is no page and no address that could start a membership.
+    // With the host's pages built (part 3a): only her own pages reach the code that changes a membership, every action of hers
+    // asks who is signed in first, and nothing in the app can join, resume or pay yet (the member's pages are part 3b).
     const { readdirSync, readFileSync, statSync } = await import("node:fs");
-    const starts: string[] = [];
+    const uses: { path: string; text: string }[] = [];
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         const path = `${dir}/${name}`;
         if (statSync(path).isDirectory()) walk(path);
-        else if (/\.(ts|tsx)$/.test(name) && /membership\/(join|offers|ending|charge)["']/.test(readFileSync(path, "utf8"))) starts.push(path);
+        else if (/\.(ts|tsx)$/.test(name)) {
+          const text = readFileSync(path, "utf8");
+          if (/membership\/(join|offers|ending|charge)["']/.test(text)) uses.push({ path, text });
+        }
       }
     };
     walk("src/app");
-    check("no page or address of the app can invite, join, resume, pay or cancel yet", starts.length === 0, starts);
+    const hostsOwn = ["src/app/contacts/actions.ts", "src/app/host/membership-actions.ts", "src/app/host/membership.tsx", "src/app/host/membership/page.tsx"];
+    const elsewhere = uses.filter((file) => !hostsOwn.includes(file.path)).map((file) => file.path);
+    check("only the host's own pages reach the code that changes a membership", elsewhere.length === 0 && uses.length === hostsOwn.length, { elsewhere, found: uses.map((file) => file.path) });
+    const actions = uses.filter((file) => file.text.startsWith("\"use server\""));
+    const unasked = actions.filter((file) => (file.text.match(/^export async function /gm) ?? []).length !== (file.text.match(/const user = await requireActiveUser\(\);/g) ?? []).length).map((file) => file.path);
+    check("each of her actions asks who is signed in, and uses that person as the host", actions.length === 2 && unasked.length === 0 && actions.every((file) => !/formData\.get\("hostId"\)/.test(file.text)), { actions: actions.map((file) => file.path), unasked });
+    const joins = uses.filter((file) => /membership\/charge["']/.test(file.text) || /import \{[^}]*\b(join|resume|payNow|cancelNow|acceptLessTime|declineLessTime)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
+    check("no page or address of the app can join, resume, pay or cancel as a member yet", joins.length === 0, joins);
   });
 
   // ========================================================================
