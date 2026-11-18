@@ -1213,10 +1213,16 @@ membership). The member calls' migration in part two is now `0029`.
   mattered most: switching the membership off and on again within a month would have let members
   renew without being asked; and "Resume" from an out-of-date page could have recorded a price
   the member never saw. All findings are at the end of `plans/20-memberships-part-1-the-money.md`.
+- CodeRabbit: about 31 comments, most of them taken. What mattered most: several deadlines were
+  judged by when a request arrived, not by when it was handled (a request can wait for a lock past
+  the deadline); and "Cancel now" could tell a member that nothing was charged while the money was
+  being taken at that very moment. What was not taken, and why, is at the end of plan 20.
 
 **Open points**
 - The pages (part three) must pass on what the functions need: an invitation's id, an offer's id,
   a request id made when the page is drawn, the version of the membership a "Resume" page showed,
   and the mark of a preview before a change or a cut is saved.
+- The sentences a member agrees to (`wording.ts`) now tell "Cancel now" apart from cancelling the
+  normal way. They are for the lawyer's reading before launch, with the rest.
 - The open points of 1a still stand (a bank's question that never becomes a dispute; a refund
   that fails after Stripe said it went through; a second dispute on one charge).
