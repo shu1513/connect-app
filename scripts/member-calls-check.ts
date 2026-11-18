@@ -156,7 +156,7 @@ async function main() {
   /** The member's open times for one length, as their page would show them now. */
   async function times(m: Made, length = 30, now = new Date()): Promise<Date[]> {
     const view = await B.memberBookingView(m.member.id, m.host.id, now);
-    return view ? B.memberOpenTimes(view, length, now) : [];
+    return view ? (await B.memberOpenTimes(view, length, now)).map((time) => time.startsAt) : [];
   }
   /** Books as the member's page would: the price and cancelling rule it shows are the ones sent. */
   async function book(m: Made, startsAt: Date, opts: { length?: number; key?: string; now?: Date } = {}) {
@@ -341,6 +341,8 @@ async function main() {
     const general = open.filter((at) => hourInNewYork(at) < 13);
     const membersOnly = open.filter((at) => hourInNewYork(at) >= 13);
     check("the member's times include general hours and member-only hours", general.length > 0 && membersOnly.length > 0, `${general.length} ${membersOnly.length}`);
+    const marked = await B.memberOpenTimes(view!, 30, new Date());
+    check("each time says whether it is for members only", marked.every((time) => time.membersOnly === hourInNewYork(time.startsAt) >= 13));
     check("every time shown starts after the host's 24 hours' notice", open.every((at) => at.getTime() >= Date.now() + DAY - MIN));
     const offer = (await offerOf(host.id))!;
     const forPublic = await openTimes(offer, 30, new Date());

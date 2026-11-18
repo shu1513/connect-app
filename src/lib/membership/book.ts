@@ -29,7 +29,9 @@ import { hostForMember } from "./access";
 import { takeNow } from "./charge";
 import { lockMembership, lockMonth } from "./locks";
 import { setAside } from "./months";
-import { isFrozen } from "./rules";
+import { isFrozen, memberCallCents } from "./rules";
+
+export { memberCallCents };
 
 type Person = { id: string; name: string; email: string };
 type Reader = Pick<typeof db, "select">;
@@ -43,11 +45,6 @@ const NOT_OPEN = "That time is no longer open. Please choose another.";
 const NO_MEMBERSHIP = "You have no membership time with this host to book from right now.";
 /** What the member is told when the month's money was taken and the time was lost in that very moment. */
 export const PAID_BUT_TIME_GONE = "Your month's payment went through, but that time is no longer open. Please choose another.";
-
-/** What a call of this length sets aside: the member price for its length, rounded DOWN to a whole cent, so a member can always book every minute they are shown. */
-export function memberCallCents(pricePer15Cents: number, minutes: number): number {
-  return Math.floor((pricePer15Cents * minutes) / 15);
-}
 
 /** The member's month that can be booked from, with its membership: active, the current month, running or still only held, not disputed, not over. */
 async function bookableMonth(reader: Reader, customerId: string, hostId: string, now: Date): Promise<{ membership: Membership; month: MembershipMonth } | null> {
@@ -97,12 +94,15 @@ export async function memberBookingView(viewerId: string, hostId: string, now: D
 
 /**
  * The start times a member can book, for one length: general and member-only hours, the host's
- * notice alone as the earliest start, and only calls that end before the month ends.
+ * notice alone as the earliest start, and only calls that end before the month ends. Each says
+ * whether it is a time for members only (one the host's general hours do not offer).
  */
-export async function memberOpenTimes(view: MemberBookingView, lengthMinutes: number, now: Date): Promise<Date[]> {
+export async function memberOpenTimes(view: MemberBookingView, lengthMinutes: number, now: Date): Promise<Array<{ startsAt: Date; membersOnly: boolean }>> {
   if (!view.lengths.includes(lengthMinutes)) return [];
-  const starts = openStarts(slotInput(view.offer, await busyOf(db, view.offer.hostId, now), lengthMinutes, now, "member"));
-  return starts.filter((start) => start.getTime() + lengthMinutes * MINUTE <= view.monthEndsAt.getTime());
+  const busy = await busyOf(db, view.offer.hostId, now);
+  const starts = openStarts(slotInput(view.offer, busy, lengthMinutes, now, "member"));
+  const general = new Set(openStarts(slotInput({ ...view.offer, weekly: view.offer.weekly.filter((stretch) => !stretch.membersOnly) }, busy, lengthMinutes, now, "member")).map((start) => start.getTime()));
+  return starts.filter((start) => start.getTime() + lengthMinutes * MINUTE <= view.monthEndsAt.getTime()).map((startsAt) => ({ startsAt, membersOnly: !general.has(startsAt.getTime()) }));
 }
 
 /**

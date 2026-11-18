@@ -9,7 +9,7 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { stripe, stripePublishableKey } from "@/lib/payments/stripe";
 import { requireUser } from "@/lib/session";
-import { acceptAction, declineAction, takeBackAction } from "./actions";
+import { acceptAction, continueMemberAction, declineAction, takeBackAction } from "./actions";
 import { CardStep } from "./card-step";
 import { NowWaiting } from "./now-waiting";
 import { BlockButton } from "@/components/block-button";
@@ -30,6 +30,17 @@ const STAGE_FOR_CUSTOMER: Record<string, string> = {
   passed_over: "The host accepted another request for that time.",
   ran_out: "This request ended without an answer.",
   taken_back: "You took this request back.",
+  cancelled: "This call was cancelled.",
+};
+/** A booking a member made with their membership time: no request, no answer, no card step. */
+const MEMBER_STAGE_FOR_CUSTOMER: Record<string, string> = {
+  paying: "We are taking this month's payment. Your call is booked as soon as that is done.",
+  accepted: "Booked with your membership.",
+  ran_out: "This call was not booked.",
+  cancelled: "This call was cancelled.",
+};
+const MEMBER_STAGE_FOR_HOST: Record<string, string> = {
+  accepted: "Booked by a member of yours. There is nothing for you to accept.",
   cancelled: "This call was cancelled.",
 };
 const STAGE_FOR_HOST: Record<string, string> = {
@@ -53,6 +64,9 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   // A host never sees a request that was not sent to them: one still at the card step, or given up there.
   const testCall = booking.source === "admin";
   if (role === "host" && (booking.stage === "card" || (!booking.requestedAt && !testCall))) notFound();
+  // Nor a member's booking that was never made (it reserved nothing of hers).
+  const byMember = booking.source === "member";
+  if (role === "host" && byMember && !booking.callId) notFound();
   const notice = readNotice(`/bookings/${id}`, await props.searchParams);
 
   const [other] = await db
@@ -87,7 +101,9 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
           ← {role === "host" ? "Requests for calls" : "Your calls"}
         </Link>
       </p>
-      <h1 className="mt-4 text-2xl font-semibold">{role === "host" ? `Request from ${otherName}` : `Your request to ${otherName}`}</h1>
+      <h1 className="mt-4 text-2xl font-semibold">
+        {byMember ? (role === "host" ? `Call with ${otherName}` : `Your call with ${otherName}`) : role === "host" ? `Request from ${otherName}` : `Your request to ${otherName}`}
+      </h1>
 
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
@@ -95,8 +111,24 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
         </p>
       )}
 
-      <p className="mt-4 font-medium">{(role === "host" ? STAGE_FOR_HOST : STAGE_FOR_CUSTOMER)[booking.stage] ?? booking.stage}</p>
-      {role === "customer" && booking.stage === "ran_out" && booking.endedReason && <p className="mt-1 text-sm opacity-70">Reason: {booking.endedReason.replace(/\.$/, "")}.</p>}
+      <p className="mt-4 font-medium">
+        {(byMember ? (role === "host" ? MEMBER_STAGE_FOR_HOST : MEMBER_STAGE_FOR_CUSTOMER) : role === "host" ? STAGE_FOR_HOST : STAGE_FOR_CUSTOMER)[booking.stage] ?? booking.stage}
+      </p>
+      {role === "customer" && booking.stage === "ran_out" && booking.endedReason && (
+        <p className="mt-1 text-sm opacity-70">{byMember ? `${booking.endedReason} No membership time was used for it.` : `Reason: ${booking.endedReason.replace(/\.$/, "")}.`}</p>
+      )}
+      {role === "customer" && byMember && booking.stage === "paying" && (
+        <form action={continueMemberAction} className="mt-4 text-sm">
+          <input type="hidden" name="id" value={booking.id} />
+          <p className="opacity-70">
+            This is your first booking of the month, so the month&apos;s amount is taken from your card first. Nothing is kept for you until that is done. If
+            this page still says so after a moment, press the button.
+          </p>
+          <button type="submit" className="mt-3 rounded bg-blue-600 px-4 py-2 font-medium text-white">
+            Finish booking
+          </button>
+        </form>
+      )}
 
       <dl className="mt-6 space-y-2 text-sm">
         <div>
@@ -106,8 +138,10 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
           </dd>
         </div>
         <div>
-          <dt className="opacity-70">Price</dt>
-          <dd className="font-medium">{paid ? `${formatMoney(booking.totalCents)} at most` : "Free"}</dd>
+          <dt className="opacity-70">{byMember ? "Paid from the membership" : "Price"}</dt>
+          <dd className="font-medium">
+            {byMember ? `${booking.lengthMinutes} minutes of membership time (${formatMoney(booking.totalCents)} at most)` : paid ? `${formatMoney(booking.totalCents)} at most` : "Free"}
+          </dd>
         </div>
         {showRating && (
           <div>
@@ -215,7 +249,8 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
           <Link href={`/calls/${booking.callId}`} className="underline underline-offset-2">
             Open the call&apos;s page
           </Link>
-          {role === "customer" && paid && booking.stage === "accepted" && " (this is also where you can pay by hand if your card needs attention)"}
+          {role === "customer" && paid && !byMember && booking.stage === "accepted" && " (this is also where you can pay by hand if your card needs attention)"}
+          {role === "customer" && byMember && booking.stage === "accepted" && " (this is also where you can cancel it)"}
         </p>
       )}
     </SitePage>

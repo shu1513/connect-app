@@ -46,6 +46,14 @@ export function offerProblem(input: { pricePer15Cents: number; includedMinutes: 
   return null;
 }
 
+/**
+ * What a call of this length sets aside from a month: the member price for its length, rounded
+ * DOWN to a whole cent, so a member can always book every minute they are shown.
+ */
+export function memberCallCents(pricePer15Cents: number, minutes: number): number {
+  return Math.floor((pricePer15Cents * minutes) / 15);
+}
+
 /** What a month costs. Exact: the time is always a whole number of half hours. */
 export function monthTotalCents(pricePer15Cents: number, includedMinutes: number): number {
   return (pricePer15Cents * includedMinutes) / 15;

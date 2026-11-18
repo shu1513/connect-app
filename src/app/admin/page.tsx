@@ -4,6 +4,7 @@ import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
+import { memberDecisionDeadline } from "@/lib/membership/calls";
 import { readNotice } from "@/lib/notice";
 import { membershipsToLookAt } from "@/lib/membership/health";
 import { formatMoney } from "@/lib/payments/access";
@@ -125,10 +126,14 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                 <LocalTime iso={call.startsAt.toISOString()} />
               </p>
               <p className="mt-1">
-                Held: {formatMoney(payment.bookedCents)}. Decide by{" "}
+                {payment.kind === "member_call" ? "Set aside from the customer's membership" : "Held"}: {formatMoney(payment.bookedCents)}. Decide by{" "}
                 <strong>
                   <LocalTime
-                    iso={decisionDeadline({ callEndsAt: call.endsAt, holdExpiresAt: payment.holdExpiresAt ?? call.endsAt }).toISOString()}
+                    iso={(payment.kind === "member_call"
+                      ? // No card hold that could run out: the limit is 3 days after the call.
+                        memberDecisionDeadline(call)
+                      : decisionDeadline({ callEndsAt: call.endsAt, holdExpiresAt: payment.holdExpiresAt ?? call.endsAt })
+                    ).toISOString()}
                   />
                 </strong>
                 .

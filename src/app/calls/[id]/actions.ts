@@ -29,10 +29,15 @@ export async function cancelCallAction(formData: FormData) {
   let notice: string;
   try {
     const outcome = await cancelCall({ call: access.call, payment: access.payment, by: access.role, now: new Date() });
+    const fromMembership = access.payment?.kind === "member_call";
     notice =
       outcome === "late_charge"
-        ? "The call was cancelled after the free period, so the booked price is charged."
-        : "The call was cancelled. Nothing is charged.";
+        ? fromMembership
+          ? "The call was cancelled after the free period, so the membership time booked for it was used."
+          : "The call was cancelled after the free period, so the booked price is charged."
+        : fromMembership
+          ? "The call was cancelled. Nothing was used from the membership for it."
+          : "The call was cancelled. Nothing is charged.";
   } catch (error) {
     notice = message(error);
   }

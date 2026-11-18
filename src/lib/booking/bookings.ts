@@ -21,7 +21,7 @@ import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
 import { answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, payCutoff, readLengths } from "./rules";
-import { isOpenStart, openStarts, type Interval } from "./slots";
+import { stretchesFor, isOpenStart, openStarts, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -171,7 +171,7 @@ export function slotInput(offer: Offer, busy: Interval[], lengthMinutes: number,
   const paid = offer.pricePer15Cents > 0;
   return {
     timeZone: offer.timeZone,
-    weekly: as === "member" ? offer.weekly : offer.weekly.filter((stretch) => !stretch.membersOnly),
+    weekly: stretchesFor(offer.weekly, as),
     timeOff: offer.timeOff,
     busy,
     lengthMinutes,

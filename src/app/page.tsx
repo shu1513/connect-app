@@ -34,9 +34,11 @@ function paymentLine(all: Payment[]): string {
   const charged = all.filter((p) => p.status === "charged");
   const held = all.filter((p) => p.status === "held");
   const parts: string[] = [];
-  if (charged.length > 0) parts.push(`Charged ${formatMoney(charged.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0))}`);
-  if (held.length > 0) parts.push(`${formatMoney(held.reduce((sum, p) => sum + p.bookedCents, 0))} held${held.some((p) => p.needsReview) ? ", needs review" : ""}`);
-  return parts.length > 0 ? parts.join(", ") : "Not charged";
+  // A call booked with a membership is paid from the member's month: nothing is held or charged on a card for it.
+  const fromMembership = own.kind === "member_call";
+  if (charged.length > 0) parts.push(`${fromMembership ? "Paid from the membership:" : "Charged"} ${formatMoney(charged.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0))}`);
+  if (held.length > 0) parts.push(`${formatMoney(held.reduce((sum, p) => sum + p.bookedCents, 0))} ${fromMembership ? "of membership time set aside" : "held"}${held.some((p) => p.needsReview) ? ", needs review" : ""}`);
+  return parts.length > 0 ? parts.join(", ") : fromMembership ? "Nothing used from the membership" : "Not charged";
 }
 
 /** What a visitor sees at the front address: what Connect is, and the ways in. */

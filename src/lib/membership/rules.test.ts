@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEADLINE_CUSHION_MS, TAKE_BEFORE_EXPIRY_MS } from "@/lib/payments/rules";
-import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
+import { bookedTotalCents } from "@/lib/payments/pricing";
+import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, memberCallCents, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -112,5 +113,24 @@ describe("an offer of less time", () => {
     expect(lessTimeProblem({ offeredMinutes: 150, minutesNow: 120 })).toMatch(/less than the member has now/);
     expect(lessTimeProblem({ offeredMinutes: 45, minutesNow: 120 })).toMatch(/steps of 30 minutes/);
     expect(lessTimeProblem({ offeredMinutes: 0, minutesNow: 120 })).toMatch(/at least 30 minutes/);
+  });
+});
+
+describe("what a member's call sets aside", () => {
+  it("is the member price for its length", () => {
+    expect(memberCallCents(750, 30)).toBe(1500);
+    expect(memberCallCents(750, 60)).toBe(3000);
+  });
+  it("is rounded down to a whole cent, so every minute shown can be booked", () => {
+    // $5.00 per 15 minutes, 5 minutes: $1.666…
+    expect(memberCallCents(500, 5)).toBe(166);
+    // Six of them fit in a $10.00 month, with 4 cents left; the usual rounding would give $1.67 and only five would fit.
+    expect(6 * memberCallCents(500, 5)).toBeLessThanOrEqual(1000);
+    expect(bookedTotalCents(500, 5 * 60)).toBe(167);
+  });
+  it("is never more than the usual price of a call of that length", () => {
+    for (const price of [500, 733, 750, 999, 1001]) {
+      for (let minutes = 5; minutes <= 360; minutes += 5) expect(memberCallCents(price, minutes)).toBeLessThanOrEqual(bookedTotalCents(price, minutes * 60));
+    }
   });
 });

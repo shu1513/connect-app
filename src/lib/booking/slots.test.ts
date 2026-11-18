@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hoursAsStretches, isOpenStart, openStarts, type WeeklyRange } from "./slots";
+import { hoursAsStretches, isOpenStart, openStarts, stretchesFor, type WeeklyRange } from "./slots";
 
 const NY = "America/New_York";
 const at = (iso: string) => new Date(iso);
@@ -201,5 +201,25 @@ describe("isOpenStart", () => {
     expect(isOpenStart(at("2026-11-03T23:35:00Z"), input)).toBe(true);
     expect(isOpenStart(at("2026-11-03T23:36:00Z"), input)).toBe(false);
     expect(isOpenStart(at("2026-11-03T22:00:00Z"), input)).toBe(false);
+  });
+});
+
+describe("hours for members only", () => {
+  // Tuesdays 18:00 to 19:00 for everyone, 19:00 to 20:00 for members only.
+  const weekly = [
+    { weekday: 2, startMinute: 18 * 60, endMinute: 19 * 60, membersOnly: false },
+    { weekday: 2, startMinute: 19 * 60, endMinute: 20 * 60, membersOnly: true },
+  ];
+  it("offer no time to someone who is not booking as a member", () => {
+    const open = times(openStarts({ ...base, weekly: stretchesFor(weekly, "anyone") }));
+    // (Starts are 35 minutes apart: a 30-minute call and the 5-minute break.)
+    expect(open).toEqual(["2026-11-03T23:00"]);
+  });
+  it("are open to a member, joined to the general hours beside them", () => {
+    const open = times(openStarts({ ...base, weekly: stretchesFor(weekly, "member") }));
+    expect(open).toEqual(["2026-11-03T23:00", "2026-11-03T23:35", "2026-11-04T00:10"]);
+  });
+  it("a host whose hours are all for members has no times for the public", () => {
+    expect(openStarts({ ...base, weekly: stretchesFor([weekly[1]], "anyone") })).toEqual([]);
   });
 });

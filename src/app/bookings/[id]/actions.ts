@@ -1,7 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { accept, BookingError, decline, takeBack } from "@/lib/booking/bookings";
+import { accept, bookingFor, BookingError, decline, takeBack } from "@/lib/booking/bookings";
+import { bookAsMember } from "@/lib/membership/book";
 import { withNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 
@@ -53,4 +54,33 @@ export async function declineAction(formData: FormData) {
     notice = problem(error);
   }
   redirect(withNotice(origin(formData, id), notice));
+}
+
+/**
+ * A member's booking that is waiting for its month's payment: the same press again, with the
+ * booking's own key and terms, continues from wherever it stopped.
+ */
+export async function continueMemberAction(formData: FormData) {
+  const user = await requireUser();
+  const id = String(formData.get("id") ?? "");
+  const found = await bookingFor(id, user.id);
+  if (!found || found.role !== "customer" || found.booking.source !== "member") redirect("/");
+  const { booking } = found;
+  let notice: string;
+  try {
+    const result = await bookAsMember({
+      customer: user,
+      hostId: booking.hostId,
+      startsAt: booking.startsAt,
+      lengthMinutes: booking.lengthMinutes,
+      requestKey: booking.requestKey,
+      seen: { pricePer15Cents: booking.pricePer15Cents, freeCancelMinutes: booking.freeCancelMinutes },
+      now: new Date(),
+    });
+    notice = result.outcome === "booked" ? "Your call is booked." : (result.message ?? "This booking could not be made.");
+  } catch (error) {
+    notice = error instanceof BookingError ? error.message : "Something went wrong. Please try again in a moment.";
+    if (!(error instanceof BookingError)) console.error("[membership] could not continue a member's booking", error);
+  }
+  redirect(withNotice(`/bookings/${id}`, notice));
 }

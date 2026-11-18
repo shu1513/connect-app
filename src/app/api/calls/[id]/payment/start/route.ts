@@ -13,6 +13,8 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const access = await callForParticipant(id, user.id);
   if (!access || !access.payment) return Response.json({ error: "Call not found." }, { status: 404 });
   if (access.role !== "customer") return Response.json({ error: "Only the customer can pay for this call." }, { status: 403 });
+  // A call booked with a membership is paid from the member's month: there is no card step for it.
+  if (access.payment.kind === "member_call") return Response.json({ error: "This call is paid from your membership. There is nothing to pay by card." }, { status: 409 });
 
   try {
     const started = await startHold({ payment: access.payment, call: access.call, customer: user, now: new Date() });
