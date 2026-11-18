@@ -263,6 +263,11 @@ export async function undoStop(input: { membershipId: string; by: "member" | "ho
     const membership = await lockedFor(tx, membershipId, { as: by, id: input.actorId });
     if (membership.status !== "active" || !membership.currentMonthId) throw new MembershipError("This membership can no longer be switched back on. If it is paused, it can be resumed.");
     if (!(by === "member" ? membership.memberStoppedAt || membership.offerStoppedAt : membership.hostStoppedAt)) return; // nothing of this side's to undo
+    // A member's "No thanks" to an offer of less time always stands (the founder's decision): the host cannot undo that
+    // pause. The member is paused when the month ends, and can resume later on her membership as it is then.
+    if (by === "host" && membership.pausedReason === "offer") {
+      throw new MembershipError("This member said \"No thanks\" to the smaller time, and that stands. Their membership is paused when this month ends; they can resume it later.");
+    }
     const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
     if (!month?.endsAt || afterTheWait(now) >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
     await mustBeOpen(tx, membership.hostId, membership.customerId, { forTheHost: by === "host" });

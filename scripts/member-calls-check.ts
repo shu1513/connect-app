@@ -176,9 +176,6 @@ async function main() {
     const open = (await times(m, opts.length ?? 30)).filter((at) => (opts.memberOnly ? hourInNewYork(at) >= 13 : hourInNewYork(at) < 13));
     const result = await book(m, open[opts.nth ?? 0], { length: opts.length });
     if (result.outcome !== "booked") throw new Error(`could not book: ${result.outcome} ${result.message}`);
-    // The daily limit on requests (3 to one host in 24 hours) applies to a member too; journey 1 checks it.
-    // So that a journey can book more than that, each booking is made to look two days old.
-    await db.update(schema.bookings).set({ requestedAt: new Date(Date.now() - 2 * DAY) }).where(eq(schema.bookings.id, result.booking.id));
     return { booking: result.booking, call: await callOf(result.booking) };
   }
   /** Moves a booked call to another time (into the past, to play a call that took place or is under way), with its payment's stretch. */
@@ -471,7 +468,15 @@ async function main() {
     await setSwitches({ requestsOff: true });
     check("with the founder's \"no new requests\" switch on, nothing is booked", /not taking new requests/.test((await refused(book(m, general[7]))) ?? ""));
     await setSwitches({ requestsOff: false });
-    check("the daily limit on requests applies to a member too: a fourth booking with one host in a day is refused", /a lot of requests today/.test((await refused(book(m, general[7]))) ?? ""));
+    // Three bookings with this host today. The limit of 3 with one host does not hold a member back; the limit of 10 in all does.
+    const fillers = await db
+      .insert(schema.bookings)
+      .values(Array.from({ length: 7 }, () => ({ hostId: host.id, customerId: m.member.id, startsAt: general[9], endsAt: new Date(general[9].getTime() + 30 * MIN), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 1000, totalCents: 2000, freeCancelMinutes: 0, stage: "taken_back", requestKey: randomUUID(), requestedAt: new Date() })))
+      .returning({ id: schema.bookings.id });
+    check("the daily limit on requests in all (10 in 24 hours) applies to a member too", /a lot of requests today/.test((await refused(book(m, general[10]))) ?? ""));
+    await db.delete(schema.bookings).where(inArray(schema.bookings.id, fillers.map((row) => row.id)));
+    const fourth = await book(m, general[10]);
+    check("a fourth booking with the same host on one day is made: the time a member paid for is their limit", fourth.outcome === "booked" && (await places(m.monthId)) === "0/6000/0/0/0/0", `${fourth.outcome} ${await places(m.monthId)}`);
     check("the card form is refused for a member's call", (await refused(startHold({ payment, call, customer: m.member, now: new Date() }))) !== null);
     check("the choices for more time on a member's call say what the membership covers", (await addTimeChoices(call)).membershipCovers !== undefined);
     await audit("after booking", m);

@@ -139,12 +139,12 @@ async function mustBeBookable(
   const cents = memberCallCents(month.pricePer15Cents, lengthMinutes);
   if (cents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be booked.");
   if (cents > (month.status === "held" ? month.totalCents : month.freeCents)) throw new BookingError("You do not have enough membership time left for this call. You can still ask for it the ordinary way.");
-  // The daily limit on requests, as for any customer. (This booking itself, if it was already written down while its month's money was taken, is not counted against itself.)
+  // The daily limit on requests in all (10 in 24 hours), as for any customer. The limit of 3 with one host does not
+  // apply to a member's booking (the founder's decision): the time they paid for is the limit, and the host invited them.
+  // (This booking itself, if it was already written down while its month's money was taken, is not counted against itself.)
   const sentSince = and(gt(schema.bookings.requestedAt, new Date(now.getTime() - DAY)), input.exceptBookingId ? ne(schema.bookings.id, input.exceptBookingId) : undefined);
-  const count = async (...conditions: Parameters<typeof and>) => (await tx.select({ n: sql<number>`count(*)::int` }).from(schema.bookings).where(and(eq(schema.bookings.customerId, customer.id), sentSince, ...conditions)))[0].n;
-  if ((await count(eq(schema.bookings.hostId, hostId))) >= LIMITS.sentPerHostPerDay || (await count()) >= LIMITS.sentPerDay) {
-    throw new BookingError("You have made a lot of requests today. Please try again tomorrow.");
-  }
+  const [sent] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.bookings).where(and(eq(schema.bookings.customerId, customer.id), sentSince));
+  if (sent.n >= LIMITS.sentPerDay) throw new BookingError("You have made a lot of requests today. Please try again tomorrow.");
   // The time must be open for a member: general or member-only hours, the host's notice, how far ahead, time off, and nothing in the way.
   if (!isOpenStart(startsAt, slotInput(offer, await busyOf(tx, hostId, now), lengthMinutes, now, "member"))) throw new BookingError(NOT_OPEN);
   // And the member must be free then. Said now, before a month's money is taken for a booking that could never be made.

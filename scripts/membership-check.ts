@@ -1817,6 +1817,8 @@ async function main() {
     check("all four are offered 1 hour; with these offers her 4 hours are enough", offers.every(Boolean) && (await Room.minutesMembersNeed(db, host3.id)) === 240);
     await answer("decline", members[0], offers[0]);
     check("\"No thanks\": the member keeps the month and is stopped, with the reason kept", (await MS(members[0].membershipId)).offerId === null && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).ownMinutes === 120);
+    const undone = await refusal(E.undoStop({ membershipId: members[0].membershipId, by: "host", actorId: host3.id, now: new Date() }));
+    check("a \"No thanks\" always stands: the host cannot undo that pause", /that stands/.test(undone ?? "") && (await MS(members[0].membershipId)).hostStoppedAt !== null && (await MS(members[0].membershipId)).pausedReason === "offer", undone);
     await closeMonth(members[0].monthId, (await M(members[0].monthId)).endsAt!);
     await closeMonth(members[1].monthId, (await M(members[1].monthId)).endsAt!);
     check("at the month's end: \"No thanks\" and no answer are both paused, told why, and nothing is charged", (await MS(members[0].membershipId)).status === "paused" && (await MS(members[0].membershipId)).pausedReason === "offer" && (await MS(members[1].membershipId)).status === "paused" && (await MS(members[1].membershipId)).pausedReason === "offer" && (await monthsOf(members[1].membershipId)).length === 1);
