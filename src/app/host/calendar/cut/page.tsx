@@ -142,7 +142,7 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
                     {names.get(member.customerId) ?? "A member"}: {timeWords(member.minutes)} a month
                   </p>
                   {member.openOfferMinutes !== null && <p className="mt-1 opacity-80">Has an open offer of {timeWords(member.openOfferMinutes)} a month from an earlier cut. &quot;Keep&quot; leaves them with that offer; &quot;pause&quot; takes it back.</p>}
-                  {member.unpaid && <p className="mt-1 opacity-80">Their payment is still being tried. Pausing cancels that payment and pauses them at once.</p>}
+                  {member.openPayment && <p className="mt-1 opacity-80">Their payment for the next month is still open. Pausing them cancels that payment and pauses them at once.</p>}
                   <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
                     <label className="flex min-h-11 items-center gap-2">
                       <input type="radio" name={`choice:${member.membershipId}`} value="keep" defaultChecked={member.suggested === "keep"} required /> Keep
@@ -161,7 +161,7 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
                       </label>
                     )}
                     <label className="flex min-h-11 items-center gap-2">
-                      <input type="radio" name={`choice:${member.membershipId}`} value="pause" defaultChecked={member.suggested === "pause"} /> Pause after this month
+                      <input type="radio" name={`choice:${member.membershipId}`} value="pause" defaultChecked={member.suggested === "pause"} /> {member.openPayment ? "Pause now" : "Pause after this month"}
                     </label>
                   </div>
                 </li>
@@ -171,7 +171,7 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
         )}
 
         <ul className="mt-4 list-disc space-y-1 pl-5 opacity-80">
-          <li>A member you pause is told by email, keeps the month they paid for, and is paused when it ends. They can resume as soon as there is room.</li>
+          <li>A member you pause is told by email, keeps the month they paid for, and is paused when it ends. (One whose payment is still open has no month to keep: they are paused at once.) They can resume as soon as there is room.</li>
           <li>
             A member you offer less time gets an email with two buttons, to accept or to say &quot;No thanks&quot;. With &quot;No thanks&quot;, or no answer before their month ends, they are paused when it ends. A &quot;No thanks&quot; cannot be undone by
             you.

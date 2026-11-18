@@ -1372,3 +1372,46 @@ A small pull request between part two and part three. The founder's switch is st
   unfinished, which can happen through no fault of the member (the month was paid but the time
   was taken meanwhile); and after a "No thanks" an email told the host she could take the pause
   back, which she no longer can.
+
+## Memberships, part three, 3a: the host's pages and the founder's (pull request 39, 18 November 2026)
+
+The fifth of six pull requests. The founder's switch is still off: a host sees "Memberships are
+not open yet." and nothing else.
+
+**What it does**
+- **Hosting, "Membership"** (`app/host/membership.tsx`, `membership-actions.ts`,
+  `app/host/membership/page.tsx`): the switch, the member price, the time included, the monthly
+  amount and the room her hours leave. A change is first shown on a page of its own with its
+  numbers (who pays less, what it costs her, which invitations are taken back) and saved from
+  there with a mark of what was shown.
+- **The member list**: each member's time left, when the month ends and whether it renews, and
+  the buttons to pause, undo her own pause, take back an offer of less time, and end a
+  membership. A renewal that a stop, the founder's switch or an unanswered offer stands in the
+  way of is never promised.
+- **Inviting** on "People you have talked to", with "Take the invitation back".
+- **A cut in hours** (`app/host/calendar`): a stretch is changed in one go, and a cut that would
+  touch members or invitations goes through a step where she chooses keep, less time or pause
+  for each member; hours and choices are saved together.
+- **The founder's page** (`/admin/memberships`): every membership, months not finished, failed
+  payments, pay-backs not done, months under dispute, each month's six places. It only reads.
+
+**The database:** nothing new.
+
+**How it was checked**
+- All fourteen check scripts against Stripe's test area, `tsc`, `eslint`, `vitest` (395 tests)
+  and the build. `scripts/membership-check.ts` has about 475 checks now: the old check "nothing
+  can start a membership" became three (only the host's own pages reach the code that changes a
+  membership; each of her seven actions asks who is signed in; nothing can join or pay as a
+  member yet), and the cut journey gained the out-of-date form and the quiet cut.
+- In the running app as the test host and the test founder, at phone width: the "Membership"
+  part, the pages that show a change before it is saved, the step for a cut (also with a made-up
+  address), the founder's page, with the switch on for the test host and again with it off.
+- Astra reviewed the code three times (not ready, not ready, ready). What mattered most: the
+  step for a cut could show another host's hours from a typed address; a cut that only took
+  invitations back was saved unseen; an out-of-date form could look saved while its choices were
+  ignored.
+- CodeRabbit: three small comments, all taken (in `plans/22`).
+
+**What is not covered:** the member's own pages and the whole journey in a browser, which are
+3b.
+

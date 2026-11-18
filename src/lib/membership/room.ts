@@ -114,8 +114,8 @@ export type CutMember = {
   openOfferMinutes: number | null;
   /** Their month has started (running, or held): only then can they be offered less time. */
   monthStarted: boolean;
-  /** Their payment is being tried: they can be kept, or paused at once. */
-  unpaid: boolean;
+  /** Their current month is still to be paid (a payment that failed, or a renewal being taken right now): they can be kept, or paused at once, which cancels that payment. Judged by the month, as saving does. */
+  openPayment: boolean;
   /** What the page starts with: the newest members are set to "pause" until the others fit. */
   suggested: "keep" | "pause";
 };
@@ -163,7 +163,7 @@ export async function workOutCut(reader: Reader, hostId: string, now: Date): Pro
       openOfferMinutes: membership.offerId ? membership.offeredMinutes : null,
       // Started, and not yet over: an offer of less time must still be answerable (strictly before the month's end).
       monthStarted: (monthStatus === "running" || monthStatus === "held") && Boolean(monthEndsAt && monthEndsAt > now),
-      unpaid: membership.status === "unpaid",
+      openPayment: monthStatus === "to_pay",
       suggested: "keep" as "keep" | "pause",
     }))
     .sort((a, b) => a.since.getTime() - b.since.getTime() || (a.membershipId < b.membershipId ? -1 : 1));

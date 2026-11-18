@@ -137,9 +137,13 @@ async function saveOrAsk(userId: string, change: HoursChange, saved: string): Pr
     const before = await hostMinutes(db, userId);
     const cut = await previewWeeklyHoursChange(userId, change);
     // The step is shown whenever a cut would touch someone: members who no longer fit, or invitations that would be taken back.
-    if (cut.hoursAfter < before && (cut.needed > cut.hoursAfter || cut.invitationsTakenBack.length > 0)) to = cutPath(change);
+    const shrinks = cut.hoursAfter < before;
+    if (shrinks && (cut.needed > cut.hoursAfter || cut.invitationsTakenBack.length > 0)) to = cutPath(change);
     else {
-      await changeWeeklyHours(userId, change);
+      // A cut that touches nobody is saved with the mark of what was just worked out, every member kept. If anything
+      // changed in between (hours removed in another tab, a new invitation), nothing is saved and she looks again: so no
+      // invitation is ever taken back, and no member left without room, that she was not shown first.
+      await changeWeeklyHours(userId, change, shrinks ? { mark: cut.mark, members: cut.members.map((member) => ({ membershipId: member.membershipId, choice: "keep" as const })) } : undefined);
       to = withNotice("/host/calendar", saved);
     }
   } catch (error) {

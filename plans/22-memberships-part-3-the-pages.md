@@ -375,3 +375,17 @@ was taken; all were.
 3. A stretch's id was checked only for its length and letters; it is now checked in full before
    it reaches the database.
 
+## CodeRabbit's review of 3a (pull request 39, 18 November 2026)
+
+Three comments, all small and all taken:
+
+1. **A cut worked out as touching nobody could still take an invitation back** if hours were
+   removed in another tab in the same moment: the save without choices took invitations back
+   without looking. The calendar page now saves such a cut with the mark of what it just worked
+   out and every member kept, so a change in between saves nothing and she looks again.
+2. **"Pause after this month" on the step for a cut** was also shown for a member whose payment is
+   still open, who is paused at once. The step now judges by the month (`openPayment` in
+   `room.ts`, as saving does) and says "Pause now".
+3. **A pause that was saved could be reported as "nothing was changed"** if reading the result
+   afterwards failed. The read is now apart from the save.
+

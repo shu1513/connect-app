@@ -1836,6 +1836,19 @@ async function main() {
     await closeMonth(members[1].monthId, (await M(members[1].monthId)).endsAt!);
     check("at the month's end: \"No thanks\" and no answer are both paused, told why, and nothing is charged", (await MS(members[0].membershipId)).status === "paused" && (await MS(members[0].membershipId)).pausedReason === "offer" && (await MS(members[1].membershipId)).status === "paused" && (await MS(members[1].membershipId)).pausedReason === "offer" && (await monthsOf(members[1].membershipId)).length === 1);
     check("after the month's end the offer can no longer be accepted", (await answer("accept", members[1], offers[1])) === "This offer is no longer open.");
+    // A cut that touches nobody, saved the way the calendar page saves it: with the mark of what was just worked out and
+    // every member kept. If anything changed in between, nothing is saved, so no invitation is taken back unseen.
+    const host5 = await newHost({ weeklyMinutes: 240 }); // 16 hours a month
+    const kept5 = await joined(host5, { take: true });
+    const [hours5] = await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, host5.id));
+    const toThree = { remove: hours5.id, add: { weekday: 1, from: "09:00", to: "12:00" } }; // 12 hours a month
+    const quiet = await previewWeeklyHoursChange(host5.id, toThree);
+    const keepAll = (cut: typeof quiet) => ({ mark: cut.mark, members: cut.members.map((member) => ({ membershipId: member.membershipId, choice: "keep" as const })) });
+    const arrived = await invited(host5);
+    const outOfDate = await refusal(changeWeeklyHours(host5.id, toThree, keepAll(quiet)));
+    check("a cut that touched nobody when it was worked out is not saved if something changed in between", quiet.invitationsTakenBack.length === 0 && /changed while this page was open/.test(outOfDate ?? "") && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.id, hours5.id))).length === 1, outOfDate);
+    await changeWeeklyHours(host5.id, toThree, keepAll(await previewWeeklyHoursChange(host5.id, toThree)));
+    check("worked out again, it is saved: the member is kept, and the invitation that still fits stays", (await Room.minutesMembersNeed(db, host5.id)) === 120 && (await MS(kept5.membershipId)).hostStoppedAt === null && (await MS(arrived.membershipId)).status === "invited" && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.id, hours5.id))).length === 0);
     const takeBack = (m: Made, keep: boolean, offerId: string, now = new Date()) => refusal(E.takeBackLessTime({ membershipId: m.membershipId, hostId: host3.id, offerId, keep, now }));
     check("a take-back button from an older offer, or one pressed after the member's month has ended, does nothing", (await takeBack(members[2], true, randomUUID())) === "This offer is no longer open." && (await takeBack(members[2], true, offers[2], (await M(members[2].monthId)).endsAt!)) === "This offer is no longer open." && (await MS(members[2].membershipId)).offerId === offers[2]);
     check("the host takes an offer back and keeps the member with their old time, now that there is room", (await takeBack(members[2], true, offers[2])) === null && (await MS(members[2].membershipId)).offerId === null && (await MS(members[2].membershipId)).hostStoppedAt === null && (await MS(members[2].membershipId)).ownMinutes === 120);
