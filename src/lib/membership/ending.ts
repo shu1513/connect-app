@@ -8,16 +8,19 @@
  * Part 1b adds the people who ask for an ending or a pause here (the two stops and their undoing,
  * "Cancel now", the host's own "End membership", the offer of less time).
  */
-import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
 import { BLOCKING_DISPUTE } from "@/lib/payments/disputes";
 import type { Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
-import { abandonMonth } from "./charge";
+import { abandonMonth, giveUpInStep, letHoldGo } from "./charge";
+import { queueLessTimeOutcomeEmail, queueRenewalBackEmail, queueRenewalStoppedEmail } from "./emails";
+import { endInvitation, mustBeOpen } from "./join";
 import { lockCalendar, lockForMonth, lockMembership, lockMonth, type LockedMonth } from "./locks";
 import { finishIfSettled, owePayBack, setDispute } from "./months";
-import { isFrozen } from "./rules";
+import { wouldKeepPlace } from "./room";
+import { isFrozen, MembershipError } from "./rules";
 import { endMembership } from "./state";
 
 // Ending at once and pausing (the rulebook's "How the parts connect" hands them over with the clean-up).
@@ -178,4 +181,179 @@ export async function runDisputeLooks(now: Date): Promise<void> {
       await db.update(months).set({ updatedAt: now }).where(eq(months.id, id)).catch(() => undefined);
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Part 1b: the people who ask for a stop, a pause or an ending
+// ---------------------------------------------------------------------------
+
+const NOT_FOUND = "Membership not found.";
+const noOffer = { offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null } as const;
+
+/** The membership with the host's calendar and itself locked, for the person who may act on it. Someone else's and one that does not exist look the same. */
+async function lockedFor(tx: Tx, membershipId: string, actor: { as: "member" | "host"; id: string }): Promise<Membership> {
+  const [found] = await tx.select({ hostId: schema.memberships.hostId, customerId: schema.memberships.customerId }).from(schema.memberships).where(eq(schema.memberships.id, membershipId));
+  if (!found || (actor.as === "member" ? found.customerId : found.hostId) !== actor.id) throw new MembershipError(NOT_FOUND);
+  await lockCalendar(tx, found.hostId);
+  return lockMembership(tx, membershipId);
+}
+
+/**
+ * The renewal is stopped: by the member ("Cancel membership", the normal way) or by the host
+ * ("Pause after this month"). Nothing else changes: the paid month, its bookings and booking from
+ * it all go on, and the membership is paused when the month ends. The two stops are kept apart,
+ * and each side can only undo its own.
+ *
+ * A member who has no running month because a payment failed is paused at once instead, and the
+ * open payment is cancelled.
+ */
+export async function stopRenewal(input: { membershipId: string; by: "member" | "host"; actorId: string; now: Date }): Promise<void> {
+  const { membershipId, by, now } = input;
+  const letGo = await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, membershipId, { as: by, id: input.actorId });
+    if (membership.status === "unpaid" && membership.currentMonthId) {
+      const month = await lockMonth(tx, membership.currentMonthId);
+      return (await giveUpInStep(tx, { membership, month }, "given_up", now, by === "member" ? "cancel_now" : "host")) ? month.id : null;
+    }
+    if (membership.status !== "active" || !membership.currentMonthId) throw new MembershipError(membership.status === "paused" ? "This membership is already paused." : "This membership cannot be cancelled at the moment.");
+    if (by === "member" ? membership.memberStoppedAt : membership.hostStoppedAt) return null; // pressed twice
+    const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
+    // The member's own cancelling, and the host's pause, both close an open offer of less time.
+    await tx
+      .update(schema.memberships)
+      .set({ ...(by === "member" ? { memberStoppedAt: now } : { hostStoppedAt: now, pausedReason: null }), ...noOffer, updatedAt: now })
+      .where(eq(schema.memberships.id, membershipId));
+    if (month?.endsAt) await queueRenewalStoppedEmail(tx, membership, by, month.endsAt, now);
+    return null;
+  });
+  if (letGo) await letHoldGo(letGo, now).catch((error) => console.error(`[membership] could not let go of month ${letGo} yet; the helper will retry`, error));
+}
+
+/**
+ * "Keep my membership", and the host undoing her pause: strictly before the paid month ends, and
+ * only when everything joining needs is true and there is room for this member's next month.
+ * Each side clears only its own stop. Nothing is charged.
+ */
+export async function undoStop(input: { membershipId: string; by: "member" | "host"; actorId: string; now: Date }): Promise<void> {
+  const { membershipId, by, now } = input;
+  await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, membershipId, { as: by, id: input.actorId });
+    if (membership.status !== "active" || !membership.currentMonthId) throw new MembershipError("This membership can no longer be switched back on. If it is paused, it can be resumed.");
+    if (!(by === "member" ? membership.memberStoppedAt : membership.hostStoppedAt)) return; // nothing of this side's to undo
+    const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
+    if (!month?.endsAt || now >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
+    await mustBeOpen(tx, membership.hostId, membership.customerId, { forTheHost: by === "host" });
+    // Room is needed only if this brings the renewal back (the other side's stop may still stand).
+    const otherStop = by === "member" ? membership.hostStoppedAt : membership.memberStoppedAt;
+    if (!otherStop && !(await wouldKeepPlace(tx, membership, membership.ownMinutes ?? 0))) {
+      throw new MembershipError(by === "member" ? "The host's hours have no room for your next month, so the membership cannot be switched back on. It will be paused when this month ends, and you can resume it when there is room." : "Your weekly hours have no room for this member's next month.");
+    }
+    await tx
+      .update(schema.memberships)
+      .set({ ...(by === "member" ? { memberStoppedAt: null } : { hostStoppedAt: null, pausedReason: null }), updatedAt: now })
+      .where(eq(schema.memberships.id, membershipId));
+    await queueRenewalBackEmail(tx, membership, by, now);
+  });
+}
+
+/**
+ * "Cancel now, nothing is charged": while the month's amount is only held. The hold is let go,
+ * the month given up and the membership paused today. It, the taking and a first booking all take
+ * the membership's lock, so exactly one of them wins; the server accepts it until the money has
+ * really been taken.
+ */
+export async function cancelNow(input: { membershipId: string; memberId: string; now: Date }): Promise<void> {
+  const { membershipId, now } = input;
+  const monthId = await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, membershipId, { as: "member", id: input.memberId });
+    if (!membership.currentMonthId || !["active", "unpaid"].includes(membership.status)) throw new MembershipError(membership.status === "paused" ? "This membership is already paused." : "This membership cannot be cancelled at the moment.");
+    const month = await lockMonth(tx, membership.currentMonthId);
+    if (month.status !== "held" && month.status !== "to_pay") {
+      throw new MembershipError("This month's payment has already been taken, so it can no longer be cancelled at no charge. You can still cancel at the end of the month.");
+    }
+    await giveUpInStep(tx, { membership, month }, "cancel_now", now);
+    return month.id;
+  });
+  await letHoldGo(monthId, now).catch((error) => console.error(`[membership] could not let go of month ${monthId} yet; the helper will retry`, error));
+}
+
+/** The host's own "End membership": at once and for good. An invitation that is still open is taken back instead. */
+export async function endByHost(input: { membershipId: string; hostId: string; now: Date }): Promise<void> {
+  const ended = await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, input.membershipId, { as: "host", id: input.hostId });
+    if (membership.status === "invited") {
+      await endInvitation(tx, membership, "taken_back", input.now);
+      return false;
+    }
+    return endMembership(tx, membership, { by: "host", reason: "the host ended it" }, input.now);
+  });
+  if (ended) await cleanUpEnding(input.membershipId, input.now).catch((error) => console.error(`[membership] the clean-up of ended membership ${input.membershipId} did not finish; the helper will retry`, error));
+}
+
+// ---------------------------------------------------------------------------
+// The offer of less time (the rulebook's row 16). It is made in the step that cuts the host's
+// hours (booking/calendar.ts); here are the answers.
+// ---------------------------------------------------------------------------
+
+/** The member's open offer, checked to be the one the button was shown for and still answerable: strictly before their month ends. */
+async function openOffer(tx: Tx, membership: Membership, offerId: string, now: Date): Promise<{ offeredMinutes: number }> {
+  if (!membership.offerId || membership.offerId !== offerId || !membership.offeredMinutes || membership.status !== "active" || membership.offerMonthId !== membership.currentMonthId) {
+    throw new MembershipError("This offer is no longer open.");
+  }
+  const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.offerMonthId!));
+  if (!month?.endsAt || now >= month.endsAt) throw new MembershipError("This offer is no longer open.");
+  return { offeredMinutes: membership.offeredMinutes };
+}
+
+/**
+ * The member accepts less time: recorded as a new agreement, charges nothing, and takes effect
+ * with the next month that is written down. It never clears the member's own cancellation.
+ */
+export async function acceptLessTime(input: { membershipId: string; memberId: string; offerId: string; now: Date }): Promise<void> {
+  const { membershipId, offerId, now } = input;
+  await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, membershipId, { as: "member", id: input.memberId });
+    // The offer's own id names the agreement, so a button pressed twice agrees once.
+    const [before] = await tx.select({ id: schema.membershipAgreements.id }).from(schema.membershipAgreements).where(eq(schema.membershipAgreements.requestId, offerId));
+    if (before) return;
+    const { offeredMinutes } = await openOffer(tx, membership, offerId, now);
+    const [last] = await tx.select({ number: sql<number>`coalesce(max(${months.number}), 0)::int` }).from(months).where(eq(months.membershipId, membershipId));
+    const [offer] = await tx.select({ version: schema.membershipOffers.version }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));
+    const [agreement] = await tx
+      .insert(schema.membershipAgreements)
+      .values({ membershipId, requestId: offerId, kind: "less_time", offerVersion: offer?.version ?? 0, pricePer15Cents: membership.ownPricePer15Cents ?? 0, minutes: offeredMinutes, firstMonthNumber: last.number + 1, at: now })
+      .returning();
+    await tx.update(schema.memberships).set({ ownMinutes: offeredMinutes, agreementId: agreement.id, ...noOffer, updatedAt: now }).where(eq(schema.memberships.id, membershipId));
+    await queueLessTimeOutcomeEmail(tx, membership, { offerId, outcome: "accepted", offeredMinutes });
+  });
+}
+
+/** "No thanks": the member keeps the month they paid for and is paused when it ends. */
+export async function declineLessTime(input: { membershipId: string; memberId: string; offerId: string; now: Date }): Promise<void> {
+  const { membershipId, offerId, now } = input;
+  await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, membershipId, { as: "member", id: input.memberId });
+    const { offeredMinutes } = await openOffer(tx, membership, offerId, now);
+    // The stop that came with the offer. Its reason is kept, so the pause at the month's end says why.
+    await tx.update(schema.memberships).set({ hostStoppedAt: now, pausedReason: "offer", ...noOffer, updatedAt: now }).where(eq(schema.memberships.id, membershipId));
+    await queueLessTimeOutcomeEmail(tx, membership, { offerId, outcome: "declined", offeredMinutes });
+  });
+}
+
+/**
+ * The host takes an unanswered offer back: the member is kept with their old time if there is
+ * room again, or paused after this month.
+ */
+export async function takeBackLessTime(input: { membershipId: string; hostId: string; keep: boolean; now: Date }): Promise<void> {
+  const { membershipId, keep, now } = input;
+  await db.transaction(async (tx) => {
+    const membership = await lockedFor(tx, membershipId, { as: "host", id: input.hostId });
+    if (!membership.offerId || !membership.offeredMinutes || membership.status !== "active") throw new MembershipError("This member has no open offer of less time.");
+    if (keep && !(await wouldKeepPlace(tx, membership, membership.ownMinutes ?? 0))) throw new MembershipError("Your weekly hours have no room for this member's full time. Add hours first, or pause them after this month.");
+    await tx
+      .update(schema.memberships)
+      .set({ ...(keep ? {} : { hostStoppedAt: now, pausedReason: null }), ...noOffer, updatedAt: now })
+      .where(eq(schema.memberships.id, membershipId));
+    await queueLessTimeOutcomeEmail(tx, membership, { offerId: membership.offerId, outcome: keep ? "taken_back_kept" : "taken_back_paused", offeredMinutes: membership.offeredMinutes });
+  });
 }

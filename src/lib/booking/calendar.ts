@@ -8,9 +8,15 @@ import { db, schema } from "@/db";
 import type { HostCalendar } from "@/db/schema";
 import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, NOTICE_CHOICES_HOURS } from "./rules";
 import { isCalendarZone } from "./slots";
-import { lockCalendar } from "@/lib/membership/locks";
-import { hostMinutes, minutesMembersNeed } from "@/lib/membership/room";
-import { timeWords } from "@/lib/membership/rules";
+import { randomUUID } from "node:crypto";
+import type { Membership } from "@/db/schema";
+import { giveUpInStep, letHoldGo } from "@/lib/membership/charge";
+import { queueLessTimeOfferEmail, queueLessTimeOutcomeEmail, queueRenewalStoppedEmail } from "@/lib/membership/emails";
+import { endInvitation } from "@/lib/membership/join";
+import { lockCalendar, lockMembership, lockMonth } from "@/lib/membership/locks";
+import { hostMinutes, workOutCut, type Cut } from "@/lib/membership/room";
+import { lessTimeProblem, timeWords } from "@/lib/membership/rules";
+import type { Tx } from "@/lib/payments/operations";
 
 /** A problem the host can fix. Its message is safe to show them. */
 export class CalendarError extends Error {}
@@ -54,43 +60,158 @@ function minutesOf(time: string): number | null {
   return Number(match[1]) <= 23 && Number(match[2]) <= 59 ? minutes : null;
 }
 
-/** Adds a stretch of weekly hours. "To" of 00:00 means midnight at the end of the day. */
-export async function addWeeklyHours(userId: string, input: { weekday: number; from: string; to: string }): Promise<void> {
-  const start = minutesOf(input.from);
-  const typedEnd = minutesOf(input.to);
-  if (!Number.isInteger(input.weekday) || input.weekday < 1 || input.weekday > 7) throw new CalendarError("Choose a day of the week.");
-  if (start === null || typedEnd === null) throw new CalendarError("Enter both times, for example 18:00 and 21:00.");
-  const end = typedEnd === 0 ? 1440 : typedEnd;
-  if (end <= start) throw new CalendarError("The end must be later than the start. To go past midnight, add the rest on the next day.");
-  // Every change of weekly hours is one step under the host's calendar lock, the lock a booking and a
-  // membership take, so hours cannot change while a time is being booked or a place is being given.
-  await db.transaction(async (tx) => {
-    await lockCalendar(tx, userId);
-    const sameDay = await tx.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.weekday, input.weekday)));
+/** A stretch of weekly hours as the host types it. "To" of 00:00 means midnight at the end of the day. */
+export type HoursInput = { weekday: number; from: string; to: string };
+/** One change of weekly hours: a stretch removed, a stretch added, or both in one go (a stretch changed or moved). */
+export type HoursChange = { remove?: string; add?: HoursInput };
+/** What the host decided for one of her members in the step that cuts her hours. */
+export type MemberChoice = { membershipId: string; choice: "keep" | "less" | "pause"; minutes?: number };
+
+/** Applies one change to the weekly hours, inside the caller's step. Checks the typed times as before. */
+async function applyHoursChange(tx: Tx, userId: string, change: HoursChange): Promise<void> {
+  if (change.remove !== undefined) {
+    if (!/^[0-9a-f-]{36}$/i.test(change.remove)) return;
+    await tx.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, change.remove), eq(schema.weeklyHours.hostId, userId)));
+  }
+  if (change.add) {
+    const start = minutesOf(change.add.from);
+    const typedEnd = minutesOf(change.add.to);
+    const weekday = change.add.weekday;
+    if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) throw new CalendarError("Choose a day of the week.");
+    if (start === null || typedEnd === null) throw new CalendarError("Enter both times, for example 18:00 and 21:00.");
+    const end = typedEnd === 0 ? 1440 : typedEnd;
+    if (end <= start) throw new CalendarError("The end must be later than the start. To go past midnight, add the rest on the next day.");
+    const sameDay = await tx.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.weekday, weekday)));
     if (sameDay.some((h) => start < h.endMinute && end > h.startMinute)) throw new CalendarError("Those hours overlap hours you already have on that day.");
     if (sameDay.length >= 6) throw new CalendarError("That is a lot of separate hours for one day. Remove some first.");
-    await tx.insert(schema.weeklyHours).values({ hostId: userId, weekday: input.weekday, startMinute: start, endMinute: end });
-  });
+    await tx.insert(schema.weeklyHours).values({ hostId: userId, weekday, startMinute: start, endMinute: end });
+  }
+}
+
+class NothingSaved extends Error {
+  constructor(readonly cut: Cut) {
+    super("nothing saved");
+  }
 }
 
 /**
- * Removes a stretch of weekly hours. Refused when it would leave less than the host's members
- * need for their next months (the rulebook's "When a host later offers fewer hours"; the step in
- * which the host chooses what happens to her members comes with the membership pages).
+ * What a change of weekly hours would need of the host's members, worked out WITHOUT saving
+ * anything: the change is made inside a step that is then thrown away. For the page that shows
+ * the host her members and her choices before she confirms.
  */
-export async function removeWeeklyHours(userId: string, id: string): Promise<void> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
-  await db.transaction(async (tx) => {
+export async function previewWeeklyHoursChange(userId: string, change: HoursChange, now: Date = new Date()): Promise<Cut> {
+  try {
+    await db.transaction(async (tx) => {
+      await lockCalendar(tx, userId);
+      await applyHoursChange(tx, userId, change);
+      throw new NothingSaved(await workOutCut(tx, userId, now));
+    });
+  } catch (error) {
+    if (error instanceof NothingSaved) return error.cut;
+    throw error;
+  }
+  throw new Error("unreachable");
+}
+
+/**
+ * Every change of weekly hours: one step under the host's calendar lock (the lock a booking and
+ * a membership take), so hours cannot change while a time is being booked or a place is given.
+ *
+ * A change that leaves less than the host's members need for their next months is saved only
+ * together with her choice for each of them (the rulebook's "When a host later offers fewer
+ * hours"): keep, offer less time, or pause after this month, so that those she keeps fit. The
+ * choices carry the mark of the preview they were made on; if anything about her members changed
+ * since, nothing is saved. Without choices such a cut is refused with a plain sentence.
+ *
+ * Months that have started are never touched. Open invitations give way before members: the ones
+ * that no longer fit beside what she owes are taken back, the oldest staying first.
+ */
+export async function changeWeeklyHours(userId: string, change: HoursChange, choices?: { mark: string; members: MemberChoice[] }, now: Date = new Date()): Promise<void> {
+  const letGo = await db.transaction(async (tx) => {
     await lockCalendar(tx, userId);
-    await tx.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, id), eq(schema.weeklyHours.hostId, userId)));
-    const needed = await minutesMembersNeed(tx, userId);
-    if (needed === 0) return;
-    const left = await hostMinutes(tx, userId);
-    if (left < needed) {
+    const before = await hostMinutes(tx, userId);
+    await applyHoursChange(tx, userId, change);
+    const cut = await workOutCut(tx, userId, now);
+    // Hours that stay the same or grow promise nothing less: nothing more to do.
+    if (cut.hoursAfter >= before) return [];
+    if (cut.needed > cut.hoursAfter && !choices) {
       // Thrown inside the step, so the hours stay as they were.
-      throw new CalendarError(`Your members' time would no longer fit: together they have ${timeWords(needed)} a month, and your weekly hours would offer ${timeWords(left)}. Pause a member's renewal first, or keep more hours.`);
+      throw new CalendarError(`Your members' time would no longer fit: for their next months they need ${timeWords(cut.needed)} a month, and these hours would offer ${timeWords(cut.hoursAfter)}. Choose for each member whether to keep them, offer less time or pause them after this month.`);
     }
+    return choices ? saveCut(tx, userId, cut, choices, now) : takeBackInvitations(tx, cut, now);
   });
+  for (const monthId of letGo) {
+    await letHoldGo(monthId, now).catch((error) => console.error(`[membership] could not let go of month ${monthId} yet; the helper will retry`, error));
+  }
+}
+
+/** Invitations that no longer fit beside what the host owes are taken back. Returns nothing to let go. */
+async function takeBackInvitations(tx: Tx, cut: Cut, now: Date): Promise<string[]> {
+  for (const id of [...cut.invitationsTakenBack].sort()) await endInvitation(tx, await lockMembership(tx, id), "taken_back", now);
+  return [];
+}
+
+/** Saves the host's choices for her members with the cut, in the same step. Returns the months whose open payment must be cancelled after it. */
+async function saveCut(tx: Tx, userId: string, cut: Cut, choices: { mark: string; members: MemberChoice[] }, now: Date): Promise<string[]> {
+  if (choices.mark !== cut.mark) throw new CalendarError("Something about your members changed while this page was open. Nothing was saved. Please look at it again.");
+  const chosen = new Map(choices.members.map((choice) => [choice.membershipId, choice]));
+  let kept = 0;
+  for (const member of cut.members) {
+    const choice = chosen.get(member.membershipId);
+    if (!choice) throw new CalendarError("Choose for each member whether to keep them, offer less time or pause them after this month.");
+    if (choice.choice === "less") {
+      // Only a member whose month has started, and who has no open offer already: one offer at a time.
+      if (!member.monthStarted || member.openOfferMinutes !== null) throw new CalendarError("Less time can only be offered to a member whose month has started and who has no open offer.");
+      const problem = lessTimeProblem({ offeredMinutes: choice.minutes ?? 0, minutesNow: member.minutes });
+      if (problem) throw new CalendarError(problem);
+      kept += choice.minutes!;
+    } else if (choice.choice === "keep") {
+      // A member with an open offer who is kept is left with that offer, and counts with its smaller time.
+      kept += member.openOfferMinutes ?? member.minutes;
+    }
+  }
+  if (kept > cut.hoursAfter) throw new CalendarError(`The members you keep need ${timeWords(kept)} a month, and these hours offer ${timeWords(cut.hoursAfter)}. Pause more members, or offer less time.`);
+
+  // Every membership this touches is locked first, in one order; their months only after.
+  const locked = new Map<string, Membership>();
+  for (const id of [...cut.members.map((member) => member.membershipId), ...cut.invitationsTakenBack].sort()) locked.set(id, await lockMembership(tx, id));
+  const letGo: string[] = [];
+  for (const member of cut.members) {
+    const choice = chosen.get(member.membershipId)!;
+    const membership = locked.get(member.membershipId)!;
+    if (choice.choice === "pause") {
+      if (membership.status === "unpaid" && membership.currentMonthId) {
+        // No running month: paused at once, and the open payment is cancelled.
+        const month = await lockMonth(tx, membership.currentMonthId);
+        if (await giveUpInStep(tx, { membership, month }, "given_up", now, "host")) letGo.push(month.id);
+        continue;
+      }
+      // Pausing takes an open offer back.
+      await tx.update(schema.memberships).set({ hostStoppedAt: now, pausedReason: null, offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
+      if (membership.offerId && membership.offeredMinutes) await queueLessTimeOutcomeEmail(tx, membership, { offerId: membership.offerId, outcome: "taken_back_paused", offeredMinutes: membership.offeredMinutes });
+      else if (membership.currentMonthId) {
+        const [month] = await tx.select({ endsAt: schema.membershipMonths.endsAt }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, membership.currentMonthId));
+        if (month?.endsAt) await queueRenewalStoppedEmail(tx, membership, "host", month.endsAt, now);
+      }
+    } else if (choice.choice === "less" && membership.currentMonthId) {
+      const [month] = await tx.select({ endsAt: schema.membershipMonths.endsAt }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, membership.currentMonthId));
+      const offerId = randomUUID();
+      await tx.update(schema.memberships).set({ offerId, offerMonthId: membership.currentMonthId, offeredMinutes: choice.minutes!, offeredAt: now, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
+      if (month?.endsAt) await queueLessTimeOfferEmail(tx, membership, { offerId, offeredMinutes: choice.minutes!, minutesNow: member.minutes, pricePer15Cents: membership.ownPricePer15Cents ?? 0, answerBy: month.endsAt });
+    }
+  }
+  for (const id of cut.invitationsTakenBack) await endInvitation(tx, locked.get(id)!, "taken_back", now);
+  return letGo;
+}
+
+/** Adds a stretch of weekly hours. */
+export async function addWeeklyHours(userId: string, input: HoursInput): Promise<void> {
+  await changeWeeklyHours(userId, { add: input });
+}
+
+/** Removes a stretch of weekly hours. Refused when the host's members would no longer fit and she has not chosen what happens to them. */
+export async function removeWeeklyHours(userId: string, id: string): Promise<void> {
+  await changeWeeklyHours(userId, { remove: id });
 }
 
 /** A date-and-time typed by the host ("2026-12-24T09:00"), read in their calendar's time zone. */

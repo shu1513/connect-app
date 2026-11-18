@@ -13,6 +13,7 @@ import { removeRetiredCards } from "./cards";
 import { abandonMonth, intentFor, letHoldGo, syncMonth, takeMonth, tryHold } from "./charge";
 import { runClosings } from "./close";
 import { runDisputeLooks, runEndings } from "./ending";
+import { runInvitations } from "./join";
 import { runPayBacks } from "./payback";
 
 const months = schema.membershipMonths;
@@ -51,6 +52,9 @@ const notRefusedRecently = (kind: OperationKind, now: Date) =>
 const open = and(isNull(months.endedHow), isNull(months.problem));
 
 export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
+  // 0. Invitations whose 24 hours are over end by themselves, and their places are free again.
+  await runInvitations(now);
+
   // 1. PaymentIntents that were asked for and whose id was never saved (also of months given up meanwhile).
   await each(
     "finish asking for the payment",

@@ -65,7 +65,7 @@ export async function endMembership(tx: Tx, membership: Membership, input: { by:
  * month, the membership is settled: paused, or, when a first joining was not finished, put back to
  * "invited" while the invitation still stands. An old month changes nothing here.
  */
-export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: string, now: Date): Promise<void> {
+export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: string, now: Date, why?: string): Promise<void> {
   const { membership } = locked;
   if (!isCurrent(locked) || membership.status === "ended" || membership.status === "paused") return;
   if (how === "ending") return;
@@ -81,7 +81,8 @@ export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: strin
     }
     return;
   }
-  const reason = how === "given_up" || how === "cancelled_at_stripe" ? "payment" : how;
+  // `why` is the reason the member is told when it is not the payment itself (the host paused them, or switched her membership off).
+  const reason = why ?? (how === "given_up" || how === "cancelled_at_stripe" ? "payment" : how);
   await pauseMembership(tx, membership, reason, now);
 }
 

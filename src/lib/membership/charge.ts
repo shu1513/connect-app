@@ -25,7 +25,7 @@ import { holdExpiry } from "@/lib/payments/rules";
 import { stripe } from "@/lib/payments/stripe";
 import { membershipsOnFor } from "@/lib/safety/switches";
 import { cardInUse, takeCardForMembership } from "./cards";
-import { queuePaymentFailedEmail, queueReceiptEmail } from "./emails";
+import { queueJoinedEmail, queuePaymentFailedEmail, queueReceiptEmail } from "./emails";
 import { isCurrent, lockForMonth, monthOwner, type LockedMonth } from "./locks";
 import { openMonth, recordChargeOwedBack, recordOddCharge } from "./months";
 import { hostMinutes, keepsPlace, promisedMinutes } from "./room";
@@ -451,6 +451,8 @@ export async function recordIntent(seen: MembershipMonth, intent: Stripe.Payment
         .where(eq(schema.memberships.id, membership.id))
         .returning();
       await queueReceiptEmail(tx, active, held, timing.offeredUntil);
+      // The host is told when someone joins or comes back (the member has the receipt).
+      if (membership.status === "joining") await queueJoinedEmail(tx, active, held, Boolean(membership.since));
       return;
     }
     if (intent.status === "succeeded") {
@@ -616,16 +618,26 @@ export const takeNow = takeMonth;
  * the membership settled, in one step; only then is the payment cancelled at Stripe. If the
  * payment was taken in that very moment, it is owed back in full.
  */
-export async function abandonMonth(monthId: string, how: string, now: Date = new Date()): Promise<MembershipMonth> {
+export async function abandonMonth(monthId: string, how: string, now: Date = new Date(), why?: string): Promise<MembershipMonth> {
   await db.transaction(async (tx) => {
-    const locked = await lockForMonth(tx, monthId);
-    const { month } = locked;
-    if ((month.status !== "to_pay" && month.status !== "held") || month.endedHow) return;
-    await tx.update(months).set({ endedHow: how, updatedAt: now }).where(eq(months.id, monthId));
-    await settleAfterGivenUp(tx, locked, how, now);
+    await giveUpInStep(tx, await lockForMonth(tx, monthId), how, now, why);
   });
   await letHoldGo(monthId, now).catch((error) => log(`could not let go of month ${monthId} yet; the helper will retry`, error));
   return (await monthById(monthId))!;
+}
+
+/**
+ * The first half of giving a month up, inside a database step the caller owns (with the month
+ * locked): the reason is saved and the membership settled. The caller lets the hold go after its
+ * step is saved (letHoldGo); if it does not get that far, the helper does. Returns whether this
+ * call is the one that gave it up. `why` is what the member is told when it is not the payment.
+ */
+export async function giveUpInStep(tx: Tx, locked: LockedMonth, how: string, now: Date, why?: string): Promise<boolean> {
+  const { month } = locked;
+  if ((month.status !== "to_pay" && month.status !== "held") || month.endedHow) return false;
+  await tx.update(months).set({ endedHow: how, updatedAt: now }).where(eq(months.id, month.id));
+  await settleAfterGivenUp(tx, locked, how, now, why);
+  return true;
 }
 
 /**
