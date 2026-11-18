@@ -100,7 +100,8 @@ export async function runEndings(now: Date): Promise<void> {
  *   - open or lost: the month is frozen as it stands;
  *   - won: the month goes on from where it stood, and money that is still free is paid back,
  *     because the membership has ended.
- * Whenever this is the first we record of a dispute on this month, whatever its state already is,
+ * Whenever this is the first we record of a dispute on this month, whatever its state already is
+ * (and again when a new dispute opens after an earlier one was won),
  * the membership the two people have NOW is ended at once, also when the disputed month belongs
  * to an earlier period or to an earlier, ended membership of the same two. It is the one case
  * where an old month changes a membership.
@@ -124,7 +125,10 @@ export async function recordMonthDispute(monthId: string, state: "open" | "won" 
     const month = await lockMonth(tx, monthId);
 
     const { month: marked, first } = await setDispute(tx, month, state, now);
-    if (first && live) await endMembership(tx, locked.get(live.id)!, { by: "connect", reason: "the member's bank disputed a membership payment" }, now);
+    // Also a NEW dispute on a charge whose earlier dispute was won (a bank can dispute one payment more
+    // than once): it ends the membership the two have by then, like the first one did.
+    const again = month.dispute === "won" && state !== "won";
+    if ((first || again) && live) await endMembership(tx, locked.get(live.id)!, { by: "connect", reason: "the member's bank disputed a membership payment" }, now);
     if (state === "won") {
       if (marked.freeCents > 0 && (marked.status === "running" || marked.status === "closed")) {
         await owePayBack(tx, marked, { amountCents: marked.freeCents, sourceKey: `won:${marked.id}`, reason: "Your membership ended, so the time you had not used is paid back." });

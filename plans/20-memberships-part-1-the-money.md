@@ -867,3 +867,36 @@ Found while building and while testing against Stripe. None changes a rule of th
   transfers": in part one a month has one payment at most, so one transfer; part two can make
   it. A refund that Stripe first reports as gone through and later as failed is not handled, for
   memberships as for calls today.
+
+## Astra's reviews of the code of 1a (18 November 2026)
+
+Three rounds: not ready, not ready, ready for CodeRabbit.
+
+**First round, nine defects, all fixed.** The one that mattered most: when a host's hours had
+been cut, closing the older member's month first could pause the older member and keep the newer
+one, the opposite of the rulebook, because a renewal's hold was judged like a new member's. The
+others were things happening in the same instant: an old answer from Stripe recorded over a newer
+one; an old "dispute open" written over "won"; a refused card tried twice in a row; three places
+that took locks in a different order; a card from a booking's unfinished card step; the secret
+of a payment given out for a month that had just been given up; a month set aside for the founder
+looked up again every round; and the clean-up after an ending running before the safety work and
+over every ending in the app.
+
+**Second round.** Six of the nine confirmed fixed, three narrowed further (a false "payment
+failed" email; a month that could stay frozen if one look at Stripe failed; one more place that
+could give out a secret), and three new scheduling points (many pay-backs waiting at Stripe; a
+bank that is slow to answer a try; two helpers sending a pay-back again within the hour). All
+fixed. The helper now asks Stripe itself, once an hour, about every dispute that is open.
+
+**Third round: ready.** Two last points, both closed: one more look before "Pay now" gives out
+the secret, and a second dispute on a charge whose first dispute was won ends the membership the
+two have by then.
+
+**Left open on purpose**
+- **A bank's question that never becomes a dispute** (Stripe calls it an inquiry). Today the
+  first sign of one ends the membership like a dispute, although no money was taken back. Whether
+  that is wanted is the founder's to decide before the switch goes on.
+- **Proof of things happening in the same instant.** The script proves the outcomes (a stale
+  answer is thrown away, a frozen month is put right, a refused try is not repeated). It cannot
+  hold one of Stripe's answers back in the middle of a step, and the app has no test set-up that
+  could. Astra agreed that building one is not needed for this merge.

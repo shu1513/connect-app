@@ -858,6 +858,13 @@ async function main() {
       await helper(new Date(), 1);
       check("a month left frozen by an old answer is put right by the helper, which asks Stripe itself every hour", (await M(m.monthId)).dispute === "won" && (await M(m.monthId)).paidBackCents === 6000 && (await refundsOf(m.monthId)).length === 1);
       await audit("after a stale dispute answer", m);
+      // Later the host invites the same person again, and the bank disputes the old charge a second time.
+      const again = await atCardStep(host, { member: m.member });
+      await pay(again.monthId);
+      check("(a new membership of the same two is active)", (await MS(again.membershipId)).status === "active" && again.membershipId !== m.membershipId);
+      await E.recordMonthDispute(m.monthId, "open", new Date());
+      await helper(new Date(), 1);
+      check("a new dispute over the old charge ends the membership the two have by then, and its hold is let go", (await MS(again.membershipId)).status === "ended" && (await M(again.monthId)).status === "given_up" && (await intentOf(again.monthId)).status === "canceled");
     }
 
     // A member pauses, resumes, and their bank then disputes a month from before the pause.
