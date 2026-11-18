@@ -845,6 +845,45 @@ Done when:
 - Merging this part does not turn anything on. The founder turns the switch on, after the points
   under "Before this can go live".
 
+### How the parts connect
+
+Each part's own plan (`plans/20`, `21` and `22`) says how it is built. This table is the one
+place that says what each part hands to the next, by name. A part's plan may not rename or move
+anything here without this table being changed first.
+
+| Handed over | Built in | Used in |
+| --- | --- | --- |
+| The tables `membership_offers`, `memberships`, `membership_invitations`, `membership_agreements`, `membership_cards`, `booking_cards`, `membership_months`, `membership_refunds`; on `payments` the `kind`, `month_id` and `host_caused_cents`; a month as a second owner of money actions and of the money record; the switch `memberships_on` (migration `0027_memberships`) | 1a | every later part |
+| `bookings.month_id`, `weekly_hours.members_only`, `call_extensions.paid_from` (migration `0028_member_calls`) | 2a | 2b, 3a, 3b |
+| No database change | | 3a, 3b |
+| `months.ts`: the month's lock, and the movements open, expire, owe a pay-back, a pay-back done, the dispute's state | 1a | 2a adds set aside, used and come back **to this same file** |
+| `charge.ts`: `intentFor(month)`, `syncMonth(monthId, now)`, `takeNow(monthId)`, `payNow` | 1a | 2a (the first booking calls `takeNow`); 3b (the card form reads `intentFor`'s secret and then calls `syncMonth`) |
+| `payback.ts`: owing a pay-back once under a `source_key` | 1a | 2a (`callreturn:<payment id>:<what>`) |
+| `room.ts`: the host's hours, room for someone new, who keeps their place | 1a | 1b, 3a (the numbers on the "Membership" part and in the step for a cut in hours) |
+| `cards.ts`: the lock on a card, the membership's card in use | 1a | 2b (added time by card) |
+| Ending at once and pausing, with the clean-up; **the one place in the clean-up that cancels a membership's upcoming member calls**, which does nothing in part one | 1a | 2a fills that place |
+| Collecting from a month's charge: the host found through the month, the month's group on the transfer, a disputed month held back | 1a | 2a (a member call's share needs nothing more) |
+| The guards that keep a payment that is not `card` out of the card code | 1a | 2a, 2b rely on them |
+| `offers.ts` (saving the membership, **and working out what a change would do without saving it**), `join.ts` (inviting, taking back, "Join", resuming), `ending.ts` (the two stops and their undoing, "Cancel now", ending, the offer of less time), `changeWeeklyHours` (**and working out what a cut would need without saving it**), `wording.ts` (the sentences a member agrees to, and their version) | 1b | 3a and 3b: every button calls one of these and nothing else |
+| The emails that report an event, with links to the pages below | 1a, 1b, 2a | the pages exist from 3a and 3b on |
+| Booking as a member, the member's view of the host's page and of the booking page, the page after a call, the call screen's choices for more time, the "Members only" tick | 2a, 2b | 3b's journey walks through them |
+| The check scripts `membership-check.ts`, `member-calls-check.ts`, `membership-journey-check.ts`, each making its members through the functions of the parts before it | 1a/1b, 2a/2b, 3b | each later part runs all the earlier ones unchanged |
+
+**The addresses of the new pages**, fixed here because emails written in part one link to pages
+built in part three:
+
+| Page | Address |
+| --- | --- |
+| The invitation, joining and resuming | `/h/<host's handle>/membership` |
+| One membership, for its member | `/memberships/<membership id>` |
+| Paying after a failed payment | `/memberships/<membership id>/pay` |
+| The host's "Membership" part | `/host#membership` |
+| The step for a cut in hours | `/host/calendar/cut` |
+| The founder's page | `/admin/memberships` |
+
+Until part three is built, those links lead nowhere, and only the check scripts receive such
+emails.
+
 ### For every part
 
 The existing twelve check scripts pass unchanged, the part's own checks pass, both reviews are

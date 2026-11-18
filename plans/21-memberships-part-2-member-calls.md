@@ -33,7 +33,7 @@ member"; "Member-only times"; steps 1 to 4 and 6 of "The money, step by step"; "
 "Booking as a member" and the list under "Changes to existing code" that concerns calls; the
 rows of "The awkward cases" about bookings and calls.
 
-**Built in part one and used here:** the month and its six places (`months.ts`), taking a held
+**Built in part one and used here** (by the names in the rulebook's "How the parts connect"): the month and its six places (`months.ts`), taking a held
 month's money now (`takeNow`), paying back (`payback.ts`), the kind on every payment with its
 checks, the guards that keep a member's payment out of the card code, collecting from a month's
 charge, the card lock, ending a membership, and the place where an ending cancels upcoming member
