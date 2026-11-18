@@ -40,17 +40,19 @@ What each side gets:
 | How a member's call is counted | Exactly like a regular booking: the time the host is in the room counts. A member who does not show up still uses that time. |
 | A call that should run longer | The existing "add time" feature. The extra time is taken first from the membership time the member has left; when that is not enough, it is paid by card. |
 | When the host gets the money | Not before the time is delivered: as time is used, and the unused rest when the month ends. |
-| Who can end it | The member cancels: the membership runs to the end of the paid month. The host ends it: the unused time is paid back. |
-| Cancelling right after a payment | A member who cancels within 3 days of a monthly payment, and has not booked anything from that month, can have that month paid back in full. |
+| Who can end it | The member cancels: the membership runs to the end of the paid month and is then **paused**. The host ends it: the unused time is paid back, and the person is no longer a member. |
+| A paused membership | Costs nothing and gives no member time. The member can come back by themselves at any time, without a new invitation, for example after money trouble. Only the host, a block, a paused, suspended or closed account, or a dispute over a payment end a membership for good; after that, coming back needs a new invitation. |
+| Cancelling right after a payment | For the first 72 hours of each month the amount is only held on the card, not taken. A member who cancels in that time, with nothing booked from that month, pays nothing: the hold is let go, which costs Connect nothing either. |
 | Switching back on | A member who has cancelled can switch their membership back on until the paid month ends. |
 | Changing the price or the time | Never during a month that is already paid for. |
 | How the host sets the membership | The host types a member price per 15 minutes (the same way they set their regular price) and picks the time included each month. The app shows the monthly amount: "Members pay $60.00 a month for 2 hours." |
 | Our fee on a membership | The usual fee, counted once a month: 4.9% of each amount that is used or expires, and the fixed 30 cents once per month instead of once per call (plus 1.5% for a card from outside the US). |
 | Who a host can invite | People the host has already had a call with, from the host's "People you have talked to" page. |
 | A limit on the monthly amount | None. There is a limit on the time included (see the builder's choices). |
-| The founder's switch | A switch on the admin page, "Memberships", off until the whole feature is built and tried. While it is off nobody can invite or join and no month is renewed. Months already paid for keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
+| More time than the host offers | Not allowed. The time included in a membership can never be more than the host's weekly hours offer in four weeks. |
+| The founder's switch | A switch on the admin page, "Memberships", off until the whole feature is built and tried. While it is off nobody can invite or join and no month is renewed. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
 | How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
-| How the monthly payment is taken | Connect charges the member's saved card itself each month. Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
+| How the monthly payment is taken | Connect charges the member's saved card itself each month, first as a hold and then for real (see "The monthly payment"). Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
 
 ## The builder's choices
 
@@ -58,12 +60,15 @@ The founder left these to the builder ("do what you think is the best").
 
 | # | Question | Chosen | Why |
 | --- | --- | --- | --- |
-| 1 | What "a month" is | It starts the minute the payment goes through and ends **one calendar month later** (on the last day when the next month is shorter: 31 January to 28 February, and then 28 March). Not the calendar month. | Every member gets a full month from the day they pay. |
-| 2 | A monthly payment that fails | The member gets an email with a link to pay. Connect tries the card again after 1, 3 and 5 days. **No time is given until the payment goes through**, and the new month starts when it does. After 7 days the payment is cancelled and the membership ends. | Nobody gets time they have not paid for, and nobody pays for days they could not use. |
-| 3 | Changing the offer for people who are already members | **Not in the first version.** A member keeps the price and time they agreed to for as long as their membership lasts, also when they cancel and switch it back on. A changed offer applies to people who join after the change. A host who wants new terms for a member ends that membership and invites the person again. | A different charge on a saved card needs the member's clear yes, which means emails, an "Agree" step and rules for who has not agreed yet. Astra advised leaving all of that out of a first version. |
+| 1 | What "a month" is | It starts the minute the hold on the card is in place (the bank's own time for it) and ends **one calendar month later** (on the last day when the next month is shorter: 31 January to 28 February, and then 28 March). Not the calendar month. | Every member gets a full month from the day they pay. |
+| 2 | A monthly payment that fails | The member gets an email with a link to pay. Connect tries the card again after 1, 3 and 5 days. **No time is given until a hold is in place**, and the new month starts when it is. The same applies when a bank lets a hold go before the money was taken. After 7 days the payment is cancelled and the membership is paused, so the member can come back when they are able to pay. | Nobody gets time they have not paid for, and nobody pays for days they could not use. |
+| 3 | Changing the offer for people who are already members | **Not in the first version.** A member keeps the price and time they agreed to for as long as their membership goes on without a break, also when they cancel and switch it back on inside the paid month. A member who comes back after a pause gets the host's offer as it is then, and agrees to it again. A changed offer applies to people who join after the change. A host who wants new terms for a member ends that membership and invites the person again. | A different charge on a saved card needs the member's clear yes, which means emails, an "Agree" step and rules for who has not agreed yet. Astra advised leaving all of that out of a first version. |
 | 4 | The limit on the time included | From 30 minutes to **100 hours a month**, in steps of 30 minutes. | The founder asked for a reasonable limit, and found 20 hours too tight. 100 hours is more than 3 hours on every day of the month, so it should stand in nobody's way, and it is one number in the code. |
 | 5 | The other limits | Member price from $5.00 per 15 minutes (the app's minimum) up to the regular price. One membership offer per host. | The lowest price is the one the app already has. One offer keeps the host's page and the member's choice simple. |
-| 6 | The two ways to cancel inside the 3 days | In the first 3 days after a payment, with nothing booked from that month, the member is offered both: "Cancel now and get $60.00 back" (the membership ends today) and "Cancel at the end of the month" (they keep the time). After that, or once anything was booked, only the second. | Someone who joined for one month only should not be made to give the month up just to stop the next payment. |
+| 6 | The two ways to cancel inside the 72 hours | While the month's amount is only held, the member is offered both: "Cancel now, nothing is charged" (the membership is paused today) and "Cancel at the end of the month" (only the renewal is stopped; the amount is taken at its usual moment and they keep the time). Once the money has been taken, only the second. | Someone who joined for one month only should not be made to give the month up just to stop the next payment. |
+| 7 | When the held money is taken | At the member's first booking of the month, or **72 hours and 3 minutes** after the hold, whichever comes first. Both times count from the bank's own time for the hold. The page offers "Cancel now" for the 72 hours; the server accepts it until the money has really been taken, so a press in the last second, or in the 3 minutes after, still counts. | The founder asked for a cushion. The app already uses 3 minutes in the same way for a last-second refund request. Not longer (80 hours was the other idea): the app counts on a card hold lasting 4 days at worst, and taking the money at 72 hours leaves almost a day (23 hours 57 minutes) for a helper that was down. When Stripe reports that a card's hold ends sooner than that needs, the money is taken 12 hours before the hold ends, and the member's page and receipt show that earlier moment as the last one for "Cancel now". |
+| 8 | How often "Cancel now" can be used | No limit. | It was limited to once per member and host while it cost Connect a card fee each time. Letting a hold go carries no card fee. Someone who joins and cancels again and again ties up money on their own card (a bank may show a hold like a charge, and it can take days to disappear), cannot take a time in the host's calendar without the money being taken, and the host can end the membership. Stripe's optional fraud checks can cost a few cents per card. |
+| 9 | How the host's hours are counted for "more time than the host offers" | All weekly hours on the calendar page, general and member-only, times four. Time off, breaks and other members are not counted. It is checked when the offer is saved and every time a month is about to start (joining, resuming, a renewal). | A plain number a host can see on their own calendar page. Checking at the start of each month means nobody ever pays for a month the host's hours cannot hold, without locking the host's calendar. |
 
 ## How it works for a host
 
@@ -76,7 +81,15 @@ The founder left these to the builder ("do what you think is the best").
 - the result in plain words: "Members pay $60.00 a month for 2 hours. Your regular price for
   2 hours is $80.00."
 
-A host with free calls, or whose payout account is not ready, cannot offer a membership.
+A host with free calls, or whose payout account is not ready, cannot offer a membership. The time
+included cannot be more than the host's weekly hours offer in four weeks: a host with 10 hours a
+week can include up to 40 hours. The page says so when a larger number is typed.
+
+**When a host later offers fewer hours** than the membership includes, the calendar page tells
+them: "Your weekly hours no longer cover your membership (20 hours a month). Members will be
+paused at their next payment unless you add hours." Months that have already started are not
+touched. No new month starts: nobody can join or resume, and at a member's next renewal nothing
+is charged, the membership is paused, and both are told why by email.
 
 **Member-only times.** On the calendar page, each stretch of weekly hours gets a tick box,
 "Members only". Customers who are not members never see those times.
@@ -92,16 +105,22 @@ left this month, and when the month ends or renews. One button per member: "End 
 member keeps the price and time they agreed to for as long as their membership lasts (see 3 under "The builder's choices"). To keep "never more expensive than the regular price" true at every moment:
 
 - the regular price cannot be set below the member price of the offer, or below the member price
-  of any membership that has not ended (also one whose monthly payment is still being tried);
-- a host who offers a membership, or still has a member, cannot make their calls free.
+  of any month that is running, held or still being paid for;
+- a host who offers a membership, or still has such a month, cannot make their calls free.
 
 A host who wants a regular price below a member's price ends that membership first, and can invite
-the person again at a new member price.
+the person again at a new member price. (A paused membership has no month and so no price; it
+stands in nobody's way.)
 
-**Switching the offer off** takes back every open invitation, stops every payment that was being
-tried again, and stops the renewal of each membership, which then ends with its paid month. Switching it on again later does
-not bring anyone back by itself: a member whose month is still running can switch their own
-membership back on, and anyone else needs a new invitation.
+**Switching the offer off** takes back every open invitation and stops the renewal of each
+membership, which is then paused when its month ends. A month that has already started, also one
+whose money is still only held, goes on to its end as usual. A membership whose payment was being
+tried again has that payment cancelled and is paused at once. Nobody can resume while the offer
+is off. Switching it on again charges nobody by itself: a member whose month is still running can
+switch their own membership back on, and a paused member can resume.
+
+**Paused members** stay in the member list, marked "paused", with the same "End membership"
+button. A host who does not want someone to come back ends that membership.
 
 **A hidden host page.** A host who hides their page from the public keeps their members: members
 can still open the page and book. While a host's page is waiting to be approved again (after a
@@ -113,14 +132,14 @@ change of name, for example), members cannot make new bookings until it is appro
 member price beside the regular price, the host's open times for the coming weeks, and these
 sentences:
 
-> You pay $60.00 today and then every month, until you cancel. Each month gives you 2 hours of
-> calls with Hana Host. Time you have not used when a month ends expires and is not paid back.
-> You can cancel at any time on "Your account"; your membership then runs to the end of the month
-> you paid for. If you cancel within 3 days of a payment and have not booked anything from that
-> month, you can have that payment back.
+> You pay $60.00 a month, starting today, until you cancel. Each month gives you 2 hours of calls
+> with Hana Host. Time you have not used when a month ends expires and is not paid back. You can
+> cancel at any time on "Your account"; your membership then runs to the end of the month you
+> paid for. For the first 72 hours of each month the $60.00 is only held on your card. If you
+> cancel in that time and have not booked anything from that month, nothing is taken.
 
 The member ticks a box agreeing to this and to their card being kept for the monthly payment (and
-for extra time during a call that their membership time does not cover), enters a card, and pays the first month. The membership
+for extra time during a call that their membership time does not cover), enters a card, and the first month's amount is held on it. The membership
 starts at that moment. What was agreed (which version of the offer, which wording about the card, and when) is
 kept on record.
 
@@ -149,31 +168,38 @@ price and it is paid by card.
 
 - **Normally** it stops the renewal. The membership then shows "Ends on 14 December". Until that
   day nothing else changes: bookings stay, and the time left can still be booked and used. No new
-  month is charged.
-- **Within 3 days of a monthly payment, when nothing has been booked from that month**, the member
-  is offered two things: "Cancel now and get $60.00 back", which ends the membership today and
-  pays the whole month back to the card, or "Cancel at the end of the month", which is the normal
-  way. This covers "I forgot to cancel" and "I changed my mind right after joining".
+  month is charged. On that day the membership is paused.
+- **In the first 72 hours of a month, when nothing has been booked from it**, the month's amount
+  is still only held on the card. The member is offered two things: "Cancel now, nothing is
+  charged", which lets the hold go and pauses the membership today, or "Cancel at the end of the
+  month", which is the normal way. This covers "I forgot to cancel" and "I changed my mind right
+  after joining". A member who chose "at the end of the month" can still press "Cancel now" while
+  the amount is only held.
 
-The 3 days, exactly: less than 72 hours since the moment Stripe says the payment went through.
-That holds for the first month, for every renewal, and for a month that was paid late. A member
-who chose "at the end of the month" can still press "Cancel now" while both conditions hold.
-"Cancel now" is offered **once per member and host**: someone who has had a month paid back this
-way and joins the same host again later does not get it a second time. Otherwise a person could
-join, look at the member-only times, take the money back, and do it again with every new
-invitation, each time at Connect's cost.
+The 72 hours count from the bank's own time for the hold, for the first month, for every renewal
+and for a month that was paid late. The page and the receipt show the exact last moment. The page
+stops offering "Cancel now" then; the server still accepts it until the money has really been
+taken, 3 minutes later, so nobody loses by a second. Letting a hold go carries no card fee. A
+bank may still show the hold like a charge for some days before it disappears.
 
 **Switching back on.** A membership whose renewal is stopped has a button, "Keep my membership",
 until the paid month ends. It brings the membership back exactly as it was. Nothing is charged at
-that moment; the page shows the unchanged monthly amount and the date of the next payment. It
-works only when everything that joining needs is still true: both accounts active, no block
-either way, the host approved and able to be paid, the host's "confirmed ID only" rule met, the
-host still offering a membership, and the founder's switch on. If the saved card is gone, a card
-is asked for first. After the paid month has ended, or after "Cancel now", or once a membership
-was ended early, coming back needs a new invitation from the host.
+that moment; the page shows the unchanged monthly amount and the date of the next payment.
 
-**The monthly receipt** is an email on the day of each payment. It also says that the payment can
-be had back within 3 days if nothing is booked from the month.
+**A paused membership, and resuming.** A paused membership costs nothing and gives no member time: the person books like any customer, and time added to a call cannot be paid from a membership. It is listed on "Your account" with a button, "Resume
+membership". Resuming is like joining, without needing an invitation: the page shows the host's
+offer as it is now, the member ticks the box again, enters a card, and a new month starts. A
+membership is paused when the member cancelled and the paid month has ended, after "Cancel now",
+when a failed payment was given up after 7 days, and when the host switched the offer off.
+
+"Keep my membership" and "Resume membership" work only when everything that joining needs is
+true: both accounts active, no block either way, the host approved and able to be paid, the host's
+"confirmed ID only" rule met, the host offering a membership, and the founder's switch on. Once
+the host has ended a membership, or it ended through a block, a closed or paused account or a
+dispute, coming back needs a new invitation from the host.
+
+**The monthly receipt** is an email at the start of each month. It says that the amount is held
+now, when it will be taken, and that cancelling before then, with nothing booked, costs nothing.
 
 **The reminder.** Three days before each month ends the member gets one email: how much time is
 left, the moment it expires, the date and amount of the next payment, and how to cancel.
@@ -185,7 +211,29 @@ An example: Hana's regular price is $10.00 per 15 minutes. Her member price is $
 
 ### Where a month's money can be
 
-The $60.00 is taken from the member's card at once and stays with Connect. From then on every
+### First a hold, then the money
+
+At the start of each month the $60.00 is **held** on the member's card, the way the money for a
+call is held today. The month starts at that moment: the member sees their 2 hours and can book.
+The money is taken for real at the first of these two moments:
+
+- the member's **first booking** of the month. The money is taken first, and the call is booked
+  only once Stripe has confirmed it. Nothing is ever set aside from money Connect does not have;
+- **72 hours and 3 minutes** after the hold.
+
+Until then the member can press "Cancel now": the hold is let go, nothing was ever charged, and
+there is no card fee. If a bank lets a hold go by itself before the money is taken (rare), that
+month is closed as not paid: the member has no time, and a new month with the same price and time
+is tried as a failed payment.
+
+While a month is only held, none of its money is in any of the places below: there is nothing to
+set aside, use or pay back. The places are filled only when Stripe has confirmed that the **whole**
+monthly amount was taken. If Stripe ever reports a different amount, the month gives no time and
+goes to the founder to settle by hand.
+
+### Where a month's money can be
+
+Once the $60.00 has been taken it stays with Connect. From then on every
 cent of it is in exactly one of these places, and it only ever moves from one to another in a
 single step that cannot half happen:
 
@@ -218,8 +266,7 @@ So at any moment, not only at the end, the six places add up to exactly what the
    - back to **Free**, to be booked again, for as long as the member can still book from that
      month;
    - to the member's **card** once they cannot: the month has ended, or the membership was ended
-     early (by the host, a block, a pause, a closed account or a dispute, or by the member's own
-     "Cancel now" in the first 3 days).
+     early (by the host, a block, a closed or paused account, or a dispute).
 5. **When the month ends** it is closed for new bookings, and its free money is split:
    - the part marked "came back because of the host" is **paid back to the member's card**;
    - the rest has **expired**, and the host's share of it is ready to collect 24 hours later.
@@ -293,26 +340,52 @@ followed up until its outcome is known.
 
 - **One payment per month, written down first.** Before Stripe is asked for anything, the month is
   written down with the price and time that apply to it, and Stripe is given exactly one payment
-  for it. Every try (the first, the automatic ones after 1, 3 and 5 days, and the member's own
-  "Pay now") is a try at that same payment, and a payment can only go through once. So a month can
-  never be charged twice, also when an automatic try and the member's own press happen together.
-- **An answer that never arrived** is checked with Stripe before anything else is tried.
+  for it. The hold and the taking are two steps of that one payment. Every try (the first, the
+  automatic ones after 1, 3 and 5 days, and the member's own "Pay now") is a try at that same
+  payment, and it can only go through once. So a month can never be charged twice, also when an
+  automatic try and the member's own press happen together.
+- **An answer that never arrived** is checked with Stripe before anything else is tried. A payment
+  whose outcome is not known is never replaced by another.
 - **A bank that wants its own approval** is treated like a refusal: the member gets the email and
-  pays by hand on the page.
-- **The month starts** at the moment Stripe says the payment went through.
-- **Giving up.** When the 7 days are over, or the membership ends for any reason while a payment
-  is still open, that payment is cancelled at Stripe so that it can no longer go through. If it
-  went through in that very moment, it is paid back in full.
+  pays by hand on the page. (The app already places holds on saved cards this way for calls.)
+- **A payment that fails:** the member is told by email at once, with a link to pay, and has no
+  member time and cannot book as a member until a hold is in place.
+- **The month starts** at the bank's own time for the hold. That time, and the end of the hold as
+  Stripe reports it, are stored; the 72 hours, the 3 minutes and the month's end all count from
+  it.
+- **Taking the money** happens at the member's first booking or 72 hours and 3 minutes after the
+  hold (see "First a hold, then the money"). Like every money action it is written down first.
+  The timed taking skips a month whose money was already taken, and a second try at a month that
+  is already paid never turns it into "not paid". After the helper was down, the money is taken
+  as soon as it is back, as long as the hold still stands.
+- **A hold that is gone** before the money was taken (the bank let it go, or it ran out): Stripe
+  cannot take or hold that payment again. That month is closed as not paid, and a new month with
+  the same price and time gets a payment of its own and goes the failed-payment way, with the
+  7 days counted from the moment the hold was found to be gone. No booking was made from the old
+  month, so nothing has to be undone.
+- **"Cancel now"** lets the hold go and gives the month up. It, the taking and a first booking
+  all take the membership's lock, so exactly one of them wins.
+- **Giving up.** When the 7 days are over, the open payment is cancelled at Stripe so that it can
+  no longer go through, and the membership is paused. When a membership is ended while a payment
+  is still open, the same is done. If a payment went through in that very moment, a hold is let
+  go and money already taken is paid back in full.
 - **The month before** is not touched by any of this. Its bookings all lie before its own end, and
   it closes on its own date.
-- **Which price a new month gets:** the price and time the member agreed to when they joined.
+- **Which price a new month gets:** the price and time the member agreed to. When a member resumes
+  after a pause, that is the host's offer at that moment, agreed to again.
+- **No month starts** when the host's weekly hours over four weeks are less than the time the
+  month would include (see "When a host later offers fewer hours").
 
 ## The awkward cases
 
 | Case | What happens |
 | --- | --- |
-| The member cancels the membership | Nothing changes until the paid month ends: bookings stay, time can still be booked and used, and money that comes back can be booked again. No new month is charged. Until that day the member can switch it back on. |
-| The member presses "Cancel now" within 3 days of a payment, with nothing booked from that month | The membership ends at once and the whole month is paid back to the card. "Nothing booked" means no money of that month was ever set aside, also not for a booking that was cancelled again. Offered once per member and host. |
+| The member cancels the membership | Nothing changes until the paid month ends: bookings stay, time can still be booked and used, and money that comes back can be booked again. No new month is charged. Until that day the member can switch it back on; after it the membership is paused and can be resumed. |
+| The member presses "Cancel now" in the first 72 hours, with nothing booked from that month | The hold is let go, nothing is charged, and the membership is paused. It is only offered while the month's money has not been taken, and the first booking takes the money, so "nothing booked" is true by itself. |
+| The member's first booking of a month | Everything about the booking is checked first. Then the month's money is taken, and then the call is booked. If Stripe refuses, or its answer does not arrive, nothing is booked and the member is told to try again in a moment. If the money was taken but the time was lost in that moment (someone else got it), the month stays paid, and the member is told plainly: "Your month's payment went through, but that time is no longer open. Please choose another." |
+| A bank lets the hold go before the money is taken | That month is closed as not paid. The member has no member time and gets the "payment failed" email; a new month with the same terms is tried. |
+| The host cuts their weekly hours below what the membership includes | Months that have started go on. At a member's next renewal nothing is charged and the membership is paused, with an email to both. Nobody can join or resume until the hours cover the membership again. |
+| A paused member wants to book | They book like any customer. To book as a member they resume first. |
 | The member cancels a booking in time (by the host's cancelling rule) | The time comes back. It can be booked again before the month ends. |
 | The member cancels late, or does not show up | The time is used, as for a regular booking. Until the host has collected, the host may still give it back with the refund form. |
 | The host cancels a member's booking | Always free. The time comes back, and if the member does not use it again that month, its price is paid back to the card. |
@@ -330,7 +403,10 @@ followed up until its outcome is known.
 
 - **A member who cannot find a time that suits them loses that month's money**, unless the host
   cancelled. The invitation page shows the host's open times before anyone pays, and a member can
-  cancel at any time. But the app does not force a host to offer enough hours.
+  cancel at any time. The app refuses a membership that includes more time than the host's weekly hours
+  offer in four weeks. It does not add up all members together, and it does not count time off: a
+  host with 40 hours a month and thirty members at 10 hours each has promised more than they can
+  give.
 - **After a host has collected**, the app cannot pay that call's money back (see "The limit that
   stays as it is today").
 - **A refund costs Connect Stripe's card fee** on the amount paid back (about 2.9%), as refunds do
@@ -338,16 +414,13 @@ followed up until its outcome is known.
 - **A bank dispute over a monthly charge after the host has collected** is Connect's loss, as with
   calls today, up to the whole amount of each charge that is disputed. A member can dispute more
   than one month.
-- **There is no limit on the monthly amount.** The whole month is charged in one go, with no hold
-  first. At the highest price a host can set ($1,000 per 15 minutes) and the most time (100 hours)
-  that is $400,000. The app and Stripe can carry such a number; a bank may well refuse a large
-  charge, and the larger a month is, the larger Connect's loss if it is disputed after the host
-  has collected.
-- **A month paid back within the 3 days costs Connect Stripe's card fee** on the whole amount, and
-  the host earns nothing from it. Stripe keeps about 2.9% plus 30 cents of a charge when it is
-  refunded: about $2 on $60, about $29 on $1,000, and about $11,600 on the largest possible month
-  of $400,000 (about $17,600 with a card from outside the US). With no limit on the monthly
-  amount, this is the largest single cost one press of a button can cause Connect.
+- **There is no limit on the monthly amount.** At the highest price a host can set ($1,000 per
+  15 minutes) and the most time (100 hours) a month is $400,000. The app and Stripe can carry
+  such a number; a bank may well refuse to hold that much, and the larger a month is, the larger
+  Connect's loss if it is disputed after the host has collected.
+- **For up to 72 hours a month's money is only promised.** A member can use nothing of it in that
+  time without the money being taken first, so nothing can be lost. But a bank can let a hold go
+  early, and then the member has to pay again.
 - **Connect holds a member's money for up to about five weeks** before the last of it reaches the
   host. Stripe's guides give no time limit for this; it should be confirmed with Stripe before
   going live.
@@ -387,19 +460,33 @@ customer".
 
 - `membership_offers`: one per host. On or off, the member price per 15 minutes, the minutes
   included, and a version number that goes up with every change.
-- `memberships`: one per host and customer. Where it stands (invited, active, renewal stopped, unpaid,
-  ended), who or what stopped its renewal or ended it and when, whether a month was ever paid back
-  by "Cancel now", the saved card, the version, price and time of the offer the member
-  agreed to, the version of the card wording they agreed to, and when. (The card wording of a
-  membership is its own; it never changes what an ordinary booking's card may be used for.) The
-  saved card is removed at Stripe once the membership has ended and nothing of it is still open.
+- `memberships`: one per host and customer. Where it stands (invited, active, renewal stopped,
+  unpaid, paused, ended), who or what stopped its renewal, paused it or ended it and when, the
+  saved card, and the agreement that applies now.
+- `membership_agreements`: one per time the member agreed, at joining and at every resuming. The
+  version, price and time of the offer, the version of the card wording, and when. Nothing in it
+  is ever changed, and each month points to the agreement it was started under, so what a member
+  agreed to for an old month can always be shown. (The card wording of a membership is its own; it
+  never changes what an ordinary booking's card may be used for.)
+- The saved card: from the moment a membership is paused or ended it is used for nothing new. It
+  is removed at Stripe only when nothing that still needs it is open, such as a hold for added
+  time on an earlier call.
 - `membership_months`: one per month, **written down before its payment is tried**, and one at
-  most per membership and running number. The price and time fixed for it, the fee terms, its one
-  payment at Stripe, the card's country, where it stands (to pay, running, closed for bookings,
-  finished, given up), its start and end, the free money and the part of it that came back because
-  of the host, whether its fixed 30 cents has been placed, and whether its charge is disputed.
-- `membership_refunds`: one per pay-back to the card from a month. The amount, why (month end, membership ended, cancelled within the 3 days, came back after the month's end,
-  a payment that went through too late), the
+  most per membership and running number. The agreement it belongs to, the price and time fixed
+  for it, the fee terms, its one payment at Stripe, the card's country, the bank's time for the
+  hold and the hold's end as Stripe reports it, its start and end, the free money and the part of
+  it that came back because of the host, whether its fixed 30 cents has been placed, and whether
+  its charge is disputed. Where it stands:
+  - *to pay*: written down, no hold yet (the first try, or tries after a failure);
+  - *held*: the hold is in place, the member has their time, no money is in any place;
+  - *running*: the whole amount is confirmed taken and the six places are filled;
+  - *closed for bookings*, then *finished*: as under "The money";
+  - *given up*: it never became money: "Cancel now", a hold that was gone, or 7 days without a
+    payment.
+  Taking the money and letting a hold go are money actions like any other: written down first,
+  and "being taken" or "being let go" until Stripe's answer is known.
+- `membership_refunds`: one per pay-back to the card from a month. The amount, why (month end, membership ended, came back after the month's end, a payment that went through
+  too late), the
   call it came from if any, and whether it is in progress, done or failed.
 - `payments` gets the kind, a link to a month, and "how much of this came from money that came
   back because of the host". The database makes sure a `card` or `member_call` payment has a call,
@@ -413,30 +500,36 @@ customer".
 
 **New code**, in `src/lib/membership/`:
 
-- `rules.ts`: the plain rules, with tests. Limits on price and time; when a month ends; when "Cancel now" is offered; what a
+- `rules.ts`: the plain rules, with tests. Limits on price and time, also against the host's weekly hours; when a month ends; when
+  "Cancel now" is offered and until when it is accepted; when held money is taken; what a
   booking sets aside and from which kind of money; what comes back and how it is marked; how a
   month's free money is split at its end; the days a failed payment is tried again.
 - `months.ts`: the only code that changes a month's numbers. One small function per movement of
   money, each taking the month's lock and each safe to run twice.
 - `offers.ts`, `join.ts`: the offer; inviting (the server itself checks that the two have really
   had a call), taking an invitation back, joining.
-- `charge.ts`: the monthly payment, as described under "The monthly payment".
+- `charge.ts`: the monthly payment, as described under "The monthly payment": the hold, the
+  taking, the tries, giving up. It uses the app's existing way of holding money on a card and
+  taking it later, with a month as the owner instead of a call's payment.
 - `book.ts`: booking as a member.
-- `ending.ts`: the two ways a membership stops, which must never be mixed.
+- `ending.ts`: the three ways a membership stops, which must never be mixed.
   - **The renewal is stopped** (the member cancels the normal way, or the host switches the offer
     off). Nothing else changes: the paid month, its bookings and booking from it all go on, and
-    nothing is paid back. Only this can be switched back on, strictly before the paid month ends,
-    with the checks listed under "Switching back on"; switching back on is recorded.
-  - **Ended at once** (the host ends it, a block, a pause, a suspension, a closed account, a
-    dispute, a payment given up, the member's "Cancel now"). In one step it is marked as ended, so
-    that no payment and no booking can start any more, and the clean-up is written down as work to
-    do: cancel the upcoming member calls, cancel an open payment, pay back the free money. The
-    helper repeats that work until all of it is done. When something else causes the ending, the
-    instruction to end is saved in the same database step as that action, so it cannot be lost
-    between the two. A payment that was cancelled at Stripe is never brought back to life, and the
-    saved card is removed only after an ending at once.
-  - "Cancel now" checks its two conditions inside the locked step, so a booking, added time or
-    the host's ending at the same moment gives exactly one outcome and one pay-back.
+    nothing is paid back. It can be switched back on, strictly before the paid month ends;
+    switching back on is recorded. When the paid month ends, the membership is paused.
+  - **Paused** (the month ended after the renewal was stopped; "Cancel now"; a failed payment
+    given up). There is no current month and no new monthly payment. Whatever is still open from
+    earlier months (a call being settled, a pay-back, added time paid by card) is finished as usual. Resuming is joining again without an invitation: every check that joining
+    makes, the host's offer as it is then, a new agreement, a card, a new month.
+  - **Ended at once** (the host ends it, a block, a pause of an account, a suspension, a closed
+    account, a dispute). In one step it is marked as ended, so that no payment and no booking can
+    start any more, and the clean-up is written down as work to do: cancel the upcoming member
+    calls, cancel an open payment or let its hold go, pay back the free money. The helper repeats
+    that work until all of it is done. When something else causes the ending, the instruction to
+    end is saved in the same database step as that action, so it cannot be lost between the two.
+    Only a new invitation brings an ended membership back.
+  - A payment that was cancelled at Stripe is never brought back to life; a new month always gets
+    a new payment.
 - `jobs.ts`: what the always-on helper does: renewals, new tries, reminders, closing months,
   pay-backs, endings, and finishing anything that was written down and not confirmed.
 - `emails.ts`: invitation; joined (to both); the monthly receipt; the reminder; payment failed; a pay-back; ended (to both).
@@ -457,6 +550,12 @@ of its own, not "ask" followed by "accept". It keeps, from today's two steps:
   running and not disputed, the call ending before
   the month ends, enough free money, the time open for a member (general or member-only hours,
   the host's notice, how far ahead, time off).
+
+When the month's money is still only held, the order is: check everything about the booking,
+write down the member's request and the taking, take the money at Stripe (in `charge.ts`), and
+only then run the booking step, which checks everything again. If the money was taken and the
+booking can then no longer be made, the month stays paid and the member is told (see "The awkward
+cases"); if the app stops in between, the helper finishes the taking and the member books again.
 
 It does not apply: the limits on waiting requests and the wait after a decline (nothing waits, and
 the host invited this person), and the rules for free calls (a member call is a paid call with a
@@ -527,10 +626,13 @@ member booking cannot land on an instant request; the check script proves it.
 - Ratings (`src/lib/ratings/`) accept a call booked as a member. The booked-call emails and the
   reminders get wording for members (no "the host accepted", no card hold). A member booking
   records the moment it was made, which the host's notes and the booking page rely on.
-- Endings call `ending.ts` from: blocking (`safety/blocks.ts`, also when a report blocks),
-  pausing (`safety/reports.ts`), suspending a host (`booking/moderation.ts`, the admin's action),
-  closing an account (`profiles/closing.ts`), the host's "End membership", the offer switched off
-  (at the month's end), a dispute, and a payment given up after 7 days.
+- Ending at once is called from: blocking (`safety/blocks.ts`, also when a report blocks), an
+  account paused by the founder (`safety/reports.ts`), suspending a host (`booking/moderation.ts`,
+  the admin's action), closing an account (`profiles/closing.ts`), the host's "End membership",
+  and a dispute. Pausing a membership is called from: the end of a month whose renewal was
+  stopped, "Cancel now", a payment given up after 7 days, the offer or the founder's switch being
+  off when a renewal comes due, and the host's hours no longer covering the membership at a
+  renewal. (An account paused by the founder and a paused membership are two different things.)
 - The host's price (`profiles/profiles.ts`): the checks under "Changing the offer", made in the
   same locked step that writes down and starts a monthly payment, so a month can never start at a
   price above the regular one. A month whose payment could still go through counts.
@@ -560,18 +662,21 @@ part has to repair.**
 Delivers:
 
 - The database changes and the shared money functions. Every payment that exists today stays a
-  card payment, and membership money never passes through the code for card holds.
-- The monthly payment with its tries; paying back; the end of a month, with expired money; disputes;
-  the helper's recovery; the health check.
+  card payment. A member call's payment never passes through the code for card holds; the
+  monthly payment itself does use the app's way of holding and taking money, with a month as its
+  owner.
+- The monthly payment: the hold, taking the money, the tries, giving up; paying back; the end of a
+  month, with expired money; disputes; the helper's recovery; the health check.
 - Collecting, as far as a month needs it without any call: a host can collect expired money, a
   share on its way to a host cannot be paid back, and the earnings and admin lists show a payment
   that has no call.
 - The ways a membership stops, as far as money goes. Stopping the renewal and switching back on.
-  Ending at once: no further charge, an open payment cancelled, free money paid back, and the
-  instruction to end saved together with whatever causes it. "Cancel now" with its two conditions.
-- The rules that protect money wherever they are enforced: the terms a member agreed to, the price
-  rule against the regular price, and the membership's saved card being safe from the job that
-  removes cards.
+  Pausing and resuming. Ending at once: no further charge, an open payment cancelled, free money
+  paid back, and the instruction to end saved together with whatever causes it. "Cancel now",
+  which lets a hold go.
+- The rules that protect money wherever they are enforced: the terms a member agreed to, the price rule against the regular price, the rule that a month
+  never includes more time than the host's weekly hours offer, and the membership's saved card
+  being safe from the job that removes cards.
 - The founder's switch, enforced on the server, and off.
 
 Done when:
@@ -587,7 +692,8 @@ Done when:
 
 Delivers:
 
-- Member-only hours, booking as a member, joining the call, settling it, cancelling, reviews,
+- Member-only hours, booking as a member (with the month's money taken first when it is still
+  only held), joining the call, settling it, cancelling, reviews,
   refund requests and refunds, collecting a call's share, ratings, and the emails about calls.
 - Added time, from the membership or by card, each with its own rules, and never a card charge the
   member did not see and press.
@@ -608,7 +714,7 @@ Done when:
 Delivers:
 
 - The host's offer, inviting, joining with the recorded agreement, the "Pay now" page for a failed
-  payment, cancelling, the member list, monthly receipts, the reminder, and the admin page.
+  payment, cancelling, resuming, the member list, monthly receipts, the reminder, and the admin page.
 - Every remaining page, connected to what parts one and two built. It adds no money rule.
 
 Done when:
@@ -645,7 +751,8 @@ one they are a member of.
 ## Not in the first version
 
 - "Call now" paid from a membership (instant calls stay as they are, by card).
-- More than one offer per host, yearly memberships, free trials, pausing, gifts.
+- More than one offer per host, yearly memberships, free trials, gifts.
+- A limit on the time a host has promised to all members together.
 - Carrying unused time into the next month.
 - Inviting someone who has never had a call with the host.
 - Moving a member's booking to another time (as for all bookings: cancel and book again).
@@ -681,13 +788,29 @@ one they are a member of.
   - the member cancelling, with a booking made afterwards inside the paid month, and switching
     back on; switching back on after the host has switched the offer off (refused) and after the
     month has ended (refused);
-  - "Cancel now" within 3 days with nothing booked (the whole month paid back, ended at once);
-    with a booking made and cancelled again (not offered); a second before and a second after
-    72 hours; after a renewal and after a month paid late; pressed twice; pressed at the same
-    moment as a booking, as added time and as the host ending the membership (one outcome, one
-    pay-back each time); a second time with the same host after a new invitation (not offered);
-  - switching back on with a block, a paused account, a host no longer approved, the card gone
-    (a card is asked for), and in the same moment as the month's end; the host ending a membership with a call still
+  - "Cancel now" while the money is only held (the hold is let go, nothing is charged, no fee,
+    the membership paused); a second before and a second after 72 hours; the money taken at
+    72 hours and 3 minutes; after a renewal and after a month paid late; pressed twice; pressed at
+    the same moment as a first booking, as the taking and as the host ending the membership (one
+    outcome each time);
+  - a first booking that takes the money and then books; one where the time is lost between the
+    two (the month stays paid, the member is told); a hold that Stripe reports as shorter than
+    usual (taken 12 hours before its end, "Cancel now" shown until then); "Cancel now" in the
+    3 minutes after the 72 hours (accepted); a timed taking that runs twice; a different amount
+    reported by Stripe (no time given, the founder is shown it);
+  - an offer with more time than the host's weekly hours hold (refused); the host cutting hours
+    below the offer (months that started go on; a renewal is not charged and the membership is
+    paused; joining and resuming refused); the host switching the offer off with one month only
+    held and one payment being tried again;
+  - a member resuming twice, with each month showing the agreement it was started under; a card
+    kept after pausing while added time by card from an earlier call is still open;
+  - a first booking that takes the money and then books (the plain case); one where Stripe refuses the taking and
+    one where its answer does not arrive (nothing booked); a hold the bank let go early;
+  - a paused member: books only like any customer; resumes at a changed offer with a new
+    agreement; cannot resume with the offer off, the founder's switch off or a block; is ended by
+    the host while paused; a failed payment given up after 7 days (paused, not ended);
+  - switching back on with a block, a paused account, a host no longer approved, and in the
+    same moment as the month's end; the host ending a membership with a call still
     booked, and with a call under way; a block; a pause; a closed account while a renewal goes
     through; the offer switched off and on again; the founder's switch off with months running;
   - a changed offer (a member keeps their terms, a new member gets the new ones); the regular price set below the
@@ -758,8 +881,9 @@ that. Its points, all worked in above:
    the month, so it also covers a month with no calls yet.
 4. **Never charged twice.** The draft wrote a month down only once it was paid. It is now written
    down before the first try, with one payment at Stripe that every try uses; a payment still open
-   when the membership ends is cancelled; a month starts when Stripe says it was paid; and how a
-   month's end date is worked out is said (31 January, 28 February, 28 March).
+   when the membership ends is cancelled; a month starts when Stripe says it was paid (since changed: when the hold is in place, see "The
+   founder's later decisions"); and how a month's end date is worked out is said (31 January,
+   28 February, 28 March).
 5. **Rounding.** Setting aside rounds down, but today's charge rounds to the nearest cent, so a
    full 5-minute call at $5.00 would have cost a cent more than was set aside. The charge is now
    the usual one, never more than was set aside; the 50-cent rule is kept; a few cents left at the
@@ -822,7 +946,7 @@ the parts) and three partly resolved. It kept the design. Its points, all worked
 
 Taken from its list of cuts: a member keeps the terms they joined with (no changed terms for
 existing members, no "Agree" step), a cancelled membership cannot be switched back on (a new
-invitation instead), and no notices on the home page (the emails and "Your account" do that job).
+invitation instead; since reversed by the founder, who also added pausing), and no notices on the home page (the emails and "Your account" do that job).
 Kept on its advice: the month's books, pay-backs that are tried again, endings that cannot be
 lost, disputes, the health check and the founder's switch.
 
@@ -865,15 +989,61 @@ the dispute rules. Its points, all worked in above:
    part of the plan. They are now two, with only the first able to be switched back on.
 2. **"Cancel now" could be used again and again**, with a new invitation each time, to look at
    member-only times for free at Connect's cost. It is now offered once per member and host. The
-   cost of one such pay-back is written out, up to the largest possible month.
+   cost of one such pay-back is written out, up to the largest possible month. (Superseded: with a
+   hold there is no pay-back and no limit; see "The founder's later decisions".)
 3. **Switching back on** now lists what it checks, charges nothing, and shows the amount and the
    next payment date.
 4. **Things that can happen at the same moment** (cancelling, switching back on, a renewal, an
    ending) now take one lock on the membership, and a payment cancelled at Stripe is never
    revived.
 5. **"3 days"** is now exact: less than 72 hours after Stripe says the payment went through, for
-   every month, checked inside the locked step.
+   every month, checked inside the locked step. (Superseded in its details by the hold; see "The
+   founder's later decisions".)
 
 Also taken: a disputed month can cost Connect the whole of each disputed charge, and a member can
 dispute more than one; Stripe is asked about large charges before going live; the friend test
 comes before the public launch.
+
+## The founder's later decisions (17 November 2026)
+
+- **A hold first.** The founder pointed out that letting a card hold go costs nothing, while the
+  plan took the month's money at once and would have paid a card fee on every "Cancel now". The
+  month's amount is now held for the first 72 hours and taken at the first booking or after 72
+  hours and 3 minutes. The founder asked for a cushion; the 3 minutes are the app's existing one.
+- **Pausing.** The founder's rule: when the host ends a membership, the person is no longer a
+  member; when the member stops, for example because money is short, the membership is paused and
+  they can come back by themselves. So a membership that the member cancelled, or whose payment
+  was given up, is paused and not ended.
+- **Left to the builder:** "Cancel now" is no longer limited to once per member and host, since it
+  costs nothing now.
+- **Confirmed:** while a payment has failed the member cannot book as a member, and is told at
+  once.
+- **More time than the host offers.** The founder asked what happens when a host offers 100 hours
+  to a member and their calendar does not hold 100 hours in a month. That is now refused: the time
+  included can never be more than the host's weekly hours offer in four weeks, checked when the
+  offer is saved and whenever a month is about to start.
+
+## Astra's check of the hold and of pausing (17 November 2026)
+
+Verdict: **ready with changes**. It confirmed that letting a hold go carries no card fee, that
+the app already places holds on saved cards in the background for calls, and that the price rule
+and the checks for resuming hold. Its points, all worked in above:
+
+1. **A hold that is gone cannot be tried again on the same payment.** That month is closed as not
+   paid and a new month with the same terms gets its own payment.
+2. **"Paused, nothing owed" was too strong.** Calls being settled, pay-backs and added time by
+   card from earlier months are still finished, and the card is removed only when nothing needs
+   it.
+3. **The money can be taken and the booking still fail.** The order is now written out, and what
+   the member is told when the time was lost in between.
+4. **Times count from the bank's time for the hold**, the hold's real end is stored, and the
+   "almost a day" of room is stated as it is (23 hours 57 minutes).
+5. **One cut-off for "Cancel now":** accepted until the money is really taken. Cancelling the
+   normal way never takes money by itself.
+6. **What a member agreed to is kept for every joining and resuming**, not overwritten.
+7. **Switching the offer off** leaves a month that is only held to go on, and pauses at once a
+   membership whose payment was being tried again.
+8. **The states of a month are spelled out**, and nothing is given before the whole amount is
+   confirmed taken.
+9. **"Costs nothing" was too absolute.** There is no card fee, but a bank may show a hold like a
+   charge for days, and Stripe's optional checks can cost a few cents.
