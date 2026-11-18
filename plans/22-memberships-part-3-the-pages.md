@@ -206,8 +206,10 @@ No change to the database.
   check for stale emails does not know this key (`notifications/delivery.ts:159`), and an email with no end could arrive after the payment it announces. For the
   same reason this key is added to that check: when the email is about to be sent, the
   membership is looked at once more, and a reminder written for a renewal is dropped if the
-  renewal was stopped, or the membership paused or ended, in the meantime (the member has been
-  told that by its own email).
+  renewal was stopped, or the membership paused or ended, in the meantime (the member has been told that by its own email). In
+  the code that is a branch of its own in `noLongerWanted`, placed before the place where it
+  gives up on a key it does not know, and it does not look at the person's choice about
+  reminder emails. "A renewal is coming" includes the founder's switch covering that host.
 - **What each page shows in the states that are easy to forget** (the words are the
   rulebook's; this is the list the checks go through):
 

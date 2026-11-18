@@ -157,7 +157,9 @@ invitation `invite_id`, `invited_at`, `invite_expires_at`, `invite_offer_version
   to. `current_month_id` is the one month that may change the membership's state. Every step
   that would make a membership `active`, `unpaid` or `paused` because of a month, or write a
   renewal or a replacement for a month, first checks under the membership's lock that this month
-  is `current_month_id` and of the membership's `period`. A month that is not may still finish its own money, and nothing else.
+  is `current_month_id` and of the membership's `period`. A month that is not may still finish its own money, and nothing else, with
+  the one exception the rulebook's "Disputes" makes: a dispute over any month ends the pair's
+  live membership.
   `current_month_id` is set in the same step that writes down a first month, a renewal or a
   replacement; it is cleared when the membership is really paused or ended; it stays when a
   renewal is merely stopped. `period` is raised once per joining or resuming request, however
@@ -240,8 +242,10 @@ status; by month.
   A host's collection starts one transfer for each of several payments in one step today
   (`collect.ts:178`); transfers stay owned by their payment, so this still works, also for
   several payments of one month.
-- `site_switches`: `memberships_on`, false; and `memberships_hosts`, the hosts the founder
-  names (empty for every existing row, which means "everyone" once the switch is on).
+- `site_switches`: `memberships`, one of `off` (every existing row), `named` and `everyone`; and
+  `memberships_hosts`, the hosts the founder names. The three positions are stored as three
+  words on purpose: with `named` and nobody on the list, memberships are on for nobody, so
+  taking the last host off the list can never open memberships to everyone.
 
 ## 1a: the money of a membership that exists
 
@@ -415,9 +419,13 @@ says; it is `finished` by the rulebook's step 6. **An ending comes before the mo
 the membership and the month locked, closing first looks whether the membership was ended **before this month's end** (its
 `ended_at` earlier than the month's `ends_at`) and its clean-up is not done. If so, the month's
 free money is owed back under `ending:<month>` in that same step and nothing of it expires. A
-membership that was ended only after the month's end changes nothing for that month: its free
-money expired at its end, by the rulebook's step 5. The ending's clean-up applies the same test
-to each month, so the result is the same whichever of the two jobs gets there first. (A month whose
+membership that was ended only after the month's end changes nothing for that month: its
+ordinary unused money expired at its end and its host-caused part is paid back, both by the
+rulebook's step 5. The ending's clean-up applies the same test to each month of the membership
+on its own, older ones too (being the current month or not plays no part in this), so the result
+is the same whichever of the two jobs gets there first. A month that is only `held` has no free
+money: its hold is let go. A frozen month stays frozen through all of this, and if its dispute is
+won, what is still free is paid back under `won:<month>`, also after the month's end. (A month whose
 dispute is open or lost stays frozen.) A month that was closed only to pay back a charge found
 after the fact renews nothing. A renewal is written down under
 `renewal:<month>` when the rulebook's "The monthly payment" and "Room for members" allow one, and
@@ -528,11 +536,11 @@ that takes a lock of its own on the card's id (`pg_advisory_xact_lock` on `card:
   helper asking Stripe.
 - `health.ts` also reports, each on its own: a PaymentIntent asked for and not saved for
   6 minutes; a held month 5 minutes past `take_at`; a try 5 minutes past `next_try_at`; a month
-  5 minutes past `give_up_at` not given up; a running month 5 minutes past its end not closed; a
-  renewal not written 5 minutes after its month closed; a pay-back owed for 2 hours; an ending
+  5 minutes past `give_up_at` not given up; a running month 5 minutes past its end not closed; a renewal not written 5 minutes after its month closed, when one was really due (not for a
+  membership whose host the switch does not cover, which is paused instead); a pay-back owed for 2 hours; an ending
   not cleaned up after 10 minutes; a month with `problem`.
-- The switch: `membershipsOn` and the named hosts in `switches()`, and one function that answers
-  "are memberships on for this host?" (on, and either nobody is named or this host is), which
+- The switch: its position and the named hosts in `switches()`, and one function that answers
+  "are memberships on for this host?" (`everyone`, or `named` and this host is on the list), which
   every place that checks the switch calls, so nothing can check the plain switch by mistake;
   `setSwitches` takes only what changes; the form on `admin/reports`, where the founder names
   hosts by their handle; one line in `scripts/safety-check.ts`, which compares all switches word
@@ -614,8 +622,8 @@ name in the rulebook's "How the parts connect".
 ## The order it can safely go in
 
 Nothing is live, so each pull request is merged in one go: the migration, then the code, then
-the scripts. The check script turns the founder's switch on in the local database for the
-journeys that start or renew a membership, turns it off again when it ends, and has journeys of
+the scripts. The check script sets the founder's switch (both its position and its list) in the local
+database for the journeys that start or renew a membership, sets it back to `off` when it ends, and has journeys of
 its own for what happens while it is off. The old code works on the new tables. After 1a the switch exists and is off, and no
 code path can start a membership: only the check script makes one, directly in the database.
 
@@ -699,7 +707,10 @@ from the others:
   from before the pause (the membership of today is ended; the new month's free money is paid
   back; the old month is frozen).
 - *The named hosts:* with the switch on for one named host, that host's membership works from
-  end to end, and for another host every step is refused as if the switch were off.
+  end to end, and for another host every step the off switch forbids is refused; a host taken
+  off the list is treated as if the switch had gone off for her (her members' months go on, and
+  are paused at their end without a renewal); with `named` and an empty list nobody can start
+  anything.
 - *A charge found after the fact:* on the current month (the membership paused, the card
   retired, everything owed back, nothing renewed) and on an old month (only its money changes).
 - *Two callers, one PaymentIntent:* the second saves its id after the first's hold was accepted

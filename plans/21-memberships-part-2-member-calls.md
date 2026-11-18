@@ -299,8 +299,10 @@ The clean-up of an ending cancels the membership's upcoming member calls through
 as the founder's cancellation, so each one's money comes back; with the membership ended it is
 owed to the card. A call under way is left alone; when it is settled, what comes back is owed to
 the card. A dispute cancels the
-upcoming member calls too, and the month is frozen as plan 20 says: their money stays set
-aside until the dispute is won.
+upcoming member calls too. Only money that belongs to the **disputed month** is frozen, as plan
+20 says, and stays set aside until that dispute is won. A cancelled call that was booked from
+another month (the dispute may be about an older one) gives its money back in the ordinary way,
+which after an ending means to the card.
 
 ### Ratings, reminders, emails, the health check
 
@@ -424,7 +426,8 @@ the test customer; the money record; work still owed; the outcome written out).
   short: the card charge is taken early, the member can still ask for the full 24 hours, and
   the one request is answered for the member's part and refunded for the card's.
 - *A frozen month:* a call cancelled and a call not yet settled when a dispute opens (nothing
-  moves, nothing counts as late); won (settled, owed back); lost (still nothing).
+  moves, nothing counts as late); a dispute over an older month while a call is booked from
+  today's month (that call is cancelled and its money paid back; only the old month is frozen); won (settled, owed back); lost (still nothing).
 - *Giving back:* the same partial amount pressed twice (once); two different partial amounts
   (both); while a share is written down for collecting (refused); the first amount of the
   month, the one carrying the fixed fee, given back.

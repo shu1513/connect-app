@@ -54,7 +54,7 @@ What each side gets:
 | More time than the host offers | Not allowed. The time of **all of a host's members together** can never be more than the host's weekly hours offer in four weeks. Five members with 2 hours each need a host with at least 10 hours a month. |
 | When a host cuts their hours and not everyone fits any more | The host chooses, in the same step as cutting the hours, what happens to each member: keep them, offer them less time, or pause them after this month. The page shows her first who is affected, and which open invitations will be taken back. |
 | Less time instead of a pause | The host can offer a member a smaller time at that member's own price per 15 minutes, so they pay less. The member accepts or says no. If they say no, or do not answer before their month ends, they are paused. |
-| The founder's switch | A switch on the admin page, "Memberships", with three positions: **off**, **on for the hosts the founder names**, and **on for everyone**. It is off until the whole feature is built and tried, and "on for the hosts the founder names" is how the friend test is run while nobody else can use memberships. A host who is not named is treated exactly as if the switch were off. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
+| The founder's switch | A switch on the admin page, "Memberships", with three positions: **off**, **on for the hosts the founder names**, and **on for everyone**. It is off until the whole feature is built and tried, and "on for the hosts the founder names" is how the friend test is run while nobody else can use memberships. A host who is not named, or who is taken off the list, is treated exactly as if the switch were off for her; with nobody named, memberships are on for nobody. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
 | How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
 | How the monthly payment is taken | Connect charges the member's saved card itself each month, first as a hold and then for real (see "The monthly payment"). Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
 
@@ -867,7 +867,7 @@ anything here without this table being changed first.
 
 | Handed over | Built in | Used in |
 | --- | --- | --- |
-| The tables `membership_offers`, `memberships`, `membership_invitations`, `membership_agreements`, `membership_cards`, `booking_cards`, `membership_months`, `membership_refunds`; on `payments` the `kind`, `month_id` and `host_caused_cents`; a month as a second owner of money actions and of the money record; the switch `memberships_on` (migration `0027_memberships`) | 1a | every later part |
+| The tables `membership_offers`, `memberships`, `membership_invitations`, `membership_agreements`, `membership_cards`, `booking_cards`, `membership_months`, `membership_refunds`; on `payments` the `kind`, `month_id` and `host_caused_cents`; a month as a second owner of money actions and of the money record; the switch's position `memberships` (`off`, `named`, `everyone`) and its list `memberships_hosts` (migration `0027_memberships`) | 1a | every later part |
 | `bookings.month_id`, `weekly_hours.members_only`, `call_extensions.paid_from` (migration `0028_member_calls`) | 2a | 2b, 3a, 3b |
 | No database change | | 3a, 3b |
 | `months.ts`: the month's lock, and the movements open, expire, owe a pay-back, a pay-back done, the dispute's state | 1a | 2a adds set aside, used and come back **to this same file** |
@@ -893,7 +893,7 @@ anything here without this table being changed first.
 time its `offer_id`, and a "Join" or "Resume" form a `request_id` made when the page was drawn;
 all three are part one's, and part three's pages only pass them on.
 
-**The founder's switch in the check scripts.** Each script turns it on in the local database
+**The founder's switch in the check scripts.** Each script sets it (its position and its list) in the local database
 for the journeys that start or renew a membership and off again at its end, and has a journey
 of its own for what goes on working while it is off.
 
