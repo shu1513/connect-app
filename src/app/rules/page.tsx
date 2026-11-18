@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { RULES } from "@/lib/terms";
 import { SitePage } from "@/components/site-page";
+import { warm } from "@/components/warm-ui";
 
 export const metadata: Metadata = { title: "The rules" };
 
 /** The rules of the site. Everyone accepts them at sign-up, and they are linked from every call page. */
 export default function RulesPage() {
   return (
-    <SitePage className="mx-auto w-full max-w-2xl px-4 py-16">
-      <h1 className="text-2xl font-semibold">The rules</h1>
+    <SitePage warm className={warm.document}>
+      <h1 className={warm.title}>The rules</h1>
       <p className="mt-4 text-sm">
         Connect is for conversation: advice, coaching, or a chat with someone you follow, on a private one-to-one video call.
         To keep it safe for everyone, these things are not allowed:

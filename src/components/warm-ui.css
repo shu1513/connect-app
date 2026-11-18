@@ -1,0 +1,278 @@
+/*
+ * The warm look of the visitor pages. Every rule is under a warm-* class, so a page only gets it
+ * when it asks for it (SitePage with `warm`, or the front page). A plain stylesheet rather than a
+ * CSS module: this app's Turbopack rule for *.css hands every .css file to Tailwind as plain CSS,
+ * which leaves a module's class names undefined.
+ */
+.warm-root {
+  min-height: 100vh;
+  background: #fffbf7;
+  color: #1c1917;
+  color-scheme: light;
+}
+
+.warm-page {
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.warm-focus:focus-visible,
+.warm-page :is(a, button, input, select):focus-visible {
+  outline: 2px solid #c2410c;
+  outline-offset: 4px;
+}
+
+.warm-page :is(a, button) {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.warm-page a {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.warm-page a:hover {
+  color: #9a3412;
+}
+
+/* Shared children (ratings, sign-out, forms) keep their old look outside this shell. */
+.warm-page :is([class~="opacity-60"], [class~="opacity-70"], [class~="opacity-80"]) {
+  color: #57534e;
+  opacity: 1;
+}
+
+.warm-page :is([role="alert"], [class~="text-red-600"]) {
+  color: #b91c1c;
+}
+
+.warm-header {
+  border-bottom: 1px solid #e7e5e4;
+}
+
+.warm-headerInner {
+  display: flex;
+  width: 100%;
+  max-width: 1040px;
+  margin: auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 20px 24px;
+  font-size: 15px;
+}
+
+.warm-brand {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.warm-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 20px;
+}
+
+.warm-navLink {
+  color: #44403c;
+  text-underline-offset: 2px;
+}
+
+.warm-navLink:hover {
+  text-decoration: underline;
+}
+
+.warm-page .warm-signup {
+  border-radius: 9999px;
+  padding: 10px 18px;
+  background: #1c1917;
+  color: white;
+  font-weight: 600;
+}
+
+.warm-page .warm-signup:hover {
+  background: #44403c;
+  color: white;
+}
+
+.warm-footer {
+  margin-top: auto;
+  border-top: 1px solid #e7e5e4;
+}
+
+.warm-footerLinks {
+  display: flex;
+  max-width: 1040px;
+  margin: auto;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 20px;
+  padding: 16px 24px 32px;
+  font-size: 14px;
+  color: #57534e;
+}
+
+.warm-button,
+.warm-auth button[type="submit"] {
+  min-height: 44px;
+  cursor: pointer;
+  border-radius: 9999px;
+  background: #c2410c;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+}
+
+.warm-button:hover,
+.warm-auth button[type="submit"]:hover {
+  background: #9a3412;
+}
+
+.warm-secondary,
+.warm-auth form button[type="button"],
+.warm-auth > div > button[type="button"],
+.warm-slots a {
+  min-height: 44px;
+  cursor: pointer;
+  border: 1px solid #a8a29e;
+  border-radius: 9999px;
+  background: white;
+  padding: 10px 18px;
+  font-weight: 600;
+  color: #1c1917;
+}
+
+.warm-secondary:hover,
+.warm-auth form button[type="button"]:hover,
+.warm-auth > div > button[type="button"]:hover,
+.warm-slots a:hover {
+  border-color: #c2410c;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.warm-page button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.warm-input,
+.warm-auth input:not([type="checkbox"]):not([type="hidden"]),
+.warm-auth select {
+  min-height: 44px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid #a8a29e;
+  border-radius: 12px;
+  background: white;
+  padding: 10px 14px;
+  font-size: 16px;
+  color: #1c1917;
+}
+
+.warm-card,
+.warm-auth,
+.warm-document,
+.warm-available {
+  border: 1px solid #e7e5e4;
+  border-radius: 24px;
+  background: white;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgb(28 25 23 / 3%);
+}
+
+.warm-title {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.warm-auth,
+.warm-document {
+  width: calc(100% - 32px);
+  margin: 32px auto 48px;
+}
+
+.warm-auth {
+  max-width: 448px;
+}
+
+.warm-auth label:has(input[type="checkbox"]) {
+  min-height: 44px;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.warm-auth input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  accent-color: #c2410c;
+}
+
+.warm-auth [role="status"] {
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  padding: 12px;
+}
+
+.warm-document {
+  max-width: 704px;
+}
+
+.warm-document p,
+.warm-document li {
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.warm-searchPill {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 28px;
+  background: white;
+  padding: 8px;
+  box-shadow: 0 1px 2px rgb(28 25 23 / 6%), 0 8px 24px rgb(28 25 23 / 8%);
+}
+
+.warm-searchInput {
+  min-height: 44px;
+  min-width: 0;
+  flex: 1;
+  border-radius: 9999px;
+  background: transparent;
+  padding: 12px 18px;
+  font-size: 16px;
+}
+
+.warm-searchInput::placeholder {
+  color: #78716c;
+}
+
+.warm-available {
+  border-color: #c2410c;
+  background: #fff7ed;
+}
+
+@media (min-width: 640px) {
+  .warm-searchPill {
+    flex-direction: row;
+    border-radius: 9999px;
+  }
+
+  .warm-auth,
+  .warm-document {
+    margin-top: 48px;
+    padding: 32px;
+  }
+}
