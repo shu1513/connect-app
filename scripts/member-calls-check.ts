@@ -702,6 +702,14 @@ async function main() {
     check("a late cancellation uses everything that was set aside", late === "late_charge" && latePayment.status === "charged" && latePayment.chargedCents === 1500 && latePayment.chargeReason === "late_cancel" && (await M(m.monthId)).usedCents === 1500, `${late} ${latePayment.status}`);
     await settleCancelledCalls(new Date());
     check("the helper finds nothing left to settle for the cancelled calls", (await M(m.monthId)).setAsideCents === 3000);
+    // Booking and cancelling over and over: the member has cancelled two bookings themselves today; three more make five.
+    for (let i = 0; i < 3; i++) {
+      const again = await booked(m, { nth: 6 + i });
+      await cancelCall({ call: again.call, payment: await pay(again.call), by: "customer", now: new Date() });
+    }
+    const loop = await refused(book(m, (await times(m)).filter((at) => hourInNewYork(at) < 13)[9]));
+    check("after five bookings a member cancelled themselves in one day, booking as a member waits until tomorrow", /cancelled or not finished several bookings/.test(loop ?? "") && (await M(m.monthId)).setAsideCents === 3000, loop);
+    check("the booking the host cancelled is not counted against the member", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, m.member.id), eq(schema.bookings.stage, "cancelled")))).length === 6);
     await audit("after cancelling", m);
   });
 
