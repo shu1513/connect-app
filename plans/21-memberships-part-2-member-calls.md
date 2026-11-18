@@ -106,7 +106,13 @@ came from host-caused money.
 
 ### Member-only hours (`booking/bookings.ts`, `booking/slots.ts`, `booking/calendar.ts`)
 
-`Offer.weekly` carries `membersOnly` for each stretch. `offerOf` itself is not narrowed: "call
+`Offer.weekly` carries `membersOnly` for each stretch. **A member must be able to book with a
+host whose page is hidden** (the rulebook's "A hidden host page"), and `offerOf` returns nothing
+for a hidden host today (`bookings.ts:88`). So it gets a second way of being asked, "for a
+member", which the member's open times and `bookAsMember` use, and only after part one's
+`access.ts` has said that this person is a member of this host: it does not refuse a hidden
+host, and refuses everything else it refuses today (a host who is not approved, closed or
+paused, or has no calendar). Asked the ordinary way, `offerOf` is not narrowed and not widened: "call
 now" reads it too (`instantOffer`, `bookings.ts:138`), and the rulebook leaves "call now" as it
 is, also for a host whose weekly hours are all for members. The stretches are told apart where a
 time for a call later is worked out and checked: `slotInput` (`:159`), used by `openTimes` and by
@@ -341,13 +347,15 @@ was booked from a membership" and its list under "Added time". How:
   (`membership` or `card`) and, for `card`, the price shown. `addTimeChoices` returns both for
   each choice.
 - **Asking.** The month is found first; then the membership, the month and the call are locked
-  in that order and everything is read again. If the month's free money covers the request and
-  the longer call still ends before the month ends: the request (`paid_from` "membership") and
+  in that order and everything is read again. First the way the request would be paid **now** is worked out
+  (from the membership if the month's free money covers it and the longer call still ends
+  before the month ends; otherwise by card, at its price). If that is not what the screen had
+  shown, in either direction, or the card price differs, nothing is written and the answer
+  carries the way and the price as they are now, for the member to press again. If it is what
+  was shown and it is the membership: the request (`paid_from` "membership") and
   its `member_call` payment (the request's own minutes, the amount set aside, its host-caused
-  part, the month's card country) are written and the money set aside in one step, and the host
-  can be asked at once. If not, and the screen had shown `membership`: nothing is written, and
-  the answer carries the card price for the member to press again. If the screen had shown
-  `card` with this price: the request (`paid_from` "card") and a `card` payment with the
+  part, the month's card country) are written and the money set aside in one step, and the host can be asked at once. If it is what was shown and it is the card: the request
+  (`paid_from` "card") and a `card` payment with the
   ordinary fee terms (`DEFAULT_FEE_TERMS`, not the call's), and the hold is placed on the membership's card in use (read through part one's
   `cards.ts`) through `placeHoldWithSavedCard`, as today.
   `savedCardOf` is not used for such a call.
@@ -425,7 +433,9 @@ the test customer; the money record; work still owed; the outcome written out).
 - *The health check on a mixed call* (in 2b): added time by card with a short hold that is late
   (reported); a second one whose moment has not come (not reported); both beside a frozen
   month (the member's part not reported, the card's part still is).
-- *Around the call:* a rating by each side; the reminders; a booking on a hidden host's page;
+- *Around the call:* a rating by each side; the reminders; a booking with a hidden host from
+  the times shown to the moment it is booked (it works), and the same asked by someone who is
+  not a member (refused as today);
   the health check answering "not healthy" for a member's money that is overdue, and not for a
   frozen month's.
 - *Collecting:* a call's share with the month's fixed fee on the first amount of the month and not on the second; a card call and a member call in one collection; held back by a request.
@@ -440,7 +450,8 @@ the test customer; the money record; work still owed; the outcome written out).
 **Journeys in 2b**
 
 - *Added time:* from the membership, accepted, used in part (the host leaves); declined; not
-  answered; the app stopping after a request is ended and before its money is back; failed for lack of room in the calendar; shown as "membership" when the money has
+  answered; shown as "by card" when membership money has just come back (nothing is charged,
+  the membership's way is shown for another press); the app stopping after a request is ended and before its money is back; failed for lack of room in the calendar; shown as "membership" when the money has
   just been booked elsewhere (a card price comes back, nothing is charged); by card, with its
   own fee and hold; across the month's end (by card); the fifth request; one call with its own
   payment from the month and added time by card, with one refund request answered for both; a

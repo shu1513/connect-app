@@ -134,7 +134,10 @@ No change to the database.
 
 ### With the founder's switch off
 
-Two different things, which the pages keep apart: **memberships have never been opened** (no
+The switch has three positions (the rulebook's row "The founder's switch"): off, on for the
+hosts the founder names, and on for everyone. Every page and action asks part one's one
+question, "are memberships on for this host?", so a host who is not named sees and can do
+exactly what she could with the switch off. Two different things, which the pages keep apart: **memberships have never been opened** (no
 host has one: the "Membership" part says "Memberships are not open yet" and offers nothing), and
 **selling was stopped while memberships exist**. In the second case, by the rulebook's row "The
 founder's switch", months that have started go on: the host still sees her members and can still
@@ -200,8 +203,11 @@ No change to the database.
   blocked, and it carries the footer of a receipt, not `reminderFooter` and its unsubscribe
   headers, which promise something this email cannot keep. It is written only inside a window
   before the month's end and is given an end of its own no later than that moment: delivery's
-  check for stale emails does not know this key (`notifications/delivery.ts:159`), and an email
-  with no end could arrive after the payment it announces.
+  check for stale emails does not know this key (`notifications/delivery.ts:159`), and an email with no end could arrive after the payment it announces. For the
+  same reason this key is added to that check: when the email is about to be sent, the
+  membership is looked at once more, and a reminder written for a renewal is dropped if the
+  renewal was stopped, or the membership paused or ended, in the meantime (the member has been
+  told that by its own email).
 - **What each page shows in the states that are easy to forget** (the words are the
   rulebook's; this is the list the checks go through):
 
@@ -274,7 +280,7 @@ card, a real bank's hold on a statement, a real renewal a month later, and two r
 ## What stays off after part three
 
 The founder's switch. Turning it on is the founder's step, in two stages, by the rulebook's
-"Before this can go live": first for the friend test, with nobody else able to use it, and for
+"Before this can go live": first for the friend test, for the one host who takes part, and for
 everyone only after the lawyer's and Stripe's points and that test.
 
 ## Questions for Astra's check

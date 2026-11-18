@@ -54,7 +54,7 @@ What each side gets:
 | More time than the host offers | Not allowed. The time of **all of a host's members together** can never be more than the host's weekly hours offer in four weeks. Five members with 2 hours each need a host with at least 10 hours a month. |
 | When a host cuts their hours and not everyone fits any more | The host chooses, in the same step as cutting the hours, what happens to each member: keep them, offer them less time, or pause them after this month. The page shows her first who is affected, and which open invitations will be taken back. |
 | Less time instead of a pause | The host can offer a member a smaller time at that member's own price per 15 minutes, so they pay less. The member accepts or says no. If they say no, or do not answer before their month ends, they are paused. |
-| The founder's switch | A switch on the admin page, "Memberships", off until the whole feature is built and tried. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
+| The founder's switch | A switch on the admin page, "Memberships", with three positions: **off**, **on for the hosts the founder names**, and **on for everyone**. It is off until the whole feature is built and tried, and "on for the hosts the founder names" is how the friend test is run while nobody else can use memberships. A host who is not named is treated exactly as if the switch were off. While it is off nobody can invite, join or resume, no membership can be switched on, no renewal can be switched back on, and no month is renewed. A host can still look after what exists: lower her member price, switch her membership off, pause and end members. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
 | How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
 | How the monthly payment is taken | Connect charges the member's saved card itself each month, first as a hold and then for real (see "The monthly payment"). Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
 
@@ -210,8 +210,10 @@ sentences:
 > you pay less from your next month; your time stays the same. Each month gives you 2 hours of
 > calls with Hana Host. Time you have not used when a month ends expires and is not paid back.
 > You can cancel at any time on "Your account"; your membership then runs to the end of the month
-> you paid for. For the first 72 hours of each month the amount is only held on your card. If you
-> cancel in that time and have not booked anything from that month, nothing is taken.
+> you paid for. At the start of each month the amount is first only held on your card. It is
+> taken when you make your first booking of that month, or after 72 hours, whichever comes first
+> (sooner if your card's hold ends sooner; "Your account" shows the exact time). If you cancel
+> before it is taken, nothing is charged.
 
 The member ticks a box agreeing to this and to their card being kept for the monthly payment (and
 for extra time during a call that their membership time does not cover), enters a card, and the first month's amount is held on it. The membership
@@ -388,7 +390,11 @@ Stripe's answer is still awaited: such a share can neither become free again nor
 
 When a member's bank disputes a monthly charge, the whole month is frozen at once: no new member
 bookings from it, nothing of it can be collected, and nothing is paid back from it (the bank may
-return all of it). The membership ends, and the member's upcoming member calls are cancelled. If
+return all of it). The membership ends, and the member's upcoming member calls are cancelled. This holds
+whichever month is disputed: a dispute over an older month, from before a pause or from an
+earlier membership with the same host, ends the membership the two have now. It is the one case
+where an old month changes a membership; someone who takes a charge back through their bank is
+not charged by that host again without a new invitation. If
 Connect wins, the month goes on from where it stood: money that is still free is paid back,
 because the membership has ended, and money that was already used or had already expired stays as
 it is. If Connect loses, the month stays frozen and the founder settles it by hand, as for a
@@ -850,7 +856,7 @@ Done when:
 - The whole journey passes in a browser, also at phone size, including a failed payment, a
   cancellation, and the founder's switch turned off while months are running.
 - Merging this part does not turn anything on. The founder turns the switch on twice over: once
-  for the friend test, with nobody but the two friends able to use it, and for everyone only
+  for the friend test, for the one host who takes part, and for everyone only
   after the lawyer's and Stripe's points under "Before this can go live".
 
 ### How the parts connect
@@ -869,7 +875,7 @@ anything here without this table being changed first.
 | `payback.ts`: owing a pay-back once under a `source_key` | 1a | 2a: `callreturn:<payment id>:<what>` for what a call gives back, and `giveback:<the refund form's id>` from `membership/give-back.ts` for time a host or the founder gives back |
 | `room.ts`: the host's hours, room for someone new, who keeps their place | 1a | 1b, 3a (the numbers on the "Membership" part) |
 | `room.ts`: working out what a cut in hours would need without saving it; saving is `changeWeeklyHours` in `booking/calendar.ts`. Like the preview in `offers.ts`, it returns a short mark of the state it was worked out from, which saving checks | 1b | 3a (the step for a cut in hours) |
-| On a membership, `period` and `current_month_id`: only the current month of the current period may change the membership's state; an older month still settles its own money and must never be skipped by a job or left off a page | 1a | every later part |
+| On a membership, `period` and `current_month_id`: only the current month of the current period may change the membership's state (the one exception is a dispute, which ends the pair's live membership whichever month it is about); an older month still settles its own money and must never be skipped by a job or left off a page | 1a | every later part |
 | What "frozen" means: a month whose dispute is `open` or `lost`. Nothing of it is booked, used, given back, paid back or collected; `won` is not frozen | 1a | 2a, 2b, 3a |
 | `cards.ts`: the lock on a card, the membership's card in use, the record of every card a membership ever had, and the rule that a booking's card is never a membership's | 1a | 2b (added time by card) |
 | Ending at once and pausing, with the clean-up; **the one place in the clean-up that cancels a membership's upcoming member calls**, which does nothing in part one | 1a | 2a fills that place |
@@ -1083,7 +1089,7 @@ one they are a member of.
   charging saved cards monthly is covered by the live account's agreement, and what the live
   account allows for one large charge and for the transfers made from it.
 - **A friend test, before the public launch:** one real host and one real member through a whole
-  month, including a real renewal on a real card, with the founder's switch on for the test. The
+  month, including a real renewal on a real card, with the founder's switch on for that one host only. The
   lawyer's and Stripe's points above have to be settled before memberships are sold to anyone
   else.
 
@@ -1377,3 +1383,24 @@ which part. The builder's own name-by-name read before it had found six more, al
 wording, the "who may see what" check and the two previews belong in part one; the check scripts
 need the switch on locally; the "Members only" tick reaches the hours function in part two; and
 part three names what it calls.
+
+## CodeRabbit's review of the plans (pull request 33, 18 November 2026)
+
+Seven comments. Each was checked against the four documents and the code. All seven held up and
+all were taken, each as a small change:
+
+1. **The sentences a member agrees to** said the amount is "only held for the first 72 hours".
+   That is not so once the member books. They now say when the money is taken.
+2. **A membership ended after its month had already ended** (plan 20) would have had that
+   month's ordinary unused money paid back instead of expiring, if the closing job ran late.
+   Paying back now needs the ending to be earlier than the month's end.
+3. **A dispute over an old month** met two rules that disagreed: "a dispute ends the membership"
+   and "only the current month changes a membership". The rulebook now says which wins.
+4. **Booking with a hidden host** (plan 21) would have failed: today's reader of what a host
+   offers refuses a hidden host. A member's booking now has its own way to read it.
+5. **Extra time** (plan 21) could have been taken from the membership when the screen had shown
+   "by card". What is done is now always what was shown, in both directions.
+6. **The reminder** (plan 22) could still announce a payment after the renewal was stopped in
+   the moment before it was sent. It is looked at again when it is sent.
+7. **"Only the two friends"** during the friend test had no way to be enforced: the switch was
+   on or off for everyone. It now has a middle position, for the hosts the founder names.

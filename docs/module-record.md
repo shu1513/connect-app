@@ -1012,6 +1012,53 @@ Astra also noted three planned cases the script did not have yet (a replacement 
 
 ---
 
+## Memberships: the plans (pull request 33, 18 November 2026)
+
+Not built yet. This entry records the planning; each part gets its own entry when it is built.
+
+**What it is.** The founder's idea (17 November 2026): a host invites a customer to a monthly paid
+membership whose money is talk time, with member-only hours and bookings that need no approval.
+The founder decided to build it before launch and to launch with it. The builder and Astra had
+both advised building it after launch.
+
+**The four documents**
+- `plans/19-memberships.md`, the rulebook: every rule, each of the founder's decisions with the
+  day it was made, what each of the three parts must deliver, and one table of what each part
+  hands to the next.
+- `plans/20-memberships-part-1-the-money.md`, `plans/21-memberships-part-2-member-calls.md`,
+  `plans/22-memberships-part-3-the-pages.md`: how each part is built. They state no rule of their
+  own. Each part is two pull requests.
+
+**How the work is organised (the founder's decisions).** The rulebook stays the one place for
+rules. All three part plans were written and checked before any building. The builder does the
+work alone, without helper agents, except the small helper that starts Astra. Each plan goes back
+and forth with Astra until it is sound, and so will each part's code, before CodeRabbit sees it.
+The builder merges each pull request once its checks are green and CodeRabbit's points are dealt
+with.
+
+**The checks**
+- The rulebook: eight rounds with Astra as the decisions were made.
+- Part one's plan: three rounds (not ready, not ready, ready with changes). The findings that
+  mattered most: a month could have been charged twice after an interruption longer than Stripe
+  remembers a request; a pay-back that failed late would not have been tried again; a payment
+  cancelled on purpose could have been started again.
+- Part two's plan: two rounds (not ready, ready with changes). Most important: added time paid by
+  card could have shortened a member's time to ask for a refund.
+- Part three's plan: one round (ready with changes). Most important: who may see which page had
+  been promised and not specified.
+- The connections between the four documents: read name by name by the builder (six mismatches
+  found and fixed), then side by side by Astra (sound with changes).
+- CodeRabbit (pull request 33): seven comments, all right, all taken. They are listed at the end
+  of the rulebook. The largest: the friend test needs memberships on for one host only, so the
+  founder's switch got a middle position, "on for the hosts the founder names".
+
+**Still open, for before memberships are switched on for everyone:** the lawyer (monthly charges
+that renew by themselves, and paid time that expires), Stripe (holding a member's money for up to
+about five weeks, large charges), and a friend test through a whole month with a real renewal.
+They are in the rulebook under "Before this can go live".
+
+---
+
 ## Whole-code read-through (13 November 2026, after module 8)
 
 The founder asked for the entire code base to be read line by line for mistakes, with Astra double-checking whatever was found. Every file under `src/` and the always-on helper was read (the test scripts in `scripts/` were run, not read line by line). Three mistakes were found; Astra confirmed all three and added two smaller ones. All five are fixed.
