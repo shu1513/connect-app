@@ -293,7 +293,7 @@
 /*
  * Pages written before the warm look share a small set of Tailwind styles: a blue main button, a
  * grey-bordered second button, grey-bordered fields and boxes. Inside a warm page those are given
- * the warm shapes and colours here, so such a page only has to turn the look on.
+ * the warm shapes and colours here, so those pages did not have to be rewritten.
  */
 .warm-page h1 {
   font-size: 30px;
@@ -367,6 +367,12 @@
 .warm-page :is(section, li, p, div, form, pre)[class~="rounded"][class~="border-blue-600"] {
   border-color: #fdba74;
   background: #fff7ed;
+}
+
+/* A quoted text (what a report says) was a dark see-through box, made for a dark page. */
+.warm-page [class~="bg-neutral-800/40"] {
+  border-radius: 12px;
+  background: #f5f5f4;
 }
 
 /* Last, so it also holds for the pill-shaped buttons above. */
