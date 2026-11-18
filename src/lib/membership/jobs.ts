@@ -67,7 +67,7 @@ export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
     await db
       .select({ id: months.id })
       .from(months)
-      .where(and(inArray(months.status, ["to_pay", "held"]), isNull(months.stripePaymentIntentId), isNotNull(months.intentRequestedAt), lte(months.intentRequestedAt, new Date(Date.now() - CLAIM_SETTLES_MS))))
+      .where(and(inArray(months.status, ["to_pay", "held"]), isNull(months.problem), isNull(months.stripePaymentIntentId), isNotNull(months.intentRequestedAt), lte(months.intentRequestedAt, new Date(Date.now() - CLAIM_SETTLES_MS))))
       .limit(BATCH),
     (id) => intentFor(id, now),
   );

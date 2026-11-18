@@ -57,13 +57,17 @@ export async function keepsPlace(reader: Reader, membership: Pick<Membership, "i
   return kept.has(membership.id);
 }
 
-/** Every member of the host who wants a next month, with their own time and since when they have been a member. */
+/**
+ * Every member of the host who wants a next month, with their time and since when they have been
+ * a member. A member with an open offer of less time counts with the smaller time (the rulebook's
+ * row 11): that is the time they can still say yes to.
+ */
 async function wantingNextMonth(reader: Reader, hostId: string): Promise<Array<{ id: string; since: Date; minutes: number }>> {
   const wanting = await reader
-    .select({ id: schema.memberships.id, since: schema.memberships.since, createdAt: schema.memberships.createdAt, minutes: schema.memberships.ownMinutes })
+    .select({ id: schema.memberships.id, since: schema.memberships.since, createdAt: schema.memberships.createdAt, minutes: schema.memberships.ownMinutes, offerId: schema.memberships.offerId, offeredMinutes: schema.memberships.offeredMinutes })
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["active", "unpaid"]), isNull(schema.memberships.memberStoppedAt), isNull(schema.memberships.hostStoppedAt), isNull(schema.memberships.offerId), gt(schema.memberships.ownMinutes, 0)));
-  return wanting.map((m) => ({ id: m.id, since: m.since ?? m.createdAt, minutes: m.minutes ?? 0 }));
+    .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["active", "unpaid"]), isNull(schema.memberships.memberStoppedAt), isNull(schema.memberships.hostStoppedAt), gt(schema.memberships.ownMinutes, 0)));
+  return wanting.map((m) => ({ id: m.id, since: m.since ?? m.createdAt, minutes: (m.offerId ? m.offeredMinutes : null) ?? m.minutes ?? 0 }));
 }
 
 /** What the host's members need of her hours for their next months, in minutes. A cut in hours may not go below this. */

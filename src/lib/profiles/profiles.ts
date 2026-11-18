@@ -174,6 +174,7 @@ export async function decideProfile(input: {
       ? and(eq(schema.hostProfiles.displayName, input.seen!.displayName), eq(schema.hostProfiles.about, input.seen!.about))
       : undefined;
   const decidedAt = new Date();
+  let endedMemberships: string[] = [];
   // The decision and the email that tells the host about it are saved together, or not at all.
   await db.transaction(async (tx) => {
     // Read under a lock, so two presses of the same button are two steps, one after the other.
@@ -196,9 +197,9 @@ export async function decideProfile(input: {
     // The host is told when the answer changes, not when the same answer is given again.
     if (before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision });
     // A suspended host's memberships end at once and for good, in this same step. (Her own memberships with other hosts go on.)
-    if (input.decision === "suspended") await endMembershipsOf(tx, input.userId, { by: "connect", reason: "the host can no longer be booked", asHostOnly: true }, decidedAt);
+    if (input.decision === "suspended") endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "the host can no longer be booked", asHostOnly: true }, decidedAt);
   });
-  if (input.decision === "suspended") await cleanUpEndedMemberships(decidedAt);
+  await cleanUpEndedMemberships(endedMemberships, decidedAt);
 }
 
 export type PublicProfile = {

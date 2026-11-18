@@ -1,6 +1,6 @@
 # Plan 20: Memberships, part one: the money
 
-**Status:** a plan only; nothing is built. Written 17 November 2026 by the builder alone (no
+**Status:** 1a is built (see "Built in 1a: where the code differs from this plan" at the end); 1b is not. Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32. Astra has checked it three times: "not ready" twice, then "ready with
 changes", with the changes small enough to make while building. Every point of all three checks
 is worked in below (the lists are at the end).
@@ -833,3 +833,37 @@ behaviours to fix, all written in above so they are not left to memory:
 
 It also asked for the missing rows of `syncMonth` for a held month, which are added, and said
 that nothing substantial should be cut.
+
+## Built in 1a: where the code differs from this plan
+
+Found while building and while testing against Stripe. None changes a rule of the rulebook.
+
+- **A try with the saved card and "keep this card".** Stripe refuses a try in the background on a
+  payment that is still marked "keep this card for later". So a saved-card try takes that mark
+  off in its own request, and `payNow` puts it back before the member pays by hand. A card is
+  taken as the membership's card in use only if Stripe really kept it for the member.
+- **Files.** The renewal is in `close.ts`, in the same database step as the closing; there is no
+  `renew.ts`. Pausing and ending at once are in `state.ts` (which never talks to Stripe, so
+  today's app can call it from inside its own steps) and are handed over by `ending.ts` as well.
+  The lock on a month is in `locks.ts` and handed over by `months.ts`; owing a pay-back is in
+  `months.ts` and handed over by `payback.ts`.
+- **Room when a hold comes back.** A renewal is judged by the one calculation of who keeps their
+  place, the same that allowed it to be written down; a joining or resuming by the room for
+  someone new; a month that replaces one whose hold the bank let go keeps that month's place.
+- **A booking's card whose card step is not finished** is recognised by asking Stripe for the
+  card set-up the card came from, since our database has not heard of the card yet.
+- **What Stripe showed is recorded only if the month has not moved on since it was read.**
+  Otherwise Stripe is asked again. A dispute's state is read once more after it is recorded.
+- **The database.** `membership_months` has one index by status, not one per deadline (the table
+  is small; they can be added when a query needs them). The six places, the host-caused part and
+  a refund's amount are checked to be zero or more; counters (`period`, `number`, `try`,
+  `attempt`) and the copied fee terms are not. A line of `booking_cards` goes with its booking
+  if a booking is ever deleted, which only the check scripts do.
+- **The health check** has no line of its own for a renewal that was not written: closing and
+  renewing are one step, so "a month past its end that is not closed" covers both.
+- **Weekly hours.** A cut is refused when it would leave less than the members who want a next
+  month need (a member with an open offer of less time counts with the smaller time).
+- **Not proven here, and why.** "An old transfer found again in a group with more than 100
+  transfers": in part one a month has one payment at most, so one transfer; part two can make
+  it. A refund that Stripe first reports as gone through and later as failed is not handled, for
+  memberships as for calls today.

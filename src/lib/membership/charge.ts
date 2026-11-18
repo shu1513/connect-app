@@ -28,7 +28,7 @@ import { cardInUse, takeCardForMembership } from "./cards";
 import { queuePaymentFailedEmail, queueReceiptEmail } from "./emails";
 import { isCurrent, lockForMonth, monthOwner, type LockedMonth } from "./locks";
 import { openMonth, recordChargeOwedBack, recordOddCharge } from "./months";
-import { hostMinutes, promisedMinutes } from "./room";
+import { hostMinutes, keepsPlace, promisedMinutes } from "./room";
 import { giveUpAt, holdTiming, monthEnd, monthTotalCents, nextTryAt } from "./rules";
 import { settleAfterGivenUp } from "./state";
 
@@ -120,6 +120,9 @@ export async function intentFor(monthId: string, now: Date = new Date()): Promis
     return { intentId: intent.id, clientSecret: intent.client_secret, keepsCard: intent.setup_future_usage === "off_session", status: intent.status };
   }
 
+  // A month set aside for the founder (Stripe had more than one payment for it) is never looked up or asked for again.
+  if (seen.problem) return null;
+
   // 2. The claim, written once.
   let request: IntentRequest;
   let requestedAt: Date;
@@ -193,7 +196,11 @@ export async function intentFor(monthId: string, now: Date = new Date()): Promis
   const saved = await db.transaction(async (tx) => {
     const { month } = await lockForMonth(tx, monthId);
     // Another caller got the same PaymentIntent a moment earlier: nothing to do, whatever the month is by now.
-    if (month.stripePaymentIntentId) return month.stripePaymentIntentId === found.id ? ("known" as const) : ("other" as const);
+    // (The payment is left alone; but its secret is only given out while the month may still be paid.)
+    if (month.stripePaymentIntentId) {
+      if (month.stripePaymentIntentId !== found.id) return "other" as const;
+      return month.status === "to_pay" && !month.endedHow && !month.problem ? ("known" as const) : ("closed" as const);
+    }
     await tx.update(months).set({ stripePaymentIntentId: found.id, updatedAt: now }).where(eq(months.id, monthId));
     return month.status === "to_pay" && !month.endedHow && !month.problem ? ("saved" as const) : ("abandoned" as const);
   });
@@ -203,6 +210,7 @@ export async function intentFor(monthId: string, now: Date = new Date()): Promis
     return null;
   }
   if (saved === "other") return intentFor(monthId, now);
+  if (saved === "closed") return null;
   return { intentId: found.id, clientSecret: found.client_secret, keepsCard: found.setup_future_usage === "off_session", status: found.status };
 }
 
@@ -273,8 +281,17 @@ async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentI
   if (!isCurrent(locked) || !["joining", "unpaid", "active"].includes(membership.status)) return "ending";
   if (month.cardStepExpiresAt && authorisedAt > month.cardStepExpiresAt) return "card_step";
   if (!(await membershipsOnFor(membership.hostId, tx))) return "switch";
-  const room = (await hostMinutes(tx, membership.hostId)) - (await promisedMinutes(tx, membership.hostId, now, membership.id));
-  if (room < month.includedMinutes) return "no_room";
+  const kind = month.originKey.split(":")[0];
+  if (kind === "renewal") {
+    // The same one calculation that allowed the renewal to be written down, so the answer cannot
+    // depend on whose renewal came first. (Months of other members that have started go on beside it.)
+    if (!(await keepsPlace(tx, membership))) return "no_room";
+  } else if (kind !== "replacement") {
+    // Someone new (a joining or a resuming): the host's hours, less everything already promised.
+    const room = (await hostMinutes(tx, membership.hostId)) - (await promisedMinutes(tx, membership.hostId, now, membership.id));
+    if (room < month.includedMinutes) return "no_room";
+  }
+  // A month that replaces one whose hold the bank let go stands for a month that had already started: it keeps that month's place.
   return null;
 }
 
@@ -284,18 +301,52 @@ async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentI
  * first at where OUR month stands, then at Stripe (the tables are in plans/20).
  */
 export async function syncMonth(monthId: string, now: Date = new Date()): Promise<MembershipMonth> {
-  const seen = await monthById(monthId);
-  if (!seen) throw new MoneyError("Month not found.");
-  // A month that is already in the books is never touched again, whatever message arrives.
-  if (!seen.stripePaymentIntentId || IN_THE_BOOKS.includes(seen.status)) return seen;
+  // Stripe is asked outside the database step. If our month moved on in between (another caller
+  // recorded newer news), what we read is old: it is thrown away and Stripe is asked again.
+  for (let round = 0; round < 3; round++) {
+    const seen = await monthById(monthId);
+    if (!seen) throw new MoneyError("Month not found.");
+    // A month that is already in the books is never touched again, whatever message arrives.
+    if (!seen.stripePaymentIntentId || IN_THE_BOOKS.includes(seen.status)) return seen;
+    const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge", "payment_method"] });
+    if (await recordIntent(seen, intent, now)) break;
+  }
+  return (await monthById(monthId))!;
+}
 
-  const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge", "payment_method"] });
+/** What must be unchanged between reading Stripe and recording what it showed. */
+const standing = (month: MembershipMonth): string => [month.status, month.endedHow, month.problem, month.try, month.stripePaymentIntentId, month.takenAt?.getTime()].join("|");
+
+/**
+ * A card that was saved through a booking's card step is that booking's, also while the booking's
+ * own step is not finished and our database has not heard of the card yet. Stripe knows: a
+ * booking's card comes from a card set-up that carries the booking.
+ */
+async function isBookingsCard(paymentMethodId: string): Promise<boolean> {
+  const setups = await stripe().setupIntents.list({ payment_method: paymentMethodId, limit: 10 });
+  return setups.data.some((setup) => Boolean(setup.metadata?.bookingId));
+}
+
+/**
+ * Records what Stripe showed for the month as it was `seen`. Returns false, and records nothing,
+ * when the month has moved on since. (Its own function so that the check script can hand it an
+ * answer from Stripe that has gone stale.)
+ */
+export async function recordIntent(seen: MembershipMonth, intent: Stripe.PaymentIntent, now: Date): Promise<boolean> {
+  const monthId = seen.id;
   const charge = chargeOf(intent);
+  const method = typeof intent.payment_method === "object" ? intent.payment_method : null;
+  const bookingsCard = seen.status === "to_pay" && intent.status === "requires_capture" && method ? await isBookingsCard(method.id) : false;
   let release = false;
+  let stale = false;
 
   await db.transaction(async (tx) => {
     const locked = await lockForMonth(tx, monthId);
     const { membership, month } = locked;
+    if (standing(month) !== standing(seen)) {
+      stale = true;
+      return;
+    }
     if (month.stripePaymentIntentId !== intent.id || IN_THE_BOOKS.includes(month.status)) return;
     await tx.update(months).set({ updatedAt: now }).where(eq(months.id, month.id));
 
@@ -345,9 +396,9 @@ export async function syncMonth(monthId: string, now: Date = new Date()): Promis
         // The card of this payment becomes the membership's card in use, if Stripe really kept it for
         // the member (it always does, unless a try in the background and the member's own payment
         // crossed; then the card in use stays as it was, and the next month's try tells the member).
-        const method = typeof intent.payment_method === "object" ? intent.payment_method : null;
         try {
           if (!method) throw new MoneyError("The payment has no card.");
+          if (bookingsCard) throw new MoneyError("This card was saved for a booking, so it cannot be a membership's card.");
           if (method.customer) cardId = (await takeCardForMembership(tx, membership.id, method.id, now)).id;
         } catch (error) {
           if (!(error instanceof MoneyError)) throw error;
@@ -408,8 +459,9 @@ export async function syncMonth(monthId: string, now: Date = new Date()): Promis
     await recordFailedTry(tx, locked, { needsAction }, now);
   });
 
+  if (stale) return false;
   if (release) await letHoldGo(monthId, now).catch((error) => log(`could not let go of the hold of month ${monthId} yet; the helper will retry`, error));
-  return (await monthById(monthId))!;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,9 +506,11 @@ export async function tryHold(monthId: string, now: Date = new Date()): Promise<
       owner: monthOwner(monthId),
       kind: "hold",
       labelBase: `monthhold:${monthId}:${tryNumber}`,
-      prepare: async ({ month }) => {
+      prepare: async ({ month }, tx) => {
         if (month.status !== "to_pay" || month.endedHow || month.problem) throw new MoneyError("This month is not waiting for a payment.");
         if (month.stripePaymentIntentId !== found.intentId || month.try !== tryNumber) throw new MoneyError("The payment changed. Nothing was tried.");
+        // Another caller made this very try a moment ago and its failure is not recorded yet: syncMonth below records it.
+        if (await tryFinished(tx, month)) throw new MoneyError("This try already has its answer.");
         return { intentId: found.intentId, paymentMethodId: card.stripePaymentMethodId };
       },
       execute: async (params, label) => {

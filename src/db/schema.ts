@@ -1284,9 +1284,10 @@ export const membershipCards = pgTable(
  */
 export const bookingCards = pgTable("booking_cards", {
   stripePaymentMethodId: text("stripe_payment_method_id").primaryKey(),
+  // Nothing in the app ever deletes a booking; the check scripts delete their own, and these lines go with them.
   bookingId: uuid("booking_id")
     .notNull()
-    .references(() => bookings.id),
+    .references(() => bookings.id, { onDelete: "cascade" }),
   seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
   removedAt: timestamp("removed_at", { withTimezone: true }),
 });

@@ -50,22 +50,28 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
   }
 
   if (event.type.startsWith("charge.dispute.")) {
-    // Messages can arrive out of order, so ask Stripe where the dispute stands now.
-    const dispute = await stripe()
-      .disputes.retrieve(String(object.id))
-      .catch((error: { code?: string }) => {
-        if (error?.code === "resource_missing") return null; // Stripe does not know it: not ours
-        throw error;
-      });
-    if (!dispute) return;
-    const intentId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-    if (!intentId) return;
-    await db
-      .update(schema.payments)
-      .set({ disputeOpen: BLOCKING_DISPUTE.has(dispute.status), updatedAt: new Date() })
-      .where(eq(schema.payments.stripePaymentIntentId, intentId));
-    // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
-    const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
-    if (month) await recordMonthDispute(month.id, dispute.status === "lost" ? "lost" : BLOCKING_DISPUTE.has(dispute.status) ? "open" : "won", new Date());
+    // Messages can arrive out of order, and two can be handled at the same moment. So Stripe is asked
+    // where the dispute stands now, that is recorded, and Stripe is asked once more: only when it still
+    // says the same is the work done. An answer that went stale while we waited is never the last word.
+    let recorded: string | null = null;
+    for (let round = 0; round < 4; round++) {
+      const dispute = await stripe()
+        .disputes.retrieve(String(object.id))
+        .catch((error: { code?: string }) => {
+          if (error?.code === "resource_missing") return null; // Stripe does not know it: not ours
+          throw error;
+        });
+      if (!dispute || dispute.status === recorded) return;
+      const intentId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+      if (!intentId) return;
+      await db
+        .update(schema.payments)
+        .set({ disputeOpen: BLOCKING_DISPUTE.has(dispute.status), updatedAt: new Date() })
+        .where(eq(schema.payments.stripePaymentIntentId, intentId));
+      // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
+      const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
+      if (month) await recordMonthDispute(month.id, dispute.status === "lost" ? "lost" : BLOCKING_DISPUTE.has(dispute.status) ? "open" : "won", new Date());
+      recorded = dispute.status;
+    }
   }
 }

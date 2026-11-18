@@ -23,7 +23,7 @@ export async function membershipHealthProblems(now: Date): Promise<string[]> {
   const any = async (where: ReturnType<typeof and>) => (await db.select({ id: months.id }).from(months).where(where).limit(1)).length > 0;
   const problems: string[] = [];
 
-  if (await any(and(inArray(months.status, ["to_pay", "held"]), isNull(months.stripePaymentIntentId), lt(months.intentRequestedAt, new Date(now.getTime() - INTENT_UNSAVED_MS))))) {
+  if (await any(and(inArray(months.status, ["to_pay", "held"]), isNull(months.problem), isNull(months.stripePaymentIntentId), lt(months.intentRequestedAt, new Date(now.getTime() - INTENT_UNSAVED_MS))))) {
     problems.push("a membership payment was asked of Stripe more than 6 minutes ago and its answer is not saved");
   }
   if (await any(and(eq(months.status, "held"), open, lt(months.takeAt, late)))) problems.push("a membership month's held money is more than 5 minutes past the moment it should have been taken");

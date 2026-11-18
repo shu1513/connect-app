@@ -18,6 +18,9 @@ import { finishIfSettled, owePayBack, setDispute } from "./months";
 import { isFrozen } from "./rules";
 import { endMembership } from "./state";
 
+// Ending at once and pausing (the rulebook's "How the parts connect" hands them over with the clean-up).
+export { endMembership, pauseMembership } from "./state";
+
 const months = schema.membershipMonths;
 
 /**

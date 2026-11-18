@@ -175,7 +175,7 @@ ALTER TABLE "payments" ADD COLUMN "month_id" uuid;--> statement-breakpoint
 ALTER TABLE "payments" ADD COLUMN "host_caused_cents" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "site_switches" ADD COLUMN "memberships" text DEFAULT 'off' NOT NULL;--> statement-breakpoint
 ALTER TABLE "site_switches" ADD COLUMN "memberships_hosts" text DEFAULT '' NOT NULL;--> statement-breakpoint
-ALTER TABLE "booking_cards" ADD CONSTRAINT "booking_cards_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "booking_cards" ADD CONSTRAINT "booking_cards_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "membership_agreements" ADD CONSTRAINT "membership_agreements_membership_id_memberships_id_fk" FOREIGN KEY ("membership_id") REFERENCES "public"."memberships"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "membership_cards" ADD CONSTRAINT "membership_cards_membership_id_memberships_id_fk" FOREIGN KEY ("membership_id") REFERENCES "public"."memberships"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "membership_invitations" ADD CONSTRAINT "membership_invitations_host_id_user_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

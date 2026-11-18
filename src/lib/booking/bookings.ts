@@ -552,6 +552,9 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
     if (!isOverlap(error)) throw error;
     // The customer took another request or call at that time while entering the card.
     const ended = await db.transaction(async (tx) => {
+      // The booking first, then the card: the same order as above, so the two can never wait for each other.
+      const [still] = await tx.select({ stage: schema.bookings.stage }).from(schema.bookings).where(eq(schema.bookings.id, before.id)).for("update");
+      if (still?.stage !== "card") return undefined;
       const mine = await bookingCardSeen(tx, before.id, paymentMethodId);
       const [row] = await tx
         .update(schema.bookings)

@@ -181,10 +181,11 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   if (admin) throw new ReportError("An admin account cannot be paused here.");
   const reason = `${rule.title}.${input.note ? ` ${input.note}` : ""}`;
   if (person.pausedAt) throw new ReportError("This account is already paused.");
+  let endedMemberships: string[] = [];
   await db.transaction(async (tx) => {
     await tx.update(schema.user).set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() }).where(and(eq(schema.user.id, input.userId), isNull(schema.user.pausedAt)));
     // Their memberships, as a host and as a member, end at once and for good, in this same step.
-    await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
+    endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
@@ -193,9 +194,11 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
     });
     await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: input.userId, detail: reason }, tx);
   });
-  // The account is paused from here on, whatever happens next.
-  await cleanUpEndedMemberships(new Date());
-  return { callsNotEnded: await endRequestsAndCallsOf(input.userId, new Date()) };
+  // The account is paused from here on, whatever happens next. First what keeps people safe (requests and
+  // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
+  const callsNotEnded = await endRequestsAndCallsOf(input.userId, new Date());
+  await cleanUpEndedMemberships(endedMemberships, new Date());
+  return { callsNotEnded };
 }
 
 export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {
