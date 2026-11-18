@@ -26,7 +26,7 @@ export async function pauseMembership(tx: Tx, membership: Membership, reason: st
   if (membership.status === "paused" || membership.status === "ended") return;
   const [paused] = await tx
     .update(schema.memberships)
-    .set({ status: "paused", pausedAt: now, pausedReason: reason, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, ...noOffer, updatedAt: now })
+    .set({ status: "paused", pausedAt: now, pausedReason: reason, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, ...noOffer, updatedAt: now })
     .where(eq(schema.memberships.id, membership.id))
     .returning();
   await retireCard(tx, membership.id, now);
@@ -46,7 +46,7 @@ export async function endMembership(tx: Tx, membership: Membership, input: { by:
   if (membership.status === "ended") return false;
   const [ended] = await tx
     .update(schema.memberships)
-    .set({ status: "ended", endedAt: now, endedBy: input.by, endedReason: input.reason, cleanupDoneAt: null, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, ...noOffer, updatedAt: now })
+    .set({ status: "ended", endedAt: now, endedBy: input.by, endedReason: input.reason, cleanupDoneAt: null, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, ...noOffer, updatedAt: now })
     .where(eq(schema.memberships.id, membership.id))
     .returning();
   await retireCard(tx, membership.id, now);
@@ -65,7 +65,7 @@ export async function endMembership(tx: Tx, membership: Membership, input: { by:
  * month, the membership is settled: paused, or, when a first joining was not finished, put back to
  * "invited" while the invitation still stands. An old month changes nothing here.
  */
-export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: string, now: Date): Promise<void> {
+export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: string, now: Date, why?: string): Promise<void> {
   const { membership } = locked;
   if (!isCurrent(locked) || membership.status === "ended" || membership.status === "paused") return;
   if (how === "ending") return;
@@ -76,12 +76,15 @@ export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: strin
       await pauseMembership(tx, membership, membership.pausedReason ?? how, now, true);
     } else if (membership.inviteExpiresAt && membership.inviteExpiresAt > now) {
       await tx.update(schema.memberships).set({ status: "invited", currentMonthId: null, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
+      // The invitation stands again, so its own line says "open" again (it said "accepted" from the moment "Join" was pressed).
+      if (membership.inviteId) await tx.update(schema.membershipInvitations).set({ outcome: "open" }).where(and(eq(schema.membershipInvitations.inviteId, membership.inviteId), eq(schema.membershipInvitations.outcome, "accepted")));
     } else {
       await endMembership(tx, membership, { by: "connect", reason: "the invitation ran out before joining was finished" }, now);
     }
     return;
   }
-  const reason = how === "given_up" || how === "cancelled_at_stripe" ? "payment" : how;
+  // `why` is the reason the member is told when it is not the payment itself (the host paused them, or switched her membership off).
+  const reason = why ?? (how === "given_up" || how === "cancelled_at_stripe" ? "payment" : how);
   await pauseMembership(tx, membership, reason, now);
 }
 

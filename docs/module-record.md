@@ -1174,3 +1174,55 @@ the payment is still marked "keep this card for later". The try now takes that m
   under "All payments". The founder's membership page (part three) will.
 - `scripts/stripe-webhook-setup.ts` now asks for two more kinds of message. It has to be run
   again before memberships are tried through the browser (part three).
+
+## Memberships, part one, 1b: how a membership comes to exist and what people do with it (pull request 35, 18 November 2026)
+
+The second of six pull requests, and the end of part one. The founder's switch is still off and
+no page calls this code yet: the pages are part three. A check in the script confirms that no
+page or address of the app can start a membership.
+
+**What it does**
+- **The host's membership** (`offers.ts`): its switch, its member price and its time. Before she
+  saves a change she is shown what it does, with numbers: who pays less and by how much, which
+  invitations are taken back, who is paused. Members' own prices only ever go down.
+- **Inviting** (`join.ts`): only someone she has had a call with, at most 3 invitations to one
+  person in 30 days. An invitation holds a place for 24 hours and then ends by itself.
+- **Joining and resuming** (`join.ts`): the box must be ticked; pressed twice, it is still one
+  agreement and one month. What was agreed is kept on record with each month. Resuming is on the
+  host's membership as it is then, and is refused if she changed it while the page was open.
+- **Cancelling** (`ending.ts`): the normal way stops the renewal and can be undone until the paid
+  month ends ("Keep my membership"); "Cancel now" lets the hold go while the money is only held.
+  The host can pause a member after this month, or end a membership for good.
+- **A cut in hours** (`booking/calendar.ts`, `room.ts`): the host chooses for each member to keep
+  them, offer less time or pause them after this month, and the cut is saved only when the ones
+  she keeps fit. Invitations give way before members. An offer of less time is accepted or
+  declined by the member before their month ends.
+- **Switching the membership off** stops each renewal; switching it on again charges nobody by
+  itself. Only the member brings their own renewal back.
+- **Who may see what** (`access.ts`): an invitation, a membership and a payment only for the
+  person they belong to; a member still reaches a host whose page is hidden.
+
+**The database:** one small migration, `0028_membership_offer_stop` (a third mark on a
+membership). The member calls' migration in part two is now `0029`.
+
+**How it was checked**
+- `scripts/membership-check.ts` now has 29 journeys and about 460 checks against Stripe's test
+  area. The eight new ones use the real way in: the host invites, the person joins and pays.
+- The twelve existing check scripts, `tsc`, `eslint`, `vitest` and the build pass.
+- Astra reviewed the code three times (not ready, ready with defects listed, ready). What
+  mattered most: switching the membership off and on again within a month would have let members
+  renew without being asked; and "Resume" from an out-of-date page could have recorded a price
+  the member never saw. All findings are at the end of `plans/20-memberships-part-1-the-money.md`.
+- CodeRabbit: about 31 comments, most of them taken. What mattered most: several deadlines were
+  judged by when a request arrived, not by when it was handled (a request can wait for a lock past
+  the deadline); and "Cancel now" could tell a member that nothing was charged while the money was
+  being taken at that very moment. What was not taken, and why, is at the end of plan 20.
+
+**Open points**
+- The pages (part three) must pass on what the functions need: an invitation's id, an offer's id,
+  a request id made when the page is drawn, the version of the membership a "Resume" page showed,
+  and the mark of a preview before a change or a cut is saved.
+- The sentences a member agrees to (`wording.ts`) now tell "Cancel now" apart from cancelling the
+  normal way. They are for the lawyer's reading before launch, with the rest.
+- The open points of 1a still stand (a bank's question that never becomes a dispute; a refund
+  that fails after Stripe said it went through; a second dispute on one charge).

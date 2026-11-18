@@ -6,6 +6,16 @@
 import { DEADLINE_CUSHION_MS, TAKE_BEFORE_EXPIRY_MS } from "@/lib/payments/rules";
 import type { FeeTerms } from "@/lib/payments/pricing";
 
+/** A problem the person can understand and act on. Its message is safe to show them. */
+export class MembershipError extends Error {}
+
+/**
+ * The moment something is really decided: the clock read again once the locks are held. A request
+ * can arrive just before a deadline and wait for a lock until after it; a deadline is judged by
+ * when the step happens, not by when it was asked for. (A later `asOf`, as the check scripts pass, stands.)
+ */
+export const afterTheWait = (asOf: Date): Date => new Date(Math.max(asOf.getTime(), Date.now()));
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -186,4 +196,26 @@ export function timeWords(minutes: number): string {
   const h = hours === 0 ? "" : `${hours} ${hours === 1 ? "hour" : "hours"}`;
   const m = rest === 0 ? "" : `${rest} minutes`;
   return [h, m].filter(Boolean).join(" ") || "0 minutes";
+}
+
+// ---------------------------------------------------------------------------
+// Invitations (rows 14 and 15)
+// ---------------------------------------------------------------------------
+
+/** An invitation lasts this long. */
+export const INVITATION_MS = DAY_MS;
+/** At most this many invitations to the same person in this many days. */
+export const INVITATIONS_PER_PERSON = 3;
+export const INVITATIONS_WINDOW_MS = 30 * DAY_MS;
+
+// ---------------------------------------------------------------------------
+// An offer of less time (row 16)
+// ---------------------------------------------------------------------------
+
+/** What is wrong with a smaller time offered to a member, or null: at least 30 minutes, in half hours, and less than their time now. */
+export function lessTimeProblem(input: { offeredMinutes: number; minutesNow: number }): string | null {
+  const { offeredMinutes, minutesNow } = input;
+  if (!Number.isInteger(offeredMinutes) || offeredMinutes < MEMBERSHIP.minMinutes || offeredMinutes % MEMBERSHIP.stepMinutes !== 0) return "Offer at least 30 minutes, in steps of 30 minutes.";
+  if (offeredMinutes >= minutesNow) return "The time you offer must be less than the member has now.";
+  return null;
 }

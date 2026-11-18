@@ -25,7 +25,7 @@ import { holdExpiry } from "@/lib/payments/rules";
 import { stripe } from "@/lib/payments/stripe";
 import { membershipsOnFor } from "@/lib/safety/switches";
 import { cardInUse, takeCardForMembership } from "./cards";
-import { queuePaymentFailedEmail, queueReceiptEmail } from "./emails";
+import { queueJoinedEmail, queuePaymentFailedEmail, queueReceiptEmail } from "./emails";
 import { isCurrent, lockForMonth, monthOwner, type LockedMonth } from "./locks";
 import { openMonth, recordChargeOwedBack, recordOddCharge } from "./months";
 import { hostMinutes, keepsPlace, promisedMinutes } from "./room";
@@ -283,25 +283,30 @@ async function recordFailedTry(tx: Tx, locked: LockedMonth, input: { needsAction
 }
 
 /** Why a hold that has arrived cannot be accepted, or null if it can. */
-async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentIntent, authorisedAt: Date, now: Date): Promise<"ending" | "card_step" | "no_room" | "switch" | "given_up" | null> {
+async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentIntent, authorisedAt: Date, now: Date): Promise<"ending" | "card_step" | "no_room" | "switch" | "offer_off" | "given_up" | null> {
   const { membership, month } = locked;
   if (intent.amount !== month.totalCents || intent.metadata?.monthId !== month.id) return "card_step";
   if (!isCurrent(locked) || !["joining", "unpaid", "active"].includes(membership.status)) return "ending";
   if (month.cardStepExpiresAt && authorisedAt > month.cardStepExpiresAt) return "card_step";
   // The 7 days count by the bank's own time too: a hold placed in time counts when it is found late, one placed after them does not.
   if (month.giveUpAt && authorisedAt > month.giveUpAt) return "given_up";
-  if (!(await membershipsOnFor(membership.hostId, tx))) return "switch";
   const kind = month.originKey.split(":")[0];
+  // A month that replaces one whose hold the bank let go stands for a month that had already started:
+  // months that have started keep working to their end, whatever the switches say, and it keeps that month's place.
+  if (kind === "replacement") return null;
+  if (!(await membershipsOnFor(membership.hostId, tx))) return "switch";
+  // The host's own switch too: a payment that was still open when she switched her membership off is cancelled then; this is the net behind that.
+  const [offer] = await tx.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));
+  if (!offer?.on) return "offer_off";
   if (kind === "renewal") {
     // The same one calculation that allowed the renewal to be written down, so the answer cannot
     // depend on whose renewal came first. (Months of other members that have started go on beside it.)
     if (!(await keepsPlace(tx, membership))) return "no_room";
-  } else if (kind !== "replacement") {
+  } else {
     // Someone new (a joining or a resuming): the host's hours, less everything already promised.
     const room = (await hostMinutes(tx, membership.hostId)) - (await promisedMinutes(tx, membership.hostId, now, membership.id));
     if (room < month.includedMinutes) return "no_room";
   }
-  // A month that replaces one whose hold the bank let go stands for a month that had already started: it keeps that month's place.
   return null;
 }
 
@@ -418,7 +423,7 @@ export async function recordIntent(seen: MembershipMonth, intent: Stripe.Payment
         }
       }
       if (why) {
-        await tx.update(months).set({ endedHow: why === "switch" ? "no_room" : why, updatedAt: now }).where(eq(months.id, month.id));
+        await tx.update(months).set({ endedHow: why === "switch" || why === "offer_off" ? "no_room" : why, updatedAt: now }).where(eq(months.id, month.id));
         await settleAfterGivenUp(tx, locked, why, now);
         release = true;
         return;
@@ -447,10 +452,12 @@ export async function recordIntent(seen: MembershipMonth, intent: Stripe.Payment
         .returning();
       const [active] = await tx
         .update(schema.memberships)
-        .set({ status: "active", since: membership.status === "joining" || !membership.since ? authorisedAt : membership.since, pausedAt: null, pausedReason: null, updatedAt: now })
+        .set({ status: "active", since: membership.status === "joining" || !membership.since ? authorisedAt : membership.since, ...(membership.status === "joining" ? { pausedAt: null, pausedReason: null } : {}), updatedAt: now })
         .where(eq(schema.memberships.id, membership.id))
         .returning();
       await queueReceiptEmail(tx, active, held, timing.offeredUntil);
+      // The host is told when someone joins or comes back (the member has the receipt).
+      if (membership.status === "joining") await queueJoinedEmail(tx, active, held, Boolean(membership.since));
       return;
     }
     if (intent.status === "succeeded") {
@@ -554,6 +561,10 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
     .innerJoin(schema.memberships, eq(schema.memberships.id, months.membershipId))
     .where(eq(months.id, input.monthId));
   if (!found || found.customerId !== input.memberId) return null;
+  // Not after the card step's time or the 7 days have run out, also when the helper has not been by yet: a hold placed now would only be let go again.
+  const due = await monthById(input.monthId);
+  const at = input.now ?? new Date();
+  if (!due || (due.cardStepExpiresAt && due.cardStepExpiresAt <= at) || (due.giveUpAt && due.giveUpAt <= at)) return null;
   const intent = await intentFor(input.monthId, input.now ?? new Date());
   if (!intent?.clientSecret) return null;
   if (!["requires_payment_method", "requires_confirmation", "requires_action"].includes(intent.status)) {
@@ -562,12 +573,11 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
     return null;
   }
   // The card the member pays with by hand is kept for the months that follow (a try with the saved card took that mark off).
-  if (!intent.keepsCard) {
-    await stripe().paymentIntents.update(intent.intentId, { setup_future_usage: "off_session" });
-    // Looked at once more after Stripe answered: the secret of a month given up meanwhile goes to nobody.
-    const still = await monthById(input.monthId);
-    if (!still || still.status !== "to_pay" || still.endedHow || still.problem) return null;
-  }
+  if (!intent.keepsCard) await stripe().paymentIntents.update(intent.intentId, { setup_future_usage: "off_session" });
+  // Looked at once more after Stripe answered, by the real clock: the secret of a month that was given up, or whose time ran out, meanwhile goes to nobody.
+  const still = await monthById(input.monthId);
+  const after = new Date(Math.max(at.getTime(), Date.now()));
+  if (!still || still.status !== "to_pay" || still.endedHow || still.problem || (still.cardStepExpiresAt && still.cardStepExpiresAt <= after) || (still.giveUpAt && still.giveUpAt <= after)) return null;
   return { clientSecret: intent.clientSecret };
 }
 
@@ -616,16 +626,26 @@ export const takeNow = takeMonth;
  * the membership settled, in one step; only then is the payment cancelled at Stripe. If the
  * payment was taken in that very moment, it is owed back in full.
  */
-export async function abandonMonth(monthId: string, how: string, now: Date = new Date()): Promise<MembershipMonth> {
+export async function abandonMonth(monthId: string, how: string, now: Date = new Date(), why?: string): Promise<MembershipMonth> {
   await db.transaction(async (tx) => {
-    const locked = await lockForMonth(tx, monthId);
-    const { month } = locked;
-    if ((month.status !== "to_pay" && month.status !== "held") || month.endedHow) return;
-    await tx.update(months).set({ endedHow: how, updatedAt: now }).where(eq(months.id, monthId));
-    await settleAfterGivenUp(tx, locked, how, now);
+    await giveUpInStep(tx, await lockForMonth(tx, monthId), how, now, why);
   });
   await letHoldGo(monthId, now).catch((error) => log(`could not let go of month ${monthId} yet; the helper will retry`, error));
   return (await monthById(monthId))!;
+}
+
+/**
+ * The first half of giving a month up, inside a database step the caller owns (with the month
+ * locked): the reason is saved and the membership settled. The caller lets the hold go after its
+ * step is saved (letHoldGo); if it does not get that far, the helper does. Returns whether this
+ * call is the one that gave it up. `why` is what the member is told when it is not the payment.
+ */
+export async function giveUpInStep(tx: Tx, locked: LockedMonth, how: string, now: Date, why?: string): Promise<boolean> {
+  const { month } = locked;
+  if ((month.status !== "to_pay" && month.status !== "held") || month.endedHow) return false;
+  await tx.update(months).set({ endedHow: how, updatedAt: now }).where(eq(months.id, month.id));
+  await settleAfterGivenUp(tx, locked, how, now, why);
+  return true;
 }
 
 /**

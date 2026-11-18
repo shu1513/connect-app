@@ -1,6 +1,6 @@
 # Plan 20: Memberships, part one: the money
 
-**Status:** 1a is built (see "Built in 1a: where the code differs from this plan" at the end); 1b is not. Written 17 November 2026 by the builder alone (no
+**Status:** both halves are built. Where the code differs from this plan is written at the end, for 1a and for 1b. Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32. Astra has checked it three times: "not ready" twice, then "ready with
 changes", with the changes small enough to make while building. Every point of all three checks
 is worked in below (the lists are at the end).
@@ -946,3 +946,99 @@ checked against the code.
   part three's.
 - Smaller timing points that correct themselves within the hour, or that belong to 1b (an offer of
   less time that has just run out).
+
+## Built in 1b: where the code differs from this plan
+
+- **One small migration after all**, `0028_membership_offer_stop`: a third mark on a membership,
+  `offer_stopped_at`, for a renewal that stopped because the host switched her membership off
+  while the member's month was running. Only the member takes it back, with "Keep my membership",
+  once the membership is on again. It was first stored as the member's own stop, and Astra showed
+  that people were then told the wrong reason. The member calls' migration (part two) becomes
+  `0029`; the rulebook's table and plan 21 say so.
+- **Files.** `join.ts` also holds the one check of everything a new promise needs (`mustBeOpen`)
+  and the lock on the two people. The answers to an offer of less time are in `ending.ts`; the
+  offer itself is made in the step that cuts the hours, `changeWeeklyHours` in
+  `booking/calendar.ts`.
+- **An invitation is a membership row** with the status `invited`. Inviting the same person again
+  while it is open keeps that row and gives it a new invitation id (the old link stops working).
+  One that is taken back or runs out is closed as ended with nothing to clean up, and inviting
+  after that makes a new row.
+- **When the host changes the price or the time, or switches her membership off,** a joining or
+  resuming that is still at the card step is undone in the same step, like an open invitation.
+- **Room for bringing someone back** (a stopped renewal switched back on, an offer of less time
+  taken back) is stricter than the safety net: the member must fit beside everyone who wants a
+  next month, so that bringing one member back never costs another their place.
+- **"Resume" names the version of the membership the page showed**, and is refused if the host
+  changed it meanwhile, so nobody agrees to terms they did not see.
+- **A month that replaces one whose hold the bank let go** is accepted whatever the switches and
+  the room say: it stands for a month that had started.
+- **A stop on a month that has not started** (a payment being tried, or a renewal only just
+  written down) pauses at once and cancels the open payment, whoever stops it.
+- **"No thanks" to an offer of less time** is the host's stop with its reason kept, so the pause
+  at the month's end says why.
+- **Decided while building:** when the host switches her membership off, a payment that is still
+  open in our books is cancelled even if a hold was placed at Stripe a moment before. What we
+  have not recorded as held has not started; the hold is let go and nothing is charged.
+- **The preview of a change of hours** makes the change inside a step that is then thrown away.
+  It uses the same checks and the same room calculation as saving, so the two cannot drift apart.
+- **Not possible, so not proven:** "two people joining for the last place at the same moment".
+  Every invitation already holds a place of its own. The script proves it for two paused members
+  resuming for one place.
+
+## Astra's reviews of the code of 1b (18 November 2026)
+
+Three rounds: not ready, ready with defects listed, ready.
+
+**First round, twelve defects, all fixed.** The ones that mattered most: switching the membership
+off and on again within a month would have let members renew without being asked; "Resume" from
+a page that was out of date could have recorded a price and time the member never saw; taking an
+offer of less time back could have revived a renewal after its deadline, or withdrawn a different
+offer than the one the button was shown for; and undoing a stop took its locks in an order that
+could have collided with pausing or closing an account.
+
+**Second round.** Most fixes confirmed. What was left came from one shortcut (the member's own
+mark reused for the host's switch) and is why the third mark exists now. Also fixed: a month that
+had started was refused its replacement while the membership was off; a stop on a renewal only
+just written down did not cancel its payment; an offer of less time could be made for a month
+that was already over; a "Join" that was never finished kept a hidden page open.
+
+**Third round: ready.** Two small points, both fixed: the clock is read again once the lock is
+held when a cut in hours is saved, and the "paused" email says that the host switched the
+membership off, not that it is off now.
+
+## CodeRabbit's review of 1b (pull request 35, 18 November 2026)
+
+About 31 comments: 8 marked major, 2 outside the changed lines, about 21 smaller.
+
+**Taken**
+- **Deadlines are judged when a step really happens**, not when it was asked for. A request can
+  arrive just before a deadline and wait for a lock until after it. "Join" (the 24 hours), "Keep
+  my membership" and the answers to an offer of less time (the month's end), and "Pay now" (the
+  card step's time and the 7 days) now read the clock again once they hold their locks.
+- **"Cancel now" promises nothing while the money is being taken at that very moment.** The member
+  is asked to try again in a minute, instead of being told "nothing was charged" and then charged
+  and paid back.
+- **The wording a person agrees to is the wording the page showed**: "Join" and "Resume" name its
+  version and are refused if it changed while the page was open.
+- **A confirmation belongs to the terms it was worked out for**: the mark of a membership preview
+  now includes the switch, price and time the host is confirming.
+- **The sentences a member agrees to** now tell "Cancel now" apart from cancelling the normal way,
+  which does not let the hold go. (One for the lawyer's reading before launch, like the rest.)
+- Invitations that ran out are ended last in the helper's round, and a failure there never stops
+  the money work. An invitation email is never delivered after the invitation ran out. An
+  invitation's own record says "open" again when a "Join" is undone. A link typed in capitals
+  works. A price is only lowered for someone who is still a paying member. A stretch of hours
+  that is no longer there cannot be "moved". At the card step, a hidden page is open for the
+  card step's time, not the invitation's.
+- The rulebook now names all three stops, lists the stored statuses correctly, and says that the
+  host can undo the pause after a "No thanks" while the month runs.
+
+**Not taken, and why**
+- *Invitations kept when the same cut pauses a member whose payment was open.* By the rulebook's
+  row 12, invitations give way before members; the host invites again.
+- *The record of a lowered price naming month 5 when a lost hold makes month 5 a replacement at
+  the old price.* The months themselves are right; the line records when the price was lowered.
+- *Following imports to prove no page can start a membership.* The check looks for direct use,
+  and there are no membership pages yet; part three's own review covers its pages.
+- *A time limit on waiting for a host's calendar lock in the helper.* Every job that touches a
+  host's calendar waits for that lock in the same way; the invitations now run last.

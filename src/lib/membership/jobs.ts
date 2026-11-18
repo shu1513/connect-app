@@ -13,6 +13,7 @@ import { removeRetiredCards } from "./cards";
 import { abandonMonth, intentFor, letHoldGo, syncMonth, takeMonth, tryHold } from "./charge";
 import { runClosings } from "./close";
 import { runDisputeLooks, runEndings } from "./ending";
+import { runInvitations } from "./join";
 import { runPayBacks } from "./payback";
 
 const months = schema.membershipMonths;
@@ -51,6 +52,7 @@ const notRefusedRecently = (kind: OperationKind, now: Date) =>
 const open = and(isNull(months.endedHow), isNull(months.problem));
 
 export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
+
   // 1. PaymentIntents that were asked for and whose id was never saved (also of months given up meanwhile).
   await each(
     "finish asking for the payment",
@@ -135,4 +137,9 @@ export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
   await runPayBacks(now);
   await runEndings(now);
   await removeRetiredCards(now);
+
+  // Last, and on its own: invitations whose 24 hours are over end by themselves, and their places are free
+  // again. Nothing about money waits for this, and a failure here is only logged (every step that uses an
+  // invitation checks its 24 hours itself).
+  await runInvitations(now).catch((error) => log("could not end the invitations that ran out; will retry", error));
 }
