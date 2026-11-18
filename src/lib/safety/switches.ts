@@ -1,6 +1,9 @@
 /**
  * The founder's switches: "no new requests", "nobody can join a call", and memberships
  * (off, on for the hosts the founder names, or on for everyone).
+ *
+ * Memberships are ON FOR EVERYONE unless the founder turns them off or names hosts (the founder's
+ * decision, 18 November 2026). The switch is there to stop them, not to start them.
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -8,6 +11,7 @@ import { db, schema } from "@/db";
 export type MembershipsSwitch = "off" | "named" | "everyone";
 export type Switches = { requestsOff: boolean; joiningOff: boolean; memberships: MembershipsSwitch; membershipsHosts: string[] };
 
+/** A saved position, read strictly: anything that is not one of the three words counts as "off", the safe side. */
 const asPosition = (value: string | undefined): MembershipsSwitch => (value === "named" || value === "everyone" ? value : "off");
 
 /**
@@ -20,7 +24,8 @@ export async function switches(reader: Pick<typeof db, "select"> = db): Promise<
   return {
     requestsOff: row?.requestsOff ?? false,
     joiningOff: row?.joiningOff ?? false,
-    memberships: asPosition(row?.memberships),
+    // Before the founder has saved any switch there is no row: memberships are on for everyone then, like the column's own default.
+    memberships: row ? asPosition(row.memberships) : "everyone",
     membershipsHosts: (row?.membershipsHosts ?? "").split(",").filter(Boolean),
   };
 }

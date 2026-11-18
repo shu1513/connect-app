@@ -127,15 +127,20 @@ export async function MembershipPart(props: { hostId: string; regularPricePer15C
         </p>
       )}
 
-      <h3 className="mt-6 font-semibold">Your members</h3>
-      {listed.length === 0 ? (
-        <p className="mt-2 text-sm opacity-70">No members yet.</p>
-      ) : (
-        <ul className="mt-2 space-y-3">
-          {listed.map(({ membership, month }) => (
-            <Member key={membership.id} membership={membership} month={month} name={names.get(membership.customerId) ?? "A member"} open={open} now={now} />
-          ))}
-        </ul>
+      {/* The member list is for a host who has, or has had, a membership: with memberships on for every host, someone who has not set one up yet is not shown an empty list. */}
+      {(offer || listed.length > 0) && (
+        <>
+          <h3 className="mt-6 font-semibold">Your members</h3>
+          {listed.length === 0 ? (
+            <p className="mt-2 text-sm opacity-70">No members yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-3">
+              {listed.map(({ membership, month }) => (
+                <Member key={membership.id} membership={membership} month={month} name={names.get(membership.customerId) ?? "A member"} open={open} now={now} />
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );

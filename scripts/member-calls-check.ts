@@ -1499,7 +1499,8 @@ async function main() {
     // the two test accounts had before or got since (a membership made by hand in the browser, the host's own hours).
     const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
     const NOTE = "node_modules/.cache/member-calls-demo.json";
-    type Note = { membershipId: string; hostId: string; hours: string[]; offerMade: boolean };
+    type Position = { memberships: "off" | "named" | "everyone"; membershipsHosts: string[] };
+    type Note = { membershipId: string; hostId: string; hours: string[]; offerMade: boolean; switchBefore?: Position; switchSet?: Position };
     if (process.argv.includes("--demo-off")) {
       if (!existsSync(NOTE)) {
         console.log("No demo membership is written down, so nothing was taken away.");
@@ -1509,9 +1510,13 @@ async function main() {
       await wipe(false, { membershipId: note.membershipId });
       if (note.hours.length > 0) await db.delete(schema.weeklyHours).where(inArray(schema.weeklyHours.id, note.hours));
       if (note.offerMade) await db.delete(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, note.hostId));
-      await setSwitches({ memberships: "off", membershipsHosts: [] });
+      // The switch goes back only if the demo changed it, and only if it is still as the demo set it: a position the
+      // founder chose in the meantime (off, say, while looking at the demo) is theirs and stays.
+      const now = await switches();
+      const stillTheDemos = note.switchSet !== undefined && now.memberships === note.switchSet.memberships && now.membershipsHosts.join(",") === note.switchSet.membershipsHosts.join(",");
+      if (note.switchBefore && stillTheDemos) await setSwitches(note.switchBefore);
       rmSync(NOTE);
-      console.log("The demo membership is gone, and the founder's memberships switch is off.");
+      console.log(`The demo membership is gone. The founder's memberships switch is "${(await switches()).memberships}"${note.switchBefore && !stillTheDemos ? " (it was changed after the demo was set up, and is left as it is)" : ""}.`);
       process.exit(0);
     }
     if (existsSync(NOTE)) throw new Error("A demo membership is already there. Take it away first: npx tsx scripts/member-calls-check.ts --demo-off");
@@ -1520,23 +1525,35 @@ async function main() {
     if (!host || !customer) throw new Error("The seeded test accounts are missing. Run scripts/seed.ts first.");
     const [theirs] = await db.select({ id: schema.memberships.id }).from(schema.memberships).where(and(eq(schema.memberships.hostId, host.id), eq(schema.memberships.customerId, customer.id), sql`${schema.memberships.status} <> 'ended'`));
     if (theirs) throw new Error("The two test accounts already have a membership that this demo did not make. It is left alone, and no demo was set up.");
+    // The demo needs memberships to be on for the seeded host. "On for everyone" already is; otherwise she is named, and the switch is put back by --demo-off.
     const before = await switches();
-    if (before.memberships !== "off" || before.membershipsHosts.length > 0) throw new Error("The memberships switch is not off in this database. The demo would overwrite it. Set it to off first.");
+    const switchBefore = { memberships: before.memberships, membershipsHosts: before.membershipsHosts };
     const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
     if (!profile || !(await offerOf(host.id))) throw new Error("The seeded host has no approved page with a calendar and weekly hours. Set those up in the app first.");
-    await setSwitches({ memberships: "named", membershipsHosts: [host.id] });
-    const offerMade = (await db.insert(schema.membershipOffers).values({ hostId: host.id, on: true, pricePer15Cents: Math.max(500, profile.pricePer15Cents - 250), includedMinutes: 120 }).onConflictDoNothing().returning({ hostId: schema.membershipOffers.hostId })).length > 0;
-    const hours: string[] = [];
-    for (const weekday of [1, 2, 3, 4, 5, 6, 7]) hours.push((await db.insert(schema.weeklyHours).values({ hostId: host.id, weekday, startMinute: 20 * 60, endMinute: 22 * 60, membersOnly: true }).returning({ id: schema.weeklyHours.id }))[0].id);
-    const startsAt = new Date(Date.now() - 2 * DAY);
-    const [call] = await db.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), roomName: `membercalls-demo-${randomUUID()}`, pricePer15Cents: 1000, closedAt: new Date(startsAt.getTime() + 31 * MIN) }).returning();
-    for (const who of [host.id, customer.id]) {
-      await db.insert(schema.attendanceEvents).values({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: call.id, type: "participant_joined", roomSessionId: "RM_membercalls_demo", participantIdentity: who, participantSessionId: `PA_${randomUUID().slice(0, 8)}`, providerTime: startsAt, payload: "{}" });
+    // From changing the switch until the note is written, --demo-off has nothing to go by: a set-up that fails anywhere
+    // in between puts the switch back itself, and says so.
+    let started: { membershipId: string; monthId: string };
+    try {
+      // What the demo sets, if it has to: only then is there anything for --demo-off to put back.
+      const switchSet: Position | undefined = before.memberships === "everyone" ? undefined : { memberships: "named", membershipsHosts: [...new Set([...before.membershipsHosts, host.id])] };
+      if (switchSet) await setSwitches(switchSet);
+      const offerMade = (await db.insert(schema.membershipOffers).values({ hostId: host.id, on: true, pricePer15Cents: Math.max(500, profile.pricePer15Cents - 250), includedMinutes: 120 }).onConflictDoNothing().returning({ hostId: schema.membershipOffers.hostId })).length > 0;
+      const hours: string[] = [];
+      for (const weekday of [1, 2, 3, 4, 5, 6, 7]) hours.push((await db.insert(schema.weeklyHours).values({ hostId: host.id, weekday, startMinute: 20 * 60, endMinute: 22 * 60, membersOnly: true }).returning({ id: schema.weeklyHours.id }))[0].id);
+      const startsAt = new Date(Date.now() - 2 * DAY);
+      const [call] = await db.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), roomName: `membercalls-demo-${randomUUID()}`, pricePer15Cents: 1000, closedAt: new Date(startsAt.getTime() + 31 * MIN) }).returning();
+      for (const who of [host.id, customer.id]) {
+        await db.insert(schema.attendanceEvents).values({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: call.id, type: "participant_joined", roomSessionId: "RM_membercalls_demo", participantIdentity: who, participantSessionId: `PA_${randomUUID().slice(0, 8)}`, providerTime: startsAt, payload: "{}" });
+      }
+      const invitation = await J.invite({ hostId: host.id, customerId: customer.id, now: new Date() });
+      started = await J.join({ customerId: customer.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
+      mkdirSync("node_modules/.cache", { recursive: true });
+      writeFileSync(NOTE, JSON.stringify({ membershipId: started.membershipId, hostId: host.id, hours, offerMade, ...(switchSet ? { switchBefore, switchSet } : {}) } satisfies Note));
+    } catch (error) {
+      await setSwitches(switchBefore);
+      console.log("The demo could not be set up. The founder's memberships switch was put back as it was.");
+      throw error;
     }
-    const invitation = await J.invite({ hostId: host.id, customerId: customer.id, now: new Date() });
-    const started = await J.join({ customerId: customer.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
-    mkdirSync("node_modules/.cache", { recursive: true });
-    writeFileSync(NOTE, JSON.stringify({ membershipId: started.membershipId, hostId: host.id, hours, offerMade } satisfies Note));
     await C.payNow({ monthId: started.monthId, memberId: customer.id });
     await stripe().paymentIntents.confirm((await M(started.monthId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
     await C.syncMonth(started.monthId, new Date());
@@ -1549,11 +1566,14 @@ async function main() {
   // Running
   // ------------------------------------------------------------------------
   if (only && (only.length === 0 || only.some((n) => !Number.isInteger(n) || n < 1 || n > journeys.length))) throw new Error(`--only takes journey numbers from 1 to ${journeys.length}.`);
+  // This script sets the founder's memberships switch and its list for its own hosts. Whatever position it finds (on for
+  // everyone is the default) is remembered here and put back at the end; its journeys start from "off", with nobody named.
   const before = await switches();
-  if (before.memberships !== "off" || before.membershipsHosts.length > 0) throw new Error("The memberships switch is not off in this database. This script would overwrite it. Set it to off first.");
-  check("before anything: the founder's memberships switch is off", true);
-  await wipe();
+  console.log(`(The founder's memberships switch is "${before.memberships}"${before.membershipsHosts.length > 0 ? ` with ${before.membershipsHosts.length} named` : ""}; it is put back at the end.)`);
   try {
+    // (Inside the step that puts the switch back: if even the first clean-up fails, the position found is restored.)
+    await setSwitches({ memberships: "off", membershipsHosts: [] });
+    await wipe();
     // The journeys book: "no new requests" is off for them, and put back as it was at the end.
     await setSwitches({ requestsOff: false });
     for (const [index, [title, run]] of journeys.entries()) {
@@ -1567,11 +1587,11 @@ async function main() {
       await wipe();
     }
   } finally {
-    await setSwitches({ memberships: "off", membershipsHosts: [], requestsOff: before.requestsOff });
+    await setSwitches({ memberships: before.memberships, membershipsHosts: before.membershipsHosts, requestsOff: before.requestsOff });
     await wipe(true);
   }
   const afterwards = await switches();
-  check("afterwards: the founder's memberships switch is off again, with nobody named", afterwards.memberships === "off" && afterwards.membershipsHosts.length === 0);
+  check("afterwards: the founder's memberships switch is as it was before the script, with the same hosts named", afterwards.memberships === before.memberships && afterwards.membershipsHosts.join(",") === before.membershipsHosts.join(","), `${afterwards.memberships} ${afterwards.membershipsHosts.length}`);
   check("the script's own test data was cleaned up", cleanUpFailures === 0, `${cleanUpFailures} step(s) failed`);
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

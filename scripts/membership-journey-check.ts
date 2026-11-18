@@ -264,17 +264,19 @@ async function main() {
     for (const step of steps) await step().catch((error) => console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
   }
 
-  // Like the other membership scripts: the founder's switch must be off, with nobody named, before anything is written.
-  // (This script sets it for its own host and puts it back to off at the end; a setting someone made by hand must not be lost.)
+  // Like the other membership scripts: whatever position the founder's switch is in (on for everyone is the default) is
+  // remembered and put back at the end. The journey itself starts from "off" and sets the switch for its own host.
   const { switches } = await import("../src/lib/safety/switches");
   const atStart = await switches();
-  if (atStart.memberships !== "off" || atStart.membershipsHosts.length > 0) throw new Error("The founder's memberships switch is not off in this database. Turn it off (Admin, Reports and safety) before running this script.");
-
-  await wipe();
-  // Attempt limits are per network address, and every request here comes from the same one.
-  await db.delete(schema.rateLimit);
+  console.log(`(The founder's memberships switch is "${atStart.memberships}"${atStart.membershipsHosts.length > 0 ? ` with ${atStart.membershipsHosts.length} named` : ""}; it is put back at the end.)`);
 
   try {
+    // (Inside the step that puts the switch back: if even the first clean-up fails, the position found is restored.)
+    await setSwitches({ memberships: "off", membershipsHosts: [] });
+    await wipe();
+    // Attempt limits are per network address, and every request here comes from the same one.
+    await db.delete(schema.rateLimit);
+
     // ----------------------------------------------------------------------
     console.log("\n1. A host sets up her membership and sees her room");
     const host = await signUp("Host");
@@ -644,13 +646,14 @@ async function main() {
     const resumeOff = await page(`/h/${handle}/membership`, alice);
     check("and she cannot resume while memberships are off: the page says so and has no button", resumeOff.words.includes("is not offering a membership at the moment") && !formsOf(resumeOff.text).some((f) => f.buttons.includes("Resume membership")));
   } finally {
-    await setSwitches({ memberships: "off", membershipsHosts: [] });
+    await setSwitches({ memberships: atStart.memberships, membershipsHosts: atStart.membershipsHosts });
     await wipe();
     await db.delete(schema.rateLimit);
   }
 
   const [left] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user).where(like(schema.user.email, "mjourney-%"));
-  check("the script's own test data was cleaned up, and the founder's switch is off again", left.n === 0 && (await switches()).memberships === "off", `${left.n} people left`);
+  const atEnd = await switches();
+  check("the script's own test data was cleaned up, and the founder's switch is as it was before the script", left.n === 0 && atEnd.memberships === atStart.memberships && atEnd.membershipsHosts.join(",") === atStart.membershipsHosts.join(","), `${left.n} people left; ${atEnd.memberships}`);
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

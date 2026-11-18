@@ -55,7 +55,7 @@ export async function offerOfHost(reader: Reader, hostId: string): Promise<Membe
 /** The one calculation. Reads only; the saving step runs it again under the calendar lock. */
 async function workOut(reader: Reader, hostId: string, input: OfferInput): Promise<OfferChange & { current: MembershipOffer | null }> {
   const current = await offerOfHost(reader, hostId);
-  const [profile] = await reader.select({ pricePer15Cents: schema.hostProfiles.pricePer15Cents }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hostId));
+  const [profile] = await reader.select({ pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hostId));
   const [settings] = await reader.select({ payoutsReady: schema.hostSettings.payoutsReady }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, hostId));
   const members = await reader
     .select({ id: schema.memberships.id, status: schema.memberships.status, own: schema.memberships.ownPricePer15Cents, minutes: schema.memberships.ownMinutes, inviteId: schema.memberships.inviteId, offerId: schema.memberships.offerId, stopped: schema.memberships.offerStoppedAt, monthId: schema.memberships.currentMonthId, monthStatus: schema.membershipMonths.status })
@@ -80,6 +80,8 @@ async function workOut(reader: Reader, hostId: string, input: OfferInput): Promi
   else if (input.on) {
     problem = offerProblem({ pricePer15Cents: price, includedMinutes: minutes, regularPricePer15Cents: profile.pricePer15Cents });
     if (!problem && (!settings?.payoutsReady || !stripeConfigured())) problem = "Your payout account must be ready before you can offer a membership.";
+    // Switching a membership on is for a host whose page is approved. (One that is already on can still be looked after while her page waits: a lower price, or switching it off.)
+    if (!problem && (switchingOn || !current) && profile.status !== "approved") problem = "Your host page must be approved before you can offer a membership.";
     // While memberships are not open for this host she can still look after what exists: lower her price, or switch her membership off.
     if (!problem && !open && !onlyLowersThePrice) problem = "Memberships are not open at the moment.";
     // An offer that does not fit even once is refused. A lower price can always be saved: it promises nobody a new place.

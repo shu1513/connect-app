@@ -252,13 +252,17 @@ export async function removeTimeOff(userId: string, id: string): Promise<void> {
 }
 
 /**
- * Whether this host may keep hours for members only: the founder's memberships switch covers her,
- * or she already has such hours (months that are paid for go on while the switch is off, and so
- * do her members' hours). The calendar page and its action both ask here, so the tick is never
- * shown and then ignored.
+ * Whether this host may keep hours for members only: she offers a membership (her own membership
+ * is switched on, which needs an approved page, a price and a ready payout account) and the
+ * founder's memberships switch covers her; or she already has such hours (months that are paid for
+ * go on while a switch is off, and so do her members' hours). With memberships on for everyone,
+ * the founder's switch alone is not enough: a host who cannot have members must not be able to
+ * hide her hours from ordinary customers. The calendar page and its action both ask here, so the
+ * tick is never shown and then ignored.
  */
 export async function mayKeepMemberHours(userId: string): Promise<boolean> {
-  if (await membershipsOnFor(userId)) return true;
+  const [offer] = await db.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, userId));
+  if (offer?.on && (await membershipsOnFor(userId))) return true;
   const [has] = await db.select({ id: schema.weeklyHours.id }).from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.membersOnly, true))).limit(1);
   return Boolean(has);
 }
