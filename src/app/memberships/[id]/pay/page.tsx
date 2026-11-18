@@ -62,7 +62,16 @@ export default async function PayPage(props: PageProps<"/memberships/[id]/pay">)
         </p>
       )}
 
-      {!toPay ? (
+      {!toPay && membership.status === "unpaid" && month && month.status === "to_pay" && !month.endedHow ? (
+        <div className="mt-4 text-sm">
+          {/* A hold placed in time, whose way back arrived late, still counts: nothing is claimed before the bank was asked. */}
+          <p>
+            The time to pay for this month is over. We are checking with the bank what became of your payment. If your card was held in time, your membership goes on and this page shows it in a moment. If not, your membership is paused and nothing is
+            charged; you can resume it from its page.
+          </p>
+          <PaymentCheck membershipId={membership.id} monthId={month.id} />
+        </div>
+      ) : !toPay ? (
         <p className="mt-4 text-sm">
           There is nothing to pay here at the moment.{" "}
           {membership.status === "paused" ? "Your membership is paused; nothing is charged while it is paused, and you can resume it from its page." : membership.status === "ended" ? "This membership has ended." : "Your membership's page shows how it stands."}

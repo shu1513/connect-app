@@ -335,9 +335,15 @@ async function main() {
     await page(`/h/${handle}/membership`, alice);
     check("reloading the card step makes no second payment and moves no deadline", (await M(month1.id)).stripePaymentIntentId === before && (await M(month1.id)).cardStepExpiresAt?.getTime() === month1.cardStepExpiresAt?.getTime() && (await monthsOf(aliceId)).length === 1);
     check("the address the card form asks answers only the member", (await send(`/api/memberships/${aliceId}/sync`, { json: { month: month1.id }, jar: stranger.jar })).status === 404 && (await send(`/api/memberships/${aliceId}/sync`, { json: { month: month1.id } })).status === 401);
+    // Pretended: the card step's 30 minutes ran out a moment ago, and the helper has not been by yet.
+    await db.update(months).set({ cardStepExpiresAt: new Date(Date.now() - MIN) }).where(eq(months.id, month1.id));
+    const tooLate = await page(`/h/${handle}/membership`, alice);
+    check("a card step whose time ran out still opens for its own member, hands out no secret, and asks the bank before it claims anything", tooLate.status === 200 && tooLate.words.includes("The time for the card step is over. We are checking with the bank") && !tooLate.text.includes("_secret_") && tooLate.words.includes("Check again") && (await page(`/h/${handle}/membership`, stranger)).status === 404, `${tooLate.status} ${tooLate.words.slice(0, 300)}`);
+    await db.update(months).set({ cardStepExpiresAt: month1.cardStepExpiresAt }).where(eq(months.id, month1.id));
     const paid = await payInBrowser(alice, aliceId, month1.id);
     check("with a test card entered, the app finds the hold at Stripe itself: the month is held, and she is a member", paid.status === 200 && paid.json?.status === "held" && (await MS(aliceId)).status === "active", JSON.stringify(paid.json));
-    check("an old invitation link now only says it was used", (await page(inviteLink, alice)).status >= 300 || (await page(inviteLink, alice)).words.includes("no longer open"));
+    const usedLink = await page(inviteLink, alice);
+    check("the invitation's link, now used, only leads its own member on to her membership, and shows nobody a \"Join\"", usedLink.location === `/memberships/${aliceId}` && (await page(inviteLink, stranger)).status === 404, `${usedLink.status} ${usedLink.location}`);
 
     // ----------------------------------------------------------------------
     console.log("\n4. Her membership page and receipt; nobody else can open them");
@@ -347,7 +353,10 @@ async function main() {
     check("her page shows the time, that the amount is held and not yet taken, and \"Cancel now\"", mine.status === 200 && mine.words.includes("2 hours left this month") && mine.words.includes("held on your card, not yet taken") && mine.words.includes("Cancel now, nothing is charged") && mine.words.includes("Month 1"), mine.words.slice(0, 300));
     check("the monthly receipt was emailed", Boolean(await emailTo(alice.email, "$60.00 for this month")));
     check("\"Your account\" lists the membership", (await page("/account", alice)).text.includes(`/memberships/${aliceId}`));
-    check("a stranger, another host and her own host all get \"not found\" for her page, her \"Pay now\" page and her payment", (await Promise.all([stranger, otherHost, host].flatMap((who) => [page(`/memberships/${aliceId}`, who), page(`/memberships/${aliceId}/pay`, who)]))).every((reply) => reply.status === 404));
+    check(
+      "a stranger, another host and her own host all get \"not found\" for her page, her \"Pay now\" page and her payment",
+      (await Promise.all([stranger, otherHost, host].flatMap((who) => [page(`/memberships/${aliceId}`, who), page(`/memberships/${aliceId}/pay`, who), send(`/api/memberships/${aliceId}/sync`, { json: { month: month1.id }, jar: who.jar })]))).every((reply) => reply.status === 404),
+    );
     check("the host sees her in the member list", (await page("/host", host)).words.includes(alice.name) && (await page("/contacts", host)).words.includes("A member of yours."));
 
     // ----------------------------------------------------------------------
@@ -394,20 +403,20 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log("\n7. The reminder, cancelling and \"Keep my membership\"");
     const ends1 = (await M(month1.id)).endsAt!;
-    check("more than three days before the month ends, no reminder is written", (await writeMembershipReminders(new Date(ends1.getTime() - 4 * DAY))) === 0 && !(await emailTo(alice.email, "renews in 3 days", 1)));
+    check("more than three days before the month ends, no reminder is written", (await writeMembershipReminders(new Date(ends1.getTime() - 4 * DAY))) === 0 && !(await emailTo(alice.email, "renews soon", 1)));
     await writeMembershipReminders(new Date(ends1.getTime() - 2 * DAY));
-    const reminder = await emailTo(alice.email, "renews in 3 days");
+    const reminder = await emailTo(alice.email, "renews soon");
     check("inside the three days she gets one reminder: the time left, the next payment and how to cancel", Boolean(reminder) && reminder!.body.includes("You have 1 hour 30 minutes left") && reminder!.body.includes("Your next payment: $60.00 for 2 hours") && reminder!.body.includes(`/memberships/${aliceId}`) && !/unsubscribe/i.test(reminder!.body), reminder?.body);
     await writeMembershipReminders(new Date(ends1.getTime() - DAY));
-    check("it is written once, and ends with the month", (await emailTo(alice.email, "renews in 3 days"))?.count === 1 && (await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${month1.id}`)))[0]?.expiresAt?.getTime() === ends1.getTime());
-    check("while nothing changed, the reminder is still true when its turn to be sent comes", (await membershipReminderProblem(month1.id, reminder!.subject)) === null);
+    check("it is written once, and ends with the month", (await emailTo(alice.email, "renews soon"))?.count === 1 && (await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${month1.id}`)))[0]?.expiresAt?.getTime() === ends1.getTime());
+    check("while nothing changed, the reminder is still true when its turn to be sent comes", (await membershipReminderProblem(month1.id, reminder!.subject, reminder!.body)) === null);
 
     const cancelPage = await page(`/memberships/${aliceId}`, alice);
     check("before she confirms, the page says what cancelling gives up", cancelPage.words.includes("Your price of $7.50 per 15 minutes and your 2 hours a month are yours while your membership goes on."));
     const cancelled = await press(alice, `/memberships/${aliceId}`, "Cancel at the end of the month");
     const afterCancel = await page(`/memberships/${aliceId}`, alice);
     check("\"Cancel at the end of the month\" stops the renewal: the page says when it ends, and offers \"Keep my membership\"", cancelled.found && (await MS(aliceId)).memberStoppedAt !== null && afterCancel.words.includes("You cancelled.") && afterCancel.words.includes("Keep my membership") && afterCancel.words.includes("It does not renew"), noticeOf(cancelled));
-    check("a reminder that promised a renewal is no longer true", (await membershipReminderProblem(month1.id, reminder!.subject)) !== null);
+    check("a reminder that promised a renewal is no longer true", (await membershipReminderProblem(month1.id, reminder!.subject, reminder!.body)) !== null);
     // The sender's own turn, with a pretend sending service: everything else to her goes out, the reminder is dropped.
     await deliverEmails(new Date(), async () => ({ ok: true, providerId: `mjourney-${randomUUID()}` }), { toLike: alice.email });
     const [dropped] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${month1.id}`));
@@ -466,12 +475,16 @@ async function main() {
     console.log("\n10. The host lowers her price; a paused member resumes on the membership as it is now");
     const resumeOld = await page(`/h/${handle}/membership`, alice);
     check("a paused member's resume page shows the membership as it is now, with the sentences and the tick box", resumeOld.status === 200 && resumeOld.words.includes("$60.00 a month for 2 hours of calls") && formsOf(resumeOld.text).some((f) => f.buttons.includes("Resume membership")));
+    await writeMembershipReminders(new Date((await M(bobMonth2.id)).endsAt!.getTime() - 2 * DAY));
+    const [bobSecond] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `month-reminder:${bobMonth2.id}`));
+    check("a reminder for his second month is waiting, and says $60.00", Boolean(bobSecond?.body.includes("Your next payment: $60.00 for 2 hours")) && (await membershipReminderProblem(bobMonth2.id, bobSecond.subject, bobSecond.body)) === null);
     const lower = await page("/host/membership?on=1&price=6.00&minutes=120", host);
     check("before she saves a lower price, the host is shown who pays less and what it costs her", lower.words.includes("1 member pays $7.50 per 15 minutes now") && lower.words.includes("Together they will pay $12.00 less a month"), lower.words.slice(0, 600));
     const lowered = await press(host, "/host/membership?on=1&price=6.00&minutes=120", "Save this change");
     check("she saves it", lowered.found && (await db.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, host.id)))[0].pricePer15Cents === 600, noticeOf(lowered));
     const bobAfter = await page(`/memberships/${bob.membershipId}`, bob.person);
     check("the member who was paying more pays the lower price from his next month, and is told", (await MS(bob.membershipId)).ownPricePer15Cents === 600 && bobAfter.words.includes("$48.00 for 2 hours") && Boolean(await emailTo(bob.person.email, "will cost less")), bobAfter.words.match(/Your next payment[^.]*\./)?.[0]);
+    check("the waiting reminder that still says $60.00 is no longer true, and would be dropped", /no longer so/.test((await membershipReminderProblem(bobMonth2.id, bobSecond.subject, bobSecond.body)) ?? ""));
     const stale = await press(alice, `/h/${handle}/membership`, "Resume membership", { agreed: "on" }, { drawn: resumeOld.text });
     check("a resume form drawn before the change is refused: nobody agrees to terms they did not see", stale.found && /changed the membership while this page was open/.test(noticeOf(stale)) && (await MS(aliceId)).status === "paused", noticeOf(stale));
     const resumeNew = await page(`/h/${handle}/membership`, alice);
@@ -545,7 +558,14 @@ async function main() {
     check("with the tick it ends at once: her page says why, offers no way back, and shows that nothing was charged for the month that was only held", ended.found && (await MS(erin.membershipId)).status === "ended" && erinPage.words.includes("Ended: the host ended it") && !erinPage.words.includes("Resume membership") && !erinPage.words.includes("Keep my membership") && erinPage.words.includes("Nothing was charged"), noticeOf(ended));
     check("the ended member no longer reaches the joining page, and is no member on the host's page", (await page(`/h/${handle}/membership`, erin.person)).status === 404 && !(await page(`/h/${handle}`, erin.person)).words.includes("Your membership"));
     const asOther = await press(carol.person, "/host", "End membership", { sure: "1" }, { drawn: list.text, where: (form) => form.fields.some(([name, value]) => name === "membershipId" && value === aliceId) });
-    check("a host's button posted by someone else ends nobody's membership", (await MS(aliceId)).status === "active", `${asOther.status} ${noticeOf(asOther)}`);
+    check("a host's button posted by someone else is refused, and ends nobody's membership", asOther.found && asOther.status >= 300 && asOther.status < 400 && noticeOf(asOther) !== "" && !/has ended/.test(noticeOf(asOther)) && (await MS(aliceId)).status === "active", `${asOther.found} ${asOther.status} ${noticeOf(asOther)}`);
+
+    // Pretended: Carol's month ended a minute ago, and the helper has not been by yet to start the next one.
+    await db.update(months).set({ endsAt: new Date(Date.now() - MIN) }).where(eq(months.id, carol.monthId));
+    const between = await page(`/memberships/${carol.membershipId}`, carol.person);
+    check("in the moment between a month's end and the next one, her page says so and still offers to cancel", between.words.includes("Your month has ended.") && between.words.includes("Your next month is being started.") && formsOf(between.text).some((f) => f.buttons.includes("Cancel membership")), between.words.slice(0, 300));
+    const lastMoment = await press(carol.person, `/memberships/${carol.membershipId}`, "Cancel membership");
+    check("cancelling in that moment stops the next month: the page then says she is being paused, and no new month is charged", lastMoment.found && (await MS(carol.membershipId)).memberStoppedAt !== null && (await page(`/memberships/${carol.membershipId}`, carol.person)).words.includes("Your membership is being paused, and no new month is charged."), noticeOf(lastMoment));
 
     // ----------------------------------------------------------------------
     console.log("\n13. The founder's page");

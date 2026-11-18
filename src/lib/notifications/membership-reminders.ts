@@ -29,10 +29,11 @@ function appUrl(): string {
 /** What the end of the month brings: a payment, an offer to answer, or a pause. */
 type Kind = "renewal" | "offer" | "pause";
 
+// (No countdown in the subject: a reminder written late, after the helper was down, would then give the wrong one. The text names the exact moment.)
 const SUBJECT: Record<Kind, (hostName: string) => string> = {
-  renewal: (hostName) => `Your membership with ${hostName} renews in 3 days`,
-  offer: (hostName) => `Your membership with ${hostName}: an offer to answer in the next 3 days`,
-  pause: (hostName) => `Your membership with ${hostName} will be paused in 3 days`,
+  renewal: (hostName) => `Your membership with ${hostName} renews soon`,
+  offer: (hostName) => `Your membership with ${hostName}: an offer to answer before your month ends`,
+  pause: (hostName) => `Your membership with ${hostName} will be paused when your month ends`,
 };
 
 /**
@@ -44,10 +45,11 @@ async function standing(membership: Membership): Promise<{ kind: Kind; why: stri
   if (membership.memberStoppedAt) return { kind: "pause", why: "you cancelled it" };
   if (membership.hostStoppedAt) return { kind: "pause", why: membership.pausedReason === "offer" ? "you said \"No thanks\" to the smaller time that was offered" : "the host paused it after this month" };
   if (membership.offerStoppedAt) return { kind: "pause", why: "the host switched the membership off during this month" };
-  if (membership.offerId && membership.offeredMinutes) return { kind: "offer", why: "" };
+  // Before the offer of less time: accepting it brings no renewal while the host's membership or the founder's switch is off.
   const [offer] = await db.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));
   if (!offer?.on) return { kind: "pause", why: "the host is not offering a membership at the moment" };
   if (!(await membershipsOnFor(membership.hostId))) return { kind: "pause", why: "memberships are not being renewed at the moment" };
+  if (membership.offerId && membership.offeredMinutes) return { kind: "offer", why: "" };
   return { kind: "renewal", why: "" };
 }
 
@@ -56,29 +58,34 @@ async function hostNameOf(hostId: string): Promise<string> {
   return profile?.displayName ?? "your host";
 }
 
+/**
+ * The one sentence a reminder is about: the next payment with its amount and time, the offer with
+ * its own link and numbers, or the pause with its reason. It is written into the email, and looked
+ * for again when the email is about to be sent: if it would read differently by then (the host
+ * lowered the price, another offer replaced this one, the reason changed), the reminder is dropped.
+ */
+function factsOf(kind: Kind, why: string, membership: Membership, month: MembershipMonth): string[] {
+  const ownPrice = membership.ownPricePer15Cents ?? month.pricePer15Cents;
+  const ownMinutes = membership.ownMinutes ?? month.includedMinutes;
+  if (kind === "renewal") return [`Your next payment: ${money(monthTotalCents(ownPrice, ownMinutes))} for ${timeWords(ownMinutes)}`];
+  // An offer is named by its numbers and by the link that carries its own id.
+  if (kind === "offer") return [`go on with ${timeWords(membership.offeredMinutes ?? 0)} a month for ${money(monthTotalCents(ownPrice, membership.offeredMinutes ?? 0))}`, `?offer=${membership.offerId}`];
+  return [`Your membership is paused then, because ${why}.`];
+}
+
 function textFor(input: { kind: Kind; why: string; membership: Membership; month: MembershipMonth; member: { name: string; timeZone: string | null }; hostName: string }): string {
   const { kind, membership, month, member, hostName } = input;
   const ends = whenFor(member, month.endsAt!);
   const left = timeWords(minutesCovered(month.status === "held" ? month.totalCents : month.freeCents, month.pricePer15Cents));
-  const ownPrice = membership.ownPricePer15Cents ?? month.pricePer15Cents;
-  const ownMinutes = membership.ownMinutes ?? month.includedMinutes;
+  const [fact] = factsOf(kind, input.why, membership, month);
   const page = `${appUrl()}/memberships/${membership.id}`;
   const lines = [`Hi ${member.name},`, "", `Your month with ${hostName} ends on ${ends}. You have ${left} left. Time you have not used by then expires and is not paid back.`, ""];
   if (kind === "renewal") {
-    lines.push(
-      `Your next payment: ${money(monthTotalCents(ownPrice, ownMinutes))} for ${timeWords(ownMinutes)}, on ${ends}. It is first only held on your card.`,
-      "",
-      `To cancel before then, use "Cancel membership" here: ${page}`,
-    );
+    lines.push(`${fact}, on ${ends}. It is first only held on your card.`, "", `To cancel before then, use "Cancel membership" here: ${page}`);
   } else if (kind === "offer") {
-    const offered = membership.offeredMinutes!;
-    lines.push(
-      `${hostName} has offered you less time. Accept by ${ends} to go on with ${timeWords(offered)} a month for ${money(monthTotalCents(ownPrice, offered))}. Otherwise your membership is paused then, and nothing is charged.`,
-      "",
-      `Answer here: ${page}?offer=${membership.offerId}`,
-    );
+    lines.push(`${hostName} has offered you less time. Accept by ${ends} to ${fact}. Otherwise your membership is paused then, and nothing is charged.`, "", `Answer here: ${page}?offer=${membership.offerId}`);
   } else {
-    lines.push(`Your membership is paused then, because ${input.why}. No payment is taken. A paused membership costs nothing, and you can resume it when there is room.`, "", `Your membership: ${page}`);
+    lines.push(`${fact} No payment is taken. A paused membership costs nothing, and you can resume it when there is room.`, "", `Your membership: ${page}`);
   }
   return [...lines, ""].join("\n");
 }
@@ -119,18 +126,20 @@ export async function writeMembershipReminders(now: Date): Promise<number> {
  * Asked when a reminder is about to be sent: is it still true? Returns why not, or null. A
  * reminder written for a renewal is dropped if the renewal was stopped, or the membership paused
  * or ended, in the meantime; the same goes for the other two kinds when things changed (the member
- * was told about the change by its own email). It does not look at the person's choice about
- * reminder emails.
+ * was told about the change by its own email), and when what it says about the payment or the
+ * offer is no longer so (a lowered price, another offer). It does not look at the person's choice
+ * about reminder emails.
  */
-export async function membershipReminderProblem(monthId: string, subject: string): Promise<string | null> {
+export async function membershipReminderProblem(monthId: string, subject: string, body: string): Promise<string | null> {
   const [row] = await db
-    .select({ membership: schema.memberships, endsAt: schema.membershipMonths.endsAt })
+    .select({ membership: schema.memberships, month: schema.membershipMonths })
     .from(schema.membershipMonths)
     .innerJoin(schema.memberships, eq(schema.memberships.id, schema.membershipMonths.membershipId))
     .where(eq(schema.membershipMonths.id, monthId));
   if (!row) return "the month is gone";
   const { membership } = row;
   if (membership.status !== "active" || membership.currentMonthId !== monthId) return "the membership is paused, ended or in a later month";
-  const { kind } = await standing(membership);
-  return SUBJECT[kind](await hostNameOf(membership.hostId)) === subject ? null : "the membership changed after this reminder was written";
+  const { kind, why } = await standing(membership);
+  if (SUBJECT[kind](await hostNameOf(membership.hostId)) !== subject) return "the membership changed after this reminder was written";
+  return factsOf(kind, why, membership, row.month).every((fact) => body.includes(fact)) ? null : "what this reminder says about the payment is no longer so";
 }

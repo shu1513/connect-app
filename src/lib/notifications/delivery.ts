@@ -170,7 +170,7 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
   // The reminder before a membership month ends is the notice of a payment: it is sent whatever the person chose for
   // reminder emails, but not when it is no longer true (the renewal was stopped, or the membership paused or ended).
   const monthReminder = key.match(/^month-reminder:(.+)$/);
-  if (monthReminder) return membershipReminderProblem(monthReminder[1], email.subject);
+  if (monthReminder) return membershipReminderProblem(monthReminder[1], email.subject, email.body);
   if (!reminder && !expiring) return null;
   let userId: string;
   if (reminder) {

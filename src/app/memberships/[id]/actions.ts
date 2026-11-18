@@ -36,8 +36,9 @@ export async function cancelAction(formData: FormData) {
     await stopRenewal({ membershipId, by: "member", actorId: userId, now: new Date() });
     // (Read apart from the save: a failed read never turns a saved cancellation into "nothing was changed".)
     const after = await membershipFor(userId, membershipId).catch(() => null);
-    notice =
-      after?.membership.status === "paused"
+    notice = !after
+      ? "Your membership is cancelled: it will not renew. This page shows how it stands now."
+      : after.membership.status === "paused"
         ? "Your membership is paused now. The open payment was cancelled and nothing more is charged."
         : "Your membership is cancelled. It runs to the end of the month you paid for and is then paused. Until then nothing changes, and you can switch it back on with \"Keep my membership\".";
   } catch (error) {
@@ -65,9 +66,13 @@ export async function keepAction(formData: FormData) {
   try {
     await undoStop({ membershipId, by: "member", actorId: userId, now: new Date() });
     const after = await membershipFor(userId, membershipId).catch(() => null);
-    notice = after?.membership.hostStoppedAt
-      ? "Your own cancelling is taken back. Your membership is still set to pause when this month ends; this page says why."
-      : "Your membership goes on. Nothing is charged today.";
+    // A renewal is only promised when the membership was read again and nothing stands in its way.
+    notice =
+      !after || after.membership.status !== "active"
+        ? "Your own cancelling is taken back. Nothing is charged today. This page shows how your membership stands now."
+        : after.membership.hostStoppedAt
+          ? "Your own cancelling is taken back. Your membership is still set to pause when this month ends; this page says why."
+          : "Your membership goes on. Nothing is charged today.";
   } catch (error) {
     notice = problem(error);
   }

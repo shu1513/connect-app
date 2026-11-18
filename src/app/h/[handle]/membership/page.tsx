@@ -9,7 +9,7 @@ import { db } from "@/db";
 import type { MembershipOffer } from "@/db/schema";
 import { offerOf, openTimes } from "@/lib/booking/bookings";
 import { firstLength } from "@/lib/booking/rules";
-import { hostForMemberByHandle, invitationFor, membershipFor, membershipsOf, oldInvitationFor, type HostForMember } from "@/lib/membership/access";
+import { hostForMemberByHandle, invitationFor, membershipFor, oldInvitationFor, ownMembershipByHandle, type HostForMember } from "@/lib/membership/access";
 import { secretToPay } from "@/lib/membership/charge";
 import { offerOfHost } from "@/lib/membership/offers";
 import { monthTotalCents, timeWords } from "@/lib/membership/rules";
@@ -60,7 +60,10 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
   }
 
   const host = await hostForMemberByHandle(user.id, handle, now);
-  const mine = host ? (await membershipsOf(user.id)).find((membership) => membership.hostId === host.userId && membership.status !== "ended") : undefined;
+  // Their own membership with this host. It is found apart from the host's page: when a card step's time has just run out,
+  // the host's page is closed to a first-time joiner again, but what became of their payment is still theirs to see.
+  const own = await ownMembershipByHandle(user.id, handle);
+  const mine = own && (host || own.membership.status === "joining") ? own.membership : undefined;
 
   if (invite) {
     // An old link says what became of it, and never opens a newer invitation. Someone else's link is "not found".
@@ -88,10 +91,11 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
       );
     }
   }
-  if (!host || !mine) notFound();
+  if (!own || !mine) notFound();
+  const hostName = host?.displayName ?? own.hostName;
 
   // Their own open invitation, reached without its link: the link is theirs to have.
-  if (mine.status === "invited") redirect(mine.inviteId ? `${here}?invite=${mine.inviteId}` : `/h/${host.handle}`);
+  if (mine.status === "invited") redirect(mine.inviteId ? `${here}?invite=${mine.inviteId}` : `/h/${own.handle}`);
   if (mine.status === "active" || mine.status === "unpaid") redirect(`/memberships/${mine.id}`);
 
   if (mine.status === "joining") {
@@ -102,19 +106,23 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
     // Read only: the secret of the payment this month already has, for its member, while it can still be paid.
     const secret = ranOut ? null : await secretToPay({ monthId: month.id, memberId: user.id, now });
     return (
-      <Frame title={`Your membership with ${host.displayName}: your card`} back={{ href: `/h/${host.handle}`, text: host.displayName }}>
+      <Frame title={`Your membership with ${hostName}: your card`} back={host ? { href: `/h/${host.handle}`, text: host.displayName } : undefined}>
         {notice && <Notice text={notice} />}
         <p className="mt-4 text-sm">
           <strong>
             {formatMoney(month.totalCents)} a month for {timeWords(month.includedMinutes)}
           </strong>{" "}
-          of calls with {host.displayName}.{ranOut ? "" : " Enter your card: the first month's amount is then held on it, and your membership starts at that moment."}
+          of calls with {hostName}.{ranOut ? "" : " Enter your card: the first month's amount is then held on it, and your membership starts at that moment."}
         </p>
         {ranOut ? (
-          <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
-            The card step was not finished in time, so you are not a member and nothing was charged. If your bank shows a hold, it is let go; it may still be shown for a few days. You can start again from your invitation, or from &quot;Your
-            account&quot; if you were a member before.
-          </p>
+          <>
+            {/* Nothing is claimed before the bank was asked: a hold placed in time, whose way back arrived late, still counts. */}
+            <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+              The time for the card step is over. We are checking with the bank what became of your payment. If your card was held in time, your membership has started and this page shows it in a moment. If not, you are not a member and nothing is
+              charged; a hold your bank may show is let go, though it can still be shown for a few days. You can then start again from your invitation, or from &quot;Your account&quot; if you were a member before.
+            </p>
+            <PaymentCheck membershipId={mine.id} monthId={month.id} />
+          </>
         ) : secret ? (
           <>
             {month.cardStepExpiresAt && (
@@ -141,6 +149,9 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
       </Frame>
     );
   }
+
+  // Only a card step is shown while the host's page is closed to this person.
+  if (!host) notFound();
 
   // Paused: resuming is joining again without an invitation, on the host's membership as it is now.
   const offer = await offerOfHost(db, host.userId);

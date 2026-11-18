@@ -80,7 +80,8 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
           {notice}
         </p>
       )}
-      {askedOffer && membership.offerId?.toLowerCase() !== askedOffer.toLowerCase() && (
+      {/* An offer can be answered strictly before the month ends: after that its link says so, also before the helper has tidied it away. */}
+      {askedOffer && (membership.offerId?.toLowerCase() !== askedOffer.toLowerCase() || !started) && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           The offer of less time that this link was for is no longer open: it was answered, taken back, or its time ran out. This page shows how your membership stands now.
         </p>
@@ -113,9 +114,33 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
         {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} frozen={frozen} nextCents={nextCents} now={now} />}
 
         {membership.status === "active" && !started && (
-          <p>
-            <strong>Your next month is being started.</strong> {current?.status === "to_pay" ? `${formatMoney(current.totalCents)} is being held on your card right now. ` : ""}This page shows your time as soon as that is done; it usually takes less than a minute.
-          </p>
+          <>
+            {current?.status === "to_pay" ? (
+              <p>
+                <strong>Your next month is being started.</strong> {formatMoney(current.totalCents)} is being held on your card right now. This page shows your time as soon as that is done; it usually takes less than a minute.
+              </p>
+            ) : membership.memberStoppedAt || membership.hostStoppedAt || membership.offerStoppedAt || membership.offerId || !open ? (
+              <p>
+                <strong>Your month has ended.</strong> Your membership is being paused, and no new month is charged. This page shows it in a moment.
+              </p>
+            ) : (
+              <p>
+                <strong>Your month has ended.</strong> Your next month is being started. This page shows your time as soon as that is done; it usually takes less than a minute.
+              </p>
+            )}
+            {/* Cancelling stays possible in this in-between moment too: a member must always be able to stop a payment. */}
+            {(current?.status === "to_pay" || !membership.memberStoppedAt) && (
+              <form action={cancelAction} className="mt-4">
+                <input type="hidden" name="membership" value={membership.id} />
+                <button type="submit" className={button}>
+                  Cancel membership
+                </button>
+                <span className="ml-2 opacity-70">
+                  {current?.status === "to_pay" ? "The payment that is being taken is cancelled and your membership is paused at once. Nothing is charged for the new month." : "No new month is started, and your membership is paused."}
+                </span>
+              </form>
+            )}
+          </>
         )}
 
         {membership.status === "unpaid" && current && (
@@ -270,10 +295,10 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
       <h2 className="mt-6 text-lg font-semibold">{stopped ? "It does not renew" : "Your next payment"}</h2>
       {!stopped && (
         <p className="mt-1">
-          {membership.offerId
-            ? `Your membership renews on that day only if you accept the smaller time ${hostName} offered (below). Otherwise it is paused then.`
-            : !props.open
-              ? "Memberships are not being renewed at the moment. If that is still so when this month ends, yours is paused then and nothing is charged."
+          {!props.open
+            ? "Memberships are not being renewed at the moment. If that is still so when this month ends, yours is paused then and nothing is charged."
+            : membership.offerId
+              ? `Your membership renews on that day only if you accept the smaller time ${hostName} offered (below). Otherwise it is paused then.`
               : `${formatMoney(props.nextCents)} for ${time}, at ${price} per 15 minutes, is held on your card when this month ends.`}
         </p>
       )}

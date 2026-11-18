@@ -95,6 +95,25 @@ export async function oldInvitationFor(viewerId: string, inviteId: string): Prom
   return found ?? null;
 }
 
+/**
+ * A person's own live membership with the host whose handle an address carries, and that host's
+ * name: for the joining page, which must still say what became of a payment when the host's page
+ * is closed to this person again (a card step whose time has just run out). Their own only: null
+ * for anyone who has no membership with that host, exactly as for a handle that does not exist.
+ */
+export async function ownMembershipByHandle(viewerId: string, typedHandle: string): Promise<{ membership: Membership; hostName: string; handle: string } | null> {
+  const handle = tidyHandle(typedHandle);
+  if (handleProblem(handle)) return null;
+  const [found] = await db
+    .select({ membership: schema.memberships, hostName: schema.hostProfiles.displayName, handle: schema.hostProfiles.handle })
+    .from(schema.memberships)
+    .innerJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.memberships.hostId))
+    .where(and(eq(schema.hostProfiles.handle, handle), eq(schema.memberships.customerId, viewerId), ne(schema.memberships.status, "ended")))
+    .orderBy(desc(schema.memberships.createdAt))
+    .limit(1);
+  return found ?? null;
+}
+
 /** One membership with its months, the newest first, for its member only. */
 export async function membershipFor(viewerId: string, membershipId: string): Promise<{ membership: Membership; months: MembershipMonth[] } | null> {
   if (!IS_ID.test(membershipId)) return null;
