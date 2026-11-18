@@ -93,7 +93,8 @@ async function endCallsOf(userId: string, now: Date): Promise<number> {
   let notEnded = 0;
   for (const { call, payment } of open) {
     try {
-      if (call.startsAt > now) await cancelCall({ call, payment, by: "admin", now });
+      // (A call that was ended with "End call and report" before its start is over already: it cannot be cancelled, and its room is being closed.)
+      if (call.startsAt > now && !call.safetyEndedAt) await cancelCall({ call, payment, by: "admin", now });
       else await removeFromRoom(call.roomName, userId);
     } catch (error) {
       // The account is closed or paused either way. The founder is told how many calls need a look.

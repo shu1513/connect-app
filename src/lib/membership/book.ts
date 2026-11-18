@@ -173,8 +173,13 @@ const WRONG_MONTH = "The month this booking was made from can no longer be booke
  * for the old request). Checked wherever a written-down request is found, also under the locks.
  */
 function mustBeSameRequest(saved: Booking, input: Input, monthId: string): void {
-  if (saved.customerId !== input.customer.id || saved.hostId !== input.hostId || saved.startsAt.getTime() !== input.startsAt.getTime() || saved.lengthMinutes !== input.lengthMinutes) throw new BookingError(OUT_OF_DATE);
+  mustBeSameTerms(saved, input);
   if (saved.monthId !== monthId) throw new BookingError(WRONG_MONTH);
+}
+
+/** The first half of that, which needs nothing looked up: a press that names another host, time or length is refused, and the saved request is left as it is. */
+function mustBeSameTerms(saved: Booking, input: Input): void {
+  if (saved.customerId !== input.customer.id || saved.hostId !== input.hostId || saved.startsAt.getTime() !== input.startsAt.getTime() || saved.lengthMinutes !== input.lengthMinutes) throw new BookingError(OUT_OF_DATE);
 }
 
 /**
@@ -329,6 +334,8 @@ export async function bookAsMember(input: Input): Promise<MemberBookingResult> {
   let [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
   if (booking && booking.customerId !== customer.id) throw new BookingError(OUT_OF_DATE);
   if (booking && booking.stage !== "paying") return resultOf(booking);
+  // Before anything is looked up for the host this press names: it must be the request that was written down.
+  if (booking) mustBeSameTerms(booking, input);
 
   const found = await bookableMonth(db, customer.id, input.hostId, now);
   if (!found) {

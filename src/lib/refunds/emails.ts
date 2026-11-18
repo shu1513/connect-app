@@ -67,7 +67,7 @@ export async function queueRequestEmail(tx: Writer, call: CallRef, request: { id
           ? "This call was paid from the customer's membership, and its time has already been used. You can give time back, or say no."
           : money === "being_decided"
             ? "This call was paid from the customer's membership. What it uses is still being decided (its record is under review at Connect), so there is nothing for you to answer yet. The call's page shows when there is."
-            : `This call was paid from the customer's membership, and nothing has been used for it yet. If you answer by ${whenFor(host, money.answerBy)}, you can charge in full, charge less, or charge nothing; what you do not charge goes back to the customer. After that the full amount is used, and you can still give time back.`
+            : `This call was paid from the customer's membership, and nothing has been used for it yet. If you answer by ${whenFor(host, money.answerBy)}, you can charge in full, charge less, or charge nothing; what you do not charge goes back to the customer (as membership time, or to their card once that month can no longer be booked from). After that the full amount is used, and you can still give time back.`
         : money === "taken"
           ? "The money for this call has already been taken. You can give a refund, or say no."
           : money === "being_decided"
@@ -90,7 +90,7 @@ export async function queueRequestReminder(tx: Writer, call: CallRef, request: {
   if (how === "frozen") return;
   const what =
     how === "membership"
-      ? `If you answer by ${whenFor(found.host, answerBy)}, you can still charge less or nothing, and what you do not charge goes back to the customer's membership. After that the full amount is used.`
+      ? `If you answer by ${whenFor(found.host, answerBy)}, you can still charge less or nothing, and what you do not charge goes back to the customer (as membership time, or to their card once that month can no longer be booked from). After that the full amount is used.`
       : `If you answer by ${whenFor(found.host, answerBy)}, you can still charge less or nothing without a card fee being lost. After that the full amount is taken.`;
   await queueEmail(tx, {
     to: found.host.email,
@@ -115,7 +115,7 @@ export async function queueAnswerEmail(tx: Writer, call: CallRef, request: { id:
   const how = await paidHow(tx, call.id);
   const membership =
     how === "frozen"
-      ? "\nThis call was paid from your membership, and your bank is looking at a dispute over that month's payment. Until the bank has decided, nothing of that month moves; the answer is carried out after that.\n"
+      ? "\nThis call was paid from your membership, and your bank is looking at a dispute over that month's payment. Until the bank has decided, nothing of that month moves. The answer is carried out if the bank decides in Connect's favour.\n"
       : how === "membership"
         ? "\nThis call was paid from your membership. What is not charged goes back to your membership as time, or to your card once that month can no longer be booked from.\n"
         : "";

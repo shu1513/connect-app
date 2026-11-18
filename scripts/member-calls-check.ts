@@ -412,7 +412,9 @@ async function main() {
     const second = await book(m, membersOnly[0]);
     check("a member-only time is booked the same way", second.outcome === "booked" && (await places(m.monthId)) === "3000/3000/0/0/0/0", await places(m.monthId));
 
-    check("inside the host's notice it is refused", Boolean(await refused(book(m, new Date(Math.ceil((Date.now() + 2 * HOUR) / (30 * MIN)) * 30 * MIN)))));
+    // A time that is open today, asked for when it is only 2 hours away: only the host's 24 hours' notice stands in the way.
+    check("the same time is still open one hour before the notice begins", (await times(m, 30, new Date(general[3].getTime() - 25 * HOUR))).some((at) => at.getTime() === general[3].getTime()));
+    check("inside the host's notice it is refused", /no longer open/.test((await refused(book(m, general[3], { now: new Date(general[3].getTime() - 2 * HOUR) }))) ?? "") && !(await times(m, 30, new Date(general[3].getTime() - 2 * HOUR))).some((at) => at.getTime() === general[3].getTime()));
     check("a length the host does not offer is refused", Boolean(await refused(book(m, general[3], { length: 45 }))));
     // The month is made to end before a time that is otherwise open: a member's call must end before the month ends.
     const realEnd = (await M(m.monthId)).endsAt!;
@@ -507,6 +509,9 @@ async function main() {
       .returning();
     const otherTime = await refused(B.bookAsMember({ customer: o.member, hostId: host.id, startsAt: open3[6], lengthMinutes: 30, requestKey: sameKey.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() }));
     check("a request is only continued for the time it was written down for", /out of date/.test(otherTime ?? "") && (await bookingById(sameKey.id)).stage === "paying", otherTime);
+    const otherHost = await person("host");
+    const wrongHost = await refused(B.bookAsMember({ customer: o.member, hostId: otherHost.id, startsAt: open3[5], lengthMinutes: 30, requestKey: sameKey.requestKey, seen: { pricePer15Cents: 750, freeCancelMinutes: 0 }, now: new Date() }));
+    check("and for the host it was written down for: a press that names another host is refused and leaves the request as it is", /out of date/.test(wrongHost ?? "") && (await bookingById(sameKey.id)).stage === "paying", wrongHost);
     await db.update(schema.bookings).set({ createdAt: new Date(Date.now() - 31 * MIN) }).where(eq(schema.bookings.id, sameKey.id));
     await runMembershipJobs(new Date());
     check("when it runs out and the month's money was taken meanwhile, it says the payment went through", /payment went through/.test((await bookingById(sameKey.id)).endedReason ?? ""), (await bookingById(sameKey.id)).endedReason);
@@ -1028,7 +1033,7 @@ async function main() {
     const race2 = await Promise.allSettled([book(o, open3[8]), C.takeMonth(o.monthId, new Date())]);
     const again = race2[0].status === "fulfilled" && race2[0].value.outcome !== "booked" ? await book(o, open3[8], { key: race2[0].value.booking.requestKey }) : null;
     const month2 = await M(o.monthId);
-    check("a booking and the timed taking at the same moment: the money is taken once, and the call is booked (at once or on the next press)", month2.status === "running" && month2.setAsideCents === 1500 && (await ledger({ monthId: o.monthId }, "customer_charge")).lines === 1, `${race2.map((r) => r.status)} ${again?.outcome} ${await places(o.monthId)}`);
+    check("a booking and the timed taking at the same moment: the money is taken once, and the call is booked (at once or on the next press)", race2.every(byARule) && month2.status === "running" && month2.setAsideCents === 1500 && (await ledger({ monthId: o.monthId }, "customer_charge")).lines === 1, `${race2.map((r) => r.status)} ${again?.outcome} ${await places(o.monthId)}`);
     await audit("after the taking race", o);
 
     // A booking and the month's end.

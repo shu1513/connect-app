@@ -576,3 +576,22 @@ payment went through blamed the payment. In the check script, four checks that c
 without the thing they named were tightened, and collecting is now played with real test
 transfers (two member calls' shares and a card call's share in one collection).
 
+**Second round: not ready, five points and six checks, all taken.** The serious one: a call can be
+ended with "End call and report" from 5 minutes before its start, and a cancellation sent a
+moment later (from a page that was still open) would have decided the money that was waiting for
+the founder's review. A call that was ended that way can no longer be cancelled, whatever paid
+for it. The others: a first booking that is continued after an interruption is now checked again
+before the month's money is taken, and only as it was written down (the same host, time, length
+and month), also under the locks; a retry reports what the booking's own row says; and the
+refund-request panel and its emails speak of membership time for a member's call, and promise
+nothing while the month is disputed. Six checks in the script were made to prove what they name.
+
+**Third round: not ready, two points worth fixing and some small ones, all taken.** The founder's
+decision on a member's call is now judged by the clock when the step happens, after its locks, so
+a press just before the 3-day limit that waits past it is refused like any late one. A press
+that names another host than the saved request's is refused before anything is looked up, and
+leaves the request as it is. Small: blocking, suspending a host, closing an account and the
+unpaid-call job no longer try to cancel a call that was ended with "End call and report" (the
+new refusal would have been reported as work left over); two sentences about where uncharged
+time goes were made exact; two more checks in the script were tightened.
+

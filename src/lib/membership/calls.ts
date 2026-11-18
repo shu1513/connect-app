@@ -21,7 +21,7 @@ import { attendanceChargeCents, countedSeconds, splitCharge } from "@/lib/paymen
 import { readyToCollectAt, REVIEW_WINDOW_MS } from "@/lib/payments/rules";
 import { lockMonthsOfCall, type LockedMonth } from "./locks";
 import { comeBack, finishIfSettled, spendSetAside } from "./months";
-import { feeTermsFor, isFrozen } from "./rules";
+import { afterTheWait, feeTermsFor, isFrozen } from "./rules";
 
 const months = schema.membershipMonths;
 
@@ -236,12 +236,14 @@ export async function decideMemberReview(input: { paymentId: string; amountCents
   if (!seen?.callId) throw new MoneyError("Payment not found.");
   const done = await inCallStep(seen.callId, async (tx, call) => {
     const payment = await lockPayment(tx, input.paymentId);
+    // The deadline is judged by when the step happens, not by when the button was pressed: the clock is read again now that the locks are held.
+    const now = afterTheWait(input.now);
     if (payment.kind !== "member_call") throw new MoneyError("This payment is not part of a membership.");
     if (payment.status !== "held") throw new MoneyError("This payment is not waiting any more.");
     if (!payment.needsReview) throw new MoneyError("This payment is not waiting for review.");
-    if (input.now >= memberDecisionDeadline(call)) throw new MoneyError("The deadline for deciding this call has passed.");
+    if (now >= memberDecisionDeadline(call)) throw new MoneyError("The deadline for deciding this call has passed.");
     if (input.amountCents === null) {
-      return closeMemberPayment(tx, call, payment, { usedCents: 0, note: "Released by Connect after review.", what: "review", hostCaused: "all" }, input.now);
+      return closeMemberPayment(tx, call, payment, { usedCents: 0, note: "Released by Connect after review.", what: "review", hostCaused: "all" }, now);
     }
     const amountCents = input.amountCents;
     // Time added to a call counts only if the host accepted that request.
@@ -260,7 +262,7 @@ export async function decideMemberReview(input: { paymentId: string; amountCents
     if (!Number.isInteger(amountCents) || amountCents < 50) throw new MoneyError("The amount is below the minimum that can be used.");
     if (amountCents > payment.bookedCents) throw new MoneyError("The amount is more than was set aside for this call.");
     if (input.maxCents !== undefined && amountCents > input.maxCents) throw new MoneyError("The amount is more than the time before the call was stopped allows.");
-    return closeMemberPayment(tx, call, payment, { usedCents: amountCents, reason: "admin", frozen: input.frozen, what: "review", hostCaused: "all" }, input.now);
+    return closeMemberPayment(tx, call, payment, { usedCents: amountCents, reason: "admin", frozen: input.frozen, what: "review", hostCaused: "all" }, now);
   });
   if (done === "frozen") throw new MoneyError("This month's charge is disputed at the member's bank, so nothing of it moves until that is decided.");
   if (done === null) throw new MoneyError("Call not found.");
