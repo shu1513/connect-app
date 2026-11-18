@@ -30,6 +30,7 @@ async function main() {
   const { closeFinishedExtensions } = await import("../src/lib/extend/extend");
   const { refreshPendingIdentityChecks } = await import("../src/lib/safety/identity");
   const { writeCallReminders, writeRequestReminders } = await import("../src/lib/notifications/reminders");
+  const { writeMembershipReminders } = await import("../src/lib/notifications/membership-reminders");
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
   const { recordBeat } = await import("../src/lib/health");
   const { removeOldNotes } = await import("../src/lib/quality/notes");
@@ -126,6 +127,8 @@ async function main() {
     await writeRequestReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
     // To a host with a refund request waiting, once, halfway through their time to answer.
     await writeAnswerReminders(now).catch((error) => console.error("[reminders] failed; will retry", error));
+    // To a member, once, three days before their paid month ends: what is left, and what comes then.
+    await writeMembershipReminders(now).catch((error) => console.error("[reminders] membership reminders failed; will retry", error));
   }
 
   /**

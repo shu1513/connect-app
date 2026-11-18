@@ -18,6 +18,7 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import { errorSummary } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
+import { membershipReminderProblem } from "./membership-reminders";
 
 /** How many emails one call of deliverEmails sends at most. */
 const BATCH = 20;
@@ -166,6 +167,10 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
     const [request] = await db.select({ status: schema.refundRequests.status }).from(schema.refundRequests).where(eq(schema.refundRequests.id, refundReminder[1]));
     return !request || request.status !== "asked" ? "the refund request has been answered" : null;
   }
+  // The reminder before a membership month ends is the notice of a payment: it is sent whatever the person chose for
+  // reminder emails, but not when it is no longer true (the renewal was stopped, or the membership paused or ended).
+  const monthReminder = key.match(/^month-reminder:(.+)$/);
+  if (monthReminder) return membershipReminderProblem(monthReminder[1], email.subject);
   if (!reminder && !expiring) return null;
   let userId: string;
   if (reminder) {
