@@ -31,7 +31,9 @@ the rulebook's "Before this can go live".
 member", its list of pages under "Changes to existing code", the reminder, the list of monthly
 receipts, the full admin page, and its part three "Done when".
 
-**Built before and used here:** every function behind every button (plans 20 and 21), the emails
+**Built before and used here** (by the names and at the addresses in the rulebook's "How the
+parts connect"): every function behind every button (plans 20 and 21), the two functions that
+work out what a change would do without saving it, the emails
 that report an event, the short list for the founder, the founder's switch and its form, and the
 pages part two already changed (the host's page and the booking page as a member sees them, the
 page after a call, the call screen, the "Members only" tick).
@@ -82,12 +84,13 @@ No change to the database.
   the rulebook allows, an open invitation with the time it runs out and "Take back". The actions
   call `join.ts`.
 - **The calendar page's step for a cut in hours** (`app/host/calendar/page.tsx`, a new
-  `app/host/calendar/cut/page.tsx`, `actions.ts`): changing a stretch in one go; when the change
+  `app/host/calendar/cut/page.tsx` at `/host/calendar/cut`, `actions.ts`): changing a stretch in one go; when the change
   needs the host's choices, the action sends her to the step, which shows what the rulebook's
   "When a host later offers fewer hours" lists and saves the hours and the choices together
   through `changeWeeklyHours`. If something changed meanwhile, the step is shown again with the
   new state.
-- **The admin page** (a new `app/admin/memberships/page.tsx`, linked from `app/admin/page.tsx`):
+- **The admin page** (a new `app/admin/memberships/page.tsx` at `/admin/memberships`, linked from
+  `app/admin/page.tsx`):
   every membership with where it stands; months not finished; payments that failed; pay-backs
   owed; months under dispute; and for each month its six places. It reads only. The switch stays
   on `admin/reports`, where part one put it.
@@ -97,9 +100,9 @@ No change to the database.
 No change to the database.
 
 - **The invitation, joining and resuming** (a new `app/h/[handle]/membership/page.tsx` with
-  `actions.ts`): what the rulebook's "Joining" shows, with its sentences and its tick box, read
-  from one place in the code (`src/lib/membership/wording.ts`, which also holds the wording's
-  version, so the page and the record can never differ). It opens for an invited person and for
+  `actions.ts`): what the rulebook's "Joining" shows, with its sentences and its tick box, read from
+  `src/lib/membership/wording.ts`, which part one built and which also holds the wording's
+  version, so the page and the record can never differ. It opens for an invited person and for
   a paused member also when the host's page is hidden. "Join" and "Resume" call `join.ts`; the
   page then shows the card form.
 - **The card form** (a new `app/h/[handle]/membership/card-form.tsx`): like the booking's card
