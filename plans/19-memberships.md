@@ -1110,7 +1110,9 @@ one they are a member of.
   2026 memberships are on for every host from the site's first day, so the lawyer's and Stripe's
   points above have to be settled before the site itself goes live, not at a later switch. (To
   run the friend test with nobody else able to use memberships, the founder can set the switch
-  to "on for the hosts the founder names" for that time.)
+  to "on for the hosts the founder names" for that time. **That setting stays until it is
+  changed:** before the site goes live the founder sets the switch back to "on for everyone",
+  or the hosts who were not named cannot offer a membership.)
 
 ## Astra's check of this plan (17 November 2026)
 
@@ -1434,10 +1436,20 @@ member."**
   column's default, what the code reads when no switch was ever saved, and, once, any saved
   "off" (which until then had only ever been the default, never a choice) is turned on by
   migration `0030_memberships_on`. A list of named hosts is left as it is.
-- Nothing else changes. Every rule that asks "are memberships on for this host?" asks as before.
-  The switch stays on the admin page, "Reports and safety", with its three positions: the
-  founder can turn memberships off, or limit them to named hosts, at any time, and everything
-  the rulebook says about "off" holds from that moment.
+- Every rule that asks "are memberships on for this host?" asks as before. The switch stays on
+  the admin page, "Reports and safety", with its three positions: the founder can turn
+  memberships off, or limit them to named hosts, at any time, and everything the rulebook says
+  about "off" holds from that moment.
+- **Two rules change with it**, because they had leaned on the switch being off for most hosts
+  and now have to stand by themselves:
+  - **Switching a membership on needs an approved host page**, beside the price and the payout
+    account. This is about switching on (or setting one up for the first time). A membership
+    that is already on can still be looked after while the host's page waits for approval:
+    lowering the member price, and switching it off.
+  - **Hours "for members only" are for a host who offers a membership herself** (her own
+    membership is switched on, and the founder's switch covers her), not for every host the
+    founder's switch covers. As before, a host who already has such hours keeps them and can
+    change them while a switch is off, so her members' months go on.
 - A host still has to do her own part before anyone can join: an approved page, a price above
   zero, a payout account that is ready, and her own membership switched on with a member price
   and a time.

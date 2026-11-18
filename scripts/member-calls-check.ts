@@ -1499,7 +1499,8 @@ async function main() {
     // the two test accounts had before or got since (a membership made by hand in the browser, the host's own hours).
     const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
     const NOTE = "node_modules/.cache/member-calls-demo.json";
-    type Note = { membershipId: string; hostId: string; hours: string[]; offerMade: boolean; switchBefore?: { memberships: "off" | "named" | "everyone"; membershipsHosts: string[] } };
+    type Position = { memberships: "off" | "named" | "everyone"; membershipsHosts: string[] };
+    type Note = { membershipId: string; hostId: string; hours: string[]; offerMade: boolean; switchBefore?: Position; switchSet?: Position };
     if (process.argv.includes("--demo-off")) {
       if (!existsSync(NOTE)) {
         console.log("No demo membership is written down, so nothing was taken away.");
@@ -1509,10 +1510,13 @@ async function main() {
       await wipe(false, { membershipId: note.membershipId });
       if (note.hours.length > 0) await db.delete(schema.weeklyHours).where(inArray(schema.weeklyHours.id, note.hours));
       if (note.offerMade) await db.delete(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, note.hostId));
-      // The switch goes back to what it was before the demo (older notes did not keep it: then it is left alone).
-      if (note.switchBefore) await setSwitches(note.switchBefore);
+      // The switch goes back only if the demo changed it, and only if it is still as the demo set it: a position the
+      // founder chose in the meantime (off, say, while looking at the demo) is theirs and stays.
+      const now = await switches();
+      const stillTheDemos = note.switchSet !== undefined && now.memberships === note.switchSet.memberships && now.membershipsHosts.join(",") === note.switchSet.membershipsHosts.join(",");
+      if (note.switchBefore && stillTheDemos) await setSwitches(note.switchBefore);
       rmSync(NOTE);
-      console.log(`The demo membership is gone, and the founder's memberships switch is "${(await switches()).memberships}", as before the demo.`);
+      console.log(`The demo membership is gone. The founder's memberships switch is "${(await switches()).memberships}"${note.switchBefore && !stillTheDemos ? " (it was changed after the demo was set up, and is left as it is)" : ""}.`);
       process.exit(0);
     }
     if (existsSync(NOTE)) throw new Error("A demo membership is already there. Take it away first: npx tsx scripts/member-calls-check.ts --demo-off");
@@ -1530,7 +1534,9 @@ async function main() {
     // in between puts the switch back itself, and says so.
     let started: { membershipId: string; monthId: string };
     try {
-      if (before.memberships !== "everyone") await setSwitches({ memberships: "named", membershipsHosts: [...before.membershipsHosts, host.id] });
+      // What the demo sets, if it has to: only then is there anything for --demo-off to put back.
+      const switchSet: Position | undefined = before.memberships === "everyone" ? undefined : { memberships: "named", membershipsHosts: [...new Set([...before.membershipsHosts, host.id])] };
+      if (switchSet) await setSwitches(switchSet);
       const offerMade = (await db.insert(schema.membershipOffers).values({ hostId: host.id, on: true, pricePer15Cents: Math.max(500, profile.pricePer15Cents - 250), includedMinutes: 120 }).onConflictDoNothing().returning({ hostId: schema.membershipOffers.hostId })).length > 0;
       const hours: string[] = [];
       for (const weekday of [1, 2, 3, 4, 5, 6, 7]) hours.push((await db.insert(schema.weeklyHours).values({ hostId: host.id, weekday, startMinute: 20 * 60, endMinute: 22 * 60, membersOnly: true }).returning({ id: schema.weeklyHours.id }))[0].id);
@@ -1542,7 +1548,7 @@ async function main() {
       const invitation = await J.invite({ hostId: host.id, customerId: customer.id, now: new Date() });
       started = await J.join({ customerId: customer.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
       mkdirSync("node_modules/.cache", { recursive: true });
-      writeFileSync(NOTE, JSON.stringify({ membershipId: started.membershipId, hostId: host.id, hours, offerMade, switchBefore } satisfies Note));
+      writeFileSync(NOTE, JSON.stringify({ membershipId: started.membershipId, hostId: host.id, hours, offerMade, ...(switchSet ? { switchBefore, switchSet } : {}) } satisfies Note));
     } catch (error) {
       await setSwitches(switchBefore);
       console.log("The demo could not be set up. The founder's memberships switch was put back as it was.");

@@ -1502,7 +1502,10 @@ they have to stand by themselves):
 **How it was checked:** all fourteen check scripts and the journey through the pages, run with the
 local switch on for everyone; `tsc`, `eslint`, `vitest`. Astra reviewed the change three times
 (not ready, not ready, ready): the two rules above, and the check scripts putting the switch
-back also when their own set-up fails.
+back also when their own set-up fails. CodeRabbit (pull request 41): three small comments, all taken:
+the rulebook now names the two rules, and says that a "named hosts" setting made for the friend
+test must be set back to "on for everyone" before launch; and the demo of the member-calls
+script only puts the switch back if it changed it and nobody changed it since.
 
 **What it means before launch:** the lawyer's and Stripe's points in `plans/19`, "Before this
 can go live", now have to be settled before the site goes live, because memberships go live with
