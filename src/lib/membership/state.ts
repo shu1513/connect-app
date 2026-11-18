@@ -26,7 +26,7 @@ export async function pauseMembership(tx: Tx, membership: Membership, reason: st
   if (membership.status === "paused" || membership.status === "ended") return;
   const [paused] = await tx
     .update(schema.memberships)
-    .set({ status: "paused", pausedAt: now, pausedReason: reason, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, ...noOffer, updatedAt: now })
+    .set({ status: "paused", pausedAt: now, pausedReason: reason, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, ...noOffer, updatedAt: now })
     .where(eq(schema.memberships.id, membership.id))
     .returning();
   await retireCard(tx, membership.id, now);
@@ -46,7 +46,7 @@ export async function endMembership(tx: Tx, membership: Membership, input: { by:
   if (membership.status === "ended") return false;
   const [ended] = await tx
     .update(schema.memberships)
-    .set({ status: "ended", endedAt: now, endedBy: input.by, endedReason: input.reason, cleanupDoneAt: null, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, ...noOffer, updatedAt: now })
+    .set({ status: "ended", endedAt: now, endedBy: input.by, endedReason: input.reason, cleanupDoneAt: null, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, ...noOffer, updatedAt: now })
     .where(eq(schema.memberships.id, membership.id))
     .returning();
   await retireCard(tx, membership.id, now);

@@ -290,21 +290,23 @@ async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentI
   if (month.cardStepExpiresAt && authorisedAt > month.cardStepExpiresAt) return "card_step";
   // The 7 days count by the bank's own time too: a hold placed in time counts when it is found late, one placed after them does not.
   if (month.giveUpAt && authorisedAt > month.giveUpAt) return "given_up";
+  const kind = month.originKey.split(":")[0];
+  // A month that replaces one whose hold the bank let go stands for a month that had already started:
+  // months that have started keep working to their end, whatever the switches say, and it keeps that month's place.
+  if (kind === "replacement") return null;
   if (!(await membershipsOnFor(membership.hostId, tx))) return "switch";
   // The host's own switch too: a payment that was still open when she switched her membership off is cancelled then; this is the net behind that.
   const [offer] = await tx.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));
   if (!offer?.on) return "offer_off";
-  const kind = month.originKey.split(":")[0];
   if (kind === "renewal") {
     // The same one calculation that allowed the renewal to be written down, so the answer cannot
     // depend on whose renewal came first. (Months of other members that have started go on beside it.)
     if (!(await keepsPlace(tx, membership))) return "no_room";
-  } else if (kind !== "replacement") {
+  } else {
     // Someone new (a joining or a resuming): the host's hours, less everything already promised.
     const room = (await hostMinutes(tx, membership.hostId)) - (await promisedMinutes(tx, membership.hostId, now, membership.id));
     if (room < month.includedMinutes) return "no_room";
   }
-  // A month that replaces one whose hold the bank let go stands for a month that had already started: it keeps that month's place.
   return null;
 }
 
@@ -450,7 +452,7 @@ export async function recordIntent(seen: MembershipMonth, intent: Stripe.Payment
         .returning();
       const [active] = await tx
         .update(schema.memberships)
-        .set({ status: "active", since: membership.status === "joining" || !membership.since ? authorisedAt : membership.since, pausedAt: null, pausedReason: null, updatedAt: now })
+        .set({ status: "active", since: membership.status === "joining" || !membership.since ? authorisedAt : membership.since, ...(membership.status === "joining" ? { pausedAt: null, pausedReason: null } : {}), updatedAt: now })
         .where(eq(schema.memberships.id, membership.id))
         .returning();
       await queueReceiptEmail(tx, active, held, timing.offeredUntil);

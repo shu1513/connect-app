@@ -179,25 +179,23 @@ async function saveCut(tx: Tx, userId: string, cut: Cut, choices: { mark: string
   for (const member of cut.members) {
     const choice = chosen.get(member.membershipId)!;
     const membership = locked.get(member.membershipId)!;
+    const month = membership.currentMonthId ? await lockMonth(tx, membership.currentMonthId) : null;
     if (choice.choice === "pause") {
-      if (membership.status === "unpaid" && membership.currentMonthId) {
-        // No running month: paused at once, and the open payment is cancelled.
-        const month = await lockMonth(tx, membership.currentMonthId);
+      if (month?.status === "to_pay") {
+        // No month that has started (a payment being tried, or a renewal only just written down): paused at once, and the open payment is cancelled.
         if (await giveUpInStep(tx, { membership, month }, "given_up", now, "host")) letGo.push(month.id);
         continue;
       }
       // Pausing takes an open offer back.
       await tx.update(schema.memberships).set({ hostStoppedAt: now, pausedReason: null, offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
       if (membership.offerId && membership.offeredMinutes) await queueLessTimeOutcomeEmail(tx, membership, { offerId: membership.offerId, outcome: "taken_back_paused", offeredMinutes: membership.offeredMinutes });
-      else if (membership.currentMonthId) {
-        const [month] = await tx.select({ endsAt: schema.membershipMonths.endsAt }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, membership.currentMonthId));
-        if (month?.endsAt) await queueRenewalStoppedEmail(tx, membership, "host", month.endsAt, now);
-      }
-    } else if (choice.choice === "less" && membership.currentMonthId) {
-      const [month] = await tx.select({ endsAt: schema.membershipMonths.endsAt }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, membership.currentMonthId));
+      else if (month?.endsAt) await queueRenewalStoppedEmail(tx, membership, "host", month.endsAt, now);
+    } else if (choice.choice === "less") {
+      // An offer must still be answerable: the member has until their month ends, strictly before it.
+      if (!month?.endsAt || month.endsAt <= now || (month.status !== "running" && month.status !== "held")) throw new CalendarError("This member's month has just ended, so less time can no longer be offered for it. Please look at the page again.");
       const offerId = randomUUID();
-      await tx.update(schema.memberships).set({ offerId, offerMonthId: membership.currentMonthId, offeredMinutes: choice.minutes!, offeredAt: now, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
-      if (month?.endsAt) await queueLessTimeOfferEmail(tx, membership, { offerId, offeredMinutes: choice.minutes!, minutesNow: member.minutes, pricePer15Cents: membership.ownPricePer15Cents ?? 0, answerBy: month.endsAt });
+      await tx.update(schema.memberships).set({ offerId, offerMonthId: month.id, offeredMinutes: choice.minutes!, offeredAt: now, updatedAt: now }).where(eq(schema.memberships.id, membership.id));
+      await queueLessTimeOfferEmail(tx, membership, { offerId, offeredMinutes: choice.minutes!, minutesNow: member.minutes, pricePer15Cents: membership.ownPricePer15Cents ?? 0, answerBy: month.endsAt });
     }
   }
   for (const id of cut.invitationsTakenBack) await endInvitation(tx, locked.get(id)!, "taken_back", now);

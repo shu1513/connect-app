@@ -223,32 +223,33 @@ export async function queueRenewalStoppedEmail(tx: Writer, membership: Membershi
 }
 
 /**
- * One side takes its stop back. To both, and saying how things really stand: if the other side's
- * stop is still there, the membership is still paused at the month's end.
+ * One side takes its stop back. To both, and saying how things really stand: if another stop is
+ * still there (`left` names whose), the membership is still paused at the month's end.
  */
-export async function queueRenewalBackEmail(tx: Writer, membership: Membership, by: "member" | "host", at: Date, stillStopped: boolean): Promise<void> {
+export async function queueRenewalBackEmail(tx: Writer, membership: Membership, by: "member" | "host", at: Date, left: "member" | "host" | "offer_off" | null): Promise<void> {
   const found = await peopleOf(tx, membership);
   if (!found) return;
   const { member, host, hostName } = found;
   const key = `membership-back:${membership.id}:${by}:${at.getTime()}`;
-  const forMember = stillStopped
-    ? by === "member"
-      ? `You switched your membership with ${hostName} back on. But ${hostName} has paused it after this month, so it is still paused when the month you paid for ends. Only ${hostName} can take that back.`
-      : `${hostName} has taken back the pause. But you cancelled your membership yourself, so it is still paused when the month you paid for ends, unless you switch it back on with "Keep my membership".`
-    : `${by === "member" ? "You switched your membership back on" : `${hostName} has taken back the pause`}. Your membership with ${hostName} renews as before at the end of the month you paid for. Nothing is charged today.`;
-  const forHost = stillStopped
-    ? by === "member"
-      ? `${member.name} has switched their membership back on. Your own pause after this month still stands, so it is paused when their paid month ends unless you take the pause back.`
-      : `You took back the pause for ${member.name}. They cancelled their membership themselves, so it is still paused when their paid month ends unless they switch it back on.`
-    : by === "member"
-      ? `${member.name} has switched their membership back on. It renews as before.`
-      : `You took back the pause for ${member.name}. Their membership renews as before.`;
-  await queueEmail(tx, { to: member.email, key: `${key}:member`, subject: stillStopped ? `Your membership with ${hostName}: still set to pause` : `Your membership with ${hostName} goes on`, text: `Hi ${member.name},\n\n${forMember}\n\n${memberPage(membership)}\n` });
-  await queueEmail(tx, { to: host.email, key: `${key}:host`, subject: stillStopped ? `${member.name}'s membership is still set to pause` : by === "member" ? `${member.name} keeps their membership` : `${member.name}'s membership goes on`, text: `Hi ${host.name},\n\n${forHost}\n\n${appUrl()}/host#membership\n` });
+  const still = "it is still paused when the month you paid for ends";
+  const forMember = {
+    host: `You switched your membership with ${hostName} back on. But ${hostName} has paused it after this month, so ${still}. Only ${hostName} can take that back.`,
+    member: `${hostName} has taken back the pause. But you cancelled your membership yourself, so ${still}, unless you switch it back on with "Keep my membership".`,
+    offer_off: `${hostName} has taken back the pause. But the membership was switched off for a while during this month, which stopped your renewal, so ${still}, unless you switch it back on with "Keep my membership".`,
+    none: `${by === "member" ? "You switched your membership back on" : `${hostName} has taken back the pause`}. Your membership with ${hostName} renews as before at the end of the month you paid for. Nothing is charged today.`,
+  }[left ?? "none"];
+  const forHost = {
+    host: `${member.name} has switched their membership back on. Your own pause after this month still stands, so it is paused when their paid month ends unless you take the pause back.`,
+    member: `You took back the pause for ${member.name}. They cancelled their membership themselves, so it is still paused when their paid month ends unless they switch it back on.`,
+    offer_off: `You took back the pause for ${member.name}. Their renewal is still stopped, because your membership was switched off for a while during this month. Only they can bring it back, with "Keep my membership".`,
+    none: by === "member" ? `${member.name} has switched their membership back on. It renews as before.` : `You took back the pause for ${member.name}. Their membership renews as before.`,
+  }[left ?? "none"];
+  await queueEmail(tx, { to: member.email, key: `${key}:member`, subject: left ? `Your membership with ${hostName}: still set to pause` : `Your membership with ${hostName} goes on`, text: `Hi ${member.name},\n\n${forMember}\n\n${memberPage(membership)}\n` });
+  await queueEmail(tx, { to: host.email, key: `${key}:host`, subject: left ? `${member.name}'s membership is still set to pause` : by === "member" ? `${member.name} keeps their membership` : `${member.name}'s membership goes on`, text: `Hi ${host.name},\n\n${forHost}\n\n${appUrl()}/host#membership\n` });
 }
 
 /** The host lowered the member price: this member pays less from their next month, for the same time. */
-export async function queueLowerPriceEmail(tx: Writer, membership: Membership, input: { fromPricePer15Cents: number; toPricePer15Cents: number; minutes: number; offerVersion: number; monthBeingPaid: boolean }): Promise<void> {
+export async function queueLowerPriceEmail(tx: Writer, membership: Membership, input: { fromPricePer15Cents: number; toPricePer15Cents: number; minutes: number; offerVersion: number; openMonthCents: number | null }): Promise<void> {
   const found = await peopleOf(tx, membership);
   if (!found) return;
   const { member, hostName } = found;
@@ -259,8 +260,8 @@ export async function queueLowerPriceEmail(tx: Writer, membership: Membership, i
     subject: `Your membership with ${hostName} costs less from your next month`,
     text:
       `Hi ${member.name},\n\n${hostName} has lowered the member price. ` +
-      (input.monthBeingPaid
-        ? `The month whose payment is open now keeps its amount of ${monthly(input.fromPricePer15Cents)}. From the month after it you pay ${monthly(input.toPricePer15Cents)} a month`
+      (input.openMonthCents !== null
+        ? `The month whose payment is open now keeps its amount of ${money(input.openMonthCents)}. From the month after it you pay ${monthly(input.toPricePer15Cents)} a month`
         : `From your next month you pay ${monthly(input.toPricePer15Cents)} a month instead of ${monthly(input.fromPricePer15Cents)}`) +
       `, for the same ${timeWords(input.minutes)}. The month you have already paid for does not change. You do not have to do anything.\n\n${memberPage(membership)}\n`,
   });
@@ -305,13 +306,13 @@ export async function queueLessTimeOutcomeEmail(tx: Writer, membership: Membersh
 }
 
 /** The host switched her membership off: this member keeps the month they paid for, and is paused when it ends unless it is on again and they keep it. */
-export async function queueOfferOffEmail(tx: Writer, membership: Membership, endsAt: Date): Promise<void> {
+export async function queueOfferOffEmail(tx: Writer, membership: Membership, endsAt: Date, at: Date): Promise<void> {
   const found = await peopleOf(tx, membership);
   if (!found) return;
   const { member, hostName } = found;
   await queueEmail(tx, {
     to: member.email,
-    key: `membership-offer-off:${membership.id}:${endsAt.getTime()}`,
+    key: `membership-offer-off:${membership.id}:${at.getTime()}`,
     subject: `${hostName} is not offering the membership at the moment`,
     text: `Hi ${member.name},\n\n${hostName} has switched the membership off. Nothing changes until ${whenFor(member, endsAt)}: your bookings stay, and the time you have left can still be booked and used. No new month is charged, and on that day your membership is paused.\n\nIf ${hostName} switches the membership on again before then, you can keep yours with "Keep my membership". After that day you can resume it whenever it is offered again and there is room.\n\n${memberPage(membership)}\n`,
   });

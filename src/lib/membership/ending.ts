@@ -213,19 +213,20 @@ export async function stopRenewal(input: { membershipId: string; by: "member" | 
   const { membershipId, by, now } = input;
   const letGo = await db.transaction(async (tx) => {
     const membership = await lockedFor(tx, membershipId, { as: by, id: input.actorId });
-    if (membership.status === "unpaid" && membership.currentMonthId) {
-      const month = await lockMonth(tx, membership.currentMonthId);
+    if (!membership.currentMonthId || !["active", "unpaid"].includes(membership.status)) throw new MembershipError(membership.status === "paused" ? "This membership is already paused." : "This membership cannot be cancelled at the moment.");
+    const month = await lockMonth(tx, membership.currentMonthId);
+    if (month.status === "to_pay") {
+      // No month that has started (a payment being tried again, or a renewal only just written down):
+      // paused at once, and the open payment is cancelled. Judged by the month, not by the membership's word for it.
       return (await giveUpInStep(tx, { membership, month }, "given_up", now, by === "member" ? "cancel_now" : "host")) ? month.id : null;
     }
-    if (membership.status !== "active" || !membership.currentMonthId) throw new MembershipError(membership.status === "paused" ? "This membership is already paused." : "This membership cannot be cancelled at the moment.");
     if (by === "member" ? membership.memberStoppedAt : membership.hostStoppedAt) return null; // pressed twice
-    const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
     // The member's own cancelling, and the host's pause, both close an open offer of less time.
     await tx
       .update(schema.memberships)
-      .set({ ...(by === "member" ? { memberStoppedAt: now } : { hostStoppedAt: now, pausedReason: membership.pausedReason === "offer_off" ? "offer_off" : null }), ...noOffer, updatedAt: now })
+      .set({ ...(by === "member" ? { memberStoppedAt: now } : { hostStoppedAt: now, pausedReason: null }), ...noOffer, updatedAt: now })
       .where(eq(schema.memberships.id, membershipId));
-    if (month?.endsAt) await queueRenewalStoppedEmail(tx, membership, by, month.endsAt, now);
+    if (month.endsAt) await queueRenewalStoppedEmail(tx, membership, by, month.endsAt, now);
     return null;
   });
   if (letGo) await letHoldGo(letGo, now).catch((error) => console.error(`[membership] could not let go of month ${letGo} yet; the helper will retry`, error));
@@ -234,30 +235,30 @@ export async function stopRenewal(input: { membershipId: string; by: "member" | 
 /**
  * "Keep my membership", and the host undoing her pause: strictly before the paid month ends, and
  * only when everything joining needs is true and there is room for this member's next month.
- * Each side clears only its own stop. Nothing is charged.
+ * Each side clears only its own stop. The member's side has two marks: their own cancelling, and
+ * the stop that came when the host switched her membership off; "Keep my membership" clears both,
+ * and the host can clear neither. Nothing is charged.
  */
 export async function undoStop(input: { membershipId: string; by: "member" | "host"; actorId: string; now: Date }): Promise<void> {
   const { membershipId, by, now } = input;
   await db.transaction(async (tx) => {
     const membership = await lockedFor(tx, membershipId, { as: by, id: input.actorId });
     if (membership.status !== "active" || !membership.currentMonthId) throw new MembershipError("This membership can no longer be switched back on. If it is paused, it can be resumed.");
-    if (!(by === "member" ? membership.memberStoppedAt : membership.hostStoppedAt)) return; // nothing of this side's to undo
+    if (!(by === "member" ? membership.memberStoppedAt || membership.offerStoppedAt : membership.hostStoppedAt)) return; // nothing of this side's to undo
     const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
     if (!month?.endsAt || now >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
     await mustBeOpen(tx, membership.hostId, membership.customerId, { forTheHost: by === "host" });
-    // Room is needed only if this brings the renewal back (the other side's stop may still stand).
-    const otherStop = by === "member" ? membership.hostStoppedAt : membership.memberStoppedAt;
-    if (!otherStop && !(await wouldKeepPlace(tx, membership, membership.ownMinutes ?? 0))) {
+    // What still stops the renewal afterwards, if anything. Room is needed only if nothing does.
+    const left = by === "member" ? (membership.hostStoppedAt ? ("host" as const) : null) : membership.memberStoppedAt ? ("member" as const) : membership.offerStoppedAt ? ("offer_off" as const) : null;
+    if (!left && !(await wouldKeepPlace(tx, membership, membership.ownMinutes ?? 0))) {
       throw new MembershipError(by === "member" ? "The host's hours have no room for your next month, so the membership cannot be switched back on. It will be paused when this month ends, and you can resume it when there is room." : "Your weekly hours have no room for this member's next month.");
     }
-    // Each side clears only its own stop, and with it only its own reason.
-    const reasonLeft = by === "member" ? (membership.pausedReason === "offer_off" ? null : membership.pausedReason) : membership.pausedReason === "offer_off" ? "offer_off" : null;
     await tx
       .update(schema.memberships)
-      .set({ ...(by === "member" ? { memberStoppedAt: null } : { hostStoppedAt: null }), pausedReason: reasonLeft, updatedAt: now })
+      .set({ ...(by === "member" ? { memberStoppedAt: null, offerStoppedAt: null } : { hostStoppedAt: null, pausedReason: null }), updatedAt: now })
       .where(eq(schema.memberships.id, membershipId));
-    // The email says how things really stand: with the other side's stop still there, nothing renews.
-    await queueRenewalBackEmail(tx, membership, by, now, Boolean(otherStop));
+    // The email says how things really stand: with another stop still there, nothing renews, and it names whose stop that is.
+    await queueRenewalBackEmail(tx, membership, by, now, left);
   });
 }
 
@@ -366,7 +367,7 @@ export async function takeBackLessTime(input: { membershipId: string; hostId: st
     }
     await tx
       .update(schema.memberships)
-      .set({ ...(keep ? {} : { hostStoppedAt: now, pausedReason: membership.pausedReason === "offer_off" ? "offer_off" : null }), ...noOffer, updatedAt: now })
+      .set({ ...(keep ? {} : { hostStoppedAt: now, pausedReason: null }), ...noOffer, updatedAt: now })
       .where(eq(schema.memberships.id, membershipId));
     await queueLessTimeOutcomeEmail(tx, membership, { offerId, outcome: keep ? "taken_back_kept" : "taken_back_paused", offeredMinutes });
   });

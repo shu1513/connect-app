@@ -58,7 +58,7 @@ async function workOut(reader: Reader, hostId: string, input: OfferInput): Promi
   const [profile] = await reader.select({ pricePer15Cents: schema.hostProfiles.pricePer15Cents }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hostId));
   const [settings] = await reader.select({ payoutsReady: schema.hostSettings.payoutsReady }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, hostId));
   const members = await reader
-    .select({ id: schema.memberships.id, status: schema.memberships.status, own: schema.memberships.ownPricePer15Cents, minutes: schema.memberships.ownMinutes, inviteId: schema.memberships.inviteId, offerId: schema.memberships.offerId, stopped: schema.memberships.memberStoppedAt, monthId: schema.memberships.currentMonthId, monthStatus: schema.membershipMonths.status })
+    .select({ id: schema.memberships.id, status: schema.memberships.status, own: schema.memberships.ownPricePer15Cents, minutes: schema.memberships.ownMinutes, inviteId: schema.memberships.inviteId, offerId: schema.memberships.offerId, stopped: schema.memberships.offerStoppedAt, monthId: schema.memberships.currentMonthId, monthStatus: schema.membershipMonths.status })
     .from(schema.memberships)
     .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.memberships.currentMonthId))
     .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["invited", "joining", "active", "unpaid"])))
@@ -171,14 +171,14 @@ export async function saveOffer(hostId: string, input: OfferInput, mark: string,
           // A payment that is still open: cancelled, and the member paused at once.
           if (await giveUpInStep(tx, { membership, month }, "given_up", now, "offer_off")) letGo.push(month.id);
         } else {
-          // A month that has started goes on to its end. Its renewal is stopped, with a mark that only the
-          // member can take back ("Keep my membership", once the membership is on again): switching it on
-          // again charges nobody by itself. An open offer of less time is closed.
+          // A month that has started goes on to its end. Its renewal is stopped, with a mark of its own that only
+          // the member can take back ("Keep my membership", once the membership is on again): switching it
+          // on again charges nobody by itself. An open offer of less time is closed.
           await tx
             .update(schema.memberships)
-            .set({ memberStoppedAt: membership.memberStoppedAt ?? now, pausedReason: membership.memberStoppedAt ? membership.pausedReason : "offer_off", offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null, updatedAt: now })
+            .set({ offerStoppedAt: now, offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null, updatedAt: now })
             .where(eq(schema.memberships.id, membership.id));
-          if (!membership.memberStoppedAt && month.endsAt) await queueOfferOffEmail(tx, membership, month.endsAt);
+          if (month.endsAt) await queueOfferOffEmail(tx, membership, month.endsAt, now);
         }
       }
     }
@@ -203,7 +203,8 @@ async function lowerPrices(tx: Tx, lowered: OfferChange["lowered"], offerVersion
     const [last] = await tx.select({ number: sql<number>`coalesce(max(${schema.membershipMonths.number}), 0)::int` }).from(schema.membershipMonths).where(eq(schema.membershipMonths.membershipId, member.id));
     // No new agreement is needed (the one the member ticked allows a lower price for the same time); this line says from which month it applies.
     await tx.insert(schema.membershipAgreements).values({ membershipId: member.id, requestId: randomUUID(), kind: "price_lowered", offerVersion, pricePer15Cents: change.toPricePer15Cents, minutes: change.minutes, firstMonthNumber: last.number + 1, at: now });
-    const [open] = member.currentMonthId ? await tx.select({ status: schema.membershipMonths.status }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, member.currentMonthId)) : [];
-    await queueLowerPriceEmail(tx, member, { fromPricePer15Cents: change.fromPricePer15Cents, toPricePer15Cents: change.toPricePer15Cents, minutes: change.minutes, offerVersion, monthBeingPaid: open?.status === "to_pay" });
+    const [open] = member.currentMonthId ? await tx.select({ status: schema.membershipMonths.status, totalCents: schema.membershipMonths.totalCents }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, member.currentMonthId)) : [];
+    // A month whose payment is still open keeps the amount it was written down with, whatever the member's price was in between.
+    await queueLowerPriceEmail(tx, member, { fromPricePer15Cents: change.fromPricePer15Cents, toPricePer15Cents: change.toPricePer15Cents, minutes: change.minutes, offerVersion, openMonthCents: open?.status === "to_pay" ? open.totalCents : null });
   }
 }

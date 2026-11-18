@@ -193,7 +193,7 @@ async function agreeAndStart(tx: Tx, membership: Membership, offer: MembershipOf
   const [started] = await tx
     .update(schema.memberships)
     // The period goes up once per joining or resuming, so work left over from before can never touch this one.
-    .set({ status: "joining", period: membership.period + 1, ownPricePer15Cents: offer.pricePer15Cents, ownMinutes: offer.includedMinutes, agreementId: agreement.id, memberStoppedAt: null, hostStoppedAt: null, updatedAt: now })
+    .set({ status: "joining", period: membership.period + 1, ownPricePer15Cents: offer.pricePer15Cents, ownMinutes: offer.includedMinutes, agreementId: agreement.id, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, updatedAt: now })
     .where(eq(schema.memberships.id, membership.id))
     .returning();
   const month = await writeDownMonth(tx, started, { originKey: `agreement:${agreement.id}`, agreementId: agreement.id, pricePer15Cents: offer.pricePer15Cents, includedMinutes: offer.includedMinutes, cardStepExpiresAt: new Date(now.getTime() + CARD_STEP_MS) }, now);

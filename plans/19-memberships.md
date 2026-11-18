@@ -574,7 +574,7 @@ customer".
   invitation starts a new one, so an ended membership keeps its months, its cards and its
   unfinished clean-up to itself. Where it stands (invited, active, renewal stopped,
   unpaid, paused, ended), whether the member stopped the renewal and whether the host did (two separate marks,
-  each cleared only by its own side; when the host switches her membership off, each running membership gets the member's mark, with that as its reason, so that only the member can bring the renewal back once it is on again), who or
+  each cleared only by its own side; and a third mark for a renewal that stopped because the host switched her membership off during the month, which only the member takes back, with "Keep my membership", once it is on again), who or
   what paused or ended it and when, since when it has run without a break, the member's own price per 15 minutes and own time
   for the next month that is written down, an open offer of less time (the time offered and when
   it runs out), the saved card, and the agreement that applies now. An open invitation records the version and the time of the
@@ -868,7 +868,8 @@ anything here without this table being changed first.
 | Handed over | Built in | Used in |
 | --- | --- | --- |
 | The tables `membership_offers`, `memberships`, `membership_invitations`, `membership_agreements`, `membership_cards`, `booking_cards`, `membership_months`, `membership_refunds`; on `payments` the `kind`, `month_id` and `host_caused_cents`; a month as a second owner of money actions and of the money record; the switch's position `memberships` (`off`, `named`, `everyone`) and its list `memberships_hosts` (migration `0027_memberships`) | 1a | every later part |
-| `bookings.month_id`, `weekly_hours.members_only`, `call_extensions.paid_from` (migration `0028_member_calls`) | 2a | 2b, 3a, 3b |
+| On a membership, `offer_stopped_at`: the host switched her membership off while this member's month was running, so the renewal is stopped until the member keeps it. A third mark beside the member's own stop and the host's pause (migration `0028_membership_offer_stop`) | 1b | every later part |
+| `bookings.month_id`, `weekly_hours.members_only`, `call_extensions.paid_from` (migration `0029_member_calls`) | 2a | 2b, 3a, 3b |
 | No database change | | 3a, 3b |
 | `months.ts`: the month's lock, and the movements open, expire, owe a pay-back, a pay-back done, the dispute's state | 1a | 2a adds set aside, used and come back **to this same file** |
 | `charge.ts`: `intentFor(month)`, `syncMonth(monthId, now)`, `takeNow(monthId)`, `payNow` | 1a | 2a (the first booking calls `takeNow`); 3b ("Pay now" calls `payNow`; only an action may call `intentFor`, and a page load reads the secret of a PaymentIntent the month already has; the card form then asks `syncMonth`) |

@@ -91,7 +91,7 @@ it.
   cancellation emails say "You pay nothing" (`:189`, `:195`).
 - **The health check** only looks at held payments whose hold has an end (`health.ts:43`).
 
-## The database: one migration, `0028_member_calls`
+## The database: one migration, `0029_member_calls`
 
 - `bookings`: `month_id` (empty for every existing row). The source `member` is a new value of a
   text column and needs no change.

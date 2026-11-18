@@ -1178,6 +1178,12 @@ export const memberships = pgTable(
     agreementId: uuid("agreement_id"),
     memberStoppedAt: timestamp("member_stopped_at", { withTimezone: true }),
     hostStoppedAt: timestamp("host_stopped_at", { withTimezone: true }),
+    /**
+     * The host switched her membership off while this member's month was running: the renewal is
+     * stopped. A mark of its own, so it is never mistaken for the member's own cancelling or the
+     * host's pause. Only the member takes it back ("Keep my membership", once the membership is on again).
+     */
+    offerStoppedAt: timestamp("offer_stopped_at", { withTimezone: true }),
     pausedAt: timestamp("paused_at", { withTimezone: true }),
     pausedReason: text("paused_reason"),
     endedAt: timestamp("ended_at", { withTimezone: true }),

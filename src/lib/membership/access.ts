@@ -29,12 +29,16 @@ export type HostForMember = {
  */
 export async function hostForMember(viewerId: string, hostId: string, now: Date = new Date()): Promise<HostForMember | null> {
   const [link] = await db
-    .select({ status: schema.memberships.status, inviteExpiresAt: schema.memberships.inviteExpiresAt })
+    .select({ status: schema.memberships.status, since: schema.memberships.since, inviteExpiresAt: schema.memberships.inviteExpiresAt, cardStepExpiresAt: schema.membershipMonths.cardStepExpiresAt })
     .from(schema.memberships)
+    .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.memberships.currentMonthId))
     .where(and(eq(schema.memberships.hostId, hostId), eq(schema.memberships.customerId, viewerId), ne(schema.memberships.status, "ended")))
     .limit(1);
-  // An invitation opens the page only for its 24 hours, also when the helper has not closed it yet.
-  if (!link || (link.status === "invited" && (!link.inviteExpiresAt || link.inviteExpiresAt <= now))) return null;
+  if (!link) return null;
+  // Someone who was never a member yet: the invitation opens the page for its 24 hours, and a "Join"
+  // for its card step, also when the helper has not closed either yet.
+  const neverAMember = link.status === "invited" || (link.status === "joining" && !link.since);
+  if (neverAMember && !(link.inviteExpiresAt && link.inviteExpiresAt > now) && !(link.status === "joining" && link.cardStepExpiresAt && link.cardStepExpiresAt > now)) return null;
   const [row] = await db
     .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status })
     .from(schema.hostProfiles)

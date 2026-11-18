@@ -25,10 +25,11 @@ const months = schema.membershipMonths;
  * when a renewal is allowed. The caller holds the host's calendar lock and the membership's lock.
  */
 async function whyNoRenewal(tx: Tx, membership: Membership): Promise<{ pause: string } | { pricePer15Cents: number; includedMinutes: number; agreementId: string }> {
-  // (A renewal stopped because the host switched her membership off carries that as its reason.)
-  if (membership.memberStoppedAt) return { pause: membership.pausedReason === "offer_off" ? "offer_off" : "member" };
+  if (membership.memberStoppedAt) return { pause: "member" };
   // (A member who said "No thanks" to an offer of less time is stopped with that as the reason.)
   if (membership.hostStoppedAt) return { pause: membership.pausedReason === "offer" ? "offer" : "host" };
+  // The host switched her membership off during this month, and the member has not kept theirs since.
+  if (membership.offerStoppedAt) return { pause: "offer_off" };
   // An offer of less time that was not accepted before the month ended.
   if (membership.offerId) return { pause: "offer" };
   const [offer] = await tx.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));

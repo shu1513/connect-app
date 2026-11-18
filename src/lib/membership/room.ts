@@ -68,7 +68,7 @@ async function wantingNextMonth(reader: Reader, hostId: string): Promise<Array<{
   const wanting = await reader
     .select({ id: schema.memberships.id, since: schema.memberships.since, createdAt: schema.memberships.createdAt, minutes: schema.memberships.ownMinutes, offerId: schema.memberships.offerId, offeredMinutes: schema.memberships.offeredMinutes })
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["active", "unpaid"]), isNull(schema.memberships.memberStoppedAt), isNull(schema.memberships.hostStoppedAt), gt(schema.memberships.ownMinutes, 0)));
+    .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["active", "unpaid"]), isNull(schema.memberships.memberStoppedAt), isNull(schema.memberships.hostStoppedAt), isNull(schema.memberships.offerStoppedAt), gt(schema.memberships.ownMinutes, 0)));
   return wanting.map((m) => ({ id: m.id, since: m.since ?? m.createdAt, minutes: (m.offerId ? m.offeredMinutes : null) ?? m.minutes ?? 0 }));
 }
 
@@ -152,15 +152,17 @@ export async function workOutCut(reader: Reader, hostId: string, now: Date): Pro
     .orderBy(schema.memberships.id);
 
   const paying = rows.filter(({ membership }) => membership.status === "active" || membership.status === "unpaid");
-  const wanting = paying.filter(({ membership }) => !membership.memberStoppedAt && !membership.hostStoppedAt && (membership.ownMinutes ?? 0) > 0);
+  const stopped = (membership: Membership) => Boolean(membership.memberStoppedAt || membership.hostStoppedAt || membership.offerStoppedAt);
+  const wanting = paying.filter(({ membership }) => !stopped(membership) && (membership.ownMinutes ?? 0) > 0);
   const members: CutMember[] = wanting
-    .map(({ membership, monthStatus }) => ({
+    .map(({ membership, monthStatus, monthEndsAt }) => ({
       membershipId: membership.id,
       customerId: membership.customerId,
       since: membership.since ?? membership.createdAt,
       minutes: membership.ownMinutes ?? 0,
       openOfferMinutes: membership.offerId ? membership.offeredMinutes : null,
-      monthStarted: monthStatus === "running" || monthStatus === "held",
+      // Started, and not yet over: an offer of less time must still be answerable (strictly before the month's end).
+      monthStarted: (monthStatus === "running" || monthStatus === "held") && Boolean(monthEndsAt && monthEndsAt > now),
       unpaid: membership.status === "unpaid",
       suggested: "keep" as "keep" | "pause",
     }))
@@ -188,8 +190,8 @@ export async function workOutCut(reader: Reader, hostId: string, now: Date): Pro
   }
 
   const mark = createHash("sha256")
-    .update(JSON.stringify({ hoursAfter, rows: rows.map(({ membership, monthStatus, monthEndsAt }) => [membership.id, membership.status, membership.ownMinutes, membership.ownPricePer15Cents, membership.memberStoppedAt?.getTime() ?? null, membership.hostStoppedAt?.getTime() ?? null, membership.offerId, membership.inviteId, membership.currentMonthId, monthStatus, monthEndsAt?.getTime() ?? null]) }))
+    .update(JSON.stringify({ hoursAfter, rows: rows.map(({ membership, monthStatus, monthEndsAt }) => [membership.id, membership.status, membership.ownMinutes, membership.ownPricePer15Cents, membership.memberStoppedAt?.getTime() ?? null, membership.hostStoppedAt?.getTime() ?? null, membership.offerStoppedAt?.getTime() ?? null, membership.offerId, membership.inviteId, membership.currentMonthId, monthStatus, monthEndsAt?.getTime() ?? null]) }))
     .digest("hex")
     .slice(0, 24);
-  return { hoursAfter, needed, owedThisMonth, members, leaving: paying.filter(({ membership }) => membership.memberStoppedAt || membership.hostStoppedAt).map(({ membership }) => membership.id), invitationsTakenBack, mark };
+  return { hoursAfter, needed, owedThisMonth, members, leaving: paying.filter(({ membership }) => stopped(membership)).map(({ membership }) => membership.id), invitationsTakenBack, mark };
 }
