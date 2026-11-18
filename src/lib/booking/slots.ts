@@ -14,6 +14,15 @@ const MINUTE = 60_000;
 export type WeeklyRange = { weekday: number; startMinute: number; endMinute: number };
 export type Interval = { start: Date; end: Date };
 
+/**
+ * The weekly stretches that count for the person who is looking. A member of the host, booking
+ * with their membership time, gets every stretch; everyone else gets the general ones only, so a
+ * stretch marked "members only" offers no time to the public.
+ */
+export function stretchesFor<T extends { membersOnly?: boolean }>(weekly: T[], as: "anyone" | "member"): T[] {
+  return as === "member" ? weekly : weekly.filter((stretch) => !stretch.membersOnly);
+}
+
 /** The exact moment of a wall-clock time on a date in a time zone. */
 function momentOf(date: Temporal.PlainDate, minuteOfDay: number, timeZone: string): number {
   const day = minuteOfDay >= 1440 ? date.add({ days: 1 }) : date;

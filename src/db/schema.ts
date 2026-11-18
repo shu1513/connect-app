@@ -353,6 +353,8 @@ export const weeklyHours = pgTable(
     /** Minutes from midnight. The end may be 1440 (midnight at the end of the day). */
     startMinute: integer("start_minute").notNull(),
     endMinute: integer("end_minute").notNull(),
+    /** Only the host's members can book in this stretch. It counts toward her hours like any other. */
+    membersOnly: boolean("members_only").notNull().default(false),
   },
   (t) => [index("weekly_hours_host_idx").on(t.hostId)],
 );
@@ -374,6 +376,8 @@ export const timeOff = pgTable(
 /**
  * A request for a call, and what became of it. Stages:
  *   card       the customer is entering a card (paid requests only)
+ *   paying     made by a member as the first booking of a month: the month's money is being
+ *              taken. Nothing is reserved for either person yet. Never touched by the card step.
  *   waiting    sent; the host has not answered
  *   accepted   it became a call (callId)
  *   declined | passed_over | ran_out | taken_back   it ended without a call
@@ -416,6 +420,8 @@ export const bookings = pgTable(
     stripeSetupIntentId: text("stripe_setup_intent_id"),
     /** The saved card. Removed from Stripe, and cleared here, when it is no longer needed. */
     stripePaymentMethodId: text("stripe_payment_method_id"),
+    /** For a booking made as a member (source "member"): the membership month its time comes from. */
+    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
     callId: uuid("call_id")
       .unique()
       .references(() => calls.id),
@@ -529,6 +535,8 @@ export const callExtensions = pgTable(
     priceCents: integer("price_cents").notNull(),
     /** open, accepted, declined, ran_out or failed. */
     status: text("status").notNull().default("open"),
+    /** How the added time is paid: by "card", or from the member's "membership" time. Once set it never changes. */
+    paidFrom: text("paid_from").notNull().default("card"),
     /** How it ended when it was not accepted, in a few words. */
     endedReason: text("ended_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

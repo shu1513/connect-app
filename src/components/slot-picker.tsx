@@ -10,7 +10,7 @@ const subscribe = () => () => {};
  * cannot know that zone, so it sends exact moments and the browser writes
  * them out.
  */
-export function SlotPicker({ starts, hrefBase }: { starts: string[]; hrefBase: string }) {
+export function SlotPicker({ starts, hrefBase, marked, markedLabel }: { starts: string[]; hrefBase: string; /** Times to mark (for example, times for members only), with the words that say what the mark means. */ marked?: string[]; markedLabel?: string }) {
   const inBrowser = useSyncExternalStore(
     subscribe,
     () => true,
@@ -21,6 +21,7 @@ export function SlotPicker({ starts, hrefBase }: { starts: string[]; hrefBase: s
   if (!inBrowser) return <p className="mt-4 text-sm opacity-70">Loading the open times…</p>;
 
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const isMarked = new Set(marked ?? []);
   const days = new Map<string, string[]>();
   for (const iso of starts) {
     const day = new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
@@ -29,7 +30,9 @@ export function SlotPicker({ starts, hrefBase }: { starts: string[]; hrefBase: s
 
   return (
     <div className="mt-4">
-      <p className="text-sm opacity-70">Times are shown in your time zone ({zone.replace(/_/g, " ")}).</p>
+      <p className="text-sm opacity-70">
+        Times are shown in your time zone ({zone.replace(/_/g, " ")}).{isMarked.size > 0 && markedLabel ? ` ★ ${markedLabel}` : ""}
+      </p>
       <ul className="mt-3 space-y-4">
         {[...days].slice(0, daysShown).map(([day, times]) => (
           <li key={day}>
@@ -38,6 +41,12 @@ export function SlotPicker({ starts, hrefBase }: { starts: string[]; hrefBase: s
               {times.map((iso) => (
                 <Link key={iso} href={`${hrefBase}&start=${encodeURIComponent(iso)}`} className="rounded border border-neutral-500 px-3 py-1.5 text-sm hover:bg-blue-600 hover:text-white">
                   {new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  {isMarked.has(iso) && (
+                    <span title={markedLabel} className="ml-1">
+                      <span aria-hidden>★</span>
+                      <span className="sr-only"> ({markedLabel})</span>
+                    </span>
+                  )}
                 </Link>
               ))}
             </div>

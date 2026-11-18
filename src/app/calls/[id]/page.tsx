@@ -89,7 +89,9 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
       <p className="mt-1 text-sm opacity-70">
         Booked: <LocalTime iso={call.startsAt.toISOString()} /> to <LocalTime iso={call.endsAt.toISOString()} />
         {payment
-          ? ` · ${formatMoney(payment.pricePer15Cents)} per 15 minutes, up to ${upTo}`
+          ? payment.kind === "member_call"
+            ? ` · paid from ${role === "customer" ? "your" : "the customer's"} membership, up to ${upTo}`
+            : ` · ${formatMoney(payment.pricePer15Cents)} per 15 minutes, up to ${upTo}`
           : " · Free call"}
       </p>
 
@@ -162,9 +164,13 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
         <form action={cancelCallAction} className="mt-10 border-t border-neutral-400/40 pt-4 text-sm">
           <input type="hidden" name="callId" value={call.id} />
           <p className="opacity-80">
-            {cancel === "free"
-              ? "Cancelling now is free. Nothing is charged."
-              : `Cancelling now is past the free period: the full ${bookedPrice} is charged. The host may choose to refund you.`}
+            {payment?.kind === "member_call"
+              ? cancel === "free"
+                ? "Cancelling now is free. The time booked for this call goes back to the membership."
+                : `Cancelling now is past the free period: all the membership time booked for this call (${bookedPrice}) is used. The host may choose to give time back.`
+              : cancel === "free"
+                ? "Cancelling now is free. Nothing is charged."
+                : `Cancelling now is past the free period: the full ${bookedPrice} is charged. The host may choose to refund you.`}
           </p>
           <button type="submit" className="mt-2 rounded border border-red-600 px-3 py-1.5 text-red-600">
             Cancel this call

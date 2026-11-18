@@ -20,6 +20,11 @@ const REQUEST_LABEL: Record<string, string> = {
   ran_out: "ended without an answer",
   taken_back: "you took it back",
 };
+/** A booking a member made with their membership time that is not (or not yet) a call. */
+const MEMBER_REQUEST_LABEL: Record<string, string> = {
+  paying: "this month's payment is being taken; open it to finish the booking",
+  ran_out: "not booked",
+};
 const STATE_LABEL = { not_open_yet: "Not open yet", open: "Open now", closed: "Ended" } as const;
 
 /**
@@ -34,9 +39,11 @@ function paymentLine(all: Payment[]): string {
   const charged = all.filter((p) => p.status === "charged");
   const held = all.filter((p) => p.status === "held");
   const parts: string[] = [];
-  if (charged.length > 0) parts.push(`Charged ${formatMoney(charged.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0))}`);
-  if (held.length > 0) parts.push(`${formatMoney(held.reduce((sum, p) => sum + p.bookedCents, 0))} held${held.some((p) => p.needsReview) ? ", needs review" : ""}`);
-  return parts.length > 0 ? parts.join(", ") : "Not charged";
+  // A call booked with a membership is paid from the member's month: nothing is held or charged on a card for it.
+  const fromMembership = own.kind === "member_call";
+  if (charged.length > 0) parts.push(`${fromMembership ? "Paid from the membership:" : "Charged"} ${formatMoney(charged.reduce((sum, p) => sum + (p.chargedCents ?? 0) - p.refundedCents, 0))}`);
+  if (held.length > 0) parts.push(`${formatMoney(held.reduce((sum, p) => sum + p.bookedCents, 0))} ${fromMembership ? "of membership time set aside" : "held"}${held.some((p) => p.needsReview) ? ", needs review" : ""}`);
+  return parts.length > 0 ? parts.join(", ") : fromMembership ? "Nothing used from the membership" : "Not charged";
 }
 
 /** What a visitor sees at the front address: what Connect is, and the ways in. */
@@ -212,7 +219,7 @@ export default async function HomePage(props: PageProps<"/">) {
                 <Link href={`/bookings/${booking.id}`} className="underline underline-offset-2">
                   {hostName}, <LocalTime iso={booking.startsAt.toISOString()} />
                 </Link>
-                : {REQUEST_LABEL[booking.stage] ?? booking.stage}
+                : {(booking.source === "member" ? MEMBER_REQUEST_LABEL[booking.stage] : REQUEST_LABEL[booking.stage]) ?? booking.stage}
               </li>
             ))}
           </ul>

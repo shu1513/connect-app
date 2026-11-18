@@ -23,6 +23,7 @@ const months = schema.membershipMonths;
 
 // The month's lock (the rulebook's "How the parts connect" hands it over from this file).
 export { lockForMonth, lockMonth, type LockedMonth } from "./locks";
+import type { LockedMonth } from "./locks";
 
 async function reread(tx: Tx, monthId: string): Promise<MembershipMonth> {
   const [month] = await tx.select().from(months).where(eq(months.id, monthId));
@@ -211,3 +212,87 @@ export async function setDispute(tx: Tx, month: MembershipMonth, state: "open" |
   const [updated] = await tx.update(months).set({ dispute: state, updatedAt: now }).where(eq(months.id, month.id)).returning();
   return { month: updated, first: month.dispute === "none" };
 }
+
+// ---------------------------------------------------------------------------
+// Part two: the movements of a call. Set aside, used, come back, and time given back.
+// Each runs in the caller's step with the month locked, changes its places in ONE statement,
+// and asks Stripe nothing. None of them runs for a frozen month: the callers pass over those.
+// ---------------------------------------------------------------------------
+
+/** Whether a member can still book from this month: the current month of an active membership, running, not frozen, and not yet over. */
+export function canBookFrom(locked: LockedMonth, now: Date): boolean {
+  const { membership, month } = locked;
+  return membership.currentMonthId === month.id && membership.period === month.period && membership.status === "active" && month.status === "running" && !isFrozen(month) && Boolean(month.endsAt && now < month.endsAt);
+}
+
+/**
+ * A booking sets money aside: free becomes set aside. Money that would expire is taken first;
+ * money that came back because of the host is used last. Returns how much of it was host-caused
+ * money, which the booking's payment remembers, so each part can go back where it came from.
+ */
+export async function setAside(tx: Tx, month: MembershipMonth, cents: number): Promise<{ hostCausedCents: number }> {
+  if (!Number.isInteger(cents) || cents < 1) throw new MoneyError("There is nothing to set aside.");
+  if (month.status !== "running" || isFrozen(month)) throw new MoneyError("This month cannot be booked from at the moment.");
+  if (cents > month.freeCents) throw new MoneyError("There is not enough membership time left for this.");
+  const hostCausedCents = Math.max(0, cents - (month.freeCents - month.hostCausedCents));
+  const moved = await tx
+    .update(months)
+    .set({ freeCents: sql`${months.freeCents} - ${cents}`, hostCausedCents: sql`${months.hostCausedCents} - ${hostCausedCents}`, setAsideCents: sql`${months.setAsideCents} + ${cents}`, updatedAt: new Date() })
+    .where(and(eq(months.id, month.id), eq(months.status, "running"), sql`${months.freeCents} >= ${cents}`))
+    .returning({ id: months.id });
+  if (moved.length === 0) throw new MoneyError("There is not enough membership time left for this.");
+  return { hostCausedCents };
+}
+
+/**
+ * A call took this much of what was set aside for it: set aside becomes used. Marks the month's
+ * fixed 30 cents as placed when this is the amount that carries it.
+ */
+export async function spendSetAside(tx: Tx, monthId: string, cents: number, placesFixedFee: boolean): Promise<void> {
+  if (cents < 1) return;
+  await tx
+    .update(months)
+    .set({ setAsideCents: sql`${months.setAsideCents} - ${cents}`, usedCents: sql`${months.usedCents} + ${cents}`, ...(placesFixedFee ? { fixedFeePlaced: true } : {}), updatedAt: new Date() })
+    .where(eq(months.id, monthId));
+}
+
+type Return = { cents: number; hostCausedCents: number; sourceKey: string; reason: string; paymentId: string; now: Date };
+
+/**
+ * Money comes back from one of two places (set aside, for a call that was cancelled or used less
+ * than was set aside; used, for time a host or the founder gives back afterwards). It goes to
+ * one of two places, by the rulebook's step 4: free again, for as long as the member can still
+ * book from that month; otherwise owed to the member's card, once, under `sourceKey`.
+ * Returns where it went, or null if this very return was already recorded.
+ */
+async function returnFrom(tx: Tx, locked: LockedMonth, from: "setAsideCents" | "usedCents", input: Return): Promise<"free" | "card" | null> {
+  const { month } = locked;
+  if (input.cents < 1) return null;
+  const column = months[from];
+  if (canBookFrom(locked, input.now)) {
+    await tx
+      .update(months)
+      .set({ [from]: sql`${column} - ${input.cents}`, freeCents: sql`${months.freeCents} + ${input.cents}`, hostCausedCents: sql`${months.hostCausedCents} + ${Math.min(input.hostCausedCents, input.cents)}`, updatedAt: input.now })
+      .where(eq(months.id, month.id));
+    return "free";
+  }
+  const owed = await tx
+    .insert(schema.membershipRefunds)
+    .values({ monthId: month.id, sourceKey: input.sourceKey, amountCents: input.cents, reason: input.reason, paymentId: input.paymentId })
+    .onConflictDoNothing()
+    .returning({ id: schema.membershipRefunds.id });
+  if (owed.length === 0) return null;
+  // A month that was already finished has something owed back again (time given back before the host collected):
+  // it is "closed" once more, so the pay-back job sends it, and it is finished again when Stripe has confirmed.
+  await tx
+    .update(months)
+    .set({ [from]: sql`${column} - ${input.cents}`, toPayBackCents: sql`${months.toPayBackCents} + ${input.cents}`, status: sql`case when ${months.status} = 'finished' then 'closed' else ${months.status} end`, updatedAt: input.now })
+    .where(eq(months.id, month.id));
+  return "card";
+}
+
+/** Set aside comes back: a call was cancelled, or used less than was set aside for it. */
+export const comeBack = (tx: Tx, locked: LockedMonth, input: Return) => returnFrom(tx, locked, "setAsideCents", input);
+
+/** Used comes back: a host or the founder gives time back after the money was used. */
+export const giveUsedBack = (tx: Tx, locked: LockedMonth, input: Return) => returnFrom(tx, locked, "usedCents", input);

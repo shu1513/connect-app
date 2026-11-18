@@ -14,6 +14,7 @@ import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
 import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { isDecided, moneyPlan } from "@/lib/payments/take";
+import { isFrozen } from "@/lib/membership/rules";
 import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
 import { readNotice } from "@/lib/notice";
@@ -64,6 +65,14 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
     db.select().from(schema.callExtensions).where(eq(schema.callExtensions.callId, call.id)).orderBy(asc(schema.callExtensions.createdAt)),
   ]);
+  // For a call paid from a membership: money of it that is owed back to the member's card (what came back after the
+  // member could no longer book from that month). Everything else that came back is membership time again.
+  const memberPayments = payments.filter((p) => p.kind === "member_call").map((p) => p.id);
+  const toCard = memberPayments.length > 0 ? await db.select().from(schema.membershipRefunds).where(inArray(schema.membershipRefunds.paymentId, memberPayments)) : [];
+  // A month whose charge the member's bank is disputing is frozen: nothing of it is used, given back, paid back or collected.
+  const monthIds = payments.flatMap((p) => (p.kind === "member_call" && p.monthId ? [p.monthId] : []));
+  const disputed = monthIds.length > 0 ? await db.select({ id: schema.membershipMonths.id, dispute: schema.membershipMonths.dispute }).from(schema.membershipMonths).where(inArray(schema.membershipMonths.id, monthIds)) : [];
+  const frozenMonths = new Set(disputed.filter(isFrozen).map((month) => month.id));
   // Where the money stands: the charges still on hold, what the record gives for each right now, and when they are taken.
   const now = new Date();
   const plan = payments.length > 0 ? await moneyPlan(call) : null;
@@ -72,7 +81,9 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   for (const held of plan?.held ?? []) {
     const own = await loadAttendance(call, now, { from: held.coversFrom, until: held.coversUntil });
     const final = own.final && call.closedAt && own.result.status === "complete" && own.result.totals;
-    const record = final ? attendanceChargeCents({ pricePer15Cents: held.pricePer15Cents, bookedSeconds: own.bookedSeconds, countedSeconds: countedSeconds(call, own.result.totals!) }) : null;
+    const byRecord = final ? attendanceChargeCents({ pricePer15Cents: held.pricePer15Cents, bookedSeconds: own.bookedSeconds, countedSeconds: countedSeconds(call, own.result.totals!) }) : null;
+    // Never more than was set aside for a call paid from a membership.
+    const record = byRecord !== null && held.kind === "member_call" ? Math.min(byRecord, held.bookedCents) : byRecord;
     // With an answer already saved for this charge, what will be taken is what the answer allows, not what the record gives.
     const answer = request?.request.status === "answered" ? request.answers.find((a) => a.paymentId === held.id) : undefined;
     const cents = record === null || !answer || answer.choice === "full" ? record : answer.choice === "less" ? Math.min(answer.maxCents ?? 0, record) : 0;
@@ -215,6 +226,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           view={request}
           names={{ host: nameOf.get(call.hostId) ?? "the host", customer: nameOf.get(call.customerId) ?? "the customer" }}
           asking={typeof query.ask === "string" ? query.ask : null}
+          fromMembership={payment?.kind === "member_call"}
+          monthFrozen={Boolean(payment?.monthId && frozenMonths.has(payment.monthId))}
           charges={(request?.open ?? []).map((p) => ({
             paymentId: p.id,
             label: p.extensionId ? `The ${extensionOf.get(p.extensionId)?.minutes ?? ""} minutes added during the call` : "The call itself",
@@ -232,6 +245,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
             role={role}
             callId={call.id}
             refunds={refunds.filter((r) => r.paymentId === p.id)}
+            toCard={toCard.filter((line) => line.paymentId === p.id)}
+            monthFrozen={Boolean(p.monthId && frozenMonths.has(p.monthId))}
             billing={call.billing}
             addedMinutes={p.extensionId ? (extensionOf.get(p.extensionId)?.minutes ?? 0) : null}
             waiting={
@@ -318,6 +333,10 @@ function Receipt(props: {
   role: "host" | "customer" | "admin";
   callId: string;
   refunds: Array<{ id: string; amountCents: number; status: string; decidedAs: string; reason: string | null; createdAt: Date }>;
+  /** For a payment from a membership: what of it is owed back to the member's card (see above). */
+  toCard: Array<{ sourceKey: string; amountCents: number; status: string }>;
+  /** The payment's month is frozen by a bank dispute: nothing of it moves, so nothing is promised or offered here. */
+  monthFrozen: boolean;
   billing: string;
   /** Null for the call's own payment. Otherwise the minutes this payment was asked for. */
   addedMinutes: number | null;
@@ -332,11 +351,28 @@ function Receipt(props: {
   const paid = (payment.chargedCents ?? 0) - payment.refundedCents;
   const frozenHost = payment.frozenHostSeconds;
   const frozenTogether = payment.frozenTogetherSeconds;
-  const canRefund = role === "host" && payment.status === "charged" && payment.transferStatus !== "sent" && paid > 0 && !payment.disputeOpen;
+  const canRefund = role === "host" && payment.status === "charged" && payment.transferStatus !== "sent" && paid > 0 && !payment.disputeOpen && !props.monthFrozen;
 
   const extra = props.addedMinutes !== null;
-  const headline =
-    payment.status === "awaiting_payment"
+  // Paid from a membership: money set aside in the member's month, never a hold or a charge on a card.
+  const fromMembership = payment.kind === "member_call";
+  // What was set aside and not used came back: as membership time, or (once the member could no longer book from that month) to their card.
+  const cameBack = payment.status === "held" ? 0 : payment.bookedCents - (payment.chargedCents ?? 0);
+  const returned = props.toCard.find((line) => line.sourceKey.startsWith("callreturn:"));
+  const whose = role === "customer" ? "your" : "the member's";
+  // Said as what happened then: time that went back into the membership may since have been booked again, or paid back at the month's end.
+  const whereBack = returned ? (returned.status === "done" ? `was paid back to ${whose} card` : `is being paid back to ${whose} card`) : "was returned to the membership as time";
+  const headline = fromMembership
+    ? payment.status === "held"
+      ? payment.needsReview
+        ? `${formatMoney(payment.bookedCents)} of membership time is set aside. This call's record needs review, so nothing is used until the review is decided.`
+        : `${formatMoney(payment.bookedCents)} of membership time is set aside for ${extra ? "this extra time" : "this call"}. What is used is worked out after the call.`
+      : payment.status === "closed_uncharged"
+        ? `Nothing was used from the membership for ${extra ? "this extra time" : "this call"}. The ${formatMoney(payment.bookedCents)} set aside ${whereBack}.`
+        : payment.loweredBy && payment.recordCents !== null
+          ? `Used ${formatMoney(payment.chargedCents ?? 0)} of ${formatMoney(payment.recordCents)} from the membership, lowered by ${payment.loweredBy === "admin" ? "Connect" : "the host"}.`
+          : `Used ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} set aside from the membership.`
+    : payment.status === "awaiting_payment"
       ? extra
         ? "The customer's card is being checked."
         : "Waiting for the customer to confirm and pay."
@@ -350,22 +386,26 @@ function Receipt(props: {
             ? // Never mistaken for what the call's record gave: it says who lowered it.
               `Charged ${formatMoney(payment.chargedCents ?? 0)} of ${formatMoney(payment.recordCents)}, lowered by ${payment.loweredBy === "admin" ? "Connect" : "the host"}.`
             : `Charged ${formatMoney(payment.chargedCents ?? 0)} of the ${formatMoney(payment.bookedCents)} ${extra ? "held" : "booked"}.`;
-  const waiting = payment.status === "held" && !payment.needsReview ? props.waiting : null;
+  const waiting = payment.status === "held" && !payment.needsReview && !props.monthFrozen ? props.waiting : null;
 
   return (
     <section className="mt-6 rounded border border-neutral-400 p-4">
-      <h2 className="text-lg font-semibold">{extra ? `Payment for ${props.addedMinutes} more minutes` : "Payment"}</h2>
+      <h2 className="text-lg font-semibold">{extra ? `Payment for ${props.addedMinutes} more minutes` : fromMembership ? "Paid from the membership" : "Payment"}</h2>
       <p className="mt-1">{headline}</p>
       {waiting && waiting.cents !== null && (
         <p className="mt-1" data-to-be-charged>
-          To be charged: <span className="font-medium">{waiting.cents === 0 ? "nothing" : formatMoney(waiting.cents)}</span>
+          {fromMembership ? "To be used from the membership" : "To be charged"}: <span className="font-medium">{waiting.cents === 0 ? "nothing" : formatMoney(waiting.cents)}</span>
           {waiting.decided ? (
             ". The answer to the refund request is being applied."
           ) : waiting.takeAt ? (
             <>
               {waiting.askedFor ? ", at the latest on " : ", on "}
               <LocalTime iso={waiting.takeAt.toISOString()} />
-              {waiting.askedFor ? ", or sooner when the host answers the refund request (the amount can then be lower)." : ". Nothing is taken from the card before then."}
+              {waiting.askedFor
+                ? ", or sooner when the host answers the refund request (the amount can then be lower)."
+                : fromMembership
+                  ? ". Nothing is used before then, and what is not used comes back."
+                  : ". Nothing is taken from the card before then."}
             </>
           ) : (
             "."
@@ -382,7 +422,9 @@ function Receipt(props: {
             label="Why this amount"
             value={
               payment.chargeReason === "late_cancel"
-                ? "Cancelled after the free period: the booked price"
+                ? fromMembership
+                  ? "Cancelled after the free period: all the time booked"
+                  : "Cancelled after the free period: the booked price"
                 : payment.chargeReason === "admin"
                   ? "Decided after a review"
                   : `${props.billing === "together" ? "The time both people were in the call" : "The time the host was in the call"}${extra ? ", during these extra minutes" : ""}`
@@ -394,8 +436,9 @@ function Receipt(props: {
               <Row label="Time the host waited" value={formatDuration(Math.max(0, frozenHost - frozenTogether))} />
             </>
           )}
-          {payment.refundedCents > 0 && <Row label="Refunded" value={formatMoney(payment.refundedCents)} />}
-          <Row label="Paid by the customer" value={formatMoney(paid)} />
+          {fromMembership && cameBack > 0 && <Row label="Not used" value={`${formatMoney(cameBack)}: it ${whereBack}`} />}
+          {payment.refundedCents > 0 && <Row label={fromMembership ? "Given back afterwards" : "Refunded"} value={formatMoney(payment.refundedCents)} />}
+          <Row label={fromMembership ? "Paid from the membership" : "Paid by the customer"} value={formatMoney(paid)} />
           {role !== "customer" && (
             <>
               <Row
@@ -406,7 +449,9 @@ function Receipt(props: {
               <Row
                 label="Payout"
                 value={
-                  payment.transferStatus === "sent"
+                  props.monthFrozen && payment.transferStatus !== "sent"
+                    ? "Held back while the month's payment is disputed"
+                    : payment.transferStatus === "sent"
                     ? `Sent ${formatMoney(payment.transferCents ?? 0)}${payment.payoutFeeCents ? ` after a ${formatMoney(payment.payoutFeeCents)} collection charge` : ""}`
                     : payment.transferStatus === "not_owed"
                       ? "Nothing to pay out"
@@ -428,13 +473,27 @@ function Receipt(props: {
         <p className="mt-3 text-sm text-amber-700">The call&apos;s record changed after it was charged. The charge was not changed; it has been flagged for a check.</p>
       )}
       {payment.disputeOpen && <p className="mt-3 text-sm text-amber-700">The customer&apos;s bank is disputing this charge.</p>}
+      {props.monthFrozen && (
+        <p className="mt-3 text-sm text-amber-700">
+          The membership payment of this month is frozen because of a dispute at the member&apos;s bank. While it is frozen, nothing of that month moves: nothing is
+          used, given back, paid back or collected.
+        </p>
+      )}
 
       {refunds.length > 0 && (
         <ul className="mt-3 text-sm">
           {refunds.map((r) => (
             <li key={r.id}>
-              Refund of {formatMoney(r.amountCents)} by {r.decidedAs === "admin" ? "Connect" : "the host"}:{" "}
-              {r.status === "done" ? "sent" : r.status === "failed" ? "did not go through" : "in progress"}
+              {fromMembership ? (
+                <>
+                  {formatMoney(r.amountCents)} given back by {r.decidedAs === "admin" ? "Connect" : "the host"}: {givenBackWhere(props.toCard, r.id, whose)}
+                </>
+              ) : (
+                <>
+                  Refund of {formatMoney(r.amountCents)} by {r.decidedAs === "admin" ? "Connect" : "the host"}:{" "}
+                  {r.status === "done" ? "sent" : r.status === "failed" ? "did not go through" : "in progress"}
+                </>
+              )}
               {r.reason ? `. Message: "${r.reason}"` : ""}
             </li>
           ))}
@@ -447,7 +506,7 @@ function Receipt(props: {
           <input type="hidden" name="paymentId" value={payment.id} />
           <input type="hidden" name="requestId" value={randomUUID()} />
           <label>
-            Refund to the customer (US dollars, up to {formatMoney(paid)})
+            {fromMembership ? "Give back to the member" : "Refund to the customer"} (US dollars, up to {formatMoney(paid)})
             <input
               name="amount"
               type="number"
@@ -463,16 +522,24 @@ function Receipt(props: {
             <input name="reason" type="text" maxLength={300} className="mt-1 block w-64 rounded border border-neutral-400 bg-transparent px-3 py-1.5" />
           </label>
           <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5">
-            Refund
+            {fromMembership ? "Give back" : "Refund"}
           </button>
           <p className="basis-full opacity-70">
-            You can refund until your share is sent to you. Our fee is returned in the same proportion, so a full refund
-            gives the customer everything back.
+            {fromMembership
+              ? "This call was paid from the member's membership. What you give back is membership time again while they can still book from that month; after that, its money is paid back to their card. You can give back until your share is sent to you, and our fee is returned in the same proportion."
+              : "You can refund until your share is sent to you. Our fee is returned in the same proportion, so a full refund gives the customer everything back."}
           </p>
         </form>
       )}
     </section>
   );
+}
+
+/** Where time given back after a member's call went: into the membership again, or (as money) to the member's card. */
+function givenBackWhere(toCard: Array<{ sourceKey: string; status: string }>, refundId: string, whose: string): string {
+  const line = toCard.find((entry) => entry.sourceKey === `giveback:${refundId}`);
+  if (!line) return "returned to the membership as time";
+  return line.status === "done" ? `paid back to ${whose} card` : `being paid back to ${whose} card`;
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {

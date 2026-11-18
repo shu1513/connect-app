@@ -73,6 +73,14 @@ describe("stages", () => {
     expect(canMoveBooking("declined", "waiting")).toBe(false);
     expect(canMoveBooking("accepted", "declined")).toBe(false);
   });
+  it("a member's booking that waits for its month's payment can only be booked or end", () => {
+    expect(canMoveBooking("paying", "accepted")).toBe(true);
+    expect(canMoveBooking("paying", "ran_out")).toBe(true);
+    expect(canMoveBooking("paying", "waiting")).toBe(false);
+    expect(canMoveBooking("paying", "card")).toBe(false);
+    expect(canMoveBooking("card", "paying")).toBe(false);
+    expect(canMoveBooking("ran_out", "paying")).toBe(false);
+  });
 });
 
 describe("readLengths", () => {

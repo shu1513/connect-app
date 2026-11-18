@@ -3,7 +3,7 @@
  * same database step as the thing it reports (see queueEmail), so none is
  * lost or sent twice.
  */
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { whenFor } from "@/lib/booking/emails";
 import { queueEmail } from "@/lib/email";
@@ -31,6 +31,21 @@ async function peopleOf(tx: Writer, call: { hostId: string; customerId: string }
 }
 
 type CallRef = { id: string; hostId: string; customerId: string; startsAt: Date };
+
+/**
+ * How a call was paid, for the words about its money: "card", or from a membership, and then
+ * whether that month is frozen by a dispute at the member's bank (nothing of it moves until the
+ * bank has decided, so nothing is promised).
+ */
+async function paidHow(tx: Writer, callId: string): Promise<"card" | "membership" | "frozen"> {
+  const [own] = await tx
+    .select({ kind: schema.payments.kind, dispute: schema.membershipMonths.dispute })
+    .from(schema.payments)
+    .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
+    .where(and(eq(schema.payments.callId, callId), isNull(schema.payments.extensionId)));
+  if (own?.kind !== "member_call") return "card";
+  return own.dispute === "open" || own.dispute === "lost" ? "frozen" : "membership";
+}
 const results = (call: CallRef) => `${appUrl()}/calls/${call.id}/results`;
 const quoted = (label: string, text: string | null | undefined) => (text?.trim() ? `\n${label}\n"${text.trim()}"\n` : "");
 
@@ -43,12 +58,21 @@ export async function queueRequestEmail(tx: Writer, call: CallRef, request: { id
   const found = await peopleOf(tx, call);
   if (!found) return;
   const { host, customer } = found;
+  const how = await paidHow(tx, call.id);
   const deadline =
-    money === "taken"
-      ? "The money for this call has already been taken. You can give a refund, or say no."
-      : money === "being_decided"
-        ? "The charge for this call is still being decided (its record is under review at Connect, or the money is just being taken), so there is nothing for you to answer yet. The call's page shows when there is."
-        : `The money for this call has not been taken yet. If you answer by ${whenFor(host, money.answerBy)}, you can charge in full, charge less, or charge nothing, and no card fee is lost. After that the full amount is taken, and you can still give a refund.`;
+    how === "frozen"
+      ? "This call was paid from the customer's membership, and that month's payment is frozen because of a dispute at their bank. While it is frozen, nothing of that month moves. You can answer on the call's page; your answer is carried out only if the dispute is decided in Connect's favour."
+      : how === "membership"
+        ? money === "taken"
+          ? "This call was paid from the customer's membership, and its time has already been used. You can give time back, or say no."
+          : money === "being_decided"
+            ? "This call was paid from the customer's membership. What it uses is still being decided (its record is under review at Connect), so there is nothing for you to answer yet. The call's page shows when there is."
+            : `This call was paid from the customer's membership, and nothing has been used for it yet. If you answer by ${whenFor(host, money.answerBy)}, you can charge in full, charge less, or charge nothing; what you do not charge goes back to the customer (as membership time, or to their card once that month can no longer be booked from). After that the full amount is used, and you can still give time back.`
+        : money === "taken"
+          ? "The money for this call has already been taken. You can give a refund, or say no."
+          : money === "being_decided"
+            ? "The charge for this call is still being decided (its record is under review at Connect, or the money is just being taken), so there is nothing for you to answer yet. The call's page shows when there is."
+            : `The money for this call has not been taken yet. If you answer by ${whenFor(host, money.answerBy)}, you can charge in full, charge less, or charge nothing, and no card fee is lost. After that the full amount is taken, and you can still give a refund.`;
   await queueEmail(tx, {
     to: host.email,
     key: `refund-request:${request.id}:host`,
@@ -61,12 +85,19 @@ export async function queueRequestEmail(tx: Writer, call: CallRef, request: { id
 export async function queueRequestReminder(tx: Writer, call: CallRef, request: { id: string }, answerBy: Date): Promise<void> {
   const found = await peopleOf(tx, call);
   if (!found) return;
+  const how = await paidHow(tx, call.id);
+  // Nothing of a month that is disputed at the bank moves, so there is nothing to hurry for.
+  if (how === "frozen") return;
+  const what =
+    how === "membership"
+      ? `If you answer by ${whenFor(found.host, answerBy)}, you can still charge less or nothing, and what you do not charge goes back to the customer (as membership time, or to their card once that month can no longer be booked from). After that the full amount is used.`
+      : `If you answer by ${whenFor(found.host, answerBy)}, you can still charge less or nothing without a card fee being lost. After that the full amount is taken.`;
   await queueEmail(tx, {
     to: found.host.email,
     key: `refund-request:${request.id}:reminder`,
     expiresAt: answerBy,
     subject: `A refund request is waiting for your answer`,
-    text: `${found.customer.name} asked for a refund for your call on ${whenFor(found.host, call.startsAt)}, and you have not answered yet.\n\nIf you answer by ${whenFor(found.host, answerBy)}, you can still charge less or nothing without a card fee being lost. After that the full amount is taken.\n\nAnswer here:\n${results(call)}\n`,
+    text: `${found.customer.name} asked for a refund for your call on ${whenFor(found.host, call.startsAt)}, and you have not answered yet.\n\n${what}\n\nAnswer here:\n${results(call)}\n`,
   });
 }
 
@@ -80,11 +111,19 @@ export async function queueAnswerEmail(tx: Writer, call: CallRef, request: { id:
   const said = (line: AnswerLine) =>
     line.choice === "nothing" ? "nothing is charged" : line.choice === "less" ? `at most ${money(line.maxCents ?? 0)} is charged` : "the charge stays as the call's record gives it";
   const lines = input.lines.length === 1 ? `Answer: ${said(input.lines[0])}.` : input.lines.map((line) => `- ${line.label}: ${said(line)}.`).join("\n");
+  // For a call paid from a membership: where what is not charged goes, said as it is.
+  const how = await paidHow(tx, call.id);
+  const membership =
+    how === "frozen"
+      ? "\nThis call was paid from your membership, and that month's payment is frozen because of a dispute at your bank. While it is frozen, nothing of that month moves. The answer is carried out only if the dispute is decided in Connect's favour.\n"
+      : how === "membership"
+        ? "\nThis call was paid from your membership. What is not charged goes back to your membership as time, or to your card once that month can no longer be booked from.\n"
+        : "";
   await queueEmail(tx, {
     to: found.customer.email,
     key: `refund-request:${request.id}:answer`,
     subject: `${who} answered your refund request`,
-    text: `${who} answered your refund request for the call on ${whenFor(found.customer, call.startsAt)}.\n\n${lines}\n${quoted(`Message from ${who}:`, input.message)}\nThe exact amount is on the call's page:\n${results(call)}\n`,
+    text: `${who} answered your refund request for the call on ${whenFor(found.customer, call.startsAt)}.\n\n${lines}\n${membership}${quoted(`Message from ${who}:`, input.message)}\nThe exact amount is on the call's page:\n${results(call)}\n`,
   });
 }
 
@@ -116,5 +155,33 @@ export async function queueRefundEmail(tx: Writer, refund: { id: string; payment
     key: `refund:${refund.id}`,
     subject: `A refund of ${money(refund.amountCents)} is on its way to you`,
     text: `${who} refunded ${money(refund.amountCents)} for your call on ${whenFor(found.customer, row.startsAt)}. Your bank usually shows it within 5 to 10 days.\n${quoted(`Message from ${who}:`, refund.reason)}\nThe call's page:\n${results(row)}\n`,
+  });
+}
+
+/**
+ * The same for a call that was booked from a membership, where nothing is refunded at Stripe by
+ * this step: the time goes back into the membership, or, when the member can no longer book from
+ * that month, its money is owed back to their card. The email says which is true.
+ */
+export async function queueTimeBackEmail(tx: Writer, refund: { id: string; paymentId: string; amountCents: number; decidedAs: string; reason: string | null }, to: "free" | "card"): Promise<void> {
+  const [row] = await tx
+    .select({ id: schema.calls.id, hostId: schema.calls.hostId, customerId: schema.calls.customerId, startsAt: schema.calls.startsAt })
+    .from(schema.payments)
+    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .where(eq(schema.payments.id, refund.paymentId));
+  const found = row ? await peopleOf(tx, row) : null;
+  if (!row || !found) return;
+  const who = refund.decidedAs === "admin" ? "Connect" : found.hostName;
+  const amount = money(refund.amountCents);
+  const when = whenFor(found.customer, row.startsAt);
+  await queueEmail(tx, {
+    to: found.customer.email,
+    key: `refund:${refund.id}`,
+    subject: to === "free" ? `${amount} of membership time is back in your membership` : `${amount} of your membership will be paid back to your card`,
+    text:
+      (to === "free"
+        ? `${who} gave back ${amount} of the membership time your call on ${when} used. It is back in your membership and can be booked again until your month ends.`
+        : `${who} gave back ${amount} of the membership time your call on ${when} used. That month can no longer be booked from, so the money is paid back to your card. Your bank usually shows it within 5 to 10 days.`) +
+      `\n${quoted(`Message from ${who}:`, refund.reason)}\nThe call's page:\n${results(row)}\n`,
   });
 }

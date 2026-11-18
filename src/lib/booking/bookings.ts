@@ -21,7 +21,7 @@ import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
 import { answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, payCutoff, readLengths } from "./rules";
-import { isOpenStart, openStarts, type Interval } from "./slots";
+import { stretchesFor, isOpenStart, openStarts, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -32,7 +32,7 @@ const DAY = 24 * 3_600_000;
 const DECLINED_BY_HOST = "declined by the host";
 
 /** True when the database refused a row because the person is already taken at that time. */
-function isOverlap(error: unknown): boolean {
+export function isOverlap(error: unknown): boolean {
   const e = error as { code?: string; cause?: { code?: string } };
   return e?.code === "23P01" || e?.cause?.code === "23P01";
 }
@@ -66,7 +66,8 @@ export type Offer = {
   canTakePaid: boolean;
   /** The host's switch: only people who have passed the identity check can send a new request. */
   verifiedOnly: boolean;
-  weekly: Array<{ weekday: number; startMinute: number; endMinute: number }>;
+  /** Every stretch of weekly hours. `membersOnly` ones are open to the host's members alone (see slotInput). */
+  weekly: Array<{ weekday: number; startMinute: number; endMinute: number; membersOnly: boolean }>;
   timeOff: Interval[];
   /** "Available now", as the host set it. Whether it counts right now is isAvailableNow()'s call. */
   availableUntil: Date | null;
@@ -78,7 +79,7 @@ export type Offer = {
  * not approved, hidden, account closed, or no calendar set up. From outside
  * these all look the same.
  */
-export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> = db): Promise<Offer | null> {
+export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> = db, opts: { forMember?: boolean } = {}): Promise<Offer | null> {
   const [row] = await reader
     .select({ profile: schema.hostProfiles, calendar: schema.hostCalendars, settings: schema.hostSettings, closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt })
     .from(schema.hostProfiles)
@@ -86,7 +87,10 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
     .innerJoin(schema.hostCalendars, eq(schema.hostCalendars.userId, schema.hostProfiles.userId))
     .leftJoin(schema.hostSettings, eq(schema.hostSettings.userId, schema.hostProfiles.userId))
     .where(eq(schema.hostProfiles.userId, hostId));
-  if (!row || row.profile.status !== "approved" || row.profile.hidden || row.closedAt || row.pausedAt) return null;
+  // Asked "for a member" (only after membership/access.ts has said this person is a member of this host),
+  // a hidden page does not stand in the way: a host who hides her page from the public keeps her members.
+  // Everything else is refused exactly as for anyone.
+  if (!row || row.profile.status !== "approved" || (row.profile.hidden && !opts.forMember) || row.closedAt || row.pausedAt) return null;
   const lengths = readLengths(row.calendar.lengths);
   const weekly = await reader.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hostId));
   if (lengths.length === 0 || weekly.length === 0) return null;
@@ -108,7 +112,7 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
     horizonWeeks: row.calendar.horizonWeeks,
     canTakePaid: !paid || (stripeConfigured() && Boolean(row.settings?.payoutsReady)),
     verifiedOnly: row.settings?.verifiedOnly ?? false,
-    weekly: weekly.map((w) => ({ weekday: w.weekday, startMinute: w.startMinute, endMinute: w.endMinute })),
+    weekly: weekly.map((w) => ({ weekday: w.weekday, startMinute: w.startMinute, endMinute: w.endMinute, membersOnly: w.membersOnly })),
     timeOff: timeOff.map((t) => ({ start: t.startsAt, end: t.endsAt })),
     availableUntil: row.calendar.availableUntil,
     availableSeenAt: row.calendar.availableSeenAt,
@@ -149,7 +153,7 @@ export async function instantOffer(hostId: string, now: Date, reader: Pick<typeo
   return { offer, lengths, availableUntil: offer.availableUntil! };
 }
 
-async function busyOf(reader: Pick<typeof db, "select">, userId: string, from: Date): Promise<Interval[]> {
+export async function busyOf(reader: Pick<typeof db, "select">, userId: string, from: Date): Promise<Interval[]> {
   const rows = await reader
     .select({ start: schema.busyEntries.startsAt, end: schema.busyEntries.endsAt })
     .from(schema.busyEntries)
@@ -157,17 +161,23 @@ async function busyOf(reader: Pick<typeof db, "select">, userId: string, from: D
   return rows;
 }
 
-function slotInput(offer: Offer, busy: Interval[], lengthMinutes: number, now: Date) {
+/**
+ * What the rule for open times is given. This is the one place where member-only hours are told
+ * apart: everyone who is not booking as a member gets the general stretches only, before they are
+ * joined together. A member gets every stretch, and the host's notice alone as the earliest start
+ * (no card hold has to be placed in time: the month's money is already there).
+ */
+export function slotInput(offer: Offer, busy: Interval[], lengthMinutes: number, now: Date, as: "anyone" | "member" = "anyone") {
   const paid = offer.pricePer15Cents > 0;
   return {
     timeZone: offer.timeZone,
-    weekly: offer.weekly,
+    weekly: stretchesFor(offer.weekly, as),
     timeOff: offer.timeOff,
     busy,
     lengthMinutes,
     breakMinutes: offer.breakMinutes,
     now,
-    earliestStart: earliestStartFor({ now, paid, freeCancelMinutes: offer.freeCancelMinutes, noticeHours: offer.noticeHours }),
+    earliestStart: earliestStartFor({ now, paid: paid && as !== "member", freeCancelMinutes: offer.freeCancelMinutes, noticeHours: offer.noticeHours }),
     horizonWeeks: offer.horizonWeeks,
   };
 }
@@ -872,9 +882,9 @@ export async function requestsOfCustomer(customerId: string, now: Date) {
     .where(
       and(
         eq(schema.bookings.customerId, customerId),
-        inArray(schema.bookings.source, ["customer", "now"]),
+        inArray(schema.bookings.source, ["customer", "now", "member"]),
         or(
-          inArray(schema.bookings.stage, ["card", "waiting"]),
+          inArray(schema.bookings.stage, ["card", "waiting", "paying"]),
           and(isNull(schema.bookings.callId), gt(schema.bookings.endedAt, new Date(now.getTime() - 7 * DAY))),
         ),
       ),

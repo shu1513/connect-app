@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { giveTimeBack } from "@/lib/membership/give-back";
 import { withNotice } from "@/lib/notice";
 import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
@@ -28,10 +29,16 @@ export async function cancelCallAction(formData: FormData) {
   let notice: string;
   try {
     const outcome = await cancelCall({ call: access.call, payment: access.payment, by: access.role, now: new Date() });
+    const fromMembership = access.payment?.kind === "member_call";
     notice =
       outcome === "late_charge"
-        ? "The call was cancelled after the free period, so the booked price is charged."
-        : "The call was cancelled. Nothing is charged.";
+        ? fromMembership
+          ? // What became of the time is on the page this goes to (used; or kept as it is while the month's payment is disputed).
+            "The call was cancelled after the free period. The payment below says what became of the membership time booked for it."
+          : "The call was cancelled after the free period, so the booked price is charged."
+        : fromMembership
+          ? "The call was cancelled. The payment below says what became of the membership time booked for it."
+          : "The call was cancelled. Nothing is charged.";
   } catch (error) {
     notice = message(error);
   }
@@ -80,8 +87,14 @@ export async function refundAction(formData: FormData) {
     if (found === "not_found") throw new MoneyError("Payment not found.");
     const { decidedAs } = found;
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to refund.");
-    await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-    notice = "The refund was sent.";
+    if (found.payment.kind === "member_call") {
+      // Paid from a membership: the time goes back into the membership, or its money to the member's card. Nothing is refunded at Stripe by this step.
+      const to = await giveTimeBack({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+      notice = to === "free" ? "The time was given back. It is in the member's membership again." : "The time was given back. Its money will be paid back to the member's card.";
+    } else {
+      await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+      notice = "The refund was sent.";
+    }
     if (decidedAs === "admin") {
       await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` }).catch((error) => {
         console.error("[admin] the refund went through but could not be written to the admin record", error);

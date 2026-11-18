@@ -1,6 +1,7 @@
 # Plan 21: Memberships, part two: member calls
 
-**Status:** a plan only; nothing is built. Written 17 November 2026 by the builder alone (no
+**Status:** 2a (the call) is built (18 November 2026; see "Built in 2a" at the end). 2b (extra
+time) is not built yet. Written 17 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 32 and from plan 20, which
 this part is built on top of. Astra's first check gave "not ready" and its second "ready with changes", small enough to make while building; every point of both is worked in below (the lists are at the end).
 
@@ -513,3 +514,127 @@ lose a return, pay a host early or send a member's payment to the card code, and
 can each be merged alone. The one point, written in above: the health check has to judge each
 payment by its own moment, as settling now does, and must not report a frozen month's member
 payment. It also listed the routine places the new stage `paying` touches, which are written in.
+
+## Built in 2a: where the code differs from this plan
+
+- **Cancelling a member's call moves its money in the same step as the cancellation.** There is
+  nothing to ask Stripe, so the call is marked cancelled, the booking ended, both people's time
+  freed and the money returned (or, when cancelled late, used) together, and the email is written
+  in that step with what really happened: time back in the membership, money to the card, or
+  kept while the month's dispute is open. The helper's job for cancelled calls only has work left
+  for a month that was frozen at the time.
+- **Files.** The money of a member's call after the booking is in `membership/calls.ts`
+  (`closeMemberPayment` is the one step that closes such a payment together with the month's
+  numbers; `settleMemberOne`, `settleCancelledMemberIn`, `decideMemberReview` call it), not
+  spread over `payments/jobs.ts` and `take.ts`. Those two only hand a `member_call` payment over.
+  `settleOrdinaryCharges` uses and returns member money in its own locked step, with the call's
+  other charges.
+- **One lock helper**, `lockMonthsOfCall` (`locks.ts`): every step that settles, cancels, reviews
+  or gives back for a call takes the membership and the month first, then the call, then its
+  payments.
+- **A call's shared moments** are worked out in one place, `timingOfCall` (`take.ts`), which
+  `moneyPlan`, the refund-request steps and the health check read. Each payment's own limit is
+  `holdEndFor`.
+- **The emails of 2a** are in `booking/emails.ts` (booked, not booked, cancelled) and
+  `refunds/emails.ts` (time given back), beside the emails of the calls they are about, not in
+  `membership/emails.ts`. The rulebook's table says so now.
+- **`access.ts` has one more way in**, `hostForMemberByHandle`, for the two pages whose address
+  carries the host's handle.
+- **Member-only times are marked** with a star and the words "A time for members only" in the
+  list of times and on the summary.
+- **The "Members only" tick** is shown to a host who may offer a membership (the founder's
+  switch covers her) or who already has such hours, and is only accepted from such a host.
+- **The daily limit on requests applies as the rulebook says**: at most 3 bookings with one host
+  in 24 hours, and 10 in all, also for a member. The founder is told, because a member with many
+  hours may meet it.
+- **Time given back is recorded at the moment of the step**, so an open refund request that was
+  asked before it counts as answered.
+- **A demo mode in the check script** (`--demo`, `--demo-off`) leaves one real member between the
+  two seeded test accounts in the local database, for looking at the pages by hand.
+- **Played by hand in a browser, at phone size:** the host's page as a member (time left, the
+  held month's sentence, the times), the summary with "Book", a first booking that took the
+  month's money and booked, the booking's own page, the home page's line, the call's page,
+  cancelling there (the time was back at once), the page after the call for both people, and the
+  calendar page's tick and labels.
+- **Not played by the script, and why:** an instant request landing on a member's booking (the
+  host's notice of at least a day keeps the two apart; the rule is in `slotInput`); the reminders
+  (unchanged code, and they carry no words about a card); the mixed call's moments and its health
+  check (they need added time, which is 2b).
+
+## Astra's reviews of the code of 2a (18 November 2026)
+
+**First round: not ready, ten points, all taken.** The one that mattered most: time a host gave
+back after a month was already finished would have been promised to the member's card and never
+sent, because the pay-back job only looks at months that are not finished. Such a month is now
+open again for that pay-back and is finished again once Stripe has confirmed it. The others: a
+first booking could have taken the month's money for a time the member was already taken at; an
+unfinished first booking could have been continued with the money of a different month, or for a
+different time; a request that ended while the money was being taken was reported as "booked";
+the "Members only" tick could be shown and then silently saved as hours for everyone; the page
+after a call ignored a dispute over the month; the words for a booking that ran out after the
+payment went through blamed the payment. In the check script, four checks that could pass
+without the thing they named were tightened, and collecting is now played with real test
+transfers (two member calls' shares and a card call's share in one collection).
+
+**Second round: not ready, five points and six checks, all taken.** The serious one: a call can be
+ended with "End call and report" from 5 minutes before its start, and a cancellation sent a
+moment later (from a page that was still open) would have decided the money that was waiting for
+the founder's review. A call that was ended that way can no longer be cancelled, whatever paid
+for it. The others: a first booking that is continued after an interruption is now checked again
+before the month's money is taken, and only as it was written down (the same host, time, length
+and month), also under the locks; a retry reports what the booking's own row says; and the
+refund-request panel and its emails speak of membership time for a member's call, and promise
+nothing while the month is disputed. Six checks in the script were made to prove what they name.
+
+**Third round: not ready, two points worth fixing and some small ones, all taken.** The founder's
+decision on a member's call is now judged by the clock when the step happens, after its locks, so
+a press just before the 3-day limit that waits past it is refused like any late one. A press
+that names another host than the saved request's is refused before anything is looked up, and
+leaves the request as it is. Small: blocking, suspending a host, closing an account and the
+unpaid-call job no longer try to cancel a call that was ended with "End call and report" (the
+new refusal would have been reported as work left over); two sentences about where uncharged
+time goes were made exact; two more checks in the script were tightened.
+
+**Fourth round: the earlier fixes confirmed; two timing edges, two sentences and five labels, all
+taken.** Giving time back and both booking steps now read the clock again once their locks are
+held (a refund request asked while a give-back waited counts as answered by it; a press just
+before the host's notice begins that only arrives after it is refused). The notice after
+cancelling a member's call points to the payment instead of guessing what became of the time, and
+the page after a call says where returned time went at the time, not where it is now.
+
+**Fifth and closing check: all fixes confirmed, one sentence.** A month stays frozen when a dispute
+is lost, and the pages and emails said "until the bank has decided" for that case too. They now
+say that the month's payment is frozen because of a dispute, and that nothing of it moves while
+that lasts. With that corrected, Astra's last open point is closed.
+
+## CodeRabbit's review of 2a (pull request 36, 18 November 2026)
+
+Sixteen comments: eight on the code, eight smaller ones on the check script.
+
+**Taken.**
+- **The call's record is read again inside the locked step** before a member's money comes back
+  in full or is sent to the founder's review. A late message from the video service that arrives
+  between the first look and the step can no longer decide the wrong thing.
+- **A frozen month's payment is passed over before anything about it is decided**, also in the
+  step that applies a saved answer, so it is not sent to review during the dispute and the answer
+  is applied to the record as it stands once the dispute is won.
+- **Cancelling a member's call judges "has it started" by the clock after its locks**, so a call
+  that started while the cancellation waited is left alone.
+- **A first booking in its last minute** (of its 30) is ended instead of continued, and the job
+  that ends such bookings leaves one alone while its month's money is being taken. So a request
+  is never ended while the money is on its way for it.
+- **After the month was paid, an error while the call is written** sends the member to the saved
+  booking, with words that say the payment went through and a button to finish, instead of to a
+  fresh form.
+- **The check script:** the demo removes only what it made (written down in a small local file)
+  and refuses to start over a membership it did not make; clean-up that fails makes the run
+  fail; holds are let go at Stripe before their records are deleted; `--only` without numbers is
+  refused; the amount owed back is compared with the pay-backs still open; the "Cancel now" race
+  must have one winner; and two smaller ones.
+
+**Not taken.** "A record that becomes final only after the 3-day limit should give the money
+back": the helper already gives the money back at the limit when the record is not final then,
+so a record that turns final later finds the payment closed. The case is only reachable when the
+helper was down across the limit, and telling the two apart would need a new stored moment for
+"when the record became final". A card payment behaves the same way today.
+

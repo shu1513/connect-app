@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TimeZoneSelect } from "@/components/time-zone-select";
-import { calendarOf, clockText, hoursAndTimeOff, inZone } from "@/lib/booking/calendar";
+import { calendarOf, clockText, hoursAndTimeOff, inZone, mayKeepMemberHours } from "@/lib/booking/calendar";
 import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, lengthWords, NOTICE_CHOICES_HOURS, readLengths } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
@@ -18,6 +18,8 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
   const notice = readNotice("/host/calendar", await props.searchParams);
   const calendar = await calendarOf(user.id, user.timeZone);
   const { hours, off } = await hoursAndTimeOff(user.id, new Date());
+  // The "Members only" tick is offered to a host who may offer a membership, or who already has such hours (one rule, also the action's).
+  const forMembers = await mayKeepMemberHours(user.id);
   // A host sets a shortest and a longest call. A list saved before that (ticked lengths) shows as its two ends.
   const saved = readLengths(calendar.lengths);
   const lengths = saved.length > 0 ? saved : DEFAULT_LENGTHS;
@@ -59,6 +61,7 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
               <li key={h.id} className="flex items-center gap-3">
                 <span className="w-56">
                   {DAYS[h.weekday - 1]}, {clockText(h.startMinute)} to {clockText(h.endMinute)}
+                  {h.membersOnly && <span className="ml-2 rounded border border-neutral-400 px-1.5 py-0.5 text-xs">Members only</span>}
                 </span>
                 <form action={removeHours}>
                   <input type="hidden" name="id" value={h.id} />
@@ -89,11 +92,23 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
             To
             <input name="to" type="time" required className={`${field} block`} />
           </label>
+          {forMembers && (
+            <label className="flex min-h-11 items-center gap-2">
+              <input name="membersOnly" type="checkbox" />
+              Members only
+            </label>
+          )}
           <button type="submit" className={button}>
             Add hours
           </button>
         </form>
         <p className="mt-1 text-sm opacity-70">To end at midnight, enter 00:00 as the &quot;to&quot; time.</p>
+        {forMembers && (
+          <p className="mt-1 text-sm opacity-70">
+            Hours marked &quot;Members only&quot; can be booked by your members with their membership time, and by nobody else. They count toward
+            the room you have for members like any other hours.
+          </p>
+        )}
       </section>
 
       <section className="mt-10">

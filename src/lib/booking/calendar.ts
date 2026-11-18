@@ -17,6 +17,7 @@ import { lockCalendar, lockMembership, lockMonth } from "@/lib/membership/locks"
 import { hostMinutes, workOutCut, type Cut } from "@/lib/membership/room";
 import { lessTimeProblem, timeWords } from "@/lib/membership/rules";
 import type { Tx } from "@/lib/payments/operations";
+import { membershipsOnFor } from "@/lib/safety/switches";
 
 /** A problem the host can fix. Its message is safe to show them. */
 export class CalendarError extends Error {}
@@ -61,7 +62,7 @@ function minutesOf(time: string): number | null {
 }
 
 /** A stretch of weekly hours as the host types it. "To" of 00:00 means midnight at the end of the day. */
-export type HoursInput = { weekday: number; from: string; to: string };
+export type HoursInput = { weekday: number; from: string; to: string; membersOnly?: boolean };
 /** One change of weekly hours: a stretch removed, a stretch added, or both in one go (a stretch changed or moved). */
 export type HoursChange = { remove?: string; add?: HoursInput };
 /** What the host decided for one of her members in the step that cuts her hours. */
@@ -87,7 +88,8 @@ async function applyHoursChange(tx: Tx, userId: string, change: HoursChange): Pr
     const sameDay = await tx.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.weekday, weekday)));
     if (sameDay.some((h) => start < h.endMinute && end > h.startMinute)) throw new CalendarError("Those hours overlap hours you already have on that day.");
     if (sameDay.length >= 6) throw new CalendarError("That is a lot of separate hours for one day. Remove some first.");
-    await tx.insert(schema.weeklyHours).values({ hostId: userId, weekday, startMinute: start, endMinute: end });
+    // The tick does not change the week's total, so it never starts the step for a cut in hours.
+    await tx.insert(schema.weeklyHours).values({ hostId: userId, weekday, startMinute: start, endMinute: end, membersOnly: change.add.membersOnly === true });
   }
 }
 
@@ -242,6 +244,18 @@ export async function addTimeOff(userId: string, timeZone: string, input: { from
 export async function removeTimeOff(userId: string, id: string): Promise<void> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
   await db.delete(schema.timeOff).where(and(eq(schema.timeOff.id, id), eq(schema.timeOff.hostId, userId)));
+}
+
+/**
+ * Whether this host may keep hours for members only: the founder's memberships switch covers her,
+ * or she already has such hours (months that are paid for go on while the switch is off, and so
+ * do her members' hours). The calendar page and its action both ask here, so the tick is never
+ * shown and then ignored.
+ */
+export async function mayKeepMemberHours(userId: string): Promise<boolean> {
+  if (await membershipsOnFor(userId)) return true;
+  const [has] = await db.select({ id: schema.weeklyHours.id }).from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.membersOnly, true))).limit(1);
+  return Boolean(has);
 }
 
 export async function hoursAndTimeOff(userId: string, now: Date) {

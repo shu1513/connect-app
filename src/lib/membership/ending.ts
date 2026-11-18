@@ -8,11 +8,12 @@
  * Part 1b adds the people who ask for an ending or a pause here (the two stops and their undoing,
  * "Cancel now", the host's own "End membership", the offer of less time).
  */
-import { and, eq, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
 import { BLOCKING_DISPUTE } from "@/lib/payments/disputes";
-import type { Tx } from "@/lib/payments/operations";
+import { cancelCall } from "@/lib/payments/cancel";
+import { MoneyError, type Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
 import { abandonMonth, giveUpInStep, letHoldGo } from "./charge";
 import { queueLessTimeOutcomeEmail, queueRenewalBackEmail, queueRenewalStoppedEmail } from "./emails";
@@ -34,9 +35,26 @@ const months = schema.membershipMonths;
  * nothing to cancel. Returns whether none is left.
  */
 export async function cancelUpcomingMemberCalls(membershipId: string, now: Date): Promise<boolean> {
-  void membershipId;
-  void now;
-  return true;
+  const upcoming = await db
+    .select({ call: schema.calls, payment: schema.payments })
+    .from(schema.payments)
+    .innerJoin(months, eq(months.id, schema.payments.monthId))
+    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .where(and(eq(months.membershipId, membershipId), eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
+  let noneLeft = true;
+  for (const { call, payment } of upcoming) {
+    try {
+      // As Connect's cancellation: the money comes back, and with the membership ended it is owed to the card.
+      // (Money of a month that is disputed stays set aside until the dispute is won.)
+      await cancelCall({ call, payment, by: "admin", now, reason: "the membership ended" });
+    } catch (error) {
+      // A call that started meanwhile is under way: it is left alone and settles in the usual way.
+      if (error instanceof MoneyError) continue;
+      console.error(`[membership] could not cancel member call ${call.id} of ended membership ${membershipId}; will retry`, error);
+      noneLeft = false;
+    }
+  }
+  return noneLeft;
 }
 
 /**

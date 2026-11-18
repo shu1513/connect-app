@@ -334,8 +334,39 @@ describe("whether payment allows joining", () => {
   it("a paid call cannot be joined after its payment was closed", () => {
     expect(paymentBlocksJoin({ ...base, payment: { status: "closed_uncharged", holdExpiresAt: goodHold } })).toBe("not_paid");
   });
+  it("a call paid from a membership can be joined while its money is set aside: there is no hold that could end", () => {
+    expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: null, kind: "member_call" } })).toBeNull();
+    expect(paymentBlocksJoin({ ...base, payment: { status: "closed_uncharged", holdExpiresAt: null, kind: "member_call" } })).toBe("not_paid");
+    // A card payment with no hold end is still refused.
+    expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: null, kind: "card" } })).toBe("hold_ended");
+  });
   it("a paid call cannot be joined when the hold has run out or will not last", () => {
     expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: at("2027-01-13T12:00:00Z") } })).toBe("hold_ended");
     expect(paymentBlocksJoin({ ...base, payment: { status: "held", holdExpiresAt: null } })).toBe("hold_ended");
+  });
+});
+
+describe("the moments of a call paid from a membership: no card hold cuts them short", () => {
+  it("the customer can ask for 24 hours from the call's start, and the money is used 3 minutes later", () => {
+    const timing = moneyTiming({ callStartsAt: START, requestedAt: null, holdExpiresAt: null });
+    expect(timing.askBy.getTime()).toBe(START.getTime() + ASK_WINDOW_MS);
+    expect(timing.answerBy).toBeNull();
+    expect(timing.takeAt.getTime()).toBe(START.getTime() + ASK_WINDOW_MS + DEADLINE_CUSHION_MS);
+  });
+  it("with a request, the host has a full 24 hours from the request, however late it was sent", () => {
+    const requestedAt = at("2027-01-14T08:59:00Z");
+    const timing = moneyTiming({ callStartsAt: START, requestedAt, holdExpiresAt: null });
+    expect(timing.answerBy!.getTime()).toBe(requestedAt.getTime() + 24 * 3_600_000);
+    expect(timing.takeAt.getTime()).toBe(requestedAt.getTime() + 24 * 3_600_000 + DEADLINE_CUSHION_MS);
+    // The same request on a card call whose hold ends sooner is cut short; the membership's is not.
+    const cut = moneyTiming({ callStartsAt: START, requestedAt, holdExpiresAt: at("2027-01-15T00:00:00Z") });
+    expect(cut.takeAt.getTime()).toBeLessThan(timing.takeAt.getTime());
+  });
+  it("it waits until its moment, is then used, and never counts as a hold that ended", () => {
+    const before = { callStartsAt: START, requestedAt: null, decided: false, holdExpiresAt: null };
+    expect(takeDecision({ ...before, now: at("2027-01-14T09:02:59Z") })).toBe("wait");
+    expect(takeDecision({ ...before, now: at("2027-01-14T09:03:00Z") })).toBe("take");
+    expect(takeDecision({ ...before, now: at("2027-03-01T00:00:00Z") })).toBe("take");
+    expect(takeDecision({ ...before, decided: true, now: at("2027-01-13T10:30:00Z") })).toBe("take");
   });
 });

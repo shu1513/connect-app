@@ -51,10 +51,20 @@ export type BookingEvent =
   | "cancelled_unpaid"
   | "cancelled_by_host"
   | "cancelled_by_customer"
-  | "cancelled_by_connect";
+  | "cancelled_by_connect"
+  // A member's booking: made at once from their membership time, or not made after its month's payment was being taken.
+  | "member_booked"
+  | "member_not_booked";
+
+/**
+ * For a cancelled call that was booked from a membership: where its money went, so the email says
+ * what is true. "free": the time is back in the membership. "card": it is owed back to the card.
+ * "used": cancelled late, so it was used. "kept": the month is disputed at the bank, and nothing of it moves.
+ */
+export type MemberMoney = "free" | "card" | "used" | "kept";
 
 /** Writes the emails for one thing that happened to a booking. */
-export async function queueBookingEmails(tx: Writer, booking: Booking, event: BookingEvent): Promise<void> {
+export async function queueBookingEmails(tx: Writer, booking: Booking, event: BookingEvent, memberMoney?: MemberMoney | null): Promise<void> {
   const found = await people(tx, [booking.hostId, booking.customerId]);
   const host = found.get(booking.hostId);
   const customer = found.get(booking.customerId);
@@ -69,6 +79,52 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
     queueEmail(tx, { to: host.email, subject, text: [`Hi ${host.name},`, "", ...lines, "", link, "", footer].join("\n"), key: `${event}:${booking.id}:host`, expiresAt });
   const whenC = whenFor(customer, booking.startsAt);
   const whenH = whenFor(host, booking.startsAt);
+
+  if (booking.source === "member") {
+    // Booked from a membership: no request, no answer from the host, and no hold on a card.
+    const amount = "$" + (booking.totalCents / 100).toFixed(2);
+    const back =
+      memberMoney === "free"
+        ? "The time for it is back in your membership and can be booked again."
+        : memberMoney === "card"
+          ? `The ${amount} of your membership that was set aside for it will be paid back to your card.`
+          : memberMoney === "kept"
+            ? "This month's membership payment is frozen because of a dispute at your bank, so the time set aside for this call stays where it is while that lasts."
+            : "";
+    switch (event) {
+      case "member_booked":
+        await toCustomer(`Your call with ${hostShown} is booked`, [
+          `Your ${length} call with ${hostShown} is booked for ${whenC}.`,
+          `It uses ${booking.lengthMinutes} minutes of your membership. Nothing more is charged for it.`,
+          "The booking's page shows until when you can cancel and get the time back.",
+        ]);
+        await toHost(`${customer.name} booked a call with you`, [
+          `${customer.name} is a member of yours and booked a ${length} call for ${whenH}.`,
+          "A member's booking is confirmed at once, so there is nothing for you to accept.",
+        ]);
+        break;
+      case "member_not_booked":
+        await toCustomer(`Your call with ${hostShown} was not booked`, [
+          `Your ${length} call with ${hostShown} on ${whenC} was not booked.`,
+          booking.endedReason ?? "The booking could not be finished.",
+          "No membership time was used for it.",
+        ]);
+        break;
+      case "cancelled_by_host":
+        await toCustomer(`${hostShown} cancelled your call`, [`Your call on ${whenC} was cancelled by ${hostShown}.`, ...(back ? [back] : [])]);
+        break;
+      case "cancelled_by_customer":
+        await toHost(`${customer.name} cancelled their call`, [`The call on ${whenH} was cancelled by ${customer.name}. That time is open again.`]);
+        break;
+      case "cancelled_by_connect":
+        await toCustomer("Your call was cancelled", [`Your call with ${hostShown} on ${whenC} was cancelled by Connect.`, ...(back ? [back] : [])]);
+        await toHost("Your call was cancelled", [`Your call with ${customer.name} on ${whenH} was cancelled by Connect.`]);
+        break;
+      default:
+        break;
+    }
+    return;
+  }
 
   if (booking.source === "now") {
     // Instant calls: short emails, and only where they help. The live pages carry the rest.

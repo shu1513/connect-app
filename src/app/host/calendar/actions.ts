@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { addTimeOff, addWeeklyHours, CalendarError, calendarOf, removeTimeOff, removeWeeklyHours, saveCalendarChoices } from "@/lib/booking/calendar";
+import { addTimeOff, addWeeklyHours, CalendarError, calendarOf, mayKeepMemberHours, removeTimeOff, removeWeeklyHours, saveCalendarChoices } from "@/lib/booking/calendar";
 import { lengthRange } from "@/lib/booking/rules";
 import { withNotice } from "@/lib/notice";
 import { requireActiveUser } from "@/lib/session";
@@ -42,8 +42,11 @@ export async function addHours(formData: FormData) {
   const user = await requireActiveUser();
   let notice: string;
   try {
-    await addWeeklyHours(user.id, { weekday: Number(formData.get("weekday")), from: String(formData.get("from") ?? ""), to: String(formData.get("to") ?? "") });
-    notice = "Those hours were added.";
+    const membersOnly = formData.get("membersOnly") === "on";
+    // The same rule the page shows the tick by. A tick that cannot be kept is refused, never saved as hours for everyone.
+    if (membersOnly && !(await mayKeepMemberHours(user.id))) throw new CalendarError("Hours for members only can be added once you can offer a membership. Nothing was added.");
+    await addWeeklyHours(user.id, { weekday: Number(formData.get("weekday")), from: String(formData.get("from") ?? ""), to: String(formData.get("to") ?? ""), membersOnly });
+    notice = membersOnly ? "Those hours were added, for your members only." : "Those hours were added.";
   } catch (error) {
     notice = problem(error);
   }

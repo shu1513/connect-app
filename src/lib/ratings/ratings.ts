@@ -126,7 +126,7 @@ export async function callsToRate(userId: string, now: Date, limit = 5): Promise
     .where(
       and(
         or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)),
-        inArray(schema.bookings.source, ["customer", "now"]),
+        inArray(schema.bookings.source, ["customer", "now", "member"]),
         isNull(schema.calls.cancelledAt),
         isNull(schema.calls.safetyEndedAt),
         isNotNull(schema.calls.closedAt),

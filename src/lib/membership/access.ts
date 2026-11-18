@@ -8,6 +8,7 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership, MembershipMonth, MembershipOffer } from "@/db/schema";
+import { handleProblem, tidyHandle } from "@/lib/profiles/handles";
 
 const IS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,6 +21,8 @@ export type HostForMember = {
   pricePer15Cents: number;
   /** False while the host's page is waiting to be approved again: it can be looked at, but nothing new can be booked. */
   canBook: boolean;
+  /** The host's cancelling rule, shown on her page. */
+  freeCancelMinutes: number;
 };
 
 /**
@@ -40,12 +43,25 @@ export async function hostForMember(viewerId: string, hostId: string, now: Date 
   if (link.status === "invited" && !(link.inviteExpiresAt && link.inviteExpiresAt > now)) return null;
   if (link.status === "joining" && !link.since && !(link.cardStepExpiresAt && link.cardStepExpiresAt > now)) return null;
   const [row] = await db
-    .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status })
+    .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status, freeCancelMinutes: schema.hostSettings.freeCancelMinutes })
     .from(schema.hostProfiles)
     .innerJoin(schema.user, eq(schema.user.id, schema.hostProfiles.userId))
+    .leftJoin(schema.hostSettings, eq(schema.hostSettings.userId, schema.hostProfiles.userId))
     .where(and(eq(schema.hostProfiles.userId, hostId), inArray(schema.hostProfiles.status, ["approved", "pending"]), isNull(schema.user.closedAt), isNull(schema.user.pausedAt)));
   if (!row) return null;
-  return { userId: row.userId, handle: row.handle, displayName: row.displayName, about: row.about, pricePer15Cents: row.pricePer15Cents, canBook: row.status === "approved" };
+  return { userId: row.userId, handle: row.handle, displayName: row.displayName, about: row.about, pricePer15Cents: row.pricePer15Cents, canBook: row.status === "approved", freeCancelMinutes: row.freeCancelMinutes ?? 0 };
+}
+
+/**
+ * The same, by the handle in a page's address: how the host's page and her booking page open for
+ * a member (or an invited person) when the page is hidden from the public. Null for everyone
+ * else, exactly as for a handle that does not exist.
+ */
+export async function hostForMemberByHandle(viewerId: string, typedHandle: string, now: Date = new Date()): Promise<HostForMember | null> {
+  const handle = tidyHandle(typedHandle);
+  if (handleProblem(handle)) return null;
+  const [found] = await db.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.handle, handle));
+  return found ? hostForMember(viewerId, found.userId, now) : null;
 }
 
 /**

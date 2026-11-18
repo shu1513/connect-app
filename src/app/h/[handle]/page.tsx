@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import Link from "next/link";
+import { LocalTime } from "@/components/local-time";
 import { SlotPicker } from "@/components/slot-picker";
 import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
+import { hostForMemberByHandle } from "@/lib/membership/access";
+import { memberBookingView, memberOpenTimes } from "@/lib/membership/book";
+import { timeWords } from "@/lib/membership/rules";
 import { NOW } from "@/lib/booking/now-rules";
 import { firstLength, lengthWords } from "@/lib/booking/rules";
 import { formatMoney } from "@/lib/payments/access";
@@ -29,8 +33,18 @@ const CANCEL_RULE: Record<number, string> = {
   1440: "Free to cancel until 24 hours before the call starts.",
 };
 
-/** The page title and the page itself share one lookup per request. */
-const loadProfile = cache(publicProfile);
+/**
+ * The page title and the page itself share one lookup per request. A page that is hidden from the
+ * public still opens for a member of this host, and for someone she has invited, and for nobody
+ * else: that is asked of the membership's own access rules, and the public reader is not loosened.
+ */
+const loadProfile = cache(async (handle: string) => {
+  const open = await publicProfile(handle);
+  if (open) return open;
+  const viewer = await getUser();
+  const forMember = viewer ? await hostForMemberByHandle(viewer.id, handle) : null;
+  return forMember ? { ...forMember, socials: [] } : null;
+});
 
 export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise<Metadata> {
   const { handle } = await props.params;
@@ -50,7 +64,11 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const viewer = await getUser();
   const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
   const offer = blocked ? null : await offerOf(profile.userId);
-  const { length } = await props.searchParams;
+  const { length, mlength } = await props.searchParams;
+  // A member of this host: their time left and the times they can book with it, beside the ordinary way.
+  const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
+  const memberChosen = !memberView || memberView.lengths.length === 0 ? null : typeof mlength === "string" && memberView.lengths.includes(Number(mlength)) ? Number(mlength) : firstLength(memberView.lengths);
+  const memberTimes = memberView && memberChosen ? await memberOpenTimes(memberView, memberChosen, new Date()) : [];
   // The length the customer chose stays chosen; before any choice, the offered length closest to 30 minutes is shown.
   const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : offer ? firstLength(offer.lengths) : null;
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
@@ -121,6 +139,59 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         )}
       </section>
 
+      {memberView && (
+        <section id="member" className={`${warm.card} mt-6 scroll-mt-4`}>
+          <h2 className="text-lg font-semibold">Your membership</h2>
+          <p className="mt-1 text-sm">
+            <strong>{timeWords(memberView.minutesLeft)} left</strong>, until <LocalTime iso={memberView.monthEndsAt.toISOString()} />. Your price is{" "}
+            {formatMoney(memberView.month.pricePer15Cents)} per 15 minutes.
+          </p>
+          {memberView.month.status === "held" && (
+            <p className="mt-2 text-sm opacity-70">
+              This month&apos;s {formatMoney(memberView.month.totalCents)} is only held on your card so far. It is taken when you make your first booking of the month.
+            </p>
+          )}
+          {!memberChosen ? (
+            <p className="mt-2 text-sm">
+              The time you have left does not cover a call with {profile.displayName}. You can still ask for one the ordinary way below, at the regular price.
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm">
+                A call you book with your membership is booked at once: {profile.displayName} does not need to accept it. It must end before your month ends.
+              </p>
+              <form method="get" action={`/h/${profile.handle}#member`} className="mt-5 flex flex-wrap items-end gap-3 text-sm">
+                <label className="block min-w-0 max-w-full">
+                  Length
+                  <select name="mlength" defaultValue={memberChosen} className={lengthList}>
+                    {memberView.lengths.map((minutes) => (
+                      <option key={minutes} value={minutes}>
+                        {lengthWords(minutes)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" className={warm.secondary}>
+                  Show times
+                </button>
+              </form>
+              {memberTimes.length === 0 ? (
+                <p className="mt-4 text-sm opacity-70">There are no open times for this length before your month ends. Please look again later.</p>
+              ) : (
+                <div className={warm.slots}>
+                  <SlotPicker
+                    starts={memberTimes.map((time) => time.startsAt.toISOString())}
+                    hrefBase={`/h/${profile.handle}/book?as=member&length=${memberChosen}`}
+                    marked={memberTimes.filter((time) => time.membersOnly).map((time) => time.startsAt.toISOString())}
+                    markedLabel="A time for members only"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       {now && (
         <section className={`${warm.available} mt-6`}>
           <h2 className="text-lg font-semibold">
@@ -151,7 +222,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       )}
 
       <section id="ask" className={`${warm.card} mt-6 scroll-mt-4`}>
-        <h2 className="text-lg font-semibold">{now ? "Or ask for a call later" : "Ask for a call"}</h2>
+        <h2 className="text-lg font-semibold">{memberView ? "Or ask the ordinary way, at the regular price" : now ? "Or ask for a call later" : "Ask for a call"}</h2>
         {!offer || !chosen ? (
           <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls at the moment.</p>
         ) : !offer.canTakePaid ? (

@@ -14,6 +14,8 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
   const { id } = await ctx.params;
   const access = await callForParticipant(id, user.id);
   if (!access || !access.payment) return Response.json({ error: "Call not found." }, { status: 404 });
+  // A call booked with a membership has no hold at Stripe to ask about: its money is set aside in the member's month.
+  if (access.payment.kind === "member_call") return Response.json({ status: access.payment.status });
 
   try {
     const payment = await syncHold(access.payment.id, new Date());
