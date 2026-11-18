@@ -24,8 +24,8 @@ import type { Payment } from "@/db/schema";
 import { isDefiniteRefusal, stripeErrorMessage } from "./stripe";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-/** "intent" is only ever a month's: making its one PaymentIntent. "transfer" is only ever a payment's. */
-export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hold" | "intent";
+/** "transfer" is only ever a payment's: a month's money reaches a host through the payments under it. */
+export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hold";
 
 /** An action was refused for a reason a person can read. Nothing was changed. */
 export class MoneyError extends Error {}
