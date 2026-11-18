@@ -389,3 +389,117 @@ Three comments, all small and all taken:
 3. **A pause that was saved could be reported as "nothing was changed"** if reading the result
    afterwards failed. The read is now apart from the save.
 
+## Built in 3b: where the code differs from this plan
+
+- **The card step reads through a function of its own.** `secretToPay` (`membership/charge.ts`)
+  is what a page load calls: it reads the secret of the payment the month already has, for its
+  member, while the month can still be paid and the payment is ready to be paid by hand. It makes
+  nothing and changes nothing. Only the actions ("Join", "Resume", "Continue to the card step",
+  "Pay now") call `payNow`, which is the one way to `intentFor`.
+- **"Pay now" is two steps on one page:** the button (an action) makes the payment ready, and the
+  page then shows the card form for that same payment. Opening the page from the email starts
+  nothing.
+- **A page with no card form to show** (the payment is not waiting for a card) asks the `sync`
+  address once and offers "Check again", so a hold the app has not heard of yet is found.
+- **An old invitation link** is answered by `oldInvitationFor` in `access.ts`: for the person it
+  was sent to it says the invitation is no longer open and why (ran out, taken back, replaced by
+  a newer one, already used); for anyone else it is "not found". It never opens a newer
+  invitation.
+- **The host's own page** shows an invited person a box with the link, and a member at the card
+  step, with a failed payment or paused a line and a link to the right page.
+- **The reminder's kind is read back from its subject.** When its turn to be sent comes,
+  `membershipReminderProblem` works out what the reminder would say now and drops it if that is
+  no longer what was written (a renewal that was stopped, an offer that was answered, a pause
+  that was taken back), or if the membership is paused, ended or in a later month.
+- **The page and the receipt name one moment** for a held amount: the last moment "Cancel now"
+  is offered. (The money is taken three minutes later; a member is not shown two times.)
+- **The check "nothing can start a membership"** is now four checks in
+  `scripts/membership-check.ts`: only the host's and the member's own pages reach the code that
+  changes a membership or pays for one; each of the host's seven and the member's eight actions
+  asks who is signed in; and no page that is only being opened can start a joining, a payment or
+  a change.
+- **The journey script** (`scripts/membership-journey-check.ts`, about 100 checks) posts every
+  form as the page drew it. What it pretends is in its header: the welcome step, the host's
+  approval and payout account, that two people had a call, and the waiting (a month's end, a
+  renewal and the reminder run with a later clock).
+- **Walked in a browser** at phone width and wide, as the test customer with the test host: the
+  invitation, joining with Stripe's test card, the member's page, "Cancel now", resuming with a
+  card that needs the bank's approval (failed once, then completed), a card step that ran out,
+  "Your account" and the host's page. Not walked by hand: a failed renewal with "Pay now" and the
+  cut in hours with three members, which the journey script covers through the real pages.
+
+## Astra's reviews of the code of 3b (18 November 2026)
+
+Every point was checked against the code before it was taken.
+
+**First round (not ready, eight points, all taken):**
+1. **A payment whose way back arrives after a deadline** could be told "you are not a member,
+   nothing was charged", or get "not found", although a hold placed in time still counts and the
+   helper would start the membership a moment later. The card step after its time, and "Pay now"
+   after the time to pay, now ask the bank first and claim nothing before that. A first-time
+   joiner still reaches the card step's page then, through `ownMembershipByHandle`.
+2. **No way to cancel while a renewal is being taken**, or in the moment between a month's end
+   and the next one. The page keeps a cancel button there.
+3. **"Keep my membership" could say "your membership goes on"** when reading the result failed
+   or another stop remained. It says so only when that was read.
+4. **A reminder could go out with an amount that had changed** (the host lowered her price, or
+   another offer replaced the one it named). The sentence a reminder is about is looked for
+   again when it is sent.
+5. **An open offer came before the founder's switch** in the reminder's words and on the page.
+6. **The reminder's subject said "in 3 days"** also when written late.
+7. **An offer's link kept silent** after the month had ended and before the helper tidied up.
+8. **Three checks of the journey script proved less than they said.**
+
+**Second round (not ready, five points, all taken):**
+1. **The cancel button for a payment that is still open promised "nothing is charged"** although
+   the payment can go through in the moment before the press. Its words now say both outcomes.
+2. **The way a first-time joiner still reaches a card step that ran out** also showed the live
+   card form when the host's page was closed to them for another reason (a declined profile).
+   While the host's page is closed to a person, only the "time is over, we are checking" view is
+   shown. (The automated security check on the commit found the same.)
+3. **An old "Keep my membership" form** from another tab could still be answered with "your
+   membership goes on" after the founder's switch went off. The answer now says what was done
+   and leaves the renewal to the page.
+4. **A host who changed her name** would have lost her member the reminder: its kind was read
+   from the whole subject. It is now read from the subject's fixed ending.
+5. **One new check of the journey script** said more than it proved.
+
+**Third round (not ready, one point, taken):** the cancel button in the moment between a month's
+end and the next one still promised that no new month would start, although the helper can start
+it in the moment before the press. It says both outcomes now, like the other two.
+
+**Fourth round (not ready, one point, taken):** the sentence after "Cancel" still offered "Keep
+my membership", which can be closed by then (the founder's switch off, or the month over). It now
+says only that the membership will not renew, and the page shows what is open.
+
+**Fifth round: ready.** No finding left about money moving wrongly or about anyone seeing another
+person's data.
+
+## CodeRabbit's review of 3b (pull request 40, 18 November 2026)
+
+Eighteen comments, all marked minor. Seventeen were taken, each in its smallest form:
+
+- **The pages.** The invitation's open times are worked out as a member would find them (hours
+  for members only were missing). A month whose payment has a problem the founder must look at
+  is shown as that, not as an ordinary hold with time to book. "Keep my membership" is replaced
+  by a sentence when it cannot work (the host's membership or the founder's switch is off). The
+  card step and "Pay now" still open, and say so, when the payment service cannot be reached.
+  A given-up month's receipt no longer says "no payment in 7 days" when the member or the host
+  cancelled its open payment.
+- **The buttons.** "Cancel now" and "Pay now" carry the month the page showed; if another month
+  is the current one by the time of the press, nothing is done. The sentence after "Cancel now"
+  says the hold "is being let go" (the helper finishes it if Stripe cannot be reached), and the
+  one after "Cancel" no longer says a payment was cancelled when none was open.
+- **The card form** stays usable when the connection drops while it asks the server.
+- **The reminder** says the time left "as this is written", and names the one exception to
+  "expires and is not paid back": time that came back because the host cancelled a call.
+- **The checks.** The page-load check also refuses `syncMonth` in a page, and the one address
+  that asks Stripe may only answer a post. The journey script refuses to start unless the
+  founder's switch is off, proves that opening "Pay now" writes nothing and makes no payment at
+  Stripe, checks the exact destination after paying, and names a test payment it could not
+  cancel while cleaning up.
+
+Not taken: clearing only this script's own rate-limit rows. The script clears the whole table, on
+a local test database only, as the older journey and accounts scripts do; every request comes
+from one network address, so the rows cannot be told apart.
+

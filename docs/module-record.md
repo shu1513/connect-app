@@ -1415,3 +1415,64 @@ not open yet." and nothing else.
 **What is not covered:** the member's own pages and the whole journey in a browser, which are
 3b.
 
+## Memberships, part three, 3b: the member's pages (pull request 40, 18 November 2026)
+
+The last of six pull requests. Memberships are now built in full. **The founder's switch is
+off**, and turning it on is the founder's step: first for one host (the friend test), and for
+everyone only after the lawyer's and Stripe's points in `plans/19`, "Before this can go live".
+
+**What it does**
+- **The invitation, joining and resuming** (`/h/<handle>/membership`): what a membership costs
+  and gives, the sentences a person agrees to with the tick box, then the card step with
+  Stripe's form on the month's one payment. An old invitation link says what became of it.
+- **One membership, for its member** (`/memberships/<id>`): the time left, that the amount is
+  held or taken and until when "Cancel now" is offered, the next payment or what stands in its
+  way, cancelling, "Keep my membership", an offer of less time, and the monthly receipts.
+- **"Pay now"** after a failed monthly payment (`/memberships/<id>/pay`).
+- **The address the card form asks** (`/api/memberships/<id>/sync`): the server asks Stripe
+  itself.
+- **"Your account"** lists a person's memberships; the host's page shows an invited person a
+  box with the link.
+- **The reminder** three days before a month ends (`notifications/membership-reminders.ts`), in
+  the helper's reminder loop: once per month, sent whatever the person chose for reminder
+  emails, and dropped if it is no longer true when its turn to be sent comes.
+
+**Two rules the pages keep**
+- Opening or reloading a page never makes a payment, a month or a membership and never moves a
+  deadline; only the buttons do. A page reads an existing payment's secret through
+  `secretToPay`.
+- Nothing is claimed before it is known: a payment that comes back after a deadline is checked
+  with the bank first, and no sentence promises a renewal or a zero charge that a change in the
+  moment before a press could make untrue.
+
+**The database:** nothing new.
+
+**How it was checked**
+- `scripts/membership-journey-check.ts` (about 110 checks) walks the whole journey through the
+  real pages, posting every form as the page drew it, as each person, and paying with Stripe's
+  test cards: setting up, inviting, joining, the receipt, a member-only booking, the call, the
+  reminder, cancelling and keeping, a renewal, "Cancel now", a failed renewal and "Pay now", a
+  lowered price, resuming on changed terms, a cut in hours with keep, less time and pause, an
+  ended membership, the founder's page, and the switch turned off while a month runs. It also
+  posts forms as the wrong person, out of date and without the tick, and opens every page as a
+  stranger, another host and the member's own host.
+- All fourteen other check scripts against Stripe's test area, `tsc`, `eslint`, `vitest` (395
+  tests) and the build.
+- In a browser at phone width and wide, with Stripe's own form: joining with a test card,
+  "Cancel now", resuming with a card that needs the bank's approval (failed once, then
+  completed), a card step that ran out.
+- Astra reviewed the code five times (four times not ready, then ready). What mattered most: a
+  payment arriving just after a deadline was told "nothing was charged" before the bank was
+  asked; there was no way to cancel while a renewal was being taken; and several sentences
+  promised an outcome that a change in the moment before the press could undo.
+- CodeRabbit: eighteen small comments, seventeen taken (in `plans/22`).
+- The automated security check on a commit found that one fix had let the card form show while
+  the host's page was closed to the person; closed the same hour.
+
+**What no check covers:** a real card, a real bank's hold on a statement, a real renewal a
+month later, and two real people. The friend test is for those.
+
+**Open for the founder before the switch goes on** (neither blocks the build): a bank's inquiry
+that never becomes a dispute ends the membership today, like a real dispute; and switching a
+membership off cancels a payment that is still open, also if the card was held a moment before.
+

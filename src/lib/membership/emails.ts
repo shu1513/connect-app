@@ -72,7 +72,8 @@ export async function queuePaymentFailedEmail(tx: Writer, membership: Membership
   });
 }
 
-const PAUSED_WHY: Record<string, string> = {
+/** Why a membership is paused, in the words said to its member (the email, and the member's page). */
+export const PAUSED_WHY: Record<string, string> = {
   payment: "the monthly payment did not go through",
   cancel_now: "you cancelled it",
   member: "you cancelled it, and the month you paid for has ended",
