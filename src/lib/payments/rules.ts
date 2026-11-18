@@ -134,12 +134,14 @@ export function decisionDeadline(input: { callEndsAt: Date; holdExpiresAt: Date 
 /** Why a paid call cannot be joined right now, or null if payment is in order. */
 export function paymentBlocksJoin(input: {
   /** Null for a free call. */
-  payment: { status: string; holdExpiresAt: Date | null } | null;
+  payment: { status: string; holdExpiresAt: Date | null; kind?: string } | null;
   callEndsAt: Date;
   now: Date;
 }): "not_paid" | "hold_ended" | null {
   if (!input.payment) return null;
   if (input.payment.status !== "held") return "not_paid";
+  // A call paid from a membership: its money is set aside in the month, which counts as paid. There is no hold that could end.
+  if (input.payment.kind === "member_call") return null;
   if (
     !input.payment.holdExpiresAt ||
     !holdCoversCall({ now: input.now, holdExpiresAt: input.payment.holdExpiresAt, callEndsAt: input.callEndsAt })
@@ -183,7 +185,8 @@ export function moneyTiming(input: {
   callStartsAt: Date;
   /** When the customer asked for a refund, or null if they have not. */
   requestedAt: Date | null;
-  holdExpiresAt: Date;
+  /** Null for a call paid from a membership: there is no card hold whose end could cut these moments short. */
+  holdExpiresAt: Date | null;
 }): {
   /** The customer can ask until here. */
   askBy: Date;
@@ -192,7 +195,7 @@ export function moneyTiming(input: {
   /** The app takes the money by itself at this moment, if nothing was decided before. */
   takeAt: Date;
 } {
-  const limit = input.holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS;
+  const limit = input.holdExpiresAt ? input.holdExpiresAt.getTime() - TAKE_BEFORE_EXPIRY_MS : Number.POSITIVE_INFINITY;
   const withoutRequest = Math.min(input.callStartsAt.getTime() + ASK_WINDOW_MS + DEADLINE_CUSHION_MS, limit);
   const askBy = new Date(withoutRequest - DEADLINE_CUSHION_MS);
   if (!input.requestedAt) return { askBy, answerBy: null, takeAt: new Date(withoutRequest) };
@@ -210,9 +213,10 @@ export function takeDecision(input: {
   requestedAt: Date | null;
   /** The request was answered (or closed by the founder): nothing is waited for any more. */
   decided: boolean;
-  holdExpiresAt: Date;
+  /** Null when no card hold is involved (a call paid from a membership). */
+  holdExpiresAt: Date | null;
 }): "wait" | "take" | "hold_ended" {
-  if (input.now >= input.holdExpiresAt) return "hold_ended";
+  if (input.holdExpiresAt && input.now >= input.holdExpiresAt) return "hold_ended";
   if (input.decided) return "take";
   return input.now >= moneyTiming(input).takeAt ? "take" : "wait";
 }
