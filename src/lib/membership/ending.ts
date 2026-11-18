@@ -8,10 +8,12 @@
  * Part 1b adds the people who ask for an ending or a pause here (the two stops and their undoing,
  * "Cancel now", the host's own "End membership", the offer of less time).
  */
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
+import { BLOCKING_DISPUTE } from "@/lib/payments/disputes";
 import type { Tx } from "@/lib/payments/operations";
+import { stripe } from "@/lib/payments/stripe";
 import { abandonMonth } from "./charge";
 import { lockCalendar, lockForMonth, lockMembership, lockMonth, type LockedMonth } from "./locks";
 import { finishIfSettled, owePayBack, setDispute } from "./months";
@@ -131,4 +133,41 @@ export async function recordMonthDispute(monthId: string, state: "open" | "won" 
       }
     }
   });
+}
+
+/**
+ * Asks Stripe where the disputes over a month's charge stand, all of them together, and records
+ * it: lost if any is lost, open if any is still with the bank, otherwise won. Stripe is asked
+ * once more after recording, so an answer that went stale while we waited is not the last word.
+ *
+ * Called by Stripe's messages, and by the helper every hour for as long as a month's dispute is
+ * open, so that a month can never stay frozen because one message was lost or came out of order.
+ */
+export async function refreshMonthDispute(monthId: string, now: Date = new Date()): Promise<void> {
+  const [month] = await db.select({ intentId: months.stripePaymentIntentId }).from(months).where(eq(months.id, monthId));
+  if (!month?.intentId) return;
+  let recorded: string | null = null;
+  for (let round = 0; round < 3; round++) {
+    const disputes = await stripe().disputes.list({ payment_intent: month.intentId, limit: 100 }).autoPagingToArray({ limit: 300 });
+    if (disputes.length === 0) break;
+    const state = disputes.some((dispute) => dispute.status === "lost") ? "lost" : disputes.some((dispute) => BLOCKING_DISPUTE.has(dispute.status)) ? "open" : "won";
+    if (state === recorded) break;
+    await recordMonthDispute(monthId, state, now);
+    recorded = state;
+  }
+  // Marked as looked at, so the helper's hourly look goes round all open disputes in turn.
+  await db.update(months).set({ updatedAt: now }).where(eq(months.id, monthId));
+}
+
+/** For the helper: every month whose dispute is open is asked about again once an hour. */
+export async function runDisputeLooks(now: Date): Promise<void> {
+  const open = await db
+    .select({ id: months.id })
+    .from(months)
+    .where(and(eq(months.dispute, "open"), lte(months.updatedAt, new Date(now.getTime() - 3_600_000))))
+    .orderBy(months.updatedAt)
+    .limit(25);
+  for (const { id } of open) {
+    await refreshMonthDispute(id, now).catch((error) => console.error(`[membership] could not ask about the dispute over month ${id}; will retry`, error));
+  }
 }

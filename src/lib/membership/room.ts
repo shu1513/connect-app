@@ -49,8 +49,9 @@ export async function roomLeft(reader: Reader, hostId: string, now: Date, except
 /**
  * Whether this member keeps their place for a next month: the one calculation of rules.ts
  * (placesKept), over every member of the host who wants a next month, with the host's hours as
- * they are now. A member whose renewal is stopped by either side, or who has an open offer of less
- * time, does not want one. A member whose payment is being tried keeps their turn.
+ * they are now. A member whose renewal is stopped by either side does not want one. A member with
+ * an open offer of less time counts with the smaller time, and one whose payment is being tried
+ * keeps their turn.
  */
 export async function keepsPlace(reader: Reader, membership: Pick<Membership, "id" | "hostId">): Promise<boolean> {
   const kept = placesKept({ hostMinutes: await hostMinutes(reader, membership.hostId), members: await wantingNextMonth(reader, membership.hostId) });

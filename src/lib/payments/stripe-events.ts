@@ -8,24 +8,10 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { syncMonth } from "@/lib/membership/charge";
-import { recordMonthDispute } from "@/lib/membership/ending";
+import { refreshMonthDispute } from "@/lib/membership/ending";
+import { BLOCKING_DISPUTE } from "./disputes";
 import { syncHold } from "./hold";
 import { stripe } from "./stripe";
-
-/**
- * Dispute states that block paying the host and refunding: the customer's bank
- * still has the charge under dispute, or we lost and the money has gone back to
- * the customer. A lost dispute stays blocked; the founder settles it by hand.
- */
-const BLOCKING_DISPUTE = new Set([
-  "lost",
-  "warning_needs_response",
-  "warning_under_review",
-  "needs_response",
-  "under_review",
-  "appeal_needs_response",
-  "appeal_under_review",
-]);
 
 type StripeMessage = { type: string; data: { object: Record<string, unknown> } };
 
@@ -70,7 +56,7 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
         .where(eq(schema.payments.stripePaymentIntentId, intentId));
       // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
       const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
-      if (month) await recordMonthDispute(month.id, dispute.status === "lost" ? "lost" : BLOCKING_DISPUTE.has(dispute.status) ? "open" : "won", new Date());
+      if (month) await refreshMonthDispute(month.id, new Date());
       recorded = dispute.status;
     }
   }

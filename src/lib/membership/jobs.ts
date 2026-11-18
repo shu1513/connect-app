@@ -12,7 +12,7 @@ import { MoneyError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, type Operation
 import { removeRetiredCards } from "./cards";
 import { abandonMonth, intentFor, letHoldGo, syncMonth, takeMonth, tryHold } from "./charge";
 import { runClosings } from "./close";
-import { runEndings } from "./ending";
+import { runDisputeLooks, runEndings } from "./ending";
 import { runPayBacks } from "./payback";
 
 const months = schema.membershipMonths;
@@ -141,6 +141,9 @@ export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
 
   // 7 and 8. Months past their end are closed, and in the same step renewed or their membership paused.
   await runClosings(now);
+
+  // Disputes that are still open are asked about once an hour, so a lost message never leaves a month frozen.
+  await runDisputeLooks(now);
 
   // 9. Pay-backs. 10. Endings to clean up. 11. Retired cards nothing needs any more.
   await runPayBacks(now);

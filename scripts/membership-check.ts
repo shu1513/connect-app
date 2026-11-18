@@ -853,6 +853,11 @@ async function main() {
       month = await M(m.monthId);
       check("and paid back by the helper", month.paidBackCents === 6000 && (await refundsOf(m.monthId))[0].status === "done", `${month.paidBackCents} ${(await refundsOf(m.monthId))[0].status} ${(await operations(m.monthId, "refund")).map((o) => o.error).join()}`);
       await audit("after a won dispute", m);
+      // An old "open" written over the "won" (two messages handled at once, and the second look at Stripe failed).
+      await db.update(months).set({ dispute: "open", updatedAt: new Date(Date.now() - 2 * HOUR) }).where(eq(months.id, m.monthId));
+      await helper(new Date(), 1);
+      check("a month left frozen by an old answer is put right by the helper, which asks Stripe itself every hour", (await M(m.monthId)).dispute === "won" && (await M(m.monthId)).paidBackCents === 6000 && (await refundsOf(m.monthId)).length === 1);
+      await audit("after a stale dispute answer", m);
     }
 
     // A member pauses, resumes, and their bank then disputes a month from before the pause.
@@ -1159,6 +1164,11 @@ async function main() {
     });
     const kIntent = (await C.intentFor(kRenewal))!.intentId;
     await db.insert(schema.moneyOperations).values({ monthId: kRenewal, kind: "hold", label: `monthhold:${kRenewal}:1:1`, params: JSON.stringify({ intentId: kIntent, paymentMethodId: (await cardsOf(k.membershipId)).at(-1)!.stripePaymentMethodId }), status: "failed", error: "Your card was declined.", finishedAt: new Date() });
+    const answer = await stripe().paymentIntents.retrieve(kIntent, { expand: ["latest_charge", "payment_method"] });
+    await C.recordIntent(await M(kRenewal), { ...answer, status: "processing" }, new Date());
+    check("while the bank has not answered a try, nothing is decided", (await M(kRenewal)).try === 1 && (await MS(k.membershipId)).status === "active");
+    await C.recordIntent(await M(kRenewal), answer, new Date(), new Date(Date.now() - MIN));
+    check("an answer that was read before the try had its own never records a failure", (await M(kRenewal)).try === 1 && (await MS(k.membershipId)).status === "active" && (await emails(k.member.email, "did not go through")) === 0);
     await Promise.all([C.tryHold(kRenewal, kT), C.tryHold(kRenewal, kT)]);
     const kMonth = await M(kRenewal);
     check("a refused try is never made a second time: the next callers record the failure and wait for the next day", (await operations(kRenewal, "hold")).length === 1 && kMonth.try === 2 && kMonth.nextTryAt?.getTime() === kT.getTime() + DAY && (await MS(k.membershipId)).status === "unpaid" && (await stripe().paymentIntents.retrieve(kIntent)).latest_charge === null, `${(await operations(kRenewal, "hold")).length} ${kMonth.try}`);
@@ -1329,6 +1339,27 @@ async function main() {
         const inCallsGroup = (await stripe().transfers.list({ transfer_group: paid.call.id, limit: 10 })).data;
         check("each transfer names its own charge and its own group: the month's for expired time, the call's for the call", inMonthsGroup.length === 1 && inMonthsGroup[0].source_transaction === (await M(o.monthId)).stripeChargeId && inCallsGroup.length === 1 && inCallsGroup[0].source_transaction === fromCall.stripeChargeId && inMonthsGroup[0].amount + inCallsGroup[0].amount === 6889);
         check("the disputed month's share is still held back", (await expiredPayment(n.monthId)).transferStatus === "not_due");
+
+        // A transfer of expired member time whose answer was lost, and which is too old to repeat.
+        const { acceptCollection } = await import("../src/lib/payments/collect");
+        const { transferAtStripe } = await import("../src/lib/payments/actions");
+        const r = await running(host);
+        await db.update(schema.memberships).set({ memberStoppedAt: new Date() }).where(eq(schema.memberships.id, r.membershipId));
+        const end4 = (await M(r.monthId)).endsAt!;
+        await closeMonth(r.monthId, end4);
+        const accepted = await acceptCollection({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now: new Date(end4.getTime() + 6 * DAY) });
+        const mine = accepted.started.filter((item) => item.paymentId !== undefined);
+        const share = await expiredPayment(r.monthId);
+        const item = mine.find((entry) => entry.paymentId === share.id);
+        check("(the collection wrote the month's share down, and nothing of the disputed month)", mine.length === 1 && Boolean(item), mine.length);
+        if (item) {
+          await transferAtStripe(share, item.params, item.label); // Stripe did it; the answer never reached us
+          await age(item.operationId, 25 * HOUR);
+          await reconcileOperations(new Date());
+          const found = await expiredPayment(r.monthId);
+          const inGroup = (await stripe().transfers.list({ transfer_group: r.monthId, limit: 10 })).data;
+          check("the helper asks Stripe instead of sending again: the transfer is found in the month's group and recorded once", found.transferStatus === "sent" && inGroup.length === 1 && inGroup[0].amount === found.transferCents && (found.transferCents ?? 0) + (found.payoutFeeCents ?? 0) === 5676, `${found.transferStatus} ${inGroup.length}`);
+        }
       } finally {
         await give(host.id, seeded.id);
         await refreshPayoutsReady(seeded.id).catch(() => undefined);

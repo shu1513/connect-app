@@ -9,7 +9,7 @@
  * An outcome is applied only to the try it belongs to, so a late answer about an older try can
  * neither undo a newer one nor reopen a pay-back that is done.
  */
-import { and, eq, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db, schema } from "@/db";
 import type { MembershipRefund } from "@/db/schema";
@@ -76,6 +76,8 @@ export async function sendPayBack(refundId: string, now: Date = new Date()): Pro
       prepare: async ({ month }, tx) => {
         const [fresh] = await tx.select().from(lines).where(eq(lines.id, line.id)).for("update");
         if (!fresh || fresh.status !== "owed" || fresh.attempt !== line.attempt) throw new MoneyError("This pay-back is not waiting to be sent.");
+        // Checked here, under the lock, so two helpers at once cannot send a second try right after the first failed.
+        if (fresh.lastFailedAt && fresh.lastFailedAt.getTime() > now.getTime() - RETRY_AFTER_REFUSAL_MS) throw new MoneyError("The last try failed less than an hour ago.");
         // A dispute stops new steps. A try that was written down before it is still followed to its answer.
         if (isFrozen(month)) throw new MoneyError("This month's charge is disputed at the member's bank, so nothing is paid back from it now.");
         if (!month.stripePaymentIntentId) throw new MoneyError("This month has no payment to pay back from.");
@@ -111,7 +113,8 @@ async function askAboutPayBack(line: MembershipRefund, now: Date): Promise<void>
  * charge is disputed.
  */
 export async function runPayBacks(now: Date): Promise<void> {
-  const onTheirWay = await db.select().from(lines).where(eq(lines.status, "at_stripe")).limit(50);
+  // In no fixed order, so that many pay-backs waiting at Stripe can never keep a later one from being asked about.
+  const onTheirWay = await db.select().from(lines).where(eq(lines.status, "at_stripe")).orderBy(sql`random()`).limit(50);
   for (const line of onTheirWay) {
     await askAboutPayBack(line, now).catch((error) => console.error(`[membership] could not ask about pay-back ${line.id}; will retry`, error));
   }

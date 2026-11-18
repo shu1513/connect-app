@@ -36,6 +36,8 @@ const months = schema.membershipMonths;
 
 /** Stripe's memory of a request's label lasts at least a day; inside this window the same request can be sent again safely. */
 export const LABEL_SAFE_MS = 23 * 3_600_000;
+/** A try the bank has not answered yet is looked at again this much later. */
+const LOOK_AGAIN_AT_A_TRY_MS = 5 * 60_000;
 
 function log(message: string, error?: unknown) {
   if (error instanceof MoneyError || error instanceof OutcomeUnknownError) console.log(`[membership] ${message}: ${error.message}`);
@@ -117,6 +119,9 @@ export async function intentFor(monthId: string, now: Date = new Date()): Promis
   if (seen.stripePaymentIntentId) {
     if (seen.status !== "to_pay" || seen.endedHow || seen.problem) return null;
     const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId);
+    // Looked at again after Stripe answered: the secret of a month given up meanwhile goes to nobody.
+    const still = await monthById(monthId);
+    if (!still || still.status !== "to_pay" || still.endedHow || still.problem || still.stripePaymentIntentId !== intent.id) return null;
     return { intentId: intent.id, clientSecret: intent.client_secret, keepsCard: intent.setup_future_usage === "off_session", status: intent.status };
   }
 
@@ -222,14 +227,17 @@ function chargeOf(intent: Stripe.PaymentIntent): Stripe.Charge | null {
   return typeof intent.latest_charge === "object" ? intent.latest_charge : null;
 }
 
-/** Whether a try with the month's current try number has been made and has an answer. */
-async function tryFinished(tx: Tx, month: MembershipMonth): Promise<boolean> {
-  const [done] = await tx
-    .select({ id: schema.moneyOperations.id })
+/**
+ * Whether a try with the month's current try number has been made and has an answer. With
+ * `before`: and had that answer before this moment (so that what was read from Stripe at that
+ * moment is known to be newer than the try, and not an answer from before it).
+ */
+async function tryFinished(reader: Pick<Tx, "select">, month: MembershipMonth, before?: Date): Promise<boolean> {
+  const done = await reader
+    .select({ finishedAt: schema.moneyOperations.finishedAt })
     .from(schema.moneyOperations)
-    .where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.kind, "hold"), like(schema.moneyOperations.label, `monthhold:${month.id}:${month.try}:%`), inArray(schema.moneyOperations.status, ["succeeded", "failed"])))
-    .limit(1);
-  return Boolean(done);
+    .where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.kind, "hold"), like(schema.moneyOperations.label, `monthhold:${month.id}:${month.try}:%`), inArray(schema.moneyOperations.status, ["succeeded", "failed"])));
+  return done.some((operation) => !before || (operation.finishedAt !== null && operation.finishedAt < before));
 }
 
 /**
@@ -308,8 +316,9 @@ export async function syncMonth(monthId: string, now: Date = new Date()): Promis
     if (!seen) throw new MoneyError("Month not found.");
     // A month that is already in the books is never touched again, whatever message arrives.
     if (!seen.stripePaymentIntentId || IN_THE_BOOKS.includes(seen.status)) return seen;
+    const readAt = new Date(); // the real clock, taken before Stripe is asked
     const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge", "payment_method"] });
-    if (await recordIntent(seen, intent, now)) break;
+    if (await recordIntent(seen, intent, now, readAt)) break;
   }
   return (await monthById(monthId))!;
 }
@@ -323,16 +332,17 @@ const standing = (month: MembershipMonth): string => [month.status, month.endedH
  * booking's card comes from a card set-up that carries the booking.
  */
 async function isBookingsCard(paymentMethodId: string): Promise<boolean> {
-  const setups = await stripe().setupIntents.list({ payment_method: paymentMethodId, limit: 10 });
-  return setups.data.some((setup) => Boolean(setup.metadata?.bookingId));
+  const setups = await stripe().setupIntents.list({ payment_method: paymentMethodId, limit: 100 }).autoPagingToArray({ limit: 300 });
+  return setups.some((setup) => Boolean(setup.metadata?.bookingId));
 }
 
 /**
  * Records what Stripe showed for the month as it was `seen`. Returns false, and records nothing,
- * when the month has moved on since. (Its own function so that the check script can hand it an
- * answer from Stripe that has gone stale.)
+ * when the month has moved on since. `readAt` is the moment (on the real clock) just before
+ * Stripe was asked. (Its own function so that the check script can hand it an answer from Stripe
+ * that has gone stale.)
  */
-export async function recordIntent(seen: MembershipMonth, intent: Stripe.PaymentIntent, now: Date): Promise<boolean> {
+export async function recordIntent(seen: MembershipMonth, intent: Stripe.PaymentIntent, now: Date, readAt: Date = new Date()): Promise<boolean> {
   const monthId = seen.id;
   const charge = chargeOf(intent);
   const method = typeof intent.payment_method === "object" ? intent.payment_method : null;
@@ -454,7 +464,8 @@ export async function recordIntent(seen: MembershipMonth, intent: Stripe.Payment
     }
     if (intent.status === "processing") return;
     // requires_payment_method, requires_confirmation, requires_action: a failure only if a try was really made and answered.
-    if (!(await tryFinished(tx, month))) return;
+    // And only from an answer read after that try had its own: an answer from before it would call a try that held a failure.
+    if (!(await tryFinished(tx, month, readAt))) return;
     const needsAction = intent.status === "requires_action" || intent.last_payment_error?.code === "authentication_required";
     await recordFailedTry(tx, locked, { needsAction }, now);
   });
@@ -487,6 +498,12 @@ export async function tryHold(monthId: string, now: Date = new Date()): Promise<
   // What an earlier try achieved is recorded before a new one starts, so no try is ever made twice.
   if (seen.stripePaymentIntentId) seen = await syncMonth(monthId, now);
   if (seen.status !== "to_pay" || seen.endedHow || seen.problem || !seen.nextTryAt || seen.nextTryAt > now) return seen;
+  if (seen.stripePaymentIntentId && (await tryFinished(db, seen))) {
+    // This try has its answer, and Stripe has neither held nor refused yet (the bank is still at it).
+    // Nothing new is tried beside it; it is looked at again in a few minutes, not every round.
+    await db.update(months).set({ nextTryAt: new Date(now.getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(months.id, monthId), eq(months.status, "to_pay"), eq(months.try, seen.try)));
+    return (await monthById(monthId))!;
+  }
   const tryNumber = seen.try;
   const found = await intentFor(monthId, now);
   if (!found) return (await monthById(monthId))!;
