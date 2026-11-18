@@ -16,7 +16,7 @@ import type { Tx } from "@/lib/payments/operations";
 import { stripeConfigured } from "@/lib/payments/stripe";
 import { membershipsOnFor } from "@/lib/safety/switches";
 import { giveUpInStep, letHoldGo } from "./charge";
-import { queueLowerPriceEmail } from "./emails";
+import { queueLowerPriceEmail, queueOfferOffEmail } from "./emails";
 import { endInvitation } from "./join";
 import { lockCalendar, lockMembership, lockMonth } from "./locks";
 import { hostMinutes } from "./room";
@@ -37,12 +37,12 @@ export type OfferChange = {
   lowered: Array<{ membershipId: string; fromPricePer15Cents: number; toPricePer15Cents: number; minutes: number }>;
   /** What those members together pay less a month. */
   lessPerMonthCents: number;
-  /** Open invitations (and joinings still at the card step) that are taken back. */
-  invitationsTakenBack: number;
-  /** When switching off: members whose month goes on and who are paused when it ends. */
-  renewalsStopping: number;
-  /** When switching off: members whose payment was being tried, who are paused at once. */
-  pausedAtOnce: number;
+  /** The memberships of open invitations (and of joinings still at the card step) that are taken back, so the page can name them. */
+  invitationsTakenBack: string[];
+  /** When switching off: members whose month has started. It goes on, their renewal is stopped, and they are paused when it ends. */
+  renewalsStopping: string[];
+  /** When switching off: members with a payment still open, who are paused at once. */
+  pausedAtOnce: string[];
   /** The state this was worked out from. Saving takes it back and refuses if it no longer fits. */
   mark: string;
 };
@@ -58,8 +58,9 @@ async function workOut(reader: Reader, hostId: string, input: OfferInput): Promi
   const [profile] = await reader.select({ pricePer15Cents: schema.hostProfiles.pricePer15Cents }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hostId));
   const [settings] = await reader.select({ payoutsReady: schema.hostSettings.payoutsReady }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, hostId));
   const members = await reader
-    .select({ id: schema.memberships.id, status: schema.memberships.status, own: schema.memberships.ownPricePer15Cents, minutes: schema.memberships.ownMinutes, inviteId: schema.memberships.inviteId })
+    .select({ id: schema.memberships.id, status: schema.memberships.status, own: schema.memberships.ownPricePer15Cents, minutes: schema.memberships.ownMinutes, inviteId: schema.memberships.inviteId, offerId: schema.memberships.offerId, stopped: schema.memberships.memberStoppedAt, monthId: schema.memberships.currentMonthId, monthStatus: schema.membershipMonths.status })
     .from(schema.memberships)
+    .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.memberships.currentMonthId))
     .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["invited", "joining", "active", "unpaid"])))
     .orderBy(schema.memberships.id);
   const hours = await hostMinutes(reader, hostId);
@@ -90,7 +91,7 @@ async function workOut(reader: Reader, hostId: string, input: OfferInput): Promi
   const paying = members.filter((member) => member.status === "active" || member.status === "unpaid");
   const lowered = input.on ? paying.filter((member) => member.own !== null && member.own > price).map((member) => ({ membershipId: member.id, fromPricePer15Cents: member.own!, toPricePer15Cents: price, minutes: member.minutes ?? 0 })) : [];
   const mark = createHash("sha256")
-    .update(JSON.stringify({ current: current ? [current.on, current.pricePer15Cents, current.includedMinutes, current.version] : null, regular: profile?.pricePer15Cents ?? null, hours, open, members: members.map((member) => [member.id, member.status, member.own, member.minutes, member.inviteId]) }))
+    .update(JSON.stringify({ current: current ? [current.on, current.pricePer15Cents, current.includedMinutes, current.version] : null, regular: profile?.pricePer15Cents ?? null, hours, open, members: members.map((member) => [member.id, member.status, member.own, member.minutes, member.inviteId, member.offerId, member.stopped?.getTime() ?? null, member.monthId, member.monthStatus]) }))
     .digest("hex")
     .slice(0, 24);
   return {
@@ -101,9 +102,10 @@ async function workOut(reader: Reader, hostId: string, input: OfferInput): Promi
     switchingOff,
     lowered,
     lessPerMonthCents: lowered.reduce((sum, member) => sum + monthTotalCents(member.fromPricePer15Cents - member.toPricePer15Cents, member.minutes), 0),
-    invitationsTakenBack: termsChanged || switchingOff ? members.filter((member) => member.status === "invited" || member.status === "joining").length : 0,
-    renewalsStopping: switchingOff ? members.filter((member) => member.status === "active").length : 0,
-    pausedAtOnce: switchingOff ? members.filter((member) => member.status === "unpaid").length : 0,
+    invitationsTakenBack: termsChanged || switchingOff ? members.filter((member) => member.status === "invited" || member.status === "joining").map((member) => member.id) : [],
+    // A payment that is still open (a renewal just written down, or one being tried again) is cancelled; a month that has started goes on.
+    renewalsStopping: switchingOff ? paying.filter((member) => member.monthStatus !== "to_pay").map((member) => member.id) : [],
+    pausedAtOnce: switchingOff ? paying.filter((member) => member.monthStatus === "to_pay").map((member) => member.id) : [],
     mark,
   };
 }
@@ -122,9 +124,9 @@ export async function previewOfferChange(hostId: string, input: OfferInput): Pro
  *     that is still at the card step is undone;
  *   - members whose own price is higher than a new, lower member price get the lower price for
  *     good, from the next month that is written down for them, and are told;
- *   - switching off pauses at once a member whose payment was being tried (the open payment is
- *     cancelled). Members whose month has started go on to its end and are paused then: that is
- *     decided when their month ends, from the switch itself, so nothing is stored on them here.
+ *   - switching off pauses at once a member whose payment is still open (it is cancelled). A
+ *     member whose month has started goes on to its end; their renewal is stopped, and only they
+ *     can take that back, once the membership is on again. An open offer of less time is closed.
  */
 export async function saveOffer(hostId: string, input: OfferInput, mark: string, now: Date = new Date()): Promise<OfferChange> {
   const saved = await db.transaction(async (tx) => {
@@ -163,9 +165,21 @@ export async function saveOffer(hostId: string, input: OfferInput, mark: string,
           await endInvitation(tx, membership, "taken_back", now);
         }
       }
-      if (change.switchingOff && membership.status === "unpaid" && membership.currentMonthId) {
+      if (change.switchingOff && (membership.status === "active" || membership.status === "unpaid") && membership.currentMonthId) {
         const month = await lockMonth(tx, membership.currentMonthId);
-        if (await giveUpInStep(tx, { membership, month }, "given_up", now, "offer_off")) letGo.push(month.id);
+        if (month.status === "to_pay") {
+          // A payment that is still open: cancelled, and the member paused at once.
+          if (await giveUpInStep(tx, { membership, month }, "given_up", now, "offer_off")) letGo.push(month.id);
+        } else {
+          // A month that has started goes on to its end. Its renewal is stopped, with a mark that only the
+          // member can take back ("Keep my membership", once the membership is on again): switching it on
+          // again charges nobody by itself. An open offer of less time is closed.
+          await tx
+            .update(schema.memberships)
+            .set({ memberStoppedAt: membership.memberStoppedAt ?? now, pausedReason: membership.memberStoppedAt ? membership.pausedReason : "offer_off", offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null, updatedAt: now })
+            .where(eq(schema.memberships.id, membership.id));
+          if (!membership.memberStoppedAt && month.endsAt) await queueOfferOffEmail(tx, membership, month.endsAt);
+        }
       }
     }
     await lowerPrices(tx, change.lowered, version, now);
@@ -189,6 +203,7 @@ async function lowerPrices(tx: Tx, lowered: OfferChange["lowered"], offerVersion
     const [last] = await tx.select({ number: sql<number>`coalesce(max(${schema.membershipMonths.number}), 0)::int` }).from(schema.membershipMonths).where(eq(schema.membershipMonths.membershipId, member.id));
     // No new agreement is needed (the one the member ticked allows a lower price for the same time); this line says from which month it applies.
     await tx.insert(schema.membershipAgreements).values({ membershipId: member.id, requestId: randomUUID(), kind: "price_lowered", offerVersion, pricePer15Cents: change.toPricePer15Cents, minutes: change.minutes, firstMonthNumber: last.number + 1, at: now });
-    await queueLowerPriceEmail(tx, member, { fromPricePer15Cents: change.fromPricePer15Cents, toPricePer15Cents: change.toPricePer15Cents, minutes: change.minutes, offerVersion });
+    const [open] = member.currentMonthId ? await tx.select({ status: schema.membershipMonths.status }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, member.currentMonthId)) : [];
+    await queueLowerPriceEmail(tx, member, { fromPricePer15Cents: change.fromPricePer15Cents, toPricePer15Cents: change.toPricePer15Cents, minutes: change.minutes, offerVersion, monthBeingPaid: open?.status === "to_pay" });
   }
 }

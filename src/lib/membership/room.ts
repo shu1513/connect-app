@@ -145,7 +145,7 @@ export type Cut = {
 export async function workOutCut(reader: Reader, hostId: string, now: Date): Promise<Cut> {
   const hoursAfter = await hostMinutes(reader, hostId);
   const rows = await reader
-    .select({ membership: schema.memberships, monthStatus: schema.membershipMonths.status, monthMinutes: schema.membershipMonths.includedMinutes })
+    .select({ membership: schema.memberships, monthStatus: schema.membershipMonths.status, monthMinutes: schema.membershipMonths.includedMinutes, monthEndsAt: schema.membershipMonths.endsAt })
     .from(schema.memberships)
     .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.memberships.currentMonthId))
     .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["invited", "joining", "active", "unpaid"])))
@@ -188,7 +188,7 @@ export async function workOutCut(reader: Reader, hostId: string, now: Date): Pro
   }
 
   const mark = createHash("sha256")
-    .update(JSON.stringify({ hoursAfter, rows: rows.map(({ membership, monthStatus }) => [membership.id, membership.status, membership.ownMinutes, membership.memberStoppedAt?.getTime() ?? null, membership.hostStoppedAt?.getTime() ?? null, membership.offerId, membership.inviteId, monthStatus]) }))
+    .update(JSON.stringify({ hoursAfter, rows: rows.map(({ membership, monthStatus, monthEndsAt }) => [membership.id, membership.status, membership.ownMinutes, membership.ownPricePer15Cents, membership.memberStoppedAt?.getTime() ?? null, membership.hostStoppedAt?.getTime() ?? null, membership.offerId, membership.inviteId, membership.currentMonthId, monthStatus, monthEndsAt?.getTime() ?? null]) }))
     .digest("hex")
     .slice(0, 24);
   return { hoursAfter, needed, owedThisMonth, members, leaving: paying.filter(({ membership }) => membership.memberStoppedAt || membership.hostStoppedAt).map(({ membership }) => membership.id), invitationsTakenBack, mark };

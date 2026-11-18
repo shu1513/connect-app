@@ -574,7 +574,7 @@ customer".
   invitation starts a new one, so an ended membership keeps its months, its cards and its
   unfinished clean-up to itself. Where it stands (invited, active, renewal stopped,
   unpaid, paused, ended), whether the member stopped the renewal and whether the host did (two separate marks,
-  each cleared only by its own side; the offer being off is not stored on the membership), who or
+  each cleared only by its own side; when the host switches her membership off, each running membership gets the member's mark, with that as its reason, so that only the member can bring the renewal back once it is on again), who or
   what paused or ended it and when, since when it has run without a break, the member's own price per 15 minutes and own time
   for the next month that is written down, an open offer of less time (the time offered and when
   it runs out), the saved card, and the agreement that applies now. An open invitation records the version and the time of the

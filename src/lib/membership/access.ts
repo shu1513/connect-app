@@ -27,13 +27,14 @@ export type HostForMember = {
  * (The public reader, `publicProfile`, is not loosened: it still shows a hidden page to nobody.)
  * Null for anyone who is neither, for a suspended or declined host, and for a closed account.
  */
-export async function hostForMember(viewerId: string, hostId: string): Promise<HostForMember | null> {
+export async function hostForMember(viewerId: string, hostId: string, now: Date = new Date()): Promise<HostForMember | null> {
   const [link] = await db
-    .select({ id: schema.memberships.id })
+    .select({ status: schema.memberships.status, inviteExpiresAt: schema.memberships.inviteExpiresAt })
     .from(schema.memberships)
     .where(and(eq(schema.memberships.hostId, hostId), eq(schema.memberships.customerId, viewerId), ne(schema.memberships.status, "ended")))
     .limit(1);
-  if (!link) return null;
+  // An invitation opens the page only for its 24 hours, also when the helper has not closed it yet.
+  if (!link || (link.status === "invited" && (!link.inviteExpiresAt || link.inviteExpiresAt <= now))) return null;
   const [row] = await db
     .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status })
     .from(schema.hostProfiles)
@@ -52,9 +53,11 @@ export async function invitationFor(viewerId: string, inviteId: string, now: Dat
   const [membership] = await db.select().from(schema.memberships).where(and(eq(schema.memberships.inviteId, inviteId), eq(schema.memberships.customerId, viewerId), eq(schema.memberships.status, "invited")));
   if (!membership) return null;
   const [offer] = await db.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));
-  const host = await hostForMember(viewerId, membership.hostId);
+  const expired = !membership.inviteExpiresAt || membership.inviteExpiresAt <= now;
+  // (Read as of the invitation's own time, so that a link whose 24 hours are over can still say so.)
+  const host = await hostForMember(viewerId, membership.hostId, expired ? new Date(0) : now);
   if (!offer || !host) return null;
-  return { membership, offer, host, expired: !membership.inviteExpiresAt || membership.inviteExpiresAt <= now };
+  return { membership, offer, host, expired };
 }
 
 /** One membership with its months, the newest first, for its member only. */
@@ -71,7 +74,7 @@ export async function membershipsOf(viewerId: string): Promise<Membership[]> {
   return db.select().from(schema.memberships).where(eq(schema.memberships.customerId, viewerId)).orderBy(desc(schema.memberships.createdAt));
 }
 
-/** A host's own members and invitations (everything that has not ended), for her member list. An older month is never left off: each row carries its current month if it has one. */
+/** A host's own members and invitations (everything that has not ended), each with its current month if it has one, for her member list. (Months of earlier periods and ended memberships are not here; the pages of part three read those on their own.) */
 export async function membersOfHost(hostId: string): Promise<Array<{ membership: Membership; month: MembershipMonth | null }>> {
   return db
     .select({ membership: schema.memberships, month: schema.membershipMonths })
@@ -95,9 +98,11 @@ async function monthOf(viewerId: string, monthId: string): Promise<MembershipMon
  * May this person start or confirm this month's payment, or be given its secret? Only the member,
  * and only while the month may still be paid.
  */
-export async function mayPay(viewerId: string, monthId: string): Promise<boolean> {
+export async function mayPay(viewerId: string, monthId: string, now: Date = new Date()): Promise<boolean> {
   const month = await monthOf(viewerId, monthId);
-  return Boolean(month && month.status === "to_pay" && !month.endedHow && !month.problem);
+  if (!month || month.status !== "to_pay" || month.endedHow || month.problem) return false;
+  // Not after the card step's time or the 7 days are over, also when the helper has not been by yet.
+  return !(month.cardStepExpiresAt && month.cardStepExpiresAt <= now) && !(month.giveUpAt && month.giveUpAt <= now);
 }
 
 /**

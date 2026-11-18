@@ -29,7 +29,7 @@ const NOT_OPEN = "This invitation is no longer open.";
 const NOT_AVAILABLE = "This membership is not available at the moment.";
 
 /** The two people's rows, locked in one order (the way a profile decision locks a person). */
-async function lockPeople(tx: Tx, ids: string[]): Promise<Map<string, { pausedAt: Date | null; closedAt: Date | null }>> {
+export async function lockPeople(tx: Tx, ids: string[]): Promise<Map<string, { pausedAt: Date | null; closedAt: Date | null }>> {
   const rows = await tx
     .select({ id: schema.user.id, pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt })
     .from(schema.user)
@@ -234,9 +234,10 @@ export async function join(input: { customerId: string; inviteId: string; reques
 
 /**
  * "Resume membership": joining again without an invitation. Everything joining needs, the host's
- * membership as it is now, a new agreement, and room for one more member now.
+ * membership as it is now (`offerVersion` is the version the page showed, so nobody agrees to
+ * terms they did not see), a new agreement, and room for one more member now.
  */
-export async function resume(input: { customerId: string; membershipId: string; requestId: string; agreed: boolean; now: Date }): Promise<{ membershipId: string; monthId: string }> {
+export async function resume(input: { customerId: string; membershipId: string; requestId: string; agreed: boolean; offerVersion: number; now: Date }): Promise<{ membershipId: string; monthId: string }> {
   const { customerId, membershipId, requestId, now } = input;
   if (!IS_ID.test(membershipId) || !IS_ID.test(requestId)) throw new MembershipError("Membership not found.");
   if (!input.agreed) throw new MembershipError("Please tick the box to agree before you resume.");
@@ -249,6 +250,8 @@ export async function resume(input: { customerId: string; membershipId: string; 
     const offer = await mustBeOpen(tx, found.hostId, customerId);
     const membership = await lockMembership(tx, membershipId);
     if (membership.status !== "paused") throw new MembershipError(membership.status === "ended" ? "This membership has ended. Coming back needs a new invitation from the host." : "This membership is not paused.");
+    // What the person agrees to is the membership the page showed them, never one the host changed in the meantime.
+    if (offer.version !== input.offerVersion) throw new MembershipError("The host changed the membership while this page was open. Please look at it again before you resume.");
     const room = await roomLeft(tx, found.hostId, now, membershipId);
     if (room < offer.includedMinutes) throw new MembershipError("The host's hours have no room for another member at the moment. Please try again later.");
     return agreeAndStart(tx, membership, offer, "resumed", requestId, now);

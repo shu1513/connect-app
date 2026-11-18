@@ -283,7 +283,7 @@ async function recordFailedTry(tx: Tx, locked: LockedMonth, input: { needsAction
 }
 
 /** Why a hold that has arrived cannot be accepted, or null if it can. */
-async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentIntent, authorisedAt: Date, now: Date): Promise<"ending" | "card_step" | "no_room" | "switch" | "given_up" | null> {
+async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentIntent, authorisedAt: Date, now: Date): Promise<"ending" | "card_step" | "no_room" | "switch" | "offer_off" | "given_up" | null> {
   const { membership, month } = locked;
   if (intent.amount !== month.totalCents || intent.metadata?.monthId !== month.id) return "card_step";
   if (!isCurrent(locked) || !["joining", "unpaid", "active"].includes(membership.status)) return "ending";
@@ -291,6 +291,9 @@ async function whyNotAccept(tx: Tx, locked: LockedMonth, intent: Stripe.PaymentI
   // The 7 days count by the bank's own time too: a hold placed in time counts when it is found late, one placed after them does not.
   if (month.giveUpAt && authorisedAt > month.giveUpAt) return "given_up";
   if (!(await membershipsOnFor(membership.hostId, tx))) return "switch";
+  // The host's own switch too: a payment that was still open when she switched her membership off is cancelled then; this is the net behind that.
+  const [offer] = await tx.select({ on: schema.membershipOffers.on }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));
+  if (!offer?.on) return "offer_off";
   const kind = month.originKey.split(":")[0];
   if (kind === "renewal") {
     // The same one calculation that allowed the renewal to be written down, so the answer cannot
@@ -418,7 +421,7 @@ export async function recordIntent(seen: MembershipMonth, intent: Stripe.Payment
         }
       }
       if (why) {
-        await tx.update(months).set({ endedHow: why === "switch" ? "no_room" : why, updatedAt: now }).where(eq(months.id, month.id));
+        await tx.update(months).set({ endedHow: why === "switch" || why === "offer_off" ? "no_room" : why, updatedAt: now }).where(eq(months.id, month.id));
         await settleAfterGivenUp(tx, locked, why, now);
         release = true;
         return;
@@ -556,6 +559,10 @@ export async function payNow(input: { monthId: string; memberId: string; now?: D
     .innerJoin(schema.memberships, eq(schema.memberships.id, months.membershipId))
     .where(eq(months.id, input.monthId));
   if (!found || found.customerId !== input.memberId) return null;
+  // Not after the card step's time or the 7 days have run out, also when the helper has not been by yet: a hold placed now would only be let go again.
+  const due = await monthById(input.monthId);
+  const at = input.now ?? new Date();
+  if (!due || (due.cardStepExpiresAt && due.cardStepExpiresAt <= at) || (due.giveUpAt && due.giveUpAt <= at)) return null;
   const intent = await intentFor(input.monthId, input.now ?? new Date());
   if (!intent?.clientSecret) return null;
   if (!["requires_payment_method", "requires_confirmation", "requires_action"].includes(intent.status)) {
