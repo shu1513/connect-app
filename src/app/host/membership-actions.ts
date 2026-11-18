@@ -1,6 +1,8 @@
 "use server";
 
+import { and, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { db, schema } from "@/db";
 import { endByHost, stopRenewal, takeBackLessTime, undoStop } from "@/lib/membership/ending";
 import { saveOffer } from "@/lib/membership/offers";
 import { MembershipError } from "@/lib/membership/rules";
@@ -51,7 +53,11 @@ export async function pauseMemberAction(formData: FormData) {
   const user = await requireActiveUser();
   let notice = "Done. They keep the month they paid for and are paused when it ends. They were told by email. You can undo this until then.";
   try {
-    await stopRenewal({ membershipId: String(formData.get("membershipId") ?? ""), by: "host", actorId: user.id, now: new Date() });
+    const membershipId = String(formData.get("membershipId") ?? "");
+    await stopRenewal({ membershipId, by: "host", actorId: user.id, now: new Date() });
+    // A member with no month that has started (their payment was still open) is paused at once: said as it happened.
+    const [after] = await db.select({ status: schema.memberships.status }).from(schema.memberships).where(and(eq(schema.memberships.id, membershipId), eq(schema.memberships.hostId, user.id)));
+    if (after?.status === "paused") notice = "Done. They had no month that had started, so their open payment was cancelled and they are paused now. They were told by email. They can resume when there is room.";
   } catch (error) {
     notice = problem(error);
   }

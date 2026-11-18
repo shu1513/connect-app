@@ -1929,8 +1929,11 @@ async function main() {
     const elsewhere = uses.filter((file) => !hostsOwn.includes(file.path)).map((file) => file.path);
     check("only the host's own pages reach the code that changes a membership", elsewhere.length === 0 && uses.length === hostsOwn.length, { elsewhere, found: uses.map((file) => file.path) });
     const actions = uses.filter((file) => file.text.startsWith("\"use server\""));
-    const unasked = actions.filter((file) => (file.text.match(/^export async function /gm) ?? []).length !== (file.text.match(/const user = await requireActiveUser\(\);/g) ?? []).length).map((file) => file.path);
-    check("each of her actions asks who is signed in, and uses that person as the host", actions.length === 2 && unasked.length === 0 && actions.every((file) => !/formData\.get\("hostId"\)/.test(file.text)), { actions: actions.map((file) => file.path), unasked });
+    // Each action that calls the membership code (not the page's older actions, such as saving a private note).
+    const changes = /\b(invite|takeBackInvitation|saveOffer|stopRenewal|undoStop|endByHost|takeBackLessTime)\(/;
+    const unasked = actions.flatMap((file) => file.text.split(/^export async function /m).slice(1).filter((action) => changes.test(action) && !action.includes("const user = await requireActiveUser();")).map((action) => `${file.path}: ${action.split("(")[0]}`));
+    const guarded = actions.flatMap((file) => file.text.split(/^export async function /m).slice(1).filter((action) => changes.test(action))).length;
+    check("each of her actions asks who is signed in, and uses that person as the host", actions.length === 2 && guarded === 7 && unasked.length === 0 && actions.every((file) => !/formData\.get\("hostId"\)/.test(file.text)), { actions: actions.map((file) => file.path), unasked });
     const joins = uses.filter((file) => /membership\/charge["']/.test(file.text) || /import \{[^}]*\b(join|resume|payNow|cancelNow|acceptLessTime|declineLessTime)\b[^}]*\} from "@\/lib\/membership\//.test(file.text)).map((file) => file.path);
     check("no page or address of the app can join, resume, pay or cancel as a member yet", joins.length === 0, joins);
   });

@@ -48,21 +48,22 @@ const ENDED_HOW: Record<string, string> = {
 export default async function AdminMembershipsPage() {
   await requireAdmin();
   const now = new Date();
-  const [current, memberships] = await Promise.all([switches(), db.select().from(schema.memberships).orderBy(desc(schema.memberships.updatedAt)).limit(300)]);
+  // Every membership, with no cut-off: the counts and the lists of what needs a look must never leave an old one out.
+  const [current, memberships] = await Promise.all([switches(), db.select().from(schema.memberships).orderBy(desc(schema.memberships.updatedAt))]);
   const ids = memberships.map((membership) => membership.id);
   const months = ids.length > 0 ? await db.select().from(schema.membershipMonths).where(inArray(schema.membershipMonths.membershipId, ids)).orderBy(desc(schema.membershipMonths.number)) : [];
   const monthIds = months.map((month) => month.id);
   const payBacks = monthIds.length > 0 ? await db.select().from(schema.membershipRefunds).where(inArray(schema.membershipRefunds.monthId, monthIds)) : [];
   const personIds = [...new Set(memberships.flatMap((membership) => [membership.hostId, membership.customerId]))];
   const people = new Map(personIds.length > 0 ? (await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, personIds))).map((row) => [row.id, row.name]) : []);
-  const total = await db.$count(schema.memberships);
 
   const monthsOf = (membershipId: string) => months.filter((month) => month.membershipId === membershipId);
   const owedOf = (monthId: string) => payBacks.filter((line) => line.monthId === monthId);
   const notFinished = months.filter((month) => ["to_pay", "held", "running", "closed"].includes(month.status));
   const failed = memberships.filter((membership) => membership.status === "unpaid");
   const owed = payBacks.filter((line) => line.status !== "done");
-  const disputed = months.filter((month) => month.dispute !== "none");
+  // A dispute that is open or lost freezes the month. One that was won is over: it stays in the month's own row below, not in this count.
+  const disputed = months.filter((month) => month.dispute === "open" || month.dispute === "lost");
   const membershipById = new Map(memberships.map((membership) => [membership.id, membership]));
   const who = (membership: Membership | undefined) => (membership ? `${people.get(membership.customerId) ?? "?"} with ${people.get(membership.hostId) ?? "?"}` : "?");
 
@@ -134,7 +135,7 @@ export default async function AdminMembershipsPage() {
             {disputed.map((month) => (
               <li key={month.id}>
                 {who(membershipById.get(month.membershipId))}, month {month.number}: the dispute is <strong>{month.dispute}</strong>
-                {month.dispute === "open" || month.dispute === "lost" ? ". The month is frozen: nothing of it is booked, used, given back, paid back or collected." : ". Not frozen."}
+. The month is frozen: nothing of it is booked, used, given back, paid back or collected.
               </li>
             ))}
           </ul>
@@ -144,7 +145,7 @@ export default async function AdminMembershipsPage() {
       <section className="mt-8 text-sm">
         <h2 className="text-lg font-semibold">Every membership</h2>
         <p className="mt-1 opacity-70">
-          The {memberships.length} changed most recently{total > memberships.length ? ` of ${total}` : ""}. For each month, the six places its money is in always add up to what was paid.
+          All {memberships.length}, the most recently changed first. For each month, the six places its money is in always add up to what was paid.
         </p>
         {memberships.length === 0 ? (
           <p className="mt-3 opacity-70">There are no memberships.</p>

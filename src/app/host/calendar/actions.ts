@@ -136,7 +136,8 @@ async function saveOrAsk(userId: string, change: HoursChange, saved: string): Pr
     if (change.add?.membersOnly && !(await mayKeepMemberHours(userId))) throw new CalendarError("Hours for members only can be kept once you can offer a membership. Nothing was changed.");
     const before = await hostMinutes(db, userId);
     const cut = await previewWeeklyHoursChange(userId, change);
-    if (cut.hoursAfter < before && cut.needed > cut.hoursAfter) to = cutPath(change);
+    // The step is shown whenever a cut would touch someone: members who no longer fit, or invitations that would be taken back.
+    if (cut.hoursAfter < before && (cut.needed > cut.hoursAfter || cut.invitationsTakenBack.length > 0)) to = cutPath(change);
     else {
       await changeWeeklyHours(userId, change);
       to = withNotice("/host/calendar", saved);
@@ -172,6 +173,9 @@ export async function saveCutAction(formData: FormData) {
   }
   let to: string;
   try {
+    // This step is only for a stretch that is removed or changed, and it keeps the same rule for "Members only" as the calendar page.
+    if (!change.remove) throw new CalendarError("Those hours could not be changed. Please look at your calendar again.");
+    if (change.add?.membersOnly && !(await mayKeepMemberHours(user.id))) throw new CalendarError("Hours for members only can be kept once you can offer a membership. Nothing was changed.");
     await changeWeeklyHours(user.id, change, { mark: String(formData.get("mark") ?? ""), members });
     to = withNotice("/host/calendar", "Your hours were changed, and your members were told what you chose for them. Months that have started go on as they are.");
   } catch (error) {

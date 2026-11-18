@@ -133,7 +133,7 @@ export async function MembershipPart(props: { hostId: string; regularPricePer15C
       ) : (
         <ul className="mt-2 space-y-3">
           {listed.map(({ membership, month }) => (
-            <Member key={membership.id} membership={membership} month={month} name={names.get(membership.customerId) ?? "A member"} now={now} />
+            <Member key={membership.id} membership={membership} month={month} name={names.get(membership.customerId) ?? "A member"} open={open} now={now} />
           ))}
         </ul>
       )}
@@ -142,8 +142,8 @@ export async function MembershipPart(props: { hostId: string; regularPricePer15C
 }
 
 /** One member in the list: where they stand, and the buttons the rulebook gives the host for them. */
-function Member(props: { membership: Membership; month: MembershipMonth | null; name: string; now: Date }) {
-  const { membership, month, name, now } = props;
+function Member(props: { membership: Membership; month: MembershipMonth | null; name: string; open: boolean; now: Date }) {
+  const { membership, month, name, open, now } = props;
   const paused = membership.status === "paused";
   const started = month && (month.status === "running" || month.status === "held") && month.endsAt && month.endsAt > now ? month : null;
   const freeCents = started ? (started.status === "held" ? started.totalCents : started.freeCents) : 0;
@@ -167,11 +167,18 @@ function Member(props: { membership: Membership; month: MembershipMonth | null; 
 
       {paused && <p className="mt-1">Paused: they pay nothing and have no member time. They can resume by themselves when there is room. If you do not want them to come back, end the membership.</p>}
       {membership.status === "joining" && <p className="mt-1">Is at the card step right now.</p>}
-      {membership.status === "unpaid" && <p className="mt-1">Their monthly payment did not go through. They have no member time until it does; it is tried again, and given up after 7 days.</p>}
+      {membership.status === "unpaid" && <p className="mt-1">Their monthly payment did not go through. They have no member time until it does; it is tried again, and given up after 7 days. Pausing them cancels that payment and pauses them at once.</p>}
       {started && (
         <p className="mt-1">
           {timeWords(minutesCovered(freeCents, started.pricePer15Cents))} left this month. The month ends on <LocalTime iso={started.endsAt!.toISOString()} />
-          {stops ? ", and does not renew." : ", and renews then."}
+          {/* Said as it is: a renewal that a stop, the founder's switch or an unanswered offer stands in the way of is never promised. */}
+          {stops
+            ? ", and does not renew."
+            : !open
+              ? ". It does not renew while memberships are not open."
+              : membership.offerId
+                ? ". It renews then only if they accept the smaller time you offered; otherwise it is paused."
+                : ", and renews then."}
         </p>
       )}
       {started && membership.memberStoppedAt && <p className="mt-1">They cancelled: their membership is paused when this month ends.</p>}
@@ -215,7 +222,7 @@ function Member(props: { membership: Membership; month: MembershipMonth | null; 
           <form action={pauseMemberAction}>
             <input type="hidden" name="membershipId" value={membership.id} />
             <button type="submit" className={smallButton}>
-              Pause after this month
+              {membership.status === "unpaid" ? "Pause now" : "Pause after this month"}
             </button>
           </form>
         )}

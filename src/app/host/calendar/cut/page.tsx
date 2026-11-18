@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
@@ -40,25 +40,36 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
     </p>
   );
 
+  const refused = (message: string) => (
+    <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
+      {back}
+      <h1 className="mt-4 text-2xl font-semibold">Those hours cannot be changed like this</h1>
+      <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+        {message}
+      </p>
+    </SitePage>
+  );
+
+  // This step is only ever about a stretch of the signed-in host's own hours that is removed or changed. Anything else in
+  // the address (no stretch, a made-up one, another host's) shows nothing and offers nothing to save.
+  const [removed] = /^[0-9a-f-]{36}$/i.test(change.remove ?? "")
+    ? await db.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, change.remove!), eq(schema.weeklyHours.hostId, user.id)))
+    : [];
+  if (!removed) return refused("Those hours are no longer in your calendar. Nothing was changed. Please look at your calendar again.");
+
   let cut;
   try {
     cut = await previewWeeklyHoursChange(user.id, change);
   } catch (error) {
     if (!(error instanceof CalendarError)) throw error;
-    return (
-      <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
-        {back}
-        <h1 className="mt-4 text-2xl font-semibold">Those hours cannot be changed like this</h1>
-        <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
-          {error.message}
-        </p>
-      </SitePage>
-    );
+    return refused(error.message);
   }
 
-  const ids = cut.members.map((member) => member.customerId);
+  // The invitations that would be taken back are named. They are looked up as this host's own, like everything here.
+  const invited = cut.invitationsTakenBack.length > 0 ? await db.select({ customerId: schema.memberships.customerId }).from(schema.memberships).where(and(inArray(schema.memberships.id, cut.invitationsTakenBack), eq(schema.memberships.hostId, user.id))) : [];
+  const ids = [...cut.members.map((member) => member.customerId), ...invited.map((row) => row.customerId)];
   const names = new Map(ids.length > 0 ? (await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, ids))).map((row) => [row.id, row.name]) : []);
-  const [removed] = change.remove ? await db.select().from(schema.weeklyHours).where(inArray(schema.weeklyHours.id, [change.remove])) : [];
+  const invitedNames = invited.map((row) => names.get(row.customerId) ?? "someone").join(", ");
   const fits = cut.needed <= cut.hoursAfter;
 
   return (
@@ -74,7 +85,7 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
 
       <p className="mt-4 text-sm">
         The change:{" "}
-        {removed ? `${DAYS[removed.weekday - 1]}, ${clockText(removed.startMinute)} to ${clockText(removed.endMinute)}` : "hours"}
+        {`${DAYS[removed.weekday - 1]}, ${clockText(removed.startMinute)} to ${clockText(removed.endMinute)}`}
         {change.add ? ` becomes ${DAYS[change.add.weekday - 1] ?? "?"}, ${change.add.from} to ${change.add.to === "00:00" ? "24:00" : change.add.to}${change.add.membersOnly ? " (members only)" : ""}.` : " is removed."}
       </p>
 
@@ -88,12 +99,16 @@ export default async function CutPage(props: PageProps<"/host/calendar/cut">) {
           This month you still owe {timeWords(cut.owedThisMonth)}. Months that have already started go on whatever you choose here, so for a while you may owe more than your new hours hold. Nobody loses anything in the middle of a month they paid
           for.
         </li>
-        {cut.invitationsTakenBack.length > 0 && <li>{people(cut.invitationsTakenBack.length, "open invitation no longer fits and is", "open invitations no longer fit and are")} taken back. Invitations give way before members.</li>}
+        {cut.invitationsTakenBack.length > 0 && (
+          <li>
+            {people(cut.invitationsTakenBack.length, "open invitation no longer fits and is", "open invitations no longer fit and are")} taken back{invitedNames ? `: ${invitedNames}` : ""}. They are told. Invitations give way before members.
+          </li>
+        )}
         {cut.leaving.length > 0 && <li>{people(cut.leaving.length, "member whose renewal is already stopped is", "members whose renewal is already stopped are")} leaving anyway and need no choice.</li>}
       </ul>
 
       <form action={saveCutAction} className="mt-6 text-sm">
-        {change.remove && <input type="hidden" name="remove" value={change.remove} />}
+        <input type="hidden" name="remove" value={removed.id} />
         {change.add && (
           <>
             <input type="hidden" name="weekday" value={change.add.weekday} />
