@@ -1,6 +1,7 @@
 /**
  * Closing an account, and opening it again.
  */
+import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
@@ -31,12 +32,15 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
       .returning({ id: schema.user.id });
     if (closed.length === 0) throw new ProfileError("That account was not found, or is already closed.");
     await tx.delete(schema.session).where(eq(schema.session.userId, input.userId));
+    // Their memberships, as a host and as a member, end at once and for good, in this same step.
+    await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was closed" }, now);
     await tx
       .update(schema.hostProfiles)
       .set({ status: "suspended", decidedBy: input.by, decidedAt: now, updatedAt: now })
       .where(eq(schema.hostProfiles.userId, input.userId));
   });
   // The account is closed from here on, whatever happens next.
+  await cleanUpEndedMemberships(now);
   return { callsNotEnded: await endRequestsAndCallsOf(input.userId, now) };
 }
 

@@ -5,6 +5,9 @@
 import { randomInt } from "node:crypto";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { lockCalendar } from "@/lib/membership/locks";
+import { memberPriceFloor } from "@/lib/membership/room";
+import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { priceProblem } from "@/lib/payments/hold";
 import { identityState } from "@/lib/safety/identity";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
@@ -116,8 +119,19 @@ export async function updateHostProfile(
 ): Promise<void> {
   const details = checkedDetails(input);
   await db.transaction(async (tx) => {
+    // The host's calendar lock first: a membership month is written down under the same lock while it
+    // reads this price, so a month can never start at a price above the regular one.
+    await lockCalendar(tx, userId);
     const [profile] = await tx.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
     if (!profile) throw new ProfileError("You do not have a host profile yet.");
+    const floor = await memberPriceFloor(tx, userId);
+    if (floor > 0 && details.pricePer15Cents < floor) {
+      throw new ProfileError(
+        details.pricePer15Cents === 0
+          ? "You offer a membership, or a member's month is still running, so your calls cannot be free."
+          : `Your regular price cannot be lower than your member price ($${(floor / 100).toFixed(2)} per 15 minutes). Lower the member price first. Your regular price can follow when the months at the old price have ended.`,
+      );
+    }
     // A new name must be approved again, so an approved profile cannot be renamed into someone famous.
     // A declined profile that is edited goes back in the queue. A suspended one stays suspended.
     const renamed = details.displayName !== profile.displayName;
@@ -181,7 +195,10 @@ export async function decideProfile(input: {
     }
     // The host is told when the answer changes, not when the same answer is given again.
     if (before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision });
+    // A suspended host's memberships end at once and for good, in this same step. (Her own memberships with other hosts go on.)
+    if (input.decision === "suspended") await endMembershipsOf(tx, input.userId, { by: "connect", reason: "the host can no longer be booked", asHostOnly: true }, decidedAt);
   });
+  if (input.decision === "suspended") await cleanUpEndedMemberships(decidedAt);
 }
 
 export type PublicProfile = {

@@ -176,3 +176,12 @@ export function placesKept(input: { hostMinutes: number; members: Array<{ id: st
   }
   return kept;
 }
+
+/** "2 hours", "1 hour 30 minutes", "30 minutes". */
+export function timeWords(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const h = hours === 0 ? "" : `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  const m = rest === 0 ? "" : `${rest} minutes`;
+  return [h, m].filter(Boolean).join(" ") || "0 minutes";
+}

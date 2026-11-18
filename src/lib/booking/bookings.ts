@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
+import { bookingCardSeen } from "@/lib/membership/cards";
 import { createPaymentForCall, stripeCustomerFor } from "@/lib/payments/hold";
 import { bookedTotalCents, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
@@ -523,14 +524,17 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       await lockCalendars(tx, [before.hostId, before.customerId]);
       const [booking] = await tx.select().from(schema.bookings).where(eq(schema.bookings.id, before.id)).for("update");
       if (booking.stage !== "card") return booking;
+      // A card belongs to a booking or to a membership, never both. From here on it is remembered as a booking's.
+      const mine = await bookingCardSeen(tx, booking.id, paymentMethodId);
       const end = (reason: string) =>
         tx
           .update(schema.bookings)
-          // The card is kept on the row so the helper can remove it from Stripe.
-          .set({ stage: "ran_out", endedReason: reason, endedAt: input.now, stripePaymentMethodId: paymentMethodId })
+          // The card is kept on the row so the helper can remove it from Stripe (never a membership's card).
+          .set({ stage: "ran_out", endedReason: reason, endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
           .where(eq(schema.bookings.id, booking.id))
           .returning()
           .then((rows) => rows[0]);
+      if (!mine) return end("that card is saved for a membership, so it cannot be used for a booking; please ask again with another card");
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
       // The deadlines come from the terms fixed on this request, so the time is checked against those
@@ -547,11 +551,15 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
   } catch (error) {
     if (!isOverlap(error)) throw error;
     // The customer took another request or call at that time while entering the card.
-    const [ended] = await db
-      .update(schema.bookings)
-      .set({ stage: "ran_out", endedReason: "you already have a request or a call at that time", endedAt: input.now, stripePaymentMethodId: paymentMethodId })
-      .where(and(eq(schema.bookings.id, before.id), eq(schema.bookings.stage, "card")))
-      .returning();
+    const ended = await db.transaction(async (tx) => {
+      const mine = await bookingCardSeen(tx, before.id, paymentMethodId);
+      const [row] = await tx
+        .update(schema.bookings)
+        .set({ stage: "ran_out", endedReason: "you already have a request or a call at that time", endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
+        .where(and(eq(schema.bookings.id, before.id), eq(schema.bookings.stage, "card")))
+        .returning();
+      return row;
+    });
     return ended ?? before;
   }
 }

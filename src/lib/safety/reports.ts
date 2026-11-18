@@ -3,6 +3,7 @@
  * pause an account, lift a pause. (Suspending a host and closing an account
  * already exist and are used from the same page.)
  */
+import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
@@ -182,6 +183,8 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   if (person.pausedAt) throw new ReportError("This account is already paused.");
   await db.transaction(async (tx) => {
     await tx.update(schema.user).set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() }).where(and(eq(schema.user.id, input.userId), isNull(schema.user.pausedAt)));
+    // Their memberships, as a host and as a member, end at once and for good, in this same step.
+    await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
@@ -191,6 +194,7 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
     await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: input.userId, detail: reason }, tx);
   });
   // The account is paused from here on, whatever happens next.
+  await cleanUpEndedMemberships(new Date());
   return { callsNotEnded: await endRequestsAndCallsOf(input.userId, new Date()) };
 }
 

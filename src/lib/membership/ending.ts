@@ -8,7 +8,7 @@
  * Part 1b adds the people who ask for an ending or a pause here (the two stops and their undoing,
  * "Cancel now", the host's own "End membership", the offer of less time).
  */
-import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
 import type { Tx } from "@/lib/payments/operations";
@@ -83,30 +83,6 @@ export async function runEndings(now: Date): Promise<void> {
   for (const membership of waiting) {
     await cleanUpEnding(membership.id, now).catch((error) => console.error(`[membership] could not finish the clean-up of ended membership ${membership.id}; will retry`, error));
   }
-}
-
-/**
- * Ends every live membership between a host and a customer (there is at most one), inside the
- * step that saves whatever causes it: a block. The caller holds both calendar locks.
- */
-export async function endMembershipsBetween(tx: Tx, a: string, b: string, input: { by: string; reason: string }, now: Date): Promise<void> {
-  const live = await tx
-    .select({ id: schema.memberships.id })
-    .from(schema.memberships)
-    .where(and(ne(schema.memberships.status, "ended"), inArray(schema.memberships.hostId, [a, b]), inArray(schema.memberships.customerId, [a, b])))
-    .orderBy(schema.memberships.id);
-  for (const { id } of live) await endMembership(tx, await lockMembership(tx, id), input, now);
-}
-
-/**
- * Ends every live membership a person has, as a host and as a member, inside the step that saves
- * whatever causes it: their account paused or closed. `asHostOnly` is for a suspended host, whose
- * own memberships with other hosts go on.
- */
-export async function endMembershipsOf(tx: Tx, userId: string, input: { by: string; reason: string; asHostOnly?: boolean }, now: Date): Promise<void> {
-  const mine = input.asHostOnly ? eq(schema.memberships.hostId, userId) : or(eq(schema.memberships.hostId, userId), eq(schema.memberships.customerId, userId));
-  const live = await tx.select({ id: schema.memberships.id }).from(schema.memberships).where(and(ne(schema.memberships.status, "ended"), mine)).orderBy(schema.memberships.id);
-  for (const { id } of live) await endMembership(tx, await lockMembership(tx, id), input, now);
 }
 
 // ---------------------------------------------------------------------------

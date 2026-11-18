@@ -8,6 +8,7 @@ import { db, schema } from "@/db";
 import { lockCalendars } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
 import { ownPaymentOn } from "@/lib/payments/own";
+import { cleanUpEndedMemberships, endMembershipsBetween } from "@/lib/membership/state";
 
 export class BlockError extends Error {}
 
@@ -25,6 +26,8 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
   await db.transaction(async (tx) => {
     await lockCalendars(tx, [blockerId, blockedId]);
     await tx.insert(schema.blocks).values({ blockerId, blockedId }).onConflictDoNothing();
+    // A membership between the two ends at once and for good, in this same step. Its clean-up follows below.
+    await endMembershipsBetween(tx, blockerId, blockedId, { by: "connect", reason: "it can no longer go on" }, now);
     // Requests between the two end quietly, whichever way round they were.
     const ended = await tx
       .update(schema.bookings)
@@ -40,6 +43,8 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
       );
     }
   });
+
+  await cleanUpEndedMemberships(now);
 
   // Future calls between the two are cancelled for free. (Settlement and the room are handled as usual.)
   const upcoming = await db

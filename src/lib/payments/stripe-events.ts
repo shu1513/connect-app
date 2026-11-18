@@ -7,6 +7,8 @@
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { syncMonth } from "@/lib/membership/charge";
+import { recordMonthDispute } from "@/lib/membership/ending";
 import { syncHold } from "./hold";
 import { stripe } from "./stripe";
 
@@ -32,6 +34,13 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
 
   if (event.type.startsWith("payment_intent.")) {
     // The hold was placed, or ended. Ask Stripe for the real state and record it.
+    // A membership month's payment: the same nudge, to the month's own code.
+    const monthId = (object.metadata as Record<string, string> | undefined)?.monthId;
+    if (monthId && /^[0-9a-f-]{36}$/i.test(monthId)) {
+      const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, monthId));
+      if (month) await syncMonth(monthId, new Date());
+      return;
+    }
     const paymentId = (object.metadata as Record<string, string> | undefined)?.paymentId;
     // Not one of ours (for example made by another copy of the app in the same Stripe test area): nothing to do.
     if (!paymentId || !/^[0-9a-f-]{36}$/i.test(paymentId)) return;
@@ -55,5 +64,8 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
       .update(schema.payments)
       .set({ disputeOpen: BLOCKING_DISPUTE.has(dispute.status), updatedAt: new Date() })
       .where(eq(schema.payments.stripePaymentIntentId, intentId));
+    // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
+    const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
+    if (month) await recordMonthDispute(month.id, dispute.status === "lost" ? "lost" : BLOCKING_DISPUTE.has(dispute.status) ? "open" : "won", new Date());
   }
 }

@@ -10,6 +10,9 @@ import { db, schema } from "@/db";
 import type { Membership, MembershipMonth } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
 import { queueEmail } from "@/lib/email";
+import { timeWords } from "./rules";
+
+export { timeWords };
 
 type Writer = Pick<typeof db, "insert" | "select">;
 type Person = { id: string; name: string; email: string; timeZone: string | null };
@@ -22,15 +25,6 @@ function appUrl(): string {
 
 const memberPage = (membership: Pick<Membership, "id">) => `${appUrl()}/memberships/${membership.id}`;
 const payPage = (membership: Pick<Membership, "id">) => `${appUrl()}/memberships/${membership.id}/pay`;
-
-/** "2 hours", "1 hour 30 minutes", "30 minutes". */
-export function timeWords(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  const h = hours === 0 ? "" : `${hours} ${hours === 1 ? "hour" : "hours"}`;
-  const m = rest === 0 ? "" : `${rest} minutes`;
-  return [h, m].filter(Boolean).join(" ") || "0 minutes";
-}
 
 /** The host and the member of a membership, with the host's name as customers know it. */
 async function peopleOf(tx: Writer, membership: Pick<Membership, "hostId" | "customerId">): Promise<{ host: Person; member: Person; hostName: string } | null> {

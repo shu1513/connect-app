@@ -14,6 +14,7 @@ import { and, eq, gt, inArray, isNotNull, isNull, like, lte, ne, notInArray, or 
 import { db, schema } from "@/db";
 import type { Booking, Call, Payment } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
+import { bookingMayRemoveCard } from "@/lib/membership/cards";
 import { cancelCall } from "@/lib/payments/cancel";
 import { ownPaymentOn } from "@/lib/payments/own";
 import { placeHoldWithSavedCard, syncHold } from "@/lib/payments/hold";
@@ -276,7 +277,8 @@ async function removeSavedCards(now: Date): Promise<void> {
       const setup = await stripe().setupIntents.retrieve(booking.stripeSetupIntentId!);
       const saved = typeof setup.payment_method === "string" ? setup.payment_method : setup.payment_method?.id;
       if (setup.status !== "succeeded" && setup.status !== "canceled") await stripe().setupIntents.cancel(setup.id);
-      if (saved) {
+      // Under the card's lock: a card a membership has is never removed here, and a card removed here is remembered as a booking's for good.
+      if (saved && (await db.transaction((tx) => bookingMayRemoveCard(tx, booking.id, saved, now)))) {
         await stripe()
           .paymentMethods.detach(saved)
           .catch((error: { code?: string }) => {

@@ -7,13 +7,13 @@
  * membership, and resuming"): a paused membership has no month and no payment, and its member can
  * resume by themselves; an ended one is over for good.
  */
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { schema } from "@/db";
 import type { Membership } from "@/db/schema";
 import type { Tx } from "@/lib/payments/operations";
 import { retireCard } from "./cards";
 import { queueEndedEmail, queuePausedEmail } from "./emails";
-import { isCurrent, type LockedMonth } from "./locks";
+import { isCurrent, lockMembership, type LockedMonth } from "./locks";
 
 const noOffer = { offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null } as const;
 
@@ -83,4 +83,42 @@ export async function settleAfterGivenUp(tx: Tx, locked: LockedMonth, how: strin
   }
   const reason = how === "given_up" || how === "cancelled_at_stripe" ? "payment" : how;
   await pauseMembership(tx, membership, reason, now);
+}
+
+/**
+ * Ends every live membership between a host and a customer (there is at most one), inside the
+ * step that saves whatever causes it: a block. The caller holds both calendar locks.
+ */
+export async function endMembershipsBetween(tx: Tx, a: string, b: string, input: { by: string; reason: string }, now: Date): Promise<void> {
+  const live = await tx
+    .select({ id: schema.memberships.id })
+    .from(schema.memberships)
+    .where(and(ne(schema.memberships.status, "ended"), inArray(schema.memberships.hostId, [a, b]), inArray(schema.memberships.customerId, [a, b])))
+    .orderBy(schema.memberships.id);
+  for (const { id } of live) await endMembership(tx, await lockMembership(tx, id), input, now);
+}
+
+/**
+ * Ends every live membership a person has, as a host and as a member, inside the step that saves
+ * whatever causes it: their account paused or closed. `asHostOnly` is for a suspended host, whose
+ * own memberships with other hosts go on.
+ */
+export async function endMembershipsOf(tx: Tx, userId: string, input: { by: string; reason: string; asHostOnly?: boolean }, now: Date): Promise<void> {
+  const mine = input.asHostOnly ? eq(schema.memberships.hostId, userId) : or(eq(schema.memberships.hostId, userId), eq(schema.memberships.customerId, userId));
+  const live = await tx.select({ id: schema.memberships.id }).from(schema.memberships).where(and(ne(schema.memberships.status, "ended"), mine)).orderBy(schema.memberships.id);
+  for (const { id } of live) await endMembership(tx, await lockMembership(tx, id), input, now);
+}
+
+/**
+ * Runs the clean-up of ended memberships right after the step that ended them. Never throws: the
+ * ending is already saved, and the helper repeats the clean-up until it is done.
+ */
+export async function cleanUpEndedMemberships(now: Date): Promise<void> {
+  try {
+    // Loaded here, not at the top: the clean-up talks to Stripe, and this file must stay free of that.
+    const { runEndings } = await import("./ending");
+    await runEndings(now);
+  } catch (error) {
+    console.error("[membership] the clean-up of ended memberships did not finish; the helper will retry", error);
+  }
 }

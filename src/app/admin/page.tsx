@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
+import { membershipsToLookAt } from "@/lib/membership/health";
 import { formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { unsentEarnings } from "@/lib/payments/collect";
@@ -83,6 +84,9 @@ export default async function AdminPage(props: PageProps<"/admin">) {
       .orderBy(desc(schema.calls.startsAt)),
   ]);
   const field = "mt-1 block w-32 rounded border border-neutral-400 bg-transparent px-2 py-1";
+  // Memberships: only what went wrong and a person has to look at. (The full pages come with the membership pages.)
+  const members = await membershipsToLookAt(new Date());
+  const membersCount = members.withProblem.length + members.disputed.length + members.payBacks.length;
 
   return (
     <SitePage className="mx-auto w-full max-w-5xl px-4 py-10">
@@ -172,6 +176,40 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                 </Link>
                 : {payment.disputeOpen ? "the customer's bank is disputing the charge. " : ""}
                 {payment.flaggedAfterCharge ? "the record changed after the charge." : ""}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {membersCount > 0 && (
+        <>
+          <h2 className="mt-10 text-lg font-semibold">Memberships to look at ({membersCount})</h2>
+          <ul className="mt-2 list-disc pl-5 text-sm" data-memberships-to-look-at>
+            {members.withProblem.map(({ month, hostId, customerId }) => (
+              <li key={`problem-${month.id}`}>
+                {nameOf.get(hostId)} (host) and {nameOf.get(customerId)} (member), month {month.number}: {month.problem}
+              </li>
+            ))}
+            {members.disputed.map(({ month, hostId, customerId }) => (
+              <li key={`dispute-${month.id}`}>
+                {nameOf.get(hostId)} (host) and {nameOf.get(customerId)} (member), month {month.number}:{" "}
+                {month.dispute === "lost"
+                  ? "the member's bank decided against us. The month stays frozen; please settle it by hand."
+                  : "the member's bank is disputing the charge. Nothing of this month is paid back or collected until it decides."}
+              </li>
+            ))}
+            {members.payBacks.map(({ refund, hostId, customerId }) => (
+              <li key={`payback-${refund.id}`}>
+                {nameOf.get(hostId)} (host) and {nameOf.get(customerId)} (member): {formatMoney(refund.amountCents)} has been owed back to the
+                member since <LocalTime iso={refund.createdAt.toISOString()} />.{" "}
+                {refund.lastFailedAt ? (
+                  <>
+                    The last try failed <LocalTime iso={refund.lastFailedAt.toISOString()} />; it is tried again every hour.
+                  </>
+                ) : (
+                  "Stripe has not confirmed it yet."
+                )}
               </li>
             ))}
           </ul>

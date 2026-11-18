@@ -16,6 +16,9 @@ const EVENTS = [
   "payment_intent.amount_capturable_updated",
   "payment_intent.canceled",
   "payment_intent.payment_failed",
+  // For membership months: the taking of a held month, and a bank that wants the member's own approval.
+  "payment_intent.succeeded",
+  "payment_intent.requires_action",
   "charge.dispute.created",
   "charge.dispute.closed",
 ] as const;

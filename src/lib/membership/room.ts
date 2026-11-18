@@ -53,10 +53,36 @@ export async function roomLeft(reader: Reader, hostId: string, now: Date, except
  * time, does not want one. A member whose payment is being tried keeps their turn.
  */
 export async function keepsPlace(reader: Reader, membership: Pick<Membership, "id" | "hostId">): Promise<boolean> {
+  const kept = placesKept({ hostMinutes: await hostMinutes(reader, membership.hostId), members: await wantingNextMonth(reader, membership.hostId) });
+  return kept.has(membership.id);
+}
+
+/** Every member of the host who wants a next month, with their own time and since when they have been a member. */
+async function wantingNextMonth(reader: Reader, hostId: string): Promise<Array<{ id: string; since: Date; minutes: number }>> {
   const wanting = await reader
     .select({ id: schema.memberships.id, since: schema.memberships.since, createdAt: schema.memberships.createdAt, minutes: schema.memberships.ownMinutes })
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.hostId, membership.hostId), inArray(schema.memberships.status, ["active", "unpaid"]), isNull(schema.memberships.memberStoppedAt), isNull(schema.memberships.hostStoppedAt), isNull(schema.memberships.offerId), gt(schema.memberships.ownMinutes, 0)));
-  const kept = placesKept({ hostMinutes: await hostMinutes(reader, membership.hostId), members: wanting.map((m) => ({ id: m.id, since: m.since ?? m.createdAt, minutes: m.minutes ?? 0 })) });
-  return kept.has(membership.id);
+    .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.memberships.status, ["active", "unpaid"]), isNull(schema.memberships.memberStoppedAt), isNull(schema.memberships.hostStoppedAt), isNull(schema.memberships.offerId), gt(schema.memberships.ownMinutes, 0)));
+  return wanting.map((m) => ({ id: m.id, since: m.since ?? m.createdAt, minutes: m.minutes ?? 0 }));
+}
+
+/** What the host's members need of her hours for their next months, in minutes. A cut in hours may not go below this. */
+export async function minutesMembersNeed(reader: Reader, hostId: string): Promise<number> {
+  return (await wantingNextMonth(reader, hostId)).reduce((sum, member) => sum + member.minutes, 0);
+}
+
+/**
+ * The lowest regular price this host may have (the rulebook's "Changing the membership"): the
+ * member price of a membership that is switched on, and the price of every month that is running,
+ * held or still being paid for. Zero when nothing stands in the way. The caller holds the host's
+ * calendar lock.
+ */
+export async function memberPriceFloor(reader: Reader, hostId: string): Promise<number> {
+  const [offer] = await reader.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, hostId));
+  const open = await reader
+    .select({ price: schema.membershipMonths.pricePer15Cents })
+    .from(schema.membershipMonths)
+    .innerJoin(schema.memberships, eq(schema.memberships.id, schema.membershipMonths.membershipId))
+    .where(and(eq(schema.memberships.hostId, hostId), inArray(schema.membershipMonths.status, ["to_pay", "held", "running"]), isNull(schema.membershipMonths.endedHow)));
+  return Math.max(offer?.on ? offer.pricePer15Cents : 0, ...open.map((month) => month.price));
 }

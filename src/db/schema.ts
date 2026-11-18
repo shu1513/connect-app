@@ -840,7 +840,7 @@ export const moneyOperations = pgTable(
     /** The owner is a payment or a membership month: exactly one of the two. */
     paymentId: uuid("payment_id").references(() => payments.id),
     monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
-    /** hold, capture, release, refund or transfer. For a month also intent (making its PaymentIntent). */
+    /** hold, capture, release, refund or transfer. */
     kind: text("kind").notNull(),
     /** The fixed label for this action. Sent to Stripe as the idempotency key. */
     label: text("label").notNull().unique(),

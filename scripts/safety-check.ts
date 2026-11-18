@@ -347,7 +347,7 @@ async function main() {
       check("with new requests switched off, nobody can ask", (await ask(cust, host.id, (await slotsOf(host.id))[0]).catch((e) => e.message))?.includes("not taking new requests"));
       await setSwitches({ requestsOff: false, joiningOff: false });
       check("switched back on, asking works again", (await ask(cust, host.id, (await slotsOf(host.id))[0])).booking.stage === "waiting");
-      check("the switches read back as saved", JSON.stringify(await switches()) === JSON.stringify({ requestsOff: false, joiningOff: false }));
+      check("the switches read back as saved", JSON.stringify(await switches()) === JSON.stringify({ requestsOff: false, joiningOff: false, memberships: "off", membershipsHosts: [] }));
     }
   } finally {
     await setSwitches({ requestsOff: false, joiningOff: false });
