@@ -41,7 +41,7 @@ What each side gets:
 | A call that should run longer | The existing "add time" feature. The extra time is taken first from the membership time the member has left; when that is not enough, it is paid by card. |
 | When the host gets the money | Not before the time is delivered: as time is used, and the unused rest when the month ends. |
 | Who can end it | The member cancels: the membership runs to the end of the paid month and is then **paused**. The host ends it: the unused time is paid back, and the person is no longer a member. |
-| A paused membership | Costs nothing and gives no member time. The member can come back by themselves at any time, without a new invitation, for example after money trouble. Only the host, a block, a paused, suspended or closed account, or a dispute over a payment end a membership for good; after that, coming back needs a new invitation. |
+| A paused membership | Costs nothing and gives no member time. The member can come back by themselves whenever the host has room, without a new invitation, for example after money trouble. Only the host, a block, a paused, suspended or closed account, or a dispute over a payment end a membership for good; after that, coming back needs a new invitation. |
 | Cancelling right after a payment | For the first 72 hours of each month the amount is only held on the card, not taken. A member who cancels in that time, with nothing booked from that month, pays nothing: the hold is let go, which costs Connect nothing either. |
 | Switching back on | A member who has cancelled can switch their membership back on until the paid month ends. |
 | Changing the price or the time | Never during a month that is already paid for. |
@@ -49,7 +49,8 @@ What each side gets:
 | Our fee on a membership | The usual fee, counted once a month: 4.9% of each amount that is used or expires, and the fixed 30 cents once per month instead of once per call (plus 1.5% for a card from outside the US). |
 | Who a host can invite | People the host has already had a call with, from the host's "People you have talked to" page. |
 | A limit on the monthly amount | None. There is a limit on the time included (see the builder's choices). |
-| More time than the host offers | Not allowed. The time included in a membership can never be more than the host's weekly hours offer in four weeks. |
+| More time than the host offers | Not allowed. The time of **all of a host's members together** can never be more than the host's weekly hours offer in four weeks. Five members with 2 hours each need a host with at least 10 hours a month. |
+| When a host cuts their hours and not everyone fits any more | The host can choose who is paused. Otherwise the members who have been there longest and still fit keep their place. |
 | The founder's switch | A switch on the admin page, "Memberships", off until the whole feature is built and tried. While it is off nobody can invite or join and no month is renewed. Months that have already started (held or paid) keep working to their end, and all settling, paying back and collecting goes on. It stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
 | How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
 | How the monthly payment is taken | Connect charges the member's saved card itself each month, first as a hold and then for real (see "The monthly payment"). Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
@@ -68,7 +69,11 @@ The founder left these to the builder ("do what you think is the best").
 | 6 | The two ways to cancel inside the 72 hours | While the month's amount is only held, the member is offered both: "Cancel now, nothing is charged" (the membership is paused today) and "Cancel at the end of the month" (only the renewal is stopped; the amount is taken at its usual moment and they keep the time). Once the money has been taken, only the second. | Someone who joined for one month only should not be made to give the month up just to stop the next payment. |
 | 7 | When the held money is taken | At the member's first booking of the month, or **72 hours and 3 minutes** after the hold, whichever comes first. Both times count from the bank's own time for the hold. The page offers "Cancel now" for the 72 hours; the server accepts it until the money has really been taken, so a press in the last second, or in the 3 minutes after, still counts. | The founder asked for a cushion. The app already uses 3 minutes in the same way for a last-second refund request. Not longer (80 hours was the other idea): the app counts on a card hold lasting 4 days at worst, and taking the money at 72 hours leaves almost a day (23 hours 57 minutes) for a helper that was down. When Stripe reports that a card's hold ends sooner than that needs, the money is taken 12 hours before the hold ends, and the member's page and receipt show that earlier moment as the last one for "Cancel now". |
 | 8 | How often "Cancel now" can be used | No limit. | It was limited to once per member and host while it cost Connect a card fee each time. Letting a hold go carries no card fee. Someone who joins and cancels again and again ties up money on their own card (a bank may show a hold like a charge, and it can take days to disappear), cannot take a time in the host's calendar without the money being taken, and the host can end the membership. Stripe's optional fraud checks can cost a few cents per card. |
-| 9 | How the host's hours are counted for "more time than the host offers" | All weekly hours on the calendar page, general and member-only, times four. Time off, breaks and other members are not counted. It is checked when the offer is saved and every time a month is about to start (joining, resuming, a renewal). | A plain number a host can see on their own calendar page. Checking at the start of each month means nobody ever pays for a month the host's hours cannot hold, without locking the host's calendar. |
+| 9 | How the host's hours are counted | All weekly hours on the calendar page, general and member-only: for each weekday the stretches are joined (two that overlap are not counted twice), measured by the clock, and the week's total is taken times four. Time off, breaks, ordinary bookings and the hour lost or gained when the clocks change are not counted. No calendar or no weekly hours means no room. | A plain number a host can see on their own page: "Your weekly hours offer 40 hours a month." |
+| 10 | Room for someone new (an invitation, joining, resuming) | The host's hours, less everything already promised: every month that is running or held, also one whose renewal is stopped; every membership whose payment is being tried; every open invitation. Each is counted with its own agreed time, since members who joined under an older offer can have a different time. Saving an offer only needs the offer to fit once. | Strict, because this is the moment a new promise is made. |
+| 11 | Who keeps their place at a renewal | One calculation, the same whoever's renewal comes first. Take every member who wants a next month (not paused, not ended, renewal not stopped by the member or the host; a member whose payment is being tried keeps their turn). Go through them from the longest-standing to the newest, counted from their last joining or resuming. Each one whose own time still fits in the host's hours as they are now gets a place and uses that room; one whose time does not fit gets none and uses none, so a newer member with a smaller time can still fit. A member's new month starts only if this gives them a place. | "The longest-standing members who fit keep their place." Asking only "does everyone older than me fit" gave different answers depending on whose renewal came first: with room for 4 hours, an older member at 6 hours and a newer one at 2, the newer one must stay and the older one be paused, in either order. |
+| 12 | Months that have started | Never touched by a cut in hours. For a while a host can therefore owe more than the hours hold, until the months that no longer fit have run out. Open invitations give way first: after a cut, invitations that no longer fit are taken back, and existing members come before them. | Nobody loses a month they paid for. |
+| 13 | Invitations and a changed offer | An invitation is for the offer as it stood. When the host changes the offer, open invitations are taken back, and the host invites again. | An invitation holds a place of a known size, and nobody joins under terms the host no longer offers. |
 
 ## How it works for a host
 
@@ -81,25 +86,41 @@ The founder left these to the builder ("do what you think is the best").
 - the result in plain words: "Members pay $60.00 a month for 2 hours. Your regular price for
   2 hours is $80.00."
 
-A host with free calls, or whose payout account is not ready, cannot offer a membership. The time
-included cannot be more than the host's weekly hours offer in four weeks: a host with 10 hours a
-week can include up to 40 hours. The page says so when a larger number is typed.
+A host with free calls, or whose payout account is not ready, cannot offer a membership. **Room for members.** A host cannot promise more time than they have. The time of all members
+together can never be more than the host's weekly hours offer in four weeks: a host with 10 hours
+a week has 40 hours, which is room for twenty members at 2 hours, or four at 10 hours. The
+"Membership" part shows it: "Your weekly hours offer 40 hours a month. Your members and
+invitations use 34. Room for 3 more members." An offer that does not fit even once is refused.
 
-**When a host later offers fewer hours** than the membership includes, the calendar page tells
-them: "Your weekly hours no longer cover your membership (20 hours a month). Members will be
-paused at their next payment unless you add hours." Months that have already started are not
-touched. No new month starts: nobody can join or resume, and at a member's next renewal nothing
-is charged, the membership is paused, and both are told why by email.
+**When a host later offers fewer hours** and not everyone fits any more, the calendar page says
+so before the change is saved, and names who would be paused: "Your members need 34 hours a
+month. With these hours you offer 24. Unless you add hours, Cory Customer and 4 others will be
+paused at their next payment." Then:
+
+- Months that have already started are not touched. Nobody is paused in the middle of a month
+  they paid for.
+- Open invitations that no longer fit are taken back.
+- The host can choose who makes room, with "Pause after this month" on a member in the list.
+- For the rest, the longest-standing members who still fit keep their place (see 11 under "The
+  builder's choices"). It is worked out again at every renewal with the hours as they are then,
+  so a host who adds the hours back in time pauses nobody.
+- A member who is paused this way is told why by email, and can resume as soon as there is room.
 
 **Member-only times.** On the calendar page, each stretch of weekly hours gets a tick box,
 "Members only". Customers who are not members never see those times.
 
 **Inviting.** On "People you have talked to", each person the host was a host for gets "Invite to
 membership". The person gets an email and sees the invitation on the host's page. An invitation can
-be taken back until it is accepted.
+be taken back until it is accepted. An invitation needs room, and holds its place until it is
+accepted or taken back. It is for the offer as it stands that day: when the host changes the
+offer, open invitations are taken back.
 
 **The member list.** Under "Membership": each member's name, since when, how much time they have
-left this month, and when the month ends or renews. One button per member: "End membership".
+left this month, and when the month ends or renews. Two buttons per member: "Pause after this month", which stops that member's renewal (the member
+keeps the month they paid for, is then paused, and can resume when there is room; the host can
+undo it until the month ends; on a member who has no running month because a payment failed, it
+pauses at once and cancels the open payment), and "End membership", which ends it at once and
+for good.
 
 **Changing the offer.** A changed price or time applies to people who join after the change. A
 member keeps the price and time they agreed to for as long as their membership lasts (see 3 under "The builder's choices"). To keep "never more expensive than the regular price" true at every moment:
@@ -145,7 +166,7 @@ kept on record.
 
 A person who has blocked the host or is blocked by them, or whose account is paused or closed,
 cannot join. If the host only takes calls from people who have confirmed their ID, the same applies
-to joining.
+to joining. Joining also needs room (see "Room for members"); an invitation holds its place.
 
 **Booking.** On the host's page a member sees a box, "Your membership: 1 hour 30 minutes left,
 until 14 December", and the open times, with member-only times marked. The lengths offered are the
@@ -190,11 +211,14 @@ that moment; the page shows the unchanged monthly amount and the date of the nex
 membership". Resuming is like joining, without needing an invitation: the page shows the host's
 offer as it is now, the member ticks the box again, enters a card, and a new month starts. A
 membership is paused when the member cancelled and the paid month has ended, after "Cancel now",
-when a failed payment was given up after 7 days, and when the host switched the offer off.
+when a failed payment was given up after 7 days, when the host switched the offer off, when the
+host chose "Pause after this month", and when there was no room for the member at a renewal.
 
 "Keep my membership" and "Resume membership" work only when everything that joining needs is
 true: both accounts active, no block either way, the host approved and able to be paid, the host's
-"confirmed ID only" rule met, the host offering a membership, and the founder's switch on. Once
+"confirmed ID only" rule met, the host offering a membership, the founder's switch on, and, for resuming, room for one more
+member. A renewal can be stopped by the member ("Cancel") and by the host ("Pause after this month"),
+and each can only undo their own: the membership renews only when neither stop is left. Once
 the host has ended a membership, or it ended through a block, a closed or paused account or a
 dispute, coming back needs a new invitation from the host.
 
@@ -373,8 +397,11 @@ followed up until its outcome is known.
   it closes on its own date.
 - **Which price a new month gets:** the price and time the member agreed to. When a member resumes
   after a pause, that is the host's offer at that moment, agreed to again.
-- **No month starts** when the host's weekly hours over four weeks are less than the time the
-  month would include (see "When a host later offers fewer hours").
+- **No month starts** without room for it (see "Room for members"). At a renewal without room
+  nothing is charged and the membership is paused. Room is kept for a payment while it is being
+  tried. When a hold comes back from Stripe it is checked once more: if the host's hours or the
+  founder's switch no longer allow a new month, the hold is let go and nothing starts. A month
+  that has already started is never undone this way.
 
 ## The awkward cases
 
@@ -384,7 +411,8 @@ followed up until its outcome is known.
 | The member presses "Cancel now" in the first 72 hours, with nothing booked from that month | The hold is let go, nothing is charged, and the membership is paused. It is only offered while the month's money has not been taken, and the first booking takes the money, so "nothing booked" is true by itself. |
 | The member's first booking of a month | Everything about the booking is checked first. Then the month's money is taken, and then the call is booked. If Stripe refuses, or its answer does not arrive, nothing is booked and the member is told to try again in a moment. If the money was taken but the time was lost in that moment (someone else got it), the month stays paid, and the member is told plainly: "Your month's payment went through, but that time is no longer open. Please choose another." |
 | A bank lets the hold go before the money is taken | That month is closed as not paid. The member has no member time and gets the "payment failed" email; a new month with the same terms is tried. |
-| The host cuts their weekly hours below what the membership includes | Months that have started go on. At a member's next renewal nothing is charged and the membership is paused, with an email to both. Nobody can join or resume until the hours cover the membership again. |
+| The host cuts their weekly hours so that not all members fit | Months that have started go on. The host can choose who is paused; otherwise the newest members are paused first, each at their own next renewal, with nothing charged and an email saying why. Nobody can be invited, join or resume while there is no room. |
+| Five members at 2 hours each, and the host offers 2 hours a month | Cannot happen: the fifth, fourth, third and second invitation are refused for lack of room, and if the host cuts their hours later, four of the five are paused at their next payment. |
 | A paused member wants to book | They book like any customer. To book as a member they resume first. |
 | The member cancels a booking in time (by the host's cancelling rule) | The time comes back. It can be booked again before the month ends. |
 | The member cancels late, or does not show up | The time is used, as for a regular booking. Until the host has collected, the host may still give it back with the refund form. |
@@ -403,10 +431,9 @@ followed up until its outcome is known.
 
 - **A member who cannot find a time that suits them loses that month's money**, unless the host
   cancelled. The invitation page shows the host's open times before anyone pays, and a member can
-  cancel at any time. The app refuses a membership that includes more time than the host's weekly hours
-  offer in four weeks. It does not add up all members together, and it does not count time off: a
-  host with 40 hours a month and thirty members at 10 hours each has promised more than they can
-  give.
+  cancel at any time. The app does not let a host promise more member time than their weekly
+  hours hold. But it counts weekly hours only: time off, and times taken by ordinary bookings or
+  by other members, are not taken away, and the hours may not suit a particular member.
 - **After a host has collected**, the app cannot pay that call's money back (see "The limit that
   stays as it is today").
 - **A refund costs Connect Stripe's card fee** on the amount paid back (about 2.9%), as refunds do
@@ -449,7 +476,10 @@ takes the month's lock first and changes the month's numbers and the payment in 
 step. The order of locks is the same everywhere: the two calendars, the host's collection, the
 membership, the month, the call, its payments, then request and refund records. Stopping a
 renewal, switching back on, a renewal coming due, "Cancel now" and ending early all take the
-membership's lock, so only one of them can win. A request to Stripe is always
+membership's lock, so only one of them can win. Everything that reads or changes room (an
+invitation, joining, resuming, a renewal, a change of the offer, a change of weekly hours) takes
+the host's calendar lock first, the same lock bookings take, so two people cannot both get the
+last place and a place cannot be given while the hours are being cut. A request to Stripe is always
 written down first and sent after that step, never inside it.
 
 **The monthly charge is recorded once**, when it goes through, as the month's own line in the
@@ -461,8 +491,11 @@ customer".
 - `membership_offers`: one per host. On or off, the member price per 15 minutes, the minutes
   included, and a version number that goes up with every change.
 - `memberships`: one per host and customer. Where it stands (invited, active, renewal stopped,
-  unpaid, paused, ended), who or what stopped its renewal, paused it or ended it and when, the
-  saved card, and the agreement that applies now.
+  unpaid, paused, ended), whether the member stopped the renewal and whether the host did (two separate marks,
+  each cleared only by its own side; the offer being off is not stored on the membership), who or
+  what paused or ended it and when, since when it has run without a break, the saved card, and
+  the agreement that applies now. An open invitation records the version and the time of the
+  offer it was made for.
 - `membership_agreements`: one per time the member agreed, at joining and at every resuming. The
   version, price and time of the offer, the version of the card wording, and when. Nothing in it
   is ever changed, and each month points to the agreement it was started under, so what a member
@@ -500,7 +533,7 @@ customer".
 
 **New code**, in `src/lib/membership/`:
 
-- `rules.ts`: the plain rules, with tests. Limits on price and time, also against the host's weekly hours; when a month ends; when
+- `rules.ts`: the plain rules, with tests. Limits on price and time; room in the host's weekly hours, who counts, and who keeps their place; when a month ends; when
   "Cancel now" is offered and until when it is accepted; when held money is taken; what a
   booking sets aside and from which kind of money; what comes back and how it is marked; how a
   month's free money is split at its end; the days a failed payment is tried again.
@@ -513,12 +546,13 @@ customer".
   taking it later, with a month as the owner instead of a call's payment.
 - `book.ts`: booking as a member.
 - `ending.ts`: the three ways a membership stops, which must never be mixed.
-  - **The renewal is stopped** (the member cancels the normal way, or the host switches the offer
-    off). Nothing else changes: the paid month, its bookings and booking from it all go on, and
+  - **The renewal is stopped** (the member cancels the normal way, the host presses "Pause after
+    this month", or the host switches the offer off). The member's stop and the host's stop are kept apart, and each side can only
+    undo its own. Nothing else changes: the paid month, its bookings and booking from it all go on, and
     nothing is paid back. It can be switched back on, strictly before the paid month ends;
     switching back on is recorded. When the paid month ends, the membership is paused.
   - **Paused** (the month ended after the renewal was stopped; "Cancel now"; a failed payment
-    given up). There is no current month and no new monthly payment. Whatever is still open from
+    given up; no room at a renewal). There is no current month and no new monthly payment. Whatever is still open from
     earlier months (a call being settled, a pay-back, added time paid by card) is finished as usual. Resuming is joining again without an invitation: every check that joining
     makes, the host's offer as it is then, a new agreement, a card, a new month.
   - **Ended at once** (the host ends it, a block, a pause of an account, a suspension, a closed
@@ -532,7 +566,8 @@ customer".
     a new payment.
 - `jobs.ts`: what the always-on helper does: renewals, new tries, reminders, closing months,
   pay-backs, endings, and finishing anything that was written down and not confirmed.
-- `emails.ts`: invitation; joined (to both); the monthly receipt; the reminder; payment failed; a pay-back; ended (to both).
+- `emails.ts`: invitation; joined (to both); the monthly receipt; the reminder; payment failed; a pay-back; paused, with the reason (the member's own choice, the host's, no
+  room, a payment given up); an invitation taken back; ended (to both).
 
 **Booking as a member** (`book.ts`, using the pieces of `src/lib/booking/bookings.ts`) is one step
 of its own, not "ask" followed by "accept". It keeps, from today's two steps:
@@ -630,16 +665,15 @@ member booking cannot land on an instant request; the check script proves it.
   account paused by the founder (`safety/reports.ts`), suspending a host (`booking/moderation.ts`,
   the admin's action), closing an account (`profiles/closing.ts`), the host's "End membership",
   and a dispute. Pausing a membership is called from: the end of a month whose renewal was
-  stopped, "Cancel now", a payment given up after 7 days, the offer or the founder's switch being
-  off when a renewal comes due, and the host's hours no longer covering the membership at a
-  renewal. (An account paused by the founder and a paused membership are two different things.)
+  stopped, "Cancel now", a payment given up after 7 days, the offer or the founder's switch being off when a renewal comes due, and no room in the host's
+  hours at a renewal. (An account paused by the founder and a paused membership are two different things.)
 - The host's price (`profiles/profiles.ts`): the checks under "Changing the offer", made in the
   same locked step that writes down and starts a monthly payment, so a month can never start at a
   price above the regular one. A month whose payment could still go through counts.
 - `src/lib/health.ts`: also "not healthy" when a renewal, a month's closing, a pay-back or an
   ending is overdue, or a member call's money has stayed set aside too long after its call.
 - `worker/closer.ts` runs the membership jobs.
-- Pages: Hosting (the "Membership" part), the calendar page (the tick box), "People you have
+- Pages: Hosting (the "Membership" part), the calendar page (the tick box, and the warning before hours are cut), "People you have
   talked to" (invite), the host's page and the booking page (the member's view, also when the
   host's page is hidden), the invitation page and the "Pay now" page (new), "Your account"
   (memberships and their monthly receipts),  the page after a call ("paid from your membership"), and the admin page (the switch,
@@ -670,12 +704,13 @@ Delivers:
 - Collecting, as far as a month needs it without any call: a host can collect expired money, a
   share on its way to a host cannot be paid back, and the earnings and admin lists show a payment
   that has no call.
-- The ways a membership stops, as far as money goes. Stopping the renewal and switching back on.
+- The ways a membership stops, as far as money goes. Stopping the renewal (by the member, or by the host with "Pause after this month") and switching
+  back on.
   Pausing and resuming. Ending at once: no further charge, an open payment cancelled, free money
   paid back, and the instruction to end saved together with whatever causes it. "Cancel now",
   which lets a hold go.
 - The rules that protect money wherever they are enforced: the terms a member agreed to, the price rule against the regular price, the rule that a month
-  never includes more time than the host's weekly hours offer, and the membership's saved card
+  starts only when there is room for it in the host's weekly hours, and the membership's saved card
   being safe from the job that removes cards.
 - The founder's switch, enforced on the server, and off.
 
@@ -752,14 +787,13 @@ one they are a member of.
 
 - "Call now" paid from a membership (instant calls stay as they are, by card).
 - More than one offer per host, yearly memberships, free trials, gifts.
-- A limit on the time a host has promised to all members together.
+
 - Carrying unused time into the next month.
 - Inviting someone who has never had a call with the host.
 - Moving a member's booking to another time (as for all bookings: cancel and book again).
 - A new price or time for people who are already members. That goes through ending the
   membership and a new invitation.
-- A warning to hosts who promise more member time than their weekly hours hold, and any change of
-  price for a month that is already running.
+- Any change of price for a month that is already running.
 
 ## How it will be checked
 
@@ -798,9 +832,20 @@ one they are a member of.
     usual (taken 12 hours before its end, "Cancel now" shown until then); "Cancel now" in the
     3 minutes after the 72 hours (accepted); a timed taking that runs twice; a different amount
     reported by Stripe (no time given, the founder is shown it);
-  - an offer with more time than the host's weekly hours hold (refused); the host cutting hours
-    below the offer (months that started go on; a renewal is not charged and the membership is
-    paused; joining and resuming refused); the host switching the offer off with one month only
+  - room: an offer that does not fit once (refused); invitations up to the last place and one
+    more (refused); an invitation holding its place; five members at 2 hours with a host who
+    then offers 2 hours (one renews, four are paused, the longest-standing one stays); the host
+    choosing with "Pause after this month" and undoing it; a member who cannot undo the host's
+    pause; joining and resuming without room (refused); two people joining for the last place
+    at the same moment (one gets it); a paused member resuming when a place frees up; months
+    that have started untouched by any cut; members with different times: room for 4 hours, an
+    older member at 6 and a newer one at 2, renewing in both orders (the newer one stays each
+    time); two members at 2 hours, room for 2, the host pausing the older one (the newer one
+    renews); a cut that takes back an open invitation; a changed offer that takes back open
+    invitations; two people resuming for one place at the same moment; hours cut while a payment
+    is at Stripe (the hold is let go); hours added back before a renewal (nobody paused); all
+    weekly hours removed; two overlapping stretches on one day counted once; the host stops a
+    renewal, the member cancels too, the host undoes theirs (still stopped); the host switching the offer off with one month only
     held and one payment being tried again;
   - a member resuming twice, with each month showing the agreement it was started under; a card
     kept after pausing while added time by card from an earlier call is still open;
@@ -902,8 +947,9 @@ that. Its points, all worked in above:
 9. **The order of the three parts.** Astra advised building the money first and the pages last,
    with a switch on the server and not only a hidden section. Taken, as the founder's switch.
 
-Taken from its list of cuts: the warning to hosts about promising too much time, and any change
-to a running month. Kept, on its advice: the month-end rules, disputes kept on the month, pay-backs
+Taken from its list of cuts: the warning to hosts about promising too much time (since replaced
+by the founder's rule that members' time must fit in the host's hours), and any change to a
+running month. Kept, on its advice: the month-end rules, disputes kept on the month, pay-backs
 tried again, endings that cannot be lost, and the switch.
 
 **The founder's decision after this check (17 November 2026):** extra time during a member's
@@ -1022,6 +1068,13 @@ comes before the public launch.
   to a member and their calendar does not hold 100 hours in a month. That is now refused: the time
   included can never be more than the host's weekly hours offer in four weeks, checked when the
   offer is saved and whenever a month is about to start.
+- **Room is counted for all members together.** The founder's example: five members at 2 hours
+  each, and a host with 2 hours a month. Comparing each member alone with the host's hours would
+  have allowed that. The time of all members together now has to fit in the host's weekly hours.
+  The builder had argued for counting each member alone, since members seldom use all their time;
+  the founder's point was stronger, because unused time expires and the host would be paid for
+  time nobody could book. When hours are cut, the host can choose who is paused, as the founder
+  suggested, and otherwise the longest-standing members keep their place.
 
 ## Astra's check of the hold and of pausing (17 November 2026)
 
@@ -1047,3 +1100,23 @@ and the checks for resuming hold. Its points, all worked in above:
    confirmed taken.
 9. **"Costs nothing" was too absolute.** There is no card fee, but a bank may show a hold like a
    charge for days, and Stripe's optional checks can cost a few cents.
+
+## Astra's check of the rule on room (17 November 2026)
+
+Verdict: **ready with changes**. It advised keeping the count as it is: all weekly hours, times
+four, with open invitations counted. Its points, all worked in above:
+
+1. **Who keeps their place must not depend on whose renewal comes first.** It is now one
+   calculation, from the longest-standing member to the newest, in which only a member who fits
+   uses room.
+2. **What is already owed and who gets a next month are two questions.** Months that have started
+   always go on, so for a while a host can owe more than the hours hold. Invitations give way
+   before members.
+3. **One lock for everything that touches room**, the host's calendar lock, so the last place
+   cannot be given twice and not during a cut in hours. A hold that comes back after the hours
+   were cut is let go.
+4. **The member's stop and the host's stop are kept apart**, and each side undoes only its own.
+5. **An invitation is for one version of the offer** and is taken back when the offer changes.
+   Members are counted with their own agreed time.
+6. **How weekly hours are added up** is now exact: overlapping stretches once, by the clock, no
+   calendar meaning no room.
