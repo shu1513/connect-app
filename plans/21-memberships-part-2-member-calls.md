@@ -602,3 +602,8 @@ before the host's notice begins that only arrives after it is refused). The noti
 cancelling a member's call points to the payment instead of guessing what became of the time, and
 the page after a call says where returned time went at the time, not where it is now.
 
+**Fifth and closing check: all fixes confirmed, one sentence.** A month stays frozen when a dispute
+is lost, and the pages and emails said "until the bank has decided" for that case too. They now
+say that the month's payment is frozen because of a dispute, and that nothing of it moves while
+that lasts. With that corrected, Astra's last open point is closed.
+

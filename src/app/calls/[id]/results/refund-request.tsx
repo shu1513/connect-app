@@ -253,7 +253,7 @@ export async function RefundRequest(props: {
         <p className="mt-3 opacity-80">
           Waiting for {names.host}&apos;s answer.
           {frozen ? (
-            " Your bank is looking at a dispute over this month's membership payment. Until the bank has decided, nothing of that month moves, whatever the answer. An answer is carried out only if the bank decides in Connect's favour."
+            " This month's membership payment is frozen because of a dispute at your bank. While it is frozen, nothing of that month moves, whatever the answer. An answer is carried out only if the dispute is decided in Connect's favour."
           ) : view.answerBy ? (
             fromMembership ? (
               <>
@@ -287,7 +287,7 @@ export async function RefundRequest(props: {
               <input type="hidden" name="callId" value={call.id} />
               <p>
                 {frozen ? (
-                  "The member's bank is disputing this month's membership payment. Until the bank has decided, nothing of that month moves. You can answer now; your answer is carried out once the dispute is decided in Connect's favour."
+                  "This month's membership payment is frozen because of a dispute at the member's bank. While it is frozen, nothing of that month moves. You can answer now; your answer is carried out only if the dispute is decided in Connect's favour."
                 ) : fromMembership ? (
                   <>
                     Nothing has been used from the member&apos;s membership for this call yet.

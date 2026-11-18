@@ -927,7 +927,7 @@ async function main() {
     const membership = await MS(m.membershipId);
     check("a dispute ends the membership and cancels the upcoming member call", membership.status === "ended" && Boolean((await callOf(b.booking)).cancelledAt));
     check("the cancelled call's money stays set aside: only the disputed month is frozen, and all of it", (await pay(b.call)).status === "held" && (await places(m.monthId)) === "3000/3000/0/0/0/0", await places(m.monthId));
-    check("the member's email says the time stays where it is until the bank has decided", /stays where it is until the bank has decided/.test(await emailText(m.member.email, "Your call was cancelled")));
+    check("the member's email says the time stays where it is while the month is frozen", /stays where it is while that lasts/.test(await emailText(m.member.email, "Your call was cancelled")));
     await settle(a.call);
     await settleCancelledCalls(new Date());
     check("the call that took place is not settled either", (await pay(a.call)).status === "held" && (await places(m.monthId)) === "3000/3000/0/0/0/0");

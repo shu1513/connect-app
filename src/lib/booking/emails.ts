@@ -89,7 +89,7 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
         : memberMoney === "card"
           ? `The ${amount} of your membership that was set aside for it will be paid back to your card.`
           : memberMoney === "kept"
-            ? "This month's payment is disputed at your bank, so the time set aside for this call stays where it is until the bank has decided."
+            ? "This month's membership payment is frozen because of a dispute at your bank, so the time set aside for this call stays where it is while that lasts."
             : "";
     switch (event) {
       case "member_booked":

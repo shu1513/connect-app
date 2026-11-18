@@ -475,8 +475,8 @@ function Receipt(props: {
       {payment.disputeOpen && <p className="mt-3 text-sm text-amber-700">The customer&apos;s bank is disputing this charge.</p>}
       {props.monthFrozen && (
         <p className="mt-3 text-sm text-amber-700">
-          The member&apos;s bank is disputing the membership payment of this month. Until the bank has decided, nothing of that month moves: nothing is used, given
-          back, paid back or collected.
+          The membership payment of this month is frozen because of a dispute at the member&apos;s bank. While it is frozen, nothing of that month moves: nothing is
+          used, given back, paid back or collected.
         </p>
       )}
 

@@ -61,7 +61,7 @@ export async function queueRequestEmail(tx: Writer, call: CallRef, request: { id
   const how = await paidHow(tx, call.id);
   const deadline =
     how === "frozen"
-      ? "This call was paid from the customer's membership, and their bank is disputing that month's payment. Until the bank has decided, nothing of that month moves. You can answer on the call's page; your answer is carried out once the dispute is decided in Connect's favour."
+      ? "This call was paid from the customer's membership, and that month's payment is frozen because of a dispute at their bank. While it is frozen, nothing of that month moves. You can answer on the call's page; your answer is carried out only if the dispute is decided in Connect's favour."
       : how === "membership"
         ? money === "taken"
           ? "This call was paid from the customer's membership, and its time has already been used. You can give time back, or say no."
@@ -115,7 +115,7 @@ export async function queueAnswerEmail(tx: Writer, call: CallRef, request: { id:
   const how = await paidHow(tx, call.id);
   const membership =
     how === "frozen"
-      ? "\nThis call was paid from your membership, and your bank is looking at a dispute over that month's payment. Until the bank has decided, nothing of that month moves. The answer is carried out if the bank decides in Connect's favour.\n"
+      ? "\nThis call was paid from your membership, and that month's payment is frozen because of a dispute at your bank. While it is frozen, nothing of that month moves. The answer is carried out only if the dispute is decided in Connect's favour.\n"
       : how === "membership"
         ? "\nThis call was paid from your membership. What is not charged goes back to your membership as time, or to your card once that month can no longer be booked from.\n"
         : "";
