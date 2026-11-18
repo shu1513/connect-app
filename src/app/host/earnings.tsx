@@ -15,7 +15,9 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
   const collection = await lastCollectionOf(hostId);
   const would = wouldCollect(ready);
   const tooSoon = collection !== null && now < collection.againAt;
-  const calls = new Set(ready.map((e) => e.call.id)).size;
+  // Only what a call earned counts as "a call"; expired member time is listed in words below.
+  const calls = new Set(ready.flatMap((e) => (e.call ? [e.call.id] : []))).size;
+  const expired = ready.filter((e) => !e.call).length;
   // A press would be refused for this reason, so the button is not offered while it lasts (minutes).
   const waitForStripe = would !== null && payoutsReady && !tooSoon && (await disputeMessageWaiting());
 
@@ -25,7 +27,8 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
 
       <p className="mt-2">
         <span className="font-medium">Ready to collect: {formatMoney(sum(ready))}</span>
-        {calls > 0 && ` (from ${calls} ${calls === 1 ? "call" : "calls"})`}
+        {calls > 0 && ` (from ${calls} ${calls === 1 ? "call" : "calls"}${expired > 0 ? " and expired member time" : ""})`}
+        {calls === 0 && expired > 0 && " (from expired member time)"}
       </p>
       {ready.length > 0 && !would && (
         <p className="mt-1 opacity-80">That is not more than the 25-cent collection charge, so there is nothing to collect yet.</p>
@@ -58,11 +61,16 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
             {waiting.length === 1 ? "payment" : "payments"}; the reason is beside each)
           </summary>
           <ul className="mt-1 space-y-1">
-            {waiting.map(({ payment, call, shareCents, heldBack }) => (
+            {waiting.map(({ payment, call, month, shareCents, heldBack }) => (
               <li key={payment.id}>
-                <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
-                  Call on <LocalTime iso={call.startsAt.toISOString()} />
-                </Link>
+                {call ? (
+                  <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
+                    Call on <LocalTime iso={call.startsAt.toISOString()} />
+                  </Link>
+                ) : (
+                  // A membership month's unused time that expired: it has no call to link to.
+                  <span data-expired-time>Expired member time{month?.endsAt ? <>, month to <LocalTime iso={month.endsAt.toISOString()} /></> : null}</span>
+                )}
                 {payment.extensionId ? " (added time)" : ""}, {formatMoney(shareCents)}:{" "}
                 {heldBack === "dispute" ? (
                   "the customer's bank is disputing this charge"

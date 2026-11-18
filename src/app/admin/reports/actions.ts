@@ -2,6 +2,8 @@
 
 import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
+import { inArray } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { closeReport, liftPause, pauseAccount, ReportError, warn } from "@/lib/safety/reports";
@@ -71,4 +73,26 @@ export async function switchesAction(formData: FormData) {
   await setSwitches(values);
   await recordAdminAction({ adminId: admin.id, action: "stop switches set", detail: `new requests ${values.requestsOff ? "off" : "on"}; joining calls ${values.joiningOff ? "off" : "on"}` });
   back("The switches were saved.");
+}
+
+/** The memberships switch: off, on for the hosts named by their handle, or on for everyone. */
+export async function membershipsSwitchAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const chosen = String(formData.get("memberships") ?? "");
+  const position = chosen === "named" || chosen === "everyone" ? chosen : "off";
+  if (position !== "named") {
+    // Off (and everyone) are saved at once, whatever is typed in the list: switching off must never wait for a handle to be put right. The list stays as it was.
+    await setSwitches({ memberships: position });
+    const plain = position === "off" ? "off" : "on for everyone";
+    await recordAdminAction({ adminId: admin.id, action: "memberships switch set", detail: plain });
+    back(`Memberships are ${plain}.`);
+  }
+  const handles = [...new Set(String(formData.get("hosts") ?? "").split(/[\s,]+/).map((handle) => handle.replace(/^@/, "").toLowerCase()).filter(Boolean))];
+  const found = handles.length ? await db.select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.handle, handles)) : [];
+  const unknown = handles.filter((handle) => !found.some((host) => host.handle === handle));
+  if (unknown.length > 0) back(`No host has the handle ${unknown.join(", ")}. Nothing was changed.`);
+  await setSwitches({ memberships: position, membershipsHosts: found.map((host) => host.userId) });
+  const words = `on for ${found.length === 0 ? "nobody yet" : found.map((host) => host.handle).join(", ")}`;
+  await recordAdminAction({ adminId: admin.id, action: "memberships switch set", detail: words });
+  back(`Memberships are ${words}.`);
 }

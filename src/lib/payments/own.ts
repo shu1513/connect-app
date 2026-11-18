@@ -7,6 +7,21 @@
 import { and, asc, eq, isNull, type SQLWrapper } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
+import { MoneyError } from "./operations";
+
+/** A payment with its own hold and charge at Stripe, for a call. Every payment was one of these before memberships. */
+export type CardPayment = Payment & { kind: "card"; callId: string };
+
+/**
+ * The way into every piece of code that holds, charges, lets go or refunds a card. A payment that
+ * belongs to a membership's month ("member_call", "member_expired") has no hold and no charge of its
+ * own at Stripe, and must never be treated as if it had. Throws MoneyError for one, before anything
+ * is asked of Stripe.
+ */
+export function cardPayment(payment: Payment): CardPayment {
+  if (payment.kind !== "card" || payment.callId === null) throw new MoneyError("This payment is part of a membership, not a card payment.");
+  return payment as CardPayment;
+}
 
 /**
  * The condition for joining the payments table as "this call's own payment".

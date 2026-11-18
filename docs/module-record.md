@@ -1104,3 +1104,73 @@ Also fixed: one check in the notifications script depended on how fast the compu
 - **In Stripe (module 11):** confirm the real card fee and that the name on card statements says Connect. (An email to the customer when a hold is placed on their card: the founder decided on 15 November 2026 not to send one.)
 - **Hosts' money that nobody collects (module 12):** the founder decided on 15 November 2026 not to send it automatically. Still to ask: the lawyer, about holding hosts' money for a long time, and Stripe, about how long money earned by hosts may stay in Connect's balance.
 - **Putting module 12 live:** stop the always-on helper first, then update it together with the app, so the old weekly payday and the new button never run side by side.
+
+## Memberships, part one, 1a: the money of a membership that exists (pull request 34, 18 November 2026)
+
+The first of six pull requests. The founder's switch is off, so nobody can see or buy anything.
+Nothing that makes a membership exists yet (that is 1b); the check script puts its test
+memberships straight into the local database.
+
+**What it does**
+- A month of a membership gets exactly one payment at Stripe, written down before Stripe is
+  asked. First the amount is only held; it is taken at the member's first booking or 72 hours and
+  3 minutes after the hold.
+- A saved card that fails is tried again after 1, 3 and 5 days; after 7 days the payment is given
+  up and the membership paused. A bank that wants the member's own approval counts as a failure,
+  and the member pays by hand.
+- From the moment the money is taken, every cent of a month is in one of six places (free, set
+  aside, used, expired, to be paid back, paid back), and the database refuses a month whose
+  places do not add up.
+- At a month's end the unused time expires to the host (she collects it with "Collect earnings",
+  24 hours later), time that came back because of the host is paid back to the card, and in the
+  same step the next month is written down or the membership paused.
+- Paying back is owed once and tried as often as needed.
+- A bank dispute freezes the month and ends the membership. The helper asks Stripe about every
+  open dispute once an hour.
+- Today's app knows a membership exists: a block, a paused or closed account and a suspended
+  host end it in the same step; the regular price cannot go below the member price; weekly hours
+  cannot be cut below what members need; a card belongs to a booking or to a membership, never
+  both.
+- The founder's switch has its form on "Reports and safety": off, on for named hosts, on for
+  everyone. The health check and the admin page have the new lines.
+
+**Where it is**
+- `src/lib/membership/`: `rules.ts` (the plain rules, with tests), `months.ts` (the six places),
+  `charge.ts` (the monthly payment), `payback.ts`, `close.ts` (month end and renewal),
+  `state.ts` and `ending.ts` (pausing, ending, disputes), `cards.ts`, `room.ts`, `recover.ts`,
+  `jobs.ts`, `health.ts`, `emails.ts`, `locks.ts`.
+- `drizzle/0027_memberships.sql`. Changed: `src/lib/payments/` (a month as a second owner of
+  money actions; a payment's kind; collecting), `src/lib/booking/` (cards, weekly hours),
+  `src/lib/profiles/`, `src/lib/safety/`, `worker/closer.ts`, the admin pages.
+
+**How it was checked**
+- `scripts/membership-check.ts`, against Stripe's test area: 21 journeys, about 270 checks. After
+  each journey it compares the month's books with every payment Stripe holds for the member,
+  every refund and the money record. Two journeys use real bank disputes (one lost, one won).
+  Run it with `--payouts --long` for collecting and for the search through more than 100 refunds.
+- Broken on purpose, one at a time, and the script failed each time: the month-end pay-back,
+  collecting before the money has expired, a second payment for one month.
+- The twelve existing check scripts, `tsc`, `eslint`, `vitest` and the build pass.
+- Astra reviewed the code three times (not ready, not ready, ready). The finding that mattered
+  most: after a cut in hours, closing the older member's month first could have paused the wrong
+  member. All findings are at the end of `plans/20-memberships-part-1-the-money.md`.
+- CodeRabbit: about 47 comments. About half were taken. The ones that mattered most: a hold placed
+  after the 7 days was still accepted if the helper had been down; and a failed look-up at Stripe
+  could be recorded as "Stripe refused", also in the existing recovery of transfers and refunds
+  for calls. What was not taken, and why, is at the end of plan 20.
+
+**Found by testing against Stripe.** Stripe refuses a try in the background on a saved card while
+the payment is still marked "keep this card for later". The try now takes that mark off, and
+"Pay now" puts it back.
+
+**Open points**
+- A bank's question that never becomes a dispute (an inquiry) ends the membership today, like a
+  dispute. The founder decides before the switch goes on whether that is wanted.
+- A refund that Stripe first reports as gone through and later as failed is not handled, for
+  memberships as for calls today.
+- A second dispute on a charge whose first dispute was already won, and which is itself opened
+  and won before any message about it is handled, does not end a later membership of the same two.
+- The admin page lists expired member time in a host's uncollected total, not as a row of its own
+  under "All payments". The founder's membership page (part three) will.
+- `scripts/stripe-webhook-setup.ts` now asks for two more kinds of message. It has to be run
+  again before memberships are tried through the browser (part three).

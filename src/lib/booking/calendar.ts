@@ -8,6 +8,9 @@ import { db, schema } from "@/db";
 import type { HostCalendar } from "@/db/schema";
 import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, NOTICE_CHOICES_HOURS } from "./rules";
 import { isCalendarZone } from "./slots";
+import { lockCalendar } from "@/lib/membership/locks";
+import { hostMinutes, minutesMembersNeed } from "@/lib/membership/room";
+import { timeWords } from "@/lib/membership/rules";
 
 /** A problem the host can fix. Its message is safe to show them. */
 export class CalendarError extends Error {}
@@ -59,15 +62,35 @@ export async function addWeeklyHours(userId: string, input: { weekday: number; f
   if (start === null || typedEnd === null) throw new CalendarError("Enter both times, for example 18:00 and 21:00.");
   const end = typedEnd === 0 ? 1440 : typedEnd;
   if (end <= start) throw new CalendarError("The end must be later than the start. To go past midnight, add the rest on the next day.");
-  const sameDay = await db.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.weekday, input.weekday)));
-  if (sameDay.some((h) => start < h.endMinute && end > h.startMinute)) throw new CalendarError("Those hours overlap hours you already have on that day.");
-  if (sameDay.length >= 6) throw new CalendarError("That is a lot of separate hours for one day. Remove some first.");
-  await db.insert(schema.weeklyHours).values({ hostId: userId, weekday: input.weekday, startMinute: start, endMinute: end });
+  // Every change of weekly hours is one step under the host's calendar lock, the lock a booking and a
+  // membership take, so hours cannot change while a time is being booked or a place is being given.
+  await db.transaction(async (tx) => {
+    await lockCalendar(tx, userId);
+    const sameDay = await tx.select().from(schema.weeklyHours).where(and(eq(schema.weeklyHours.hostId, userId), eq(schema.weeklyHours.weekday, input.weekday)));
+    if (sameDay.some((h) => start < h.endMinute && end > h.startMinute)) throw new CalendarError("Those hours overlap hours you already have on that day.");
+    if (sameDay.length >= 6) throw new CalendarError("That is a lot of separate hours for one day. Remove some first.");
+    await tx.insert(schema.weeklyHours).values({ hostId: userId, weekday: input.weekday, startMinute: start, endMinute: end });
+  });
 }
 
+/**
+ * Removes a stretch of weekly hours. Refused when it would leave less than the host's members
+ * need for their next months (the rulebook's "When a host later offers fewer hours"; the step in
+ * which the host chooses what happens to her members comes with the membership pages).
+ */
 export async function removeWeeklyHours(userId: string, id: string): Promise<void> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
-  await db.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, id), eq(schema.weeklyHours.hostId, userId)));
+  await db.transaction(async (tx) => {
+    await lockCalendar(tx, userId);
+    await tx.delete(schema.weeklyHours).where(and(eq(schema.weeklyHours.id, id), eq(schema.weeklyHours.hostId, userId)));
+    const needed = await minutesMembersNeed(tx, userId);
+    if (needed === 0) return;
+    const left = await hostMinutes(tx, userId);
+    if (left < needed) {
+      // Thrown inside the step, so the hours stay as they were.
+      throw new CalendarError(`Your members' time would no longer fit: together they have ${timeWords(needed)} a month, and your weekly hours would offer ${timeWords(left)}. Pause a member's renewal first, or keep more hours.`);
+    }
+  });
 }
 
 /** A date-and-time typed by the host ("2026-12-24T09:00"), read in their calendar's time zone. */

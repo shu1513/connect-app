@@ -343,11 +343,13 @@ async function main() {
       await verified(host.id);
       const cust = await person("cust7");
       await verified(cust.id);
+      // The memberships switch is not this script's to change: it must read back exactly as it was.
+      const membershipsBefore = await switches();
       await setSwitches({ requestsOff: true, joiningOff: false });
       check("with new requests switched off, nobody can ask", (await ask(cust, host.id, (await slotsOf(host.id))[0]).catch((e) => e.message))?.includes("not taking new requests"));
       await setSwitches({ requestsOff: false, joiningOff: false });
       check("switched back on, asking works again", (await ask(cust, host.id, (await slotsOf(host.id))[0])).booking.stage === "waiting");
-      check("the switches read back as saved", JSON.stringify(await switches()) === JSON.stringify({ requestsOff: false, joiningOff: false }));
+      check("the two stop switches read back as saved, and the memberships switch is as it was", JSON.stringify(await switches()) === JSON.stringify({ requestsOff: false, joiningOff: false, memberships: membershipsBefore.memberships, membershipsHosts: membershipsBefore.membershipsHosts }));
     }
   } finally {
     await setSwitches({ requestsOff: false, joiningOff: false });

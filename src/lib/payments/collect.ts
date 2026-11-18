@@ -11,9 +11,10 @@
  * reaches more than 23 hours later is not repeated. If Stripe never made it,
  * that share is ready again for the host's next collection.
  */
-import { and, asc, desc, eq, inArray, isNull, like, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, lte, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { Call, Payment } from "@/db/schema";
+import type { Call, MembershipMonth, Payment } from "@/db/schema";
+import { isFrozen } from "@/lib/membership/rules";
 import { applyTransferSent, currentSplit, transferSteps, type TransferParams } from "./actions";
 import { requestHolds } from "@/lib/refunds/requests";
 import { refreshPayoutsReady } from "./hosts";
@@ -58,18 +59,22 @@ async function heldBackNow(reader: Reader, payments: Payment[], now: Date): Prom
     .where(and(inArray(schema.moneyOperations.paymentId, ids), eq(schema.moneyOperations.status, "started")));
   const refunding = new Set(refunds.map((r) => r.paymentId));
   const busy = new Set(unfinished.map((o) => o.paymentId));
-  // A refund request that is not answered holds every charge of its call.
-  const requests = await requestHolds(reader, [...new Set(payments.map((p) => p.callId))]);
+  // A refund request that is not answered holds every charge of its call. (Expired member time has no call, and no request.)
+  const requests = await requestHolds(reader, [...new Set(payments.flatMap((p) => (p.callId ? [p.callId] : [])))]);
+  // Money of a membership's month whose bank dispute is open or lost is held back like a disputed charge.
+  const monthIds = [...new Set(payments.flatMap((p) => (p.monthId ? [p.monthId] : [])))];
+  const months = monthIds.length > 0 ? await reader.select({ id: schema.membershipMonths.id, dispute: schema.membershipMonths.dispute }).from(schema.membershipMonths).where(inArray(schema.membershipMonths.id, monthIds)) : [];
+  const frozen = new Set(months.filter(isFrozen).map((m) => m.id));
   return new Map(
     payments.map((p) => [
       p.id,
       heldBack({
         now,
         readyAt: p.transferDueAt,
-        disputeOpen: p.disputeOpen,
+        disputeOpen: p.disputeOpen || (p.monthId !== null && frozen.has(p.monthId)),
         refundOnItsWay: refunding.has(p.id),
         actionUnfinished: busy.has(p.id),
-        request: requests.get(p.callId) ?? null,
+        request: p.callId ? (requests.get(p.callId) ?? null) : null,
       }),
     ]),
   );
@@ -93,6 +98,12 @@ export async function disputeMessageWaiting(reader: Reader = db): Promise<boolea
 // ---------------------------------------------------------------------------
 
 type StartedTransfer = StartedOperation<TransferParams> & { paymentId: string };
+
+/**
+ * Whose money a payment is: the host of its call or, for a payment without a call (expired member
+ * time), the host of its month's membership. Used with the three joins below, always together.
+ */
+const hostOfPayment = sql<string>`coalesce(${schema.calls.hostId}, ${schema.memberships.hostId})`;
 
 /**
  * The locked step. With the host's row locked, so that two presses at once
@@ -145,18 +156,25 @@ export async function acceptCollection(input: {
 
     // Lock every share that might be taken, always in the same order, then judge each as it stands now.
     const candidates = await tx
-      .select({ id: schema.payments.id, callId: schema.payments.callId })
+      .select({ id: schema.payments.id, callId: schema.payments.callId, monthId: schema.payments.monthId })
       .from(schema.payments)
-      .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-      .where(and(eq(schema.calls.hostId, input.hostId), UNSENT, lte(schema.payments.transferDueAt, now)))
+      .leftJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+      .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
+      .leftJoin(schema.memberships, eq(schema.memberships.id, schema.membershipMonths.membershipId))
+      .where(and(sql`${hostOfPayment} = ${input.hostId}`, UNSENT, lte(schema.payments.transferDueAt, now)))
       .orderBy(schema.payments.id);
-    // The order of locks is the same everywhere: this host's collection, then the calls, then their payments,
-    // then request and refund records. So whether a call has an unanswered refund request is read with that
-    // call locked, in the same step that starts its transfer.
-    const callIds = [...new Set(candidates.map((c) => c.callId))];
+    // The order of locks is the same everywhere: this host's collection, then membership months, then the
+    // calls, then their payments, then request and refund records. So whether a month is under a bank dispute,
+    // and whether a call has an unanswered refund request, is read with that month and that call locked, in
+    // the same step that starts the transfer.
+    const monthIds = [...new Set(candidates.flatMap((c) => (c.monthId ? [c.monthId] : [])))];
+    if (monthIds.length > 0) await tx.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(inArray(schema.membershipMonths.id, monthIds)).orderBy(asc(schema.membershipMonths.id)).for("update");
+    const callIds = [...new Set(candidates.flatMap((c) => (c.callId ? [c.callId] : [])))];
     if (callIds.length > 0) await tx.select({ id: schema.calls.id }).from(schema.calls).where(inArray(schema.calls.id, callIds)).orderBy(asc(schema.calls.id)).for("update");
     const locked: Payment[] = [];
     for (const { id } of candidates) locked.push(await lockPayment(tx, id));
+    // Looked at again now that the locks are held: a dispute message may have come in while we waited for them.
+    if (await disputeMessageWaiting(tx)) throw new MoneyError(DISPUTE_MESSAGE_WAITING);
     const judged = await heldBackNow(tx, locked, now);
     const ready = locked
       .filter((p) => p.status === "charged" && (p.transferStatus === "not_due" || p.transferStatus === "due") && p.stripeChargeId)
@@ -177,7 +195,8 @@ export async function acceptCollection(input: {
     const started: StartedTransfer[] = [];
     for (const [index, { payment }] of ready.entries()) {
       const { amountCents, payoutFeeCents } = amounts[index];
-      const params: TransferParams = { amountCents, payoutFeeCents, destination, callId: payment.callId };
+      // Money of a membership's month is grouped under the month, as its charge is; a card payment under its call.
+      const params: TransferParams = { amountCents, payoutFeeCents, destination, group: payment.monthId ?? payment.callId! };
       const operation = await startMoneyOperation(tx, {
         paymentId: payment.id,
         kind: "transfer",
@@ -279,18 +298,24 @@ export async function collectForClosedHost(input: { collectionId: string; hostId
 // What a host, and the founder, are shown
 // ---------------------------------------------------------------------------
 
-export type Earning = { payment: Payment; call: Call; shareCents: number; heldBack: HeldBack | null };
+/**
+ * A share that was earned and not yet sent. `call` is the call it is for; expired member time has
+ * none, and `month` is then the membership month it expired from. `hostId` is whose money it is.
+ */
+export type Earning = { payment: Payment; call: Call | null; month: MembershipMonth | null; hostId: string; shareCents: number; heldBack: HeldBack | null };
 
 /** Every share that was charged and not yet sent: one host's, or everybody's for the founder. */
 export async function unsentEarnings(now: Date, hostId?: string): Promise<Earning[]> {
   const rows = await db
-    .select({ payment: schema.payments, call: schema.calls })
+    .select({ payment: schema.payments, call: schema.calls, month: schema.membershipMonths, hostId: hostOfPayment })
     .from(schema.payments)
-    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(hostId ? and(eq(schema.calls.hostId, hostId), UNSENT) : UNSENT)
+    .leftJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
+    .leftJoin(schema.memberships, eq(schema.memberships.id, schema.membershipMonths.membershipId))
+    .where(hostId ? and(sql`${hostOfPayment} = ${hostId}`, UNSENT) : UNSENT)
     .orderBy(schema.payments.transferDueAt);
   const judged = await heldBackNow(db, rows.map((row) => row.payment), now);
-  return rows.map(({ payment, call }) => ({ payment, call, shareCents: currentSplit(payment).hostShareCents, heldBack: judged.get(payment.id) ?? null }));
+  return rows.map(({ payment, call, month, hostId: owner }) => ({ payment, call, month, hostId: owner, shareCents: currentSplit(payment).hostShareCents, heldBack: judged.get(payment.id) ?? null }));
 }
 
 /** What pressing the button now would send, after the collection charge. Null when there would be no collection. */

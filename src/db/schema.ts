@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
@@ -304,6 +305,13 @@ export const siteSwitches = pgTable("site_switches", {
   id: integer("id").primaryKey(),
   requestsOff: boolean("requests_off").notNull().default(false),
   joiningOff: boolean("joining_off").notNull().default(false),
+  /**
+   * Memberships: "off", "named" (on for the hosts in membershipsHosts only) or "everyone".
+   * Three words and not a yes/no with a list, so that an empty list can never mean "everyone".
+   */
+  memberships: text("memberships").notNull().default("off"),
+  /** The account IDs of the hosts the founder named, separated by commas. Only read when memberships is "named". */
+  membershipsHosts: text("memberships_hosts").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -688,14 +696,26 @@ export const adminActions = pgTable(
  * Code that means "the payment of this call" must say "extensionId is null"
  * (see ownPaymentOn in src/lib/payments/own.ts). The database refuses a second
  * own payment for a call.
+ *
+ * Every payment has a kind:
+ *   card            a payment with its own hold and charge at Stripe (every payment before memberships)
+ *   member_call     a part of a membership's month, set aside for one call, then used or given back
+ *   member_expired  the part of a month that expired unused; it has no call
+ * A payment that is not "card" never has a PaymentIntent of its own and must never reach the code
+ * that holds, charges or refunds a card (see cardPayment in src/lib/payments/own.ts).
  */
 export const payments = pgTable(
   "payments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    callId: uuid("call_id")
-      .notNull()
-      .references(() => calls.id),
+    /** The call this payment is for. Only a "member_expired" payment has none. */
+    callId: uuid("call_id").references(() => calls.id),
+    /** card, member_call or member_expired. */
+    kind: text("kind").notNull().default("card"),
+    /** The membership month this money belongs to. Null for a card payment. */
+    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
+    /** For a member_call payment: how much of the amount set aside was money that had come back because of the host. */
+    hostCausedCents: integer("host_caused_cents").notNull().default(0),
     /** Null for the call's own payment. Otherwise the request for more time this payment is for. */
     extensionId: uuid("extension_id")
       .unique()
@@ -770,8 +790,18 @@ export const payments = pgTable(
     index("payments_status_idx").on(t.status),
     index("payments_transfer_idx").on(t.transferStatus),
     index("payments_call_idx").on(t.callId),
+    index("payments_month_idx").on(t.monthId),
     // One own payment per call.
     uniqueIndex("payments_own_call_uq").on(t.callId).where(sql`${t.extensionId} is null`),
+    // One "expired time" payment per month.
+    uniqueIndex("payments_expired_month_uq").on(t.monthId).where(sql`${t.kind} = 'member_expired'`),
+    check(
+      "payments_kind_shape",
+      sql`(${t.kind} = 'card' and ${t.callId} is not null and ${t.monthId} is null)
+        or (${t.kind} = 'member_call' and ${t.callId} is not null and ${t.monthId} is not null)
+        or (${t.kind} = 'member_expired' and ${t.callId} is null and ${t.monthId} is not null)`,
+    ),
+    check("payments_host_caused_range", sql`${t.hostCausedCents} >= 0`),
   ],
 );
 
@@ -807,9 +837,9 @@ export const moneyOperations = pgTable(
   "money_operations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    paymentId: uuid("payment_id")
-      .notNull()
-      .references(() => payments.id),
+    /** The owner is a payment or a membership month: exactly one of the two. */
+    paymentId: uuid("payment_id").references(() => payments.id),
+    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
     /** hold, capture, release, refund or transfer. */
     kind: text("kind").notNull(),
     /** The fixed label for this action. Sent to Stripe as the idempotency key. */
@@ -823,7 +853,15 @@ export const moneyOperations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
-  (t) => [index("money_operations_payment_idx").on(t.paymentId), index("money_operations_status_idx").on(t.status)],
+  (t) => [
+    index("money_operations_payment_idx").on(t.paymentId),
+    index("money_operations_month_idx").on(t.monthId),
+    index("money_operations_status_idx").on(t.status),
+    check("money_operations_one_owner", sql`(${t.paymentId} is null) <> (${t.monthId} is null)`),
+    // One action in flight per owner. The code checks it under the owner's lock; this is the database's own word.
+    uniqueIndex("money_operations_payment_started_uq").on(t.paymentId).where(sql`${t.status} = 'started' and ${t.paymentId} is not null`),
+    uniqueIndex("money_operations_month_started_uq").on(t.monthId).where(sql`${t.status} = 'started' and ${t.monthId} is not null`),
+  ],
 );
 
 /**
@@ -1044,9 +1082,9 @@ export const ledgerEntries = pgTable(
   "ledger_entries",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    paymentId: uuid("payment_id")
-      .notNull()
-      .references(() => payments.id),
+    /** The owner is a payment or a membership month: exactly one of the two. */
+    paymentId: uuid("payment_id").references(() => payments.id),
+    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
     /** customer_charge, customer_refund, platform_fee, host_share, host_transfer, payout_fee, hold_released. */
     kind: text("kind").notNull(),
     /** Positive adds, negative takes away. */
@@ -1056,7 +1094,11 @@ export const ledgerEntries = pgTable(
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("ledger_entries_payment_idx").on(t.paymentId)],
+  (t) => [
+    index("ledger_entries_payment_idx").on(t.paymentId),
+    index("ledger_entries_month_idx").on(t.monthId),
+    check("ledger_entries_one_owner", sql`(${t.paymentId} is null) <> (${t.monthId} is null)`),
+  ],
 );
 
 /** Messages from Stripe, saved as received. The ID is Stripe's own, so repeats are ignored. */
@@ -1069,11 +1111,332 @@ export const stripeEvents = pgTable("stripe_events", {
   processedAt: timestamp("processed_at", { withTimezone: true }),
 });
 
+// ---------------------------------------------------------------------------
+// Memberships (plans/19-memberships.md is the rulebook; plans/20 says how this part is built).
+// A member pays a host a monthly amount that is talk time with that host.
+// ---------------------------------------------------------------------------
+
+/** The one membership a host offers. */
+export const membershipOffers = pgTable(
+  "membership_offers",
+  {
+    hostId: text("host_id")
+      .primaryKey()
+      .references(() => user.id),
+    on: boolean("on").notNull().default(false),
+    /** The member price in cents per 15 minutes. Never above the host's regular price. */
+    pricePer15Cents: integer("price_per_15_cents").notNull(),
+    /** The time included each month. */
+    includedMinutes: integer("included_minutes").notNull(),
+    /** Goes up with every change. An invitation and an agreement say which version they were for. */
+    version: integer("version").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("membership_offers_price", sql`${t.pricePer15Cents} >= 500`),
+    check("membership_offers_minutes", sql`${t.includedMinutes} between 30 and 6000 and ${t.includedMinutes} % 30 = 0`),
+  ],
+);
+
+/**
+ * One host and one customer. Where it stands (status):
+ *   invited   the host has invited this person; nothing is paid
+ *   joining   the person pressed "Join" or "Resume" and is at the card step
+ *   active    a month is held or running
+ *   unpaid    the month's payment failed and is being tried again; no member time
+ *   paused    no month and no payment; the member can resume without a new invitation
+ *   ended     over for good; coming back needs a new invitation, which makes a new row
+ *
+ * "The renewal is stopped" is not a status: it is memberStoppedAt and hostStoppedAt, two separate
+ * marks, each cleared only by its own side.
+ *
+ * period and currentMonthId keep old work away from a resumed membership: period goes up at every
+ * joining and resuming, and only the month in currentMonthId may change the membership's state.
+ * An older month still settles its own money. The one exception is a bank dispute, which ends the
+ * pair's live membership whichever month it is about.
+ */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id),
+    status: text("status").notNull(),
+    period: integer("period").notNull().default(0),
+    /** The one month that may change this membership's state. No foreign key: months point here already. */
+    currentMonthId: uuid("current_month_id"),
+    /** The last joining or resuming. "Who has been there longest" counts from here. */
+    since: timestamp("since", { withTimezone: true }),
+    /** The member's own price and time for the next month that is written down. The price only ever goes down. */
+    ownPricePer15Cents: integer("own_price_per_15_cents"),
+    ownMinutes: integer("own_minutes"),
+    /** The agreement that applies now (membership_agreements). No foreign key: agreements point here already. */
+    agreementId: uuid("agreement_id"),
+    memberStoppedAt: timestamp("member_stopped_at", { withTimezone: true }),
+    hostStoppedAt: timestamp("host_stopped_at", { withTimezone: true }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pausedReason: text("paused_reason"),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** host, admin, or the account ID of whoever caused it. */
+    endedBy: text("ended_by"),
+    endedReason: text("ended_reason"),
+    /** Set once the clean-up after an ending is finished: open payment cancelled, free money owed back, upcoming member calls cancelled. */
+    cleanupDoneAt: timestamp("cleanup_done_at", { withTimezone: true }),
+    // The open invitation.
+    inviteId: uuid("invite_id"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
+    inviteOfferVersion: integer("invite_offer_version"),
+    inviteMinutes: integer("invite_minutes"),
+    // The open offer of less time.
+    offerId: uuid("offer_id"),
+    offerMonthId: uuid("offer_month_id"),
+    offeredMinutes: integer("offered_minutes"),
+    offeredAt: timestamp("offered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One live membership per host and customer. A new invitation after an ending makes a new row.
+    uniqueIndex("memberships_live_pair_uq").on(t.hostId, t.customerId).where(sql`${t.status} <> 'ended'`),
+    index("memberships_customer_idx").on(t.customerId),
+    index("memberships_host_status_idx").on(t.hostId, t.status),
+    check("memberships_status", sql`${t.status} in ('invited', 'joining', 'active', 'unpaid', 'paused', 'ended')`),
+  ],
+);
+
+/** One line per invitation sent, for the limit on inviting the same person and for the record. */
+export const membershipInvitations = pgTable(
+  "membership_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id),
+    membershipId: uuid("membership_id")
+      .notNull()
+      .references(() => memberships.id),
+    inviteId: uuid("invite_id").notNull().unique(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    /** open, accepted, taken_back, ran_out or replaced. */
+    outcome: text("outcome").notNull().default("open"),
+  },
+  (t) => [index("membership_invitations_pair_idx").on(t.hostId, t.customerId, t.sentAt)],
+);
+
+/** What a member agreed to, and when. Lines are only ever added. */
+export const membershipAgreements = pgTable(
+  "membership_agreements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    membershipId: uuid("membership_id")
+      .notNull()
+      .references(() => memberships.id),
+    /** Made when the form was shown, so the same press twice makes one agreement. */
+    requestId: uuid("request_id").notNull().unique(),
+    /** joined, resumed, less_time or price_lowered. */
+    kind: text("kind").notNull(),
+    offerVersion: integer("offer_version").notNull(),
+    pricePer15Cents: integer("price_per_15_cents").notNull(),
+    minutes: integer("minutes").notNull(),
+    cardWordingVersion: text("card_wording_version"),
+    /** The first month this applies to. */
+    firstMonthNumber: integer("first_month_number").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("membership_agreements_membership_idx").on(t.membershipId),
+    check("membership_agreements_kind", sql`${t.kind} in ('joined', 'resumed', 'less_time', 'price_lowered')`),
+  ],
+);
+
+/**
+ * Every card ever saved for a membership. The card in use is the one that is not retired. A
+ * retired card is detached at Stripe once nothing open needs it, and only then marked removed.
+ * A card that was ever retired is never taken into use again.
+ */
+export const membershipCards = pgTable(
+  "membership_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    membershipId: uuid("membership_id")
+      .notNull()
+      .references(() => memberships.id),
+    stripePaymentMethodId: text("stripe_payment_method_id").notNull().unique(),
+    savedAt: timestamp("saved_at", { withTimezone: true }).notNull(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("membership_cards_in_use_uq").on(t.membershipId).where(sql`${t.retiredAt} is null`)],
+);
+
+/**
+ * Every card a booking ever saved, kept after the card itself is removed. A booking forgets its
+ * card when it is removed; this line stays, so a membership can always tell that a card was a
+ * booking's and never take it as its own.
+ */
+export const bookingCards = pgTable("booking_cards", {
+  stripePaymentMethodId: text("stripe_payment_method_id").primaryKey(),
+  // Nothing in the app ever deletes a booking; the check scripts delete their own, and these lines go with them.
+  bookingId: uuid("booking_id")
+    .notNull()
+    .references(() => bookings.id, { onDelete: "cascade" }),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+});
+
+/**
+ * One month of a membership, written down before its payment is tried. Where it stands (status):
+ *   to_pay    written down; no hold yet (the first try, or tries after a failure)
+ *   held      the hold is in place; the member has their time; no money is in any place
+ *   running   the whole amount is confirmed taken; the six places are filled
+ *   closed    past its end: no new bookings; calls not settled yet keep their money set aside
+ *   finished  nothing set aside, nothing owed back
+ *   given_up  it never became money (endedHow says why)
+ *
+ * The six places (free, set aside, used, expired, to be paid back, paid back) always add up to
+ * totalCents for a running, closed or finished month and are all zero otherwise. The database
+ * itself refuses anything else. Two places that change together change in one statement.
+ */
+export const membershipMonths = pgTable(
+  "membership_months",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    membershipId: uuid("membership_id")
+      .notNull()
+      .references(() => memberships.id),
+    /** The membership's period this month belongs to. */
+    period: integer("period").notNull(),
+    number: integer("number").notNull(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => membershipAgreements.id),
+    /** agreement:<id>, renewal:<month id> or replacement:<month id>: makes each month exist once. */
+    originKey: text("origin_key").notNull().unique(),
+    pricePer15Cents: integer("price_per_15_cents").notNull(),
+    includedMinutes: integer("included_minutes").notNull(),
+    totalCents: integer("total_cents").notNull(),
+    feePercentBps: integer("fee_percent_bps").notNull(),
+    feeFixedCents: integer("fee_fixed_cents").notNull(),
+    feeForeignCardBps: integer("fee_foreign_card_bps").notNull(),
+    status: text("status").notNull().default("to_pay"),
+    /** Written before a PaymentIntent is cancelled: cancel_now, given_up, ending, card_step, no_room, hold_lost or cancelled_at_stripe. */
+    endedHow: text("ended_how"),
+    /** Set when Stripe reports something that needs the founder. Such a month gives no time and nothing is tried on it. */
+    problem: text("problem"),
+    /** For a month started by a person at a card form: the hold must be in place by then. */
+    cardStepExpiresAt: timestamp("card_step_expires_at", { withTimezone: true }),
+    /** The one claim to create this month's PaymentIntent: written once, never changed. */
+    intentRequestedAt: timestamp("intent_requested_at", { withTimezone: true }),
+    intentRequest: text("intent_request"),
+    stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
+    stripeChargeId: text("stripe_charge_id"),
+    cardId: uuid("card_id").references(() => membershipCards.id),
+    cardCountry: text("card_country"),
+    /** The bank's own time for the hold. The month starts here. */
+    authorisedAt: timestamp("authorised_at", { withTimezone: true }),
+    holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    /** When the held money is taken if no booking takes it sooner. */
+    takeAt: timestamp("take_at", { withTimezone: true }),
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+    /** What Stripe really took. Differs from totalCents only in the case that goes to the founder. */
+    takenCents: integer("taken_cents"),
+    /** Numbers the saved-card tries of this month. Goes up when a try is recorded as failed. */
+    try: integer("try").notNull().default(1),
+    firstFailedAt: timestamp("first_failed_at", { withTimezone: true }),
+    nextTryAt: timestamp("next_try_at", { withTimezone: true }),
+    giveUpAt: timestamp("give_up_at", { withTimezone: true }),
+    /** The bank wants the member's own approval. */
+    needsAction: boolean("needs_action").notNull().default(false),
+    freeCents: integer("free_cents").notNull().default(0),
+    setAsideCents: integer("set_aside_cents").notNull().default(0),
+    usedCents: integer("used_cents").notNull().default(0),
+    expiredCents: integer("expired_cents").notNull().default(0),
+    toPayBackCents: integer("to_pay_back_cents").notNull().default(0),
+    paidBackCents: integer("paid_back_cents").notNull().default(0),
+    /** The part of freeCents that came back because of the host. Paid back, not expired, at the month's end. */
+    hostCausedCents: integer("host_caused_cents").notNull().default(0),
+    /** The month's fixed 30 cents is placed once, on the first amount that is used or expires. */
+    fixedFeePlaced: boolean("fixed_fee_placed").notNull().default(false),
+    /** none, open, won or lost. Open and lost freeze the month. */
+    dispute: text("dispute").notNull().default("none"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("membership_months_number_uq").on(t.membershipId, t.number),
+    index("membership_months_membership_idx").on(t.membershipId),
+    index("membership_months_status_idx").on(t.status),
+    check("membership_months_status", sql`${t.status} in ('to_pay', 'held', 'running', 'closed', 'finished', 'given_up')`),
+    check("membership_months_dispute", sql`${t.dispute} in ('none', 'open', 'won', 'lost')`),
+    check("membership_months_given_up_why", sql`${t.status} <> 'given_up' or ${t.endedHow} is not null`),
+    check(
+      "membership_months_not_negative",
+      sql`${t.freeCents} >= 0 and ${t.setAsideCents} >= 0 and ${t.usedCents} >= 0 and ${t.expiredCents} >= 0 and ${t.toPayBackCents} >= 0 and ${t.paidBackCents} >= 0 and ${t.hostCausedCents} >= 0 and ${t.totalCents} > 0`,
+    ),
+    check(
+      "membership_months_places_add_up",
+      sql`(${t.status} in ('running', 'closed', 'finished') and ${t.freeCents} + ${t.setAsideCents} + ${t.usedCents} + ${t.expiredCents} + ${t.toPayBackCents} + ${t.paidBackCents} = ${t.totalCents})
+        or (${t.status} in ('to_pay', 'held', 'given_up') and ${t.freeCents} + ${t.setAsideCents} + ${t.usedCents} + ${t.expiredCents} + ${t.toPayBackCents} + ${t.paidBackCents} = 0)`,
+    ),
+    check("membership_months_host_caused_in_free", sql`${t.hostCausedCents} <= ${t.freeCents}`),
+  ],
+);
+
+/**
+ * One line per pay-back OWED to a member's card from a month. Owing happens once (sourceKey names
+ * the one event that owes it); the tries to send it are money actions of the month, numbered by
+ * attempt. owed: not at Stripe (never tried, or the last try failed). at_stripe: Stripe accepted
+ * it and has not finished. done: the money has gone back.
+ */
+export const membershipRefunds = pgTable(
+  "membership_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    monthId: uuid("month_id")
+      .notNull()
+      .references(() => membershipMonths.id),
+    sourceKey: text("source_key").notNull().unique(),
+    amountCents: integer("amount_cents").notNull(),
+    reason: text("reason").notNull(),
+    /** The call's payment it came from, if any. */
+    paymentId: uuid("payment_id").references(() => payments.id),
+    status: text("status").notNull().default("owed"),
+    attempt: integer("attempt").notNull().default(1),
+    stripeRefundId: text("stripe_refund_id"),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("membership_refunds_status_idx").on(t.status),
+    index("membership_refunds_month_idx").on(t.monthId),
+    check("membership_refunds_status", sql`${t.status} in ('owed', 'at_stripe', 'done')`),
+    check("membership_refunds_amount", sql`${t.amountCents} > 0`),
+  ],
+);
+
+
 export type Call = typeof calls.$inferSelect;
+
 export type Booking = typeof bookings.$inferSelect;
 export type HostCalendar = typeof hostCalendars.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type CallExtension = typeof callExtensions.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
 export type RefundRequest = typeof refundRequests.$inferSelect;
+export type MembershipOffer = typeof membershipOffers.$inferSelect;
+export type Membership = typeof memberships.$inferSelect;
+export type MembershipMonth = typeof membershipMonths.$inferSelect;
+export type MembershipRefund = typeof membershipRefunds.$inferSelect;
+export type MembershipCard = typeof membershipCards.$inferSelect;
 export type AttendanceEvent = typeof attendanceEvents.$inferSelect;

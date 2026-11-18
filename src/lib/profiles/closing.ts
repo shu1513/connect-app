@@ -1,6 +1,7 @@
 /**
  * Closing an account, and opening it again.
  */
+import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
@@ -21,6 +22,7 @@ import { ownPaymentOn } from "@/lib/payments/own";
  */
 export async function closeAccount(input: { userId: string; by: string }): Promise<{ callsNotEnded: number }> {
   const now = new Date();
+  let endedMemberships: string[] = [];
   await db.transaction(async (tx) => {
     const [admin] = await tx.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
     if (admin) throw new ProfileError("An admin account cannot be closed here.");
@@ -35,9 +37,15 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
       .update(schema.hostProfiles)
       .set({ status: "suspended", decidedBy: input.by, decidedAt: now, updatedAt: now })
       .where(eq(schema.hostProfiles.userId, input.userId));
+    // Their memberships, as a host and as a member, end at once and for good, in this same step
+    // (after the person and the profile, which is the order of locks everywhere).
+    endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was closed" }, now);
   });
-  // The account is closed from here on, whatever happens next.
-  return { callsNotEnded: await endRequestsAndCallsOf(input.userId, now) };
+  // The account is closed from here on, whatever happens next. First what keeps people safe (requests and
+  // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
+  const callsNotEnded = await endRequestsAndCallsOf(input.userId, new Date());
+  await cleanUpEndedMemberships(endedMemberships, now);
+  return { callsNotEnded };
 }
 
 /**

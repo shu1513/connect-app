@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
-import { desc, eq, isNotNull } from "drizzle-orm";
+import { desc, eq, inArray, isNotNull } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
@@ -11,7 +11,7 @@ import { switches } from "@/lib/safety/switches";
 import { RULES } from "@/lib/terms";
 import { requireAdmin } from "@/lib/session";
 import { decideProfileAction, closeAccountAction } from "../people/actions";
-import { closeReportAction, liftPauseAction, pauseAction, switchesAction, warnAction } from "./actions";
+import { closeReportAction, liftPauseAction, membershipsSwitchAction, pauseAction, switchesAction, warnAction } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Reports and safety" };
@@ -32,6 +32,10 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
       .orderBy(desc(schema.adminActions.createdAt))
       .limit(50),
   ]);
+  // The hosts the founder has named for memberships, shown by their handle.
+  const namedHosts = current.membershipsHosts.length
+    ? await db.select({ handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, current.membershipsHosts))
+    : [];
   // Read on its own, oldest first: a request whose host has gone silent must not sink out of sight.
   const requests = await unansweredRequests();
   const people = requests.length > 0 ? await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user) : [];
@@ -246,6 +250,29 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         </label>
         <button type="submit" className={button}>
           Save switches
+        </button>
+      </form>
+
+      <h2 className="mt-10 text-lg font-semibold">Memberships</h2>
+      <p className="mt-1 text-sm opacity-70">
+        Off: nobody can invite, join, resume or get a new month. Months that have already started go on, and money that is
+        owed is still paid back. A host who is not named is treated as if this were off.
+      </p>
+      <form action={membershipsSwitchAction} className="mt-2 space-y-2 text-sm">
+        <label className="block">
+          Memberships are
+          <select name="memberships" defaultValue={current.memberships} className={`${field} ml-2`}>
+            <option value="off">off</option>
+            <option value="named">on for the hosts named below</option>
+            <option value="everyone">on for everyone</option>
+          </select>
+        </label>
+        <label className="block">
+          Named hosts, by their handle, with commas between
+          <input name="hosts" defaultValue={namedHosts.map((host) => host.handle).join(", ")} className={`${field} block w-full max-w-md`} />
+        </label>
+        <button type="submit" className={button}>
+          Save memberships switch
         </button>
       </form>
 

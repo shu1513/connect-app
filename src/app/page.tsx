@@ -135,7 +135,10 @@ export default async function HomePage(props: PageProps<"/">) {
   // Every payment of each call: its own, and one for each time more time was added during it.
   const payments = callIds.length > 0 ? await db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [];
   const paymentsOf = new Map<string, Payment[]>();
-  for (const p of payments) paymentsOf.set(p.callId, [...(paymentsOf.get(p.callId) ?? []), p]);
+  for (const p of payments) {
+    // Asked for by call, so each has one; a payment without a call (expired member time) is never listed here.
+    if (p.callId) paymentsOf.set(p.callId, [...(paymentsOf.get(p.callId) ?? []), p]);
+  }
   const now = new Date();
   const [requests, toAnswer, toRate] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now)]);
 
