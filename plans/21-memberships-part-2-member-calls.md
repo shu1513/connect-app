@@ -673,3 +673,6 @@ at $5.00 per 15 minutes, 5 minutes cost $1.666…, rounded down): what the money
 worked out by the same rounding as a booking's price, in one function with a test. And the page
 after a call showed the call's moment for a card charge that follows its own, earlier hold.
 
+**Second round: ready.** All four confirmed, and no defect found in a second pass over the whole
+change. Four checks in the script were made to prove a little more, as Astra suggested.
+

@@ -1205,7 +1205,7 @@ async function main() {
     const asked = await askMore(m, a.call, 10, { paidFrom: "membership" });
     const request = await requestById(asked.extensionId);
     const itsPayment = await paymentOfRequest(asked.extensionId);
-    check("10 more minutes from the membership: the host is asked at once, and $5.00 is set aside as a payment of its own for exactly those minutes", asked.state === "waiting" && request.paidFrom === "membership" && request.priceCents === 500 && itsPayment.kind === "member_call" && itsPayment.status === "held" && itsPayment.bookedCents === 500 && itsPayment.monthId === m.monthId && itsPayment.stripePaymentIntentId === null && itsPayment.feeFixedCents === 0 && itsPayment.coversFrom.getTime() === a.call.endsAt.getTime() && (await places(m.monthId)) === "4000/2000/0/0/0/0", `${asked.state} ${await places(m.monthId)}`);
+    check("10 more minutes from the membership: the host is asked at once, and $5.00 is set aside as a payment of its own for exactly those minutes", asked.state === "waiting" && request.paidFrom === "membership" && request.priceCents === 500 && itsPayment.kind === "member_call" && itsPayment.status === "held" && itsPayment.bookedCents === 500 && itsPayment.monthId === m.monthId && itsPayment.stripePaymentIntentId === null && itsPayment.feeFixedCents === 0 && itsPayment.coversFrom.getTime() === a.call.endsAt.getTime() && itsPayment.coversUntil.getTime() === a.call.endsAt.getTime() + 10 * MIN && (await places(m.monthId)) === "4000/2000/0/0/0/0", `${asked.state} ${await places(m.monthId)}`);
     check("a second request while one is open is refused", /already asked/.test((await refused(askMore(m, a.call, 5, { paidFrom: "membership" }))) ?? ""));
     await answerExtension({ extensionId: asked.extensionId, hostId: host.id, accept: true, now: new Date(a.call.endsAt.getTime() - 30_000) });
     const longer = await callNow(a.call);
@@ -1270,7 +1270,7 @@ async function main() {
     const itsPayment = await paymentOfRequest(asked.extensionId);
     const card = (await db.select().from(schema.membershipCards).where(and(eq(schema.membershipCards.membershipId, m.membershipId), sql`${schema.membershipCards.retiredAt} is null`)))[0];
     const intent = await stripe().paymentIntents.retrieve(itsPayment.stripePaymentIntentId!);
-    check("5 more minutes by card: an ordinary card payment of its own, held on the membership's card, with the usual fee terms", asked.state === "waiting" && request.paidFrom === "card" && request.priceCents === 250 && itsPayment.kind === "card" && itsPayment.status === "held" && itsPayment.monthId === null && itsPayment.feeFixedCents === 30 && itsPayment.feePercentBps === 490 && intent.status === "requires_capture" && intent.amount === 250 && intent.payment_method === card.stripePaymentMethodId, `${asked.state} ${itsPayment.kind} ${itsPayment.status} ${intent.status}`);
+    check("5 more minutes by card: an ordinary card payment of its own, held on the membership's card, with the usual fee terms", asked.state === "waiting" && request.paidFrom === "card" && request.priceCents === 250 && itsPayment.kind === "card" && itsPayment.status === "held" && itsPayment.monthId === null && itsPayment.feeFixedCents === 30 && itsPayment.feePercentBps === 490 && itsPayment.feeForeignCardBps === 150 && intent.status === "requires_capture" && intent.amount === 250 && intent.payment_method === card.stripePaymentMethodId, `${asked.state} ${itsPayment.kind} ${itsPayment.status} ${intent.status}`);
     check("nothing of the month moved for it", (await places(m.monthId)) === "100/1500/0/4400/0/0", await places(m.monthId));
     await answerExtension({ extensionId: asked.extensionId, hostId: host.id, accept: true, now: new Date(a.call.endsAt.getTime() - 30_000) });
     const longer = await callNow(a.call);
@@ -1356,6 +1356,8 @@ async function main() {
     const finished = await callNow(call);
     check("before the card payment's own moment, nothing is late", (await callOverdue(finished, new Date(call.startsAt.getTime() + 8 * HOUR))) === false);
     check("5 minutes past the card payment's own moment (8 hours after the start), it is reported late, though the member's part is not due yet", (await callOverdue(finished, new Date(call.startsAt.getTime() + 8 * HOUR + 6 * MIN))) === true);
+    await settleFinishedCalls(new Date(call.startsAt.getTime() + 7 * HOUR));
+    check("before its own moment the card charge is not taken", (await paymentOfRequest(asked.extensionId)).status === "held");
     await settleFinishedCalls(new Date(call.startsAt.getTime() + 8 * HOUR + MIN));
     const takenEarly = await paymentOfRequest(asked.extensionId);
     check("the card charge is taken at its own moment, early; the member's part waits for the call's moment", takenEarly.status === "charged" && takenEarly.chargedCents === 500 && (await pay(call)).status === "held", `${takenEarly.status} ${(await pay(call)).status}`);
@@ -1386,6 +1388,8 @@ async function main() {
     check("beside a frozen month the card's part is still reported when it is late", (await callOverdue(await callNow(second), late)) === true);
     await settleFinishedCalls(late);
     check("it is taken as usual, and the member's part of the frozen month stays set aside and is not reported", (await paymentOfRequest(more.extensionId)).status === "charged" && (await pay(second)).status === "held" && (await callOverdue(await callNow(second), new Date(late.getTime() + HOUR))) === false, `${(await paymentOfRequest(more.extensionId)).status} ${(await pay(second)).status}`);
+    check("the frozen month's places did not move", (await places(n.monthId)) === "0/1500/0/4500/0/0", await places(n.monthId));
+    await audit("the frozen month beside a card payment", n, { frozen: true });
     await audit("after the mixed call", m);
   });
 
