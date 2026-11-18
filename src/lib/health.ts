@@ -11,7 +11,8 @@ import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
 import { membershipHealthProblems } from "@/lib/membership/health";
 import { moneyTiming } from "@/lib/payments/rules";
-import { commonExpiry, heldOrdinary, isDecided } from "@/lib/payments/take";
+import { isFrozen } from "@/lib/membership/rules";
+import { commonExpiry, heldOrdinary, holdEndFor, isDecided, isMemberCall } from "@/lib/payments/take";
 
 /** The helper's last finished round of payment work may be this old. */
 export const BEAT_MAX_AGE_MS = 10 * 60_000;
@@ -39,16 +40,31 @@ export async function moneyOverdue(now: Date): Promise<boolean> {
   return false;
 }
 
-/** The same question for one call. */
+/**
+ * The same question for one call, asked of each of its payments the way settling asks it: is this
+ * payment past its own moment? Money set aside in a membership has no hold and is due at the
+ * call's moment; a card payment for time added to such a call is due by its own hold; the charges
+ * of a call paid by card share the earliest of their holds.
+ */
 export async function callOverdue(call: Call, now: Date): Promise<boolean> {
-  const held = (await heldOrdinary(db, call.id)).filter((p) => p.holdExpiresAt && p.holdExpiresAt > now);
-  const expiry = held.length > 0 ? await commonExpiry(db, call.id) : null;
-  if (!expiry || call.cancelledAt) return false;
+  if (call.cancelledAt) return false;
+  const held = (await heldOrdinary(db, call.id)).filter((p) => p.kind === "member_call" || (p.holdExpiresAt && p.holdExpiresAt > now));
+  if (held.length === 0) return false;
+  const memberCall = await isMemberCall(db, call.id);
+  const common = memberCall ? null : await commonExpiry(db, call.id);
+  if (!memberCall && !common) return false;
   const [request] = await db.select().from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id));
   const answered = isDecided(request) && request.decidedAt ? request.decidedAt : null;
-  const dueAt = answered ?? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: expiry }).takeAt;
-  if (now.getTime() <= dueAt.getTime() + OVERDUE_MS) return false;
   for (const payment of held) {
+    const holdEnd = holdEndFor(payment, memberCall, common);
+    if (payment.kind !== "member_call" && !holdEnd) continue;
+    const dueAt = answered ?? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request?.askedAt ?? null, holdExpiresAt: holdEnd }).takeAt;
+    if (now.getTime() <= dueAt.getTime() + OVERDUE_MS) continue;
+    if (payment.kind === "member_call") {
+      // Nothing of a month whose charge is disputed moves, so its money is not late.
+      const [month] = payment.monthId ? await db.select({ dispute: schema.membershipMonths.dispute }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, payment.monthId)) : [];
+      if (!month || isFrozen(month)) continue;
+    }
     const [started] = await db
       .select({ id: schema.moneyOperations.id })
       .from(schema.moneyOperations)

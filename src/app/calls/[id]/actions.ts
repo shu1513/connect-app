@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { giveTimeBack } from "@/lib/membership/give-back";
 import { withNotice } from "@/lib/notice";
 import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
@@ -80,8 +81,14 @@ export async function refundAction(formData: FormData) {
     if (found === "not_found") throw new MoneyError("Payment not found.");
     const { decidedAs } = found;
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to refund.");
-    await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-    notice = "The refund was sent.";
+    if (found.payment.kind === "member_call") {
+      // Paid from a membership: the time goes back into the membership, or its money to the member's card. Nothing is refunded at Stripe by this step.
+      const to = await giveTimeBack({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+      notice = to === "free" ? "The time was given back. It is in the member's membership again." : "The time was given back. Its money will be paid back to the member's card.";
+    } else {
+      await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+      notice = "The refund was sent.";
+    }
     if (decidedAs === "admin") {
       await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` }).catch((error) => {
         console.error("[admin] the refund went through but could not be written to the admin record", error);

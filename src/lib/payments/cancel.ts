@@ -5,6 +5,8 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { releaseBookingOfCall } from "@/lib/booking/release";
+import { settleCancelledMemberCall, settleCancelledMemberIn } from "@/lib/membership/calls";
+import { lockMonthsOfCall } from "@/lib/membership/locks";
 import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
 import { syncHold } from "./hold";
@@ -56,14 +58,20 @@ export async function cancelCall(input: {
 
   // Mark the call cancelled first, so nobody can join it. Only the first cancel wins.
   // In the same step the booking it came from ends and both people's time is free again.
+  // For a call booked from a membership the money moves in this same step (it is set aside in the month,
+  // so there is nothing to ask Stripe), and the email says where it went.
+  const fromMembership = payment?.kind === "member_call";
   await db.transaction(async (tx) => {
+    // A month comes before a call in the order of locks.
+    if (fromMembership) await lockMonthsOfCall(tx, call.id);
     const marked = await tx
       .update(schema.calls)
       .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
       .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), neverPaid ? isNull(schema.calls.closedAt) : gt(schema.calls.startsAt, now)))
-      .returning({ id: schema.calls.id });
+      .returning();
     if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
-    await releaseBookingOfCall(tx, call.id, by, input.reason);
+    const memberMoney = fromMembership ? await settleCancelledMemberIn(tx, marked[0], now) : null;
+    await releaseBookingOfCall(tx, call.id, by, input.reason, memberMoney);
   });
 
   // People may already be in the room (it opens 5 minutes early). Put them out now
@@ -72,7 +80,7 @@ export async function cancelCall(input: {
     console.error(`[calls] could not close the room of cancelled call ${call.id} yet; the helper will retry`, error);
   });
 
-  if (payment) {
+  if (payment && !fromMembership) {
     try {
       await settleCancelledCall({ ...call, cancelledAt: now, cancelledLate: outcome === "late_charge" }, payment);
     } catch (error) {
@@ -92,6 +100,7 @@ export async function cancelCall(input: {
  */
 export async function settleCancelledCall(call: Call, payment: Payment): Promise<void> {
   if (payment.status !== "awaiting_payment" && payment.status !== "held") return;
+  if (payment.kind === "member_call") return settleCancelledMemberCall(call.id, new Date());
   if (call.cancelledLate && payment.status === "held" && payment.extensionId === null) {
     await capturePayment({
       paymentId: payment.id,

@@ -17,8 +17,8 @@ import { db, schema } from "@/db";
 import type { Call, Payment, RefundRequest } from "@/db/schema";
 import { lockPayment, type Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
-import { ASK_WINDOW_MS, COLLECT_AFTER_REQUEST_MS, DEADLINE_CUSHION_MS, moneyTiming } from "@/lib/payments/rules";
-import { commonExpiry, heldOrdinary, isDecided, settleOrdinaryCharges } from "@/lib/payments/take";
+import { ASK_WINDOW_MS, COLLECT_AFTER_REQUEST_MS, DEADLINE_CUSHION_MS } from "@/lib/payments/rules";
+import { heldOrdinary, isDecided, settleOrdinaryCharges, timingOfCall } from "@/lib/payments/take";
 import { summarise, type QualitySummary } from "@/lib/quality/summary";
 import { queueAnswerEmail, queueClosedEmail, queueRequestEmail, queueRequestReminder, type AnswerLine } from "./emails";
 
@@ -128,13 +128,14 @@ export async function requestViewOf(call: Pick<Call, "id" | "startsAt">): Promis
   if (!request) return null;
   const answers = await db.select().from(schema.refundRequestAnswers).where(eq(schema.refundRequestAnswers.requestId, request.id));
   const open = request.status === "asked" ? await openCharges(db, call.id) : [];
-  const expiry = open.length > 0 ? await commonExpiry(db, call.id) : null;
+  // The call's shared moments (take.ts): a call booked from a membership has them without any card hold.
+  const timing = open.length > 0 ? await timingOfCall(db, call, request.askedAt) : null;
   return {
     request,
     answers: answers.map((a) => ({ paymentId: a.paymentId, choice: a.choice as Choice, maxCents: a.maxCents })),
     answered: await isAnswered(request),
     open,
-    answerBy: expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy : null,
+    answerBy: timing?.answerBy ?? null,
     nothingAtStake: !(await moneyAtStake(db, call.id)),
     beingDecided: open.length === 0 && (await anyOnHold(db, call.id)),
   };
@@ -176,8 +177,8 @@ export async function askBy(call: Call, now: Date, reader: Reader = db): Promise
   if (existing) return null;
   // Something must be at stake: money on hold or money taken.
   if (!(await moneyAtStake(reader, call.id))) return null;
-  const expiry = (await heldOrdinary(reader, call.id)).length > 0 ? await commonExpiry(reader, call.id) : null;
-  const until = expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: null, holdExpiresAt: expiry }).askBy : new Date(call.startsAt.getTime() + ASK_WINDOW_MS);
+  const timing = (await heldOrdinary(reader, call.id)).length > 0 ? await timingOfCall(reader, call, null) : null;
+  const until = timing?.askBy ?? new Date(call.startsAt.getTime() + ASK_WINDOW_MS);
   return now.getTime() < until.getTime() + DEADLINE_CUSHION_MS ? until : null;
 }
 
@@ -222,8 +223,7 @@ export async function askForRefund(input: { callId: string; customerId: string; 
       .update(schema.payments)
       .set({ transferDueAt: withRequest })
       .where(and(eq(schema.payments.callId, call.id), eq(schema.payments.status, "charged"), inArray(schema.payments.transferStatus, ["not_due", "due"]), lt(schema.payments.transferDueAt, withRequest)));
-    const expiry = (await openCharges(tx, call.id)).length > 0 ? await commonExpiry(tx, call.id) : null;
-    const answerBy = expiry ? moneyTiming({ callStartsAt: call.startsAt, requestedAt: now, holdExpiresAt: expiry }).answerBy : null;
+    const answerBy = (await openCharges(tx, call.id)).length > 0 ? ((await timingOfCall(tx, call, now))?.answerBy ?? null) : null;
     await queueRequestEmail(tx, call, request, answerBy ? { answerBy } : (await anyOnHold(tx, call.id)) ? "being_decided" : "taken");
     return "sent";
   });
@@ -278,7 +278,9 @@ export async function answerRequest(input: { callId: string; by: string; as: "ho
       if (choice === "less") {
         maxCents = given.maxCents ?? NaN;
         // A card cannot be charged under 50 cents, and an amount is never rounded up.
-        if (!Number.isInteger(maxCents) || maxCents < MIN_CHARGE_CENTS) throw new RequestError("A card cannot be charged less than 50 cents. Choose \"charge nothing\" instead.");
+        if (!Number.isInteger(maxCents) || maxCents < MIN_CHARGE_CENTS) {
+          throw new RequestError(payment.kind === "member_call" ? "Less than 50 cents cannot be used from a membership. Choose \"charge nothing\" instead." : "A card cannot be charged less than 50 cents. Choose \"charge nothing\" instead.");
+        }
         if (maxCents >= payment.bookedCents) throw new RequestError("That is not less than the price of this charge. Choose \"charge in full\" instead.");
       }
       await tx.insert(schema.refundRequestAnswers).values({ requestId: request.id, paymentId: payment.id, choice, maxCents });
@@ -335,9 +337,8 @@ export async function writeAnswerReminders(now: Date): Promise<void> {
     .innerJoin(schema.calls, eq(schema.calls.id, schema.refundRequests.callId))
     .where(and(eq(schema.refundRequests.status, "asked"), gt(schema.refundRequests.askedAt, new Date(now.getTime() - 3 * 24 * 3_600_000))));
   for (const { request, call } of waiting) {
-    const expiry = (await openCharges(db, call.id)).length > 0 ? await commonExpiry(db, call.id) : null;
-    if (!expiry) continue; // the money was taken: nothing left to hurry for
-    const answerBy = moneyTiming({ callStartsAt: call.startsAt, requestedAt: request.askedAt, holdExpiresAt: expiry }).answerBy!;
+    const answerBy = (await openCharges(db, call.id)).length > 0 ? (await timingOfCall(db, call, request.askedAt))?.answerBy : null;
+    if (!answerBy) continue; // the money was taken: nothing left to hurry for
     const halfway = (request.askedAt.getTime() + answerBy.getTime()) / 2;
     if (now.getTime() < halfway || now >= answerBy) continue;
     await queueRequestReminder(db, call, request, answerBy);

@@ -100,10 +100,12 @@ export function answerDeadline(input: Terms & { requestedAt: Date }): Date {
   return new Date(Math.min(usual, latest));
 }
 
-export type Stage = "card" | "waiting" | "accepted" | "declined" | "passed_over" | "ran_out" | "taken_back" | "cancelled";
+export type Stage = "card" | "paying" | "waiting" | "accepted" | "declined" | "passed_over" | "ran_out" | "taken_back" | "cancelled";
 
 const NEXT: Record<Stage, Stage[]> = {
   card: ["waiting", "ran_out"],
+  // A member's first booking of a month, while the month's money is being taken: it becomes a call, or ends.
+  paying: ["accepted", "ran_out"],
   waiting: ["accepted", "declined", "passed_over", "ran_out", "taken_back"],
   accepted: ["cancelled"],
   declined: [],

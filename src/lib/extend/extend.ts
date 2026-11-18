@@ -97,6 +97,8 @@ async function minutesFitting(reader: Reader, call: Call): Promise<number> {
 
 /** The customer's choices right now: how many minutes fit, and the call's price. */
 export async function addTimeChoices(call: Call): Promise<{ fits: number; pricePer15Cents: number }> {
+  // A call booked from a membership: time cannot be added to it yet (part 2b of the memberships plan adds it).
+  if ((await ownPaymentOf(call.id))?.kind === "member_call") return { fits: 0, pricePer15Cents: call.pricePer15Cents };
   return { fits: await minutesFitting(db, call), pricePer15Cents: call.pricePer15Cents };
 }
 
@@ -206,6 +208,7 @@ export async function askForMoreTime(
   let cardId: string | null = null;
   if (paid) {
     const own = stripeConfigured() ? await ownPaymentOf(seen.id) : null;
+    if (own?.kind === "member_call") throw new ExtendError("Time cannot be added to a call that was booked with a membership yet. The call ends as booked.");
     if (!own || own.status !== "held") throw new ExtendError(NO_LONGER);
     cardId = await lookUpCard(own, input.customerId).catch((error) => {
       log(`could not look up the saved card for call ${seen.id}`, error);

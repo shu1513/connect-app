@@ -8,7 +8,7 @@
  *   6. calls, then payments, then request and refund records.
  * A step takes only the locks it needs, but never an earlier one after a later one.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import type { Membership, MembershipMonth } from "@/db/schema";
 import { MoneyError, type Owner, type Tx } from "@/lib/payments/operations";
@@ -49,6 +49,22 @@ export async function lockForMonth(tx: Tx, monthId: string): Promise<LockedMonth
   const membership = await lockMembership(tx, found.membershipId);
   const month = await lockMonth(tx, monthId);
   return { membership, month };
+}
+
+/**
+ * For a step that settles or cancels a call. A month comes before a call in the order of locks, so
+ * such a step first reads, without a lock, which months the call's member payments belong to, and
+ * locks those memberships and months (each kind in the order of its ids). The caller then locks the
+ * call and its payments, and reads everything again. Does nothing for a call paid by card.
+ */
+export async function lockMonthsOfCall(tx: Tx, callId: string): Promise<void> {
+  const rows = await tx
+    .select({ monthId: schema.membershipMonths.id, membershipId: schema.membershipMonths.membershipId })
+    .from(schema.payments)
+    .innerJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
+    .where(and(eq(schema.payments.callId, callId), eq(schema.payments.kind, "member_call")));
+  for (const id of [...new Set(rows.map((row) => row.membershipId))].sort()) await lockMembership(tx, id);
+  for (const id of [...new Set(rows.map((row) => row.monthId))].sort()) await lockMonth(tx, id);
 }
 
 /** A month as the owner of a money action (see payments/operations.ts). */

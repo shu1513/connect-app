@@ -248,7 +248,7 @@ export async function setAside(tx: Tx, month: MembershipMonth, cents: number): P
  * A call took this much of what was set aside for it: set aside becomes used. Marks the month's
  * fixed 30 cents as placed when this is the amount that carries it.
  */
-export async function useSetAside(tx: Tx, monthId: string, cents: number, placesFixedFee: boolean): Promise<void> {
+export async function spendSetAside(tx: Tx, monthId: string, cents: number, placesFixedFee: boolean): Promise<void> {
   if (cents < 1) return;
   await tx
     .update(months)

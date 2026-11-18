@@ -118,3 +118,31 @@ export async function queueRefundEmail(tx: Writer, refund: { id: string; payment
     text: `${who} refunded ${money(refund.amountCents)} for your call on ${whenFor(found.customer, row.startsAt)}. Your bank usually shows it within 5 to 10 days.\n${quoted(`Message from ${who}:`, refund.reason)}\nThe call's page:\n${results(row)}\n`,
   });
 }
+
+/**
+ * The same for a call that was booked from a membership, where nothing is refunded at Stripe by
+ * this step: the time goes back into the membership, or, when the member can no longer book from
+ * that month, its money is owed back to their card. The email says which is true.
+ */
+export async function queueTimeBackEmail(tx: Writer, refund: { id: string; paymentId: string; amountCents: number; decidedAs: string; reason: string | null }, to: "free" | "card"): Promise<void> {
+  const [row] = await tx
+    .select({ id: schema.calls.id, hostId: schema.calls.hostId, customerId: schema.calls.customerId, startsAt: schema.calls.startsAt })
+    .from(schema.payments)
+    .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .where(eq(schema.payments.id, refund.paymentId));
+  const found = row ? await peopleOf(tx, row) : null;
+  if (!row || !found) return;
+  const who = refund.decidedAs === "admin" ? "Connect" : found.hostName;
+  const amount = money(refund.amountCents);
+  const when = whenFor(found.customer, row.startsAt);
+  await queueEmail(tx, {
+    to: found.customer.email,
+    key: `refund:${refund.id}`,
+    subject: to === "free" ? `${amount} of membership time is back in your membership` : `${amount} of your membership will be paid back to your card`,
+    text:
+      (to === "free"
+        ? `${who} gave back ${amount} of the membership time your call on ${when} used. It is back in your membership and can be booked again until your month ends.`
+        : `${who} gave back ${amount} of the membership time your call on ${when} used. That month can no longer be booked from, so the money is paid back to your card. Your bank usually shows it within 5 to 10 days.`) +
+      `\n${quoted(`Message from ${who}:`, refund.reason)}\nThe call's page:\n${results(row)}\n`,
+  });
+}

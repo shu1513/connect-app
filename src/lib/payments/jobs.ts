@@ -18,6 +18,7 @@ import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
+import { settleCancelledMemberCall, settleMemberOne } from "@/lib/membership/calls";
 import {
   applyCaptured,
   applyRefundDone,
@@ -311,6 +312,12 @@ export async function settleCancelledCalls(now: Date = new Date()): Promise<void
     .where(and(inArray(schema.payments.status, ["awaiting_payment", "held"]), isNotNull(schema.calls.cancelledAt)));
   for (const { payment, call } of open) {
     try {
+      if (payment.kind === "member_call") {
+        // Money set aside in a membership: nothing to ask Stripe. It was settled when the call was cancelled,
+        // unless its month was frozen by a dispute then; a frozen month is passed over here too.
+        await settleCancelledMemberCall(call.id, now);
+        continue;
+      }
       const current = await afterCheckingRefusedCharge(payment, now);
       // Stripe refused the late-cancellation charge a short while ago: wait before trying again.
       if (current.status === "held" && call.cancelledLate && (await refusedRecently(payment.id, "capture", now))) continue;
@@ -364,6 +371,8 @@ export async function settleFinishedCalls(now: Date): Promise<void> {
 
 /** Gives back "ordinary" for a payment on hold whose record is final and gives an amount: its money is taken by the timing rule, not here. */
 async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordinary" | void> {
+  // Money set aside in a membership has no hold at Stripe: its own rules, with the month's locks.
+  if (found.kind === "member_call") return settleMemberOne(found, call, now);
   // If Stripe made a charge we had written off, it is recorded here and there is nothing left to settle.
   const payment = await afterCheckingRefusedCharge(found, now);
   if (payment.status !== "awaiting_payment" && payment.status !== "held") return;

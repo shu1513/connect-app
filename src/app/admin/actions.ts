@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { decideMemberReview } from "@/lib/membership/calls";
 import { withNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { capturePayment, releasePayment } from "@/lib/payments/actions";
@@ -47,15 +48,21 @@ export async function chargeReviewed(formData: FormData) {
     // A call stopped with "End call and report" can only be charged for the time before the stop,
     // and each payment only for the stretch of the call it pays for.
     const maxCents = reviewChargeLimitCents({ pricePer15Cents: payment.pricePer15Cents, coversFrom: payment.coversFrom, coversUntil: payment.coversUntil, callEndsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt });
-    const result = await capturePayment({
-      paymentId: payment.id,
-      amountCents: Math.round(dollars * 100),
-      reason: "admin",
-      frozen: null,
-      callEndsAt: call.endsAt,
-      maxCents,
-    });
-    notice = result === "already_done" ? "This call had already been charged. Nothing more was charged." : "The charge was made.";
+    if (payment.kind === "member_call") {
+      // Booked from a membership: the amount is used from what was set aside in the month, with the same ceilings. Nothing is asked of Stripe.
+      await decideMemberReview({ paymentId: payment.id, amountCents: Math.round(dollars * 100), maxCents, frozen: null, now: new Date() });
+      notice = "The amount was used from the member's membership time. The rest came back to the member.";
+    } else {
+      const result = await capturePayment({
+        paymentId: payment.id,
+        amountCents: Math.round(dollars * 100),
+        reason: "admin",
+        frozen: null,
+        callEndsAt: call.endsAt,
+        maxCents,
+      });
+      notice = result === "already_done" ? "This call had already been charged. Nothing more was charged." : "The charge was made.";
+    }
   } catch (error) {
     notice = message(error);
   }
@@ -68,8 +75,13 @@ export async function releaseReviewed(formData: FormData) {
   let notice: string;
   try {
     await recordAdminAction({ adminId: admin.id, action: "hold released after review", targetUserId: call.customerId, targetId: payment.id });
-    await releasePayment({ paymentId: payment.id, note: "Released after a review. Nothing was charged." });
-    notice = "The hold was released. Nothing was charged.";
+    if (payment.kind === "member_call") {
+      await decideMemberReview({ paymentId: payment.id, amountCents: null, frozen: null, now: new Date() });
+      notice = "Nothing was used. The time set aside came back to the member.";
+    } else {
+      await releasePayment({ paymentId: payment.id, note: "Released after a review. Nothing was charged." });
+      notice = "The hold was released. Nothing was charged.";
+    }
   } catch (error) {
     notice = message(error);
   }

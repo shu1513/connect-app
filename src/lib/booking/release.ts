@@ -6,11 +6,12 @@
  */
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { queueBookingEmails, type BookingEvent } from "./emails";
+import { queueBookingEmails, type BookingEvent, type MemberMoney } from "./emails";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-export async function releaseBookingOfCall(tx: Tx, callId: string, by: "host" | "customer" | "admin", reason?: string): Promise<void> {
+/** `memberMoney`: for a call booked from a membership, where its money went (see emails.ts), so the email can say so. */
+export async function releaseBookingOfCall(tx: Tx, callId: string, by: "host" | "customer" | "admin", reason?: string, memberMoney?: MemberMoney | null): Promise<void> {
   const [booking] = await tx
     .update(schema.bookings)
     .set({ stage: "cancelled", endedReason: reason ?? `cancelled by ${by === "admin" ? "Connect" : `the ${by}`}`, endedAt: new Date() })
@@ -20,5 +21,5 @@ export async function releaseBookingOfCall(tx: Tx, callId: string, by: "host" | 
   await tx.delete(schema.busyEntries).where(eq(schema.busyEntries.bookingId, booking.id));
   const event: BookingEvent =
     reason === "unpaid" ? "cancelled_unpaid" : by === "host" ? "cancelled_by_host" : by === "customer" ? "cancelled_by_customer" : "cancelled_by_connect";
-  await queueBookingEmails(tx, booking, event);
+  await queueBookingEmails(tx, booking, event, memberMoney);
 }

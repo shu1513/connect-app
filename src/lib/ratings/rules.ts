@@ -42,7 +42,7 @@ export function rateState(input: {
   endsAt: Date;
   now: Date;
 }): RateState {
-  if (input.source !== "customer" && input.source !== "now") return "never";
+  if (input.source !== "customer" && input.source !== "now" && input.source !== "member") return "never";
   if (input.cancelled || input.safetyEnded) return "never";
   if (input.now >= ratingDeadline(input.endsAt)) return "too_late";
   // A record that contradicts itself is never guessed at.

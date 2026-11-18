@@ -9,6 +9,7 @@
 import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { MoneyError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, type OperationKind } from "@/lib/payments/operations";
+import { runPayingBookings } from "./book";
 import { removeRetiredCards } from "./cards";
 import { abandonMonth, intentFor, letHoldGo, syncMonth, takeMonth, tryHold } from "./charge";
 import { runClosings } from "./close";
@@ -137,6 +138,9 @@ export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
   await runPayBacks(now);
   await runEndings(now);
   await removeRetiredCards(now);
+
+  // A member's booking that was waiting for its month's payment and was never finished ends by itself.
+  await runPayingBookings(now).catch((error) => log("could not end the member bookings that were not finished; will retry", error));
 
   // Last, and on its own: invitations whose 24 hours are over end by themselves, and their places are free
   // again. Nothing about money waits for this, and a failure here is only logged (every step that uses an
