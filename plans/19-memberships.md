@@ -39,6 +39,7 @@ What each side gets:
 | When the host gets the money | Not before the time is delivered: as time is used, and the unused rest when the month ends. |
 | Who can end it | The member cancels: the membership runs to the end of the paid month. The host ends it: the unused time is paid back. |
 | Changing the price or the time | Never during a month that is already paid for. |
+| How the work is planned | This plan is the rulebook for the whole feature. It is built in three parts, and each part gets a short plan of its own just before it is built (see "The three parts"). |
 | How the monthly payment is taken | Connect charges the member's saved card itself each month. Stripe's subscription tool is not used (it costs an extra 0.7%). Stripe allows this when the member clearly agrees to the monthly charge at sign-up. |
 
 ## Still to confirm
@@ -57,7 +58,6 @@ something a little different from what was said. Each has a recommendation.
 | 7 | Changing the offer for people who are already members | **Not in the first version.** A member keeps the price and time they agreed to for as long as their membership lasts. A changed offer applies to people who join after the change. A host who wants new terms for a member ends that membership and invites the person again. | A different charge on a saved card needs the member's clear yes, which means emails, an "Agree" step and rules for who has not agreed yet. Astra advised leaving all of that out of a first version. |
 | 8 | Limits | Member price from $5.00 per 15 minutes (the app's minimum) up to the regular price. Time included from 30 minutes to 20 hours, in steps of 30 minutes. A monthly amount of at most $2,000. One membership offer per host. | The $2,000 is a builder's choice and one number in the code: the whole month is charged up front, and a bank dispute over it would be Connect's loss. |
 | 9 | The founder's switch | A switch on the admin page, **"Memberships"**, off until the whole feature is built and tried. While it is off nobody can invite or join and no month is renewed. Months already paid for keep working to their end, and all settling, paying back and collecting goes on. | It keeps a half-built feature from being sold, and stays afterwards as the founder's way to stop selling memberships without breaking the ones that exist. |
-| 10 | How the work is planned | **This plan is the rulebook** for the whole feature. Each of the three parts it is built in (see "In three pull requests") gets a short plan of its own just before it is built, checked by Astra then. | The rules about money run through all three parts and must be readable together. The exact files and checks of one part are easier to plan, and to check well, when that part is next. |
 
 ## How it works for a host
 
@@ -484,17 +484,96 @@ member booking cannot land on an instant request; the check script proves it.
   (memberships and their monthly receipts),  the page after a call ("paid from your membership"), and the admin page (the switch,
   memberships, failed payments, pay-backs, months not finished, disputed months).
 
-**In three pull requests**, each reviewed by Astra and CodeRabbit, in the order Astra advised:
+## The three parts
 
-1. **The money underneath:** the new tables, the month and its movements of money, the monthly
-   payment with its tries, pay-backs, disputes, closing a month, the helper's recovery, the health
-   check, and the founder's switch. Nothing can be sold yet; the check script drives it directly.
-2. **Calls:** member-only hours, booking as a member, joining, settling, cancelling, reviews,
-   refund requests, collecting, added time, ratings, emails.
-3. **The pages, and switching it on:** the offer, inviting, joining, "Your account", the member
-   list, the admin page. The founder's switch is turned on only when the whole journey passes.
+This plan is the **rulebook**: the rules about money run through all three parts, so they stay in
+one place where they can be read together. The feature is built in three parts, in this order.
+Each part gets a short plan of its own just before it is built, and then goes the usual way: Astra
+checks the short plan, the part is built, Astra and CodeRabbit review it, it is merged, and it is
+written into the record. What each part delivers, and when it counts as done, is fixed here and
+now, so the short plans cannot drift.
 
-Each part must leave card payments behaving exactly as before.
+The cut between the parts follows one rule: **no part may leave money in a state that a later
+part has to repair.**
+
+### Part one: the money, complete
+
+Delivers:
+
+- The database changes and the shared money functions. Every payment that exists today stays a
+  card payment, and membership money never passes through the code for card holds.
+- The monthly payment with its tries; paying back; the end of a month, with expired money; disputes;
+  the helper's recovery; the health check.
+- Collecting, as far as a month needs it without any call: a host can collect expired money, a
+  share on its way to a host cannot be paid back, and the earnings and admin lists show a payment
+  that has no call.
+- Ending a membership, as far as money goes: no further charge, an open payment cancelled, free
+  money paid back, and the instruction to end saved together with whatever causes it.
+- The rules that protect money wherever they are enforced: the terms a member agreed to, the price
+  rule against the regular price, and the membership's saved card being safe from the job that
+  removes cards.
+- The founder's switch, enforced on the server, and off.
+
+Done when:
+
+- A test month can be charged, renewed, ended, paid back or left to expire, and collected, with
+  nothing left over for part two to put right.
+- Every cent is in one of the six places after the same request sent twice, two things at the
+  same moment, and the app stopping at any step; whatever is unfinished has a next step written
+  down, and the helper finishes it.
+- The existing payment jobs and lists handle the new records safely. Nobody can buy a membership.
+
+### Part two: member calls, complete
+
+Delivers:
+
+- Member-only hours, booking as a member, joining the call, settling it, cancelling, reviews,
+  refund requests and refunds, collecting a call's share, ratings, and the emails about calls.
+- Added time, from the membership or by card, each with its own rules, and never a card charge the
+  member did not see and press.
+- What an ending means for calls: upcoming member calls cancelled, a call under way settled and
+  its unused money sent to the right place, for every kind of ending and for a dispute.
+- The changes the call screen, the page after a call and the booking pages need for all this.
+
+Done when:
+
+- Test calls come out right across a month's end, with refund requests, with disputes and with
+  early endings.
+- Two bookings, or a booking and added time, can never spend the same money.
+- No call's money needs part three to be handled. Months already paid for stay usable with the
+  founder's switch off. Nobody can buy a membership yet.
+
+### Part three: the pages, and switching it on
+
+Delivers:
+
+- The host's offer, inviting, joining with the recorded agreement, the "Pay now" page for a failed
+  payment, cancelling, the member list, monthly receipts, the reminder, and the admin page.
+- Every remaining page, connected to what parts one and two built. It adds no money rule.
+
+Done when:
+
+- The whole journey passes in a browser, also at phone size, including a failed payment, a
+  cancellation, and the founder's switch turned off while months are running.
+- Merging this part does not turn anything on. The founder turns the switch on, after the points
+  under "Before this can go live".
+
+### For every part
+
+The existing twelve check scripts pass unchanged, the part's own checks pass, both reviews are
+dealt with, and the record is updated.
+
+### What a short plan for a part holds
+
+- Which sections of this rulebook it builds, what is in the part and what is left out, and what it
+  relies on from the part before.
+- The exact files and database changes, and the order in which they can safely go live.
+- The checks that prove each "done when" point above.
+- What stays switched off after it.
+
+A short plan never changes a money rule, never leaves recovery of its own steps to a later part,
+and never repeats a rule in its own words. If a rule or a cut between parts has to change, the
+rulebook is changed and checked first.
 
 ## What does not change
 
@@ -674,3 +753,13 @@ existing members, no "Agree" step), a cancelled membership cannot be switched ba
 invitation instead), and no notices on the home page (the emails and "Your account" do that job).
 Kept on its advice: the month's books, pay-backs that are tried again, endings that cannot be
 lost, disputes, the health check and the founder's switch.
+
+## Astra on how the plan is organised (17 November 2026)
+
+Asked whether the plan should be broken up, Astra agreed with the builder's proposal: one rulebook,
+and a short plan for each of the three parts just before it is built. It added that the cuts
+between the parts, and when each part counts as done, should be fixed now, and wrote those lists;
+they are in "The three parts", in the plan's own words. It moved four things: collecting expired
+money, the money side of ending a membership, and the rules that protect money all belong in part
+one, and the changes existing pages need belong with the behaviour they show, not in part three.
+The founder decided to organise the work this way.
