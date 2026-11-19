@@ -212,7 +212,7 @@ export async function usePhoto(formData: FormData) {
     const { outcome, detail } = await takePhoto({ userId: user.id, network: "instagram" });
     const later = "Please try again in a few minutes.";
     const said: Record<PhotoOutcome, string> = {
-      shown: "Your photo was checked and is on your page now.",
+      shown: "Your photo passed the check and is saved. It is shown on your page and in the search results whenever your page is open to everyone.",
       not_accepted: "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. Nothing was changed.",
       refused_before: "That photo was not accepted before, so it was not taken again. Nothing was changed.",
       no_picture: "We could not read a profile picture for your Instagram account. It must be a Creator or Business account. If you have changed its name, confirm the account again first.",
@@ -228,6 +228,7 @@ export async function usePhoto(formData: FormData) {
       busy: "Many people are using this right now. Please try again in a little while.",
       no_checker: `Photos cannot be checked right now, so none can be taken. ${later}`,
       place_taken: "Another picture is being worked on right now. Please try again in a moment.",
+      failed: "Something went wrong on our side. Nothing was changed. Please try again.",
     };
     notice = said[outcome];
   } catch (error) {

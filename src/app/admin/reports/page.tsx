@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
+import { photosStillThere } from "@/lib/profiles/photo";
 import { unansweredRequests } from "@/lib/refunds/requests";
 import { openReports, REPORT_REASONS } from "@/lib/safety/reports";
 import { switches } from "@/lib/safety/switches";
@@ -37,6 +38,17 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
     ? await db.select({ handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, current.membershipsHosts))
     : [];
   // Read on its own, oldest first: a request whose host has gone silent must not sink out of sight.
+  // Which of the photos that were showing when a page was reported are still that host's photo (plans/29).
+  const photosThere = await photosStillThere(
+    reports.flatMap(({ report }) => {
+      try {
+        const id = (JSON.parse(report.snapshot) as { photoId?: unknown }).photoId;
+        return typeof id === "string" ? [id] : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
   const requests = await unansweredRequests();
   const people = requests.length > 0 ? await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user) : [];
   const nameOf = new Map(people.map((person) => [person.id, person.name]));
@@ -146,11 +158,18 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 )}
                 {snapshot.photoId && (
                   <p className="mt-1 opacity-70" data-reported-photo>
-                    Their page showed a photo when it was reported. Hosts&apos; photos, with &quot;Remove&quot; and &quot;Remove and report&quot;, are on{" "}
-                    <Link href="/admin/people#photos" className="underline underline-offset-2">
-                      the page for hosts and accounts
-                    </Link>
-                    . A photo its host has removed or replaced since is not kept.
+                    Their page showed a photo when it was reported.{" "}
+                    {photosThere.has(snapshot.photoId) ? (
+                      <>
+                        It is still their photo. It is listed, with &quot;Remove&quot; and &quot;Remove and report&quot;, on{" "}
+                        <Link href="/admin/people#photos" className="underline underline-offset-2">
+                          the page for hosts and accounts
+                        </Link>
+                        .
+                      </>
+                    ) : (
+                      "That photo has been removed or replaced since, and is not kept. A photo they have now is a different one."
+                    )}
                   </p>
                 )}
                 {snapshot.post && (

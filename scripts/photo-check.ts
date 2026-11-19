@@ -17,7 +17,8 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gte, inArray, like, or } from "drizzle-orm";
+import { readFileSync } from "node:fs";
+import { and, eq, gte, inArray, like, or, sql } from "drizzle-orm";
 import type { PhotoAnswer } from "../src/lib/profiles/bio-check";
 import type { PhotoOptions, PhotoOutcome } from "../src/lib/profiles/photo";
 import type { Checker } from "../src/lib/projects/checks/types";
@@ -39,7 +40,6 @@ async function main() {
   const closing = await import("../src/lib/profiles/closing");
   const { ProfileError } = profiles;
   const { searchHosts } = await import("../src/lib/profiles/search");
-  const { hostForMemberByHandle } = await import("../src/lib/membership/access");
   const { runPictureRound } = await import("../src/lib/projects/queue");
   const { givePlace, takePlace } = await import("../src/lib/projects/pictures");
   const { PICTURE } = await import("../src/lib/projects/rules");
@@ -154,9 +154,17 @@ async function main() {
     later(120);
     await db.delete(schema.pictureCheckers);
   };
-  type Press = { meta?: PhotoAnswer | (() => PhotoAnswer | Promise<PhotoAnswer>); picture?: Buffer | null; meanwhile?: PhotoOptions["meanwhile"]; services?: Checker[] };
+  type Press = { meta?: PhotoAnswer | (() => PhotoAnswer | Promise<PhotoAnswer>); picture?: Buffer | null; meanwhile?: PhotoOptions["meanwhile"]; services?: Checker[]; fetchBreaks?: boolean };
+  /** The line of the try the last press wrote, as it stands after the press; undefined when the press wrote none. */
+  let tried: Awaited<ReturnType<typeof triesOf>>[number] | undefined;
   /** One press of "Use my Instagram photo" or "Update", with the stand-ins. */
-  const press = async (host: Host, over: Press = {}): Promise<PhotoOutcome> =>
+  const press = async (host: Host, over: Press = {}): Promise<PhotoOutcome> => {
+    const before = new Set((await db.select({ id: tries.id }).from(tries).where(eq(tries.userId, host.id))).map((row) => row.id));
+    const outcome = await pressOnly(host, over);
+    tried = (await db.select().from(tries).where(eq(tries.userId, host.id))).find((row) => !before.has(row.id));
+    return outcome;
+  };
+  const pressOnly = async (host: Host, over: Press = {}): Promise<PhotoOutcome> =>
     (
       await Photo.takePhoto(
         { userId: host.id, network: "instagram" },
@@ -168,6 +176,7 @@ async function main() {
           },
           fetch: async () => {
             fetched++;
+            if (over.fetchBreaks) throw new Error("something of our own broke");
             return over.picture === undefined ? host.picture : over.picture;
           },
           services: over.services ?? standIns(),
@@ -180,8 +189,7 @@ async function main() {
   const photoOf = async (host: { id: string }) => (await db.select({ id: photos.id, network: photos.network, sourceNameKey: photos.sourceNameKey, sourceAccountId: photos.sourceAccountId, sha256: photos.sha256, byteLength: photos.byteLength, checkedBy: photos.checkedBy, rulesVersion: photos.rulesVersion, lockedAt: photos.lockedAt, reportMadeAt: photos.reportMadeAt }).from(photos).where(eq(photos.userId, host.id))).filter((row) => !row.lockedAt)[0];
   const lockedOf = async (host: { id: string }) => (await db.select({ id: photos.id, lockedAt: photos.lockedAt, lockedBy: photos.lockedBy, reportMadeAt: photos.reportMadeAt }).from(photos).where(eq(photos.userId, host.id))).filter((row) => row.lockedAt);
   const bytesOf = async (photoId: string) => (await db.select({ bytes: photos.bytes }).from(photos).where(eq(photos.id, photoId)))[0]?.bytes;
-  const triesOf = async (host: { id: string }) => db.select().from(tries).where(eq(tries.userId, host.id)).orderBy(tries.startedAt, tries.endedAt);
-  const lastTry = async (host: { id: string }) => (await triesOf(host)).at(-1);
+  const triesOf = async (host: { id: string }) => db.select().from(tries).where(eq(tries.userId, host.id));
   const sees = async (viewer: { id: string; admin: boolean } | null, id: string) => Boolean(await Photo.photoFor(viewer, id));
   const entryOf = async (host: { id: string }, network = "instagram") => (await db.select().from(schema.socialAccounts).where(and(eq(schema.socialAccounts.userId, host.id), eq(schema.socialAccounts.network, network))))[0];
   const checkerLine = async (name: Name) => (await db.select().from(schema.pictureCheckers).where(eq(schema.pictureCheckers.service, name)))[0];
@@ -207,6 +215,13 @@ async function main() {
       .returning();
     return row;
   }
+  /** A diary picture that waits for its check and is due now, with its file, for a round of the queue. */
+  async function waitingDiaryPicture(host: Host, label: string) {
+    const row = await diaryPicture(host, { sha256: fingerprint(Buffer.from(`${label}-${RUN}`)), state: "shown" });
+    await db.update(pictures).set({ state: "waiting", level: null, nextTryAt: now(), checkedBy: null, checkedAt: null }).where(eq(pictures.id, row.id));
+    await db.insert(schema.projectPictureFiles).values({ pictureId: row.id, bytes: (await (await import("../src/lib/projects/copy")).makeCopy(await picture())).bytes });
+    return row;
+  }
   /** What Connect's copy of a picture is, as takePhoto makes it: its fingerprint. */
   const copyPrint = async (original: Buffer) => fingerprint((await (await import("../src/lib/projects/copy")).makeCopy(original)).bytes);
   const get = async (path: string) => {
@@ -228,7 +243,7 @@ async function main() {
     const kept = stored ? await sharp(stored).metadata() : null;
     check("one press: Meta is asked once for the confirmed name, the picture fetched once, the first service asked once, and the photo is the host's", first === "shown" && metaAsked.join() === host.igName && fetched === 1 && asked.join() === "openai" && Boolean(photo), { first, metaAsked, fetched, asked });
     check("what is kept is Connect's own JPEG copy, with its fingerprint, the account's name and Meta's number, and who passed it by which rules", kept?.format === "jpeg" && stored !== undefined && fingerprint(stored) === photo.sha256 && stored.length === photo.byteLength && photo.network === "instagram" && photo.sourceNameKey === host.igName && photo.sourceAccountId === host.igNumber && photo.checkedBy === "openai" && photo.rulesVersion === PICTURE.rulesVersion && askedAbout[0] === photo.sha256);
-    const line = await lastTry(host);
+    const line = tried;
     check("the try's line says how it ended, with the entry it started from", line?.result === "shown" && line.entryNameKey === host.igName && line.entryAccountId === null && line.sha256 === photo.sha256 && line.endedAt !== null, line);
     check("the photo's facts for the Hosting page, the host's page and the search", (await Photo.ownPhotoState(host.id)).photo?.id === photo.id && (await Photo.photosOf([host.id])).get(host.id) === photo.id && (await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle)?.photoId === photo.id);
 
@@ -268,13 +283,14 @@ async function main() {
       ["the name now leads to an account with another number", { meta: { kind: "picture", accountId: number(9000), address: GOOD } }, "no_picture", { fetched: 0, asked: "" }],
       ["a picture address on a server that is not Meta's", { meta: { kind: "picture", accountId: host.igNumber, address: "https://fbcdn.net.example.com/p.jpg" } }, "not_fetched", { fetched: 0, asked: "" }],
       ["a picture address that is not https", { meta: { kind: "picture", accountId: host.igNumber, address: "http://scontent.xx.fbcdn.net/p.jpg" } }, "not_fetched", { fetched: 0, asked: "" }],
-      ["the picture server gives nothing (a redirect, too slow, too large)", { picture: null }, "not_fetched", { fetched: 1, asked: "" }],
+      // (What makes the fetch itself give nothing, a redirect, a slow or a too large answer, is tried in the unit tests of photo-fetch.ts.)
+      ["the picture server gives nothing", { picture: null }, "not_fetched", { fetched: 1, asked: "" }],
       ["a file that is not a picture", { picture: Buffer.from("<html>not a picture</html>") }, "unusable", { fetched: 1, asked: "" }],
       ["a picture smaller than 100 points a side", { picture: await picture(60) }, "unusable", { fetched: 1, asked: "" }],
     ];
     for (const [label, over, expected, counts] of endings) {
       const outcome = await tryOne(over);
-      const line = await lastTry(host);
+      const line = tried;
       check(`${label}: "${expected}", nothing kept, no service asked`, outcome === expected && line?.result === expected && (await none()) && fetched === counts.fetched && asked.join() === counts.asked, { outcome, line: line?.result, fetched, asked });
     }
     // Meta's refusal of our own key is told to the founder's page, under its own name.
@@ -288,12 +304,16 @@ async function main() {
         throw new Error("boom");
       },
     });
-    check("a request to Meta that breaks ends the try as \"not fetched\"", broke === "not_fetched" && (await lastTry(host))?.result === "not_fetched" && (await none()), broke);
+    check("a request to Meta that breaks ends the try as \"not fetched\"", broke === "not_fetched" && tried?.result === "not_fetched" && (await none()), broke);
+
+    // Something of our own breaks in the middle.
+    const brokeInside = await tryOne({ fetchBreaks: true });
+    check("something of our own breaks in the middle: the host is told so (not that something was decided meanwhile), the try is ended, the one place is given back, and nothing is kept", brokeInside === "failed" && tried?.result === "stopped" && takePlace() && (givePlace(), true) && (await none()), { brokeInside, line: tried?.result });
 
     // The checking services.
     says = { openai: "flagged", azure: "clean", sightengine: "clean" };
     const flagged = await tryOne({});
-    check("a service flags it: not accepted, nothing kept, and nobody else is asked for a second opinion", flagged === "not_accepted" && asked.join() === "openai" && (await none()) && (await lastTry(host))?.result === "not_accepted" && (await lastTry(host))?.checkedBy === "openai", { flagged, asked });
+    check("a service flags it: not accepted, nothing kept, and nobody else is asked for a second opinion", flagged === "not_accepted" && asked.join() === "openai" && (await none()) && tried?.result === "not_accepted" && tried?.checkedBy === "openai", { flagged, asked });
     says = { openai: "flagged", azure: "clean", sightengine: "clean" };
     partial = new Set<Name>(["openai"]);
     host.picture = await picture();
@@ -317,7 +337,7 @@ async function main() {
     forget();
     later(25 * 60);
     const noKeys = await press(host, { picture: await picture() });
-    check("no service has a key: refused at the start, nothing asked of Meta, and no try written", noKeys === "no_checker" && metaAsked.length === 0 && (await lastTry(host))?.result === "shown", noKeys);
+    check("no service has a key: refused at the start, nothing asked of Meta, and no try written", noKeys === "no_checker" && metaAsked.length === 0 && tried === undefined, noKeys);
   });
 
   // ========================================================================
@@ -326,7 +346,7 @@ async function main() {
     const host = await newHost();
     says.openai = "flagged";
     const first = await press(host);
-    const print = (await lastTry(host))?.sha256;
+    const print = tried?.sha256;
     check("a flagged photo's fingerprint is kept on the try's line; its picture is kept nowhere", first === "not_accepted" && print === (await copyPrint(host.picture)) && (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, host.id))).length === 0);
     // The same picture again, with every service now saying "clean".
     says = { openai: "clean", azure: "clean", sightengine: "clean" };
@@ -370,8 +390,9 @@ async function main() {
     forget();
     const sixth = await press(host);
     check(`the sixth try in 24 hours is refused before anything is asked, whatever became of the five (${outcomes.join(", ")})`, sixth === "limit" && metaAsked.length === 0 && (await triesOf(host)).length === PHOTO.triesPerDay, sixth);
-    later(24 * 60 - 3);
-    check("still refused a few minutes before the first try is 24 hours old", (await press(host)) === "limit");
+    // (The five tries were at minutes 1 to 5, so the clock stands 4 minutes after the first.)
+    later(24 * 60 - 6);
+    check("still refused two minutes before the first try is 24 hours old", (await press(host)) === "limit");
     later(4);
     check("and allowed once the first try is more than 24 hours old", (await press(host, { picture: await picture() })) === "shown");
 
@@ -379,16 +400,20 @@ async function main() {
     const twin = await newHost();
     let release: () => void = () => undefined;
     const held = new Promise<void>((resolve) => (release = resolve));
-    const slow = press(twin, { meanwhile: async (at) => (at === "asked" ? held : undefined) });
-    // (The first press has written its try once Meta was asked.)
-    for (let i = 0; i < 250 && (await triesOf(twin)).length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
-    const quick = await press(twin);
-    release();
+    const slow = pressOnly(twin, { meanwhile: async (at) => (at === "asked" ? held : undefined) });
+    let quick: PhotoOutcome | undefined;
+    try {
+      // (The first press has written its try once Meta was asked.)
+      for (let i = 0; i < 250 && (await triesOf(twin)).length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      quick = await press(twin);
+    } finally {
+      release();
+    }
     const slowOutcome = await slow;
     check("a second press while the first is under way is refused, and the first goes through", quick === "running" && slowOutcome === "shown" && (await triesOf(twin)).length === 1, { quick, slowOutcome });
     const pair = await newHost();
-    const both = await Promise.all([press(pair), press(pair)]);
-    check("two presses at the very same moment: one photo, one of them refused or stopped, never two photos", both.filter((outcome) => outcome === "shown").length === 1 && (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, pair.id))).length === 1, both);
+    const both = await Promise.all([pressOnly(pair), pressOnly(pair)]);
+    check("two presses sent at the same moment: each is either taken or told that one is under way, and there are never two photos", both.includes("shown") && both.every((outcome) => outcome === "shown" || outcome === "running") && (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, pair.id))).length === 1, both);
 
     // A try that never ended.
     const stuck = await newHost();
@@ -400,7 +425,8 @@ async function main() {
     const [leftNow] = await db.select().from(tries).where(eq(tries.id, left.id));
     check("after that it counts as stopped, a new try goes through, and it still counts toward the day's five", afterStuck === "shown" && leftNow.result === "stopped" && (await triesOf(stuck)).length === 2, { afterStuck, left: leftNow.result });
 
-    // Everyone's hour at Instagram, bio checks and photos together.
+    // Everyone's hour at Instagram, bio checks and photos together. In an hour of its own: the tries above are older.
+    later(61);
     const crowd = await newHost();
     await db.insert(schema.bioChecks).values(Array.from({ length: profiles.INSTAGRAM_CHECKS_PER_HOUR - 1 }, () => ({ userId: crowd.id, network: "instagram", startedAt: now(), result: "not_found" })));
     forget();
@@ -440,12 +466,26 @@ async function main() {
       await holding;
     });
     await taken;
-    const waitingPress = press(waiter);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const writtenWhileHeld = (await triesOf(waiter)).length;
-    letGo();
+    let writtenWhileHeld = -1;
+    let othersGoOn = false;
+    const waitingPress = pressOnly(waiter);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      writtenWhileHeld = (await triesOf(waiter)).length;
+      // Meanwhile everyone else's requests to Instagram go on: the waiting press does not hold their lock.
+      othersGoOn = await Promise.race([
+        db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
+          return true;
+        }),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000)),
+      ]);
+    } finally {
+      letGo();
+    }
     await holder;
     check("a press waits while another step holds the host's locks, and writes its try only afterwards: a removal either sees the try or comes first", writtenWhileHeld === 0 && (await waitingPress) === "shown" && (await triesOf(waiter)).length === 1, { writtenWhileHeld });
+    check("while it waits, it does not hold up anyone else's bio check or photo", othersGoOn);
 
     // One picture is opened at a time, a diary upload or a photo.
     const waiting = await newHost();
@@ -453,7 +493,7 @@ async function main() {
     forget();
     const noPlace = await press(waiting);
     givePlace();
-    check("while a diary upload holds the one place for opening a picture, a photo is told to try again, and its picture is not fetched", noPlace === "place_taken" && fetched === 0 && (await lastTry(waiting))?.result === "not_fetched", noPlace);
+    check("while a diary upload holds the one place for opening a picture, a photo is told to try again, and its picture is not fetched", noPlace === "place_taken" && fetched === 0 && tried?.result === "not_fetched", noPlace);
     check("and the place is given back after a photo, however it ended", (await press(waiting, { picture: Buffer.from("not a picture") })) === "unusable" && takePlace() && (givePlace(), true));
   });
 
@@ -468,12 +508,16 @@ async function main() {
       const before = await photoOf(host);
       forget();
       const outcome = await press(host, { picture: await picture(), meanwhile: async (at) => void (at === when && (await change(host))) });
-      return { host, before, outcome, after: await photoOf(host), line: await lastTry(host) };
+      return { host, before, outcome, after: await photoOf(host), line: tried };
     };
     for (const when of ["asked", "copied", "checked"] as const) {
       const removed = await during(when, async (host) => profiles.removeSocialName(host.id, (await entryOf(host)).id));
       check(`the account is removed (after "${when}"): the old photo goes with the account, and the late answer writes none`, removed.outcome === "stopped" && !removed.after && removed.line?.result === "stopped", { outcome: removed.outcome, after: removed.after?.id });
     }
+    const firstTime = await newHost({ spare: true });
+    forget();
+    const firstOutcome = await press(firstTime, { meanwhile: async (at) => void (at === "copied" && (await profiles.removeSocialName(firstTime.id, (await entryOf(firstTime)).id))) });
+    check("the same on a first try, when there is no photo yet: the try is stopped, no service is asked, and no photo is written", firstOutcome === "stopped" && tried?.result === "stopped" && asked.length === 0 && !(await photoOf(firstTime)), { firstOutcome, asked });
     const awayAndBack = await during(
       "copied",
       async (host) => {
@@ -507,9 +551,15 @@ async function main() {
     const paused = await during("checked", (host) => db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, host.id)));
     check("the account is paused meanwhile: the old photo stays as it was, and the new one is not written", paused.outcome === "stopped" && paused.after?.id === paused.before.id, paused.outcome);
     // A refusal is about the picture: it is written also when the try was stopped.
-    says.openai = "flagged";
-    const flaggedLate = await during("checked", (host) => Photo.removePhoto({ userId: host.id, now: now() }));
-    check("a service's flag is written to the try with its fingerprint also when the try was stopped meanwhile", flaggedLate.outcome === "not_accepted" && flaggedLate.line?.result === "not_accepted" && Boolean(flaggedLate.line.sha256), flaggedLate.outcome);
+    const flagHost = await newHost({ spare: true });
+    await press(flagHost);
+    // The host presses "Remove" while the service is looking at the picture, and the service then flags it.
+    says.openai = async () => {
+      await Photo.removePhoto({ userId: flagHost.id, now: now() });
+      return "flagged" as const;
+    };
+    const flaggedLate = await press(flagHost, { picture: await picture() });
+    check("a service's flag is written to the try with its fingerprint also when the try was stopped while the service was looking", flaggedLate === "not_accepted" && tried?.result === "not_accepted" && Boolean(tried.sha256) && !(await photoOf(flagHost)), { flaggedLate, line: tried?.result });
     says.openai = "clean";
     // Who cannot start at all.
     const noProfile = await person("plain");
@@ -568,7 +618,7 @@ async function main() {
     // Taken while proven by signing in: Meta's number must be the entry's.
     const signed = await newHost({ bySignIn: true });
     forget();
-    check("an entry proven by signing in: the photo is taken when Meta's number is the entry's, and its try remembers the number", (await press(signed)) === "shown" && (await lastTry(signed))?.entryAccountId === signed.igNumber && (await photoOf(signed)).sourceAccountId === signed.igNumber);
+    check("an entry proven by signing in: the photo is taken when Meta's number is the entry's, and its try remembers the number", (await press(signed)) === "shown" && tried?.entryAccountId === signed.igNumber && (await photoOf(signed)).sourceAccountId === signed.igNumber);
   });
 
   // ========================================================================
@@ -589,6 +639,8 @@ async function main() {
     check("the answer for the host or the founder on an open page may be kept too; it is the same picture anyone gets", (await Photo.photoFor({ id: host.id, admin: false }, whenOpen.id))?.open === true);
     await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, host.id));
     const hidden = await matrix(host);
+    // (A member or an invited person, who can open a hidden page, is "another person" here: photoFor knows nothing of
+    // memberships, and the page's own reader hands a member's view no photo id at all.)
     check("hidden by the host: only the host and the founder, and their answer is not kept by a browser", hidden.text === "no no yes yes" && (await Photo.photoFor({ id: host.id, admin: false }, hidden.id))?.open === false, hidden);
     await db.update(schema.hostProfiles).set({ hidden: false, status: "pending" }).where(eq(schema.hostProfiles.userId, host.id));
     check("waiting for approval: only the host and the founder", (await matrix(host)).text === "no no yes yes");
@@ -607,9 +659,10 @@ async function main() {
     check("a report of the host's page says which photo was showing", (JSON.parse(filed.snapshot) as { photoId?: string }).photoId === whenOpen.id, filed.snapshot.slice(0, 120));
     check("an address that is not an id, and one that belongs to nothing, give nothing", !(await sees(founder, "not-an-id")) && !(await sees(founder, "00000000-0000-4000-8000-000000000000")));
     check("the lists never carry the bytes", !JSON.stringify([await Photo.ownPhotoState(host.id), await Photo.photosForAdmin([host.id]), [...(await Photo.photosOf([host.id]))]]).includes("bytes"));
-    // A member on a hidden page gets the letter: the page's own reader gives members no photo.
-    await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, host.id));
-    check("(a visitor who is no member cannot open the hidden page at all)", (await hostForMemberByHandle(visitor.id, host.handle)) === null);
+    const route = readFileSync("src/app/host-photos/[id]/route.ts", "utf8");
+    const hostPage = readFileSync("src/app/h/[handle]/page.tsx", "utf8");
+    check("the photo's address counts a founder only with the second login step, as the diary's does, and asks photoFor and nothing else", route.includes("admin = Boolean(row) && (await isAdminSession(await getSignedIn()));") && route.includes("const found = await photoFor(user ? { id: user.id, admin } : null, id);") && !route.includes("hostPhotos"));
+    check("the host's page hands a member's view of a hidden page no photo", hostPage.includes("return forMember ? { ...forMember, socials: [], photoId: null } : null;"));
 
     // Through the running app, as a browser would.
     const shownHost = await newHost();
@@ -657,11 +710,13 @@ async function main() {
     await Photo.lockPhotoAsFounder({ adminId: admin.id, photoId: second.id, now: now() });
     const [locked] = await lockedOf(host);
     check("\"Remove and report\": the photo is locked by the founder, kept byte for byte, and handed to nobody, the founder included", locked?.id === second.id && locked.lockedBy === admin.id && fingerprint((await bytesOf(second.id))!) === kept && !(await sees(null, second.id)) && !(await sees({ id: host.id, admin: false }, second.id)) && !(await sees(founder, second.id)));
+    const inSearch = (await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle);
+    check("the host is still found by the search, without a photo", inSearch !== undefined && inSearch.photoId === null, inSearch);
+    check("it is in none of the lists a page draws from, and the Hosting page's facts say it was removed", !(await Photo.photosOf([host.id])).has(host.id) && (await Photo.ownPhotoState(host.id)).photo === null && (await Photo.ownPhotoState(host.id)).locked === true && !(await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle)?.photoId);
     const contextBefore = (await db.select({ context: photos.lockedContext }).from(photos).where(eq(photos.id, second.id)))[0].context ?? "";
     await profiles.updateHostProfile(host.id, { displayName: "Someone Else Now", about: "Changed afterwards.", pricePer15Cents: 1000 });
     const contextAfter = (await db.select({ context: photos.lockedContext }).from(photos).where(eq(photos.id, second.id)))[0].context ?? "";
     check("what belonged to it is kept with it: the host's page and confirmed accounts as they were, also after the host changes them", contextBefore.includes(`Photo host ${RUN}`) && contextBefore.includes(host.handle) && contextBefore.includes(host.igName) && contextAfter === contextBefore && !contextAfter.includes("Someone Else Now"), contextBefore.slice(0, 200));
-    check("it is in none of the lists a page draws from, and the Hosting page's facts say it was removed", !(await Photo.photosOf([host.id])).has(host.id) && (await Photo.ownPhotoState(host.id)).photo === null && (await Photo.ownPhotoState(host.id)).locked === true && !(await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle)?.photoId);
     forget();
     const blocked = await press(host, { picture: await picture() });
     check("the host can take no other photo: refused at the start, nothing asked", blocked === "locked" && metaAsked.length === 0, blocked);
@@ -703,21 +758,26 @@ async function main() {
     says.openai = "out";
     await press(host, { picture: await picture() });
     const out = await checkerLine("openai");
-    check("a photo finds the first service out: its five minutes start, and the second service answers", out?.outUntil?.getTime() === clock + 5 * MIN && (await lastTry(host))?.checkedBy === "azure");
+    check("a photo finds the first service out: its five minutes start, and the second service answers", out?.outUntil?.getTime() === clock + 5 * MIN && tried?.checkedBy === "azure");
     const diarist = await newHost();
-    const waiting = await diaryPicture(diarist, { sha256: fingerprint(Buffer.from(`waiting-${RUN}`)), state: "shown" });
-    await db.update(pictures).set({ state: "waiting", level: null, nextTryAt: now(), checkedBy: null, checkedAt: null }).where(eq(pictures.id, waiting.id));
-    await db.insert(schema.projectPictureFiles).values({ pictureId: waiting.id, bytes: (await (await import("../src/lib/projects/copy")).makeCopy(await picture())).bytes });
+    later(1);
+    const waiting = await waitingDiaryPicture(diarist, "waiting");
     forget();
     says.openai = "clean";
     await round();
     check("the diary's queue, a minute later, does not ask the service a photo found out; it asks the next one", asked.join() === "azure" && (await db.select().from(pictures).where(eq(pictures.id, waiting.id)))[0].state === "shown", asked);
-    // The other way round: the queue's five minutes hold for a photo.
+    // The other way round: the queue finds a service out, and its five minutes hold for a photo.
     await db.delete(schema.pictureCheckers);
-    await db.insert(schema.pictureCheckers).values({ service: "openai", outUntil: new Date(clock + 4 * MIN), lastGoodAt: now(), lastGoodKey: "key-1" });
+    later(60);
+    const queued = await waitingDiaryPicture(diarist, "queued");
+    says.openai = "out";
     forget();
-    later(25 * 60 - 24 * 60);
-    await db.update(schema.pictureCheckers).set({ outUntil: new Date(clock + 4 * MIN) }).where(eq(schema.pictureCheckers.service, "openai"));
+    await round();
+    says.openai = "clean";
+    const outByQueue = await checkerLine("openai");
+    check("(the queue found the first service out, and the second answered its picture)", asked.join() === "openai,azure" && outByQueue?.outUntil?.getTime() === clock + 5 * MIN && (await db.select().from(pictures).where(eq(pictures.id, queued.id)))[0].state === "shown", asked);
+    forget();
+    later(1);
     const during = await press(await newHost());
     check("a service in its five minutes after the queue found it out is not asked for a photo", during === "shown" && asked.join() === "azure", { during, asked });
     later(5);
@@ -730,9 +790,7 @@ async function main() {
     await press(await newHost());
     const second = await newHost();
     await press(second);
-    const again = await diaryPicture(diarist, { sha256: fingerprint(Buffer.from(`again-${RUN}`)), state: "shown" });
-    await db.update(pictures).set({ state: "waiting", level: null, nextTryAt: now(), checkedBy: null, checkedAt: null }).where(eq(pictures.id, again.id));
-    await db.insert(schema.projectPictureFiles).values({ pictureId: again.id, bytes: (await (await import("../src/lib/projects/copy")).makeCopy(await picture())).bytes });
+    const again = await waitingDiaryPicture(diarist, "again");
     await round();
     check("a fault met by two photos and then by the diary's queue: the founder is emailed once, and nobody's picture is passed on", (await mails(admin.email, "A picture checking service has a fault: openai")) === before + 1 && !(await photoOf(second)) && (await db.select().from(pictures).where(eq(pictures.id, again.id)))[0].state === "waiting", { mails: (await mails(admin.email, "A picture checking service has a fault: openai")) - before });
     says.openai = "clean";
@@ -795,6 +853,7 @@ async function main() {
     for (const [what, work] of puttingBack) await work().catch((error) => check(`afterwards: ${what} could be put back`, false, String(error)));
   }
   check("afterwards: the lines about the checking services are as they were", JSON.stringify(await db.select().from(schema.pictureCheckers).orderBy(schema.pictureCheckers.service)) === JSON.stringify(checkersBefore));
+  check("afterwards: no photo and no email of this run is left", (await db.select({ id: photos.id }).from(photos).where(like(photos.userId, `hp-${RUN}-%`))).length === 0 && (await db.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(like(schema.emailOutbox.to, `photocheck-${RUN}-%`))).length === 0);
   check("afterwards: nothing this run made is left", (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, `hp-${RUN}-%`))).length === 0 && (await db.select({ id: tries.id }).from(tries).where(like(tries.userId, `hp-${RUN}-%`))).length === 0);
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

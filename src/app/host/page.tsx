@@ -400,7 +400,8 @@ export default async function HostPage(props: PageProps<"/host">) {
                 Your page and the search results can show the profile picture of your confirmed Instagram account in place of the first
                 letter of your name. When you press the button, we fetch your public profile picture, make our own copy, and have it
                 checked automatically before anyone sees it. For the check, our copy is sent to a checking service, without your name. We
-                keep our copy until you remove it. It works for Creator and Business accounts, {PHOTO.triesPerDay} times in 24 hours.
+                keep our copy until you remove it (the privacy page says when we must keep one longer). It works for Creator and
+                Business accounts, {PHOTO.triesPerDay} times in 24 hours.
               </p>
               <div className="mt-3 flex items-center gap-4">
                 <HostPhoto photoId={photoState.photo?.id ?? null} name={profile.displayName} />

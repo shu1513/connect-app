@@ -165,17 +165,35 @@ export function isAutomatic(network: string, settings: BioSettings = bioSettings
 
 /** How long a request may take, waiting for the answer and reading it. */
 const TIME_LIMIT_MS = 8_000;
+/** The longest answer that is read. A bio or a picture's address is a few thousand characters at most. */
+const ANSWER_MAX_BYTES = 256 * 1024;
 
 /**
  * One fresh request, with our key in a header. It never follows a redirect, so the key only ever
- * goes to the address written here. Null when it did not get through, took too long or could not be read.
+ * goes to the address written here. Null when it did not get through, took too long, was longer than any
+ * real answer, or could not be read. It is read piece by piece and dropped the moment it is too long.
  */
 async function ask(address: URL, keyHeader: Record<string, string>): Promise<string | null> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const answer = await fetch(address, { headers: keyHeader, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(TIME_LIMIT_MS) });
-    return await answer.text();
+    reader = answer.body?.getReader();
+    if (!reader) return "";
+    const pieces: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.byteLength;
+      if (size > ANSWER_MAX_BYTES) return null;
+      pieces.push(next.value);
+    }
+    return Buffer.concat(pieces).toString("utf8");
   } catch {
     return null;
+  } finally {
+    // Whatever was not read is let go of.
+    void reader?.cancel().catch(() => undefined);
   }
 }
 

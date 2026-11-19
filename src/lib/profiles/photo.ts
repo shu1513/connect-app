@@ -19,7 +19,7 @@
  * photo's bytes. The steps other files share are in photo-steps.ts.
  */
 import { createHash } from "node:crypto";
-import { and, eq, gt, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, exists, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { askInOrder } from "@/lib/projects/checks/order";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
@@ -39,7 +39,8 @@ import { INSTAGRAM_CHECKS_PER_HOUR, INSTAGRAM_PHOTO, lockedProfile, ProfileError
 const photos = schema.hostPhotos;
 const tries = schema.hostPhotoTries;
 const NOT_FOUND = "That photo is no longer there.";
-const isId = (id: string) => /^[0-9a-f-]{36}$/i.test(id);
+/** The exact shape of an id: anything else never reaches the database, which would answer it with an error instead of "not found". */
+const isId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 /** How a press ended. The first eight are written to the try's line; the rest said "no" before a try was written. */
 export type PhotoOutcome =
@@ -65,7 +66,9 @@ export type PhotoOutcome =
   /** No checking service is set up, or the services owe their next answers to diary pictures. */
   | "no_checker"
   /** Another picture is being opened on this server right now. */
-  | "place_taken";
+  | "place_taken"
+  /** Something of our own broke (the database, most likely). Not the same as "stopped", where something was decided meanwhile. */
+  | "failed";
 
 /**
  * What a press works with. The Hosting page hands in nothing. The check script hands in stand-ins
@@ -116,7 +119,9 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
     return await copyCheckAndFinish({ userId: input.userId, network: input.network, tryId: started.tryId, source: { nameKey: started.nameKey, accountId: answer.accountId }, address }, asked, clock, options);
   } catch (error) {
     console.error("[host-photo] a try failed", error instanceof Error ? error.name : "error");
-    return { outcome: await end("stopped", "the try failed") };
+    // The try is ended if it still can be. If even that fails, it counts as stopped two minutes after its start (startTry).
+    await end("stopped", "the try failed").catch(() => undefined);
+    return { outcome: "failed" };
   }
 }
 
@@ -178,13 +183,12 @@ async function startTry(userId: string, network: PhotoNetwork, hasChecker: boole
  * its full check, and it is sent to no service once one has come to be owed it. Only pictures the
  * queue would really send: one the founder or a report holds back is owed nothing by the services.
  */
-async function diaryIsOwed(reader: Pick<typeof db, "select">, diaryHosts: string[] | undefined): Promise<boolean> {
+function owedDiaryPicture(diaryHosts: string[] | undefined): SQL | undefined {
   const pictures = schema.projectPictures;
-  const [owed] = await reader
-    .select({ id: pictures.id })
-    .from(pictures)
-    .where(and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), mayGoOnSql, diaryHosts ? inArray(pictures.hostId, diaryHosts) : undefined))
-    .limit(1);
+  return and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), mayGoOnSql, diaryHosts ? inArray(pictures.hostId, diaryHosts) : undefined);
+}
+async function diaryIsOwed(reader: Pick<typeof db, "select">, diaryHosts: string[] | undefined): Promise<boolean> {
+  const [owed] = await reader.select({ id: schema.projectPictures.id }).from(schema.projectPictures).where(owedDiaryPicture(diaryHosts)).limit(1);
   return Boolean(owed);
 }
 
@@ -213,19 +217,23 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
     await end("not_fetched", "another picture was being opened");
     return { outcome: "place_taken" };
   }
-  let copy: Copy;
+  // Nothing but the fetching and the copying happens while the place is held: what is written down about it comes after.
+  let made: { copy: Copy } | { unusable: string } | null;
   try {
     const original = await (options.fetch ?? fetchPicture)(candidate.address);
-    if (!original) return { outcome: await end("not_fetched", "the picture could not be fetched") };
-    try {
-      copy = await makeCopy(original);
-    } catch (error) {
-      if (!(error instanceof ProjectError)) throw error;
-      return { outcome: await end("unusable", error.message), detail: error.message };
-    }
+    made = original ? await makeCopy(original).then(
+      (copy) => ({ copy }),
+      (error: unknown) => {
+        if (!(error instanceof ProjectError)) throw error;
+        return { unusable: error.message };
+      },
+    ) : null;
   } finally {
     givePlace();
   }
+  if (!made) return { outcome: await end("not_fetched", "the picture could not be fetched") };
+  if ("unusable" in made) return { outcome: await end("unusable", made.unusable), detail: made.unusable };
+  const { copy } = made;
   await options.meanwhile?.("copied");
   const sha256 = createHash("sha256").update(copy.bytes).digest("hex");
 
@@ -235,34 +243,43 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
   if (before) {
     const outcome = await end("refused_before", before === "locked" ? "the same picture as a locked diary picture" : "the same picture as one that was refused before", { sha256 });
     if (before === "locked" && outcome === "refused_before") {
-      await db.transaction((tx) =>
-        tellFounders(tx, {
-          subject: "A locked picture was tried as a host's photo",
-          text: `A host pressed "Use my photo", and the profile picture that came back is the same, byte for byte, as a diary picture of theirs that you removed and reported. It was not taken.\n\n${adminUrl()}`,
-          key: `host-photo-locked-before:${candidate.tryId}`,
-        }),
-      );
+      // The try has its result. An email that cannot be written does not change what the host is told.
+      await db
+        .transaction((tx) =>
+          tellFounders(tx, {
+            subject: "A locked picture was tried as a host's photo",
+            text: `A host pressed "Use my photo", and the profile picture that came back is the same, byte for byte, as a diary picture of theirs that you removed and reported. It was not taken.\n\n${adminUrl()}`,
+            key: `host-photo-locked-before:${candidate.tryId}`,
+          }),
+        )
+        .catch(() => console.error("[host-photo] the founder could not be told about a locked picture tried as a photo"));
     }
     return { outcome };
   }
 
-  // The services, in their order. Connect's own checker is not asked: only a full check shows a photo. Before each
-  // request the try is read again: once something has stopped it, the picture is sent to nobody else. Nor is it sent
-  // ahead of a diary picture that has come to be owed its full check meanwhile.
-  const stillRunning = async () => {
-    const [row] = await db.select({ result: tries.result }).from(tries).where(eq(tries.id, candidate.tryId));
-    return Boolean(row) && row.result === null && !(await diaryIsOwed(db, options.diaryHosts));
+  // The services, in their order. Connect's own checker is not asked: only a full check shows a photo. Right before
+  // each request, one read asks both things at once: is the try still running, and is no diary picture owed its full
+  // check? If not, the picture is sent to nobody (else). A request that is already on its way cannot be called back.
+  const mayStillAsk = async () => {
+    const [row] = await db
+      .select({ result: tries.result, owed: sql<boolean>`${exists(db.select({ one: sql`1` }).from(schema.projectPictures).where(owedDiaryPicture(options.diaryHosts)))}` })
+      .from(tries)
+      .where(eq(tries.id, candidate.tryId));
+    return Boolean(row) && row.result === null && !row.owed;
   };
-  const { outcome: answer, asked: answers } = await askInOrder(await turnsFor(asked, copy.bytes, clock), null, stillRunning);
-  // What each answer means for the service itself is written whatever becomes of the try.
-  await recordAnswers(asked, answers, clock());
+  const { outcome: answer, asked: answers } = await askInOrder(await turnsFor(asked, copy.bytes, clock), null, mayStillAsk);
+
+  // A refusal is written first, before anything else can fail: it is about the picture, so it is written with the
+  // fingerprint also when the try was stopped meanwhile.
+  if (answer.kind === "refused") {
+    await db.update(tries).set({ result: "not_accepted", sha256, checkedBy: answer.by, detail: answer.detail.slice(0, 300), endedAt: clock() }).where(eq(tries.id, candidate.tryId));
+  }
+  // What each answer means for the service itself is written whatever becomes of the try. If that cannot be written,
+  // the photo's own outcome stands.
+  await recordAnswers(asked, answers, clock()).catch(() => console.error("[host-photo] what the checking services answered could not be written down"));
   await options.meanwhile?.("checked");
 
-  if (answer.kind === "refused") {
-    // Always written, with the fingerprint, also when the try was stopped meanwhile: the refusal is about the picture.
-    await db.update(tries).set({ result: "not_accepted", sha256, checkedBy: answer.by, detail: answer.detail.slice(0, 300), endedAt: clock() }).where(eq(tries.id, candidate.tryId));
-    return { outcome: "not_accepted" };
-  }
+  if (answer.kind === "refused") return { outcome: "not_accepted" };
   if (answer.kind !== "shown" || answer.level !== "full") return { outcome: await end("not_checked", answer.detail, { sha256 }) };
   return { outcome: await finish(candidate, copy, sha256, { by: answer.by, detail: answer.detail }, clock) };
 }
@@ -426,8 +443,10 @@ export type Viewer = { id: string; admin: boolean } | null;
  */
 export async function photoFor(viewer: Viewer, photoId: string): Promise<{ bytes: Buffer; open: boolean } | null> {
   if (!isId(photoId)) return null;
+  // One read: the bytes come with the very facts the decision is made from, so the answer is never about a page as
+  // it was a moment earlier.
   const [row] = await db
-    .select({ userId: photos.userId, status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden, closedAt: schema.user.closedAt })
+    .select({ userId: photos.userId, bytes: photos.bytes, status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden, closedAt: schema.user.closedAt })
     .from(photos)
     .innerJoin(schema.user, eq(schema.user.id, photos.userId))
     .leftJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, photos.userId))
@@ -435,9 +454,7 @@ export async function photoFor(viewer: Viewer, photoId: string): Promise<{ bytes
   if (!row) return null;
   const open = row.status === "approved" && row.hidden === false && !row.closedAt;
   if (!open && viewer?.id !== row.userId && !viewer?.admin) return null;
-  // Read again with the same condition: a photo locked in this very moment is not handed out.
-  const [file] = await db.select({ bytes: photos.bytes }).from(photos).where(and(eq(photos.id, photoId), isNull(photos.lockedAt)));
-  return file ? { bytes: file.bytes, open } : null;
+  return { bytes: row.bytes, open };
 }
 
 /** The ids of these hosts' photos, for a page that has already decided that each host's page is open to this viewer. Never the bytes. */
@@ -447,6 +464,14 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
   const rows = await db.select({ id: photos.id, userId: photos.userId }).from(photos).where(and(inArray(photos.userId, hostIds), isNull(photos.lockedAt)));
   for (const row of rows) byHost.set(row.userId, row.id);
   return byHost;
+}
+
+/** Which of these photo ids are still some host's photo (not removed, replaced or locked since). For the founder's page of reports. */
+export async function photosStillThere(photoIds: string[]): Promise<Set<string>> {
+  const ids = photoIds.filter(isId);
+  if (ids.length === 0) return new Set();
+  const rows = await db.select({ id: photos.id }).from(photos).where(and(inArray(photos.id, ids), isNull(photos.lockedAt)));
+  return new Set(rows.map((row) => row.id));
 }
 
 export type OwnPhoto = { id: string; network: string; sourceNameKey: string; takenAt: Date };

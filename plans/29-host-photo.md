@@ -193,7 +193,10 @@ The diary's queue only reads diary pictures. It does not find host photos by its
    Connect's copy is made; the fingerprint is compared with what was refused before (rule 3);
    the services are asked in their order (`askInOrder` with no own checker; only "shown after a
    full check" counts). Before each service is asked, the try is read again: if it was stopped
-   meanwhile, or a diary picture has come to be owed its full check, nobody is sent the picture. What each service's answer means for the service
+   meanwhile, or a diary picture has come to be owed its full check, nobody is sent the picture.
+   (Both are asked in one read, right before the request. A request that is already on its way
+   cannot be called back.) A service's refusal is written to the try before anything else, so
+   that nothing that fails afterwards can lose it. What each service's answer means for the service
    itself (its five minutes, the founder's email about a fault) is written down whatever becomes
    of the try.
 3. **Finish,** one short database step with the person's and the profile's locks, in the app's
