@@ -1476,6 +1476,10 @@ month later, and two real people. The friend test is for those.
 that never becomes a dispute ends the membership today, like a real dispute; and switching a
 membership off cancels a payment that is still open, also if the card was held a moment before.
 
+**Both decided by the founder on 18 November 2026, with no change to the code:** a bank's inquiry
+ends the membership, as a dispute does ("Yes, keep it"); and switching a membership off goes on
+cancelling a payment that is still open.
+
 ## Memberships: on for everyone from day one (18 November 2026)
 
 The founder's decision after the build: "I want the membership feature to be on from day 1 for
@@ -1512,3 +1516,62 @@ can go live", now have to be settled before the site goes live, because membersh
 it. A host still needs an approved page, a price above zero, a ready payout account and her own
 membership switched on before anyone can join.
 
+## Projects: the plans (pull request 42, 18 November 2026)
+
+Not built yet. This entry records the planning; each part gets its own entry when it is built.
+
+**What it is.** The founder's idea (18 November 2026), after memberships: a host runs one project
+at a time, in the way people do on Patreon, and tells its story in a diary of posts with text,
+pictures and YouTube links. A customer can contribute to it, once or every month, and is shown
+the project after a call. A contribution buys nothing in return; that is the difference from a
+membership.
+
+**The four documents**
+- `plans/23-projects.md`, the rulebook: every rule, each of the founder's decisions with the day
+  it was made, and what each of the three parts must deliver.
+- `plans/24-projects-part-1-the-diary.md` (the project, its diary and pictures, no money),
+  `plans/25-projects-part-2-contributions.md` (the money), `plans/26-projects-part-3-the-ask.md`
+  (the box after a call, and the check of the whole journey). They state no rule of their own.
+
+**What the founder decided along the way**
+- Anyone with an account may contribute; no call is needed. From $5 to $100,000 in one charge.
+- Every payment is first held on the card for three days and then taken, so that a contribution
+  cancelled in that time costs no refund fee at Stripe.
+- A host collects 7 days after the money is taken; 30 days once one contributor has given her
+  more than $1,000 within 30 days. Counted per contributor, not per host (Astra had proposed per
+  host).
+- Every picture is checked automatically before anyone can see it, by a queue: OpenAI's free
+  checking service, then Microsoft's, then Sightengine's, and last an open-source checker on
+  Connect's own server. Astra and the builder advised leaving the last one out, because it only
+  looks for nudity; the founder kept it.
+- At most 20 pictures a day for each host.
+- Pictures do not wait for the tool against known pictures of child abuse; it is switched on when
+  it is approved. Astra had advised waiting. "Remove and report" stays, because the law asks for
+  it.
+
+**The checks**
+- Before the rulebook was written, the builder researched the picture checkers and how GoFundMe
+  and Patreon limit contributions. Astra then did its own research, apart from the builder's,
+  before it read the plan.
+- The rulebook: two rounds with Astra (not ready, ready with changes). The findings that mattered
+  most: seven days before collecting is no protection at a $100,000 ceiling, since a bank can
+  take a payment back for about 120 days; a contribution cannot be written as one more kind of
+  call payment; a report must not hide a post by itself, or anyone could switch off a host's
+  diary.
+- Part one's plan: two rounds (ready with changes, twice). Most important: one of the three
+  services was not being asked for violence; an old answer from a checker could have overwritten
+  the founder's decision; a flagged picture, removed and uploaded again, would have had a second
+  try.
+- Part two's plan: three rounds (not ready, ready with changes, then confirmed). Astra agreed
+  with writing a contribution in the two layers a membership has. Most important: a refund and a
+  collection of the same money could have run at the same moment; a refund that was owed was not
+  written down; the $1,000 rule had three gaps.
+- Part three's plan: one round (ready with changes). Most important: the box could have been
+  shown for a host who is paused.
+- The builder tried the open-source picture checker on its own machine: about 50 milliseconds a
+  picture, nothing to compile.
+
+**Still open, before projects can go live:** Stripe's yes to this exact kind of payment; the
+lawyer (the wording, the monthly agreement, the duty to report); the founder's accounts at the
+three checking services; and the application for the child-safety tool. They are in the rulebook
+under "Before this can go live".
