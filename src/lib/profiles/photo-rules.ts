@@ -19,12 +19,13 @@ export type PhotoNetwork = "instagram" | "tiktok";
 
 /**
  * The servers a network's pictures are fetched from: a server's name must end in one of these,
- * after a full stop. Only what was seen in real answers (plans/29). TikTok's are added in part
- * two, from a real answer.
+ * after a full stop. Instagram's is what was seen in real answers (plans/29). TikTok's are the
+ * family its pictures are commonly served from and the one in TikTok's own example of an answer
+ * (plans/30); a server that is not listed ends the try, and its family is written to the log.
  */
 export const PICTURE_SERVERS: Record<PhotoNetwork, readonly string[]> = {
   instagram: ["fbcdn.net"],
-  tiktok: [],
+  tiktok: ["tiktokcdn.com", "tiktokcdn-us.com"],
 };
 
 /**

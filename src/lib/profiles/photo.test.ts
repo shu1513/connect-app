@@ -79,8 +79,29 @@ describe("pictureAddress", () => {
     }
   });
 
-  it("a network with no servers listed gives no address at all", () => {
-    expect(pictureAddress(PICTURE, PICTURE_SERVERS.tiktok)).toBeNull();
+  it("with no servers listed, no address is taken at all", () => {
+    expect(pictureAddress(PICTURE, [])).toBeNull();
+  });
+
+  it("TikTok's picture servers, and not their look-alikes or Meta's", () => {
+    const tiktok = PICTURE_SERVERS.tiktok;
+    // The server in TikTok's own example of an answer.
+    expect(pictureAddress("https://p19-sign.tiktokcdn-us.com/tos-avt-0068-tx/b17f~c5_1080x1080.jpeg?x-expires=1", tiktok)?.hostname).toBe("p19-sign.tiktokcdn-us.com");
+    expect(pictureAddress("https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a.jpeg", tiktok)?.hostname).toBe("p16-sign-va.tiktokcdn.com");
+    for (const address of [
+      "https://tiktokcdn.com/a.jpeg",
+      "https://eviltiktokcdn.com/a.jpeg",
+      "https://p16.tiktokcdn.com.example.com/a.jpeg",
+      "https://p16.tiktokcdn-us.com.example.com/a.jpeg",
+      "https://p16.tiktokcdn-eu.com/a.jpeg",
+      "https://www.tiktok.com/a.jpeg",
+      "http://p16-sign-va.tiktokcdn.com/a.jpeg",
+      PICTURE,
+    ]) {
+      expect(pictureAddress(address, tiktok), address).toBeNull();
+    }
+    // And a TikTok address is not one of Instagram's.
+    expect(pictureAddress("https://p16-sign-va.tiktokcdn.com/a.jpeg", servers)).toBeNull();
   });
 
   it("only the last two parts of a server's name are ever written down", () => {
