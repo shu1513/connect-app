@@ -8,6 +8,7 @@
 import { and, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { averagesFor } from "@/lib/ratings/ratings";
+import { photosOf } from "./photo";
 import type { ShownAverage } from "@/lib/ratings/rules";
 import { containsPattern, keyUsable, orderResults, SEARCH, searchTerms } from "./search-rules";
 import { isNetwork, NETWORKS, type Network } from "./social";
@@ -19,6 +20,8 @@ export type SearchResult = {
   pricePer15Cents: number;
   socials: Array<{ network: Network; label: string; name: string }>;
   rating: ShownAverage | null;
+  /** The host's photo, if they have one (plans/29). Everyone listed here has a page that is open to everyone. */
+  photoId: string | null;
 };
 
 const hostId = schema.hostProfiles.userId;
@@ -85,12 +88,14 @@ export async function searchHosts(typed: string, viewerId: string | null, now: D
   if (hosts.length === 0) return [];
 
   const ids = hosts.map((h) => h.userId);
-  const [socials, ratings] = await Promise.all([
+  const [socials, ratings, photos] = await Promise.all([
     db
       .select({ userId: schema.socialAccounts.userId, network: schema.socialAccounts.network, nameKey: schema.socialAccounts.nameKey })
       .from(schema.socialAccounts)
       .where(and(inArray(schema.socialAccounts.userId, ids), isNotNull(schema.socialAccounts.confirmedAt))),
     averagesFor(ids, "host", now),
+    // One request for all of them, after who is found and in which order has been decided. Never the bytes.
+    photosOf(ids),
   ]);
   const withSocials = hosts.map((host) => ({
     ...host,
@@ -106,5 +111,6 @@ export async function searchHosts(typed: string, viewerId: string | null, now: D
     pricePer15Cents: host.pricePer15Cents,
     socials: host.shownSocials,
     rating: ratings.get(host.userId) ?? null,
+    photoId: photos.get(host.userId) ?? null,
   }));
 }

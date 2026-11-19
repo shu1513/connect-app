@@ -4,8 +4,10 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { endBookingsOfSuspendedHost } from "@/lib/booking/moderation";
+import { momentIn } from "@/lib/booking/calendar";
 import { withNotice } from "@/lib/notice";
 import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
+import { lockPhotoAsFounder, recordPhotoReportMade, removePhotoAsFounder } from "@/lib/profiles/photo";
 import { confirmSocialName, decideProfile, ProfileError, rejectSocialName } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { requireAdmin } from "@/lib/session";
@@ -70,6 +72,44 @@ export async function decideSocialAction(formData: FormData) {
       await rejectSocialName({ id, nameKey: String(formData.get("nameKey") ?? ""), code: String(formData.get("code") ?? "") });
       notice = "Not confirmed. The host can try again.";
     }
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
+}
+
+/** The founder removes a host's photo. The host can choose one again. */
+export async function removePhotoAction(formData: FormData) {
+  const admin = await requireAdmin();
+  let notice = "The photo is removed. The host's page shows the letter again.";
+  try {
+    await removePhotoAsFounder({ adminId: admin.id, photoId: String(formData.get("photoId") ?? ""), now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
+}
+
+/** "Remove and report" for a host's photo. Behind a tick box, because it cannot be undone. */
+export async function lockPhotoAction(formData: FormData) {
+  const admin = await requireAdmin();
+  if (formData.get("sure") !== "on") back("Tick the box to remove and report a photo. Nothing was changed.");
+  let notice = "The photo is removed and kept for the report. The host can choose no other photo. Now make the report, then write down below when you made it.";
+  try {
+    await lockPhotoAsFounder({ adminId: admin.id, photoId: String(formData.get("photoId") ?? ""), now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
+}
+
+/** "I have made the report" for a host's photo, with the day and time it was really made, typed in the founder's own time zone. */
+export async function photoReportMadeAction(formData: FormData) {
+  const admin = await requireAdmin();
+  let notice = "The time of the report is written down.";
+  try {
+    const madeAt = momentIn(admin.timeZone ?? "UTC", String(formData.get("madeAt") ?? ""));
+    await recordPhotoReportMade({ adminId: admin.id, photoId: String(formData.get("photoId") ?? ""), madeAt: madeAt ?? new Date(Number.NaN), now: new Date() });
   } catch (error) {
     notice = problem(error);
   }

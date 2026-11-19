@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
+import { photoStates } from "@/lib/profiles/photo";
 import { unansweredRequests } from "@/lib/refunds/requests";
 import { openReports, REPORT_REASONS } from "@/lib/safety/reports";
 import { switches } from "@/lib/safety/switches";
@@ -37,6 +38,17 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
     ? await db.select({ handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, current.membershipsHosts))
     : [];
   // Read on its own, oldest first: a request whose host has gone silent must not sink out of sight.
+  // What has become of the photos that were showing when a page was reported (plans/29).
+  const photosNow = await photoStates(
+    reports.flatMap(({ report }) => {
+      try {
+        const id = (JSON.parse(report.snapshot) as { photoId?: unknown }).photoId;
+        return typeof id === "string" ? [id] : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
   const requests = await unansweredRequests();
   const people = requests.length > 0 ? await db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user) : [];
   const nameOf = new Map(people.map((person) => [person.id, person.name]));
@@ -118,6 +130,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               call?: { id?: string; safetyEndedAt?: string | null } | null;
               profile?: { displayName: string; handle: string; about: string } | null;
               post?: { id: string; projectName: string; text: string; links: string[]; pictures?: string[] } | null;
+              /** The host's photo that was showing on their page when it was reported (plans/29). */
+              photoId?: string | null;
             };
             return (
               <li key={report.id} className={`rounded border p-4 text-sm ${report.urgent ? "border-red-600" : "border-neutral-400"}`}>
@@ -140,6 +154,30 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 {snapshot.profile && (
                   <p className="mt-1 opacity-70">
                     Their page at the time: &ldquo;{snapshot.profile.displayName}&rdquo; (@{snapshot.profile.handle}){snapshot.profile.about ? `: "${snapshot.profile.about}"` : ""}
+                  </p>
+                )}
+                {snapshot.photoId && (
+                  <p className="mt-1 opacity-70" data-reported-photo>
+                    Their page showed a photo when it was reported.{" "}
+                    {photosNow.get(snapshot.photoId) === "current" ? (
+                      <>
+                        It is still their photo. It is listed, with &quot;Remove&quot; and &quot;Remove and report&quot;, on{" "}
+                        <Link href="/admin/people#photos" className="underline underline-offset-2">
+                          the page for hosts and accounts
+                        </Link>
+                        .
+                      </>
+                    ) : photosNow.get(snapshot.photoId) === "locked" ? (
+                      <>
+                        That photo was removed and reported, and is kept. It is listed on{" "}
+                        <Link href="/admin/people#photos" className="underline underline-offset-2">
+                          the page for hosts and accounts
+                        </Link>
+                        .
+                      </>
+                    ) : (
+                      "That photo has been removed or replaced since, and is gone. A photo they have now is a different one."
+                    )}
                   </p>
                 )}
                 {snapshot.post && (

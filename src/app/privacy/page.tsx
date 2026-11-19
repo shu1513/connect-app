@@ -37,6 +37,14 @@ export default function PrivacyPage() {
         illegal pictures.
       </p>
       <p className="mt-4 text-sm">
+        When a host chooses to use the profile picture of their confirmed Instagram account as their photo, we fetch that public
+        picture through Instagram&apos;s own service, make our own copy in the same way, and send our copy to one of the same
+        checking services before anyone sees it, without the host&apos;s name. We keep our copy until the host removes it, the
+        account it came from is taken off their page, or their Connect account is closed. (A photo we have had to remove and
+        report is kept for as long as the law asks.) A photo the check does not accept is not
+        kept; we keep only a fingerprint of it, so that the same picture is not accepted later.
+      </p>
+      <p className="mt-4 text-sm">
         When you contribute to a host&apos;s project, the host sees your name, the amount, whether it is once or every month, and
         when you began. Your card is entered on our payment company&apos;s form (Stripe) and we never see its number. For a monthly
         contribution the card is kept at Stripe for that contribution only, and removed when it ends. We keep what you agreed
