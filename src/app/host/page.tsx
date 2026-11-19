@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { hoursAndTimeOff } from "@/lib/booking/calendar";
 import { readNotice } from "@/lib/notice";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
+import { HOME_COUNTRY, HOST_COUNTRIES, hostCountryName } from "@/lib/profiles/countries";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
 import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
@@ -62,6 +63,8 @@ export default async function HostPage(props: PageProps<"/host">) {
   // "Getting started": what a new host has to do before anyone can ask for a call, in order. It reads what is already stored.
   const { hours } = await hoursAndTimeOff(user.id, now);
   const paid = profile ? profile.pricePer15Cents > 0 : false;
+  // A host outside the United States is paid in their own money, which Stripe turns their dollars into.
+  const abroad = profile ? profile.country !== HOME_COUNTRY : false;
   const proven = socials.some((social) => social.confirmedAt);
   const checkSettings = bioSettings();
   // While this is on, a TikTok account is proven by signing in at TikTok, and no longer with a code.
@@ -203,9 +206,23 @@ export default async function HostPage(props: PageProps<"/host">) {
                 Price per 15 minutes, in US dollars (at least $5, or 0 for free calls)
                 <input name="price" type="number" min={0} step="0.01" defaultValue="20" required className={field} />
               </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" name="us" required className="mt-1" />
-                <span>I am based in the United States. (For now, only hosts in the United States can be paid.)</span>
+              <label className="block text-sm">
+                Where are you based?
+                <select name="country" required defaultValue="" className={field}>
+                  <option value="" disabled>
+                    Choose your country
+                  </option>
+                  {HOST_COUNTRIES.map((country) => (
+                    <option key={country.code} value={country.code}>
+                      {country.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block opacity-70">
+                  For now, hosts can only be paid in these countries. Choose carefully: this cannot be changed later, because your payout account is
+                  opened for this country. Outside the United States: your price and your earnings are in US dollars, and Stripe pays you in your
+                  own money at its exchange rate of that moment.
+                </span>
               </label>
               <button type="submit" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
                 Send for approval
@@ -230,6 +247,9 @@ export default async function HostPage(props: PageProps<"/host">) {
             </p>
             <form action={saveProfile} className="mt-3 max-w-md space-y-3">
               <p className="text-sm opacity-70">Handle: @{profile.handle} (contact support to change it)</p>
+              <p className="text-sm opacity-70" data-host-country={profile.country}>
+                Based in: {hostCountryName(profile.country)} (this cannot be changed; write to support if it is wrong)
+              </p>
               <label className="block text-sm">
                 Display name
                 <input name="displayName" type="text" defaultValue={profile.displayName} required minLength={NAME_MIN} maxLength={NAME_MAX} className={field} />
@@ -374,12 +394,24 @@ export default async function HostPage(props: PageProps<"/host">) {
               collect once every 24 hours. Our fee is 4.9% plus 30 cents per paid call (1.5% more when the customer&apos;s card is from
               outside the United States), and 25 cents each time you collect.
             </p>
+            {abroad && (
+              <p className="mt-1 text-sm opacity-70" data-paid-abroad>
+                Your earnings are counted in US dollars. When you collect, Stripe turns them into your own money at its exchange rate of that
+                moment, and pays your bank. What that exchange costs is in Stripe&apos;s rate.
+              </p>
+            )}
             <form action={startPayoutSetup} className="mt-3">
               <button type="submit" className="text-sm underline underline-offset-2">
                 Update your payout details at Stripe
               </button>
             </form>
           </>
+        ) : !profile ? (
+          // The payout account is opened for the country on the profile, so the profile comes first.
+          <p className="mt-2 text-sm opacity-70" data-paid-needs-profile>
+            To host paid calls you set up a payout account at Stripe. First send your host profile above: the account is opened for the country you
+            are based in.
+          </p>
         ) : (
           <>
             <p className="mt-2 text-sm">
@@ -395,7 +427,7 @@ export default async function HostPage(props: PageProps<"/host">) {
           </>
         )}
         {/* Also shown while the payout account is not ready: money already earned is still theirs to see. */}
-        {stripeConfigured() && settings.stripeAccountId && <Earnings hostId={user.id} payoutsReady={settings.payoutsReady} now={now} />}
+        {stripeConfigured() && settings.stripeAccountId && <Earnings hostId={user.id} payoutsReady={settings.payoutsReady} abroad={abroad} now={now} />}
       </section>
 
       <MembershipPart hostId={user.id} regularPricePer15Cents={profile?.pricePer15Cents ?? null} payoutsReady={Boolean(settings.payoutsReady) && stripeConfigured()} now={now} />
