@@ -857,6 +857,20 @@ async function main() {
     await round();
     check("the same when it is removed and reported meanwhile: no further service, and it stays locked with its bytes", asked.join() === "openai" && (await pic(c3.id)).state === "locked" && (await hasBytes(c3.id)), asked);
     await db.delete(schema.pictureCheckers);
+
+    // Whether a service is in its five minutes is read when its turn comes: here another round writes "out" for the
+    // second service while the first one is still being asked.
+    later(6);
+    forget();
+    says.openai = async (): Promise<Kind> => {
+      await db.insert(schema.pictureCheckers).values({ service: "azure", outUntil: new Date(qclock + 4 * MIN) }).onConflictDoUpdate({ target: schema.pictureCheckers.service, set: { outUntil: new Date(qclock + 4 * MIN) } });
+      return "out";
+    };
+    // (A post of its own: the one above is hidden since its picture was removed and reported.)
+    const c4 = await upload(host, (await write(host, "A post for the cooldown check")).id);
+    await round();
+    check("a service that another round found out, while this one was asking the service before it, is not asked", asked.join() === "openai,sightengine" && (await pic(c4.id)).checkedBy === "sightengine", asked);
+    await db.delete(schema.pictureCheckers);
     says.openai = "clean";
 
     const d = await upload(host, post.id);

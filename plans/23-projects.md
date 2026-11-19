@@ -45,7 +45,7 @@ promised reward. That is the difference from a membership, and the pages say it 
 | The largest contribution | $100,000 in one charge, once or monthly. It is the limit GoFundMe uses for a card. |
 | First a hold, then the money | A contribution is first only held on the card, for three days, and taken after that (the founder, 18 November 2026, after Astra's check). Until it is taken it can be let go at no cost to anyone: by the contributor, by the host, or by the founder. (A bank can make the time shorter for a card; the contributor is always shown the real last moment.) Once money has been taken, giving it back is a refund, and Stripe keeps its own charge on a refund (about 2.9% plus 30 cents, which is $2,900 on $100,000). Three days and not four, because a card's hold can end after four and the money must be taken safely before that; memberships use the same three days. |
 | Pictures are checked automatically | Every picture is checked before anyone else can see it. |
-| A picture a checker flags is refused | Decided 18 November 2026, during the build of part one. It is not kept for the founder to decide: it is refused at once and deleted (kept unseen a little longer only while the child-safety tool, once switched on, still has to look at it), the host is told why, and when she uploads the same picture again it is refused at once. There is no list for the founder and no button to appeal; a host who thinks it was a mistake uploads another picture or writes to support. (Before this decision a flagged picture waited, hidden, for the founder's "Show" or "Remove".) |
+| A picture a checker flags is refused | Decided 18 November 2026, during the build of part one. It is not kept for the founder to decide: it is refused at once and deleted (kept unseen a little longer only while the child-safety tool, once switched on, still has to look at it), the host is told why, and when she uploads a picture whose copy comes out the same again (Connect's own JPEG copy is compared, byte for byte), it is refused at once. There is no list for the founder and no button to appeal; a host who thinks it was a mistake uploads another picture or writes to support. (Before this decision a flagged picture waited, hidden, for the founder's "Show" or "Remove".) |
 | The child-safety tool stays | Asked again on 18 November 2026 whether it is needed in an app for adults, the founder kept it, because it is free: it is applied for and switched on when it is approved, as decided before. |
 | Pictures do not wait for the child-safety tool | Decided 18 November 2026, after Astra's second check. Pictures go live with the checking queue. The tool against known pictures of child abuse is applied for and switched on when it is approved; nothing waits for that. The founder's reasons: every host has passed an ID check, has a confirmed social media account and was approved by the founder; the diary is public, under her own name; and the checkers look for sexual pictures of any kind. What stays, because the law asks for it: "Remove and report". |
 | The order of the checkers | A queue. First OpenAI's free checking service. When it is used up or cannot be reached, Microsoft's. Then Sightengine's. Last, an open-source checker that runs on Connect's own server, so that a picture is not stuck when the three services are out. Astra advised leaving the last one out; the founder decided to keep it (18 November 2026), see below. |
@@ -360,9 +360,9 @@ symbols are therefore left to the "Report" link in the first version.)
   been seen before its full check flagged it; and once the child-safety tool is switched on, the
   file of a refused picture is kept, unseen, until that tool has looked at it.) The host sees
   "This picture was not accepted. It looks like it breaks the rules on nudity, violence or
-  self-harm." Nothing goes to the founder. The app remembers that this host's exact file was
-  refused, so when she uploads the same picture again it is refused at once, without asking a
-  checker.
+  self-harm." Nothing goes to the founder. The app remembers the copy it made of this host's picture
+  (its own JPEG copy, byte for byte, not the file as it was uploaded), so when she uploads a
+  picture whose copy comes out the same, it is refused at once, without asking a checker.
 - **Only Connect's own checker answered, and found no nudity:** the picture is shown. It is put
   through a full check as soon as one of the three services answers, tried every few minutes, and
   before any newer picture: when a service answers again, its first answers go to these. If that
@@ -523,8 +523,10 @@ are shared, not its code for months, talk time, or a new hold after a lost one.
 2. **The lawyer** looks at: the wording (never "donate"); what the terms and the privacy page say
    about contributions and about pictures being sent to checking companies; the monthly agreement
    and whether a yearly reminder is needed; the duty to report and keep pictures of child abuse,
-   and how Connect files a report; that a picture a checker flags is refused and deleted without
-   a person ever looking at it; and whether the law on removing intimate pictures shared
+   and how Connect files a report; that a picture a checker flags is refused and deleted by the app
+   alone, with nobody at Connect deciding about it (a picture shown after a check for nudity only
+   may have been seen before its full check flagged it, and a refused picture's file can be kept,
+   unseen, until the child-safety tool has looked at it); and whether the law on removing intimate pictures shared
    without consent within 48 hours (the Take It Down Act) applies to the diary.
 3. **Accounts for the checkers,** made by the founder: OpenAI, Microsoft Azure (the free level)
    and Sightengine (the free plan). The founder puts each key into the settings file; the builder

@@ -1641,8 +1641,8 @@ and shows it, refuses it or keeps it waiting. No money yet (part two).
 **What the founder decided while it was built (18 November 2026)**
 - A picture a checker flags is refused by itself: from that moment nobody gets it, it is
   deleted (kept unseen a little longer only while the child-safety tool, once switched on,
-  still has to look at it), and when the same host uploads the same picture again it is refused
-  at once. No list for the founder and no appeal.
+  still has to look at it), and when the same host uploads a picture whose copy comes out the same again (it is
+  Connect's own JPEG copy that is compared, byte for byte), it is refused at once. No list for the founder and no appeal.
 - The check against known pictures of child abuse stays in the plan, because the tool is free.
   Connect has no access to it yet; pictures do not wait for it until it is switched on.
 - OpenAI and Sightengine have accounts and keys. Microsoft is skipped for now.
@@ -1698,10 +1698,12 @@ and shows it, refuses it or keeps it waiting. No money yet (part two).
   cannot happen while there is no tool. The rest were wording in the plans and stricter checks.
   Two were answered and not taken: a shown picture may be kept by the visitor's own browser for
   five minutes, as the plan decided; and the check script clears the test database's attempt
-  limits, as the other check scripts do. Astra looked at these changes too: "ready to merge".
+  limits, as the other check scripts do. Astra looked at these changes too: "ready to merge". CodeRabbit then withdrew those two
+  and asked for three small things more (two sentences made exact, and a service's five minutes
+  read afresh when its turn comes), which were done.
 
 **How it was checked**
-- `scripts/project-check.ts`: 310 checks in eighteen journeys. The new ones use stand-in
+- `scripts/project-check.ts`: 311 checks in eighteen journeys. The new ones use stand-in
   checkers whose answers the script controls: every outcome of the queue, two rounds at once,
   answers that come back late, the founder or the host deciding during a check, who is handed a
   picture in every state, "Remove and report" and what it protects, reports and their mark, the

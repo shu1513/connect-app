@@ -145,8 +145,13 @@ async function checkOne(round: string, picture: ProjectPicture, asked: Checker[]
   };
   const turns = asked.map((service) => {
     const row = rows.find((line) => line.service === service.name);
-    // Whether its five minutes are still running is asked when its turn comes, not now: an earlier service may take a while to answer.
-    return { name: service.name, cooling: () => Boolean(row?.outUntil && row.outUntil > now()), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(() => service.check(file.bytes)) };
+    // Whether its five minutes are running is read when its turn comes, not now: an earlier service may take a while
+    // to answer, and another round may have written something about this one in that time.
+    const cooling = async () => {
+      const [line] = await db.select({ outUntil: checkers.outUntil }).from(checkers).where(eq(checkers.service, service.name));
+      return Boolean(line?.outUntil && line.outUntil > now());
+    };
+    return { name: service.name, cooling, worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(() => service.check(file.bytes)) };
   });
   // A picture that is already shown is only here for its full check: the own checker has had it.
   /** Asked before each request: is the picture still this round's, and as it was claimed? If the founder, the host or a report has changed something meanwhile, it is sent to nobody else. */
