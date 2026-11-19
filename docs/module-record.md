@@ -2102,9 +2102,21 @@ The points that mattered, all taken:
   script (the code that decides is checked directly, and the two lines that tie it in are read
   from the source).
 
-**How it was checked:** 553 automatic tests (21 new); a check script of its own,
-`scripts/photo-check.ts`, 129 checks with Meta, its picture server and the checking services
-pretended; the real try above; and every other check script once more.
+CodeRabbit, on pull request 50: five comments, four taken. The plan's first line still said
+nothing was built; a photo removed just after a page was drawn showed as a broken picture (the
+letter now takes its place); Meta's answer was decoded slightly differently from before; and a
+refused copy could still become the photo when two tries for the same picture overlapped. For
+the last one a refusal is now written with the locks every finish holds, the finish looks for a
+refusal of the very copy before it writes, and a refusal takes down a photo that is that very
+copy. **That changed one rule:** when a host presses "Update" without a new picture and a
+service now flags it, their photo is taken down and they are told so (before, it would have
+stayed). Not taken: keeping a refusal when the database fails for both of its writes at that
+very moment, which would mean locking hosts out of their own picture for a fault of ours; the
+diary's queue has the same limit. Tried once more for real after it ("Update").
+
+**How it was checked:** 554 automatic tests (22 new); a check script of its own,
+`scripts/photo-check.ts`, 134 checks with Meta, its picture server and the checking services
+pretended; the real tries above; and every other check script once more.
 
 **Still open.** Part two, TikTok (the picture can only be had at a sign-in there, and TikTok's
 sign-in waits for TikTok's approval). Before the child-safety tool is switched on: host photos
