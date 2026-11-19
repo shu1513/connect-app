@@ -43,6 +43,9 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
     picturesForAdmin(),
   ]);
   const onePictures = one ? await picturesOfPostForAdmin(one.post.id) : [];
+  // Posts that stay hidden for good, because one of their pictures was removed and reported.
+  const kept = new Set(pictures.locked.map(({ picture }) => picture.postId));
+  const noService = checking.services.every((service) => !service.hasKey);
   const chosen = ofProject ? projects.find(({ project }) => project.id === query.project) : undefined;
   const namedHosts = current.projectsHosts.length
     ? await db.select({ handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, current.projectsHosts))
@@ -70,7 +73,7 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
       {typeof query.post === "string" && (
         <section className="mt-8" data-one-post>
           <h2 className="text-lg font-semibold">The post you asked for</h2>
-          {one ? <PostCard entry={one} full /> : <p className="mt-2 text-sm opacity-70">There is no such post.</p>}
+          {one ? <PostCard entry={one} kept={kept.has(one.post.id)} full /> : <p className="mt-2 text-sm opacity-70">There is no such post.</p>}
           {one && (
             <div className="mt-3" data-post-pictures>
               <h3 className="font-medium">Its pictures ({onePictures.length})</h3>
@@ -101,7 +104,7 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
             <ul className="mt-3 space-y-3">
               {ofProject.posts.map((entry) => (
                 <li key={entry.post.id}>
-                  <PostCard entry={entry} />
+                  <PostCard entry={entry} kept={kept.has(entry.post.id)} />
                 </li>
               ))}
             </ul>
@@ -152,6 +155,11 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
         do not have to decide those. The services are asked in this order; the next one is only asked when the one before is used up or
         cannot be reached.
       </p>
+      {noService && (
+        <p className="mt-2 rounded border border-red-600 p-3 text-sm text-red-700" data-no-service>
+          No checking service is set up. Until at least one of the three has its key in the settings, every new picture waits and is shown to nobody but its host.
+        </p>
+      )}
       <ul className="mt-2 space-y-1 text-sm" data-checkers>
         {checking.services.map((service) => (
           <li key={service.name}>
@@ -242,7 +250,7 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
         <ul className="mt-3 space-y-3" data-hidden-posts>
           {lists.hidden.map((entry) => (
             <li key={entry.post.id}>
-              <PostCard entry={entry} />
+              <PostCard entry={entry} kept={kept.has(entry.post.id)} />
             </li>
           ))}
         </ul>
@@ -282,7 +290,7 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
         <ul className="mt-3 space-y-3" data-latest-posts>
           {lists.latest.map((entry) => (
             <li key={entry.post.id}>
-              <PostCard entry={entry} />
+              <PostCard entry={entry} kept={kept.has(entry.post.id)} />
             </li>
           ))}
         </ul>
@@ -291,8 +299,8 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
   );
 }
 
-/** One post with what the founder can do with it. `full` shows the whole text; otherwise its first lines. */
-function PostCard({ entry, full = false }: { entry: AdminPost; full?: boolean }) {
+/** One post with what the founder can do with it. `full` shows the whole text; otherwise its first lines. `kept`: one of its pictures was removed and reported, so it stays hidden. */
+function PostCard({ entry, full = false, kept = false }: { entry: AdminPost; full?: boolean; kept?: boolean }) {
   const { post } = entry;
   const links = linksOf(post.links);
   return (
@@ -314,6 +322,10 @@ function PostCard({ entry, full = false }: { entry: AdminPost; full?: boolean })
       {post.removedAt ? (
         // Removed by its host: nobody sees it any more, so there is nothing to hide or show.
         <p className="mt-2 opacity-70">The host removed this post. Nobody else can see it.</p>
+      ) : post.hiddenAt && kept ? (
+        <p className="mt-2 text-amber-700">
+          Hidden <LocalTime iso={post.hiddenAt.toISOString()} /> for good: one of its pictures was removed and reported, so this post is kept as it is and cannot be shown again.
+        </p>
       ) : post.hiddenAt ? (
         <form action={showPostAction} className="mt-2 flex flex-wrap items-center gap-3">
           <input type="hidden" name="postId" value={post.id} />

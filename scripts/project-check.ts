@@ -987,13 +987,31 @@ async function main() {
     await round(tool);
     check("the tool's clear answer frees them", (await pic(fresh2.id)).childCheck === "clear" && !(await hasBytes(fresh2.id)));
 
+    // A picture a checker refuses: the tool must have seen it before its bytes go.
+    const fifth = await write(host, "A fifth post");
+    await db.update(schema.siteSwitches).set({ childCheckOnAt: null });
+    const early = await upload(host, fifth.id, 230);
+    await Child.switchChildCheckOn(qnow());
+    says.openai = "flagged";
+    await round(null);
+    check("a picture from before that day that a checker refuses keeps its bytes until the tool has seen it", (await pic(early.id)).state === "refused" && (await pic(early.id)).childCheck === "not_set_up" && (await hasBytes(early.id)) && !(await sees(asHost(host), early.id)) && !(await sees(admin.viewer, early.id)));
+    await round(tool);
+    check("the tool's clear answer frees them", (await pic(early.id)).childCheck === "clear" && !(await hasBytes(early.id)) && (await pic(early.id)).state === "refused");
+    const sameAgain = await upload(host, fifth.id, 230);
+    check("the same picture again is refused on the spot, and while the tool is on its bytes are kept for the tool all the same", sameAgain.state === "refused" && sameAgain.childCheck === "waiting" && (await hasBytes(sameAgain.id)) && !(await sees(asHost(host), sameAgain.id)));
+    answers.set(sameAgain.sha256, "match");
+    await round(tool);
+    check("and a match on a refused picture locks it", (await pic(sameAgain.id)).state === "locked" && (await hasBytes(sameAgain.id)) && (await mails(admin.email, "matched the list")) === 2);
+    answers.delete(sameAgain.sha256);
+    says.openai = "clean";
+
     const third = await write(host, "A third post");
     const fresh3 = await upload(host, third.id, 221);
     await Pics.removePicture({ hostId: host.id, pictureId: fresh3.id, now: qnow() });
     answers.set(fresh3.sha256, "match");
     await round(tool);
     row = await pic(fresh3.id);
-    check("a match always counts, also for a picture removed in between: it is locked and kept", row.state === "locked" && row.childCheck === "match" && (await hasBytes(fresh3.id)) && (await mails(admin.email, "matched the list")) === 2);
+    check("a match always counts, also for a picture removed in between: it is locked and kept", row.state === "locked" && row.childCheck === "match" && (await hasBytes(fresh3.id)) && (await mails(admin.email, "matched the list")) === 3);
 
     const fourth = await write(host, "A fourth post");
     const late = await upload(host, fourth.id, 222);

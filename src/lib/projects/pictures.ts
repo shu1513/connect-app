@@ -90,6 +90,7 @@ export async function acceptUpload(input: { hostId: string; postId: string; orig
     const wasLocked = same.some((earlier) => earlier.state === "locked");
     const wasRefused = wasLocked ? undefined : same.find((earlier) => earlier.refusedByChecker);
 
+    const waitsForTool = await childCheckOn(tx);
     const [picture] = await tx
       .insert(pictures)
       .values({
@@ -106,12 +107,13 @@ export async function acceptUpload(input: { hostId: string; postId: string; orig
         checkedAt: wasRefused ? input.now : null,
         rulesVersion: wasRefused ? PICTURE.rulesVersion : null,
         checkDetail: wasRefused ? `The same picture as one that was refused before. ${wasRefused.checkDetail ?? ""}`.trim() : null,
-        childCheck: startingChildCheck(await childCheckOn(tx)),
+        childCheck: startingChildCheck(waitsForTool),
         nextTryAt: wasRefused || wasLocked ? null : input.now,
       })
       .returning();
-    // A picture that is refused on the spot is not kept at all.
-    if (!wasRefused) await tx.insert(schema.projectPictureFiles).values({ pictureId: picture.id, bytes: copy.bytes });
+    // A picture that is refused on the spot is not kept at all, unless the child-safety tool is switched on:
+    // then it is kept until the tool has seen it, like every other upload (picture-steps.ts, deleteBytesIfFree).
+    if (!wasRefused || waitsForTool) await tx.insert(schema.projectPictureFiles).values({ pictureId: picture.id, bytes: copy.bytes });
     if (wasLocked) {
       await lockInStep(tx, { pictureId: picture.id, postId: post.id, by: null, now: input.now });
       await tellFounders(tx, {
@@ -158,7 +160,7 @@ export type Viewer = { id: string; admin: boolean } | null;
  *   held as suspected by the founder                   no        no         yes
  *   any picture of a post she has removed              no        no         yes, while kept
  *   waiting, its post not removed                      no        yes        yes
- *   refused, removed                                   no        no         no (there are no bytes)
+ *   refused, removed                                   no        no         no
  *   locked                                             no        no         no
  *
  * Before all of it: the rule of child-safety.ts. `open` says whether the answer went to someone

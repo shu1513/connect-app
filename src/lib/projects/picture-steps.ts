@@ -5,7 +5,7 @@
  *
  * The order of locks, everywhere: the project, then the post, then the picture.
  */
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Project, ProjectPost } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
@@ -62,14 +62,15 @@ export async function lockPost(tx: Tx, postId: string): Promise<{ post: ProjectP
 }
 
 /**
- * Deletes a removed picture's bytes, if nothing still needs them: no check of it is under way,
- * and the child-safety tool, once it is switched on, has answered for it. Otherwise they stay for
- * now, and the queue deletes them when that has settled (queue.ts). A locked picture's bytes are never
- * deleted: this only ever touches a picture whose state is "removed".
+ * Deletes the bytes of a picture that is removed or refused, if nothing still needs them: no check
+ * of it is under way, and the child-safety tool, once it is switched on, has answered for it.
+ * Otherwise they stay for now, and the queue deletes them when that has settled (queue.ts). The
+ * tool must get to see a picture before its bytes go, whatever else became of the picture. A
+ * locked picture's bytes are never deleted: this only ever touches a removed or a refused one.
  */
 export async function deleteBytesIfFree(tx: Tx, pictureId: string, now: Date): Promise<boolean> {
   const [picture] = await tx.select().from(pictures).where(eq(pictures.id, pictureId)).for("update");
-  if (!picture || picture.state !== "removed") return false;
+  if (!picture || (picture.state !== "removed" && picture.state !== "refused")) return false;
   if (picture.claimedUntil && picture.claimedUntil > now) return false;
   if (picture.childCheck === "waiting") return false;
   // Once the tool is switched on, also a picture from before that day is kept until the tool has answered for it.
@@ -94,15 +95,16 @@ export async function removeInStep(tx: Tx, pictureIds: string[], by: "host" | "f
 
 /**
  * A checker's flag refuses a picture (the founder's decision, 18 November 2026): in the caller's
- * step, with the picture locked. Nobody sees it; its bytes are deleted here and now; its line
- * stays, marked, so the same bytes are refused again. Nothing goes to the founder.
+ * step, with the picture locked. Nobody sees it; its bytes are deleted here and now, unless the
+ * child-safety tool is still owed a look at them (deleteBytesIfFree); its line stays, marked, so
+ * the same bytes are refused again. Nothing goes to the founder.
  */
 export async function refuseInStep(tx: Tx, input: { pictureId: string; by: string; detail: string; now: Date }): Promise<void> {
   await tx
     .update(pictures)
     .set({ state: "refused", level: null, refusedByChecker: true, checkedBy: input.by, checkedAt: input.now, rulesVersion: PICTURE.rulesVersion, checkDetail: input.detail, version: sql`${pictures.version} + 1`, claimId: null, claimedUntil: null, nextTryAt: null, updatedAt: input.now })
     .where(eq(pictures.id, input.pictureId));
-  await tx.delete(schema.projectPictureFiles).where(eq(schema.projectPictureFiles.pictureId, input.pictureId));
+  await deleteBytesIfFree(tx, input.pictureId, input.now);
 }
 
 /**
@@ -129,13 +131,13 @@ export async function liftSuspectedByReport(tx: Tx, postId: string, now: Date): 
   await tx.update(pictures).set({ suspectedByReport: false, version: sql`${pictures.version} + 1`, updatedAt: now }).where(and(eq(pictures.postId, postId), eq(pictures.suspectedByReport, true)));
 }
 
-/** Removed pictures whose bytes are still there. For the queue's tidying. */
-export async function removedWithBytes(limit: number): Promise<string[]> {
+/** Removed and refused pictures whose bytes are still there. For the queue's tidying. */
+export async function goneWithBytes(limit: number): Promise<string[]> {
   const rows = await db
     .select({ id: pictures.id })
     .from(pictures)
     .innerJoin(schema.projectPictureFiles, eq(schema.projectPictureFiles.pictureId, pictures.id))
-    .where(and(eq(pictures.state, "removed"), isNotNull(pictures.removedAt)))
+    .where(inArray(pictures.state, ["removed", "refused"]))
     .limit(limit);
   return rows.map((row) => row.id);
 }

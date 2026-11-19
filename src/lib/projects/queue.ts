@@ -6,7 +6,7 @@
  *   1. asks the child-safety tool, if Connect has one, about pictures it has not answered for;
  *   2. sends waiting pictures to the checkers in their order, the ones that were only checked
  *      for nudity first, and writes down what happens to each;
- *   3. deletes the bytes of removed pictures that nothing needs any more.
+ *   3. deletes the bytes of removed and refused pictures that nothing needs any more.
  *
  * Never two answers for one picture: before a picture is checked the round claims it, with its
  * own mark and a time limit. An everyday checker's answer is written only if the mark is still
@@ -25,7 +25,7 @@ import { ownChecker } from "./checks/own";
 import { sightengineChecker } from "./checks/sightengine";
 import type { Answer, Checker } from "./checks/types";
 import { childTool, mayGoOn, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
-import { adminUrl, deleteBytesIfFree, lockInStep, lockPost, refuseInStep, removedWithBytes, tellFounders } from "./picture-steps";
+import { adminUrl, deleteBytesIfFree, lockInStep, lockPost, refuseInStep, goneWithBytes, tellFounders } from "./picture-steps";
 import { PICTURE } from "./rules";
 
 const pictures = schema.projectPictures;
@@ -68,7 +68,7 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
     await checkOne(round, picture, asked, own, now);
   }
 
-  for (const id of await removedWithBytes(20)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
+  for (const id of await goneWithBytes(20)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
   await tellAboutNudityOnly(now());
 }
 
@@ -257,7 +257,7 @@ async function settleChild(round: string, claimed: ProjectPicture, answer: Child
     }
     if (answer === "clear") {
       await tx.update(pictures).set({ ...letGo, childCheck: "clear", updatedAt: at }).where(eq(pictures.id, row.id));
-      // A picture that was removed meanwhile was only kept for this answer.
+      // A picture that was removed or refused meanwhile was only kept for this answer.
       await deleteBytesIfFree(tx, row.id, at);
       return;
     }
