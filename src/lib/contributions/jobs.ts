@@ -21,6 +21,7 @@ import { removeRetiredCards } from "./cards";
 import { giveUp, intentFor, letGo, syncPayment, takePayment, tryHold } from "./charge";
 import { runDisputeLooks } from "./dispute";
 import { endContribution } from "./ending";
+import { writeDuePayments } from "./monthly";
 import { runRefunds } from "./refund";
 
 const pays = schema.contributionPayments;
@@ -149,7 +150,8 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
     },
   );
 
-  // 8. Monthly payments that are due: part 2b.
+  // 8. Monthly payments that are due: each is written down once, to be tried with the saved card on the next round.
+  await writeDuePayments(now);
 
   // 9. Refunds that are owed. 10. Disputes still open (asked once an hour), and retired cards nothing needs.
   await runRefunds(now);

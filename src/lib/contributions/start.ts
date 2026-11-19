@@ -7,7 +7,7 @@
  * same press, sent twice, is one contribution. Nothing here asks Stripe except `payNow`, which a
  * pressed button calls; a page that is only being loaded uses `secretToPay`, which only reads.
  */
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Contribution, ContributionPayment, Project } from "@/db/schema";
 import { lockPeople } from "@/lib/membership/join";
@@ -138,17 +138,29 @@ export async function contributionFor(contributorId: string, contributionId: str
   return { ...found, payments };
 }
 
-/** A payment with its contribution's kind, if it is this person's. */
-async function ownPayment(paymentId: string, contributorId: string): Promise<{ payment: ContributionPayment; kind: string } | null> {
+/** A payment with its contribution's kind and host, if it is this person's. */
+async function ownPayment(paymentId: string, contributorId: string): Promise<{ payment: ContributionPayment; kind: string; hostId: string } | null> {
   if (!isId(paymentId)) return null;
   const [found] = await db
-    .select({ contributorId: schema.contributions.contributorId, kind: schema.contributions.kind })
+    .select({ contributorId: schema.contributions.contributorId, kind: schema.contributions.kind, hostId: schema.contributions.hostId })
     .from(schema.contributionPayments)
     .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
     .where(eq(schema.contributionPayments.id, paymentId));
   if (!found || found.contributorId !== contributorId) return null;
   const payment = await paymentById(paymentId);
-  return payment ? { payment, kind: found.kind } : null;
+  return payment ? { payment, kind: found.kind, hostId: found.hostId } : null;
+}
+
+/**
+ * Whether these two may still deal with each other: both accounts active, and no block either
+ * way. Asked again every time a payment is to be paid by hand, not only when the contribution
+ * started. (A block, a pause and a closing also end the contribution themselves; this is the net
+ * behind them.)
+ */
+async function stillOpenBetween(hostId: string, contributorId: string): Promise<boolean> {
+  const people = await db.select({ id: schema.user.id, pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(inArray(schema.user.id, [hostId, contributorId]));
+  if (people.length !== 2 || people.some((person) => person.pausedAt || person.closedAt)) return false;
+  return !(await isBlockedEitherWay(hostId, contributorId));
 }
 
 /** Still waiting to be paid by its contributor at this moment: not given up, not set aside, and neither the card step's time nor the 7 days have run out. */
@@ -165,6 +177,7 @@ export async function payNow(input: { paymentId: string; contributorId: string; 
   const at = input.now ?? new Date();
   // Not after the card step's time or the 7 days have run out, also when the helper has not been by yet: a hold placed now would only be let go again.
   if (!own || !canPay(own.payment, at)) return null;
+  if (!(await stillOpenBetween(own.hostId, input.contributorId))) return null;
   const intent = await intentFor(input.paymentId, at);
   if (!intent?.clientSecret) return null;
   if (!WAITING.includes(intent.status)) {
@@ -187,6 +200,7 @@ export async function secretToPay(input: { paymentId: string; contributorId: str
   const own = await ownPayment(input.paymentId, input.contributorId);
   const at = input.now ?? new Date();
   if (!own?.payment.stripePaymentIntentId || !canPay(own.payment, at)) return null;
+  if (!(await stillOpenBetween(own.hostId, input.contributorId))) return null;
   const intent = await stripe().paymentIntents.retrieve(own.payment.stripePaymentIntentId);
   // Only a payment that waits for the contributor; for a monthly one, with the card set to be kept for the months that follow.
   if (!intent.client_secret || !WAITING.includes(intent.status) || (own.kind === "monthly" && intent.setup_future_usage !== "off_session")) return null;

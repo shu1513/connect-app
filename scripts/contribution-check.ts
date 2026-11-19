@@ -45,6 +45,7 @@ async function main() {
   const { healthProblems } = await import("../src/lib/health");
   const { startProject, runningProjectOf, changeSuggested, endProject } = await import("../src/lib/projects/projects");
   const S = await import("../src/lib/contributions/start");
+  const M = await import("../src/lib/contributions/monthly");
   const { CONTRIBUTION_WORDING_VERSION } = await import("../src/lib/contributions/wording");
   const { ProjectError } = await import("../src/lib/projects/rules");
   const C = await import("../src/lib/contributions/charge");
@@ -968,12 +969,92 @@ async function main() {
     await S.payNow({ paymentId: monthly.paymentId, contributorId: giver.id });
     check("the first payment of a monthly contribution keeps the card for the months that follow", (await intentOf(monthly.paymentId)).setup_future_usage === "off_session");
 
+    // A block between the two after the contribution started: the payment is no longer made ready, or shown.
+    const cutOff = await start({ amount: "8" });
+    await S.payNow({ paymentId: cutOff.paymentId, contributorId: giver.id });
+    await db.insert(schema.blocks).values({ blockerId: giver.id, blockedId: host.id });
+    const another = await start({ amount: "9", requestKey: randomUUID() }).catch(() => null);
+    check("after a block between the two, a payment is neither made ready nor shown for paying, and nothing new starts", (await S.payNow({ paymentId: cutOff.paymentId, contributorId: giver.id })) === null && (await S.secretToPay({ paymentId: cutOff.paymentId, contributorId: giver.id })) === null && another === null);
+    await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, giver.id), eq(schema.blocks.blockedId, host.id)));
+
     // A card step that ran out, by the clock, before the helper has been by.
     const lateOne = await start({ amount: "6" });
     check("after the card step's 30 minutes nothing is made ready any more", (await S.payNow({ paymentId: lateOne.paymentId, contributorId: giver.id, now: new Date(Date.now() + 31 * MIN) })) === null && (await PM(lateOne.paymentId)).intentRequestedAt === null);
 
     await endProject({ hostId: host.id, projectId: project.id, now: new Date() });
     check("a project that has ended takes no contributions", /has ended/.test((await refusal(start())) ?? ""));
+  });
+
+  // ========================================================================
+  journey("The monthly rhythm, letting one payment go, and stopping", async () => {
+    const host = await newHost();
+    const { monthlyDue } = await import("../src/lib/contributions/rules");
+    const paymentsOf = (contributionId: string) => db.select().from(pays).where(eq(pays.contributionId, contributionId)).orderBy(pays.number);
+    /** Two rounds of the helper at one pretended moment: the first writes a month down, the second tries its card. */
+    const rounds = async (now: Date) => {
+      await runContributionJobs(now);
+      await runContributionJobs(now);
+    };
+    const m = await held(host, { kind: "monthly", amountCents: 1000 });
+    const first = (await CO(m.contributionId)).firstHoldAt!;
+    await C.takePayment(m.paymentId, (await PM(m.paymentId)).takeAt!);
+    await rounds(new Date(monthlyDue(first, 2).getTime() - MIN));
+    check("before the next month's day nothing is written", (await paymentsOf(m.contributionId)).length === 1);
+    await rounds(monthlyDue(first, 2));
+    let all = await paymentsOf(m.contributionId);
+    check("on its day the helper writes the month's payment down and holds the amount on the saved card", all.length === 2 && all[1].number === 2 && all[1].status === "held" && all[1].amountCents === 1000 && (await CO(m.contributionId)).lastWrittenMonth === 2, all.map((p) => `${p.number}:${p.status}`));
+    await rounds(monthlyDue(first, 2));
+    check("a second look on the same day writes nothing more", (await paymentsOf(m.contributionId)).length === 2 && (await CO(m.contributionId)).firstHoldAt!.getTime() === first.getTime());
+    await C.takePayment(all[1].id, all[1].takeAt!);
+
+    // The helper was down over the third month's day, and for more than 7 days after it.
+    await rounds(new Date(monthlyDue(first, 3).getTime() + 7 * DAY + MIN));
+    let c = await CO(m.contributionId);
+    check("a month whose day lies more than 7 days back is skipped, and never made up for", (await paymentsOf(m.contributionId)).length === 2 && c.skippedMonths === "[3]" && c.lastWrittenMonth === 3 && c.status === "running");
+    await rounds(new Date(monthlyDue(first, 4).getTime() + 2 * DAY));
+    all = await paymentsOf(m.contributionId);
+    check("the contribution goes on with the next month, also when the helper is two days late", all.length === 3 && all[2].number === 4 && all[2].status === "held");
+
+    // Letting one payment go is not stopping.
+    const stranger = await person("giver");
+    check("only the contributor, the host or the founder can let a payment go", (await refusal(M.letPaymentGo({ paymentId: all[2].id, by: "contributor", actorId: stranger.id }))) !== null && (await refusal(M.letPaymentGo({ paymentId: all[2].id, by: "host", actorId: stranger.id }))) !== null && (await PM(all[2].id)).status === "held");
+    await M.letPaymentGo({ paymentId: all[2].id, by: "host", actorId: host.id });
+    c = await CO(m.contributionId);
+    check("the host lets a month's hold go: nothing is charged for it, the month is skipped, and the contribution goes on", (await PM(all[2].id)).status === "given_up" && (await PM(all[2].id)).endedHow === "host_let_go" && (await intentOf(all[2].id)).status === "canceled" && c.status === "running" && c.skippedMonths === "[3,4]");
+    check("a payment that was let go cannot be let go again, and one whose money was taken cannot be let go at all", /already cancelled/.test((await refusal(M.letPaymentGo({ paymentId: all[2].id, by: "host", actorId: host.id }))) ?? "") && /refund/.test((await refusal(M.letPaymentGo({ paymentId: m.paymentId, by: "contributor", actorId: m.giver.id }))) ?? ""));
+    await rounds(monthlyDue(first, 5));
+    all = await paymentsOf(m.contributionId);
+    check("the month after a skipped one is held as usual", all.length === 4 && all[3].number === 5 && all[3].status === "held");
+
+    // The founder lets one go, with a reason.
+    const admin = await person("admin");
+    await db.insert(schema.admins).values({ userId: admin.id });
+    check("the founder needs a reason to let a payment go", /reason/.test((await refusal(M.letPaymentGo({ paymentId: all[3].id, by: "founder", actorId: admin.id, note: " " }))) ?? ""));
+    await M.letPaymentGo({ paymentId: all[3].id, by: "founder", actorId: admin.id, note: "Asked for by the contributor" });
+    check("with one, it is let go and written into the record of the founder's actions", (await PM(all[3].id)).endedHow === "founder_let_go" && (await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.adminId, admin.id), eq(schema.adminActions.targetId, all[3].id)))).length === 1);
+
+    // Stopping.
+    await rounds(monthlyDue(first, 6));
+    all = await paymentsOf(m.contributionId);
+    check("(the sixth month is held)", all.length === 5 && all[4].status === "held");
+    check("nobody else can stop a contribution", (await refusal(M.stopContribution({ contributionId: m.contributionId, contributorId: stranger.id }))) !== null && (await CO(m.contributionId)).status === "running");
+    await setSwitches({ projects: "off" });
+    await M.stopContribution({ contributionId: m.contributionId, contributorId: m.giver.id });
+    await setSwitches({ projects: "everyone", projectsHosts: [] });
+    c = await CO(m.contributionId);
+    check("the contributor stops, also while the founder's switch is off: it ends at once, and the month that was only held is let go", c.status === "ended" && c.endedHow === "stopped" && (await PM(all[4].id)).status === "given_up" && (await intentOf(all[4].id)).status === "canceled");
+    check("money that was already taken is not touched by stopping", (await PM(m.paymentId)).status === "taken" && (await refundsOf(m.paymentId)).length === 0);
+    await rounds(monthlyDue(first, 7));
+    check("no further month is ever written", (await paymentsOf(m.contributionId)).length === 5);
+
+    // A contribution made once, and a monthly one that never had its first hold.
+    const once = await held(host);
+    check("a host cannot cancel a payment the contributor has not paid yet", /Nothing is held/.test((await refusal(M.letPaymentGo({ paymentId: (await atCardStep(host)).paymentId, by: "host", actorId: host.id }))) ?? ""));
+    await M.letPaymentGo({ paymentId: once.paymentId, by: "contributor", actorId: once.giver.id });
+    check("\"Cancel, nothing is charged\" on a contribution made once: the hold is let go and the contribution ends", (await PM(once.paymentId)).status === "given_up" && (await PM(once.paymentId)).endedHow === "cancelled" && (await CO(once.contributionId)).status === "ended" && (await ledger({ contributionPaymentId: once.paymentId })).lines === 0);
+    const early = await atCardStep(host, { kind: "monthly" });
+    await M.letPaymentGo({ paymentId: early.paymentId, by: "contributor", actorId: early.giver.id });
+    check("cancelling at the card step, before anything was paid, ends a monthly contribution that never began", (await CO(early.contributionId)).status === "ended" && (await PM(early.paymentId)).status === "given_up");
   });
 
   // ========================================================================

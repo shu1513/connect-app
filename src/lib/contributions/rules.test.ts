@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectFrom, CONTRIBUTION, ContributionError, kindsOffered, lastMomentToTake, mayTake, monthlyDue, readAmount, readSuggested, suggestedOf, waitFor, type PairPayment } from "./rules";
+import { collectFrom, CONTRIBUTION, ContributionError, dueMonths, kindsOffered, lastMomentToTake, mayTake, monthlyDue, monthsBetween, readAmount, readSuggested, suggestedOf, waitFor, type PairPayment } from "./rules";
 
 const DAY = 24 * 3_600_000;
 const at = (iso: string) => new Date(iso);
@@ -126,6 +126,29 @@ describe("the $1,000 rule", () => {
   });
   it("uses the limits the rulebook names", () => {
     expect([CONTRIBUTION.minCents, CONTRIBUTION.maxCents, CONTRIBUTION.lineCents]).toEqual([500, 10_000_000, 100_000]);
+  });
+});
+
+describe("which month is written down", () => {
+  const first = at("2026-01-31T10:00:00Z");
+  it("writes nothing before the next month's day, and that month on its day", () => {
+    expect(dueMonths(first, 1, at("2026-02-28T09:59:59Z"))).toEqual({ write: null, missed: [] });
+    expect(dueMonths(first, 1, at("2026-02-28T10:00:00Z"))).toEqual({ write: 2, missed: [] });
+    expect(dueMonths(first, 2, at("2026-03-31T10:00:00Z"))).toEqual({ write: 3, missed: [] });
+  });
+  it("still writes a month up to 7 days late, and not after that", () => {
+    expect(dueMonths(first, 1, at("2026-03-07T10:00:00Z"))).toEqual({ write: 2, missed: [] });
+    expect(dueMonths(first, 1, at("2026-03-07T10:00:01Z"))).toEqual({ write: null, missed: [2] });
+  });
+  it("never makes up for months that were missed: only the one whose day has just come is written", () => {
+    expect(dueMonths(first, 1, at("2026-04-30T10:00:00Z"))).toEqual({ write: 4, missed: [2, 3] });
+    expect(dueMonths(first, 1, at("2026-04-29T10:00:00Z"))).toEqual({ write: null, missed: [2, 3] });
+  });
+  it("finds the months whose day fell inside a stretch of time", () => {
+    expect(monthsBetween(first, 1, at("2026-02-20T00:00:00Z"), at("2026-04-01T00:00:00Z"))).toEqual([2, 3]);
+    // A month that fell due before the stretch began is not one of them.
+    expect(monthsBetween(first, 1, at("2026-03-01T00:00:00Z"), at("2026-04-01T00:00:00Z"))).toEqual([3]);
+    expect(monthsBetween(first, 1, at("2026-02-01T00:00:00Z"), at("2026-02-20T00:00:00Z"))).toEqual([]);
   });
 });
 

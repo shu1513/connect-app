@@ -22,6 +22,8 @@ export const CONTRIBUTION = {
   longWaitMs: 30 * DAY_MS,
   /** Held money may be taken until one hour before its hold ends (plans/25, choice 12). */
   lastMomentBeforeExpiryMs: 3_600_000,
+  /** A month's payment is still written down up to this long after its day, when the helper is late. */
+  lateMonthMs: 7 * DAY_MS,
 } as const;
 
 /**
@@ -79,6 +81,36 @@ export function monthlyDue(firstHold: Date, n: number): Date {
   const month = firstHold.getUTCMonth() + (n - 1);
   const daysInThatMonth = new Date(Date.UTC(firstHold.getUTCFullYear(), month + 1, 0)).getUTCDate();
   return new Date(Date.UTC(firstHold.getUTCFullYear(), month, Math.min(firstHold.getUTCDate(), daysInThatMonth), firstHold.getUTCHours(), firstHold.getUTCMinutes(), firstHold.getUTCSeconds(), firstHold.getUTCMilliseconds()));
+}
+
+/**
+ * Which month of a monthly contribution is to be written down now, and which were missed. A
+ * month's payment is written on its day, or up to 7 days after it when the helper is late (the
+ * same 7 days after which a month without a hold is given up). A month whose day lies further
+ * back was missed: it is never made up for, and the contribution goes on with the next one.
+ * `lastWritten` is the number of the last month that was written down or missed.
+ */
+export function dueMonths(firstHold: Date, lastWritten: number, now: Date): { write: number | null; missed: number[] } {
+  const missed: number[] = [];
+  // (The bound only keeps a wrong date from looping for ever: 50 years of months.)
+  for (let n = lastWritten + 1; n <= lastWritten + 600; n++) {
+    const due = monthlyDue(firstHold, n);
+    if (due > now) break;
+    if (now.getTime() - due.getTime() <= CONTRIBUTION.lateMonthMs) return { write: n, missed };
+    missed.push(n);
+  }
+  return { write: null, missed };
+}
+
+/** The months after `lastWritten` whose day fell after `from` and not after `to` (plans/25, choice 13: the months that passed while the switch did not cover the host). */
+export function monthsBetween(firstHold: Date, lastWritten: number, from: Date, to: Date): number[] {
+  const months: number[] = [];
+  for (let n = lastWritten + 1; n <= lastWritten + 600; n++) {
+    const due = monthlyDue(firstHold, n);
+    if (due > to) break;
+    if (due > from) months.push(n);
+  }
+  return months;
 }
 
 /** The last moment held money may still be taken: one hour before the hold ends, by Stripe's own time for that card. */
