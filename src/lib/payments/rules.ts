@@ -260,7 +260,7 @@ export function canCollectAgainAt(lastCollectedAt: Date | null): Date | null {
   return lastCollectedAt ? new Date(lastCollectedAt.getTime() + COLLECT_EVERY_MS) : null;
 }
 
-export type HeldBack = "dispute" | "refund" | "request" | "answer_applying" | "being_sent" | "not_yet";
+export type HeldBack = "dispute" | "refund" | "founder" | "request" | "answer_applying" | "being_sent" | "not_yet";
 
 /**
  * Why a share that was charged and not yet sent cannot be collected right now,
@@ -279,9 +279,12 @@ export function heldBack(input: {
    * applied to one of the call's charges ("answer_applying"). Either holds every charge of that call.
    */
   request?: "request" | "answer_applying" | null;
+  /** A contribution's share the founder is holding back. */
+  founderHolds?: boolean;
 }): HeldBack | null {
   if (input.disputeOpen) return "dispute";
   if (input.refundOnItsWay) return "refund";
+  if (input.founderHolds) return "founder";
   if (input.request) return input.request;
   if (input.actionUnfinished) return "being_sent";
   if (!input.readyAt || input.readyAt > input.now) return "not_yet";

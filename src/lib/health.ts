@@ -9,6 +9,7 @@ import { and, eq, isNull, lt } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
+import { contributionHealthProblems } from "@/lib/contributions/health";
 import { membershipHealthProblems } from "@/lib/membership/health";
 import { moneyTiming } from "@/lib/payments/rules";
 import { isFrozen } from "@/lib/membership/rules";
@@ -103,6 +104,7 @@ export async function healthProblems(now: Date): Promise<string[]> {
   if (await moneyOverdue(now)) problems.push("the money of a call is more than 5 minutes past the moment it should have been taken or released");
 
   problems.push(...(await membershipHealthProblems(now)));
+  problems.push(...(await contributionHealthProblems(now)));
 
   return problems;
 }
