@@ -1746,7 +1746,7 @@ No pages yet; nobody can start a contribution until 2b.
 
 **What was built**
 - Tables `contributions`, `contribution_agreements`, `contribution_cards`,
-  `contribution_payments`, `contribution_refunds` (migrations 0033 and 0034). A contribution's
+  `contribution_payments`, `contribution_refunds` (migrations 0033 to 0035). A contribution's
   payment is a third kind of owner for the "never twice" record and the ledger. The host's share
   is a line of a new kind, "contribution", among her earnings, with its shape enforced by the
   database.
@@ -1764,17 +1764,21 @@ No pages yet; nobody can start a contribution until 2b.
 **What the reviewers found**
 - The check script itself found one real gap on its first runs: the 30 days written at the
   moment of collecting were lost when that collection had nothing else to send.
-- Astra, three rounds on the code. The findings that mattered: the helper decided about a taking
+- Astra, six rounds on the code, the last one "ready to open a pull request". The findings that mattered: the helper decided about a taking
   by the moment its round began, so a slow round could have taken money after the last moment;
   the moment a taking was recorded at could lie before Stripe's answer, which would have made a
   wait too short; recovery after an interruption did not ask the founder's switch; a saved-card
   hold that Stripe had accepted and that was not yet written down was missing from the $1,000
   count for that moment; a release made while a payment was held was forgotten at the taking;
-  and the earnings list could show as ready what a collection would refuse. All taken, each
-  with a check. Astra asked for nothing to be removed.
+  and the earnings list could show as ready what a collection would refuse. Rounds three to
+  six were about one rare case only: a payment that is stopped while Stripe is still making the
+  request for it. No card could be charged in it, but an unused request could be left at Stripe
+  if the app stopped at exactly that instant; it is now always found and cancelled (migration
+  0035 adds the one field this needed). All taken, each with a check. Astra asked for nothing to
+  be removed.
 
 **How it was checked**
-- `scripts/contribution-check.ts`, against Stripe's test mode and the local database: 148 checks
+- `scripts/contribution-check.ts`, against Stripe's test mode and the local database: 152 checks
   in thirteen journeys, among them a contribution from the hold to a real transfer with the
   books adding up to the cent; cancelling and the race with the taking; the card step; the
   monthly tries; a bank's confirmation; a lost hold; the last moment by the real clock;

@@ -1757,6 +1757,8 @@ export const contributionPayments = pgTable(
     /** The claim for its one PaymentIntent: when it was asked for, and the exact request. Never reset. */
     intentRequestedAt: timestamp("intent_requested_at", { withTimezone: true }),
     intentRequest: text("intent_request"),
+    /** The moment its PaymentIntent was last asked of Stripe (the first time or again). Stripe's list showing none is believed only some minutes after it. */
+    intentAskedAt: timestamp("intent_asked_at", { withTimezone: true }),
     stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
     stripeChargeId: text("stripe_charge_id"),
 

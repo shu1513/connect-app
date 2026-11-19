@@ -1,0 +1,1 @@
+ALTER TABLE "contribution_payments" ADD COLUMN "intent_asked_at" timestamp with time zone;

@@ -577,7 +577,14 @@ the code. All of it is built.
   its own), without waiting out the hour the helper leaves after a refused taking.
 - **After a stop** (the payment given up, or the switch off) a payment that was asked for and
   never saved is not asked for again: Stripe is only asked what was made, and that is cancelled,
-  also when it arrives after the payment was written off.
+  also when it arrives after the payment was written off. Three things make that hold when the
+  app stops at a bad instant. The moment of every asking, the first and each repeat, is written
+  on the payment first, with the payment locked (`intent_asked_at`, migration 0035). When
+  Stripe's list shows none, that is believed only 8 minutes after the last asking (a request can
+  be on its way for about four); until then the helper keeps asking. And a payment that was
+  already written off when its PaymentIntent turns up is made "being given up" again in the same
+  step that saves the id, so the usual written-down letting-go cancels it and the helper repeats
+  that until Stripe has answered.
 - **A contribution made once is marked ended when its money is taken** ("paid"), or with its
   payment when that is given up. "Running" then always means that something can still happen.
 - **A taking that was not to be** (after a cancellation, or of a wrong amount) writes no share

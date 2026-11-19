@@ -464,6 +464,25 @@ async function main() {
     await db.update(pays).set({ stripePaymentIntentId: null, endedHow: "cancelled", status: "given_up" }).where(eq(pays.id, lateOne.paymentId));
     const countBefore = (await stripe().paymentIntents.list({ customer: await stripeCustomerFor(lateOne.giver), limit: 10 })).data.length;
     check("a stopped payment's request is not sent again: Stripe is only asked what was made, and that one is cancelled", (await C.intentFor(lateOne.paymentId)) === null && (await stripe().paymentIntents.list({ customer: await stripeCustomerFor(lateOne.giver), limit: 10 })).data.length === countBefore && (await stripe().paymentIntents.retrieve(lateIntent.intentId)).status === "canceled" && (await PM(lateOne.paymentId)).stripePaymentIntentId === lateIntent.intentId);
+    const lateOps = await operations(lateOne.paymentId, "release");
+    check("that cancellation is a letting-go written down first, like every other, and the payment is given up again once Stripe has answered", (await PM(lateOne.paymentId)).status === "given_up" && lateOps.length === 1 && lateOps[0].status === "succeeded", { status: (await PM(lateOne.paymentId)).status, ops: lateOps.map((o) => o.status) });
+    // A stopped payment whose request may still be on its way: Stripe's list showing none is not believed yet.
+    check("every asking for a PaymentIntent writes its moment down first", (await PM(lateOne.paymentId)).intentAskedAt !== null && (await PM(lateOne.paymentId)).intentAskedAt!.getTime() >= (await PM(lateOne.paymentId)).intentRequestedAt!.getTime());
+    const onItsWay = await atCardStep(host);
+    const longAgo = new Date(Date.now() - C.CLAIM_ON_ITS_WAY_MS - 60_000);
+    // First asked long ago, asked again a moment ago, then stopped.
+    await db.update(pays).set({ intentRequestedAt: longAgo, intentAskedAt: new Date(), intentRequest: JSON.stringify({ customer: await stripeCustomerFor(onItsWay.giver) }), endedHow: "cancelled" }).where(eq(pays.id, onItsWay.paymentId));
+    const firstAnswer = await C.intentFor(onItsWay.paymentId);
+    const waiting = await PM(onItsWay.paymentId);
+    await db.update(pays).set({ intentAskedAt: longAgo }).where(eq(pays.id, onItsWay.paymentId));
+    await runContributionJobs(new Date());
+    check("a stopped payment that was asked for again a moment ago is not written off when Stripe's list shows none, however old its first asking; it is once the last asking is 8 minutes old", firstAnswer === null && waiting.status === "to_pay" && waiting.stripePaymentIntentId === null && (await PM(onItsWay.paymentId)).status === "given_up", { then: waiting.status, now: (await PM(onItsWay.paymentId)).status });
+    // The process stops right after the late PaymentIntent's id was saved (what that step leaves is put in by hand).
+    const cutOff = await atCardStep(host);
+    const cutIntent = (await C.intentFor(cutOff.paymentId))!;
+    await db.update(pays).set({ endedHow: "cancelled", status: "to_pay" }).where(eq(pays.id, cutOff.paymentId));
+    await runContributionJobs(new Date());
+    check("and if the app stops right after saving a late PaymentIntent's id, the helper cancels it on its next round", (await stripe().paymentIntents.retrieve(cutIntent.intentId)).status === "canceled" && (await PM(cutOff.paymentId)).status === "given_up");
 
     // The taking was written down, and Stripe was never asked.
     const b = await held(host);

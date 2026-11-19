@@ -107,6 +107,14 @@ export async function writeDownPayment(
 type IntentRequest = Stripe.PaymentIntentCreateParams;
 
 /**
+ * How long after a PaymentIntent was last asked for Stripe's list is not believed when it shows none.
+ * Stripe's library gives a request up after 80 seconds and sends it again up to twice, so one can be on its
+ * way for about four minutes. Well beyond that, and below the ten minutes after which the watch speaks up
+ * (health.ts).
+ */
+export const CLAIM_ON_ITS_WAY_MS = 8 * 60_000;
+
+/**
  * The payment's one PaymentIntent, also after an interruption. Exactly one of four things happens,
  * as for a membership's month:
  *   1. its id is saved: that one is used;
@@ -182,11 +190,24 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
   const stopped = current.status !== "to_pay" || !open(current) || !owner || !(await projectsOnFor(owner.hostId));
 
   let intent: Stripe.PaymentIntent | null;
-  if (!stopped && Date.now() - requestedAt.getTime() < LABEL_SAFE_MS) {
+  let mayAsk = !stopped && Date.now() - requestedAt.getTime() < LABEL_SAFE_MS;
+  if (mayAsk) {
+    // The moment of every asking, the first and each one after it, is written first, with the payment locked. So
+    // a look at Stripe's list that finds none knows how lately the request may have gone out, and a payment that
+    // was given up in between is not asked for.
+    mayAsk = await db.transaction(async (tx) => {
+      const { payment } = await lockForPayment(tx, paymentId);
+      if (payment.stripePaymentIntentId || payment.status !== "to_pay" || !open(payment)) return false;
+      await tx.update(pays).set({ intentAskedAt: new Date() }).where(eq(pays.id, paymentId));
+      return true;
+    });
+  }
+  if (mayAsk) {
     // 2 and 3. The same request under the same label always gives the same PaymentIntent.
     intent = await stripe().paymentIntents.create(request, { idempotencyKey: `contributionintent:${paymentId}` });
   } else {
-    // 4. Too old to send again: look for what was made.
+    // 4. Too old to send again, or stopped: look for what was made.
+    const listedAt = Date.now();
     const found: Stripe.PaymentIntent[] = [];
     const since = Math.floor(requestedAt.getTime() / 1000) - 300;
     for await (const candidate of stripe().paymentIntents.list({ customer: request.customer as string, created: { gte: since }, limit: 100 })) {
@@ -198,10 +219,15 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
     }
     intent = found[0] ?? null;
     if (!intent) {
-      // None was ever made. The payment is given up; nothing was held.
       await db.transaction(async (tx) => {
         const locked = await lockForPayment(tx, paymentId);
         if (locked.payment.stripePaymentIntentId || locked.payment.status !== "to_pay") return;
+        // The one that was asked for may still be on its way to Stripe, or not on Stripe's list yet. While that
+        // can be, nothing is concluded: the helper asks again on its next round, and finds it then. Counted from
+        // the last asking, read here under the lock every asking takes, to the moment the list was read.
+        const lastAsked = locked.payment.intentAskedAt ?? locked.payment.intentRequestedAt ?? requestedAt;
+        if (listedAt - lastAsked.getTime() < CLAIM_ON_ITS_WAY_MS) return;
+        // None was ever made. The payment is given up; nothing was held.
         if (!locked.payment.endedHow) await giveUpInStep(tx, locked, "cancelled_at_stripe", now);
         await tx.update(pays).set({ status: "given_up", updatedAt: now }).where(eq(pays.id, paymentId));
       });
@@ -217,17 +243,17 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
       if (payment.stripePaymentIntentId !== found.id) return "other" as const;
       return payment.status === "to_pay" && open(payment) ? ("known" as const) : ("closed" as const);
     }
-    await tx.update(pays).set({ stripePaymentIntentId: found.id, updatedAt: now }).where(eq(pays.id, paymentId));
+    // A payment that had already been written off as given up, with no PaymentIntent known, before this one arrived
+    // late: in the same step as its id is saved, the payment is "being given up" again (its reason stays). So the
+    // letting-go, which is written down first and repeated by the helper until Stripe has answered, cancels this
+    // PaymentIntent too, also if this process stops right here.
+    const lateForWrittenOff = payment.status === "given_up";
+    await tx.update(pays).set({ stripePaymentIntentId: found.id, ...(lateForWrittenOff ? { status: "to_pay" as const } : {}), updatedAt: now }).where(eq(pays.id, paymentId));
     return payment.status === "to_pay" && open(payment) ? ("saved" as const) : ("abandoned" as const);
   });
   if (saved === "abandoned") {
     // The payment was given up while Stripe was answering: the letting-go takes care of it. Its secret goes to nobody.
     await letGo(paymentId, now).catch((error) => log(`could not let go of the payment of abandoned contribution payment ${paymentId} yet; the helper will retry`, error));
-    // A payment that had already been written off as given up, with no PaymentIntent known, before this one arrived
-    // late: the letting-go has nothing left to do for it, so this PaymentIntent is cancelled here. Nobody was ever
-    // given its secret, so it cannot have been paid.
-    const after = await paymentById(paymentId);
-    if (after?.status === "given_up") await cancelAtStripe(found.id).catch((error) => log(`could not cancel the late PaymentIntent of contribution payment ${paymentId}`, error));
     return null;
   }
   if (saved === "other") return intentFor(paymentId, now);
