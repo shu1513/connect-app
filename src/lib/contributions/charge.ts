@@ -127,7 +127,7 @@ export const CLAIM_ON_ITS_WAY_MS = 8 * 60_000;
  *      founder. None: none was ever made, and the payment is given up.
  * Returns null when the payment has no PaymentIntent to pay with (given up, or a problem).
  */
-export async function intentFor(paymentId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; status: Stripe.PaymentIntent.Status } | null> {
+export async function intentFor(paymentId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; status: Stripe.PaymentIntent.Status; keepsCard: boolean } | null> {
   const seen = await paymentById(paymentId);
   if (!seen) throw new MoneyError("Payment not found.");
   if (seen.stripePaymentIntentId) {
@@ -136,7 +136,7 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
     // Looked at again after Stripe answered: the secret of a payment given up meanwhile goes to nobody.
     const still = await paymentById(paymentId);
     if (!still || still.status !== "to_pay" || !open(still) || still.stripePaymentIntentId !== intent.id) return null;
-    return { intentId: intent.id, clientSecret: intent.client_secret, status: intent.status };
+    return { intentId: intent.id, clientSecret: intent.client_secret, status: intent.status, keepsCard: intent.setup_future_usage === "off_session" };
   }
   if (seen.problem) return null;
 
@@ -258,7 +258,7 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
   }
   if (saved === "other") return intentFor(paymentId, now);
   if (saved === "closed") return null;
-  return { intentId: found.id, clientSecret: found.client_secret, status: found.status };
+  return { intentId: found.id, clientSecret: found.client_secret, status: found.status, keepsCard: found.setup_future_usage === "off_session" };
 }
 
 // ---------------------------------------------------------------------------

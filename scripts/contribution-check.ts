@@ -43,7 +43,10 @@ async function main() {
   const { unsentEarnings, collectEarnings } = await import("../src/lib/payments/collect");
   const { setSwitches, switches } = await import("../src/lib/safety/switches");
   const { healthProblems } = await import("../src/lib/health");
-  const { startProject, runningProjectOf } = await import("../src/lib/projects/projects");
+  const { startProject, runningProjectOf, changeSuggested, endProject } = await import("../src/lib/projects/projects");
+  const S = await import("../src/lib/contributions/start");
+  const { CONTRIBUTION_WORDING_VERSION } = await import("../src/lib/contributions/wording");
+  const { ProjectError } = await import("../src/lib/projects/rules");
   const C = await import("../src/lib/contributions/charge");
   const R = await import("../src/lib/contributions/refund");
   const D = await import("../src/lib/contributions/dispute");
@@ -156,7 +159,7 @@ async function main() {
       await work;
       return null;
     } catch (error) {
-      if (error instanceof ContributionError || error instanceof MoneyError) return error.message;
+      if (error instanceof ContributionError || error instanceof MoneyError || error instanceof ProjectError) return error.message;
       throw error;
     }
   }
@@ -204,6 +207,7 @@ async function main() {
       await db.delete(schema.contributions).where(inArray(schema.contributions.id, contributionIds));
     }
     await db.delete(schema.adminActions).where(or(inArray(schema.adminActions.adminId, ids), inArray(schema.adminActions.targetUserId, ids)));
+    await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
     const projectIds = (await db.select({ id: schema.projects.id }).from(schema.projects).where(inArray(schema.projects.hostId, ids))).map((row) => row.id);
     if (projectIds.length) await db.delete(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds));
     await db.delete(schema.projects).where(inArray(schema.projects.hostId, ids));
@@ -898,6 +902,78 @@ async function main() {
     const FOUR = /contribution's held money|was asked of Stripe|given up still has its hold|refund has been owed/;
     check("when the helper has caught up, none of these four is said any more", !(await mentions(new Date(), FOUR)), (await healthProblems(new Date())).filter((problem) => FOUR.test(problem)));
     check("a payment that needs the founder is said for as long as it does", (await db.select({ id: pays.id }).from(pays).where(sql`${pays.problem} is not null`)).length === 0 || (await mentions(new Date(), /needs the founder/)));
+  });
+
+  // ========================================================================
+  journey("Starting a contribution: who may, the agreement, one contribution for one press, and the card step", async () => {
+    const host = await newHost();
+    const project = (await runningProjectOf(host.id))!;
+    const giver = await person("giver");
+    const start = (over: Partial<Parameters<typeof S.startContribution>[0]> = {}) =>
+      S.startContribution({ contributorId: giver.id, projectId: project.id, kind: "once", amount: "25", requestKey: randomUUID(), agreed: false, wordingVersion: CONTRIBUTION_WORDING_VERSION, now: new Date(), ...over });
+    const countOf = async (who: Person) => (await db.select({ id: schema.contributions.id }).from(schema.contributions).where(eq(schema.contributions.contributorId, who.id))).length;
+
+    check("a host who suggests no amount takes no contributions", (await refusal(start())) === S.NOT_TAKING && (await countOf(giver)) === 0);
+    check("a suggested amount must be a valid contribution, and there are three at most", /smallest/.test((await refusal(changeSuggested({ hostId: host.id, projectId: project.id, once: ["4"], monthly: [], now: new Date() }))) ?? "") && /up to 3/.test((await refusal(changeSuggested({ hostId: host.id, projectId: project.id, once: ["5", "6", "7", "8"], monthly: [], now: new Date() }))) ?? ""));
+    await changeSuggested({ hostId: host.id, projectId: project.id, once: ["25", "", "5"], monthly: [], now: new Date() });
+    check("she suggests amounts for contributions made once only: kept sorted, and the monthly kind is not offered", (await runningProjectOf(host.id))!.suggestedOnce === "500,2500" && /only takes|does not take monthly/.test((await refusal(start({ kind: "monthly", agreed: true }))) ?? ""));
+    check("another host cannot change her amounts", (await refusal(changeSuggested({ hostId: giver.id, projectId: project.id, once: ["9"], monthly: [], now: new Date() }))) !== null && (await runningProjectOf(host.id))!.suggestedOnce === "500,2500");
+
+    check("nobody contributes to their own project", /your own project/.test((await refusal(start({ contributorId: host.id }))) ?? ""));
+    check("the amount is typed in dollars, from $5 to $100,000", /smallest/.test((await refusal(start({ amount: "4.99" }))) ?? "") && /largest/.test((await refusal(start({ amount: "100000.01" }))) ?? "") && /amount in dollars/.test((await refusal(start({ amount: "lots" }))) ?? ""));
+    check("a page whose wording has changed since it was opened starts nothing", /wording/.test((await refusal(start({ wordingVersion: "an older one" }))) ?? ""));
+    const blocked = await person("giver");
+    await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: blocked.id });
+    check("someone she has blocked, or who has blocked her, cannot contribute, and is told no more than anyone else", (await refusal(start({ contributorId: blocked.id }))) === S.NOT_TAKING);
+    const paused = await person("giver");
+    await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, paused.id));
+    check("someone whose account is paused cannot contribute", /paused/.test((await refusal(start({ contributorId: paused.id }))) ?? ""));
+    await setSwitches({ projects: "off" });
+    check("while the founder's switch does not cover her, nothing new starts", (await refusal(start())) === S.NOT_TAKING);
+    await setSwitches({ projects: "everyone", projectsHosts: [] });
+    check("none of these refusals wrote anything", (await countOf(giver)) + (await countOf(blocked)) + (await countOf(paused)) + (await countOf(host)) === 0);
+
+    // The form is sent.
+    const key = randomUUID();
+    const first = await start({ requestKey: key });
+    const c = await CO(first.contributionId);
+    let p = await PM(first.paymentId);
+    const [agreement] = await db.select().from(schema.contributionAgreements).where(eq(schema.contributionAgreements.contributionId, first.contributionId));
+    check("sending the form writes the contribution at its card step, what was agreed to, and its first payment, in one step", c.status === "card_step" && c.kind === "once" && c.amountCents === 2500 && c.hostId === host.id && agreement?.version === CONTRIBUTION_WORDING_VERSION && agreement.amountCents === 2500 && agreement.kind === "once" && p.status === "to_pay" && p.number === 1 && p.amountCents === 2500);
+    check("the card step has 30 minutes", Math.abs(p.cardStepExpiresAt!.getTime() - Date.now() - 30 * MIN) < MIN);
+    check("starting asks nothing of Stripe", p.stripePaymentIntentId === null && p.intentRequestedAt === null);
+    const again = await start({ requestKey: key, amount: "99" });
+    check("the same press, sent twice, is one contribution", again.contributionId === first.contributionId && again.paymentId === first.paymentId && (await countOf(giver)) === 1 && (await CO(first.contributionId)).amountCents === 2500);
+    check("someone else's press with that same request is refused", (await refusal(start({ requestKey: key, contributorId: blocked.id }))) !== null);
+
+    // The card step.
+    const stranger = await person("giver");
+    check("a page that is only loaded makes no payment at Stripe", (await S.secretToPay({ paymentId: first.paymentId, contributorId: giver.id })) === null && (await PM(first.paymentId)).intentRequestedAt === null);
+    check("only its contributor can make a payment ready, or see it", (await S.payNow({ paymentId: first.paymentId, contributorId: stranger.id })) === null && (await PM(first.paymentId)).intentRequestedAt === null && (await S.contributionFor(stranger.id, first.contributionId)) === null && (await S.contributionFor(giver.id, first.contributionId))?.payments.length === 1);
+    const ready = await S.payNow({ paymentId: first.paymentId, contributorId: giver.id });
+    const seen = await S.secretToPay({ paymentId: first.paymentId, contributorId: giver.id });
+    check("the pressed button makes the payment ready, and the page then reads that same payment", Boolean(ready?.clientSecret) && seen?.clientSecret === ready?.clientSecret && (await S.secretToPay({ paymentId: first.paymentId, contributorId: stranger.id })) === null);
+    check("at Stripe it is made to be held first, and the card of a contribution made once is not kept", (await intentOf(first.paymentId)).capture_method === "manual" && (await intentOf(first.paymentId)).setup_future_usage === null && (await intentOf(first.paymentId)).amount === 2500);
+    p = await pay(first.paymentId);
+    check("the contributor pays on Stripe's form: the amount is held, and the contribution is running", p.status === "held" && (await CO(first.contributionId)).status === "running" && (await S.payNow({ paymentId: first.paymentId, contributorId: giver.id })) === null);
+
+    // Monthly.
+    await changeSuggested({ hostId: host.id, projectId: project.id, once: ["25", "5"], monthly: ["10"], now: new Date() });
+    check("a monthly contribution needs the box ticked", /tick the box/.test((await refusal(start({ kind: "monthly", amount: "10" }))) ?? ""));
+    const monthly = await start({ kind: "monthly", amount: "10", agreed: true });
+    const [agreed] = await db.select().from(schema.contributionAgreements).where(eq(schema.contributionAgreements.contributionId, monthly.contributionId));
+    check("with the box ticked it starts, and what was agreed to is kept with the amount and the moment", (await CO(monthly.contributionId)).kind === "monthly" && agreed?.kind === "monthly" && agreed.amountCents === 1000 && Math.abs(agreed.agreedAt.getTime() - Date.now()) < MIN);
+    check("one monthly contribution for each person and project, counted from the card step on", /already contribute/.test((await refusal(start({ kind: "monthly", amount: "12", agreed: true }))) ?? ""));
+    check("a contribution made once beside a monthly one is fine, and so is a second one", (await refusal(start({ amount: "5" }))) === null && (await refusal(start({ amount: "7.50" }))) === null);
+    await S.payNow({ paymentId: monthly.paymentId, contributorId: giver.id });
+    check("the first payment of a monthly contribution keeps the card for the months that follow", (await intentOf(monthly.paymentId)).setup_future_usage === "off_session");
+
+    // A card step that ran out, by the clock, before the helper has been by.
+    const lateOne = await start({ amount: "6" });
+    check("after the card step's 30 minutes nothing is made ready any more", (await S.payNow({ paymentId: lateOne.paymentId, contributorId: giver.id, now: new Date(Date.now() + 31 * MIN) })) === null && (await PM(lateOne.paymentId)).intentRequestedAt === null);
+
+    await endProject({ hostId: host.id, projectId: project.id, now: new Date() });
+    check("a project that has ended takes no contributions", /has ended/.test((await refusal(start())) ?? ""));
   });
 
   // ========================================================================

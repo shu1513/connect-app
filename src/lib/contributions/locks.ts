@@ -19,6 +19,19 @@ import type { Contribution, ContributionPayment } from "@/db/schema";
 import { MoneyError, type Owner, type Tx } from "@/lib/payments/operations";
 
 /**
+ * Writing a new payment down and saving the founder's projects switch wait for each other, so a
+ * payment that is being written at the very moment the switch is saved cannot slip past the step
+ * that gives payments up (plans/25, "The switch"). Taken before any other lock. Any number of
+ * payments can be written at the same moment; the switch is saved alone.
+ */
+export async function lockSwitchForWriting(tx: Tx): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtext('projects-switch'))`);
+}
+export async function lockSwitchForSaving(tx: Tx): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('projects-switch'))`);
+}
+
+/**
  * One contributor paying one host: the $1,000 rule counts over this pair, so two payments of the
  * pair arriving at the same moment are counted one after the other. Held to the end of the step.
  */

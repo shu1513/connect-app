@@ -8,6 +8,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Project } from "@/db/schema";
+import { ContributionError, readSuggested } from "@/lib/contributions/rules";
 import { publicProfile, type PublicProfile } from "@/lib/profiles/profiles";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { ProjectError, projectProblem, tidyName, tidyText } from "./rules";
@@ -94,6 +95,33 @@ export async function changeProject(input: { hostId: string; projectId: string; 
     const changed = await tx
       .update(schema.projects)
       .set({ name, description, updatedAt: input.now })
+      .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.hostId, input.hostId), eq(schema.projects.status, "running")))
+      .returning({ id: schema.projects.id });
+    if (changed.length === 0) throw new ProjectError(NOT_RUNNING);
+  });
+}
+
+/**
+ * The host sets the amounts she suggests, for each kind of contribution, as she typed them into
+ * their boxes (plans/23, choice B). A kind she leaves empty is not offered. For the project the
+ * form was drawn for, which must be her running one; not while the founder's switch is off for her.
+ */
+export async function changeSuggested(input: { hostId: string; projectId: string; once: string[]; monthly: string[]; now: Date }): Promise<void> {
+  if (!isId(input.projectId)) throw new ProjectError(NOT_RUNNING);
+  let once: number[];
+  let monthly: number[];
+  try {
+    once = readSuggested(input.once);
+    monthly = readSuggested(input.monthly);
+  } catch (error) {
+    if (error instanceof ContributionError) throw new ProjectError(error.message);
+    throw error;
+  }
+  await db.transaction(async (tx) => {
+    if (!(await projectsOnFor(input.hostId, tx))) throw new ProjectError(PROJECTS_OFF);
+    const changed = await tx
+      .update(schema.projects)
+      .set({ suggestedOnce: once.join(","), suggestedMonthly: monthly.join(","), updatedAt: input.now })
       .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.hostId, input.hostId), eq(schema.projects.status, "running")))
       .returning({ id: schema.projects.id });
     if (changed.length === 0) throw new ProjectError(NOT_RUNNING);
