@@ -26,10 +26,12 @@
  * the helper's function is run here with a later clock, and it acts on every contribution in the
  * database, so the script must have this computer's test database to itself. It sets the founder's
  * projects switch and puts it back at the end, and removes everything it made here (people whose
- * email starts "pjourney-", also those of an earlier run that was stopped). What it made at Stripe
- * stays there as test history: customers, their saved test cards, charges and transfers. Nothing
- * stays held. The founder's page is skipped with a note if the test admin's login is not set up
- * (npx tsx scripts/secure-test-admin.ts).
+ * email starts "pjourney-", also those of an earlier run that was stopped; of such a run only its
+ * lines "projects switch set" in the founder's record stay, since they name no person). What it
+ * made at Stripe stays there as test history: customers, their saved test cards, charges and
+ * transfers. A hold is let go before its line here is removed; if Stripe cannot be reached for
+ * that, the clean-up stops, says so, and is tried again by the next run. The founder's page is
+ * skipped with a note if the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).
  *
  * Usage: npx tsx scripts/project-journey-check.ts            (everything but collecting)
  *        npx tsx scripts/project-journey-check.ts --payouts  (also collecting)
@@ -292,7 +294,8 @@ async function main() {
   // The test payout account, borrowed for the collecting step only
   // --------------------------------------------------------------------------
   const [seeded] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
-  const [seededBefore] = seeded ? await db.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, seeded.id)) : [];
+  /** Whose payout account it is before the journey starts: read after the first clean-up, which gives back an account an earlier run still held. */
+  let payoutAccountBefore: string | null = null;
   /** If an earlier run stopped while its host held the test payout account, the seeded host gets it back before anything is deleted. */
   async function payoutAccountBack() {
     const [holder] = await db
@@ -308,12 +311,16 @@ async function main() {
     console.log("   (the test payout account was given back to host@test.local)");
   }
 
-  /** Lets a test payment go at Stripe before its line here is removed. One that cannot be let go is a failed check: it would stay held with nothing here that knows of it. */
+  /**
+   * Lets a test payment go at Stripe before its line here is removed. One that cannot be let go
+   * stops the clean-up: its lines stay, so that the next run can try again, and nothing is left
+   * held at Stripe with nothing here that knows of it.
+   */
   async function letGoAtStripe(intentId: string) {
     await stripe().paymentIntents.cancel(intentId).catch(async () => {
       const left = await stripe().paymentIntents.retrieve(intentId).catch(() => null);
       // Already cancelled, or already taken (a charge that is kept as test history), is fine.
-      if (left?.status !== "canceled" && left?.status !== "succeeded") check(`clean-up: the test payment ${intentId} could be let go at Stripe`, false, `it is "${left?.status ?? "unknown"}"; cancel it in Stripe's test dashboard`);
+      if (left?.status !== "canceled" && left?.status !== "succeeded") throw new Error(`The test payment ${intentId} could not be let go at Stripe (it is "${left?.status ?? "unknown"}"). Nothing was removed; the next run tries again.`);
     });
   }
 
@@ -337,8 +344,8 @@ async function main() {
       ...(cpIds.length > 0 ? await db.select({ id: schema.payments.id }).from(schema.payments).where(inArray(schema.payments.contributionPaymentId, cpIds)) : []),
       ...(calls.length > 0 ? await db.select({ id: schema.payments.id }).from(schema.payments).where(inArray(schema.payments.callId, calls)) : []),
     ].map((row) => row.id);
-    // The same for a paid call's hold that a run left behind before the call was charged.
-    const callHolds = calls.length > 0 ? await db.select().from(schema.payments).where(and(inArray(schema.payments.callId, calls), eq(schema.payments.status, "held"))) : [];
+    // The same for a paid call's hold that a run left behind before the call was charged: also one Stripe has placed and we had not recorded yet.
+    const callHolds = calls.length > 0 ? await db.select().from(schema.payments).where(and(inArray(schema.payments.callId, calls), inArray(schema.payments.status, ["awaiting_payment", "held"]))) : [];
     for (const held of callHolds) if (held.stripePaymentIntentId) await letGoAtStripe(held.stripePaymentIntentId);
     const projectIds = (await db.select({ id: schema.projects.id }).from(schema.projects).where(inArray(schema.projects.hostId, ids))).map((row) => row.id);
     const pictureIds = (await db.select({ id: schema.projectPictures.id }).from(schema.projectPictures).where(inArray(schema.projectPictures.hostId, ids))).map((row) => row.id);
@@ -389,6 +396,7 @@ async function main() {
 
   try {
     await wipe();
+    payoutAccountBefore = seeded ? ((await db.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, seeded.id)))[0]?.stripeAccountId ?? null) : null;
     await setSwitches({ projects: "everyone", projectsHosts: [] });
     // Attempt limits are per network address, and every request here comes from the same one.
     await db.delete(schema.rateLimit);
@@ -447,7 +455,7 @@ async function main() {
     check("none for a call she asked a refund of, also when the request was declined", noBox(await results(refundCall, cara)));
     check("none while a call's record is not final yet", noBox(await results(freshCall, cara)));
     check("and the box is still there on the call that took place", boxShown(await results(goodCall, cara)));
-    check("showing the box wrote nothing: no contribution exists", (await contributionsOf(cara)).length === 0);
+    check("opening those pages started no contribution", (await contributionsOf(cara)).length === 0);
 
     // ----------------------------------------------------------------------
     console.log("\n3. She contributes once");
@@ -624,7 +632,8 @@ async function main() {
     check("the contributor whose hold was let go is told that nothing was charged; the one whose money was taken, that the project has ended", (await emailsTo(eve.email, "Nothing was charged: your $10.00")) === 1 && (await emailsTo(cara.email, `project "${NAME}" has ended`)) === 1);
     const endedDiary = await page(`/h/${host.handle}/project`, eve);
     check("the diary stays readable, says \"This project has ended\", and takes no contributions", endedDiary.status === 200 && endedDiary.words.includes("This project has ended.") && endedDiary.words.includes("Day two.") && !hasMark(endedDiary, "data-contribute"));
-    check("the host's page no longer shows the project's box, and a call's results no box", (await page(`/h/${host.handle}`, eve)).status === 200 && !hasMark(await page(`/h/${host.handle}`, eve), "data-project-box") && noBox(await results(await hadCall(host, eve), eve)));
+    const endedHostPage = await page(`/h/${host.handle}`, eve);
+    check("the host's page no longer shows the project's box, and a call's results no box", endedHostPage.status === 200 && !hasMark(endedHostPage, "data-project-box") && noBox(await results(await hadCall(host, eve), eve)));
 
     // ----------------------------------------------------------------------
     console.log("\n11. The founder's page");
@@ -649,7 +658,8 @@ async function main() {
       const itsPayments = await page(`/admin/projects?payments=${project.id}`, admin);
       check("and every payment of it: both months, the one she cancelled, and the one the project's end let go", itsPayments.words.includes(`from ${cara.name} to ${host.name}`) && itsPayments.words.includes("month 2 of a monthly contribution") && itsPayments.words.includes(`from ${eve.name} to ${host.name}`) && itsPayments.words.includes("$3.00 was paid back") && (itsPayments.text.match(/data-payment="cancelled"/g) ?? []).length === 2, itsPayments.words.slice(0, 300));
       const hidden = await press(admin, `/admin/projects?post=${post1.id}`, "Hide this post", { note: "A check by the journey script." });
-      check("the founder hides a post: it leaves the diary, and its host is told why", hidden.found && noticeOf(hidden).startsWith("The post is hidden") && !(await page(`/h/${host.handle}/project`)).words.includes("Day one.") && (await page(`/host/project?project=${project.id}`, host)).words.includes('Hidden by Connect: nobody else can see this post. "A check by the journey script."'), noticeOf(hidden));
+      const diaryAfterHiding = await page(`/h/${host.handle}/project`);
+      check("the founder hides a post: it leaves the diary, where the other post stays, and its host is told why", hidden.found && noticeOf(hidden).startsWith("The post is hidden") && diaryAfterHiding.status === 200 && diaryAfterHiding.words.includes("Day two.") && !diaryAfterHiding.words.includes("Day one.") && (await page(`/host/project?project=${project.id}`, host)).words.includes('Hidden by Connect: nobody else can see this post. "A check by the journey script."'), noticeOf(hidden));
       const heldBack = await press(admin, `/admin/projects?payments=${project.id}`, "Hold back", { note: "A check by the journey script." }, { where: (form) => form.fields.some(([name, value]) => name === "payment" && value === month2.id) });
       check("the founder holds a share back, with a reason: the host's earnings say so", heldBack.found && noticeOf(heldBack).startsWith("The share is held back") && (await PM(month2.id)).founderHold === "held" && (await unsentEarnings(new Date(), host.id)).find((earning) => earning.payment.contributionPaymentId === month2.id)?.heldBack === "founder", noticeOf(heldBack));
     }
@@ -680,7 +690,8 @@ async function main() {
     }
     const finnPressed = await press(finn, finnTo, "Continue to the card step", {}, { drawn: finnSummary.text });
     check("nobody can contribute to it: a form that was open before is refused, and nothing is started", finnPressed.found && noticeOf(finnPressed) === NOT_TAKING && (await contributionsOf(finn)).length === 0, noticeOf(finnPressed));
-    check("the page before paying says so too, and offers nothing to press", (await page(finnTo, finn)).words.includes(NOT_TAKING) && !formsOf((await page(finnTo, finn)).text).some((f) => f.buttons.some((b) => b.words === "Continue to the card step")));
+    const finnSummaryOff = await page(finnTo, finn);
+    check("the page before paying says so too, and offers nothing to press", finnSummaryOff.status === 200 && finnSummaryOff.words.includes(NOT_TAKING) && !formsOf(finnSummaryOff.text).some((f) => f.buttons.some((b) => b.words === "Continue to the card step")));
     const hoaPressed = await press(hoa, "/host/project", "Add to the diary", { text: "This must not be saved." }, { drawn: hoaDrawn.text });
     check("she cannot write: a post from a form that was open before is not saved, and she is told why", hoaPressed.found && hoaPressed.words.includes(PROJECTS_OFF) && (await postsOf(project2.id)).length === 1, `${hoaPressed.status} ${noticeOf(hoaPressed)}`);
     check("her own page says that projects are not open", (await page("/host/project", hoa)).words.includes("Projects are not open at the moment."));
@@ -750,7 +761,7 @@ async function main() {
   check("the script's own test data was cleaned up, and the founder's switch is as it was before the script", left.n === 0 && atEnd.projects === atStart.projects && atEnd.projectsHosts.join(",") === atStart.projectsHosts.join(","), `${left.n} people left; ${atEnd.projects}`);
   const [checkerAfter] = await db.select().from(schema.pictureCheckers).where(eq(schema.pictureCheckers.service, "openai"));
   const [seededAfter] = seeded ? await db.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, seeded.id)) : [];
-  check("what the app remembered about the first picture service, and the test payout account, are as they were", JSON.stringify(checkerAfter ?? null) === JSON.stringify(checkerBefore ?? null) && (seededAfter?.stripeAccountId ?? null) === (seededBefore?.stripeAccountId ?? null), { checker: checkerAfter?.lastGoodKey ?? null });
+  check("what the app remembered about the first picture service, and the test payout account, are as they were", JSON.stringify(checkerAfter ?? null) === JSON.stringify(checkerBefore ?? null) && (seededAfter?.stripeAccountId ?? null) === payoutAccountBefore, { checker: checkerAfter?.lastGoodKey ?? null });
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }
