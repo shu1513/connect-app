@@ -14,6 +14,11 @@
  *              if the try is still running and the account it was taken from is still the host's
  *              confirmed account, exactly as it was at the start.
  *
+ * For TikTok the three steps are the same, only spread over a sign-in (plans/30): Connect keeps no
+ * key from TikTok, so the picture can only be had when the host signs in there. The start is the
+ * press (startPhotoTry), then the host is away at TikTok, and what comes back is taken up by one
+ * return (takeUpTry) and goes through the outside work and the finish (finishTikTokTry).
+ *
  * A photo is shown only after an outside service has looked at all of it and found nothing:
  * Connect's own checker is never asked here. `photoFor` is the only function that hands out a
  * photo's bytes. The steps other files share are in photo-steps.ts.
@@ -36,6 +41,7 @@ import { fetchPicture } from "./photo-fetch";
 import { PHOTO, PICTURE_SERVERS, pictureAddress, serverFamily, type PhotoNetwork } from "./photo-rules";
 import { deletePhotoInStep, stopTriesInStep } from "./photo-steps";
 import { INSTAGRAM_CHECKS_PER_HOUR, INSTAGRAM_PHOTO, lockedProfile, ProfileError } from "./profiles";
+import { readSocialName } from "./social";
 
 const photos = schema.hostPhotos;
 const tries = schema.hostPhotoTries;
@@ -69,7 +75,13 @@ export type PhotoOutcome =
   /** Another picture is being opened on this server right now. */
   | "place_taken"
   /** Something of our own broke (the database, most likely). Not the same as "stopped", where something was decided meanwhile. */
-  | "failed";
+  | "failed"
+  /** TikTok only: the account the host signed in with is not the one confirmed on their page. */
+  | "other_account"
+  /** TikTok only: the account the host signed in with is confirmed for another host. */
+  | "taken_account"
+  /** TikTok only: this return was already taken up (the same address opened twice), or its try has ended since. */
+  | "already_returned";
 
 /**
  * What a press works with. The Hosting page hands in nothing. The check script hands in stand-ins
@@ -145,17 +157,106 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
     }
     return await copyCheckAndFinish({ userId: input.userId, network: input.network, tryId: started.tryId, source: { nameKey: started.nameKey, accountId: answer.accountId }, address }, asked, clock, options, known);
   } catch (error) {
-    console.error("[host-photo] a try failed", error instanceof Error ? error.name : "error");
-    // A refusal that was already known is what is written now, not a plain "stopped": the same picture must not get
-    // a second chance because something of ours broke.
-    if (known.refusal) {
-      const tookDown = await writeRefusal(input.userId, started.tryId, known.refusal, clock()).catch(() => false);
-      return { outcome: "not_accepted", tookDown };
+    return afterFailure(error, input.userId, started.tryId, known, clock);
+  }
+}
+
+/** What a press comes to when something of our own broke in the outside work. */
+async function afterFailure(error: unknown, userId: string, tryId: string, known: Known, clock: () => Date): Promise<PhotoResult> {
+  console.error("[host-photo] a try failed", error instanceof Error ? error.name : "error");
+  // A refusal that was already known is what is written now, not a plain "stopped": the same picture must not get
+  // a second chance because something of ours broke.
+  if (known.refusal) {
+    const tookDown = await writeRefusal(userId, tryId, known.refusal, clock()).catch(() => false);
+    return { outcome: "not_accepted", tookDown };
+  }
+  // The try is ended if it still can be. If even that fails, it counts as stopped at the host's next press, two
+  // minutes or more after its start (startTry).
+  await endTry(tryId, "stopped", "the try failed", clock()).catch(() => undefined);
+  return { outcome: "failed" };
+}
+
+// ---------------------------------------------------------------------------
+// TikTok: the same try, spread over a sign-in (plans/30)
+// ---------------------------------------------------------------------------
+
+/**
+ * "Use my TikTok photo", the press: the same start as Instagram's, with the same locks and the
+ * same refusals, before the host is sent to TikTok. The try is written down here, so that whatever
+ * removes the photo or changes the account while the host is away stops it.
+ */
+export async function startPhotoTry(input: { userId: string; network: "tiktok" }, options: Pick<PhotoOptions, "services" | "clock" | "diaryHosts"> = {}): Promise<{ tryId: string } | Exclude<PhotoOutcome, "shown">> {
+  const hasChecker = (options.services ?? services()).some((service) => service.keyMark);
+  const started = await startTry(input.userId, input.network, hasChecker, options.clock ?? (() => new Date()), options.diaryHosts);
+  return typeof started === "string" ? started : { tryId: started.tryId };
+}
+
+/**
+ * The host's return from TikTok takes the try up, with one guarded change: this try, this host, a
+ * TikTok try, still running, and not taken up before. Only the return that gets "true" may go on
+ * with the try or end it. A second request for the same return gets "false", and does nothing.
+ */
+export async function takeUpTry(input: { userId: string; tryId: string }, now: Date): Promise<boolean> {
+  if (!isId(input.tryId)) return false;
+  const taken = await db
+    .update(tries)
+    .set({ returnedAt: now })
+    .where(and(eq(tries.id, input.tryId), eq(tries.userId, input.userId), eq(tries.network, "tiktok"), isNull(tries.result), isNull(tries.returnedAt)))
+    .returning({ id: tries.id });
+  return taken.length > 0;
+}
+
+/** Ends a try its return has taken up, when the host did not finish at TikTok or TikTok gave no usable answer. So the host need not wait two minutes to press again. */
+export async function endTakenUpTry(tryId: string, result: "stopped" | "not_fetched", detail: string, now: Date): Promise<void> {
+  await endTry(tryId, result, detail, now);
+}
+
+/**
+ * What TikTok answered at a sign-in the host started for their photo, for the try that return has
+ * taken up. The account must be the entry the try started from: by TikTok's number when the entry
+ * has one, otherwise by its name. The entry itself is never written to here. From the picture's
+ * address on, it is the very path an Instagram photo takes.
+ */
+export async function finishTikTokTry(input: { userId: string; tryId: string; account: { openId: string; username: string; pictureAddress?: string } }, options: PhotoOptions = {}): Promise<PhotoResult> {
+  const clock = options.clock ?? (() => new Date());
+  const asked = (options.services ?? services()).filter((service) => service.keyMark);
+  const end = (result: Exclude<PhotoOutcome, "shown" | "other_account" | "taken_account" | "already_returned">, detail: string) => endTry(input.tryId, result, detail, clock());
+  const known: Known = {};
+  try {
+    const [attempt] = await db
+      .select({ entryNameKey: tries.entryNameKey, entryAccountId: tries.entryAccountId, result: tries.result })
+      .from(tries)
+      .where(and(eq(tries.id, input.tryId), eq(tries.userId, input.userId), eq(tries.network, "tiktok")));
+    if (!attempt || attempt.result !== null) return { outcome: "stopped" };
+    // The number is the network's own text. It is kept exactly as it came, never read as a number.
+    if (!/^[\x21-\x7e]{1,200}$/.test(input.account.openId)) return { outcome: await end("not_fetched", "an account number that cannot be used") };
+    const signedIn = readSocialName("tiktok", input.account.username);
+    const same = attempt.entryAccountId ? attempt.entryAccountId === input.account.openId : !("problem" in signedIn) && signedIn.nameKey === attempt.entryNameKey;
+    if (!same) {
+      const ended = await end("no_picture", "another account than the confirmed one signed in");
+      return { outcome: ended === "stopped" ? "stopped" : "other_account" };
     }
-    // The try is ended if it still can be. If even that fails, it counts as stopped at the host's next press, two
-    // minutes or more after its start (startTry).
-    await end("stopped", "the try failed").catch(() => undefined);
-    return { outcome: "failed" };
+    // The same guarantee an ordinary sign-in gets from the database: this number is not another host's confirmed account.
+    // (It can only matter for an entry that was confirmed without a number.)
+    const [elsewhere] = await db
+      .select({ id: schema.socialAccounts.id })
+      .from(schema.socialAccounts)
+      .where(and(eq(schema.socialAccounts.network, "tiktok"), eq(schema.socialAccounts.providerAccountId, input.account.openId), isNotNull(schema.socialAccounts.confirmedAt), sql`${schema.socialAccounts.userId} <> ${input.userId}`))
+      .limit(1);
+    if (elsewhere) {
+      const ended = await end("no_picture", "the account is confirmed for another host");
+      return { outcome: ended === "stopped" ? "stopped" : "taken_account" };
+    }
+    if (!input.account.pictureAddress) return { outcome: await end("no_picture", "tiktok sent no picture") };
+    const address = pictureAddress(input.account.pictureAddress, PICTURE_SERVERS.tiktok);
+    if (!address) {
+      console.error(`[host-photo] tiktok named a picture server that is not allowed: ${serverFamily(input.account.pictureAddress)}`);
+      return { outcome: await end("not_fetched", "a picture server that is not allowed") };
+    }
+    // The photo remembers TikTok's number from this answer and the entry's name, also when the entry has no number.
+    return await copyCheckAndFinish({ userId: input.userId, network: "tiktok", tryId: input.tryId, source: { nameKey: attempt.entryNameKey, accountId: input.account.openId }, address }, asked, clock, options, known);
+  } catch (error) {
+    return afterFailure(error, input.userId, input.tryId, known, clock);
   }
 }
 

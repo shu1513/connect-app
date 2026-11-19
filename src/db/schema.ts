@@ -1206,6 +1206,12 @@ export const hostPhotoTries = pgTable(
     checkedBy: text("checked_by"),
     detail: text("detail"),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    /**
+     * Only for a try whose picture comes back with a sign-in (TikTok, plans/30): the moment the host's return
+     * from the network was taken up. Set once, by the one return that may continue the try; a second request
+     * for the same return finds it set and does nothing.
+     */
+    returnedAt: timestamp("returned_at", { withTimezone: true }),
   },
   (t) => [
     index("host_photo_tries_user_idx").on(t.userId, t.startedAt),

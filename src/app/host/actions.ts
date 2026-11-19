@@ -20,8 +20,9 @@ import {
   socialNameReady,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
-import { removePhoto, takePhoto, type PhotoOutcome } from "@/lib/profiles/photo";
-import { PHOTO } from "@/lib/profiles/photo-rules";
+import { removePhoto, takePhoto } from "@/lib/profiles/photo";
+import { photoNotice } from "@/lib/profiles/photo-words";
+import { startTikTokPhoto } from "@/lib/profiles/tiktok-photo";
 import { INSTAGRAM_COOKIE, INSTAGRAM_COOKIE_PATH, instagramSettings } from "@/lib/profiles/instagram";
 import { INSTAGRAM_OFF, startInstagramLogin } from "@/lib/profiles/instagram-login";
 import { TIKTOK_COOKIE, TIKTOK_COOKIE_PATH, tiktokSettings } from "@/lib/profiles/tiktok";
@@ -211,29 +212,7 @@ export async function usePhoto(formData: FormData) {
   let notice: string;
   try {
     if (formData.get("network") !== "instagram") throw new ProfileError("Choose one of your confirmed accounts.");
-    const { outcome, detail, tookDown } = await takePhoto({ userId: user.id, network: "instagram" });
-    const later = "Please try again in a few minutes.";
-    const said: Record<PhotoOutcome, string> = {
-      shown: "Your photo passed the check and is saved. It is shown on your page whenever your page is open to everyone, and beside you wherever you appear in the search results.",
-      not_accepted: "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. Nothing was changed.",
-      refused_before: "That photo was not accepted before, so it was not taken again. Nothing was changed.",
-      no_picture: "We could not read a profile picture for your Instagram account. It must be a Creator or Business account. If you have changed its name, confirm the account again first.",
-      not_fetched: `We could not fetch your photo right now. Nothing was changed. ${later}`,
-      unusable: `Your profile picture cannot be used. ${detail ?? ""}`.trim(),
-      not_checked: `Your photo could not be checked right now, so nothing was changed. ${later}`,
-      stopped: "Something changed while we were fetching your photo, so nothing was taken. Look below to see where things stand.",
-      cannot: "Your account cannot do this at the moment. Nothing was changed.",
-      locked: "Your photo was removed by Connect, and you cannot choose another one.",
-      no_account: "Confirm your Instagram account first.",
-      running: "We are still working on your last try. Please wait a moment.",
-      limit: `You have tried ${PHOTO.triesPerDay} times in the last 24 hours, which is the limit. Please try again tomorrow.`,
-      busy: "Many people are using this right now. Please try again in a little while.",
-      no_checker: `Photos cannot be checked right now, so none can be taken. ${later}`,
-      place_taken: "Another picture is being worked on right now. Please try again in a moment.",
-      failed: "Something went wrong on our side, and we could not finish. Look below to see whether your photo changed before you try again.",
-    };
-    // A service refused the very picture that was the host's photo: that photo is no longer shown.
-    notice = outcome === "not_accepted" && tookDown ? "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. It is the same picture as the photo you had, so that photo was taken down." : said[outcome];
+    notice = photoNotice(await takePhoto({ userId: user.id, network: "instagram" }), "instagram");
   } catch (error) {
     notice = problem(error);
   }
@@ -270,6 +249,34 @@ export async function connectInstagram() {
     // "lax" is what lets the cookie come back when Meta returns the host to us.
     sameSite: "lax",
     path: INSTAGRAM_COOKIE_PATH,
+    maxAge: login.maxAgeSeconds,
+  });
+  redirect(login.url);
+}
+
+/**
+ * "Use my TikTok photo" and "Update" for a photo that came from TikTok (plans/30). Connect keeps no
+ * key from TikTok, so this sends the host to TikTok's sign-in; the picture comes back with it. The
+ * try is written down first, and every refusal a press can meet is told here, before the host is
+ * sent anywhere. The host is the logged-in person, never taken from the form.
+ */
+export async function useTikTokPhoto() {
+  const user = await requireActiveUser();
+  const settings = tiktokSettings();
+  if (!settings) redirect(`${withNotice("/host", TIKTOK_OFF)}#photo`);
+  let login: Awaited<ReturnType<typeof startTikTokPhoto>>;
+  try {
+    login = await startTikTokPhoto({ userId: user.id, now: new Date(), settings });
+  } catch (error) {
+    redirect(`${withNotice("/host", problem(error))}#photo`);
+  }
+  if ("refused" in login) redirect(`${withNotice("/host", photoNotice({ outcome: login.refused }, "tiktok"))}#photo`);
+  (await cookies()).set(TIKTOK_COOKIE, login.note, {
+    httpOnly: true,
+    secure: true,
+    // "lax" is what lets the cookie come back when TikTok returns the host to us.
+    sameSite: "lax",
+    path: TIKTOK_COOKIE_PATH,
     maxAge: login.maxAgeSeconds,
   });
   redirect(login.url);
