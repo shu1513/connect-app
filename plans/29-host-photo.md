@@ -1,8 +1,10 @@
 # Plan 29: A host's photo, taken from their Instagram or TikTok
 
-**Status:** a plan only; nothing is built. Written 19 November 2026 by the builder alone (no
-helper agents), from the code as it is on `main` after pull request 48, and from what Meta really
-answered that day. Astra checked the plan twice ("ready with changes" both times); what it found
+**Status:** part one (Instagram) is built and was tried for real on 19 November 2026 (see "The
+real try" at the end). Part two (TikTok) is not built. Bringing host photos under the
+child-safety tool is not built either: that tool is not set up yet. Written 19 November 2026 by
+the builder alone (no helper agents), from the code as it is on `main` after pull request 48, and
+from what Meta really answered that day. Astra checked the plan twice ("ready with changes" both times); what it found
 is worked in, and listed at the end.
 
 ## For the founder: what this is
@@ -76,6 +78,10 @@ For three accounts, asked by name for `id`, `username` and `profile_picture_url`
    asking a service again. The same goes for a picture that is the same as one of that host's
    diary pictures that was refused, or removed and reported.
 4. **The old photo stays until the new one has passed.** "Update" that fails changes nothing.
+   One exception, which follows from rule 3: if a service refuses a picture that is the very
+   picture the host's photo is (the host pressed "Update" without having changed it, and a
+   service now flags it), that photo is taken down, and the host is told so. A picture a
+   service has refused is shown to nobody.
 5. **Five tries in any 24 hours for each host,** and one at a time. A try counts from the moment
    it starts, however it ends.
 6. **Who sees it.**
@@ -442,4 +448,26 @@ earlier that day:
 
 Not seen for real: a personal account, an account Meta does not show, a picture a service
 refuses, and "Remove and report" with the tick (it cannot be undone; the script checks it).
+
+## CodeRabbit's review of pull request 50 (19 November 2026)
+
+Five comments. Four taken, one not.
+
+1. *The plan's first line still said nothing was built.* Corrected.
+2. *A photo removed just after a page was drawn showed as a broken picture.* The letter is now
+   shown in its place.
+3. *Meta's answer was read slightly differently from before* (a mark at the very start that only
+   says "this is UTF-8" was no longer left out). Read as before again, with a test.
+4. *A refused copy could still become the photo* when an earlier try of the same host, stopped
+   while a service was still looking, brought its refusal after a second try for the same
+   picture had begun. Taken: a refusal is written with the same locks the finish holds; the
+   finish looks for a refusal of this very copy before it writes; and a refusal takes down a
+   photo that is this very copy (rule 4's exception). The copy is also sent to no further
+   service once a refusal of it is known.
+5. *If the database cannot be reached for both writes of a refusal, the refusal is lost.* Not
+   taken. It needs the database to fail at exactly that moment, twice, and then a service to
+   answer differently about the same picture. Holding every picture whose answer could not be
+   written as "refused until someone looks" would lock hosts out of their own picture for a
+   fault of ours, and there is nobody whose job it would be to look. The diary's queue has the
+   same limit: an answer that cannot be written is asked for again.
 

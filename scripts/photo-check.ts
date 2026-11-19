@@ -157,6 +157,8 @@ async function main() {
   type Press = { meta?: PhotoAnswer | (() => PhotoAnswer | Promise<PhotoAnswer>); picture?: Buffer | null; meanwhile?: PhotoOptions["meanwhile"]; services?: Checker[]; fetchBreaks?: boolean };
   /** The line of the try the last press wrote, as it stands after the press; undefined when the press wrote none. */
   let tried: Awaited<ReturnType<typeof triesOf>>[number] | undefined;
+  /** Whether the last press said that a refusal took the host's photo down. */
+  let tookDown: boolean | undefined;
   /** One press of "Use my Instagram photo" or "Update", with the stand-ins. */
   const press = async (host: Host, over: Press = {}): Promise<PhotoOutcome> => {
     const before = new Set((await db.select({ id: tries.id }).from(tries).where(eq(tries.userId, host.id))).map((row) => row.id));
@@ -164,9 +166,14 @@ async function main() {
     tried = (await db.select().from(tries).where(eq(tries.userId, host.id))).find((row) => !before.has(row.id));
     return outcome;
   };
-  const pressOnly = async (host: Host, over: Press = {}): Promise<PhotoOutcome> =>
+  const pressOnly = async (host: Host, over: Press = {}): Promise<PhotoOutcome> => {
+    const result = await pressResult(host, over);
+    tookDown = result.tookDown;
+    return result.outcome;
+  };
+  const pressResult = (host: Host, over: Press = {}) =>
     (
-      await Photo.takePhoto(
+      Photo.takePhoto(
         { userId: host.id, network: "instagram" },
         {
           read: async (nameKey) => {
@@ -185,7 +192,7 @@ async function main() {
           meanwhile: over.meanwhile,
         },
       )
-    ).outcome;
+    );
   const photoOf = async (host: { id: string }) => (await db.select({ id: photos.id, network: photos.network, sourceNameKey: photos.sourceNameKey, sourceAccountId: photos.sourceAccountId, sha256: photos.sha256, byteLength: photos.byteLength, checkedBy: photos.checkedBy, rulesVersion: photos.rulesVersion, lockedAt: photos.lockedAt, reportMadeAt: photos.reportMadeAt }).from(photos).where(eq(photos.userId, host.id))).filter((row) => !row.lockedAt)[0];
   const lockedOf = async (host: { id: string }) => (await db.select({ id: photos.id, lockedAt: photos.lockedAt, lockedBy: photos.lockedBy, reportMadeAt: photos.reportMadeAt }).from(photos).where(eq(photos.userId, host.id))).filter((row) => row.lockedAt);
   const bytesOf = async (photoId: string) => (await db.select({ bytes: photos.bytes }).from(photos).where(eq(photos.id, photoId)))[0]?.bytes;
@@ -376,6 +383,65 @@ async function main() {
     forget();
     const lockedOne = await press(locker);
     check("a picture that is the same as one removed and reported in the host's diary: not taken, no service asked, and the founder is told once", lockedOne === "refused_before" && asked.length === 0 && !(await photoOf(locker)) && (await mails(admin.email, "A locked picture was tried as a host's photo")) === 1, lockedOne);
+
+    // A service refuses the very picture that is the host's photo: it is shown to nobody afterwards.
+    const same = await newHost();
+    await press(same);
+    const shownBefore = await photoOf(same);
+    says.openai = "flagged";
+    const sameAgain = await press(same);
+    says.openai = "clean";
+    check("\"Update\" without a new picture, and a service now flags it: the photo, which is that very picture, is taken down, and the host is told so", Boolean(shownBefore) && sameAgain === "not_accepted" && tookDown === true && !(await photoOf(same)) && !(await sees(null, shownBefore.id)), { sameAgain, tookDown });
+    const other2 = await newHost();
+    await press(other2);
+    const keeps = await photoOf(other2);
+    says.openai = "flagged";
+    const different = await press(other2, { picture: await picture() });
+    says.openai = "clean";
+    check("a service flags a different, new picture: the photo the host has stays, as before", different === "not_accepted" && tookDown === false && (await photoOf(other2))?.id === keeps.id, { different, tookDown });
+
+    // Two tries for the same copy that overlap: the first was stopped while a service was still looking.
+    const clean = (name: "azure", gate?: { reached: () => void; go: Promise<void> }): Checker => ({
+      name,
+      keyMark: "key-1",
+      check: async () => {
+        gate?.reached();
+        await gate?.go;
+        return { kind: "clean", detail: `${name} said clean` };
+      },
+    });
+    // (a) The refusal of the first comes while the second is with its own service: the second must not write the photo.
+    const racer = await newHost();
+    let secondTry: Promise<PhotoOutcome> = Promise.resolve("failed");
+    let letSecondGo: () => void = () => undefined;
+    const go = new Promise<void>((resolve) => (letSecondGo = resolve));
+    says.openai = async () => {
+      // While the first service looks: the host presses "Remove" (the first try is stopped), then presses again.
+      await Photo.removePhoto({ userId: racer.id, now: now() });
+      await new Promise<void>((reached) => {
+        secondTry = pressOnly(racer, { services: [clean("azure", { reached, go })] });
+      });
+      // The second try has passed its own look for refusals and is with its service. Now the first service flags.
+      return "flagged" as const;
+    };
+    const firstTry = await pressOnly(racer);
+    letSecondGo();
+    const secondOutcome = await secondTry;
+    says.openai = "clean";
+    check("a first try is stopped while its service is looking, a second try for the same picture begins, and then the first service refuses it: the second try's clean answer does not make it the photo", firstTry === "not_accepted" && secondOutcome === "refused_before" && !(await photoOf(racer)), { firstTry, secondOutcome });
+    // (b) The other way round: the second try has finished and shown the photo before the first service refuses.
+    const racer2 = await newHost();
+    let finishedFirst = "failed" as PhotoOutcome;
+    says.openai = async () => {
+      await Photo.removePhoto({ userId: racer2.id, now: now() });
+      finishedFirst = await pressOnly(racer2, { services: [clean("azure")] });
+      return "flagged" as const;
+    };
+    const lateRefusal = await pressOnly(racer2);
+    says.openai = "clean";
+    check("the same, with the second try finished first: the refusal that comes afterwards takes the photo down", finishedFirst === "shown" && lateRefusal === "not_accepted" && tookDown === true && !(await photoOf(racer2)), { finishedFirst, lateRefusal, tookDown });
+    forget();
+    check("and the picture stays refused for that host", (await press(racer2)) === "refused_before" && asked.length === 0);
   });
 
   // ========================================================================

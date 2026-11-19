@@ -20,6 +20,7 @@
  */
 import { createHash } from "node:crypto";
 import { and, eq, exists, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import { askInOrder } from "@/lib/projects/checks/order";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
@@ -91,15 +92,29 @@ export type PhotoOptions = {
 /** A service's refusal of this try's picture, once it is known. It is about the picture, so it is written down whatever else fails. */
 type Known = { refusal?: { sha256: string; by: string; detail: string } };
 
-/** Writes a refusal to the try, with the fingerprint, also when the try was stopped meanwhile. */
-function writeRefusal(tryId: string, refusal: NonNullable<Known["refusal"]>, now: Date) {
-  return db.update(tries).set({ result: "not_accepted", sha256: refusal.sha256, checkedBy: refusal.by, detail: refusal.detail.slice(0, 300), endedAt: now }).where(eq(tries.id, tryId));
+/**
+ * Writes a refusal to the try, with the fingerprint, also when the try was stopped meanwhile. With
+ * the person's and the profile's locks, which the finish of every try holds too: so a refusal and
+ * a finish for the same host happen one after the other. Whichever comes first, a copy a service
+ * has refused is not the host's photo afterwards: the finish looks for the refusal before it
+ * writes, and a refusal takes down a photo that is this very copy. Says whether it took one down.
+ */
+async function writeRefusal(userId: string, tryId: string, refusal: NonNullable<Known["refusal"]>, now: Date): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await lockedProfile(tx, userId);
+    await tx.update(tries).set({ result: "not_accepted", sha256: refusal.sha256, checkedBy: refusal.by, detail: refusal.detail.slice(0, 300), endedAt: now }).where(eq(tries.id, tryId));
+    const gone = await tx.delete(photos).where(and(eq(photos.userId, userId), eq(photos.sha256, refusal.sha256), isNull(photos.lockedAt))).returning({ id: photos.id });
+    return gone.length > 0;
+  });
 }
 
 type Started = { tryId: string; nameKey: string; accountId: string | null };
 
-/** "Use my Instagram photo" and "Update": the whole press. Says how it ended, and for a picture that cannot be used, why. */
-export async function takePhoto(input: { userId: string; network: PhotoNetwork }, options: PhotoOptions = {}): Promise<{ outcome: PhotoOutcome; detail?: string }> {
+/** How a press ended; for a picture that cannot be used, why; and whether a refusal took down the host's photo because it was the same picture. */
+export type PhotoResult = { outcome: PhotoOutcome; detail?: string; tookDown?: boolean };
+
+/** "Use my Instagram photo" and "Update": the whole press. */
+export async function takePhoto(input: { userId: string; network: PhotoNetwork }, options: PhotoOptions = {}): Promise<PhotoResult> {
   // TikTok's picture can only be had at a sign-in there: part two of plans/29.
   if (input.network !== "instagram") return { outcome: "no_account" };
   const clock = options.clock ?? (() => new Date());
@@ -134,8 +149,8 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
     // A refusal that was already known is what is written now, not a plain "stopped": the same picture must not get
     // a second chance because something of ours broke.
     if (known.refusal) {
-      await writeRefusal(started.tryId, known.refusal, clock()).catch(() => undefined);
-      return { outcome: "not_accepted" };
+      const tookDown = await writeRefusal(input.userId, started.tryId, known.refusal, clock()).catch(() => false);
+      return { outcome: "not_accepted", tookDown };
     }
     // The try is ended if it still can be. If even that fails, it counts as stopped at the host's next press, two
     // minutes or more after its start (startTry).
@@ -227,7 +242,7 @@ async function endTry(tryId: string, result: Exclude<PhotoOutcome, "shown">, det
 
 type Candidate = { userId: string; network: PhotoNetwork; tryId: string; source: { nameKey: string; accountId: string }; address: URL };
 
-async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock: () => Date, options: PhotoOptions, known: Known): Promise<{ outcome: PhotoOutcome; detail?: string }> {
+async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock: () => Date, options: PhotoOptions, known: Known): Promise<PhotoResult> {
   const end = (result: Exclude<PhotoOutcome, "shown">, detail: string, more?: { sha256?: string; checkedBy?: string }) => endTry(candidate.tryId, result, detail, clock(), more);
 
   // One picture is opened at a time on this server, a diary upload or a photo: a large one needs a lot of memory
@@ -258,7 +273,7 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
 
   // The same copy as one that was refused before, as a photo or in her diary, or that is locked there: a new try is
   // not a second chance at a clean answer. No service is asked.
-  const before = await refusedBefore(candidate.userId, sha256);
+  const before = await refusedBefore(db, candidate.userId, sha256);
   if (before) {
     const outcome = await end("refused_before", before === "locked" ? "the same picture as a locked diary picture" : "the same picture as one that was refused before", { sha256 });
     if (before === "locked" && outcome === "refused_before") {
@@ -277,51 +292,60 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
   }
 
   // The services, in their order. Connect's own checker is not asked: only a full check shows a photo. Right before
-  // each request, one read asks both things at once: is the try still running, and is no diary picture owed its full
-  // check? If not, the picture is sent to nobody (else). A request that is already on its way cannot be called back.
+  // each request, one read asks three things at once: is the try still running, is no diary picture owed its full
+  // check, and has no service refused this very copy in the meantime (an earlier try of the host's, stopped while a
+  // service was still looking)? If not, the picture is sent to nobody (else). A request that is already on its way
+  // cannot be called back.
+  const earlier = alias(tries, "earlier");
   const mayStillAsk = async () => {
     const [row] = await db
-      .select({ result: tries.result, owed: sql<boolean>`${exists(db.select({ one: sql`1` }).from(schema.projectPictures).where(owedDiaryPicture(options.diaryHosts)))}` })
+      .select({
+        result: tries.result,
+        owed: sql<boolean>`${exists(db.select({ one: sql`1` }).from(schema.projectPictures).where(owedDiaryPicture(options.diaryHosts)))}`,
+        refused: sql<boolean>`${exists(db.select({ one: sql`1` }).from(earlier).where(and(eq(earlier.userId, candidate.userId), eq(earlier.sha256, sha256), eq(earlier.result, "not_accepted"))))}`,
+      })
       .from(tries)
       .where(eq(tries.id, candidate.tryId));
-    return Boolean(row) && row.result === null && !row.owed;
+    return Boolean(row) && row.result === null && !row.owed && !row.refused;
   };
   const { outcome: answer, asked: answers } = await askInOrder(await turnsFor(asked, copy.bytes, clock), null, mayStillAsk);
 
   // A refusal is written first, before anything else can fail: it is about the picture, so it is written with the
   // fingerprint also when the try was stopped meanwhile.
+  let tookDown = false;
   if (answer.kind === "refused") {
     known.refusal = { sha256, by: answer.by, detail: answer.detail };
     await options.meanwhile?.("refused");
-    await writeRefusal(candidate.tryId, known.refusal, clock());
+    tookDown = await writeRefusal(candidate.userId, candidate.tryId, known.refusal, clock());
   }
   // What each answer means for the service itself is written whatever becomes of the try. If that cannot be written,
   // the photo's own outcome stands.
   await recordAnswers(asked, answers, clock()).catch(() => console.error("[host-photo] what the checking services answered could not be written down"));
   await options.meanwhile?.("checked");
 
-  if (answer.kind === "refused") return { outcome: "not_accepted" };
+  if (answer.kind === "refused") return { outcome: "not_accepted", tookDown };
   if (answer.kind !== "shown" || answer.level !== "full") return { outcome: await end("not_checked", answer.detail, { sha256 }) };
   return { outcome: await finish(candidate, copy, sha256, { by: answer.by, detail: answer.detail }, clock) };
 }
 
 /** Whether this host's copy with this fingerprint was refused before, as a photo or as a diary picture, or is locked in her diary. */
-async function refusedBefore(userId: string, sha256: string): Promise<"refused" | "locked" | null> {
+async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, sha256: string): Promise<"refused" | "locked" | null> {
   const pictures = schema.projectPictures;
-  const inDiary = await db
+  const inDiary = await reader
     .select({ state: pictures.state })
     .from(pictures)
     .where(and(eq(pictures.hostId, userId), eq(pictures.sha256, sha256), or(eq(pictures.state, "locked"), eq(pictures.refusedByChecker, true))));
   if (inDiary.some((picture) => picture.state === "locked")) return "locked";
   if (inDiary.length > 0) return "refused";
-  const [asPhoto] = await db.select({ id: tries.id }).from(tries).where(and(eq(tries.userId, userId), eq(tries.sha256, sha256), eq(tries.result, "not_accepted"))).limit(1);
+  const [asPhoto] = await reader.select({ id: tries.id }).from(tries).where(and(eq(tries.userId, userId), eq(tries.sha256, sha256), eq(tries.result, "not_accepted"))).limit(1);
   return asPhoto ? "refused" : null;
 }
 
 /**
  * 3. The finish. With the person's and the profile's locks, in the app's order, and then the try's
  * own line. The photo is written only if nothing has stopped the try, the account may still do
- * this, and the confirmed entry on that network has the name and the number it had at the start.
+ * this, the confirmed entry on that network has the name and the number it had at the start, and
+ * no service has refused this very copy in the meantime (see writeRefusal).
  */
 async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: { by: string; detail: string }, clock: () => Date): Promise<PhotoOutcome> {
   return db.transaction(async (tx) => {
@@ -342,6 +366,12 @@ async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: 
       .from(schema.socialAccounts)
       .where(and(eq(schema.socialAccounts.userId, candidate.userId), eq(schema.socialAccounts.network, candidate.network), isNotNull(schema.socialAccounts.confirmedAt)));
     if (!entry || entry.nameKey !== attempt.entryNameKey || entry.providerAccountId !== attempt.entryAccountId) return stop("the account changed meanwhile");
+    // Looked for once more, with the locks a refusal's own write takes: an earlier try of this host's, stopped while a
+    // service was still looking at the same copy, may have brought its refusal since this try began.
+    if (await refusedBefore(tx, candidate.userId, sha256)) {
+      await tx.update(tries).set({ result: "refused_before", detail: "the same picture was refused while this try was under way", sha256, endedAt: now }).where(eq(tries.id, attempt.id));
+      return "refused_before";
+    }
 
     // The old photo goes and the new one comes in one step. A new photo has a new address.
     await deletePhotoInStep(tx, candidate.userId);

@@ -188,7 +188,8 @@ async function ask(address: URL, keyHeader: Record<string, string>): Promise<str
       if (size > ANSWER_MAX_BYTES) return null;
       pieces.push(next.value);
     }
-    return Buffer.concat(pieces).toString("utf8");
+    // Read as a browser's own "text()" reads it: a mark at the very start that only says "this is UTF-8" is left out.
+    return new TextDecoder().decode(Buffer.concat(pieces));
   } catch {
     return null;
   } finally {

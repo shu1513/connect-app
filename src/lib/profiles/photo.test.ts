@@ -219,6 +219,12 @@ describe("readInstagramPhoto: how Meta's answer is read", () => {
     expect(asked?.init?.redirect).toBe("error");
   });
 
+  it("a mark at the very start that only says \"this is UTF-8\" does not spoil the answer", async () => {
+    withSettings();
+    vi.stubGlobal("fetch", async () => inPieces(`\uFEFF${good}`, 11));
+    expect(await readInstagramPhoto("jane.doe")).toEqual({ kind: "picture", accountId: "17841400039600391", address: PICTURE });
+  });
+
   it("an answer longer than any real one is dropped while it is being read", async () => {
     withSettings();
     let pulled = 0;

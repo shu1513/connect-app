@@ -209,7 +209,7 @@ export async function usePhoto(formData: FormData) {
   let notice: string;
   try {
     if (formData.get("network") !== "instagram") throw new ProfileError("Choose one of your confirmed accounts.");
-    const { outcome, detail } = await takePhoto({ userId: user.id, network: "instagram" });
+    const { outcome, detail, tookDown } = await takePhoto({ userId: user.id, network: "instagram" });
     const later = "Please try again in a few minutes.";
     const said: Record<PhotoOutcome, string> = {
       shown: "Your photo passed the check and is saved. It is shown on your page whenever your page is open to everyone, and beside you wherever you appear in the search results.",
@@ -230,7 +230,8 @@ export async function usePhoto(formData: FormData) {
       place_taken: "Another picture is being worked on right now. Please try again in a moment.",
       failed: "Something went wrong on our side, and we could not finish. Look below to see whether your photo changed before you try again.",
     };
-    notice = said[outcome];
+    // A service refused the very picture that was the host's photo: that photo is no longer shown.
+    notice = outcome === "not_accepted" && tookDown ? "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. It is the same picture as the photo you had, so that photo was taken down." : said[outcome];
   } catch (error) {
     notice = problem(error);
   }
