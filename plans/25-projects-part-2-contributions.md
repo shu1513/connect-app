@@ -1,6 +1,6 @@
 # Plan 25: Projects, part two: contributions
 
-**Status:** a plan only; nothing is built. Written 18 November 2026 by the builder alone (no
+**Status:** 2a is built; what building it changed is at the end ("What building 2a added to this plan"). 2b is not built. The plan itself: Written 18 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 41 and from plan 24, which
 this part is built on top of. Astra checked it three times. First: "not ready as written"; it
 agreed with the way the books are built and found nine must-fix points about refunds, the $1,000
@@ -548,3 +548,48 @@ the two people's lines first. It found choice 13 still wrong: a time kept for th
 would also have skipped months of hosts who were covered all along, and many of them if the
 helper had been down. Choice 13 now works host by host, in the step that changes the switch, and
 writing a payment and saving the switch wait for each other.
+
+## What building 2a added to this plan (18 and 19 November 2026)
+
+Found while building, by the check script against Stripe's test mode, and in Astra's reviews of
+the code. All of it is built.
+
+- **One clock for money, always read when it is needed.** The helper hands every job the moment
+  its round began, which can be minutes old by the time a payment's turn comes. So everything that
+  decides about a taking, or writes down when money was taken, uses the later of that moment and
+  the real clock, read at that instant (`freshNow`). Before a taking the clock is looked at three
+  times: before anything is written down, with the payment locked, and once more as the very last
+  thing before Stripe is asked. If the last moment has passed by then, nothing is sent, the
+  action is recorded like a refusal, and the payment is given up and its hold let go.
+- **The count at the moment of collecting is kept.** It was first written inside the collection's
+  own step, so when that press ended with "nothing to collect" the later dates were lost with it.
+  A press now counts in steps of its own first, and again under its locks before it judges.
+- **The pair waits while a result is not recorded.** A try with the saved card that Stripe
+  accepted, and whose result is not written on the payment yet, makes the pair's shares wait,
+  like an action whose outcome is not known. The earnings list uses the same test as a
+  collection, so it never shows as ready what a press would refuse.
+- **Recovery asks the switch.** Before the helper sends a hold or a taking again after an
+  interruption, it asks whether the founder's switch still covers the host. If not, it only
+  finds out what happened.
+- **A release while held is kept to.** A payment the founder released while it was only held
+  waits the usual 7 days once taken, mark or not.
+- **A hold past its last moment** is given up at once by whoever notices (recovery, or a job of
+  its own), without waiting out the hour the helper leaves after a refused taking.
+- **After a stop** (the payment given up, or the switch off) a payment that was asked for and
+  never saved is not asked for again: Stripe is only asked what was made, and that is cancelled,
+  also when it arrives after the payment was written off.
+- **A contribution made once is marked ended when its money is taken** ("paid"), or with its
+  payment when that is given up. "Running" then always means that something can still happen.
+- **A taking that was not to be** (after a cancellation, or of a wrong amount) writes no share
+  for the host: all of it is owed back, or the founder settles it.
+- **The database's own word** about a share's line was made as strong as the plan says (the
+  moment, both parts of the split adding up, the charge it comes from), and a taken payment must
+  say how much was taken.
+- **Names.** The plan's `giveUp` and `letGo` are as written. The $1,000 rule is applied by
+  `countPair` in `charge.ts`. The founder's hold and release are `holdBack` and `release` in
+  `founder.ts`. The test people of `scripts/contribution-check.ts` have ids starting "ctb-".
+
+**Not done in 2a, and where it goes.** The email to the founder when a pair crosses $1,000 comes
+with the other emails in 2b. The check script collects contribution shares only: one collection
+holding a call's share, a member's and a contribution's together is not walked yet.
+
