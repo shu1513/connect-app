@@ -39,6 +39,7 @@ async function main() {
   const { forgetOldRequests, writeAnswerReminders } = await import("../src/lib/refunds/requests");
   const { endOldTests } = await import("../src/lib/connection/tests");
   const { runPictureRound } = await import("../src/lib/projects/queue");
+  const { followAfterCalls } = await import("../src/lib/follows/follows");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -118,6 +119,9 @@ async function main() {
       await closeFinishedExtensions(now).catch((error) => console.error("[more time] closing requests failed; will retry", error));
     }
     await runBookingJobs(now);
+    // After a call that really took place, the customer follows the host (plans/30). Decided once per call.
+    // Its own catch: a failure here holds nothing else up.
+    await followAfterCalls(now).catch((error) => console.error("[follows] deciding the follows after calls failed; will retry", error));
     // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
     // Stripe never hold up closing rooms or the money jobs.
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
