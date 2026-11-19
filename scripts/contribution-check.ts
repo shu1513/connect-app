@@ -1437,21 +1437,63 @@ async function main() {
     check("a hold the contributor placed by hand within the 7 days is accepted, also when the helper's look at Stripe was made before it and answered after them: the month is not given up as missed", heldInTime && early.status !== "requires_capture" && !firstLook && (await PM(jSecond)).status === "held" && (await PM(jSecond)).endedHow === null && (await CO(justInTime.contributionId)).skippedMonths === "[]", { heldInTime, early: early.status, status: (await PM(jSecond)).status, endedHow: (await PM(jSecond)).endedHow });
 
     // Stripe is still working on a payment when its 7 days are over: nothing is decided until it has an outcome.
+    const stillWorking = (snapshot: object) => {
+      intents.retrieve = (() => Promise.resolve({ ...snapshot, status: "processing" })) as unknown as typeof intents.retrieve;
+    };
     const working = await held(host, { kind: "monthly", amountCents: 1000 });
     await C.takePayment(working.paymentId, (await PM(working.paymentId)).takeAt!);
     const wSecond = await nextMonth(working, 2, new Date());
     await S.payNow({ paymentId: wSecond, contributorId: working.giver.id });
-    await db.update(schema.contributions).set({ firstHoldAt: new Date(Date.now() - 40 * DAY) }).where(eq(schema.contributions.id, working.contributionId));
-    const asItIs = await intents.retrieve((await PM(wSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] });
-    intents.retrieve = (() => Promise.resolve({ ...asItIs, status: "processing" })) as unknown as typeof intents.retrieve;
+    // (Its 7 days end some days from now; the helper's rounds are pretended to come three and twenty minutes after them.)
+    const wAnchor = new Date(Date.now() - 20 * DAY);
+    await db.update(schema.contributions).set({ firstHoldAt: wAnchor }).where(eq(schema.contributions.id, working.contributionId));
+    const wDeadline = monthlyDue(wAnchor, 2).getTime() + 7 * DAY;
+    stillWorking(await intents.retrieve((await PM(wSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] }));
     try {
-      await C.tryHold(wSecond, new Date());
+      await C.tryHold(wSecond, new Date(wDeadline + 3 * MIN));
     } finally {
       intents.retrieve = realRetrieve;
     }
-    const undecided = (await PM(wSecond)).status === "to_pay" && (await PM(wSecond)).endedHow === null;
-    await C.tryHold(wSecond, new Date());
-    check("a late month is not given up while Stripe is still working on its payment; once Stripe shows that nothing came of it, it is", undecided && (await PM(wSecond)).status === "given_up" && (await PM(wSecond)).endedHow === "missed" && (await CO(working.contributionId)).skippedMonths === "[2]", { undecided, status: (await PM(wSecond)).status, endedHow: (await PM(wSecond)).endedHow });
+    let w = await PM(wSecond);
+    const undecided = w.status === "to_pay" && w.endedHow === null && w.problem === null && w.nextTryAt !== null && w.nextTryAt.getTime() === wDeadline + 8 * MIN;
+    await C.tryHold(wSecond, new Date(wDeadline + 20 * MIN));
+    check("a late month is not given up while Stripe is still working on its payment (it is looked at again five minutes later); once Stripe shows that nothing came of it, it is", undecided && (await PM(wSecond)).status === "given_up" && (await PM(wSecond)).endedHow === "missed" && (await CO(working.contributionId)).skippedMonths === "[2]", { undecided, status: (await PM(wSecond)).status, endedHow: (await PM(wSecond)).endedHow });
+
+    // The same, and the payment then goes through with a bank time inside the 7 days: it is accepted.
+    const through = await held(host, { kind: "monthly", amountCents: 1000 });
+    await C.takePayment(through.paymentId, (await PM(through.paymentId)).takeAt!);
+    const tSecond = await nextMonth(through, 2, new Date());
+    await S.payNow({ paymentId: tSecond, contributorId: through.giver.id });
+    const tAnchor = new Date(Date.now() - 20 * DAY);
+    await db.update(schema.contributions).set({ firstHoldAt: tAnchor }).where(eq(schema.contributions.id, through.contributionId));
+    const tDeadline = monthlyDue(tAnchor, 2).getTime() + 7 * DAY;
+    const tIntent = (await PM(tSecond)).stripePaymentIntentId!;
+    stillWorking(await intents.retrieve(tIntent, { expand: ["latest_charge", "payment_method"] }));
+    try {
+      await C.tryHold(tSecond, new Date(tDeadline + 3 * MIN));
+    } finally {
+      intents.retrieve = realRetrieve;
+    }
+    const waited = (await PM(tSecond)).status === "to_pay" && (await PM(tSecond)).endedHow === null;
+    await intents.confirm(tIntent, { payment_method: "pm_card_visa", return_url: RETURN });
+    await C.tryHold(tSecond, new Date(tDeadline + 20 * MIN));
+    check("when a payment Stripe was still working on then goes through with a bank time inside the 7 days, it is accepted: the look that shows it is the look that is recorded", waited && Date.now() < tDeadline && (await PM(tSecond)).status === "held" && (await CO(through.contributionId)).skippedMonths === "[]", { waited, status: (await PM(tSecond)).status, endedHow: (await PM(tSecond)).endedHow });
+
+    // Stripe keeps working on it for more than a day past the 7 days: the founder is shown it; it is not given up.
+    const stuck = await held(host, { kind: "monthly", amountCents: 1000 });
+    await C.takePayment(stuck.paymentId, (await PM(stuck.paymentId)).takeAt!);
+    const sSecond = await nextMonth(stuck, 2, new Date());
+    await S.payNow({ paymentId: sSecond, contributorId: stuck.giver.id });
+    await db.update(schema.contributions).set({ firstHoldAt: new Date(Date.now() - 45 * DAY) }).where(eq(schema.contributions.id, stuck.contributionId));
+    stillWorking(await intents.retrieve((await PM(sSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] }));
+    try {
+      await C.tryHold(sSecond, new Date());
+    } finally {
+      intents.retrieve = realRetrieve;
+    }
+    w = await PM(sSecond);
+    check("a payment Stripe is still working on more than a day after its month's 7 days is set aside for the founder, who is shown it; it is not given up", w.status === "to_pay" && w.endedHow === null && /still|working/.test(w.problem ?? "") && (await healthProblems(new Date())).some((problem) => /needs the founder/.test(problem)), { status: w.status, problem: w.problem });
+    await db.update(pays).set({ problem: null, endedHow: "cancelled", status: "given_up" }).where(eq(pays.id, sSecond));
 
     // A contributor pays, and cancels before we have heard of the hold.
     const unheard = await atCardStep(host);

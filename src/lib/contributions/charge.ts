@@ -41,6 +41,8 @@ const pays = schema.contributionPayments;
 
 /** A try the bank has not answered yet is looked at again this much later. */
 const LOOK_AGAIN_AT_A_TRY_MS = 5 * 60_000;
+/** A late month's payment that Stripe is still working on this long after its 7 days ended is shown to the founder. */
+const STILL_WORKING_TOO_LONG_MS = 24 * 3_600_000;
 
 /** What a bank says when a card must not be tried again. The monthly contribution ends then. */
 const NEVER_AGAIN = new Set(["do_not_try_again", "lost_card", "stolen_card", "pickup_card", "restricted_card", "revocation_of_authorization", "revocation_of_all_authorizations", "stop_payment_order", "security_violation", "fraudulent", "merchant_blacklist"]);
@@ -485,13 +487,23 @@ async function whyNotAccept(tx: Tx, locked: LockedPayment, intent: Stripe.Paymen
  * answer of every step, by Stripe's messages and by the helper; never moves a payment backwards.
  */
 export async function syncPayment(paymentId: string, now: Date = new Date()): Promise<ContributionPayment> {
+  return (await lookAndRecord(paymentId, now)).payment;
+}
+
+/**
+ * The same look, also giving back what Stripe showed in the answer that was recorded (null when
+ * Stripe was not asked). For a caller that has to decide something from that very answer: asking
+ * Stripe a second time would be deciding from an answer that was never recorded.
+ */
+async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: ContributionPayment; shown: Stripe.PaymentIntent.Status | null }> {
+  let shown: Stripe.PaymentIntent.Status | null = null;
   // Stripe is asked outside the database step. If our payment moved on in between, what we read is old:
   // it is thrown away and Stripe is asked again.
   for (let round = 0; round < 3; round++) {
     const seen = await paymentById(paymentId);
     if (!seen) throw new MoneyError("Payment not found.");
     // A payment that is in the books is never touched again, whatever message arrives.
-    if (!seen.stripePaymentIntentId || seen.status === "taken" || seen.status === "given_up") return seen;
+    if (!seen.stripePaymentIntentId || seen.status === "taken" || seen.status === "given_up") return { payment: seen, shown: null };
     const readAt = new Date(); // the real clock, taken before Stripe is asked
     let intent: Stripe.PaymentIntent;
     try {
@@ -505,8 +517,9 @@ export async function syncPayment(paymentId: string, now: Date = new Date()): Pr
         .update(pays)
         .set({ problem: "Stripe does not know this payment (its PaymentIntent is missing there). Nothing can be held or taken through it. Please look at it.", updatedAt: now })
         .where(and(eq(pays.id, paymentId), isNull(pays.problem), inArray(pays.status, ["to_pay", "held"])));
-      return (await paymentById(paymentId))!;
+      return { payment: (await paymentById(paymentId))!, shown: null };
     }
+    shown = intent.status;
     let holdEndsAt = holdEndOf(chargeOf(intent));
     // When Stripe does not say when a hold ends, it is asked again. No date is ever assumed (plans/25, choice 10).
     if (intent.status === "requires_capture" && !holdEndsAt) {
@@ -515,7 +528,7 @@ export async function syncPayment(paymentId: string, now: Date = new Date()): Pr
     }
     if (await recordIntent(seen, intent, now, { readAt, holdEndsAt })) break;
   }
-  return (await paymentById(paymentId))!;
+  return { payment: (await paymentById(paymentId))!, shown };
 }
 
 /** When a hold ends, by Stripe's own answer for that card, or null when it does not say. */
@@ -776,11 +789,24 @@ async function missMonth(paymentId: string, now: Date): Promise<ContributionPaym
   // Stripe is asked once more, now that the 7 days are over: a hold the contributor placed by hand in time, and
   // that an earlier look was too early to see, is found here and accepted by the bank's own time for it. Only a
   // payment that is still without a hold after this look is given up as missed.
-  const looked = await syncPayment(paymentId, now);
+  const { payment: looked, shown } = await lookAndRecord(paymentId, now);
   // A payment Stripe is still working on has no outcome yet: a hold with a bank time inside the 7 days may be
-  // about to appear. Nothing is decided until it has one; the helper looks again on its next round. (Giving it up
-  // now would cancel it, and a hold that was let go cannot be brought back.)
-  if (looked.status === "to_pay" && looked.stripePaymentIntentId && (await stripe().paymentIntents.retrieve(looked.stripePaymentIntentId)).status === "processing") return looked;
+  // about to appear. Nothing is decided until it has one. (Giving it up now would cancel it, and a hold that was
+  // let go cannot be brought back.) This is judged from the very answer that was just recorded: an answer that
+  // shows a hold was accepted or refused by that look, and the step below then finds nothing left to give up.
+  if (looked.status === "to_pay" && open(looked) && shown === "processing") {
+    const [contribution] = await db.select().from(schema.contributions).where(eq(schema.contributions.id, looked.contributionId));
+    const at = freshNow(now);
+    if (contribution && monthMissed(contribution, looked, new Date(at.getTime() - STILL_WORKING_TOO_LONG_MS))) {
+      // More than a day past its 7 days and still no outcome: it is not given up, and it does not wait unseen
+      // either. It is set aside for the founder, who is shown it.
+      await db.update(pays).set({ problem: "Stripe has been working on this payment for more than a day after its month's 7 days ended, and has not said what became of it. Please look at it.", updatedAt: now }).where(and(eq(pays.id, paymentId), isNull(pays.problem), eq(pays.status, "to_pay")));
+    } else {
+      // Looked at again in five minutes, so that such a payment never fills the helper's rounds.
+      await db.update(pays).set({ nextTryAt: new Date(at.getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay")));
+    }
+    return (await paymentById(paymentId))!;
+  }
   await db.transaction(async (tx) => {
     const locked = await lockForPayment(tx, paymentId);
     // Looked at again under the locks: only a payment that is still waiting, that nobody has started to try (a try

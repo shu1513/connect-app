@@ -628,7 +628,8 @@ and in Astra's reviews of the code. All of it is built.
   lost to a look that was made too early. The helper gives a month up two minutes after its 7
   days, not at their last second: a hold counts by the bank's own time, which Stripe gives in
   whole seconds and which can reach the app a moment late. In those two minutes nothing is tried
-  and nothing is given up.
+  and nothing is given up. And while Stripe says a payment is still being worked on, nothing is decided at
+  all: it is looked at again every five minutes, and after a day the founder is shown it.
 - **Asked again before anything new.** Before the helper writes a month or tries a saved card,
   and before a payment is made ready to be paid by hand, the app asks again whether the two
   people may still deal with each other (no block, neither account paused or closed, the host's

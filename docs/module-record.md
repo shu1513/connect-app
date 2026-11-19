@@ -1849,6 +1849,10 @@ pages. With this step part two is complete.
 - CodeRabbit, on the pull request: two comments, both taken. A late month is not given up while
   Stripe says its payment is still being worked on; and the two "same moment" cases of the check
   script now always hear a failure of the step they started, and let go of their lock first.
+  Astra then found my first fix for the former wrong: it asked Stripe a second time and used
+  that answer only to look for "still being worked on", so an answer that said "it went through"
+  would have been thrown away. Now one look is both recorded and decided from. A payment Stripe
+  keeps working on for more than a day past its month's 7 days is shown to the founder.
 
 **How it was checked**
 - `scripts/contribution-check.ts`, against Stripe's test mode: six new journeys (starting; the
