@@ -2023,3 +2023,97 @@ account, several accounts shared, logging in with Instagram instead of Facebook.
 page in every state of an Instagram entry, and the founder's alert as it is drawn, are not
 checked by a script.
 
+## A later change: hosts outside the United States (plan 27, pull request 49, 19 November 2026)
+
+**What it is.** Until now only someone based in the United States could be a host. Now a host
+can be based in 33 countries: the United States, the United Kingdom, Canada, Switzerland and 29
+more countries of Europe. Customers could already be anywhere. Plan: `plans/27-hosts-abroad.md`.
+
+**What the founder decided (19 November 2026).** Hosts abroad from day one, in "any countries
+that we can easily do". Prices stay in US dollars. A host abroad receives what Stripe turns
+their dollars into, in their own money, and is told so before applying.
+
+**What Stripe allows, tried in its test mode before anything was built.** The payout account as
+the app opened it is accepted for US hosts only. With "card payments" also asked for, a share
+sent the app's usual way (a charge on Connect's account, then a transfer that names it) was
+accepted for the UK, Germany, France, Spain, Switzerland and Canada, and arrived in the host's
+own money. It was refused for Australia, Singapore and Mexico; accounts in Argentina, Chile,
+Colombia, Peru and Uruguay cannot receive our money; an account in Brazil cannot be opened from
+a US account. So the list is every country Stripe's rule names (the United States, the United
+Kingdom, the European Economic Area, Canada, Switzerland), without Iceland, which Stripe's own
+table leaves out. Australia, Singapore and Latin America need Stripe's sales team or another
+product, not code.
+
+**What was built**
+- The list of countries (`src/lib/profiles/countries.ts`) and the country on a host's profile
+  (migration 0038; `'US'` for every host there was).
+- The sign-up form asks "Where are you based?" in place of the tick box, with one sentence for
+  hosts outside the US about dollars and Stripe's exchange rate.
+- The payout account is opened for the host's country (`host-account.ts`, `hosts.ts`). For the
+  United States the request to Stripe is exactly what it was. For other countries it also asks
+  for "card payments", and hands Stripe Connect's web address and "private video calls", so
+  the host is not asked about a website or a line of business.
+- One rule: Connect never links, sets up or pays a Stripe account in another country than the
+  host's profile. Payout setup needs a host profile first; someone who set payouts up before
+  applying can only apply from the United States; Stripe is asked for an account's country
+  before it is used or kept; and a host whose account is elsewhere counts as not ready.
+- Wording for a host abroad under "Getting paid" and in the earnings part; the founder sees
+  each host's country.
+- `scripts/abroad-check.ts`.
+
+**What the reviewers found**
+- Astra, twice on the plan ("ready with changes" both times). The first plan had no rule that
+  kept the profile's country and the Stripe account's country together: "Set up payouts" could
+  be pressed before applying, opened a US account, and a later application from abroad would
+  have reused it. It also missed two check scripts that apply as a host through the app's own
+  function, and its checks claimed more than they showed.
+- Astra, four times on the code, the last one "ready for its checks". The first found the app's
+  country rule sound and asked for small things in the app (the profile comes before any payout
+  button, also for someone who already had an account; say so when Stripe cannot be asked;
+  messages that claim only what is known). Everything else, in all four rounds, was in the new
+  check script: a test of the country rule that would also have passed without the rule (it
+  used an account Stripe had not activated), a clean-up that could lose track of an account at
+  Stripe, and a second form of the script that could have collected, and then removed, someone
+  else's earnings. All taken. Astra asked for nothing to be removed.
+- (CodeRabbit: see below, added after its review.)
+
+**What building changed** (also at the end of plan 27)
+- An account made the older way cannot be read the newer way, which is the only way the app
+  asks. So the check script's test accounts are opened by the app's own request, with one
+  difference: no Stripe dashboard goes with them, which lets a script fill in Stripe's test
+  details. The account payout setup itself opens can only be filled in by its host, on Stripe's
+  form.
+- Stripe takes about a minute to check a host's details after the form (a US test account is
+  ready at once). The page used to say "Stripe still needs some details from you" during that
+  minute; it now says Stripe may still be checking.
+
+**How it was checked**
+- Unit tests of the list and of the request to Stripe (the US request compared field for field
+  with what it was): 542 tests pass in all.
+- `scripts/abroad-check.ts`, 43 checks against Stripe's test mode: Stripe opens the account in
+  all 33 countries; the country rule in every way that was thought of; and a real collection of
+  a paid test call for hosts in the UK, Germany, Switzerland, Canada and the United States,
+  which arrived in pounds, euros, francs, Canadian dollars and dollars. For the UK host a
+  contribution's share went out in the same collection.
+- All 18 earlier check scripts.
+- In the browser, phone-sized and wide: a fresh person applied from the United Kingdom through
+  the form, pressed "Set up payouts", went through Stripe's own test form (which asked for no
+  website and no line of business), and came back "ready". Then
+  `scripts/abroad-check.ts --setup-host=<that host>` collected one paid test call into that
+  very account: it arrived in pounds.
+
+**Still open**
+- What Stripe keeps when it turns dollars into pounds or euros was not found on its pages; its
+  price list says from 0.25% for paying out across a border, which Connect carries. To ask
+  Stripe, together with its approval of hosts abroad and the question about Australia,
+  Singapore and Latin America.
+- The law in each country, and tax papers for hosts abroad: for the lawyer and the accountant.
+- Stripe says its ID check cannot read Greek or Cyrillic letters. Greece, Cyprus and Bulgaria
+  are in the list; a host there can use a passport. To be tried with a real host from there.
+- A real host abroad, before launch: apply, pass the ID check, open the payout account, collect.
+- How long a first payment to a bank abroad takes was not measured.
+- On a developer's computer the web address handed to Stripe is the temporary public address
+  of that computer. On the live site it is the site's own.
+- Transfers were tried for six countries abroad; the other 26 rest on Stripe's rule and on the
+  account being opened there.
+

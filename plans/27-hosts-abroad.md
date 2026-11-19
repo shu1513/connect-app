@@ -1,7 +1,8 @@
 # Plan 27: Hosts outside the United States
 
-**Status:** a plan only; nothing is built. Written 19 November 2026 by the builder alone (no
-helper agents), from the code as it is on `main` after pull request 47, from Stripe's own pages,
+**Status:** built, 19 November 2026 (see "What building added to this plan" at the end, and
+`docs/module-record.md`). Written 19 November 2026 by the builder alone (no
+helper agents), from the code as it was on `main` after pull request 47, from Stripe's own pages,
 and from tests in Stripe's test mode on that day. Astra checked it twice, both times "ready with
 changes"; every point is worked in below (the two lists are at the end).
 
@@ -342,3 +343,27 @@ in the design, one new point that had to change, and several details.
 | "Shown on their profile" could be read as the public page. | The Hosting page. |
 | "Nothing changes for a US host" was not quite true: nobody can start payout setup before applying any more. | Said. |
 | An old request still running while the new form is live could open a US account for someone applying from abroad. | "When this goes live". |
+
+## What building added to this plan (19 November 2026)
+
+Nothing here changes a rule.
+
+- **The test accounts of the check script.** The plan had them made the older way, with no
+  Stripe dashboard. An account made that way cannot be read the newer way for a long time
+  ("try again shortly"), and the app only ever asks the newer way. So they are opened by the
+  app's own request, with one difference: no Stripe dashboard goes with them, which lets the
+  script fill in Stripe's test details. That is closer to the real thing than planned.
+- **Stripe checks a host's details for about a minute** after its form, for a host abroad (a US
+  test account is ready at once). During that minute the Hosting page and the page a host comes
+  back to used to say that Stripe still needs details from them. They now say that Stripe may
+  still be checking, and to look again.
+- **The second form of the check script,** `--setup-host=<email>`: one collection into an
+  account that payout setup itself opened and its host completed on Stripe's form. It takes only
+  a fresh host with no calls, members, contributions or collections, and refuses the shared test
+  host.
+- **Where a host comes back to after Stripe's form** is the app's public address. On a
+  developer's computer that is a temporary address which may be switched off; the same page on
+  the local address gives the same answer. Nothing to change in the app.
+- **Checked:** 43 checks of the new script, all 18 earlier scripts, and the browser check with
+  Stripe's own test form for a host in the United Kingdom, ending in a collection that arrived
+  in pounds.
