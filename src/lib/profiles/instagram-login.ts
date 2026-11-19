@@ -55,7 +55,12 @@ export async function finishInstagramLogin(input: {
   // The same person who started, with the value we gave them. This is what stops one person's
   // Instagram from being attached to another person's Connect account.
   if (!started || !input.state || !sameValue(started.state, input.state) || started.userId !== input.userId) return NOT_FINISHED;
-  const [person] = await db.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId));
+  // (If the person cannot be read at all, the host still lands on the Hosting page with the plain sentence: nothing was asked of Meta and nothing saved.)
+  const [person] = await db
+    .select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt })
+    .from(schema.user)
+    .where(eq(schema.user.id, input.userId))
+    .then((rows) => rows, () => []);
   if (!person || person.pausedAt || person.closedAt) return NOT_FINISHED;
   // Only now is anything Meta sent looked at, a refusal included.
   if (input.refused || !input.code) return "You did not connect Instagram. Nothing was changed.";

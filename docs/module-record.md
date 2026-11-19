@@ -2009,6 +2009,9 @@ rule and could have mixed up a renamed account with another that took its old na
 sign-in would have used up the bio check's limits; and in the code, a damaged answer from Meta
 could have been taken for a full list of one account. All taken. Astra asked for nothing to be
 removed.
+CodeRabbit, on pull request 48: one comment, taken. If the person could not be read from the
+database on the way back from Meta, the host got an error page; they now land on the Hosting
+page with the plain sentence. Tried once more for real after it (Meta's "Cancel").
 
 **How it was checked:** 532 automatic tests (32 new); `scripts/accounts-check.ts` with a new
 part of 38 checks with Meta's side pretended (203 in all); the real try above; and every other
