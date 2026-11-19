@@ -28,20 +28,31 @@ export async function stopTriesInStep(tx: Tx, userId: string, now: Date, why: st
 
 /**
  * Called at the end of every step that changes a host's confirmed accounts, with the profile's
- * lock held: typing another name, removing an account, and a sign-in that confirms one. If the
- * photo's account is no longer the host's confirmed account on that network (`sameAccount`), the
- * photo goes in this same step. A try that is under way needs nothing here: it compares the
- * account itself before it writes.
+ * lock held: typing another name, removing an account, and a sign-in that confirms one.
+ *
+ * - If the photo's account is no longer the host's confirmed account on that network
+ *   (`sameAccount`), the photo goes in this same step.
+ * - A try that is under way is stopped when the confirmed entry it started from is no longer
+ *   there with the same name and number. The try compares these itself before it writes, but
+ *   that alone would miss an account that was changed and changed back in between.
  */
-export async function dropPhotoIfSourceGone(tx: Tx, userId: string): Promise<void> {
+export async function dropPhotoIfSourceGone(tx: Tx, userId: string, now: Date = new Date()): Promise<void> {
+  const confirmed = await tx
+    .select({ network: schema.socialAccounts.network, nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
+    .from(schema.socialAccounts)
+    .where(and(eq(schema.socialAccounts.userId, userId), isNotNull(schema.socialAccounts.confirmedAt)));
+  const entryOn = (network: string) => confirmed.find((entry) => entry.network === network) ?? null;
+
+  const running = await tx.select({ id: tries.id, network: tries.network, entryNameKey: tries.entryNameKey, entryAccountId: tries.entryAccountId }).from(tries).where(and(eq(tries.userId, userId), isNull(tries.result)));
+  for (const one of running) {
+    const entry = entryOn(one.network);
+    if (entry && entry.nameKey === one.entryNameKey && entry.providerAccountId === one.entryAccountId) continue;
+    await tx.update(tries).set({ result: "stopped", detail: "the account changed meanwhile", endedAt: now }).where(and(eq(tries.id, one.id), isNull(tries.result)));
+  }
+
   const [photo] = await tx
     .select({ network: photos.network, sourceNameKey: photos.sourceNameKey, sourceAccountId: photos.sourceAccountId })
     .from(photos)
     .where(and(eq(photos.userId, userId), isNull(photos.lockedAt)));
-  if (!photo) return;
-  const [entry] = await tx
-    .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
-    .from(schema.socialAccounts)
-    .where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, photo.network), isNotNull(schema.socialAccounts.confirmedAt)));
-  if (!sameAccount(photo, entry ?? null)) await deletePhotoInStep(tx, userId);
+  if (photo && !sameAccount(photo, entryOn(photo.network))) await deletePhotoInStep(tx, userId);
 }

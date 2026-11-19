@@ -1152,6 +1152,8 @@ export const hostPhotos = pgTable(
     lockedBy: text("locked_by").references(() => user.id),
     /** When the report to the authorities was really made, as the founder says. */
     reportMadeAt: timestamp("report_made_at", { withTimezone: true }),
+    /** The host's profile and confirmed accounts as they were at the moment of locking, as text. The host can change them afterwards; this stays. */
+    lockedContext: text("locked_context"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

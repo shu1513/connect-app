@@ -118,6 +118,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               call?: { id?: string; safetyEndedAt?: string | null } | null;
               profile?: { displayName: string; handle: string; about: string } | null;
               post?: { id: string; projectName: string; text: string; links: string[]; pictures?: string[] } | null;
+              /** The host's photo that was showing on their page when it was reported (plans/29). */
+              photoId?: string | null;
             };
             return (
               <li key={report.id} className={`rounded border p-4 text-sm ${report.urgent ? "border-red-600" : "border-neutral-400"}`}>
@@ -140,6 +142,15 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 {snapshot.profile && (
                   <p className="mt-1 opacity-70">
                     Their page at the time: &ldquo;{snapshot.profile.displayName}&rdquo; (@{snapshot.profile.handle}){snapshot.profile.about ? `: "${snapshot.profile.about}"` : ""}
+                  </p>
+                )}
+                {snapshot.photoId && (
+                  <p className="mt-1 opacity-70" data-reported-photo>
+                    Their page showed a photo when it was reported. Hosts&apos; photos, with &quot;Remove&quot; and &quot;Remove and report&quot;, are on{" "}
+                    <Link href="/admin/people#photos" className="underline underline-offset-2">
+                      the page for hosts and accounts
+                    </Link>
+                    . A photo its host has removed or replaced since is not kept.
                   </p>
                 )}
                 {snapshot.post && (

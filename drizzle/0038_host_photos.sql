@@ -32,6 +32,7 @@ CREATE TABLE "host_photos" (
 	"locked_at" timestamp with time zone,
 	"locked_by" text,
 	"report_made_at" timestamp with time zone,
+	"locked_context" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "host_photos_network" CHECK ("host_photos"."network" in ('instagram', 'tiktok'))
 );

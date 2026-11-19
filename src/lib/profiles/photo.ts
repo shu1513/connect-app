@@ -4,8 +4,10 @@
  *
  * One press is three steps, so that no database step is held open while a network or a checking
  * service is asked:
- *   1. start:  one short step under a lock for that host. Everything that can say "no" before
- *              anyone is asked is read here, and the try is written down.
+ *   1. start:  one short step under a lock for that host, and with the person's and the profile's
+ *              locks. Everything that can say "no" before anyone is asked is read here, and the
+ *              try is written down. Whatever removes a photo or changes an account holds the same
+ *              two locks, so it either sees this try and stops it, or comes first.
  *   2. the outside work: the network is asked, the picture fetched, Connect's copy made, and the
  *              checking services asked in their order.
  *   3. finish: one short step with the person's and the profile's locks. The photo is written only
@@ -23,6 +25,7 @@ import { askInOrder } from "@/lib/projects/checks/order";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
 import type { Checker } from "@/lib/projects/checks/types";
 import { makeCopy, type Copy } from "@/lib/projects/copy";
+import { mayGoOnSql } from "@/lib/projects/child-safety";
 import { adminUrl, tellFounders } from "@/lib/projects/picture-steps";
 import { givePlace, takePlace } from "@/lib/projects/pictures";
 import { PICTURE, ProjectError } from "@/lib/projects/rules";
@@ -126,14 +129,13 @@ async function startTry(userId: string, network: PhotoNetwork, hasChecker: boole
     // All of Instagram first, then this host: the same order as the bio check, which takes the first lock too.
     if (network === "instagram") await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`host-photo:${userId}`}))`);
+    // Then the person and the profile, in the app's order. Removing a photo, changing an account and closing an
+    // account hold these too while they stop the tries that are running: so each of them either sees this try,
+    // or has finished before this try is written.
+    const { closed, paused, profile } = await lockedProfile(tx, userId);
     // Read with the locks held, never before waiting for them.
     const now = clock();
-    const [person] = await tx
-      .select({ closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt, profile: schema.hostProfiles.userId })
-      .from(schema.user)
-      .leftJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.user.id))
-      .where(eq(schema.user.id, userId));
-    if (!person || person.closedAt || person.pausedAt || !person.profile) return "cannot";
+    if (closed || paused || !profile) return "cannot";
     const [locked] = await tx.select({ id: photos.id }).from(photos).where(and(eq(photos.userId, userId), isNotNull(photos.lockedAt))).limit(1);
     if (locked) return "locked";
     const [entry] = await tx
@@ -160,19 +162,27 @@ async function startTry(userId: string, network: PhotoNetwork, hasChecker: boole
       if (bios.n + taken.n >= INSTAGRAM_CHECKS_PER_HOUR) return "busy";
     }
     if (!hasChecker) return "no_checker";
-    // Diary pictures that are shown after a check for nudity only get a service's first answers when it answers again
-    // (plans/23). A photo does not go ahead of them.
-    const pictures = schema.projectPictures;
-    const [owed] = await tx
-      .select({ id: pictures.id })
-      .from(pictures)
-      .where(and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), diaryHosts ? inArray(pictures.hostId, diaryHosts) : undefined))
-      .limit(1);
-    if (owed) return "no_checker";
+    if (await diaryIsOwed(tx, diaryHosts)) return "no_checker";
 
     const [attempt] = await tx.insert(tries).values({ userId, network, startedAt: now, entryNameKey: entry.nameKey, entryAccountId: entry.providerAccountId }).returning({ id: tries.id });
     return { tryId: attempt.id, nameKey: entry.nameKey, accountId: entry.providerAccountId };
   });
+}
+
+/**
+ * Diary pictures that are shown after a check for nudity only get a service's next answers when it
+ * answers again (plans/23). A photo does not go ahead of them: it is not started while one is owed
+ * its full check, and it is sent to no service once one has come to be owed it. Only pictures the
+ * queue would really send: one the founder or a report holds back is owed nothing by the services.
+ */
+async function diaryIsOwed(reader: Pick<typeof db, "select">, diaryHosts: string[] | undefined): Promise<boolean> {
+  const pictures = schema.projectPictures;
+  const [owed] = await reader
+    .select({ id: pictures.id })
+    .from(pictures)
+    .where(and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), mayGoOnSql, diaryHosts ? inArray(pictures.hostId, diaryHosts) : undefined))
+    .limit(1);
+  return Boolean(owed);
 }
 
 /** Writes how a try ended, if nothing has ended it yet. Gives back what the try's line says now, which is what the host is told. */
@@ -234,10 +244,11 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
   }
 
   // The services, in their order. Connect's own checker is not asked: only a full check shows a photo. Before each
-  // request the try is read again: once something has stopped it, the picture is sent to nobody else.
+  // request the try is read again: once something has stopped it, the picture is sent to nobody else. Nor is it sent
+  // ahead of a diary picture that has come to be owed its full check meanwhile.
   const stillRunning = async () => {
     const [row] = await db.select({ result: tries.result }).from(tries).where(eq(tries.id, candidate.tryId));
-    return Boolean(row) && row.result === null;
+    return Boolean(row) && row.result === null && !(await diaryIsOwed(db, options.diaryHosts));
   };
   const { outcome: answer, asked: answers } = await askInOrder(await turnsFor(asked, copy.bytes, clock), null, stillRunning);
   // What each answer means for the service itself is written whatever becomes of the try.
@@ -327,13 +338,17 @@ export async function removePhoto(input: { userId: string; now: Date }): Promise
 }
 
 /** The photo the founder is looking at, with its host's locks taken first, for one decision. */
-async function decide(photoId: string, work: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], photo: { id: string; userId: string; lockedAt: Date | null }) => Promise<void>): Promise<void> {
+async function decide(photoId: string, work: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], photo: { id: string; userId: string; lockedAt: Date | null; network: string; sourceNameKey: string; sourceAccountId: string; takenAt: Date }) => Promise<void>): Promise<void> {
   if (!isId(photoId)) throw new ProfileError(NOT_FOUND);
   await db.transaction(async (tx) => {
     const [found] = await tx.select({ userId: photos.userId }).from(photos).where(eq(photos.id, photoId));
     if (!found) throw new ProfileError(NOT_FOUND);
     await lockedProfile(tx, found.userId);
-    const [photo] = await tx.select({ id: photos.id, userId: photos.userId, lockedAt: photos.lockedAt }).from(photos).where(eq(photos.id, photoId)).for("update");
+    const [photo] = await tx
+      .select({ id: photos.id, userId: photos.userId, lockedAt: photos.lockedAt, network: photos.network, sourceNameKey: photos.sourceNameKey, sourceAccountId: photos.sourceAccountId, takenAt: photos.takenAt })
+      .from(photos)
+      .where(eq(photos.id, photoId))
+      .for("update");
     if (!photo) throw new ProfileError(NOT_FOUND);
     await work(tx, photo);
   });
@@ -352,13 +367,27 @@ export async function removePhotoAsFounder(input: { adminId: string; photoId: st
 /**
  * "Remove and report" (plans/23, "What the law asks"): the photo is locked. Nobody is handed it
  * again, it is kept exactly as it is, and nothing deletes it afterwards. While a host has a locked
- * photo they can take no other.
+ * photo they can take no other. What belonged to it at this moment is kept with it, as a locked
+ * diary picture keeps its post: the host's profile and confirmed accounts, which the host can
+ * change afterwards.
  */
 export async function lockPhotoAsFounder(input: { adminId: string; photoId: string; now: Date }): Promise<void> {
   await decide(input.photoId, async (tx, photo) => {
     if (photo.lockedAt) throw new ProfileError("That photo is already removed and reported.");
     await stopTriesInStep(tx, photo.userId, input.now, "the founder removed and reported the photo");
-    await tx.update(photos).set({ lockedAt: input.now, lockedBy: input.adminId }).where(eq(photos.id, photo.id));
+    const [person] = await tx.select({ name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.id, photo.userId));
+    const [profile] = await tx.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, photo.userId));
+    const accounts = await tx
+      .select({ network: schema.socialAccounts.network, nameKey: schema.socialAccounts.nameKey, url: schema.socialAccounts.url, providerAccountId: schema.socialAccounts.providerAccountId, confirmedAt: schema.socialAccounts.confirmedAt })
+      .from(schema.socialAccounts)
+      .where(and(eq(schema.socialAccounts.userId, photo.userId), isNotNull(schema.socialAccounts.confirmedAt)));
+    const context = JSON.stringify({
+      account: person ?? null,
+      profile: profile ? { handle: profile.handle, displayName: profile.displayName, about: profile.about, status: profile.status, hidden: profile.hidden } : null,
+      confirmedAccounts: accounts,
+      photo: { network: photo.network, name: photo.sourceNameKey, number: photo.sourceAccountId, takenAt: photo.takenAt },
+    });
+    await tx.update(photos).set({ lockedAt: input.now, lockedBy: input.adminId, lockedContext: context }).where(eq(photos.id, photo.id));
     await recordAdminAction({ adminId: input.adminId, action: "host photo removed and reported", targetUserId: photo.userId, targetId: photo.id }, tx);
   });
 }

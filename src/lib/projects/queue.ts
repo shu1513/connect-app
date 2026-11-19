@@ -22,7 +22,7 @@ import { askInOrder, waitMinutes, type Outcome } from "./checks/order";
 import { ownChecker } from "./checks/own";
 import { COOL_MS, recordAnswers, safely, services, turnsFor } from "./checks/services";
 import type { Checker } from "./checks/types";
-import { childCheckOn, childTool, holdSwitch, mayGoOn, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
+import { childCheckOn, childTool, holdSwitch, mayGoOn, mayGoOnSql, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
 import { adminUrl, deleteBytesIfFree, lockInStep, lockPost, refuseInStep, goneWithBytes, tellFounders } from "./picture-steps";
 import { PICTURE } from "./rules";
 
@@ -78,9 +78,6 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
   for (const id of await goneWithBytes(20, now(), whose)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
   await tellAboutNudityOnly(now(), whose);
 }
-
-/** The same rule as mayGoOn in child-safety.ts, for choosing pictures in the database. mayGoOn itself is asked again once a picture is claimed. */
-const mayGoOnSql = and(inArray(pictures.childCheck, ["clear", "not_set_up"]), eq(pictures.suspectedByFounder, false), eq(pictures.suspectedByReport, false));
 
 /** The pictures the everyday checkers may be asked about now: waiting, or shown after a check for nudity only; due; and allowed on by the child-safety rule. */
 function everyday(now: Date): SQL | undefined {

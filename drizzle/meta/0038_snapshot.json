@@ -1,5 +1,5 @@
 {
-  "id": "21c31932-112f-4549-bc55-89b4ebcd7a5e",
+  "id": "b8a4bd37-f96f-47d9-9699-bd98895bf72b",
   "prevId": "92f19c3f-30d6-463a-9e74-4ffbad8e7233",
   "version": "7",
   "dialect": "postgresql",
@@ -3296,6 +3296,12 @@
         "report_made_at": {
           "name": "report_made_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "locked_context": {
+          "name": "locked_context",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

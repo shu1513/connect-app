@@ -10,6 +10,7 @@ import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
 import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
+import { photosOf } from "@/lib/profiles/photo";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { liftSuspectedByReport, lockPost, markSuspectedByReport } from "@/lib/projects/picture-steps";
 import { picturesOf } from "@/lib/projects/pictures";
@@ -63,7 +64,8 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
     // Only a page anyone can see can be reported from its address; a hidden or waiting profile gives nothing away.
     const profile = await publicProfile(contextId);
     if (!profile) throw new ReportError("Profile not found.");
-    return { reportedId: profile.userId, snapshot: {} };
+    // With the id of the photo that was showing (plans/29). The photo itself is not copied: one the host removes or replaces afterwards is gone.
+    return { reportedId: profile.userId, snapshot: { photoId: (await photosOf([profile.userId])).get(profile.userId) ?? null } };
   }
   if (context === "post") {
     // A post of a host's diary. Only one the reporter can really see: removed and hidden posts, and

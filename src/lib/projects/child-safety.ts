@@ -14,7 +14,7 @@
  * has access there is no tool: `childTool` gives null. What is here is the rule around it, and it
  * is tried with a stand-in tool in the check script.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { ProjectPicture } from "@/db/schema";
 
@@ -89,6 +89,13 @@ export function mayGoOn(picture: Marks): boolean {
   if (isSuspected(picture)) return false;
   return picture.childCheck === "clear" || picture.childCheck === "not_set_up";
 }
+
+/** The same rule as mayGoOn, for choosing diary pictures in the database. mayGoOn itself is asked again once a picture is in hand. */
+export const mayGoOnSql = and(
+  inArray(schema.projectPictures.childCheck, ["clear", "not_set_up"]),
+  eq(schema.projectPictures.suspectedByFounder, false),
+  eq(schema.projectPictures.suspectedByReport, false),
+);
 
 /**
  * May this picture be handed to anyone at all? Not while the tool, switched on, has not answered
