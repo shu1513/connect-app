@@ -205,6 +205,23 @@ export async function queueEndedEmails(tx: Tx, contribution: Contribution, how: 
   }
 }
 
+/**
+ * A project has ended: everyone whose money it has taken is told, once (plans/23, "Ending"). A
+ * monthly contributor whose contribution ends with it gets the email about that instead, which
+ * says the same.
+ */
+export async function queueProjectEndedEmail(tx: Tx, input: { projectId: string; hostId: string; contributorId: string }): Promise<void> {
+  const parts = await partsOf(tx, input);
+  if (!parts) return;
+  const { giver, hostName, projectName } = parts;
+  await queueEmail(tx, {
+    to: giver.email,
+    key: `project-ended:${input.projectId}:${input.contributorId}`,
+    subject: `${hostName}'s project "${projectName}" has ended`,
+    text: `Hi ${giver.name},\n\n${hostName} has ended the project "${projectName}", which you contributed to. Its diary stays readable, marked as ended, and it takes no more contributions.\n\nNothing changes about what you paid: money that was taken stays with the project. Your contributions are on "Your account", under "Projects you support": ${appUrl()}/account\n\n${footer}\n`,
+  });
+}
+
 /** The host is told that someone started contributing: once for a monthly contribution, not every month. */
 export async function queueNewContributorEmail(tx: Tx, contribution: Contribution): Promise<void> {
   const parts = await partsOf(tx, contribution);
@@ -221,15 +238,15 @@ export async function queueNewContributorEmail(tx: Tx, contribution: Contributio
 }
 
 /**
- * The founder is told when one person's contributions to a host are over $1,000 in 30 days
- * (plans/25, choice 8): the founder has the hold button, and this says when to look. Once for
- * each pair in a calendar month, however often the pair is counted.
+ * The founder is told when one person's contributions to a host cross $1,000 in 30 days
+ * (plans/25, choice 8): the founder has the hold button, and this says when to look. The caller
+ * (countPair) decides when the line was crossed; this is sent once for that moment.
  */
 export async function tellFounderOfLargeTotal(tx: Tx, input: { contributorId: string; hostId: string; countedCents: number }, now: Date): Promise<void> {
   const people = await tx.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, [input.contributorId, input.hostId]));
   const name = (id: string) => people.find((person) => person.id === id)?.name ?? "someone";
   await tellFounders(tx, {
-    key: `contribution-1000:${input.contributorId}:${input.hostId}:${now.toISOString().slice(0, 7)}`,
+    key: `contribution-1000:${input.contributorId}:${input.hostId}:${now.toISOString()}`,
     subject: `Contributions over $1,000 in 30 days: ${name(input.contributorId)} to ${name(input.hostId)}`,
     text:
       `${name(input.contributorId)} has contributed ${money(input.countedCents)} to ${name(input.hostId)} in the last 30 days, counting money that was taken and holds that are in place. That is over $1,000.\n\n` +

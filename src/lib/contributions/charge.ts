@@ -34,7 +34,8 @@ import { projectsOnFor } from "@/lib/safety/switches";
 import { cardInUse, retireCard, takeCardForContribution } from "./cards";
 import { queueAgreementEmail, queueHoldEmail, queueNewContributorEmail, queueNothingChargedEmail, queuePaymentFailedEmail, tellFounderOfLargeTotal } from "./emails";
 import { lockForPayment, paymentOwner, type LockedPayment } from "./locks";
-import { collectFrom, lastMomentToTake, mayTake, waitFor, type PairPayment } from "./rules";
+import { collectFrom, CONTRIBUTION, lastMomentToTake, mayTake, monthlyDue, waitFor, type PairPayment } from "./rules";
+import { addSkipped } from "./skipped";
 
 const pays = schema.contributionPayments;
 
@@ -290,9 +291,17 @@ export async function countPair(tx: Tx, contributorId: string, hostId: string, n
     released: payment.founderHold === "released",
   }));
   const result = waitFor(seen, now);
-  // The founder is told when a pair is over the line (once for the pair in a calendar month, however often it is counted).
-  if (result.over) await tellFounderOfLargeTotal(tx, { contributorId, hostId, countedCents: result.countedCents }, now);
+  if (result.over) {
+    // The founder is told when the pair crosses the line (plans/25, choice 8): at the count that finds it over while
+    // none of the payments that count carries the mark yet. Every count after that finds a marked one, until they
+    // have all left the 30 days or were let go; crossing the line again later is a new crossing, and is told again.
+    const counts = (payment: ContributionPayment) => payment.status === "held" || (payment.status === "taken" && payment.takenAt !== null && payment.takenAt.getTime() > now.getTime() - CONTRIBUTION.windowMs);
+    if (!rows.some(({ payment }) => counts(payment) && payment.thirtyDayMark)) await tellFounderOfLargeTotal(tx, { contributorId, hostId, countedCents: result.countedCents }, now);
+  }
   if (result.markHeld.length > 0) await tx.update(pays).set({ thirtyDayMark: true, updatedAt: now }).where(and(inArray(pays.id, result.markHeld), eq(pays.thirtyDayMark, false)));
+  // A payment that was taken before the line was crossed, and whose share now waits 30 days, carries the mark too:
+  // the founder's list shows every payment the rule touches.
+  if (result.thirtyDays.length > 0) await tx.update(pays).set({ thirtyDayMark: true }).where(and(inArray(pays.id, result.thirtyDays), eq(pays.thirtyDayMark, false)));
   for (const id of result.thirtyDays) {
     const takenAt = rows.find((row) => row.payment.id === id)?.payment.takenAt;
     if (!takenAt) continue;
@@ -582,6 +591,9 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
         }
       }
       if (why) {
+        // Not accepted, and let go below. That a hold was there is kept all the same (the bank's own time for
+        // it): its contributor is told when it is gone, and nobody is told that nothing was ever held.
+        await tx.update(pays).set({ authorisedAt, updatedAt: now }).where(eq(pays.id, payment.id));
         await giveUpInStep(tx, locked, why, now);
         release = true;
         return;
@@ -675,6 +687,13 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
   if (seen.giveUpAt && seen.giveUpAt <= now) return seen;
   const [contribution] = await db.select().from(schema.contributions).where(eq(schema.contributions.id, seen.contributionId));
   if (!contribution || contribution.status === "ended" || !(await projectsOnFor(contribution.hostId))) return seen;
+  // A month that was written down and never tried (the helper stopped in between) is not tried once its day lies
+  // more than 7 days back: it is missed, like a month that was never written down (rules.ts, dueMonths). It is
+  // skipped, and the contribution goes on. A month that was tried and failed has its own 7 days, from that failure.
+  const neverTried = !seen.firstFailedAt && seen.try === 1 && !(seen.stripePaymentIntentId && (await tryFinished(db, seen)));
+  if (contribution.kind === "monthly" && seen.number > 1 && contribution.firstHoldAt && neverTried && now.getTime() - monthlyDue(contribution.firstHoldAt, seen.number).getTime() > CONTRIBUTION.lateMonthMs) {
+    return missMonth(paymentId, now);
+  }
   if (seen.stripePaymentIntentId && (await tryFinished(db, seen))) {
     // This try has its answer, and Stripe has neither held nor refused yet. Nothing new is tried beside it.
     await db.update(pays).set({ nextTryAt: new Date(now.getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay"), eq(pays.try, seen.try)));
@@ -717,6 +736,24 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
     if (!(error instanceof MoneyError)) throw error;
   }
   return syncPayment(paymentId, now);
+}
+
+/**
+ * A month's payment that the helper came too late for: given up as missed, with nothing ever asked
+ * of the card for it, and recorded as skipped. The contribution goes on with its next month.
+ */
+async function missMonth(paymentId: string, now: Date): Promise<ContributionPayment> {
+  await db.transaction(async (tx) => {
+    const locked = await lockForPayment(tx, paymentId);
+    // Looked at again under the lock: only a payment that is still waiting for its first try.
+    if (locked.payment.status !== "to_pay" || !open(locked.payment) || locked.payment.firstFailedAt) return;
+    await giveUpInStep(tx, locked, "missed", now);
+    const [contribution] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, locked.contribution.id));
+    if (contribution.kind === "monthly" && contribution.status !== "ended") await addSkipped(tx, contribution, [locked.payment.number], now);
+  });
+  // If a PaymentIntent was made for it, it is cancelled; if one was asked for and not saved, the helper finishes that.
+  await letGo(paymentId, now).catch((error) => log(`could not let go of missed contribution payment ${paymentId} yet; the helper will retry`, error));
+  return (await paymentById(paymentId))!;
 }
 
 // ---------------------------------------------------------------------------

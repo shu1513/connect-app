@@ -24,8 +24,10 @@ const smallButton = "rounded border border-neutral-500 px-3 py-1.5 text-sm";
  * One contribution, for its contributor only (plans/25, "The pages"): the card step, and after
  * that each payment with where it stands and its real last moment, "Cancel, nothing is charged"
  * while it is held, "Pay now" when the bank wants a confirmation or a payment failed, and "Stop
- * contributing". Opening or reloading it starts nothing: the card form is shown for the payment
- * that already exists at Stripe, once a pressed button has made it ready.
+ * contributing". Opening or reloading it starts nothing new: no contribution, no payment and no
+ * PaymentIntent. The card form is shown for the payment that already exists at Stripe, once a
+ * pressed button has made it ready. What the page does do when it is opened, through its small
+ * "check" part, is ask what became of a payment that already exists, and record the answer.
  *
  * Nothing is claimed before it is known: "nothing was charged" is said only once the hold is
  * certainly gone. Until then: "We are cancelling this payment."
@@ -113,7 +115,7 @@ export default async function ContributionPage(props: PageProps<"/contributions/
                 <ContributionCardForm contributionId={contribution.id} paymentId={waiting.id} clientSecret={read.secret.clientSecret} publishableKey={stripePublishableKey()} button={`Hold ${formatMoney(waiting.amountCents)}`} />
               ) : !read.reached ? (
                 <p role="alert" className="mt-4 rounded border border-red-600 p-3">
-                  We could not reach the payment service just now, so the card form cannot be shown. Nothing was charged. Please reload this page in a moment.
+                  We could not reach the payment service just now, so the card form cannot be shown. Please reload this page in a moment.
                 </p>
               ) : (
                 <>
@@ -203,7 +205,7 @@ function PaymentLine({ row, contributionId, monthly, hostName }: { row: PaymentR
           <PaymentCheck contributionId={contributionId} paymentId={payment.id} />
         </>
       )}
-      {state === "cancelled" && <p className="mt-1">{payment.authorisedAt ? "Cancelled. The hold was let go, and nothing was charged." : "Cancelled. Nothing was held, and nothing was charged."}</p>}
+      {state === "cancelled" && <p className="mt-1">{payment.authorisedAt ? "Cancelled. The hold was let go, and nothing was charged." : "Cancelled. Nothing was charged."}</p>}
       {state === "problem" && <p className="mt-1">Something about this payment needs a look by Connect. Nothing more happens to it until then.</p>}
       {state === "taken" && payment.takenAt && (
         <>

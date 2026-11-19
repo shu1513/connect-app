@@ -53,7 +53,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
   // The person's own memberships as a member (also paused and ended ones, for their receipts).
   const memberships = await membershipsOf(user.id);
   // "Projects you support". One that was left at the card step and never paid is not listed: nothing was contributed.
-  const supported = (await supportedBy(user.id)).filter(({ contribution, latest }) => !(contribution.status === "ended" && latest?.status === "given_up" && !latest.authorisedAt));
+  const supported = (await supportedBy(user.id)).filter(({ contribution, began }) => began || contribution.status !== "ended");
   const hostNames = new Map(
     memberships.length > 0
       ? (await db.select({ id: schema.hostProfiles.userId, name: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, memberships.map((membership) => membership.hostId)))).map((row) => [row.id, row.name])

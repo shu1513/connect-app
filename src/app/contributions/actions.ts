@@ -21,7 +21,7 @@ import { requireActiveUser, requireUser } from "@/lib/session";
 function problem(error: unknown): string {
   if (error instanceof ContributionError || error instanceof MoneyError) return error.message;
   console.error("[contributions] a contributor's action failed", error);
-  return "Something went wrong. Nothing was charged. Please try again.";
+  return "Something went wrong. Please look at this page again to see how things stand, and try again.";
 }
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

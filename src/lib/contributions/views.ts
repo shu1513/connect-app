@@ -24,7 +24,11 @@ export function stateOf(payment: Pick<ContributionPayment, "status" | "endedHow"
   return payment.firstFailedAt ? "failed" : "to_pay";
 }
 
-/** Why a contribution ended, in words for the person who made it. */
+/**
+ * Why a contribution ended, in words for the person who made it. It says why, and nothing about
+ * money: whether anything was charged is said by each payment's own line, from what is known
+ * about that payment.
+ */
 export function endedWords(how: string | null): string {
   switch (how) {
     case "paid":
@@ -34,11 +38,11 @@ export function endedWords(how: string | null): string {
     case "cancelled":
       return "You cancelled it.";
     case "card_step":
-      return "The card step was not finished in time. Nothing was charged.";
+      return "The card step was not finished in time.";
     case "project_ended":
       return "The project has ended.";
     case "host_let_go":
-      return "The host let the payment go. Nothing was charged.";
+      return "The host let the payment go.";
     case "given_up":
       return "No payment could be put in place for 7 days.";
     case "never_again":
@@ -48,16 +52,24 @@ export function endedWords(how: string | null): string {
     case "dispute":
       return "Your bank disputed one of its charges.";
     case "hold_lost":
-      return "Your bank let the hold go by itself. Nothing was charged.";
+      return "Your bank let the hold go by itself.";
     case "not_taken_in_time":
     case "no_hold_end":
-      return "The payment could not be taken in time, so it was let go. Nothing was charged.";
+      return "The payment could not be taken in time.";
     default:
       return "It can no longer go on.";
   }
 }
 
-export type Supported = { contribution: Contribution; projectName: string; hostName: string; handle: string | null; latest: ContributionPayment | null };
+export type Supported = {
+  contribution: Contribution;
+  projectName: string;
+  hostName: string;
+  handle: string | null;
+  latest: ContributionPayment | null;
+  /** Whether it ever got as far as a hold on the card. One that was left at the card step never did. */
+  began: boolean;
+};
 
 /** "Projects you support": every contribution of a person, the newest first, each with its latest payment. */
 export async function supportedBy(contributorId: string): Promise<Supported[]> {
@@ -71,13 +83,17 @@ export async function supportedBy(contributorId: string): Promise<Supported[]> {
     .orderBy(desc(schema.contributions.createdAt));
   if (rows.length === 0) return [];
   const payments = await db.select().from(pays).where(inArray(pays.contributionId, rows.map((row) => row.contribution.id))).orderBy(asc(pays.number));
-  return rows.map((row) => ({
-    contribution: row.contribution,
-    projectName: row.projectName,
-    hostName: row.hostName ?? row.userName,
-    handle: row.handle,
-    latest: payments.filter((payment) => payment.contributionId === row.contribution.id).at(-1) ?? null,
-  }));
+  return rows.map((row) => {
+    const own = payments.filter((payment) => payment.contributionId === row.contribution.id);
+    return {
+      contribution: row.contribution,
+      projectName: row.projectName,
+      hostName: row.hostName ?? row.userName,
+      handle: row.handle,
+      latest: own.at(-1) ?? null,
+      began: own.some((payment) => payment.authorisedAt !== null || payment.status === "held" || payment.status === "taken"),
+    };
+  });
 }
 
 /** The refund lines of some payments, by payment. */
@@ -161,12 +177,23 @@ export type FounderRow = PaymentRow & { contribution: Contribution; contributorN
  * founder holds back or released, and one whose charge is disputed.
  */
 export async function forFounder(): Promise<{ received: Map<string, number>; rows: FounderRow[] }> {
+  // (Added up as a wide number: a project's total can pass what a 32-bit number holds.)
   const totals = await db
-    .select({ projectId: schema.contributions.projectId, cents: sql<number>`coalesce(sum(${pays.takenCents} - ${pays.refundedCents}), 0)::int` })
+    .select({ projectId: schema.contributions.projectId, cents: sql<string>`coalesce(sum(${pays.takenCents} - ${pays.refundedCents}), 0)::bigint` })
     .from(pays)
     .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
     .where(eq(pays.status, "taken"))
     .groupBy(schema.contributions.projectId);
+  const rows = await founderRows(or(isNotNull(pays.problem), eq(pays.thirtyDayMark, true), ne(pays.founderHold, "none"), inArray(pays.dispute, ["open", "lost"]), and(inArray(pays.status, ["held", "taken"]), sql`${pays.amountCents} > 100000`)), ATTENTION, 0);
+  return { received: new Map(totals.map((row) => [row.projectId, Number(row.cents)])), rows };
+}
+
+/** The attention list shows this many, the newest first. Every payment is always reachable through its project's own list. */
+export const ATTENTION = 200;
+/** Payments on one page of a project's list. */
+export const PAYMENTS_PER_PAGE = 50;
+
+async function founderRows(where: ReturnType<typeof and>, limit: number, offset: number): Promise<FounderRow[]> {
   const contributor = sql<string>`(select name from "user" where id = ${schema.contributions.contributorId})`;
   const host = sql<string>`(select name from "user" where id = ${schema.contributions.hostId})`;
   const found = await db
@@ -174,10 +201,21 @@ export async function forFounder(): Promise<{ received: Map<string, number>; row
     .from(pays)
     .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
     .innerJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
-    .where(or(isNotNull(pays.problem), eq(pays.thirtyDayMark, true), ne(pays.founderHold, "none"), inArray(pays.dispute, ["open", "lost"]), and(inArray(pays.status, ["held", "taken"]), sql`${pays.amountCents} > 100000`)))
-    .orderBy(desc(pays.createdAt))
-    .limit(200);
+    .where(where)
+    .orderBy(desc(pays.createdAt), desc(pays.id))
+    .limit(limit)
+    .offset(offset);
   const ids = found.map((row) => row.payment.id);
   const lines = rowsFor(found.map((row) => row.payment), await sharesOf(ids), await refundsOf(ids));
-  return { received: new Map(totals.map((row) => [row.projectId, row.cents])), rows: found.map((row, index) => ({ ...lines[index], contribution: row.contribution, contributorName: row.contributorName, hostName: row.hostName, projectName: row.projectName })) };
+  return found.map((row, index) => ({ ...lines[index], contribution: row.contribution, contributorName: row.contributorName, hostName: row.hostName, projectName: row.projectName }));
+}
+
+/**
+ * For the founder: every payment of one project, page by page, the newest first, whether or not
+ * anything about it needs a look. This is how the founder reaches an ordinary payment, to refund
+ * it after the host has collected, or to hold its share back.
+ */
+export async function projectPaymentsForFounder(projectId: string, page: number): Promise<{ rows: FounderRow[]; older: boolean }> {
+  const found = await founderRows(eq(schema.contributions.projectId, projectId), PAYMENTS_PER_PAGE + 1, (Math.max(1, page) - 1) * PAYMENTS_PER_PAGE);
+  return { rows: found.slice(0, PAYMENTS_PER_PAGE), older: found.length > PAYMENTS_PER_PAGE };
 }

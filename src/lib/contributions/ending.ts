@@ -8,14 +8,14 @@
  * except letting their holds go, which comes right after and is repeated by the helper until it
  * is done. Money that was already taken is not touched.
  */
-import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Contribution } from "@/db/schema";
 import { MoneyError, type Tx } from "@/lib/payments/operations";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { retireCard } from "./cards";
 import { letGo } from "./charge";
-import { queueEndedEmails } from "./emails";
+import { queueEndedEmails, queueProjectEndedEmail } from "./emails";
 import { lockContribution, lockPair } from "./locks";
 
 const pays = schema.contributionPayments;
@@ -109,7 +109,22 @@ export async function endContributionsOf(tx: Tx, userId: string, how: string, no
 
 /** The host ends her project: every contribution to it. In the step that ends the project. */
 export async function endContributionsOfProject(tx: Tx, projectId: string, how: string, now: Date): Promise<string[]> {
-  return endAllInStep(tx, await found(tx, and(notEnded, eq(schema.contributions.projectId, projectId))), how, now);
+  const live = await found(tx, and(notEnded, eq(schema.contributions.projectId, projectId)));
+  const toLetGo = await endAllInStep(tx, live, how, now);
+  // Everyone whose money this project has taken is told that it ended. The monthly contributors whose
+  // contribution ended just now were told by that step, with the same reason.
+  const paid = await tx
+    .selectDistinct({ contributorId: schema.contributions.contributorId, hostId: schema.contributions.hostId })
+    .from(pays)
+    .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
+    .where(and(eq(schema.contributions.projectId, projectId), eq(pays.status, "taken")));
+  const toldAlready = new Set(
+    live.length === 0
+      ? []
+      : (await tx.select({ contributorId: schema.contributions.contributorId }).from(schema.contributions).where(and(eq(schema.contributions.kind, "monthly"), isNotNull(schema.contributions.firstHoldAt), inArray(schema.contributions.id, live.map((row) => row.id))))).map((row) => row.contributorId),
+  );
+  for (const person of paid) if (!toldAlready.has(person.contributorId)) await queueProjectEndedEmail(tx, { projectId, hostId: person.hostId, contributorId: person.contributorId });
+  return toLetGo;
 }
 
 /** Lets go of the holds of payments a step has just given up. Never throws: the giving up is saved, and the helper repeats the letting-go until it is done. */

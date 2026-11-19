@@ -55,7 +55,7 @@ export async function releaseAction(formData: FormData) {
 
 export async function letGoAsFounderAction(formData: FormData) {
   const admin = await requireAdmin();
-  let notice = "The payment is being let go. Nothing is charged for it.";
+  let notice = "The payment is being let go. The list below says so once that is done.";
   try {
     await letPaymentGo({ paymentId: paymentOf(formData), by: "founder", actorId: admin.id, note: noteOf(formData) });
   } catch (error) {

@@ -8,7 +8,7 @@ import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import type { ProjectPicture } from "@/db/schema";
-import { forFounder, stateOf } from "@/lib/contributions/views";
+import { ATTENTION, forFounder, projectPaymentsForFounder, stateOf, type FounderRow } from "@/lib/contributions/views";
 import { formatMoney } from "@/lib/payments/access";
 import { holdBackAction, letGoAsFounderAction, refundAsFounderAction, releaseAction } from "./contribution-actions";
 import { mayBeFetched } from "@/lib/projects/child-safety";
@@ -59,6 +59,10 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
   const counts = new Map(await Promise.all(projects.map(async ({ project }) => [project.id, await publicPostCount(project.id)] as const)));
   // What each project has received, and the payments that need a look.
   const money = await forFounder();
+  // Every payment of one project, page by page, when the address names one (`?payments=`): the way to an ordinary payment.
+  const paymentsOf = typeof query.payments === "string" ? projects.find(({ project }) => project.id === query.payments) : undefined;
+  const paymentsPage = typeof query.pp === "string" && /^[1-9]\d{0,3}$/.test(query.pp) ? Number(query.pp) : 1;
+  const projectPayments = paymentsOf ? await projectPaymentsForFounder(paymentsOf.project.id, paymentsPage) : null;
 
   return (
     <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
@@ -264,112 +268,48 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
         </ul>
       )}
 
+      {paymentsOf && projectPayments && (
+        <section className="mt-8" data-project-payments>
+          <h2 className="text-lg font-semibold">
+            Every payment of &ldquo;{paymentsOf.project.name}&rdquo;, by {paymentsOf.hostName}
+          </h2>
+          <p className="mt-1 text-sm opacity-70">The newest first. Each thing you do here needs a reason, which is kept.</p>
+          {projectPayments.rows.length === 0 ? (
+            <p className="mt-2 text-sm opacity-70">{paymentsPage > 1 ? "There are no older payments." : "Nobody has contributed to this project."}</p>
+          ) : (
+            <ul className="mt-3 space-y-3 text-sm">
+              {projectPayments.rows.map((row) => (
+                <ContributionRow key={row.payment.id} row={row} />
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 flex gap-4 text-sm">
+            {paymentsPage > 1 && (
+              <Link href={`/admin/projects?payments=${paymentsOf.project.id}&pp=${paymentsPage - 1}`} className="underline underline-offset-2">
+                Newer payments
+              </Link>
+            )}
+            {projectPayments.older && (
+              <Link href={`/admin/projects?payments=${paymentsOf.project.id}&pp=${paymentsPage + 1}`} className="underline underline-offset-2">
+                Older payments
+              </Link>
+            )}
+          </p>
+        </section>
+      )}
+
       <h2 className="mt-10 text-lg font-semibold">Contributions that need a look ({money.rows.length})</h2>
       <p className="mt-1 text-sm opacity-70">
-        Payments with a problem, payments of one person who has given a host more than $1,000 in 30 days, single payments over $1,000, payments you hold back or released, and payments whose charge is disputed. Each thing you do here needs a reason, which is kept.
+        Payments with a problem, payments of one person who has given a host more than $1,000 in 30 days, single payments over $1,000, payments you hold back or released, and payments whose charge is disputed. Each thing you do here needs a reason, which is kept. {money.rows.length >= ATTENTION ? `Only the newest ${ATTENTION} are listed here. ` : ""}Every other payment is reached through its project, under
+        &ldquo;Every project&rdquo; below.
       </p>
       {money.rows.length === 0 ? (
         <p className="mt-2 text-sm opacity-70">Nothing needs a look.</p>
       ) : (
         <ul className="mt-3 space-y-3 text-sm" data-contributions>
-          {money.rows.map((row) => {
-            const { payment, contribution, share } = row;
-            const state = stateOf(payment);
-            const sent = share?.transferStatus === "sent";
-            return (
-              <li key={payment.id} className="rounded border border-neutral-400 p-3" data-payment={state}>
-                <p>
-                  <strong>{formatMoney(payment.amountCents)}</strong> from {row.contributorName} to {row.hostName}, &ldquo;{row.projectName}&rdquo;
-                  {contribution.kind === "monthly" ? `, month ${payment.number} of a monthly contribution` : ", once"}.{" "}
-                  {state === "held" && payment.takeAt ? (
-                    <>
-                      Held; taken on <LocalTime iso={payment.takeAt.toISOString()} />.
-                    </>
-                  ) : state === "taken" && payment.takenAt ? (
-                    <>
-                      Taken on <LocalTime iso={payment.takenAt.toISOString()} />.{" "}
-                      {share?.transferDueAt && !sent && (
-                        <>
-                          The host can collect it from <LocalTime iso={share.transferDueAt.toISOString()} />.
-                        </>
-                      )}
-                      {sent && "Her share has been sent to her."}
-                    </>
-                  ) : state === "cancelled" ? (
-                    "Given up; nothing was charged."
-                  ) : state === "cancelling" ? (
-                    "Being let go."
-                  ) : (
-                    "Not paid yet."
-                  )}
-                </p>
-                {payment.problem && <p className="mt-1 text-red-700">Problem: {payment.problem}</p>}
-                {payment.thirtyDayMark && <p className="mt-1">Over the $1,000 line: its share waits 30 days.</p>}
-                {(payment.dispute === "open" || payment.dispute === "lost") && <p className="mt-1">The contributor&apos;s bank has disputed this charge ({payment.dispute}). Nothing can be collected or refunded from it.</p>}
-                {payment.founderHold !== "none" && (
-                  <p className="mt-1">
-                    {payment.founderHold === "held" ? "Held back by you" : "Released by you"}
-                    {payment.founderNote ? `: "${payment.founderNote}"` : ""}.
-                  </p>
-                )}
-                {payment.refundedCents > 0 && <p className="mt-1">{formatMoney(payment.refundedCents)} was paid back.</p>}
-                {row.refundUnderWayCents > 0 && <p className="mt-1">{formatMoney(row.refundUnderWayCents)} is on its way back.</p>}
-
-                {state === "held" && (
-                  <form action={letGoAsFounderAction} className="mt-2 flex flex-wrap items-end gap-2">
-                    <input type="hidden" name="payment" value={payment.id} />
-                    <label>
-                      Reason
-                      <input name="note" type="text" required maxLength={300} className={reasonBox} />
-                    </label>
-                    <button type="submit" className={smallButton}>
-                      Let it go
-                    </button>
-                  </form>
-                )}
-                {state === "taken" && (
-                  <>
-                    <form className="mt-2 flex flex-wrap items-end gap-2">
-                      <input type="hidden" name="payment" value={payment.id} />
-                      <label>
-                        Reason
-                        <input name="note" type="text" required maxLength={300} className={reasonBox} />
-                      </label>
-                      <button type="submit" formAction={holdBackAction} className={smallButton}>
-                        Hold back
-                      </button>
-                      <button type="submit" formAction={releaseAction} className={smallButton}>
-                        Release
-                      </button>
-                    </form>
-                    {row.refundableCents > 0 && payment.dispute !== "open" && payment.dispute !== "lost" && (
-                      <form action={refundAsFounderAction} className="mt-2 flex flex-wrap items-end gap-2">
-                        <input type="hidden" name="payment" value={payment.id} />
-                        {/* Made when this page was drawn: the same press, sent twice, is one refund. */}
-                        <input type="hidden" name="request" value={randomUUID()} />
-                        <label>
-                          Give back, in dollars
-                          <input name="amount" type="text" inputMode="decimal" maxLength={12} defaultValue={(row.refundableCents / 100).toFixed(2)} className={`${reasonBox} w-28`} />
-                        </label>
-                        <label>
-                          Reason
-                          <input name="note" type="text" required maxLength={300} className={reasonBox} />
-                        </label>
-                        <button type="submit" className={smallButton}>
-                          Refund
-                        </button>
-                        <span className="basis-full opacity-70">
-                          {sent
-                            ? "Her share of this payment has already been sent to her. This refund is Connect's own money: nothing is taken back from the host."
-                            : "Her share has not been sent yet: it gets smaller by the same proportion, and so does our fee."}
-                        </span>
-                      </form>
-                    )}
-                  </>
-                )}
-              </li>
-            );
-          })}
+          {money.rows.map((row) => (
+            <ContributionRow key={row.payment.id} row={row} />
+          ))}
         </ul>
       )}
 
@@ -385,6 +325,10 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
               {counts.get(project.id) === 1 ? "post" : "posts"} shown, {formatMoney(money.received.get(project.id) ?? 0)} received in contributions (after refunds).{" "}
               <Link href={`/admin/projects?project=${project.id}`} className="underline underline-offset-2">
                 Every post
+              </Link>
+              {" · "}
+              <Link href={`/admin/projects?payments=${project.id}`} className="underline underline-offset-2">
+                Every payment
               </Link>
               {handle && (
                 <>
@@ -553,5 +497,108 @@ function PictureCard({ picture, where, postId }: { picture: ProjectPicture; wher
         </form>
       </div>
     </div>
+  );
+}
+
+/**
+ * One payment of a contribution as the founder sees it, with what the founder can do about it:
+ * let it go while it is only held, hold its share back or release it, and refund it once its
+ * money was taken. Each needs a reason, which is kept.
+ */
+function ContributionRow({ row }: { row: FounderRow }) {
+  const { payment, contribution, share } = row;
+  const state = stateOf(payment);
+  const sent = share?.transferStatus === "sent";
+  return (
+    <li className="rounded border border-neutral-400 p-3" data-payment={state}>
+      <p>
+        <strong>{formatMoney(payment.amountCents)}</strong> from {row.contributorName} to {row.hostName}, &ldquo;{row.projectName}&rdquo;
+        {contribution.kind === "monthly" ? `, month ${payment.number} of a monthly contribution` : ", once"}.{" "}
+        {state === "held" && payment.takeAt ? (
+          <>
+            Held; taken on <LocalTime iso={payment.takeAt.toISOString()} />.
+          </>
+        ) : state === "taken" && payment.takenAt ? (
+          <>
+            Taken on <LocalTime iso={payment.takenAt.toISOString()} />.{" "}
+            {share?.transferDueAt && !sent && (
+              <>
+                The host can collect it from <LocalTime iso={share.transferDueAt.toISOString()} />.
+              </>
+            )}
+            {sent && "Her share has been sent to her."}
+          </>
+        ) : state === "cancelled" ? (
+          "Given up; nothing was charged."
+        ) : state === "cancelling" ? (
+          "Being let go."
+        ) : (
+          "Not paid yet."
+        )}
+      </p>
+      {payment.problem && <p className="mt-1 text-red-700">Problem: {payment.problem}</p>}
+      {payment.thirtyDayMark && <p className="mt-1">Over the $1,000 line: its share waits 30 days.</p>}
+      {(payment.dispute === "open" || payment.dispute === "lost") && <p className="mt-1">The contributor&apos;s bank has disputed this charge ({payment.dispute}). Nothing can be collected or refunded from it.</p>}
+      {payment.founderHold !== "none" && (
+        <p className="mt-1">
+          {payment.founderHold === "held" ? "Held back by you" : "Released by you"}
+          {payment.founderNote ? `: "${payment.founderNote}"` : ""}.
+        </p>
+      )}
+      {payment.refundedCents > 0 && <p className="mt-1">{formatMoney(payment.refundedCents)} was paid back.</p>}
+      {row.refundUnderWayCents > 0 && <p className="mt-1">{formatMoney(row.refundUnderWayCents)} is on its way back.</p>}
+
+      {state === "held" && (
+        <form action={letGoAsFounderAction} className="mt-2 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="payment" value={payment.id} />
+          <label>
+            Reason
+            <input name="note" type="text" required maxLength={300} className={reasonBox} />
+          </label>
+          <button type="submit" className={smallButton}>
+            Let it go
+          </button>
+        </form>
+      )}
+      {/* The share can be held back, or released, also while the payment is only held: the decision is kept to once the money is taken. */}
+      {(state === "held" || state === "taken") && (
+        <form className="mt-2 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="payment" value={payment.id} />
+          <label>
+            Reason
+            <input name="note" type="text" required maxLength={300} className={reasonBox} />
+          </label>
+          <button type="submit" formAction={holdBackAction} className={smallButton}>
+            Hold back
+          </button>
+          <button type="submit" formAction={releaseAction} className={smallButton}>
+            Release
+          </button>
+        </form>
+      )}
+      {state === "taken" && row.refundableCents > 0 && payment.dispute !== "open" && payment.dispute !== "lost" && (
+        <form action={refundAsFounderAction} className="mt-2 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="payment" value={payment.id} />
+          {/* Made when this page was drawn: the same press, sent twice, is one refund. */}
+          <input type="hidden" name="request" value={randomUUID()} />
+          <label>
+            Give back, in dollars
+            <input name="amount" type="text" inputMode="decimal" maxLength={12} defaultValue={(row.refundableCents / 100).toFixed(2)} className={`${reasonBox} w-28`} />
+          </label>
+          <label>
+            Reason
+            <input name="note" type="text" required maxLength={300} className={reasonBox} />
+          </label>
+          <button type="submit" className={smallButton}>
+            Refund
+          </button>
+          <span className="basis-full opacity-70">
+            {sent
+              ? "Her share of this payment has already been sent to her. This refund is Connect's own money: nothing is taken back from the host."
+              : "Her share has not been sent yet: it gets smaller by the same proportion, and so does our fee."}
+          </span>
+        </form>
+      )}
+    </li>
   );
 }

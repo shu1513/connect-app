@@ -48,7 +48,7 @@ export async function saveSuggestedAction(formData: FormData) {
 /** "Let it go": a payment that is only held, at no cost to anyone. For a monthly contribution that month is skipped, and the contribution goes on. */
 export async function letGoAsHostAction(formData: FormData) {
   const user = await requireUser(PAGE);
-  let notice = "The payment is being let go. Nothing is charged for it.";
+  let notice = "The payment is being let go. The list below says so once that is done.";
   try {
     await letPaymentGo({ paymentId: String(formData.get("payment") ?? ""), by: "host", actorId: user.id });
   } catch (error) {

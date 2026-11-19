@@ -11,8 +11,6 @@
  */
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { Contribution } from "@/db/schema";
-import type { Tx } from "@/lib/payments/operations";
 import { isId } from "@/lib/projects/projects";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { projectsOnFor } from "@/lib/safety/switches";
@@ -20,29 +18,14 @@ import { giveUpInStep, letGo, writeDownPayment } from "./charge";
 import { endContribution, endInStep, letGoAll, whyMustEnd } from "./ending";
 import { lockContribution, lockForPayment, lockPair, lockSwitchForWriting } from "./locks";
 import { ContributionError, dueMonths } from "./rules";
+import { addSkipped, skippedOf } from "./skipped";
+
+export { addSkipped, skippedOf };
 
 const BATCH = 50;
-const DAY_MS = 24 * 3_600_000;
 
-/** The numbers of the months that were skipped, as they are kept on a contribution. */
-export function skippedOf(contribution: Pick<Contribution, "skippedMonths">): number[] {
-  try {
-    const parsed: unknown = JSON.parse(contribution.skippedMonths);
-    return Array.isArray(parsed) ? parsed.filter((n): n is number => Number.isInteger(n)) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Adds months to the ones a contribution skipped, inside the caller's step, with the contribution locked. */
-export async function addSkipped(tx: Tx, contribution: Contribution, months: number[], now: Date, alsoLastWritten?: number): Promise<void> {
-  if (months.length === 0 && alsoLastWritten === undefined) return;
-  const skipped = [...new Set([...skippedOf(contribution), ...months])].sort((a, b) => a - b);
-  await tx
-    .update(schema.contributions)
-    .set({ skippedMonths: JSON.stringify(skipped), ...(alsoLastWritten !== undefined && alsoLastWritten > contribution.lastWrittenMonth ? { lastWrittenMonth: alsoLastWritten } : {}), updatedAt: now })
-    .where(eq(schema.contributions.id, contribution.id));
-}
+/** The exact day of the next month that has not been dealt with, by the UTC clock, as the database works it out (the same day rules.ts's monthlyDue gives). */
+const nextDue = sql`((${schema.contributions.firstHoldAt} at time zone 'UTC') + make_interval(months => ${schema.contributions.lastWrittenMonth})) at time zone 'UTC'`;
 
 /**
  * The helper's job: for every running monthly contribution whose next day has come, write that
@@ -60,11 +43,12 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
         eq(schema.contributions.status, "running"),
         isNotNull(schema.contributions.firstHoldAt),
         isNull(schema.contributions.switchOffAt),
-        // Roughly, by the database's own month arithmetic and a day to spare; the exact day is worked out below.
-        sql`${schema.contributions.firstHoldAt} + make_interval(months => ${schema.contributions.lastWrittenMonth}) <= ${new Date(now.getTime() + DAY_MS).toISOString()}::timestamptz`,
+        // Only contributions whose next day has really come, the longest overdue first: one that is not due yet
+        // never takes a place in the batch from one that is. (The day is worked out again, exactly, below.)
+        sql`${nextDue} <= ${now.toISOString()}::timestamptz`,
       ),
     )
-    .orderBy(asc(schema.contributions.updatedAt))
+    .orderBy(asc(nextDue))
     .limit(BATCH);
   for (const found of due) {
     try {
@@ -79,8 +63,13 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
         // themselves; this is the net behind them.
         const over = await whyMustEnd(tx, contribution);
         if (over) return endInStep(tx, contribution, over, now);
-        // Nothing new is started while the switch does not cover her. (The step that saves the switch marks her contributions; this is the net behind it.)
-        if (!(await projectsOnFor(contribution.hostId, tx))) return [];
+        // Nothing new is started while the switch does not cover her. The step that saves the switch marks her
+        // contributions; this is the net behind it, and it sets the mark that step should have set, so this
+        // contribution waits for the switch like the others and does not come up here again and again.
+        if (!(await projectsOnFor(contribution.hostId, tx))) {
+          await tx.update(schema.contributions).set({ switchOffAt: now, updatedAt: now }).where(eq(schema.contributions.id, contribution.id));
+          return [];
+        }
         const due = dueMonths(contribution.firstHoldAt, contribution.lastWrittenMonth, now);
         // A month that was skipped while the switch was off (choice 13) is never written, also when its day has only just come.
         const alreadySkipped = due.write !== null && skippedOf(contribution).includes(due.write);
