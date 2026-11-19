@@ -1509,6 +1509,18 @@ async function main() {
     await M.letPaymentGo({ paymentId: neverPaid.paymentId, by: "contributor", actorId: neverPaid.giver.id });
     check("and a payment that never had a hold still gets no such email", (await PM(neverPaid.paymentId)).status === "given_up" && (await PM(neverPaid.paymentId)).authorisedAt === null && (await mail(neverPaid.giver, "Nothing was charged")).length === 0);
 
+    // The same, when the payment is cancelled at Stripe itself (in Stripe's dashboard) and not by us.
+    const atStripe = await atCardStep(host);
+    await confirmOnly(atStripe.paymentId);
+    await stripe().paymentIntents.cancel((await PM(atStripe.paymentId)).stripePaymentIntentId!);
+    await C.syncPayment(atStripe.paymentId, new Date());
+    check("a hold we had not heard of, cancelled at Stripe and not by us, is also kept as a hold that was there, and its contributor is told", (await PM(atStripe.paymentId)).status === "given_up" && (await PM(atStripe.paymentId)).endedHow === "cancelled_at_stripe" && (await PM(atStripe.paymentId)).authorisedAt !== null && (await CO(atStripe.contributionId)).status === "ended" && (await mail(atStripe.giver, "Nothing was charged")).length === 1, { status: (await PM(atStripe.paymentId)).status, held: (await PM(atStripe.paymentId)).authorisedAt });
+    const neverHeld = await atCardStep(host);
+    await C.intentFor(neverHeld.paymentId);
+    await stripe().paymentIntents.cancel((await PM(neverHeld.paymentId)).stripePaymentIntentId!);
+    await C.syncPayment(neverHeld.paymentId, new Date());
+    check("and one cancelled there that never had a hold gets no such email", (await PM(neverHeld.paymentId)).status === "given_up" && (await PM(neverHeld.paymentId)).authorisedAt === null && (await mail(neverHeld.giver, "Nothing was charged")).length === 0);
+
     // The contributor stops at the very moment the host ends her project.
     const closing = await newHost();
     const q = await held(closing, { kind: "monthly", amountCents: 1000 });
@@ -1560,7 +1572,8 @@ async function main() {
       }
     };
     walk("src/app");
-    const contributors = ["src/app/contributions/actions.ts", "src/app/contributions/new/page.tsx", "src/app/contributions/[id]/page.tsx", "src/app/api/contributions/[id]/sync/route.ts", "src/app/h/[handle]/project/diary.tsx"];
+    // (With part three the diary no longer reaches this code itself: it asks `projects/ask.ts`, which only reads.)
+    const contributors = ["src/app/contributions/actions.ts", "src/app/contributions/new/page.tsx", "src/app/contributions/[id]/page.tsx", "src/app/api/contributions/[id]/sync/route.ts"];
     const hosts = ["src/app/host/project/contribution-actions.ts"];
     const founders = ["src/app/admin/projects/contribution-actions.ts", "src/app/admin/projects/actions.ts"];
     const known = [...contributors, ...hosts, ...founders];

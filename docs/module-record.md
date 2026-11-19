@@ -1897,7 +1897,7 @@ built. It adds no table, no money rule and no email.
   first lines of what it is about, and "See the project". No amount and nothing that pays.
 - One line for a signed-in visitor in the project's box on the host's page, and the same line on
   the diary: "You contribute $X a month", "Finish contributing", or "Contribute".
-- `scripts/project-journey-check.ts`: 87 checks through the real pages, from a host's first post
+- `scripts/project-journey-check.ts`: 89 checks through the real pages, from a host's first post
   to the founder's switch.
 
 **What building changed in the plan** (written into plan 26)
@@ -1905,7 +1905,8 @@ built. It adds no table, no money rule and no email.
   too.
 - A project with no suggested amounts takes no contributions, so it has no box after a call
   either.
-- "Finish contributing" is shown only while contributing is possible. Someone who already
+- "Finish contributing" is shown only while contributing is possible and that card step can
+  still be finished (its 30 minutes are not over). Someone who already
   contributes every month is not offered a second monthly contribution in the diary, which
   would only be refused.
 - The "Your earnings" part of the Hosting page is drawn only for a host with a payout account.
@@ -1915,10 +1916,12 @@ built. It adds no table, no money rule and no email.
 **How it was checked**
 - The unit tests of the rule: every condition failing alone, and all of them true.
 - `scripts/project-journey-check.ts --payouts`, against the running app and Stripe's test mode.
-  Real: sign-up, every page and button, a picture's upload, every contribution's payment, one
-  collection that sends a contribution's share and a call's share together, the emails.
-  Pretended: the host's approval, that two people had a call, the picture checker, the waiting,
-  and in the short cases a pause, a hidden page, a membership and the closing of a report.
+  Real: sign-up, every page and button of the project, a picture's upload, every contribution's
+  payment, the emails. Pretended: the host's approval, that two people had a call, the picture
+  checker, the waiting, and in the short cases a pause, a hidden page, a membership and the
+  closing of a report. The collecting step is not walked through the pages: its paid call is
+  made by the app's functions, and one collection, started by the function behind "Collect
+  earnings" with a later clock, sends a contribution's share and a call's share together.
 - All 17 earlier check scripts, once more on the finished code.
 - In the browser, phone-sized and wide: the box after a call and the "Contribute" line, as a
   signed-in customer. That the host and a visitor who is not signed in see neither was checked

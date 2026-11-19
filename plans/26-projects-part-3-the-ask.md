@@ -213,13 +213,18 @@ Nothing here changes a rule. It is what the code made exact.
 - **The visitor's line.** `contributionOf` answers two things: whether the visitor could
   contribute now, and their own contribution if it gets a line. "You contribute $X a month" is
   shown as long as that contribution runs, also while the founder's switch is off for the host.
-  "Finish contributing" is shown only while contributing is possible. In the diary, someone who
+  "Finish contributing" is shown only while contributing is possible and that card step can
+  still be finished: its payment waits for a card and its 30 minutes are not over. (After that
+  the contribution's own page asks the bank what became of it; the line would lead to a page
+  with nothing to finish.) In the diary, someone who
   already contributes every month sees the line and "Contribute once", and no second monthly
   form, which would only be refused. So `src/app/h/[handle]/project/diary.tsx` changed too.
 - **The journey.** As planned, with these things made exact:
-  - Collecting is its step 6 and runs only with `--payouts`. The paid call that is collected
-    with the contribution's share is made by the app's functions, not through the pages, like
-    the paid call in the membership check.
+  - Collecting is its step 6 and runs only with `--payouts`. It is not walked through the
+    pages: the paid call that is collected with the contribution's share is made by the app's
+    functions, like the paid call in the membership check, and the collection is started by the
+    function behind "Collect earnings" with a later clock, since the button always collects at
+    the real moment.
   - The "Your earnings" part of the Hosting page is drawn only for a host with a payout account,
     which the journey's host has during step 6 only. Elsewhere the script reads her earnings
     from the function that part is drawn from.

@@ -3,7 +3,7 @@
  * "After a call"; plans/26): the box on the results of a call, and the visitor's own line
  * beside the project. Reading only: nothing here writes anything, and nothing asks Stripe.
  */
-import { and, desc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Project } from "@/db/schema";
 import type { LoadedAttendance } from "@/lib/attendance/load";
@@ -90,10 +90,11 @@ export type OwnContribution = { is: "monthly"; contributionId: string; amountCen
 /**
  * What a visitor is to a project: whether they could contribute to it right now (`can`, the
  * answer of `whyNotContribute`), and their own contribution if it gets a line (`own`): one that
- * runs every month, or one they began and left at the card step. The host's page and the diary
- * both ask this, so the two never disagree. Without a visitor (not signed in) there is no `own`.
+ * runs every month, or one they began and left at a card step that can still be finished. The
+ * host's page and the diary both ask this, so the two never disagree. Without a visitor (not
+ * signed in) there is no `own`.
  */
-export async function contributionOf(viewerId: string | null, project: Project): Promise<{ can: boolean; own: OwnContribution | null }> {
+export async function contributionOf(viewerId: string | null, project: Project, now: Date = new Date()): Promise<{ can: boolean; own: OwnContribution | null }> {
   const can = (await whyNotContribute(db, { contributorId: viewerId, project })) === null;
   if (!viewerId) return { can, own: null };
   const open = await db
@@ -103,7 +104,15 @@ export async function contributionOf(viewerId: string | null, project: Project):
     .orderBy(desc(schema.contributions.createdAt));
   const monthly = open.find((contribution) => contribution.kind === "monthly" && contribution.status === "running");
   if (monthly) return { can, own: { is: "monthly", contributionId: monthly.id, amountCents: monthly.amountCents } };
-  // A card step is only worth going back to while a contribution could still be made.
-  const unfinished = can ? open.find((contribution) => contribution.status === "card_step") : undefined;
-  return { can, own: unfinished ? { is: "card_step", contributionId: unfinished.id } : null };
+  // A card step is only worth going back to while a contribution could still be made, and while that very step
+  // can still be finished: its payment waits for a card, and its 30 minutes are not over. (Only read here: what
+  // became of a payment whose time ran out is asked on the contribution's own page.)
+  const atCardStep = can ? open.filter((contribution) => contribution.status === "card_step").map((contribution) => contribution.id) : [];
+  if (atCardStep.length === 0) return { can, own: null };
+  const payable = await db
+    .select({ contributionId: pays.contributionId })
+    .from(pays)
+    .where(and(inArray(pays.contributionId, atCardStep), eq(pays.status, "to_pay"), isNull(pays.endedHow), isNull(pays.problem), gt(pays.cardStepExpiresAt, now)));
+  const unfinished = atCardStep.find((id) => payable.some((payment) => payment.contributionId === id));
+  return { can, own: unfinished ? { is: "card_step", contributionId: unfinished } : null };
 }

@@ -689,8 +689,13 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
       return;
     }
     if (intent.status === "canceled") {
+      // Cancelled at Stripe, not by us. If the cancelled payment shows that a hold was in place before (one we had
+      // not heard of yet), that is kept as a hold that was there, as everywhere else: its contributor is told that
+      // nothing was charged, and is not counted as someone who never contributed.
+      const heldAt = charge?.status === "succeeded" && charge.created ? new Date(charge.created * 1000) : null;
+      if (heldAt) await tx.update(pays).set({ authorisedAt: heldAt }).where(eq(pays.id, payment.id));
       await giveUpInStep(tx, locked, "cancelled_at_stripe", now);
-      await tx.update(pays).set({ status: "given_up", updatedAt: now }).where(eq(pays.id, payment.id));
+      await markGivenUp(tx, payment, now);
       return;
     }
     if (intent.status === "processing") return;
