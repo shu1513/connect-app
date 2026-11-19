@@ -13,9 +13,9 @@
  * action stays "started". Nothing else can run on that payment until
  * reconcile.ts has asked Stripe what actually happened.
  *
- * An action is owned by a payment or, for a membership, by a month
- * (src/lib/membership). Both go through the same steps below; only the row
- * that is locked differs. The functions with "Money" or "Payment" in their
+ * An action is owned by a payment, by a membership's month (src/lib/membership)
+ * or by a contribution's payment (src/lib/contributions). All three go through
+ * the same steps below; only the row that is locked differs. The functions with "Money" or "Payment" in their
  * name are the payment's, exactly as they were; the "owned" ones take the owner.
  */
 import { and, eq, like, sql } from "drizzle-orm";
@@ -40,16 +40,15 @@ export async function lockPayment(tx: Tx, paymentId: string): Promise<Payment> {
 }
 
 /**
- * Who owns an action: a payment or a month, and how that owner is locked. The
+ * Who owns an action: a payment, a month or a contribution's payment, and how that owner is locked. The
  * lock is called inside the transaction of every step (starting, finishing,
  * refusing, recovering), so each owner keeps one order of locks everywhere.
  */
-export type Owner<Row> = { column: "paymentId" | "monthId"; id: string; lock: (tx: Tx) => Promise<Row> };
+export type Owner<Row> = { column: "paymentId" | "monthId" | "contributionPaymentId"; id: string; lock: (tx: Tx) => Promise<Row> };
 
 const paymentOwner = (paymentId: string): Owner<Payment> => ({ column: "paymentId", id: paymentId, lock: (tx) => lockPayment(tx, paymentId) });
 
-const ownedBy = (owner: Pick<Owner<unknown>, "column" | "id">) =>
-  owner.column === "paymentId" ? eq(schema.moneyOperations.paymentId, owner.id) : eq(schema.moneyOperations.monthId, owner.id);
+const ownedBy = (owner: Pick<Owner<unknown>, "column" | "id">) => eq(schema.moneyOperations[owner.column], owner.id);
 
 /** The steps of one action for an owner of any kind. */
 export type OwnedPlan<Row, P, R> = {
@@ -214,14 +213,14 @@ export async function failOwnedOperation<Row>(operationId: string, owner: Owner<
   });
 }
 
-/** Adds one line to the money record. Lines are never edited or removed. Owned by a payment or by a month. */
+/** Adds one line to the money record. Lines are never edited or removed. Owned by a payment, by a month or by a contribution's payment. */
 export async function addLedgerEntry(
   tx: Tx,
-  entry: ({ paymentId: string } | { monthId: string }) & { kind: string; amountCents: number; stripeRef?: string | null; note?: string },
+  entry: ({ paymentId: string } | { monthId: string } | { contributionPaymentId: string }) & { kind: string; amountCents: number; stripeRef?: string | null; note?: string },
 ): Promise<void> {
   if (entry.amountCents === 0) return;
   await tx.insert(schema.ledgerEntries).values({
-    ...("paymentId" in entry ? { paymentId: entry.paymentId } : { monthId: entry.monthId }),
+    ...("paymentId" in entry ? { paymentId: entry.paymentId } : "monthId" in entry ? { monthId: entry.monthId } : { contributionPaymentId: entry.contributionPaymentId }),
     kind: entry.kind,
     amountCents: entry.amountCents,
     stripeRef: entry.stripeRef ?? null,
