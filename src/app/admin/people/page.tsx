@@ -5,6 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
+import { hostCountryName } from "@/lib/profiles/countries";
 import { photosForAdmin } from "@/lib/profiles/photo";
 import { INSTAGRAM_PHOTO, INSTAGRAM_SIGN_IN, refusedBioChecks } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
@@ -124,7 +125,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                 {profile.displayName} <span className="opacity-70">@{profile.handle}</span>
               </p>
               <p className="mt-1 opacity-80">
-                Account: {accountName}, {email}
+                Account: {accountName}, {email}. Based in: {hostCountryName(profile.country)}.
               </p>
               <p className="mt-1">
                 {identity.get(profile.userId)?.passed
@@ -230,7 +231,10 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                   <td className="py-1.5 pr-3">
                     {profile.displayName} <span className="opacity-70">@{profile.handle}</span>
                   </td>
-                  <td className="py-1.5 pr-3">{email}</td>
+                  <td className="py-1.5 pr-3">
+                    {email}
+                    <span className="opacity-70">, {hostCountryName(profile.country)}</span>
+                  </td>
                   <td className="py-1.5 pr-3">
                     {STATUS_LABEL[profile.status] ?? profile.status}
                     {profile.hidden ? ", hidden by the host" : ""}

@@ -13,7 +13,7 @@ export default async function PayoutsReturnPage() {
   try {
     notice = (await refreshPayoutsReady(user.id))
       ? "Your payout account is ready."
-      : "Stripe still needs some details before you can be paid. You can continue the setup below.";
+      : "Your payout account is not ready yet. Stripe may still be checking your details, which can take a few minutes: look at this page again. If Stripe needs something more from you, you can continue the setup below. If the setup cannot be continued, write to support.";
   } catch (error) {
     console.error("[payments] could not check a payout account with Stripe", error);
     notice = "We could not check your payout account with Stripe just now. Please try again in a minute.";

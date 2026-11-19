@@ -180,7 +180,15 @@ export const hostProfiles = pgTable("host_profiles", {
   status: text("status").notNull().default("pending"),
   decidedBy: text("decided_by").references(() => user.id),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
-  /** When the host confirmed they are based in the United States. */
+  /**
+   * Where the host is based: one of the countries in profiles/countries.ts, as two capital letters.
+   * (The database only makes sure it is never missing; that it is a country of the list is checked
+   * where a host applies, the one place that writes it.) Said once, when they apply, and never changed by the host: their payout account at Stripe is
+   * opened for this country, and Stripe fixes an account's country for good. Every host from
+   * before hosts abroad existed is in the United States.
+   */
+  country: text("country").notNull().default("US"),
+  /** When the host said where they are based. (The name is from the time when that could only be the United States.) */
   usConfirmedAt: timestamp("us_confirmed_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

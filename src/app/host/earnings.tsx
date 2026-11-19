@@ -8,7 +8,7 @@ import { collectEarningsAction } from "./actions";
 const sum = (earnings: Earning[]) => earnings.reduce((total, e) => total + e.shareCents, 0);
 
 /** What the host has earned and not collected yet, the button to collect it, and what their last collection really did. */
-export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; payoutsReady: boolean; now: Date }) {
+export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: string; payoutsReady: boolean; abroad: boolean; now: Date }) {
   const earnings = await unsentEarnings(now, hostId);
   const ready = earnings.filter((e) => e.heldBack === null);
   const waiting = earnings.filter((e) => e.heldBack !== null);
@@ -33,7 +33,7 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
       {ready.length > 0 && !would && (
         <p className="mt-1 opacity-80">That is not more than the 25-cent collection charge, so there is nothing to collect yet.</p>
       )}
-      {would && !payoutsReady && <p className="mt-1 opacity-80">Finish your payout setup at Stripe first. Then you can collect it.</p>}
+      {would && !payoutsReady && <p className="mt-1 opacity-80">Your payout account at Stripe is not ready yet (see above). Once it is, you can collect this.</p>}
       {would && payoutsReady && tooSoon && (
         <p className="mt-1 opacity-80">
           You can collect again from <LocalTime iso={collection.againAt.toISOString()} />.
@@ -45,7 +45,7 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
           <input type="hidden" name="collectionId" value={randomUUID()} />
           <p>
             {formatMoney(sum(ready))}, less the {formatMoney(would.feeCents)} collection charge: {formatMoney(would.sendCents)} will be sent to
-            your Stripe payout account. Stripe then pays your bank.
+            your Stripe payout account. Stripe then pays your bank{abroad ? ", in your own money at its exchange rate of that moment" : ""}.
           </p>
           <button type="submit" className="mt-2 rounded bg-blue-600 px-4 py-2 font-medium text-white">
             Collect earnings
@@ -125,10 +125,18 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
         </p>
       )}
 
-      <p className="mt-4 opacity-70">
-        After we send it, Stripe pays your bank on its own schedule. Your first payout from Stripe typically takes 7 to 14 days; Stripe shows
-        you its own estimate.
-      </p>
+      {abroad ? (
+        // No number of days is promised to a host abroad: it was only ever measured for hosts in the United States.
+        <p className="mt-4 opacity-70" data-earnings-abroad>
+          The amounts here are in US dollars, as we send them. Stripe turns them into your own money and pays your bank on its own schedule; your
+          Stripe dashboard shows what arrived and when it is paid.
+        </p>
+      ) : (
+        <p className="mt-4 opacity-70">
+          After we send it, Stripe pays your bank on its own schedule. Your first payout from Stripe typically takes 7 to 14 days; Stripe shows
+          you its own estimate.
+        </p>
+      )}
     </div>
   );
 }

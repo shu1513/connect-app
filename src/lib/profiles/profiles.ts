@@ -10,6 +10,7 @@ import { memberPriceFloor } from "@/lib/membership/room";
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { priceProblem } from "@/lib/payments/hold";
 import { identityState } from "@/lib/safety/identity";
+import { HOME_COUNTRY, isHostCountry } from "./countries";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
 import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
@@ -94,18 +95,31 @@ function checkedDetails(input: { displayName: string; about: string; pricePer15C
   return { displayName, about, pricePer15Cents: input.pricePer15Cents };
 }
 
-/** A person applies to host. The profile waits for the founder's approval before anyone can see it. */
+/**
+ * A person applies to host. The profile waits for the founder's approval before anyone can see it.
+ *
+ * `country` is where they say they are based: it must be given, and be one of the countries a
+ * host can be paid in (countries.ts). It is never guessed, and the host cannot change it later:
+ * their payout account at Stripe is opened for it (plans/27-hosts-abroad.md).
+ */
 export async function createHostProfile(
   userId: string,
-  input: { handle: string; displayName: string; about: string; pricePer15Cents: number; usConfirmed: boolean },
+  input: { handle: string; displayName: string; about: string; pricePer15Cents: number; country: string },
 ): Promise<void> {
   const details = checkedDetails(input);
   const handle = tidyHandle(input.handle);
   const problem = handleProblem(handle);
   if (problem) throw new ProfileError(problem);
-  if (!input.usConfirmed) throw new ProfileError("For now, hosts must be based in the United States.");
+  const country = input.country;
+  if (!isHostCountry(country)) throw new ProfileError("Choose the country you are based in from the list. For now, hosts can only be paid in those countries.");
+  // Someone who started payout setup before applying has a payout account in the United States (only that could be
+  // opened without a profile). It cannot serve a host in another country.
+  const [started] = await db.select({ accountId: schema.hostSettings.stripeAccountId }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, userId));
+  if (started?.accountId && country !== HOME_COUNTRY) {
+    throw new ProfileError("You started setting up a payout account for the United States, so you cannot apply from another country here. Please write to support.");
+  }
   try {
-    await db.insert(schema.hostProfiles).values({ userId, handle, handleKey: handleKey(handle), ...details, usConfirmedAt: new Date() });
+    await db.insert(schema.hostProfiles).values({ userId, handle, handleKey: handleKey(handle), ...details, country, usConfirmedAt: new Date() });
   } catch (error) {
     if (!isTaken(error)) throw error;
     const [mine] = await db.select({ id: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId));
