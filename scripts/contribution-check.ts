@@ -1278,6 +1278,8 @@ async function main() {
     let all = await paymentsOf(m.contributionId);
     check("(the helper wrote the second month down and stopped before it tried the card)", all.length === 2 && all[1].status === "to_pay" && (await operations(all[1].id, "hold")).length === 0);
     await rounds(new Date(monthlyDue(first, 2).getTime() + 7 * DAY + MIN));
+    check("just after its 7 days the month is neither tried nor given up yet: the helper waits a moment, in case a hold placed by hand in time is still to be heard of", (await PM(all[1].id)).status === "to_pay" && (await PM(all[1].id)).endedHow === null && (await operations(all[1].id, "hold")).length === 0);
+    await rounds(new Date(monthlyDue(first, 2).getTime() + 7 * DAY + 10 * MIN));
     let c = await CO(m.contributionId);
     check("when the helper comes back more than 7 days after that month's day, the month is not charged: it is missed and skipped, and the contribution goes on", (await PM(all[1].id)).status === "given_up" && (await PM(all[1].id)).endedHow === "missed" && (await operations(all[1].id, "hold")).length === 0 && c.status === "running" && c.skippedMonths === "[2]");
     await rounds(monthlyDue(first, 3));
@@ -1382,7 +1384,7 @@ async function main() {
     await runContributionJobs(monthlyDue(uFirst, 2));
     const uSecond = (await paymentsOf(u.contributionId))[1];
     const [onItsWay] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: uSecond.id, kind: "hold", label: `contributionhold:${uSecond.id}:1:1`, params: JSON.stringify({ intentId: "pi_made_up", paymentMethodId: "pm_made_up" }) }).returning();
-    await rounds(new Date(monthlyDue(uFirst, 2).getTime() + 7 * DAY + MIN));
+    await rounds(new Date(monthlyDue(uFirst, 2).getTime() + 7 * DAY + 10 * MIN));
     check("a month whose first try is on its way to Stripe when the 7 days end is not given up as missed: the try keeps its own ending", (await PM(uSecond.id)).status === "to_pay" && (await PM(uSecond.id)).endedHow === null && (await CO(u.contributionId)).skippedMonths === "[]");
     await db.update(schema.moneyOperations).set({ status: "failed", finishedAt: new Date() }).where(eq(schema.moneyOperations.id, onItsWay.id));
 
@@ -1405,15 +1407,13 @@ async function main() {
     await S.payNow({ paymentId: jSecond, contributorId: justInTime.giver.id });
     const intents = stripe().paymentIntents;
     const early = await intents.retrieve((await PM(jSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] });
-    // (Its day is moved so that its 7 days end twenty seconds from now.)
-    const anchor = new Date(Date.now() + 20_000 - 7 * DAY);
-    anchor.setUTCMonth(anchor.getUTCMonth() - 1);
+    // (Its day is moved by hand so that its 7 days end some days from now, whatever the calendar says today;
+    // the helper's round is then pretended to come three minutes after they end.)
+    const anchor = new Date(Date.now() - 20 * DAY);
     await db.update(schema.contributions).set({ firstHoldAt: anchor }).where(eq(schema.contributions.id, justInTime.contributionId));
     const deadline = monthlyDue(anchor, 2).getTime() + 7 * DAY;
-    const soonEnough = deadline - Date.now() > 5000 && deadline - Date.now() < 60_000;
     await intents.confirm(early.id, { payment_method: "pm_card_visa", return_url: RETURN });
     const heldInTime = Date.now() < deadline;
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, deadline - Date.now()) + 1500));
     const realRetrieve = intents.retrieve;
     let firstLook = true;
     intents.retrieve = ((...args: unknown[]) => {
@@ -1424,11 +1424,11 @@ async function main() {
       return Reflect.apply(realRetrieve, intents, args);
     }) as unknown as typeof intents.retrieve;
     try {
-      await C.tryHold(jSecond, new Date());
+      await C.tryHold(jSecond, new Date(deadline + 3 * MIN));
     } finally {
       intents.retrieve = realRetrieve;
     }
-    check("a hold the contributor placed by hand within the 7 days is accepted, also when the helper's look at Stripe was made before it and answered after them: the month is not given up as missed", soonEnough && heldInTime && early.status !== "requires_capture" && !firstLook && (await PM(jSecond)).status === "held" && (await PM(jSecond)).endedHow === null && (await CO(justInTime.contributionId)).skippedMonths === "[]", { soonEnough, heldInTime, early: early.status, status: (await PM(jSecond)).status, endedHow: (await PM(jSecond)).endedHow });
+    check("a hold the contributor placed by hand within the 7 days is accepted, also when the helper's look at Stripe was made before it and answered after them: the month is not given up as missed", heldInTime && early.status !== "requires_capture" && !firstLook && (await PM(jSecond)).status === "held" && (await PM(jSecond)).endedHow === null && (await CO(justInTime.contributionId)).skippedMonths === "[]", { heldInTime, early: early.status, status: (await PM(jSecond)).status, endedHow: (await PM(jSecond)).endedHow });
 
     // A contributor pays, and cancels before we have heard of the hold.
     const unheard = await atCardStep(host);

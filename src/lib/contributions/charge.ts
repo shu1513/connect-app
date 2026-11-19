@@ -715,7 +715,12 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
   // more than 7 days back: it is missed, like a month that was never written down (rules.ts, dueMonths). It is
   // skipped, and the contribution goes on. A month that was tried and failed has its own 7 days, from that failure.
   // (A try that was started, also one still on its way to Stripe, is a try: its outcome is found out as usual.)
-  if (monthMissed(contribution, seen, freshNow(now)) && !(await everTried(db, paymentId))) return missMonth(paymentId, now);
+  if (monthMissed(contribution, seen, freshNow(now)) && !(await everTried(db, paymentId))) {
+    // Past its 7 days nothing is tried any more. It is given up a little later (rules.ts, missedGraceMs), once a
+    // hold that the contributor placed by hand inside the 7 days has certainly been seen; until then it waits.
+    if (!monthMissed(contribution, seen, new Date(freshNow(now).getTime() - CONTRIBUTION.missedGraceMs))) return seen;
+    return missMonth(paymentId, now);
+  }
   if (seen.stripePaymentIntentId && (await tryFinished(db, seen))) {
     // This try has its answer, and Stripe has neither held nor refused yet. Nothing new is tried beside it.
     await db.update(pays).set({ nextTryAt: new Date(now.getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay"), eq(pays.try, seen.try)));
@@ -775,9 +780,9 @@ async function missMonth(paymentId: string, now: Date): Promise<ContributionPaym
   await db.transaction(async (tx) => {
     const locked = await lockForPayment(tx, paymentId);
     // Looked at again under the locks: only a payment that is still waiting, that nobody has started to try (a try
-    // on its way to Stripe keeps its own ending), and whose 7 days are over by the real clock.
+    // on its way to Stripe keeps its own ending), and whose 7 days, and the short wait after them, are over by the real clock.
     if (locked.payment.status !== "to_pay" || !open(locked.payment)) return;
-    if (!monthMissed(locked.contribution, locked.payment, freshNow(now)) || (await everTried(tx, paymentId))) return;
+    if (!monthMissed(locked.contribution, locked.payment, new Date(freshNow(now).getTime() - CONTRIBUTION.missedGraceMs)) || (await everTried(tx, paymentId))) return;
     await giveUpInStep(tx, locked, "missed", now);
     const [contribution] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, locked.contribution.id));
     if (contribution.kind === "monthly" && contribution.status !== "ended") await addSkipped(tx, contribution, [locked.payment.number], now);

@@ -24,6 +24,13 @@ export const CONTRIBUTION = {
   lastMomentBeforeExpiryMs: 3_600_000,
   /** A month's payment is still written down up to this long after its day, when the helper is late. */
   lateMonthMs: 7 * DAY_MS,
+  /**
+   * The helper gives a month up as missed only this long after its 7 days are over. In between it
+   * neither tries the card nor gives up. A hold is accepted by the bank's own time for it, which
+   * Stripe gives in whole seconds and which can reach us a moment late; after this wait, a hold
+   * with a time inside the 7 days has certainly been seen.
+   */
+  missedGraceMs: 2 * 60_000,
 } as const;
 
 /**

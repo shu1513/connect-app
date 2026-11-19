@@ -625,7 +625,10 @@ and in Astra's reviews of the code. All of it is built.
   first hold: the helper's try, paying by hand, and a hold that arrives, which is judged by the
   bank's own time for it. A try that was started is never treated as "nobody tried"; and before a
   month is given up as missed, Stripe is asked once more, so a hold placed by hand in time is not
-  lost to a look that was made too early.
+  lost to a look that was made too early. The helper gives a month up two minutes after its 7
+  days, not at their last second: a hold counts by the bank's own time, which Stripe gives in
+  whole seconds and which can reach the app a moment late. In those two minutes nothing is tried
+  and nothing is given up.
 - **Asked again before anything new.** Before the helper writes a month or tries a saved card,
   and before a payment is made ready to be paid by hand, the app asks again whether the two
   people may still deal with each other (no block, neither account paused or closed, the host's
