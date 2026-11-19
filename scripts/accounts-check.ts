@@ -915,7 +915,7 @@ async function main() {
       const signInRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === profiles.INSTAGRAM_SIGN_IN && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, usConfirmed: true });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US" });
         return person;
       };
       /** The code way, with Meta's bio service pretended: the code is in the bio. */
