@@ -15,8 +15,8 @@ export type Outcome =
 
 export type ServiceTurn = {
   name: string;
-  /** Still in its five minutes after being out: not asked, counts as out. */
-  cooling: boolean;
+  /** Still in its five minutes after being out: not asked, counts as out. Asked when its turn comes. */
+  cooling: () => boolean;
   /** Has given a complete, valid answer with the key it has now. */
   worked: boolean;
   check: () => Promise<Answer>;
@@ -38,7 +38,7 @@ export async function askInOrder(services: ServiceTurn[], own: (() => Promise<An
   if (services.length === 0) return { outcome: { kind: "wait", detail: "No checking service is set up." }, asked };
 
   for (const service of services) {
-    if (service.cooling) continue;
+    if (service.cooling()) continue;
     if (!(await mayStillAsk())) return stopped;
     const answer = await service.check();
     asked.push({ name: service.name, answer });

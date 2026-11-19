@@ -80,7 +80,7 @@ export default async function HostPostPage(props: PageProps<"/host/project/posts
               <li key={picture.id} className="rounded border border-neutral-400 p-3 text-sm" data-picture={picture.state}>
                 {picture.state === "refused" ? (
                   <>
-                    <p className="text-amber-700">This picture was not accepted. A diary may not show nudity, violence or self-harm. Nobody can see it.</p>
+                    <p className="text-amber-700">This picture was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. Nobody can see it.</p>
                     {picture.checkDetail && <p className="mt-1 opacity-70">What the automatic check said: {picture.checkDetail}</p>}
                   </>
                 ) : picture.held ? (

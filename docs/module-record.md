@@ -1639,8 +1639,10 @@ Connect makes its own copy of each, has it checked automatically before anyone e
 and shows it, refuses it or keeps it waiting. No money yet (part two).
 
 **What the founder decided while it was built (18 November 2026)**
-- A picture a checker flags is refused by itself: nobody sees it, it is deleted, and the same
-  picture uploaded again is refused again. No list for the founder and no appeal.
+- A picture a checker flags is refused by itself: from that moment nobody gets it, it is
+  deleted (kept unseen a little longer only while the child-safety tool, once switched on,
+  still has to look at it), and when the same host uploads the same picture again it is refused
+  at once. No list for the founder and no appeal.
 - The check against known pictures of child abuse stays in the plan, because the tool is free.
   Connect has no access to it yet; pictures do not wait for it until it is switched on.
 - OpenAI and Sightengine have accounts and keys. Microsoft is skipped for now.
@@ -1657,8 +1659,9 @@ and shows it, refuses it or keeps it waiting. No money yet (part two).
   the open-source NSFWJS in a thread of its own), each giving one of four answers, and
   `order.ts`, the queue's decision as one plain function.
 - `queue.ts`: one round of the queue, run by the always-on helper in a loop of its own. A round
-  claims a picture before it is checked, and an answer is only written if nothing was decided
-  about the picture in between.
+  claims a picture before it is checked, and an everyday checker's answer is only written if
+  nothing was decided about the picture in between. (A match from the child-safety tool always
+  counts, however late.)
 - `child-safety.ts`: the one place that knows the rule for the child-safety check.
 - `pictures.ts` (taking an upload in; `pictureFor`, the only function that hands out a
   picture), `moderation.ts` (the founder: remove, hold as suspected, "Remove and report", "I

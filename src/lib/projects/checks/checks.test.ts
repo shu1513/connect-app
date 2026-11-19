@@ -163,6 +163,8 @@ describe("reading Connect's own checker", () => {
     // An entry without a name never makes an empty answer look complete.
     expect(readOwn([{ className: "", probability: -1 }]).kind).toBe("fault");
     expect(readOwn([]).kind).toBe("fault");
+    // A sixth class is not what this checker gives.
+    expect(readOwn([...own(0.01, 0.01, 0.01), { className: "Unknown", probability: 0.1 }]).kind).toBe("fault");
   });
   it("is a fault when one of its five numbers is missing", () => {
     expect(readOwn(own(0, 0, 0).slice(1)).kind).toBe("fault");
@@ -205,7 +207,7 @@ describe("the order of the queue", () => {
   const calls: string[] = [];
   const service = (name: string, kind: Answer["kind"], more: Partial<ServiceTurn> = {}): ServiceTurn => ({
     name,
-    cooling: false,
+    cooling: () => false,
     worked: true,
     check: async () => {
       calls.push(name);
@@ -251,9 +253,17 @@ describe("the order of the queue", () => {
     expect((await run(all, ownSays("out"))).outcome.kind).toBe("wait");
   });
   it("does not ask a service that is still in its five minutes, and counts it as out", async () => {
-    const { outcome, calls } = await run([service("openai", "clean", { cooling: true }), service("azure", "out")]);
+    const { outcome, calls } = await run([service("openai", "clean", { cooling: () => true }), service("azure", "out")]);
     expect(outcome).toMatchObject({ kind: "shown", level: "nudity_only" });
     expect(calls).toEqual(["azure", "own"]);
+  });
+  it("asks whether a service is still in its five minutes when its turn comes, not before", async () => {
+    let over = false;
+    const first = { ...service("openai", "out"), check: async (): Promise<Answer> => ((over = true), calls.push("openai"), { kind: "out", detail: "" }) };
+    calls.length = 0;
+    const { outcome } = await askInOrder([first, service("azure", "clean", { cooling: () => !over })], ownSays("clean"));
+    expect(outcome).toMatchObject({ kind: "shown", level: "full", by: "azure" });
+    expect(calls).toEqual(["openai", "azure"]);
   });
   it("never asks the own checker when no service has a key", async () => {
     const { outcome, calls } = await run([]);

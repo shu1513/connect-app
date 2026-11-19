@@ -90,7 +90,9 @@ async function main() {
   }
   /** Everything this run made, removed: the newest kind of line first, so nothing points at a line that is gone. */
   async function wipe(): Promise<void> {
-    const ids = [...(await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, `pc-${RUN}-%`))).map((row) => row.id), ...signedUp];
+    // By id for the people written straight in, and by this run's own email addresses for the ones who signed up through the app
+    // (also one whose sign-up went through although its answer never reached the script).
+    const ids = [...new Set([...(await db.select({ id: schema.user.id }).from(schema.user).where(or(like(schema.user.id, `pc-${RUN}-%`), like(schema.user.email, `projectcheck-${RUN}-%`)))).map((row) => row.id), ...signedUp])];
     // Emails this run caused, also the ones the checking rounds wrote to the real admins of this test database.
     await db.delete(schema.emailOutbox).where(and(gte(schema.emailOutbox.createdAt, startedAt), or(like(schema.emailOutbox.dedupeKey, "picture-%"), like(schema.emailOutbox.dedupeKey, "pictures-nudity-only:%"), like(schema.emailOutbox.to, `projectcheck-${RUN}-%`))));
     if (ids.length === 0) return;
@@ -1014,7 +1016,7 @@ async function main() {
 
     const a = await upload(host, post.id);
     await round();
-    const b = await upload(host, post.id);
+    const b = await upload(host, post.id, 240);
     const plain = await report(reporter, "sexual");
     check("a report keeps the ids of the pictures the post was showing", JSON.stringify(JSON.parse(plain.snapshot).post.pictures) === JSON.stringify([a.id]));
     check("an ordinary report marks no picture", !(await pic(a.id)).suspectedByReport && !(await pic(b.id)).suspectedByReport);
@@ -1040,9 +1042,10 @@ async function main() {
     forget();
     const added = await upload(host, post.id);
     await Pics.removePicture({ hostId: host.id, pictureId: b.id, now: qnow() });
-    const again = await upload(host, post.id);
+    const again = await upload(host, post.id, 240);
     await round();
-    check("a picture uploaded while such a report is open carries the mark, and no checking service is sent it", added.suspectedByReport && again.suspectedByReport && asked.length === 0 && (await pic(added.id)).state === "waiting");
+    check("a picture uploaded while such a report is open carries the mark, and no checking service is sent it", added.suspectedByReport && asked.length === 0 && (await pic(added.id)).state === "waiting");
+    check("so does the very picture she removed and uploaded again", again.sha256 === b.sha256 && again.suspectedByReport && (await pic(again.id)).state === "waiting");
     // Two such reports closed at the same moment: the mark comes off, once, and nothing is left hanging.
     const open2 = await report(another, "under18");
     const both = await Promise.allSettled([close(open1.id), close(open2.id)]);
@@ -1126,7 +1129,7 @@ async function main() {
     const fifth = await write(host, "A fifth post");
     await db.update(schema.siteSwitches).set({ childCheckOnAt: null });
     const early = await upload(host, fifth.id, 230);
-    await Child.switchChildCheckOn(qnow());
+    await db.transaction((tx) => Child.switchChildCheckOn(tx, qnow()));
     says.openai = "flagged";
     await round(null);
     check("a picture from before that day that a checker refuses keeps its bytes until the tool has seen it", (await pic(early.id)).state === "refused" && (await pic(early.id)).childCheck === "not_set_up" && (await hasBytes(early.id)) && !(await sees(asHost(host), early.id)) && !(await sees(admin.viewer, early.id)));
@@ -1179,17 +1182,24 @@ async function main() {
     const seventh = await write(host, "A seventh post");
     const slowOne = await upload(host, seventh.id, 224);
     let answered = false;
+    // The tool answers only when the script lets it, so the order of things does not depend on how fast anything is.
+    let letAnswer!: () => void;
+    const held = new Promise<void>((resolve) => (letAnswer = resolve));
     const dawdling: Tool = {
       ask: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        await held;
         answered = true;
         return "match";
       },
     };
     const told = await mails(admin.email, "matched the list");
-    await round(dawdling, 50);
-    row = await pic(slowOne.id);
-    check("a tool that takes longer than the round waits: the round goes on, the picture stays held and is not locked yet", !answered && row.state !== "locked" && row.claimId !== null && (await hasBytes(slowOne.id)));
+    try {
+      await round(dawdling, 50);
+      row = await pic(slowOne.id);
+      check("a tool that takes longer than the round waits: the round goes on, the picture stays held and is not locked yet", !answered && row.state !== "locked" && row.claimId !== null && (await hasBytes(slowOne.id)));
+    } finally {
+      letAnswer();
+    }
     await until(() => answered);
     for (let i = 0; i < 100 && (await pic(slowOne.id)).state !== "locked"; i++) await new Promise((resolve) => setTimeout(resolve, 50));
     row = await pic(slowOne.id);
@@ -1457,6 +1467,7 @@ async function main() {
     check("the three forms that change a project name the project they were drawn for", host.filter((a) => named.test(a)).length === 3 && host.filter((a) => named.test(a)).every((a) => /projectId: projectOf\(formData\)/.test(a)));
     const hostPage = uses.find((file) => file.path === "src/app/host/project/page.tsx")?.text ?? "";
     check("and the page puts that id into each of the three forms", (hostPage.match(/<input type="hidden" name="projectId" value=\{running\.id\} \/>/g) ?? []).length === 2 && (hostPage.match(/<PostForm action=\{writePostAction\} hidden=\{\{ name: "projectId", value: running\.id \}\}/g) ?? []).length === 1);
+    check("the host's list of posts always links to a post's own page, where a single picture can be removed, also for a hidden post and an ended project", /\{canChange && !post\.hiddenAt \? "Change, or add pictures" : "Its pictures"\}/.test(hostPage) && !/\{canChange && !post\.hiddenAt && \(\s*<Link/.test(hostPage));
     const postActions = host.filter((a) => /\b(writePost|changePost)\(/.test(a));
     check("the two actions of the post form answer a refusal with what was typed, and never send the browser on with it", postActions.length === 2 && postActions.every((a) => /return refused\(error, formData\);/.test(a) && !/redirect\(/.test(a)) && /function refused\(error: unknown, formData: FormData\): PostFormState \{\n  return \{ error: problem\(error\), text: String\(formData\.get\("text"\) \?\? ""\), links: linksOf\(formData\) \};/.test(hostActions?.text ?? ""));
     check("no host action takes the host from the form: always from the login", host.length === 7 && host.every((a) => /hostId: user\.id/.test(a)) && !/formData\.get\("hostId"\)/.test(hostActions?.text ?? "x"));
@@ -1506,7 +1517,7 @@ async function main() {
   // end; its journeys start from "on for everyone", the position the feature has unless the founder says otherwise.
   const before = await switches();
   // The same for what the picture journeys set: the lines about the checking services, and the moment the child-safety tool was switched on.
-  const checkersBefore = await db.select().from(schema.pictureCheckers);
+  const checkersBefore = await db.select().from(schema.pictureCheckers).orderBy(schema.pictureCheckers.service);
   const [toolBefore] = await db.select({ at: schema.siteSwitches.childCheckOnAt }).from(schema.siteSwitches);
   console.log(`(The founder's projects switch is "${before.projects}"${before.projectsHosts.length > 0 ? ` with ${before.projectsHosts.length} named` : ""}; it is put back at the end.)`);
   try {
@@ -1522,17 +1533,24 @@ async function main() {
     }
   } finally {
     stopOwnChecker();
-    await setSwitches({ projects: before.projects, projectsHosts: before.projectsHosts });
-    await db.delete(schema.pictureCheckers);
-    if (checkersBefore.length > 0) await db.insert(schema.pictureCheckers).values(checkersBefore);
-    await db.update(schema.siteSwitches).set({ childCheckOnAt: toolBefore?.at ?? null });
-    await wipe();
+    // Each part of the putting back is tried, whatever happens to another, and what failed is said.
+    const puttingBack: Array<[string, () => Promise<unknown>]> = [
+      ["the projects switch", () => setSwitches({ projects: before.projects, projectsHosts: before.projectsHosts })],
+      // In one step: the lines are never left deleted without the earlier ones written back.
+      ["the lines about the checking services", () => db.transaction(async (tx) => {
+        await tx.delete(schema.pictureCheckers);
+        if (checkersBefore.length > 0) await tx.insert(schema.pictureCheckers).values(checkersBefore);
+      })],
+      ["the child-safety tool's switch", () => db.update(schema.siteSwitches).set({ childCheckOnAt: toolBefore?.at ?? null })],
+      ["what this run made", wipe],
+    ];
+    for (const [what, work] of puttingBack) await work().catch((error) => check(`afterwards: ${what} could be put back`, false, String(error)));
   }
   const afterwards = await switches();
   check("afterwards: the founder's projects switch is as it was before the script, with the same hosts named", afterwards.projects === before.projects && afterwards.projectsHosts.join(",") === before.projectsHosts.join(","));
   const [toolAfter] = await db.select({ at: schema.siteSwitches.childCheckOnAt }).from(schema.siteSwitches);
-  check("afterwards: the lines about the checking services and the child-safety tool's switch are as they were", JSON.stringify(await db.select().from(schema.pictureCheckers)) === JSON.stringify(checkersBefore) && (toolAfter?.at?.getTime() ?? null) === (toolBefore?.at?.getTime() ?? null));
-  check("afterwards: nothing this run made is left", (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, `pc-${RUN}-%`))).length === 0);
+  check("afterwards: the lines about the checking services and the child-safety tool's switch are as they were", JSON.stringify(await db.select().from(schema.pictureCheckers).orderBy(schema.pictureCheckers.service)) === JSON.stringify(checkersBefore) && (toolAfter?.at?.getTime() ?? null) === (toolBefore?.at?.getTime() ?? null));
+  check("afterwards: nothing this run made is left", (await db.select({ id: schema.user.id }).from(schema.user).where(or(like(schema.user.id, `pc-${RUN}-%`), like(schema.user.email, `projectcheck-${RUN}-%`)))).length === 0);
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);

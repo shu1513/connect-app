@@ -225,11 +225,10 @@ function PostList({ posts, page, earlierId, canChange }: { posts: ProjectPost[];
             </p>
           )}
           <div className="mt-2 flex items-center gap-4">
-            {canChange && !post.hiddenAt && (
-              <Link href={`/host/project/posts/${post.id}`} className="underline underline-offset-2">
-                Change, or add pictures
-              </Link>
-            )}
+            {/* Always there: a single picture can be removed also when the post itself can no longer be changed. */}
+            <Link href={`/host/project/posts/${post.id}`} className="underline underline-offset-2">
+              {canChange && !post.hiddenAt ? "Change, or add pictures" : "Its pictures"}
+            </Link>
             <form action={removePostAction}>
               <input type="hidden" name="postId" value={post.id} />
               {earlierId && <input type="hidden" name="earlier" value={earlierId} />}

@@ -24,7 +24,7 @@ import { askInOrder, waitMinutes, type Asked, type Outcome } from "./checks/orde
 import { ownChecker } from "./checks/own";
 import { sightengineChecker } from "./checks/sightengine";
 import type { Answer, Checker } from "./checks/types";
-import { childTool, mayGoOn, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
+import { childCheckOn, childTool, holdSwitch, mayGoOn, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
 import { adminUrl, deleteBytesIfFree, lockInStep, lockPost, refuseInStep, goneWithBytes, tellFounders } from "./picture-steps";
 import { PICTURE } from "./rules";
 
@@ -132,14 +132,21 @@ async function claimOne(round: string, now: Date, which: SQL | undefined, order:
 async function checkOne(round: string, picture: ProjectPicture, asked: Checker[], own: Checker | null, now: () => Date): Promise<void> {
   const [file] = await db.select({ bytes: files.bytes }).from(files).where(eq(files.pictureId, picture.id));
   // Asked again on the picture as it was claimed: the one rule about who may go on is in child-safety.ts.
-  if (!file || !mayGoOn(picture)) return settle(round, picture, { kind: "wait", detail: file ? "Held back for now." : "The picture's file is missing." }, now());
+  if (!file || !mayGoOn(picture)) return settle(round, picture, { kind: "wait", detail: file ? "Held back for now." : "The picture's file is missing." }, now);
 
   const rows = await db.select().from(checkers);
-  const at = now();
-  const safely = (check: Promise<Answer>): Promise<Answer> => check.catch((error) => ({ kind: "fault", detail: `the checker failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 220) }));
+  /** A checker that fails in any way, at once or later, is a fault for this picture, never the end of the round. */
+  const safely = async (check: () => Promise<Answer>): Promise<Answer> => {
+    try {
+      return await check();
+    } catch (error) {
+      return { kind: "fault", detail: `the checker failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 220) };
+    }
+  };
   const turns = asked.map((service) => {
     const row = rows.find((line) => line.service === service.name);
-    return { name: service.name, cooling: Boolean(row?.outUntil && row.outUntil > at), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(service.check(file.bytes)) };
+    // Whether its five minutes are still running is asked when its turn comes, not now: an earlier service may take a while to answer.
+    return { name: service.name, cooling: () => Boolean(row?.outUntil && row.outUntil > now()), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(() => service.check(file.bytes)) };
   });
   // A picture that is already shown is only here for its full check: the own checker has had it.
   /** Asked before each request: is the picture still this round's, and as it was claimed? If the founder, the host or a report has changed something meanwhile, it is sent to nobody else. */
@@ -147,9 +154,9 @@ async function checkOne(round: string, picture: ProjectPicture, asked: Checker[]
     const [row] = await db.select().from(pictures).where(eq(pictures.id, picture.id));
     return Boolean(row) && stillAsClaimed(round, picture, row, now());
   };
-  const { outcome, asked: answers } = await askInOrder(turns, picture.state === "waiting" && own ? () => safely(own.check(file.bytes)) : null, mayStillAsk);
+  const { outcome, asked: answers } = await askInOrder(turns, picture.state === "waiting" && own ? () => safely(() => own.check(file.bytes)) : null, mayStillAsk);
   await recordAnswers(asked, answers, now());
-  await settle(round, picture, outcome, now());
+  await settle(round, picture, outcome, now);
 }
 
 /** Whether a picture is still held by this round, within its time, and as it was when the round claimed it. */
@@ -158,9 +165,11 @@ function stillAsClaimed(round: string, claimed: ProjectPicture, row: ProjectPict
 }
 
 /** Writes what a try came to, if this round still holds the picture and nothing was decided about it in between. */
-async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, at: Date): Promise<void> {
+async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, now: () => Date): Promise<void> {
   await db.transaction(async (tx) => {
     const [row] = await tx.select().from(pictures).where(eq(pictures.id, claimed.id)).for("update");
+    // The clock is read only now: waiting for the picture's lock may have taken the round past its time.
+    const at = now();
     // The time ran out and another round has it now: that round's answer counts, not this one.
     if (!row || row.claimId !== round) return;
     if (!stillAsClaimed(round, claimed, row, at)) {
@@ -288,20 +297,24 @@ async function childStep(round: string, tool: ChildTool, now: () => Date, whose:
       void asking
         .then(async (late) => {
           await settleChild(round, picture, late, now(), file?.bytes);
-          if (late !== "unreachable") await switchChildCheckOn(now());
         })
         .catch((error) => console.error("[pictures] a late answer of the child-safety tool could not be written", error));
       return;
     }
     await settleChild(round, picture, answer, now(), file?.bytes);
     if (answer === "unreachable") return;
-    await switchChildCheckOn(now());
   }
 }
 
 /** Writes the tool's answer. It is about the picture's exact bytes, which never change, so it counts whatever else has happened to the picture since. */
 async function settleChild(round: string, claimed: ProjectPicture, answer: ChildAnswer, at: Date, askedAbout?: Buffer): Promise<void> {
   await db.transaction(async (tx) => {
+    // The tool's first real answer switches it on, in this same step: if the step fails, neither is written, and
+    // the picture is asked about again. Taken before every other lock, and only while the switch is still off.
+    if (answer !== "unreachable" && !(await childCheckOn(tx))) {
+      await holdSwitch(tx, "alone");
+      await switchChildCheckOn(tx, at);
+    }
     // The post first, then the picture, as everywhere: a match also hides the post.
     await lockPost(tx, claimed.postId);
     const [row] = await tx.select().from(pictures).where(eq(pictures.id, claimed.id)).for("update");

@@ -58,6 +58,8 @@ export async function makeCopy(original: Buffer): Promise<Copy> {
     } catch {
       throw new ProjectError(UNREADABLE);
     }
+    // A very long, thin picture is large enough as it comes and too small once it is shrunk to fit. The copy is what is checked and shown, so the copy must be large enough.
+    if (Math.min(made.info.width, made.info.height) < PICTURE.minSide) throw new ProjectError(`That picture is too long and thin. Once it is shrunk to fit, it needs at least ${PICTURE.minSide} points on each side.`);
     if (made.data.length <= PICTURE.maxBytes) return { bytes: made.data, width: made.info.width, height: made.info.height };
   }
   throw new ProjectError("That picture is too detailed to be kept under 1 MB. Please try another one.");

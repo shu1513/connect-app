@@ -9,7 +9,15 @@ function raw(width: number, height: number, noise = false) {
   for (let i = 0; i < data.length; i++) data[i] = noise ? (i * 31 + ((i / 7) | 0) * 17 + ((i * i) % 251)) % 256 : (i % 3) * 90;
   return sharp(data, { raw: { width, height, channels: 3 } });
 }
-const refusal = async (file: Buffer) => makeCopy(file).then(() => "nothing refused it", (error) => (error instanceof ProjectError ? error.message : `not a refusal for the host: ${error}`));
+/** The words of a refusal for the host. Anything else that goes wrong is thrown on, so it can never pass for a refusal. */
+const refusal = async (file: Buffer) =>
+  makeCopy(file).then(
+    () => "nothing refused it",
+    (error) => {
+      if (error instanceof ProjectError) return error.message;
+      throw error;
+    },
+  );
 
 describe("what kind of file an upload is", () => {
   it("reads JPEG, PNG and WebP from the first bytes", async () => {
@@ -112,6 +120,9 @@ describe("Connect's own copy of a picture", () => {
   });
   it("refuses a picture that is too small, and one that would unpack into too many points", async () => {
     expect(await refusal(await raw(99, 400).jpeg().toBuffer())).toMatch(/too small/);
+    // Large enough as it comes, but only 40 points high once it is shrunk to 1,600 wide.
+    expect(await refusal(await raw(10000, 250).jpeg().toBuffer())).toMatch(/long and thin/);
+    expect((await makeCopy(await raw(6400, 400).jpeg().toBuffer())).height).toBe(100);
     // 8,000 by 7,000 is 56 million points, in a file of a few kilobytes.
     const huge = await sharp({ create: { width: 8000, height: 7000, channels: 3, background: "#336699" } }).png({ compressionLevel: 9 }).toBuffer();
     expect(huge.length).toBeLessThan(PICTURE.uploadMaxBytes);

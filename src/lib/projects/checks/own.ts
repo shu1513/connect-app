@@ -23,7 +23,8 @@ export function readOwn(classes: unknown): Answer {
   // Anything that makes the answer less than five classes, each once, each a share between 0 and 1.
   let unclear = !Array.isArray(classes);
   for (const entry of Array.isArray(classes) ? classes : []) {
-    if (typeof entry?.className !== "string" || !isShare(entry.probability)) unclear = true;
+    // A class that is not one of the five is not what this checker gives: the answer is not complete.
+    if (typeof entry?.className !== "string" || !(NAMES as readonly string[]).includes(entry.className) || !isShare(entry.probability)) unclear = true;
     else {
       // A class given twice is unclear, and of its numbers the larger one is kept: a finding is never passed over.
       if (share.has(entry.className)) unclear = true;

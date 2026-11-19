@@ -12,7 +12,7 @@ import { db, schema } from "@/db";
 import type { ProjectPicture } from "@/db/schema";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { projectsOnFor } from "@/lib/safety/switches";
-import { childCheckOn, mayBeFetched, mayUpload, startingChildCheck } from "./child-safety";
+import { childCheckOn, holdSwitch, mayBeFetched, mayUpload, startingChildCheck } from "./child-safety";
 import { makeCopy } from "./copy";
 import { adminUrl, hasOpenUnder18Report, lockInStep, removeInStep, tellFounders } from "./picture-steps";
 import { ownPost } from "./posts";
@@ -63,6 +63,8 @@ export async function acceptUpload(input: { hostId: string; postId: string; orig
   const sha256 = createHash("sha256").update(copy.bytes).digest("hex");
 
   return db.transaction(async (tx) => {
+    // Before anything else: an upload and the switching-on of the child-safety tool wait for each other (child-safety.ts).
+    await holdSwitch(tx, "shared");
     // One host at a time: the day's count and the insert that follows are one step.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`pictures:${input.hostId}`}))`);
     if (!(await projectsOnFor(input.hostId, tx))) throw new ProjectError(PROJECTS_OFF);

@@ -547,9 +547,11 @@ Four things were found while building and in Astra's reviews of the code, and ar
 **A picture a checker flags is refused, by itself.** The rulebook says so now. What that changes
 in this plan, everywhere it is mentioned above:
 
-- The state `flagged` is called `refused`. A refused picture is seen by nobody; its bytes are
-  deleted at once; its line stays, so the same bytes uploaded again are refused again without
-  asking a checker, and so the day's count stays true. It does not count toward a post's four
+- The state `flagged` is called `refused`. A refused picture is handed to nobody from that
+  moment; its bytes are deleted at once, or, once the child-safety tool is switched on, as soon
+  as that tool has looked at them (see "What building 1b added"); its line stays, so the same
+  bytes from the same host are refused on the spot without asking a checker, and so the day's
+  count stays true. It does not count toward a post's four
   pictures. The host sees it on her post's page as "This picture was not accepted", with the
   reason, until she clears it away.
 - The founder has no pictures to decide: no **Show** for a refused or a waiting picture, and no

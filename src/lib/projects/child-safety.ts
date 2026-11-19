@@ -41,9 +41,26 @@ export async function childCheckOn(reader: Pick<typeof db, "select"> = db): Prom
   return Boolean(row?.at);
 }
 
-/** Written the first time the tool gives a real answer. The first moment stays: it is never moved and never taken back. */
-export async function switchChildCheckOn(now: Date): Promise<void> {
-  await db
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * An upload and the switching-on wait for each other, so that a picture is either stored before
+ * the tool is switched on (marked `not_set_up`) or reads the switch as on (and waits for the
+ * tool): never stored as `not_set_up` after it. Uploads take this together (`shared`); the
+ * switching-on takes it alone. It lasts until the caller's database step ends.
+ */
+export async function holdSwitch(tx: Tx, how: "shared" | "alone"): Promise<void> {
+  if (how === "shared") await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtext('child-check-switch'))`);
+  else await tx.execute(sql`select pg_advisory_xact_lock(hashtext('child-check-switch'))`);
+}
+
+/**
+ * Written the first time the tool gives a real answer, in the same database step as that answer.
+ * The first moment stays: it is never moved and never taken back. The caller has taken
+ * `holdSwitch(tx, "alone")` before any other lock of its step.
+ */
+export async function switchChildCheckOn(tx: Tx, now: Date): Promise<void> {
+  await tx
     .insert(schema.siteSwitches)
     .values({ id: 1, childCheckOnAt: now })
     .onConflictDoUpdate({ target: schema.siteSwitches.id, set: { childCheckOnAt: sql`coalesce(${schema.siteSwitches.childCheckOnAt}, ${now.toISOString()}::timestamptz)` } });
