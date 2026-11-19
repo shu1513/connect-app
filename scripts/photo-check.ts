@@ -21,6 +21,7 @@ import { readFileSync } from "node:fs";
 import { and, eq, gte, inArray, like, or, sql } from "drizzle-orm";
 import type { PhotoAnswer } from "../src/lib/profiles/bio-check";
 import type { PhotoOptions, PhotoOutcome } from "../src/lib/profiles/photo";
+import type { TikTokAccount, TikTokSettings } from "../src/lib/profiles/tiktok";
 import type { Checker } from "../src/lib/projects/checks/types";
 import { requireLocalDatabase } from "./local-only";
 
@@ -44,6 +45,9 @@ async function main() {
   const { givePlace, takePlace } = await import("../src/lib/projects/pictures");
   const { PICTURE } = await import("../src/lib/projects/rules");
   const { createReport, REPORT_REASONS } = await import("../src/lib/safety/reports");
+  const Tik = await import("../src/lib/profiles/tiktok-photo");
+  const TikLogin = await import("../src/lib/profiles/tiktok-login");
+  const { readNote, writeNote } = await import("../src/lib/profiles/login-note");
 
   const RUN = randomUUID().slice(0, 8);
   const TAG = RUN.slice(0, 6);
@@ -851,6 +855,293 @@ async function main() {
     check("closing an account deletes its ordinary photo", (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, ordinary.id))).length === 0 && !(await sees(founder, ordinaryId)));
     await closing.reopenAccount(ordinary.id);
     check("opening the account again does not bring the photo back", (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, ordinary.id))).length === 0);
+  });
+
+  // ========================================================================
+  journey("A photo from TikTok: the try is carried through TikTok's sign-in", async () => {
+    await fresh();
+    const admin = await theAdmin();
+    // TikTok's side and the settings are pretended here. Nothing is asked of TikTok.
+    const ON: TikTokSettings = { clientKey: "pretend-key", clientSecret: "pretend-secret", returnUrl: "https://connect.example/api/social/tiktok/return", signingSecret: "pretend-note-secret" };
+    const BOTH = "user.info.basic,user.info.profile";
+    const TT_GOOD = "https://p16-sign-va.tiktokcdn.com/tos-avt/photo.jpeg?x-expires=1";
+    type TikHost = Host & { ttName: string; ttNumber: string };
+    /** A host with a confirmed TikTok account: proven by signing in (the entry carries TikTok's number) or without a number. */
+    const tikHost = async (opts: { numbered?: boolean; instagram?: boolean; spare?: boolean } = {}): Promise<TikHost> => {
+      const host = await newHost({ instagram: opts.instagram ?? false, spare: opts.spare });
+      const tik = { ...host, ttName: `hptt${made}${TAG}`, ttNumber: `tt-${number(made)}` };
+      await confirm(host.id, "tiktok", tik.ttName, opts.numbered === false ? null : tik.ttNumber);
+      return tik;
+    };
+    let tikAsked = 0;
+    type Started = Extract<Awaited<ReturnType<typeof Tik.startTikTokPhoto>>, { url: string }>;
+    const tikPress = (host: TikHost) => Tik.startTikTokPhoto({ userId: host.id, now: now(), settings: ON }, { services: standIns(), clock: now, diaryHosts: people });
+    /** A press that must start. */
+    const pressed = async (host: TikHost): Promise<Started> => {
+      const started = await tikPress(host);
+      if ("refused" in started) throw new Error(`The press was refused: ${started.refused}`);
+      return started;
+    };
+    type Back = Parameters<typeof Tik.finishTikTokPhoto>[0];
+    type Over = { account?: TikTokAccount | (() => TikTokAccount | Promise<TikTokAccount>); picture?: Buffer | null; change?: (request: Back) => void; meanwhile?: PhotoOptions["meanwhile"] };
+    /** The host comes back from TikTok, as the return address would run it. `change` alters what comes back. */
+    const tikReturn = (host: TikHost, started: Started, over: Over = {}) => {
+      const request: Back = {
+        settings: ON,
+        code: "one-time-code",
+        state: new URL(started.url).searchParams.get("state"),
+        scopes: BOTH,
+        refused: false,
+        note: started.note,
+        userId: host.id,
+        now: now(),
+        accountFor: async () => {
+          tikAsked++;
+          const account = over.account ?? { kind: "account", openId: host.ttNumber, username: host.ttName, pictureAddress: TT_GOOD };
+          return typeof account === "function" ? account() : account;
+        },
+        photo: {
+          fetch: async () => {
+            fetched++;
+            return over.picture === undefined ? host.picture : over.picture;
+          },
+          services: standIns(),
+          clock: now,
+          diaryHosts: people,
+          meanwhile: over.meanwhile,
+        },
+      };
+      over.change?.(request);
+      return Tik.finishTikTokPhoto(request);
+    };
+    const tryOf = async (started: Started) => {
+      const tryId = started.note.split(".")[3];
+      return (await db.select().from(tries).where(eq(tries.id, tryId)))[0];
+    };
+    /** Everything about an entry that a proof touches, as one text, to see that nothing changed. */
+    const proofOf = async (host: { id: string }, network = "tiktok") => {
+      const e = await entryOf(host, network);
+      return e ? JSON.stringify([e.id, e.nameKey, e.nameTyped, e.url, e.code, e.codeExpiresAt, e.claimedAt, e.confirmedAt, e.confirmedBy, e.providerAccountId]) : "none";
+    };
+    const SAVED = "Your photo passed the check and is saved.";
+    const USED = "This sign-in was already used";
+
+    // The press.
+    const none = await newHost({ instagram: false });
+    const noEntry = await tikPress({ ...none, ttName: "x", ttNumber: "x" });
+    check("a host without a confirmed TikTok account is told so at the press, before being sent anywhere, and no try is written", "refused" in noEntry && noEntry.refused === "no_account" && (await triesOf(none)).length === 0, noEntry);
+    const host = await tikHost();
+    const before = await proofOf(host);
+    forget();
+    tikAsked = 0;
+    const started = await pressed(host);
+    const sentTo = new URL(started.url);
+    const line = await tryOf(started);
+    check("the press writes the try down (a TikTok try, still running, not yet taken up, with the entry it started from) and sends the host to TikTok's sign-in, asking for no more than \"Connect your TikTok\" does", line?.network === "tiktok" && line.result === null && line.returnedAt === null && line.entryNameKey === host.ttName && line.entryAccountId === host.ttNumber && sentTo.origin + sentTo.pathname === "https://www.tiktok.com/v2/auth/authorize/" && sentTo.searchParams.get("scope") === BOTH && sentTo.searchParams.get("redirect_uri") === ON.returnUrl, started.url);
+    check("the note the browser keeps is a photo's note and never an ordinary sign-in's; an ordinary note is not a photo's", Tik.isPhotoReturn(started.note, ON, now()) && readNote("tiktok-login", started.note, ON.signingSecret, now()) === null && !Tik.isPhotoReturn(writeNote("tiktok-login", { state: "s", userId: host.id, expiresAt: new Date(clock + 600_000) }, ON.signingSecret), ON, now()) && !Tik.isPhotoReturn(started.note, null, now()));
+
+    // The return.
+    const back = await tikReturn(host, started);
+    const photo = await photoOf(host);
+    const done = await tryOf(started);
+    check("the return: TikTok is asked once, the picture fetched once, the first service asked once, and the photo is the host's, from TikTok, with TikTok's number and the entry's name", back.startsWith(SAVED) && tikAsked === 1 && fetched === 1 && asked.join() === "openai" && photo?.network === "tiktok" && photo.sourceNameKey === host.ttName && photo.sourceAccountId === host.ttNumber && done.result === "shown" && done.returnedAt !== null, { back, tikAsked, fetched, asked });
+    check("the host's TikTok entry is exactly as it was: a sign-in for the photo writes nothing to it", (await proofOf(host)) === before);
+    check("the photo's facts for the Hosting page and the search say where it came from", (await Photo.ownPhotoState(host.id)).photo?.network === "tiktok" && (await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle)?.photoId === photo.id);
+
+    // The same return a second time, and two at the same moment.
+    tikAsked = 0;
+    const again = await tikReturn(host, started);
+    check("the same return a second time: nothing is asked of TikTok, nothing changes, and the host is told the sign-in was already used", again.startsWith(USED) && tikAsked === 0 && (await photoOf(host))?.id === photo.id, again);
+    later(3);
+    const doubled = await pressed(host);
+    tikAsked = 0;
+    const both = await Promise.all([tikReturn(host, doubled, { picture: await picture() }), tikReturn(host, doubled, { picture: await picture() })]);
+    check("the same return twice at the same moment: one of them takes the try up and does the work, the other does nothing and ends nothing", tikAsked === 1 && both.filter((said) => said.startsWith(SAVED)).length === 1 && both.filter((said) => said.startsWith(USED)).length === 1 && (await tryOf(doubled)).result === "shown", both);
+    later(3);
+    const failing = await pressed(host);
+    tikAsked = 0;
+    const lost = await Promise.all([tikReturn(host, failing, { account: { kind: "failed", reason: "the code was not accepted" } }), tikReturn(host, failing, { account: { kind: "failed", reason: "the code was not accepted" } })]);
+    check("and when TikTok will not take the code: still only one of the two asks, and the try is ended once", tikAsked === 1 && lost.filter((said) => said.startsWith(USED)).length === 1 && (await tryOf(failing)).result === "not_fetched", lost);
+    check("after all of it the entry is still exactly as it was", (await proofOf(host)) === before);
+
+    // Which account signed in.
+    const strict = await tikHost();
+    const strictBefore = await proofOf(strict);
+    const strictPress = await pressed(strict);
+    forget();
+    const otherNumber = await tikReturn(strict, strictPress, { account: { kind: "account", openId: "tt-someone-else", username: strict.ttName, pictureAddress: TT_GOOD } });
+    check("an entry proven by signing in: another account, even under the same name, gives no photo, changes nothing, and the host is told why", otherNumber.includes("different account") && otherNumber.includes("Connect your TikTok") && !(await photoOf(strict)) && (await proofOf(strict)) === strictBefore && fetched === 0, otherNumber);
+    later(3);
+    const renamed = await tikReturn(strict, await pressed(strict), { account: { kind: "account", openId: strict.ttNumber, username: "Another.Name", pictureAddress: TT_GOOD } });
+    check("the same number under another name is the same account: the photo is taken, and the entry's name is not touched", renamed.startsWith(SAVED) && (await photoOf(strict))?.sourceAccountId === strict.ttNumber && (await proofOf(strict)) === strictBefore, renamed);
+
+    const byName = await tikHost({ numbered: false, spare: true });
+    const byNameBefore = await proofOf(byName);
+    const wrongName = await tikReturn(byName, await pressed(byName), { account: { kind: "account", openId: byName.ttNumber, username: "someone.else", pictureAddress: TT_GOOD } });
+    check("an entry confirmed without a number: an account of another name gives no photo", wrongName.includes("different account") && !(await photoOf(byName)) && (await proofOf(byName)) === byNameBefore, wrongName);
+    later(3);
+    const rightName = await tikReturn(byName, await pressed(byName), { account: { kind: "account", openId: byName.ttNumber, username: byName.ttName.toUpperCase(), pictureAddress: TT_GOOD } });
+    const byNamePhoto = await photoOf(byName);
+    check("the account of that name (in whatever capitals) gives the photo; the photo remembers TikTok's number, and the entry still has none", rightName.startsWith(SAVED) && byNamePhoto?.sourceAccountId === byName.ttNumber && (await proofOf(byName)) === byNameBefore && (await entryOf(byName, "tiktok")).providerAccountId === null, rightName);
+    await profiles.confirmSocialByLogin({ userId: byName.id, network: "tiktok", accountId: byName.ttNumber, username: byName.ttName, now: now() });
+    check("when that entry later gains the same number through \"Connect your TikTok\", the photo stays", (await photoOf(byName))?.id === byNamePhoto.id && (await entryOf(byName, "tiktok")).providerAccountId === byName.ttNumber);
+    await profiles.confirmSocialByLogin({ userId: byName.id, network: "tiktok", accountId: "tt-quite-another", username: byName.ttName, now: now() });
+    check("and when a sign-in brings another number under that name, the photo goes", !(await photoOf(byName)));
+
+    const owner = await tikHost();
+    const borrower = await tikHost({ numbered: false });
+    const taken = await tikReturn(borrower, await pressed(borrower), { account: { kind: "account", openId: owner.ttNumber, username: borrower.ttName, pictureAddress: TT_GOOD } });
+    check("an account whose number is confirmed for another host gives no photo, whatever its name is now", taken.includes("confirmed for another host") && !(await photoOf(borrower)), taken);
+
+    // What TikTok can send back.
+    const plain = await tikHost();
+    const without = await pressed(plain);
+    const noPicture = await tikReturn(plain, without, { account: { kind: "account", openId: plain.ttNumber, username: plain.ttName } });
+    check("TikTok sends no picture: the host is told so, the try says so, and nothing is kept", noPicture.includes("did not give us a profile picture") && !(await photoOf(plain)) && (await tryOf(without)).result === "no_picture", noPicture);
+    later(3);
+    forget();
+    const elsewhere = await tikReturn(plain, await pressed(plain), { account: { kind: "account", openId: plain.ttNumber, username: plain.ttName, pictureAddress: "https://p16.tiktokcdn.com.example.com/a.jpeg" } });
+    check("a picture address on a server that is not TikTok's: not fetched, nothing kept", elsewhere.includes("could not fetch") && fetched === 0 && !(await photoOf(plain)), elsewhere);
+    later(3);
+    const cancelled = await pressed(plain);
+    tikAsked = 0;
+    const gaveUp = await tikReturn(plain, cancelled, { change: (r) => ((r.refused = true), (r.code = null)) });
+    check("the host cancels at TikTok: nothing is asked of TikTok, the try is ended there and then, and the host can press again at once", gaveUp.includes("did not finish at TikTok") && tikAsked === 0 && (await tryOf(cancelled)).result === "stopped" && !("refused" in (await tikPress(plain))), gaveUp);
+    // (Another host from here on: five tries in 24 hours are the limit for each.)
+    const plain2 = await tikHost();
+    const noScopes = await pressed(plain2);
+    tikAsked = 0;
+    const partly = await tikReturn(plain2, noScopes, { change: (r) => (r.scopes = "user.info.basic") });
+    check("a permission was switched off at TikTok: nothing is asked, and the try is ended", partly.includes("leave both switches on") && tikAsked === 0 && (await tryOf(noScopes)).result === "stopped", partly);
+    later(3);
+    const refusedBefore = (await profiles.refusedBioChecks(now())).find((row) => row.network === "tiktok")?.count ?? 0;
+    const ours = await pressed(plain2);
+    const refusedKeys = await tikReturn(plain2, ours, { account: { kind: "refused", reason: "invalid_client" } });
+    check("TikTok refuses our own keys: the host is told to try later, it shows up for the founder's page, and the try is ended", refusedKeys.includes("could not fetch") && ((await profiles.refusedBioChecks(now())).find((row) => row.network === "tiktok")?.count ?? 0) === refusedBefore + 1 && (await tryOf(ours)).result === "not_fetched", refusedKeys);
+
+    // A return that is not this try's own touches no try.
+    const careful = await tikHost();
+    const stranger = await tikHost();
+    const open = await pressed(careful);
+    tikAsked = 0;
+    const wrong: Array<[string, (r: Back) => void]> = [
+      ["no note", (r) => (r.note = undefined)],
+      ["a note that was changed", (r) => (r.note = `${r.note}x`)],
+      ["a note with the try's id cut out", (r) => (r.note = (r.note ?? "").split(".").filter((_, index) => index !== 3).join("."))],
+      ["a value that does not match (another tab's return)", (r) => (r.state = "another-value")],
+      ["no value", (r) => (r.state = null)],
+      ["started as one person, returned as another", (r) => (r.userId = stranger.id)],
+      ["an ordinary sign-in's note for the same person and value", (r) => (r.note = writeNote("tiktok-login", { state: r.state ?? "", userId: r.userId, expiresAt: new Date(clock + 600_000) }, ON.signingSecret))],
+      ["the settings are gone", (r) => (r.settings = null)],
+    ];
+    const slipped: string[] = [];
+    for (const [label, change] of wrong) {
+      const said = await tikReturn(careful, open, { change });
+      const now_ = await tryOf(open);
+      if (said.startsWith(SAVED) || tikAsked !== 0 || now_.result !== null || now_.returnedAt !== null || (await photoOf(careful)) || (await photoOf(stranger))) slipped.push(label);
+    }
+    check(`a return that does not fit (${wrong.length} cases) is stopped before anything is asked of TikTok, and the try is not touched: it is still running and not taken up`, slipped.length === 0, slipped.join("; "));
+    check("and that try's own return still goes through afterwards", (await tikReturn(careful, open)).startsWith(SAVED));
+
+    // Two tabs: an ordinary sign-in and a photo's, sharing the one cookie.
+    const tabs = await tikHost();
+    const tabsBefore = await proofOf(tabs);
+    const ordinary = TikLogin.startTikTokLogin({ userId: tabs.id, now: now(), settings: ON });
+    const photoTab = await pressed(tabs);
+    // The ordinary tab returns: the browser now holds the photo's note, the address carries the ordinary value.
+    const ordinaryBack = await tikReturn(tabs, photoTab, { change: (r) => (r.state = new URL(ordinary.url).searchParams.get("state")) });
+    check("an ordinary sign-in was started first, then a photo's: the ordinary tab's return is not accepted and does not stop the photo's try", !ordinaryBack.startsWith(SAVED) && (await tryOf(photoTab)).result === null && (await tryOf(photoTab)).returnedAt === null && (await proofOf(tabs)) === tabsBefore, ordinaryBack);
+    later(3);
+    const photoFirst = await pressed(tabs);
+    const ordinaryLater = TikLogin.startTikTokLogin({ userId: tabs.id, now: now(), settings: ON });
+    // The photo's tab returns: the browser now holds the ordinary note, the address carries the photo's value.
+    const photoState = new URL(photoFirst.url).searchParams.get("state");
+    const asOrdinary = await TikLogin.finishTikTokLogin({ settings: ON, code: "one-time-code", state: photoState, scopes: BOTH, refused: false, note: ordinaryLater.note, userId: tabs.id, now: now(), accountFor: async () => ({ kind: "account", openId: "tt-changed", username: "changed.name" }) });
+    check("the other way round: the photo tab's return, read as the ordinary kind the browser's note says it is, confirms nothing and leaves the photo's try alone", !Tik.isPhotoReturn(ordinaryLater.note, ON, now()) && asOrdinary.includes("was not connected") && (await proofOf(tabs)) === tabsBefore && (await tryOf(photoFirst)).result === null, asOrdinary);
+
+    // Time: two minutes, three, eleven, never.
+    const slow = await tikHost();
+    const first = await pressed(slow);
+    const second = await tikPress(slow);
+    check("a second press within two minutes is told that one is under way", "refused" in second && second.refused === "running");
+    later(3);
+    const afterThree = await tikReturn(slow, first);
+    check("coming back after three minutes, with no other press in between, is fine", afterThree.startsWith(SAVED), afterThree);
+    later(3);
+    const old = await pressed(slow);
+    later(3);
+    const newer = await pressed(slow);
+    const oldBack = await tikReturn(slow, old, { picture: await picture() });
+    check("a press after two minutes stops the older try; the older try's return does nothing, and does not stop the newer one", (await tryOf(old)).result === "stopped" && oldBack.startsWith(USED) && (await tryOf(newer)).result === null && (await tryOf(newer)).returnedAt === null, oldBack);
+    later(11);
+    tikAsked = 0;
+    const tooLate = await tikReturn(slow, newer);
+    check("coming back after eleven minutes: the note has run out, nothing is asked of TikTok, and the try is left as it is", !tooLate.startsWith(SAVED) && tikAsked === 0 && (await tryOf(newer)).result === null, tooLate);
+    check("a try that never comes back does not lock the host out: the next press marks it as stopped and starts afresh", !("refused" in (await tikPress(slow))) && (await tryOf(newer)).result === "stopped");
+
+    // While the host is away at TikTok.
+    const away = async (change: (host: TikHost) => Promise<unknown>, opts: Parameters<typeof tikHost>[0] = { spare: true }) => {
+      const host = await tikHost(opts);
+      await tikReturn(host, await pressed(host));
+      const had = await photoOf(host);
+      later(3);
+      const press = await pressed(host);
+      await change(host);
+      tikAsked = 0;
+      const said = await tikReturn(host, press, { picture: await picture() });
+      return { host, had, said, after: await photoOf(host), line: await tryOf(press), asked: tikAsked };
+    };
+    const removedPhoto = await away((host) => Photo.removePhoto({ userId: host.id, now: now() }));
+    check("the host presses \"Remove\" while away at TikTok: what comes back writes nothing, and TikTok is not even asked", removedPhoto.said.startsWith(USED) && !removedPhoto.after && removedPhoto.asked === 0 && removedPhoto.line.result === "stopped", removedPhoto.said);
+    const removedAccount = await away(async (host) => profiles.removeSocialName(host.id, (await entryOf(host, "tiktok")).id));
+    check("the TikTok account is removed from the page while away: the photo goes with it, and what comes back writes none", removedAccount.said.startsWith(USED) && !removedAccount.after && removedAccount.asked === 0, removedAccount.said);
+    const replaced = await away((host) => profiles.confirmSocialByLogin({ userId: host.id, network: "tiktok", accountId: `tt-new-${made}`, username: `new.${made}.${TAG}`, now: now() }));
+    check("\"Connect your TikTok\" brings another account while away: the old account's picture is not written", replaced.said.startsWith(USED) && !replaced.after, replaced.said);
+    const lockedAway = await away(async (host) => Photo.lockPhotoAsFounder({ adminId: admin.id, photoId: (await photoOf(host)).id, now: now() }));
+    check("the founder removes and reports the photo while away: no new photo is written", lockedAway.said.startsWith(USED) && !lockedAway.after && (await lockedOf(lockedAway.host)).length === 1, lockedAway.said);
+    const closedAway = await away((host) => closing.closeAccount({ userId: host.id, by: admin.id }));
+    check("the account is closed while away: its photo is deleted, and what comes back writes none", closedAway.said.startsWith(USED) && !closedAway.after && closedAway.asked === 0, closedAway.said);
+    const pausedAway = await away((host) => db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, host.id)));
+    check("the account is paused while away: the return ends the try without asking TikTok, and the photo the host had stays", pausedAway.said.includes("cannot do this") && pausedAway.asked === 0 && pausedAway.after?.id === pausedAway.had.id && pausedAway.line.result === "stopped", pausedAway.said);
+
+    // Instagram and TikTok on one page: one photo at a time.
+    const two = await tikHost({ instagram: true });
+    check("(a photo from Instagram first)", (await press(two)) === "shown" && (await photoOf(two))?.network === "instagram");
+    const fromInstagram = await photoOf(two);
+    later(3);
+    says.openai = "flagged";
+    const flagged = await tikReturn(two, await pressed(two), { picture: await picture() });
+    says.openai = "clean";
+    check("a TikTok picture that a service refuses does not replace the Instagram photo", flagged.includes("was not accepted") && (await photoOf(two))?.id === fromInstagram.id, flagged);
+    later(3);
+    const tikPicture = await picture();
+    const replacedIt = await tikReturn(two, await pressed(two), { picture: tikPicture });
+    check("a TikTok picture that passes replaces it: one photo at a time, the last one chosen", replacedIt.startsWith(SAVED) && (await photoOf(two))?.network === "tiktok" && !(await sees(null, fromInstagram.id)), replacedIt);
+    later(3);
+    const tikTry = await pressed(two);
+    later(3);
+    const instagramTook = await press(two, { picture: await picture() });
+    const tikLate = await tikReturn(two, tikTry, { picture: await picture() });
+    check("an Instagram press, more than two minutes after a TikTok press that never came back, takes its place; the TikTok return that comes afterwards does nothing", instagramTook === "shown" && (await tryOf(tikTry)).result === "stopped" && tikLate.startsWith(USED) && (await photoOf(two))?.network === "instagram", { instagramTook, tikLate });
+    // A refused TikTok picture stays refused.
+    const strictAgain = await tikHost();
+    const bad = await picture();
+    says.openai = "flagged";
+    await tikReturn(strictAgain, await pressed(strictAgain), { picture: bad });
+    says.openai = "clean";
+    later(3);
+    forget();
+    const sameBad = await tikReturn(strictAgain, await pressed(strictAgain), { picture: bad });
+    check("a TikTok picture a service refused is refused at once the next time, without asking a service", sameBad.includes("not accepted before") && asked.length === 0 && !(await photoOf(strictAgain)), sameBad);
+    // Something of ours breaks in the middle of a return.
+    later(3);
+    const breaking = await pressed(strictAgain);
+    const broke = await tikReturn(strictAgain, breaking, {
+      account: () => {
+        throw new Error("boom");
+      },
+    });
+    check("the request to TikTok breaks: the host is told nothing was changed, and the try is ended", broke.includes("could not fetch") && (await tryOf(breaking)).result === "not_fetched", broke);
   });
 
   // ========================================================================
