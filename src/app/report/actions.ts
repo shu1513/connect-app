@@ -22,7 +22,8 @@ export async function sendReport(formData: FormData) {
       text: String(formData.get("text") ?? ""),
       now: new Date(),
     });
-    notice = `Thank you. Your report is R-${reference}. We will look at it, and you will not hear from this person through Connect again.`;
+    // Reporting a post does not block its host, so that is not promised for one.
+    notice = context === "post" ? `Thank you. Your report is R-${reference}. We will look at it.` : `Thank you. Your report is R-${reference}. We will look at it, and you will not hear from this person through Connect again.`;
   } catch (error) {
     if (!(error instanceof ReportError)) {
       console.error("[safety] report failed", error);

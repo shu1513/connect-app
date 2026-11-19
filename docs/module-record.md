@@ -1579,3 +1579,54 @@ membership.
 lawyer (the wording, the monthly agreement, the duty to report); the founder's accounts at the
 three checking services; and the application for the child-safety tool. They are in the rulebook
 under "Before this can go live".
+
+## Projects, part one, 1a: the project and its diary (pull request 43, 18 November 2026)
+
+**What it is.** The first of five steps of projects (`plans/23-projects.md`,
+`plans/24-projects-part-1-the-diary.md`). A host starts one project, writes diary posts with
+text and YouTube links, changes and removes them, and ends the project. Anyone can read the diary
+on her page. No pictures yet (1b) and no money (part two).
+
+**What was built**
+- Tables `projects` and `project_posts` (migration 0031). The database itself allows one running
+  project per host. A removed post and a hidden post keep their lines.
+- `src/lib/projects/`: the plain rules with tests (`rules.ts`), projects (`projects.ts`), posts
+  (`posts.ts`). A YouTube link is never kept as it was typed: the address is built again from
+  the video's or channel's id, so nothing else a person typed can reach a page. Post text is
+  always shown as plain text.
+- The host's pages: `/host/project` and `/host/project/posts/[id]`, and a part "Your project" on
+  Hosting. The diary: `/h/[handle]/project` and `/h/[handle]/project/[id]`, and a box on the
+  host's page. It is there exactly when her page is open to everyone.
+- Reporting a post: the report keeps what the post said, and does not block the host (a report
+  about a person still does).
+- The founder: `/admin/projects` with the switch (off, named hosts, everyone; on for everyone
+  unless changed), every project, every post of a project, and "hide" and "show" for a post, each
+  written to the record of the founder's actions.
+
+**What the reviewers found**
+- Astra, four rounds on the code before the pull request, ending in "ready to open a pull
+  request", and a fifth on CodeRabbit's fixes. The findings that mattered: a form left open in an old tab
+  could have ended or changed a project started later (every form now names its project); the
+  posts of an ended project could not be reached to remove them; the founder could only see the
+  newest thirty posts; a post that the server refused was lost, text and all (the post form now
+  answers in place and keeps what was typed); and an older check (`safety-check`) compared the
+  switches in a way the two new columns would have broken. One rare case was left as it is, with
+  Astra's agreement: a host who ends her own project in a second tab and then sends a draft from
+  the first, with scripts switched off in her browser, does not get that draft back.
+
+- CodeRabbit (pull request 43): six comments, all right, all taken. "Older posts" could have led
+  a reader into a newer project; a host paused while typing lost her draft; a YouTube channel's
+  name in another alphabet was refused; an unseen character in a post gave an error nobody could
+  read; the switch and its line in the record were not saved together; and one check depended on
+  what else was in the database. Astra looked at these changes too and found one slip in them
+  (the longest such channel name was saved and then not read back), which was fixed.
+
+**How it was checked**
+- `scripts/project-check.ts`: 117 checks in nine journeys, among them two starts at the same
+  moment, every way a host's page can be closed, forms from an old tab, the database's own rules
+  tried directly, and who can reach which action.
+- All fifteen earlier check scripts on the finished code, and again after CodeRabbit's fixes.
+- In the browser, as a host, a visitor, a customer who reports a post, and the founder; on a
+  phone-sized window too. The post form was also sent without any script, as a plain form.
+
+**Still open.** Nothing for 1a. Pictures follow in 1b.

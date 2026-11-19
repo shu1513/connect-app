@@ -522,3 +522,21 @@ Astra found no blocker left for 1a, and five corrections for 1b, all taken:
 
 Left to the building, as Astra advised: the exact fields each service answers with, and the small
 upload details (the place is held through the conversion; the file itself is measured).
+
+## What building 1a added to this plan (18 November 2026)
+
+Four things were found while building and in Astra's reviews of the code, and are built:
+
+- **Every form that changes a project names the project it was drawn for.** A form left open in
+  an old tab could otherwise have renamed, written into or ended a project the host started
+  later. The server refuses a form whose project is not her running one.
+- **The posts of an ended project** have a list of their own on the host's page
+  (`/host/project?project=<id>`), where she can remove one. Without it "she can still remove a
+  post" had no way to be done.
+- **The founder reaches every post of any project,** page by page (`/admin/projects?project=<id>`),
+  whether or not the host's page is open. The newest thirty alone would have left older posts
+  out of reach.
+- **The post form answers in place.** It is the one form here that does not send the browser on
+  when the server refuses: it comes back with the reason and with everything that was typed, also
+  without any script in the browser. A post can be 5,000 characters, and none of it may be lost
+  over a mistyped link.

@@ -10,11 +10,11 @@ import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Report" };
 
-/** The report form. Reached from a host's page, a request, a call's page, or "End call and report". */
+/** The report form. Reached from a host's page, a request, a call's page, "End call and report", or a post of a host's diary. */
 export default async function ReportPage(props: PageProps<"/report">) {
   const user = await requireUser();
   const query = await props.searchParams;
-  const context = (["call", "booking", "profile"] as const).find((c) => typeof query[c] === "string");
+  const context = (["call", "booking", "profile", "post"] as const).find((c) => typeof query[c] === "string");
   if (!context) notFound();
   const contextId = String(query[context]);
   const notice = readNotice("/report", query);
@@ -31,8 +31,10 @@ export default async function ReportPage(props: PageProps<"/report">) {
         </p>
       )}
       <p className="mt-2 text-sm opacity-70">
-        Tell us what happened. Only our team reads this. Reporting someone also blocks them: they cannot contact you through Connect
-        again. Read the{" "}
+        {context === "post"
+          ? "Tell us what is wrong with this post. Only our team reads this."
+          : "Tell us what happened. Only our team reads this. Reporting someone also blocks them: they cannot contact you through Connect again."}{" "}
+        Read the{" "}
         <Link href="/rules" target="_blank" className="underline underline-offset-2">
           rules
         </Link>
