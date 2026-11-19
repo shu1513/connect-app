@@ -4,15 +4,22 @@
  * other account, needs neither Stripe nor the app running, and removes what it made.
  *
  * Usage: npx tsx scripts/follow-check.ts
+ *
+ * With --app=http://localhost:3000 it also asks the running app for the pages themselves, logged
+ * in as the seeded test customer (npm run seed; the password is read from test-accounts.local.md):
+ * what a follower the host has blocked is shown must be the same, button for button, as what
+ * anyone else is shown.
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
+const APP = process.argv.find((arg) => arg.startsWith("--app="))?.slice("--app=".length).replace(/\/$/, "") ?? null;
 const RUN = randomUUID().slice(0, 8);
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -220,12 +227,19 @@ async function main() {
       check("a record that does not add up is never guessed at: decided, and no follow", record === "needs_review" && review.decided && !review.follows, record);
       const reportOf = (reporterId: string, reportedId: string, callId: string) => db.insert(schema.reports).values({ reporterId, reportedId, context: "call", contextId: callId, reason: "other", text: "check" });
       check("not when the customer has reported the host", !(await after("rep1", {}, ({ customerId, hostId, callId }) => reportOf(customerId, hostId, callId).then(() => undefined))).follows);
-      check("not when the host has reported the customer", !(await after("rep2", {}, ({ customerId, hostId, callId }) => reportOf(hostId, customerId, callId).then(() => undefined))).follows);
       check("not when the customer has blocked the host", !(await after("blk1", {}, ({ customerId, hostId }) => db.insert(schema.blocks).values({ blockerId: customerId, blockedId: hostId }).then(() => undefined))).follows);
-      const blockedByHost = await after("blk2", {}, ({ customerId, hostId }) => db.insert(schema.blocks).values({ blockerId: hostId, blockedId: customerId }).then(() => undefined));
-      check("not when the host has blocked the customer", !blockedByHost.follows);
-      await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, blockedByHost.hostId));
-      check("and not later either, once the block is lifted: a call is decided once", (await decide([blockedByHost.callId])) === 0 && (await line(blockedByHost.customerId, blockedByHost.hostId)) === null);
+      // What the host did does not stop it: a missing follow would tell the customer. It is a quiet one.
+      const blockedByHost = await after("blk2", {}, async ({ customerId, hostId, callId }) => {
+        await reportOf(hostId, customerId, callId);
+        await db.insert(schema.blocks).values({ blockerId: hostId, blockedId: customerId });
+        await goOnline(hostId);
+      });
+      const quiet = (await list(blockedByHost.customerId))[0];
+      check("when the host has reported and blocked the customer, the customer still follows, so that nothing tells them", blockedByHost.follows);
+      check("and that follow is quiet: the host is never available to them", quiet?.hostId === blockedByHost.hostId && quiet.available === false);
+      const notNow = await after("blk3", {}, ({ customerId, hostId }) => db.insert(schema.blocks).values({ blockerId: customerId, blockedId: hostId }).then(() => undefined));
+      await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, notNow.customerId));
+      check("a call is decided once: lifting the customer's block later does not bring a follow", (await decide([notNow.callId])) === 0 && (await line(notNow.customerId, notNow.hostId)) === null);
       check("not when the customer asked for a refund of the call", !(await after("refund", {}, ({ customerId, callId }) => db.insert(schema.refundRequests).values({ callId, customerId, reason: "other", askedAt: now }).then(() => undefined))).follows);
       check("not for a host whose page is hidden", !(await after("hid", {}, ({ hostId }) => db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, hostId)).then(() => undefined))).follows);
       check("not for a host who is suspended", !(await after("susp", {}, ({ hostId }) => db.update(schema.hostProfiles).set({ status: "suspended" }).where(eq(schema.hostProfiles.userId, hostId)).then(() => undefined))).follows);
@@ -361,6 +375,59 @@ async function main() {
       const base = { followCheckedAt: null, cancelledAt: null, safetyEndedAt: null, endsAt: new Date(now.getTime() - 5 * MINUTE) };
       check("'Don't follow' is offered while the decision is still to come", F.followStillToCome(base, "customer", now) && F.followStillToCome(base, "now", now) && F.followStillToCome(base, "member", now));
       check("not once it is decided, for a call that cannot lead to a follow, or for an old one", !F.followStillToCome({ ...base, followCheckedAt: now }, "customer", now) && !F.followStillToCome({ ...base, cancelledAt: now }, "customer", now) && !F.followStillToCome({ ...base, safetyEndedAt: now }, "customer", now) && !F.followStillToCome(base, "admin", now) && !F.followStillToCome({ ...base, endsAt: new Date(now.getTime() - 8 * DAY) }, "customer", now));
+    }
+
+    // ----------------------------------------------------------------------
+    if (!APP) {
+      console.log("\n7. The pages themselves: skipped (run with --app=http://localhost:3000 and the app running)");
+    } else {
+      console.log(`\n7. The pages themselves, from ${APP}, as the seeded test customer`);
+      const [cory] = await db.select().from(schema.user).where(eq(schema.user.email, "customer@test.local"));
+      const password = readFileSync("test-accounts.local.md", "utf8").split("\n").find((l) => l.includes("customer@test.local"))?.split("|").map((c) => c.trim())[3] ?? "";
+      const jar = new Map<string, string>();
+      const get = async (path: string, loggedIn = true) => {
+        const headers: Record<string, string> = { origin: APP };
+        if (loggedIn && jar.size) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        const response = await fetch(`${APP}${path}`, { headers, redirect: "manual" });
+        return { status: response.status, text: await response.text() };
+      };
+      const signIn = await fetch(`${APP}/api/auth/sign-in/email`, { method: "POST", headers: { origin: APP, "content-type": "application/json" }, body: JSON.stringify({ email: "customer@test.local", password }) });
+      for (const cookie of signIn.headers.getSetCookie()) {
+        const pair = cookie.split(";")[0];
+        jar.set(pair.slice(0, pair.indexOf("=")).trim(), pair.slice(pair.indexOf("=") + 1));
+      }
+      check("the test customer can log in", signIn.status === 200 && Boolean(cory), String(signIn.status));
+      const button = (html: string) => html.match(/data-follow="([a-z]+)"/)?.[1] ?? "none-drawn";
+      const box = (html: string) => html.match(/data-follow-box="([a-z-]+)"/)?.[1] ?? "none-drawn";
+      try {
+        const plain = await host("pageplain", "Page Plain");
+        const blocking = await host("pageblocking", "Page Blocking");
+        const mine = await host("pagemine", "Page Mine");
+        await db.insert(schema.blocks).values([{ blockerId: blocking.id, blockedId: cory.id }, { blockerId: cory.id, blockedId: mine.id }]);
+        check("a visitor who is not logged in is offered 'Log in to follow'", button((await get(`/h/${plain.handle}`, false)).text) === "visitor");
+        check("the Follow button is the same on the page of a host who has blocked the viewer", button((await get(`/h/${plain.handle}`)).text) === "none" && button((await get(`/h/${blocking.handle}`)).text) === "none");
+        check("and is not drawn for a host the viewer has blocked themselves", button((await get(`/h/${mine.handle}`)).text) === "none-drawn");
+        await F.follow({ followerId: cory.id, handle: plain.handle, now });
+        await F.follow({ followerId: cory.id, handle: blocking.handle, now });
+        check("following, both pages say so in the same way", button((await get(`/h/${plain.handle}`)).text) === "following" && button((await get(`/h/${blocking.handle}`)).text) === "following");
+        const listPage = (await get("/following")).text;
+        check("both are on the list, each with its link", listPage.includes("Page Plain") && listPage.includes("Page Blocking") && listPage.includes(`/h/${blocking.handle}`));
+        await F.unfollow({ followerId: cory.id, hostId: plain.id, now });
+        await F.unfollow({ followerId: cory.id, hostId: blocking.id, now });
+        await db.delete(schema.follows).where(and(eq(schema.follows.followerId, cory.id), inArray(schema.follows.hostId, made)));
+
+        const [callPlain, callBlocking] = [await call({ hostId: plain.id, customerId: cory.id, endedMinutesAgo: 20 }), await call({ hostId: blocking.id, customerId: cory.id, endedMinutesAgo: 70 })];
+        const results = async (id: string) => box((await get(`/calls/${id}/results`)).text);
+        check("before the decision, the results page offers 'Don't follow' in both cases", (await results(callPlain.id)) === "to-come" && (await results(callBlocking.id)) === "to-come");
+        await decide([callPlain.id, callBlocking.id]);
+        check("after it, both say 'You follow'", (await results(callPlain.id)) === "following" && (await results(callBlocking.id)) === "following");
+        const stranger = await host("pagestranger");
+        const notMine = await call({ hostId: stranger.id, customerId: (await person("pageother")).id });
+        check("the results of a call the viewer was not in are 'not found'", (await get(`/calls/${notMine.id}/results`)).status === 404);
+        check("the list needs a login", [302, 303, 307].includes((await get("/following", false)).status));
+      } finally {
+        await db.delete(schema.follows).where(and(eq(schema.follows.followerId, cory.id), inArray(schema.follows.hostId, made)));
+      }
     }
   } finally {
     const ids = made.length ? made : ["-"];

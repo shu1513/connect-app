@@ -19,6 +19,11 @@ export const FOLLOW = {
 /**
  * What the automatic follow after a call is decided from. Each is read from what is recorded,
  * at the one moment the decision is made; nothing is guessed.
+ *
+ * Only what the customer did themselves stands in the way (their report, their block, their
+ * request for a refund). What the host did does not: a customer who is not followed up after a
+ * call could tell from it that the host blocked or reported them. Such a follow is quiet anyway:
+ * the host never shows as available to someone they have blocked.
  */
 export type AfterCallFacts = {
   /** Where the call came from: "customer" (a request), "now" (a call now), "member" (a membership booking), "admin" (a check script), or null for a call with no booking. */
@@ -30,10 +35,10 @@ export type AfterCallFacts = {
   recordComplete: boolean;
   /** Time the two were in the room together. Null while the record has no totals. */
   togetherSeconds: number | null;
-  /** Either has reported the other, about anything, whatever became of the report. */
-  reported: boolean;
-  /** Either has blocked the other. */
-  blocked: boolean;
+  /** The customer has reported the host, about anything, whatever became of the report. */
+  customerReported: boolean;
+  /** The customer has blocked the host. */
+  customerBlocked: boolean;
   /** The customer asked for a refund of this call, whatever became of the request. */
   refundAsked: boolean;
   /** The host's page is open to everyone: approved, not hidden by the host. */
@@ -52,7 +57,7 @@ export function followsAfterCall(facts: AfterCallFacts): boolean {
   // The call took place.
   if (facts.cancelled || !facts.recordComplete || (facts.togetherSeconds ?? 0) < FOLLOW.minTogetherSeconds) return false;
   // And did not go wrong.
-  if (facts.safetyEnded || facts.reported || facts.blocked || facts.refundAsked) return false;
+  if (facts.safetyEnded || facts.customerReported || facts.customerBlocked || facts.refundAsked) return false;
   if (!facts.hostPageOpen || facts.eitherClosedOrPaused) return false;
   // Someone who said no is never made to follow, and nobody is pushed over the limit.
   return !facts.hasLine && facts.following < FOLLOW.limit;

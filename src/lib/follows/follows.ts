@@ -226,11 +226,10 @@ async function decide(callId: string, now: Date): Promise<"follows" | "no" | "la
     if (!attendance.final) return "later";
 
     await lockFollowers(tx, [call.customerId]);
-    const between = (a: typeof schema.reports.reporterId | typeof schema.blocks.blockerId, b: typeof schema.reports.reportedId | typeof schema.blocks.blockedId) =>
-      or(and(eq(a, call.customerId), eq(b, call.hostId)), and(eq(a, call.hostId), eq(b, call.customerId)));
     const [booking] = await tx.select({ source: schema.bookings.source }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
-    const report = await tx.select({ id: schema.reports.id }).from(schema.reports).where(between(schema.reports.reporterId, schema.reports.reportedId)).limit(1);
-    const block = await tx.select({ blockerId: schema.blocks.blockerId }).from(schema.blocks).where(between(schema.blocks.blockerId, schema.blocks.blockedId)).limit(1);
+    // Only the customer's own report and block count. The host's do not: leaving the follow out would tell the customer.
+    const report = await tx.select({ id: schema.reports.id }).from(schema.reports).where(and(eq(schema.reports.reporterId, call.customerId), eq(schema.reports.reportedId, call.hostId))).limit(1);
+    const block = await tx.select({ blockerId: schema.blocks.blockerId }).from(schema.blocks).where(and(eq(schema.blocks.blockerId, call.customerId), eq(schema.blocks.blockedId, call.hostId))).limit(1);
     const refund = await tx.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id)).limit(1);
     const people = await tx.select({ id: schema.user.id, closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt }).from(schema.user).where(inArray(schema.user.id, [call.hostId, call.customerId]));
     const [profile] = await tx.select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId));
@@ -242,8 +241,8 @@ async function decide(callId: string, now: Date): Promise<"follows" | "no" | "la
       safetyEnded: Boolean(call.safetyEndedAt),
       recordComplete: attendance.result.status === "complete",
       togetherSeconds: attendance.result.totals?.togetherSeconds ?? null,
-      reported: report.length > 0,
-      blocked: block.length > 0,
+      customerReported: report.length > 0,
+      customerBlocked: block.length > 0,
       refundAsked: refund.length > 0,
       hostPageOpen: profile?.status === "approved" && profile.hidden === false,
       eitherClosedOrPaused: people.length < 2 || people.some((person) => person.closedAt || person.pausedAt),

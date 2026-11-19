@@ -7,8 +7,8 @@ const good: AfterCallFacts = {
   safetyEnded: false,
   recordComplete: true,
   togetherSeconds: 600,
-  reported: false,
-  blocked: false,
+  customerReported: false,
+  customerBlocked: false,
   refundAsked: false,
   hostPageOpen: true,
   eitherClosedOrPaused: false,
@@ -36,7 +36,7 @@ describe("followsAfterCall", () => {
     expect(followsAfterCall({ ...good, cancelled: true })).toBe(false);
   });
 
-  it.each(["safetyEnded", "reported", "blocked", "refundAsked", "eitherClosedOrPaused", "hasLine"] as const)("never when %s", (fact) => {
+  it.each(["safetyEnded", "customerReported", "customerBlocked", "refundAsked", "eitherClosedOrPaused", "hasLine"] as const)("never when %s", (fact) => {
     expect(followsAfterCall({ ...good, [fact]: true })).toBe(false);
   });
 
