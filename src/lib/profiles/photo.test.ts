@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { readInstagramPhotoAnswer } from "./bio-check";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readInstagramPhoto, readInstagramPhotoAnswer } from "./bio-check";
 import { fetchPicture } from "./photo-fetch";
 import { PHOTO, PICTURE_SERVERS, pictureAddress, sameAccount, serverFamily } from "./photo-rules";
 
@@ -180,5 +180,74 @@ describe("fetchPicture", () => {
     expect(PHOTO.triesPerDay).toBe(5);
     expect(PHOTO.fetchMaxBytes).toBe(5 * 1024 * 1024);
     expect(PHOTO.fetchWithinMs).toBe(8000);
+  });
+});
+
+describe("readInstagramPhoto: how Meta's answer is read", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  const withSettings = () => {
+    vi.stubEnv("INSTAGRAM_CHECK_TOKEN", "a-pretend-key");
+    vi.stubEnv("INSTAGRAM_CHECK_ACCOUNT_ID", "17841401929457335");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  };
+  const inPieces = (text: string, size: number) =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          const bytes = new TextEncoder().encode(text);
+          for (let at = 0; at < bytes.length; at += size) controller.enqueue(bytes.slice(at, at + size));
+          controller.close();
+        },
+      }),
+    );
+  const good = JSON.stringify({ business_discovery: { id: "17841400039600391", username: "jane.doe", profile_picture_url: PICTURE }, id: "17841401929457335" });
+
+  it("an answer that arrives in many small pieces is put together and read; the key goes in a header, never in the address", async () => {
+    withSettings();
+    let asked: { address: string; init?: RequestInit } | undefined;
+    vi.stubGlobal("fetch", async (address: URL, init?: RequestInit) => {
+      asked = { address: String(address), init };
+      return inPieces(good, 7);
+    });
+    expect(await readInstagramPhoto("jane.doe")).toEqual({ kind: "picture", accountId: "17841400039600391", address: PICTURE });
+    expect(asked?.address).toContain("business_discovery.username%28jane.doe%29%7Bid%2Cusername%2Cprofile_picture_url%7D");
+    expect(asked?.address).not.toContain("a-pretend-key");
+    expect((asked?.init?.headers as Record<string, string>).authorization).toBe("Bearer a-pretend-key");
+    expect(asked?.init?.redirect).toBe("error");
+  });
+
+  it("an answer longer than any real one is dropped while it is being read", async () => {
+    withSettings();
+    let pulled = 0;
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              pulled++;
+              // It never ends by itself: only the reader's own limit stops it.
+              controller.enqueue(new Uint8Array(64 * 1024).fill(32));
+            },
+          }),
+        ),
+    );
+    expect(await readInstagramPhoto("jane.doe")).toEqual({ kind: "unavailable" });
+    expect(pulled).toBeLessThan(20);
+  });
+
+  it("without the settings, or for a name that is not a name, nothing is asked", async () => {
+    let asked = 0;
+    vi.stubGlobal("fetch", async () => (asked++, inPieces(good, 100)));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubEnv("INSTAGRAM_CHECK_TOKEN", "");
+    vi.stubEnv("INSTAGRAM_CHECK_ACCOUNT_ID", "");
+    expect(await readInstagramPhoto("jane.doe")).toEqual({ kind: "unavailable" });
+    withSettings();
+    expect(await readInstagramPhoto("jane doe){biography}")).toEqual({ kind: "unavailable" });
+    expect(asked).toBe(0);
   });
 });

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
-import { photosStillThere } from "@/lib/profiles/photo";
+import { photoStates } from "@/lib/profiles/photo";
 import { unansweredRequests } from "@/lib/refunds/requests";
 import { openReports, REPORT_REASONS } from "@/lib/safety/reports";
 import { switches } from "@/lib/safety/switches";
@@ -38,8 +38,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
     ? await db.select({ handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, current.membershipsHosts))
     : [];
   // Read on its own, oldest first: a request whose host has gone silent must not sink out of sight.
-  // Which of the photos that were showing when a page was reported are still that host's photo (plans/29).
-  const photosThere = await photosStillThere(
+  // What has become of the photos that were showing when a page was reported (plans/29).
+  const photosNow = await photoStates(
     reports.flatMap(({ report }) => {
       try {
         const id = (JSON.parse(report.snapshot) as { photoId?: unknown }).photoId;
@@ -159,7 +159,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 {snapshot.photoId && (
                   <p className="mt-1 opacity-70" data-reported-photo>
                     Their page showed a photo when it was reported.{" "}
-                    {photosThere.has(snapshot.photoId) ? (
+                    {photosNow.get(snapshot.photoId) === "current" ? (
                       <>
                         It is still their photo. It is listed, with &quot;Remove&quot; and &quot;Remove and report&quot;, on{" "}
                         <Link href="/admin/people#photos" className="underline underline-offset-2">
@@ -167,8 +167,16 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                         </Link>
                         .
                       </>
+                    ) : photosNow.get(snapshot.photoId) === "locked" ? (
+                      <>
+                        That photo was removed and reported, and is kept. It is listed on{" "}
+                        <Link href="/admin/people#photos" className="underline underline-offset-2">
+                          the page for hosts and accounts
+                        </Link>
+                        .
+                      </>
                     ) : (
-                      "That photo has been removed or replaced since, and is not kept. A photo they have now is a different one."
+                      "That photo has been removed or replaced since, and is gone. A photo they have now is a different one."
                     )}
                   </p>
                 )}

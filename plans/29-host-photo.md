@@ -211,8 +211,10 @@ report", closing the account, and every step that changes the confirmed account 
 from (removing it, typing another name, a sign-in that brings another account or another name).
 Step 3 compares the account once more by itself; the stopping is what catches an account that
 was changed and changed back in between. So an answer that comes late never brings a photo back.
-Every try that fails in an ordinary way is ended at once with how it failed; the two minutes are
-only for a try whose server stopped under it. Whether the account may do this (not closed, not
+Every try that fails in an ordinary way is ended at once with how it failed. The two minutes are
+for a try whose server stopped under it, or whose last line could not be written because the
+database could not be reached: such a try counts as stopped at the host's next press, two
+minutes or more after it started. Whether the account may do this (not closed, not
 paused) is asked at the start and at the finish; a pause that was lifted again in between stops
 nothing.
 
@@ -421,3 +423,23 @@ Also taken: the hourly limit described as what it is; the founder's buttons act 
 photo that was shown; a pause lifted in between; the privacy wording; a report of a page says
 which photo was showing; the one place kept on the server's shared object (Astra read the
 framework's guide and found two built copies of the file).
+
+## The real try (19 November 2026)
+
+On this computer, as the test host, whose Instagram entry was confirmed by signing in at Meta
+earlier that day:
+
+- **"Use my Instagram photo":** the real request to Meta, the real fetch from a server ending in
+  `.fbcdn.net`, the real check by OpenAI. "Shown" after 3.3 seconds. The copy is 729 by 729
+  points, 55 KB. Meta's number for the account in this answer is the number the sign-in gave, so
+  the comparison of the two was made on real numbers.
+- **"Update":** a new photo with a new address.
+- **The host's page and "Find a host":** the photo in place of the letter, phone-sized (375
+  points wide, nothing wider than the screen) and wide.
+- **The founder's page:** the photo is listed with where it came from. "Remove and report"
+  without the tick changed nothing and said so. "Remove" deleted the photo, the host's page
+  showed the letter again, and the record of the founder's actions has the line.
+
+Not seen for real: a personal account, an account Meta does not show, a picture a service
+refuses, and "Remove and report" with the tick (it cannot be undone; the script checks it).
+

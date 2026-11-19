@@ -81,9 +81,20 @@ export type PhotoOptions = {
   services?: Checker[];
   clock?: () => Date;
   diaryHosts?: string[];
-  /** Called once the outside work has started and before anything is written: the check script changes things "meanwhile" here. */
-  meanwhile?: (at: "asked" | "copied" | "checked") => Promise<void>;
+  /**
+   * For the check script, which changes things "meanwhile" here: after Meta was asked, after the copy was made, when
+   * a service has refused the picture and before that is written down, and after the services' answers were written.
+   */
+  meanwhile?: (at: "asked" | "copied" | "refused" | "checked") => Promise<void>;
 };
+
+/** A service's refusal of this try's picture, once it is known. It is about the picture, so it is written down whatever else fails. */
+type Known = { refusal?: { sha256: string; by: string; detail: string } };
+
+/** Writes a refusal to the try, with the fingerprint, also when the try was stopped meanwhile. */
+function writeRefusal(tryId: string, refusal: NonNullable<Known["refusal"]>, now: Date) {
+  return db.update(tries).set({ result: "not_accepted", sha256: refusal.sha256, checkedBy: refusal.by, detail: refusal.detail.slice(0, 300), endedAt: now }).where(eq(tries.id, tryId));
+}
 
 type Started = { tryId: string; nameKey: string; accountId: string | null };
 
@@ -98,6 +109,7 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
   const started = await startTry(input.userId, input.network, asked.length > 0, clock, options.diaryHosts);
   if (typeof started === "string") return { outcome: started };
   const end = (result: Exclude<PhotoOutcome, "shown">, detail: string) => endTry(started.tryId, result, detail, clock());
+  const known: Known = {};
 
   try {
     // 2. The outside work. Meta first: the account's number and where its picture is, from one answer.
@@ -116,10 +128,17 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
       console.error(`[host-photo] ${input.network} named a picture server that is not allowed: ${serverFamily(answer.address)}`);
       return { outcome: await end("not_fetched", "a picture server that is not allowed") };
     }
-    return await copyCheckAndFinish({ userId: input.userId, network: input.network, tryId: started.tryId, source: { nameKey: started.nameKey, accountId: answer.accountId }, address }, asked, clock, options);
+    return await copyCheckAndFinish({ userId: input.userId, network: input.network, tryId: started.tryId, source: { nameKey: started.nameKey, accountId: answer.accountId }, address }, asked, clock, options, known);
   } catch (error) {
     console.error("[host-photo] a try failed", error instanceof Error ? error.name : "error");
-    // The try is ended if it still can be. If even that fails, it counts as stopped two minutes after its start (startTry).
+    // A refusal that was already known is what is written now, not a plain "stopped": the same picture must not get
+    // a second chance because something of ours broke.
+    if (known.refusal) {
+      await writeRefusal(started.tryId, known.refusal, clock()).catch(() => undefined);
+      return { outcome: "not_accepted" };
+    }
+    // The try is ended if it still can be. If even that fails, it counts as stopped at the host's next press, two
+    // minutes or more after its start (startTry).
     await end("stopped", "the try failed").catch(() => undefined);
     return { outcome: "failed" };
   }
@@ -192,7 +211,7 @@ async function diaryIsOwed(reader: Pick<typeof db, "select">, diaryHosts: string
   return Boolean(owed);
 }
 
-/** Writes how a try ended, if nothing has ended it yet. Gives back what the try's line says now, which is what the host is told. */
+/** Writes how a try ended, if nothing has ended it yet. If something has (it was stopped meanwhile), nothing is written and "stopped" is what the host is told. */
 async function endTry(tryId: string, result: Exclude<PhotoOutcome, "shown">, detail: string, now: Date, more: { sha256?: string; checkedBy?: string } = {}): Promise<PhotoOutcome> {
   const written = await db
     .update(tries)
@@ -208,14 +227,14 @@ async function endTry(tryId: string, result: Exclude<PhotoOutcome, "shown">, det
 
 type Candidate = { userId: string; network: PhotoNetwork; tryId: string; source: { nameKey: string; accountId: string }; address: URL };
 
-async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock: () => Date, options: PhotoOptions): Promise<{ outcome: PhotoOutcome; detail?: string }> {
+async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock: () => Date, options: PhotoOptions, known: Known): Promise<{ outcome: PhotoOutcome; detail?: string }> {
   const end = (result: Exclude<PhotoOutcome, "shown">, detail: string, more?: { sha256?: string; checkedBy?: string }) => endTry(candidate.tryId, result, detail, clock(), more);
 
   // One picture is opened at a time on this server, a diary upload or a photo: a large one needs a lot of memory
   // while it is open. The place is given back before any checking service is asked.
   if (!takePlace()) {
-    await end("not_fetched", "another picture was being opened");
-    return { outcome: "place_taken" };
+    const ended = await end("not_fetched", "another picture was being opened");
+    return { outcome: ended === "stopped" ? "stopped" : "place_taken" };
   }
   // Nothing but the fetching and the copying happens while the place is held: what is written down about it comes after.
   let made: { copy: Copy } | { unusable: string } | null;
@@ -272,7 +291,9 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
   // A refusal is written first, before anything else can fail: it is about the picture, so it is written with the
   // fingerprint also when the try was stopped meanwhile.
   if (answer.kind === "refused") {
-    await db.update(tries).set({ result: "not_accepted", sha256, checkedBy: answer.by, detail: answer.detail.slice(0, 300), endedAt: clock() }).where(eq(tries.id, candidate.tryId));
+    known.refusal = { sha256, by: answer.by, detail: answer.detail };
+    await options.meanwhile?.("refused");
+    await writeRefusal(candidate.tryId, known.refusal, clock());
   }
   // What each answer means for the service itself is written whatever becomes of the try. If that cannot be written,
   // the photo's own outcome stands.
@@ -466,12 +487,18 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
   return byHost;
 }
 
-/** Which of these photo ids are still some host's photo (not removed, replaced or locked since). For the founder's page of reports. */
-export async function photosStillThere(photoIds: string[]): Promise<Set<string>> {
+/**
+ * What has become of these photos, for the founder's page of reports: "current" (still that host's
+ * photo) or "locked" (removed and reported, and kept). One that is in neither was removed or
+ * replaced, and is gone.
+ */
+export async function photoStates(photoIds: string[]): Promise<Map<string, "current" | "locked">> {
+  const states = new Map<string, "current" | "locked">();
   const ids = photoIds.filter(isId);
-  if (ids.length === 0) return new Set();
-  const rows = await db.select({ id: photos.id }).from(photos).where(and(inArray(photos.id, ids), isNull(photos.lockedAt)));
-  return new Set(rows.map((row) => row.id));
+  if (ids.length === 0) return states;
+  const rows = await db.select({ id: photos.id, lockedAt: photos.lockedAt }).from(photos).where(inArray(photos.id, ids));
+  for (const row of rows) states.set(row.id, row.lockedAt ? "locked" : "current");
+  return states;
 }
 
 export type OwnPhoto = { id: string; network: string; sourceNameKey: string; takenAt: Date };

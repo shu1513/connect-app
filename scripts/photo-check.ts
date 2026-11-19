@@ -442,7 +442,7 @@ async function main() {
     const owed = await diaryPicture(diarist, { sha256: fingerprint(Buffer.from(`owed-${RUN}`)), state: "shown", level: "nudity_only" });
     forget();
     const waits = await press(await newHost());
-    check("while a diary picture is shown after a check for nudity only, a photo does not go ahead of it: refused at the start, nothing asked, no try written", waits === "no_checker" && metaAsked.length === 0 && asked.length === 0, waits);
+    check("while a diary picture is shown after a check for nudity only, a photo does not go ahead of it: refused at the start, nothing asked, no try written", waits === "no_checker" && tried === undefined && metaAsked.length === 0 && asked.length === 0, waits);
     await db.update(pictures).set({ suspectedByFounder: true }).where(eq(pictures.id, owed.id));
     check("a picture the founder holds as suspected is owed nothing by the services (the queue never sends it), so it does not hold photos up", (await press(await newHost())) === "shown");
     await db.update(pictures).set({ suspectedByFounder: false, level: "full" }).where(eq(pictures.id, owed.id));
@@ -465,26 +465,34 @@ async function main() {
       lockTaken();
       await holding;
     });
-    await taken;
+    // (If the holder fails before it has the locks, this does not wait for ever.)
+    await Promise.race([taken, holder]);
     let writtenWhileHeld = -1;
+    let reachedTheLock = false;
     let othersGoOn = false;
     const waitingPress = pressOnly(waiter);
+    // Everyone else's requests to Instagram: this takes their lock, as a bio check or another host's photo would.
+    let probe: Promise<boolean> = Promise.resolve(false);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      // The database itself says when the press is waiting for a lock: nothing else runs on this test database now.
+      for (let i = 0; i < 250 && !reachedTheLock; i++) {
+        const [{ waitingNow }] = await db.execute<{ waitingNow: number }>(sql`select count(*)::int as "waitingNow" from pg_locks where not granted`);
+        reachedTheLock = waitingNow > 0;
+        if (!reachedTheLock) await new Promise((resolve) => setTimeout(resolve, 20));
+      }
       writtenWhileHeld = (await triesOf(waiter)).length;
-      // Meanwhile everyone else's requests to Instagram go on: the waiting press does not hold their lock.
-      othersGoOn = await Promise.race([
-        db.transaction(async (tx) => {
-          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
-          return true;
-        }),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000)),
-      ]);
+      probe = db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
+        return true;
+      });
+      othersGoOn = await Promise.race([probe, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))]);
     } finally {
       letGo();
     }
     await holder;
-    check("a press waits while another step holds the host's locks, and writes its try only afterwards: a removal either sees the try or comes first", writtenWhileHeld === 0 && (await waitingPress) === "shown" && (await triesOf(waiter)).length === 1, { writtenWhileHeld });
+    // (Whichever way the race went, the probe is over before the script goes on.)
+    await probe.catch(() => false);
+    check("a press waits while another step holds the host's locks, and writes its try only afterwards: a removal either sees the try or comes first", reachedTheLock && writtenWhileHeld === 0 && (await waitingPress) === "shown" && (await triesOf(waiter)).length === 1, { writtenWhileHeld });
     check("while it waits, it does not hold up anyone else's bio check or photo", othersGoOn);
 
     // One picture is opened at a time, a diary upload or a photo.
@@ -561,6 +569,35 @@ async function main() {
     const flaggedLate = await press(flagHost, { picture: await picture() });
     check("a service's flag is written to the try with its fingerprint also when the try was stopped while the service was looking", flaggedLate === "not_accepted" && tried?.result === "not_accepted" && Boolean(tried.sha256) && !(await photoOf(flagHost)), { flaggedLate, line: tried?.result });
     says.openai = "clean";
+
+    // A refusal is never lost to something of ours breaking afterwards.
+    const unlucky = await newHost();
+    let checked = false;
+    const breaksAfterwards: Checker = {
+      name: "openai",
+      // Once it has answered, anything that still wants its key (writing down that the service works) breaks.
+      get keyMark() {
+        if (checked) throw new Error("the bookkeeping broke");
+        return "key-1";
+      },
+      check: async () => {
+        checked = true;
+        return { kind: "flagged", detail: "the stand-in flagged it" };
+      },
+    };
+    const bookkeepingBroke = await press(unlucky, { services: [breaksAfterwards] });
+    check("a service flags the photo and writing down the service's own state breaks: the refusal is written all the same, with its fingerprint", bookkeepingBroke === "not_accepted" && tried?.result === "not_accepted" && tried.sha256 === (await copyPrint(unlucky.picture)), { bookkeepingBroke, line: tried?.result });
+    const unluckier = await newHost();
+    says.openai = "flagged";
+    const writeBroke = await press(unluckier, {
+      meanwhile: async (at) => {
+        if (at === "refused") throw new Error("the first write of the refusal broke");
+      },
+    });
+    says.openai = "clean";
+    forget();
+    check("the first write of a refusal breaks: what is written in its place is the refusal, not a plain \"stopped\", and the host is told \"not accepted\"", writeBroke === "not_accepted" && tried?.result === "not_accepted" && tried.sha256 === (await copyPrint(unluckier.picture)), { writeBroke, line: tried?.result });
+    check("so the same picture is refused at once the next time, although the service would now say clean", (await press(unluckier)) === "refused_before" && asked.length === 0);
     // Who cannot start at all.
     const noProfile = await person("plain");
     const stranger: Host = { id: noProfile.id, name: noProfile.name, handle: "", igName: `hp.none.${TAG}`, igNumber: number(7000), picture: await picture() };
@@ -657,7 +694,7 @@ async function main() {
     const { reference } = await createReport({ reporterId: visitor.id, context: "profile", contextId: host.handle, reason, text: "", now: new Date() });
     const [filed] = await db.select().from(schema.reports).where(eq(schema.reports.reference, reference));
     check("a report of the host's page says which photo was showing", (JSON.parse(filed.snapshot) as { photoId?: string }).photoId === whenOpen.id, filed.snapshot.slice(0, 120));
-    check("an address that is not an id, and one that belongs to nothing, give nothing", !(await sees(founder, "not-an-id")) && !(await sees(founder, "00000000-0000-4000-8000-000000000000")));
+    check("an address that is not an id, and one that belongs to nothing, give nothing", !(await sees(founder, "not-an-id")) && !(await sees(founder, "-".repeat(36))) && !(await sees(founder, "00000000-0000-4000-8000-000000000000")));
     check("the lists never carry the bytes", !JSON.stringify([await Photo.ownPhotoState(host.id), await Photo.photosForAdmin([host.id]), [...(await Photo.photosOf([host.id]))]]).includes("bytes"));
     const route = readFileSync("src/app/host-photos/[id]/route.ts", "utf8");
     const hostPage = readFileSync("src/app/h/[handle]/page.tsx", "utf8");
@@ -695,7 +732,7 @@ async function main() {
     await fresh();
     const admin = await theAdmin();
     const founder = { id: admin.id, admin: true };
-    const actions = async (host: Host) => (await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.adminId, admin.id), eq(schema.adminActions.targetUserId, host.id)))).map((row) => row.action);
+    const actions = async (host: Host) => (await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.adminId, admin.id), eq(schema.adminActions.targetUserId, host.id))).orderBy(schema.adminActions.createdAt)).map((row) => row.action);
     const host = await newHost({ spare: true });
     await press(host);
     const first = await photoOf(host);
@@ -711,6 +748,12 @@ async function main() {
     const [locked] = await lockedOf(host);
     check("\"Remove and report\": the photo is locked by the founder, kept byte for byte, and handed to nobody, the founder included", locked?.id === second.id && locked.lockedBy === admin.id && fingerprint((await bytesOf(second.id))!) === kept && !(await sees(null, second.id)) && !(await sees({ id: host.id, admin: false }, second.id)) && !(await sees(founder, second.id)));
     const inSearch = (await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle);
+    const gone = first.id;
+    const ordinaryNow = await newHost();
+    await press(ordinaryNow);
+    const stillTheirs = (await photoOf(ordinaryNow)).id;
+    const states = await Photo.photoStates([second.id, gone, stillTheirs, "-".repeat(36)]);
+    check("for the founder's page of reports: a photo that is still its host's, one that was removed and reported (and is kept), and one that is gone are told apart", states.get(stillTheirs) === "current" && states.get(second.id) === "locked" && !states.has(gone) && states.size === 2, [...states]);
     check("the host is still found by the search, without a photo", inSearch !== undefined && inSearch.photoId === null, inSearch);
     check("it is in none of the lists a page draws from, and the Hosting page's facts say it was removed", !(await Photo.photosOf([host.id])).has(host.id) && (await Photo.ownPhotoState(host.id)).photo === null && (await Photo.ownPhotoState(host.id)).locked === true && !(await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle)?.photoId);
     const contextBefore = (await db.select({ context: photos.lockedContext }).from(photos).where(eq(photos.id, second.id)))[0].context ?? "";

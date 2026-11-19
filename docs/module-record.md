@@ -2023,3 +2023,93 @@ account, several accounts shared, logging in with Instagram instead of Facebook.
 page in every state of an Instagram entry, and the founder's alert as it is drawn, are not
 checked by a script.
 
+## A later change: a host's photo, taken from their Instagram (plan 29, part one, 19 November 2026)
+
+**Why.** The founder's idea: instead of hosts uploading a profile photo, use the profile picture
+of the social media account they have confirmed. And then: show it in the "Find a host" results
+too.
+
+**What it is.**
+- **For a host:** a new part of the Hosting page, "Your photo", with "Use my Instagram photo",
+  "Update" and "Remove". Nothing is uploaded. It works for an Instagram account confirmed either
+  way (the code, or signing in at Meta), with the key that already reads bios.
+- **Where it shows:** on the host's page and beside the host in the "Find a host" results, in
+  place of the first letter of their name, whenever the page is open to everyone. On a page
+  that is hidden, waiting, declined or suspended, only the host and the founder get it.
+- **Connect keeps its own copy.** Meta's link to a picture stops working after a few days, so
+  the picture is fetched once and copied the way a diary picture is.
+- **Checked before anyone sees it,** by the same outside services as a diary picture. A photo is
+  never shown after only Connect's own checker has looked. A photo a service refuses is not
+  kept; its fingerprint is, so the same picture is refused again without asking.
+- **Tied to the account.** The photo remembers the account's name and Meta's number for it. If
+  that account is removed from the page or replaced by another, the photo goes in the same
+  step. An account renamed and proven again by signing in keeps its photo.
+- **Limits:** five tries in any 24 hours for each host, one at a time; and photo tries count
+  against the hourly limit for everyone's requests to Instagram.
+- **For the founder:** the page for hosts and accounts lists every host's photo, with "Remove"
+  and "Remove and report". The second is the same as for a diary picture: nobody is handed the
+  photo again, it is kept exactly as it is with the host's page as it was at that moment,
+  nothing deletes it afterwards, and the host can take no other. A report of a host's page now
+  says which photo was showing.
+- **Closing an account** deletes its photo (not one that was removed and reported).
+- **Database:** two new tables, `host_photos` and `host_photo_tries` (migration
+  `0038_host_photos`).
+- **Small:** the list of checking services, their turns and what an answer means for a service
+  moved out of the diary's queue into `checks/services.ts`, so the photo uses the very same
+  code; the queue behaves as before. The "one picture is opened at a time" place is now shared
+  by every copy of that file in the running server.
+
+**One press is three steps:** a short start that writes the try down (under the host's locks),
+the outside work with no database step held open (Meta, the picture, the copy, the services),
+and a short finish that writes the photo only if the try is still running and the account is
+exactly as it was at the start. Removing the photo, changing the account and closing the account
+stop a try that is under way, so a late answer never brings a photo back.
+
+**Tried for real (19 November 2026),** on this computer as the test host, whose Instagram entry
+was confirmed by signing in: the real request to Meta, the real fetch from Meta's picture server,
+the real check by OpenAI. The photo was saved in 3.3 seconds, as a copy of 729 by 729 points and
+55 KB, and Meta's number for the account was the same as the number the sign-in had given.
+"Update" gave a new photo. The host's page and the search results showed it, phone-sized and
+wide. On the founder's page, "Remove and report" without the tick changed nothing, and "Remove"
+deleted the photo and wrote it into the record.
+
+**The child-safety tool, said plainly.** It is not set up yet (plan 23), so no picture is
+compared with the list of known pictures today, a diary picture no more than a host photo.
+Before that tool is switched on, host photos have to be brought under it: the queue that asks
+the tool only reads diary pictures. That is written in the plan with what "done" means, and as a
+note where the tool would be switched on.
+
+**What the reviewers found.** Astra checked the plan twice ("ready with changes" both times)
+and the code twice ("not ready", then "ready with changes"). It asked for nothing to be removed.
+The points that mattered, all taken:
+- *The plan:* what "under a lock" meant (now the three steps); which account a photo belongs to
+  (name and Meta's number, which was then compared with the sign-in's number for real); many
+  photos opened at once (the diary's one place is shared); a refused photo tried again for a
+  better answer (the fingerprint is kept); "Remove" destroying a suspected photo ("Remove and
+  report"); an account changed and changed back during a try; a diary picture the founder holds
+  blocking every host's photo for ever; a reported photo keeping nothing of the page around it.
+- *The code:* a refusal that was lost when a database write failed right after it; a photo
+  handed out from a decision made a moment earlier; a photo sent to a service just after the
+  try was stopped (now one read right before each request; a request on its way cannot be
+  called back); and mistakes in the new check script (two limits counted wrongly, "the last
+  try" not always the last, checks that claimed more than they proved). In the second round: a
+  refusal still lost if its own write failed, and the reports page calling a kept photo "not
+  kept".
+- *Not taken, on purpose:* a "hold as suspected" state; `*.cdninstagram.com` as an allowed
+  picture server (never seen); repeated tries of the last write when the database is down (such
+  a try counts as stopped at the host's next press); stronger rules in the database for the two
+  tables; a membership made by hand, and an admin login with the second step, inside the check
+  script (the code that decides is checked directly, and the two lines that tie it in are read
+  from the source).
+
+**How it was checked:** 553 automatic tests (21 new); a check script of its own,
+`scripts/photo-check.ts`, 129 checks with Meta, its picture server and the checking services
+pretended; the real try above; and every other check script once more.
+
+**Still open.** Part two, TikTok (the picture can only be had at a sign-in there, and TikTok's
+sign-in waits for TikTok's approval). Before the child-safety tool is switched on: host photos
+under it. For the lawyer and Meta's review: Connect keeps a copy of a profile picture at the
+host's request. Not seen in the real try: a personal Instagram account, an account Meta does not
+show, a picture a service refuses. The Hosting page's "Your photo" in every state and the
+founder's "Remove and report" with the tick are checked by the script's code, not in a browser.
+
