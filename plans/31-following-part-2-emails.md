@@ -52,10 +52,11 @@ not an email and is on from the start.
 
 ## What part 2 must prove
 
-1. Nobody gets one of these emails without having said yes for that host and that kind, and a
-   yes that was taken back is never used again, also not for an email that was already waiting.
+1. Nobody gets one of these emails without a yes for that host and that kind that stands at the
+   moment it is sent. Taking the yes back also drops an email that was already waiting.
 2. For one follower and one host: at most one "available now" email and one diary email are
-   written in 20 hours. For one follower in all: at most 5 of these emails are sent in 24 hours.
+   written in 20 hours. For one follower in all: at most 5 of these emails are written in 24
+   hours, and a pile of late ones is not sent on top of each other (decision 5).
 3. An "available now" email is only sent inside the follower's hours and only if, at the moment
    it is sent, the host's own page would still show them as available.
 4. One press on the link in any of these emails stops all of them, without logging in, and
@@ -104,16 +105,21 @@ not an email and is on from the start.
    it no longer holds the email is dropped, not kept for later:
    - both kinds: the follow has not ended and the tick is still on; the account's switch is on;
      the follower's account is open and not paused; no block in either direction; the host is
-     not paused and their page is open to everyone; fewer than 5 of these emails were sent to
-     this address in the last 24 hours; and the switch for the whole feature is on;
+     not paused and their page is open to everyone; fewer than 5 of these emails were really
+     sent to this address in the last 24 hours (so that emails held up by an outage do not all
+     arrive together); and the switch for the whole feature is on;
    - "available now": the follower is inside their hours at this moment, and the host's own
      page would show them as available at this moment (`instantOffer`);
    - diary: the post is still there and not hidden, and its project is running.
 
 6. **Taking a yes back takes the waiting emails with it.** Unfollowing, clearing a tick, the
-   account's switch, the stop link, and a block: each drops, at that moment, the emails of that
-   kind that are still waiting for that follower (for the first two, about that host). So a yes
-   given again later only ever counts for what happens after it.
+   account's switch, the stop link, and a block: each drops, at that moment, the emails that
+   are still waiting for that follower: for a cleared tick the emails of that kind about that
+   host, for an unfollow both kinds about that host, for a block both kinds between the two
+   people in either direction, for the account's switch and the stop link all of them. A yes
+   given again counts from that moment on. (If a host is still available, or a post is just
+   being announced, at the moment someone says yes, they can get that email: it is what they
+   have just asked for.)
 
 7. **Stopping.** Every one of these emails ends with: how to choose per host (the page "Hosts
    you follow") and a link that stops all of them. The link works like the one in reminder
@@ -154,8 +160,10 @@ not an email and is on from the start.
 **The switch.** One setting on the server, `FOLLOW_EMAILS_ADDRESS`: the postal address for the
 last line of these emails. Empty (as it is everywhere today) means off: the choices are not
 shown, the helper writes none of these emails, and the last look before sending drops any that
-exist. Announcements and posts that come up while it is off are marked as dealt with, so that
-switching on never sends anything about the past.
+exist. So that switching on never sends anything about the time it was off, this is settled
+where things begin, not by the helper tidying up later: a host who switches "Available now" on
+while it is off gets no announcement set, and a post written while it is off is marked as dealt
+with in the same step that writes it.
 
 **What is stored.**
 
@@ -179,8 +187,11 @@ day, 30 minutes, 12 hours).
 **Writing one email** (`src/lib/follows/emails.ts`, `tellFollower`). Every email of this part is
 written by one small step for one follower, so the limits hold whatever else is running:
 
-1. take the lock named after the **follower** (the one plan 30 uses for their follows);
-2. read the follow line again, and everything else decision 3 or 4 asks, inside the step;
+1. take the lock named after the **follower** (the one plan 30 uses for their follows; saving
+   the ticks and the hours, and the account's switch, take it too);
+2. read the follow line again, and everything else decision 3 or 4 asks, inside the step; for
+   "available now" also that the host's announcement is still the one this round started with
+   (a host who switched off and on again has a new one, with a minute's wait of its own);
 3. count the `follow` emails written to this follower in the last 24 hours;
 4. if all holds: write the email (`queueEmail`, with its key and the moment it runs out) and
    `told_online_at` or `told_post_at`, together.
@@ -209,13 +220,15 @@ emails never delays closing a room or the money work:
   availability ends.
 - `announcePosts(now)`: about once a minute. Posts with `announced_at` empty that are 30 minutes
   old. A post older than a day, removed, hidden, in an ended project, of a paused host or on a
-  page that is not open is marked as decided and nobody is told. Otherwise `tellFollower` for
+  page that is not open is marked as decided and nobody is told. `writePost` fills
+  `announced_at` itself while the switch is off. Otherwise `tellFollower` for
   each follower who ticked this, then `announced_at` is filled.
 - `noLongerWanted` in `src/lib/notifications/delivery.ts` learns the two keys: the last look of
   decision 5. The 5 in 24 hours is counted there from what was really **sent**.
-- `dropWaiting(follower, host?)`: decision 6. One update of the outbox: the `follow` emails of
-  that follower (about that host) that are still waiting are closed as "no longer wanted".
-  Called by unfollowing, clearing a tick, the account's switch, the stop link and `block()`.
+- `dropWaiting(follower, host?, kind?)`: decision 6. One update of the outbox, under the
+  follower's lock: the `follow` emails of that follower (about that host, of that kind) that
+  are still waiting are closed as "no longer wanted". Called by unfollowing, clearing a tick,
+  the account's switch, the stop link, and by `block()` for each of the two people.
 
 **Pages.**
 
@@ -240,8 +253,8 @@ emails never delays closing a room or the money work:
 - `scripts/follow-emails-check.ts`, against the local database, with its own people, hosts,
   posts and calendars, reading what lands in the outbox and sending through a pretend sending
   service (as `scripts/notifications-check.ts` does):
-  - the switch off: nothing written, an old announcement and an old post marked as dealt with,
-    nothing sent after switching on;
+  - the switch off: nothing written; a host who went online and a post written while it was off
+    are not announced after switching on, also when the helper was not running in between;
   - no tick, no email, for each kind; the stored kind is `follow`; the hours; the minute's wait,
     switching off inside it, accepting a call inside it, extending;
   - 20 hours per host; 5 a day across both kinds, counted when written and again when sent;
@@ -255,7 +268,9 @@ emails never delays closing a room or the money work:
   - the last look: an email written and then not sent because the host went, is in a call, the
     hours ended, the follower unfollowed, cleared the tick, used the stop link or was blocked,
     or the post was removed or hidden **after** it was written;
-  - a yes taken back and given again: the email that was waiting is gone for good;
+  - a yes taken back and given again: the email that was waiting is gone for good; clearing one
+    tick leaves a waiting email of the other kind alone;
+  - a host who blocks a follower at the moment an email to them is being written: none is sent;
   - an email delivered late, after others, does not go over the 5;
   - the stop link stops these and leaves reminders alone; the reminder link leaves these alone;
   - "New in diaries": a removed post, a hidden post, a hidden host, an ended follow never
@@ -309,3 +324,29 @@ Verdict on the first draft: "not ready". Its points on this plan, and what was d
   says the host is available, nothing more.
 - **More checks:** the races made to happen, late delivery, a yes taken back, removal after
   writing. Taken.
+
+**Second check, the same day**, of the rewritten plan: "not ready", seven points.
+
+- **A block by the host and an email to the blocked follower could still pass each other.**
+  Taken: a block takes both people's locks (plan 30) and drops the waiting emails in both
+  directions.
+- **Clearing one tick dropped the waiting emails of both kinds.** Taken: `dropWaiting` is told
+  the kind.
+- **After a host switches off and on, the old round could announce the new period without its
+  minute's wait.** Taken: each email first checks that the announcement is still the one the
+  round started with. Not taken: also remembering the period inside each waiting email, so that
+  one written for a period that ended is refused at sending even if the host is available
+  again. It would tell the follower something true, at most once in 20 hours.
+- **Switching on could announce things from the time it was off, if the helper was not running
+  then.** Taken: settled where an announcement or a post begins, not by the helper.
+- **Two helpers sending at the same instant could both count 4 sent emails and both send.**
+  Not taken. The 5 a day is exact where emails are written, under the follower's lock. The count
+  at sending is a second look whose job is to stop a pile of late emails arriving together, and
+  it does that. Making it exact too would need a booking system for sending slots; what it
+  would prevent is one sixth email in a rare overlap of two helpers. Proof point 2 now says
+  what is exact and what is not.
+- **A follower who switches a yes off and on again while a round is running can get an email
+  about something that began before the second yes.** Not taken as a problem: the host is
+  available, or the post is new, at the moment they say yes, and that email is what they asked
+  for. Decision 6 no longer claims otherwise. The switches do take the follower's lock.
+- **Its point about reports** is answered in plan 30.

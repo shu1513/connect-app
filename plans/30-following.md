@@ -208,11 +208,12 @@ Three ideas are noted and **not built now**; why is said where each belongs:
 
 **One lock, taken last.** Everything that writes a person's follows first takes a lock named
 after the **follower** (a database advisory lock, held to the end of the step): following,
-unfollowing, the automatic follow, and the block's own step. So two automatic follows cannot
-both be the 200th, and a block and an automatic follow cannot pass each other: whichever comes
-second sees what the first did. It is always the last lock a step takes (`block()` has its
-calendar locks by then, the helper has the call's line), so no two steps can wait for each
-other.
+unfollowing and the automatic follow. A block takes the locks of **both** people, always in the
+same order (by their IDs), because either of them may be the follower. So two automatic follows
+cannot both be the 200th, and a block and an automatic follow cannot pass each other, whoever
+blocks whom: whichever comes second sees what the first did. These are always the last locks a
+step takes (`block()` has its calendar locks by then, the helper has the call's line), and only
+a block ever takes two, so no two steps can wait for each other.
 
 **The rules that are plain logic** (`src/lib/follows/rules.ts`, with unit tests, no database):
 `FOLLOW` (the limit of 200, the 2 minutes, the 7 days), `followsAfterCall(facts)` (decision 4
@@ -231,7 +232,7 @@ as one function over recorded facts, like `mayAsk` in plan 26) and `inListOrder`
   those hosts; one for the calendars of those hosts that say "available" at this moment, and
   only for those few `instantOffer` is asked; one for the calls coming up with them.
 - `endFollowInBlock(tx, blockerId, blockedId, now)`: called by `block()` inside its own step,
-  after its other locks.
+  after its other locks. It takes both people's locks and ends the blocker's line.
 - `followAfterCalls(now)`: the helper's job. It takes up to 50 calls whose room is confirmed
   closed, whose `follow_checked_at` is empty and which ended in the last 7 days, the oldest
   first. Each in a step of its own: the call's line is locked (a call another helper holds is
@@ -314,8 +315,8 @@ Verdict on the first draft: "build with changes". Its points on this plan, and w
   taken: the plan no longer promises that a block can never be noticed anywhere (decision 6).
 - **Locking the call alone does not keep the limit, and a block could slip in between reading
   and writing.** Taken: one lock per follower, taken last (above), and the facts are read inside
-  the step. Not taken: making the filing of a report wait for the decision as well. A report
-  about a person already blocks them, and the block ends the follow.
+  the step. Not taken: making the filing of a report wait for the decision as well (see the
+  second check).
 - **The customer lands on the results page before the automatic follow exists, so "Unfollow"
   would not be there.** Taken: "Don't follow" (decision 5). Also taken: a host whose page is not
   open stays on the list with "Unfollow", otherwise they could never be removed and would use
@@ -327,3 +328,17 @@ Verdict on the first draft: "build with changes". Its points on this plan, and w
   call's page decides. And the home page of someone with a call coming up is kept fresh too.
 - **More checks:** the races made to happen, forged forms, the pages of a blocked follower.
   Taken.
+
+**Second check, the same day**, of the rewritten plan: "build with changes", two points.
+
+- **A block by the host locked only the host's follows, while the automatic follow locks the
+  customer's, so those two could still pass each other.** Taken: a block takes both people's
+  locks, in a fixed order.
+- **The reason given for not making reports wait was wrong:** a report about a diary post does
+  not block anyone, and a block by the host leaves the customer's follow in place. True, and
+  the reason is corrected here; the decision stays. Decision 4 is taken at one moment. A report
+  that arrives a second later does not undo the follow, just as one that arrives a day later
+  does not. Where the report was about the person, the block that comes with it ends the follow
+  or makes it quiet; where it was about a post, the follow stays and the customer can end it
+  with one press. Tying the filing of reports to this would put a safety feature behind a lock
+  for the sake of a line on a list.
