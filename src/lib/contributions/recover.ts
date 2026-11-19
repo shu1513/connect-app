@@ -1,0 +1,110 @@
+/**
+ * Finding out what happened to an action of a contribution's payment whose answer never arrived
+ * (the helper's reconcileOperations in payments/jobs.ts hands them here).
+ *
+ * The app's own rule: inside 23 hours the very same request is sent again under the same label,
+ * and Stripe returns the first answer or does it now, never twice. After that the label can no
+ * longer be trusted, so nothing is sent again and Stripe is asked how things stand.
+ *
+ * It always finds out what became of the action, also for a payment that was given up meanwhile:
+ * a taking that went through is recorded (and owed back if it should not have happened), and a
+ * hold that is still there is let go. What it never does: send a taking again once `mayTake` says
+ * no, or start anything new for a payment that was given up.
+ */
+import type { schema } from "@/db";
+import { cancelAtStripe, confirmSavedCard, LABEL_SAFE_MS } from "@/lib/membership/charge";
+import { captureAtStripe } from "@/lib/payments/actions";
+import { failOwnedOperation, finishOwnedOperation } from "@/lib/payments/operations";
+import { isDefiniteRefusal, stripe, stripeErrorMessage } from "@/lib/payments/stripe";
+import { applyLetGo, applyTaken, paymentById, syncPayment } from "./charge";
+import { paymentOwner } from "./locks";
+import { applyRefundOutcome, outcomeStatus, refundAtStripe, type RefundOutcome, type RefundParams } from "./refund";
+import { mayTake } from "./rules";
+
+export async function recoverContributionOperation(operation: typeof schema.moneyOperations.$inferSelect, now: Date): Promise<void> {
+  if (!operation.contributionPaymentId) return;
+  const paymentId = operation.contributionPaymentId;
+  const owner = paymentOwner(paymentId);
+  const params = JSON.parse(operation.params);
+  // Measured on the real clock, right before acting, so a slow pass can never repeat a request too late.
+  const canRepeat = () => Date.now() - operation.createdAt.getTime() < LABEL_SAFE_MS;
+  const giveUpOn = (why: string) => failOwnedOperation(operation.id, owner, why);
+  // Set right before a request that changes something at Stripe. A clear "no" to that request means it did
+  // not happen. A "no" to a mere look-up proves nothing: the action stays unanswered.
+  let asked = false;
+  const refunded = (stripeRefundId: string | null, status: RefundOutcome["status"]): RefundOutcome => ({ refundId: params.refundId, attempt: params.attempt, stripeRefundId, status });
+
+  try {
+    if (operation.kind === "hold") {
+      const payment = await paymentById(paymentId);
+      // A try is only made again for a payment that is still waiting for one. For a payment given up meanwhile, Stripe is only asked.
+      if (canRepeat() && payment?.status === "to_pay" && !payment.endedHow && !payment.problem) {
+        asked = true;
+        await confirmSavedCard({ intentId: params.intentId, paymentMethodId: params.paymentMethodId }, operation.label);
+        await finishOwnedOperation(operation.id, owner, params.intentId, async () => undefined);
+      } else {
+        const intent = await stripe().paymentIntents.retrieve(params.intentId);
+        if (intent.status === "processing") return; // not settled yet: look again next pass
+        if (intent.status === "requires_capture" || intent.status === "succeeded") await finishOwnedOperation(operation.id, owner, intent.id, async () => undefined);
+        else await giveUpOn("The saved card could not be used.");
+      }
+      await syncPayment(paymentId, now);
+    } else if (operation.kind === "capture") {
+      const payment = await paymentById(paymentId);
+      // A taking is only sent again while it may still be made: not after a stop, and not after the last moment.
+      if (canRepeat() && Number.isInteger(params.amountCents) && payment && mayTake(payment, now)) {
+        asked = true;
+        const outcome = await captureAtStripe(params.intentId, params.amountCents, operation.label);
+        await finishOwnedOperation(operation.id, owner, outcome.stripeId, (locked, tx) => applyTaken(tx, locked, { cents: outcome.result.amountReceived, chargeId: outcome.result.chargeId }, now));
+      } else {
+        const intent = await stripe().paymentIntents.retrieve(params.intentId);
+        if (intent.status === "processing") return;
+        if (intent.status === "succeeded") {
+          const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
+          // It went through. Recorded as it is: taken rightly, or taken although the payment was given up (then owed back in full).
+          await finishOwnedOperation(operation.id, owner, intent.id, (locked, tx) => applyTaken(tx, locked, { cents: intent.amount_received, chargeId }, now));
+        } else if (intent.status === "requires_capture" && canRepeat()) {
+          // Not taken, and the first request may still be on its way: nothing is decided yet. Looked at again next pass.
+          return;
+        } else {
+          await giveUpOn("Stripe shows this payment's money was not taken.");
+          await syncPayment(paymentId, now); // a hold that is gone is recorded as such; one that is still there and may not be taken is let go by the jobs
+        }
+      }
+    } else if (operation.kind === "release") {
+      // Letting go is always safe to do again. Already cancelled or taken is an answer too.
+      asked = true;
+      const outcome = await cancelAtStripe(params.intentId);
+      await finishOwnedOperation(operation.id, owner, outcome.stripeId, (locked, tx) => applyLetGo(tx, locked, outcome.result, now));
+    } else if (operation.kind === "refund") {
+      let refund: { id: string; status: string | null } | undefined;
+      if (canRepeat()) {
+        asked = true;
+        refund = await refundAtStripe(params as RefundParams, operation.label);
+      } else {
+        // Every page, and the line and the attempt together: a payment can have several refunds on its one charge.
+        for await (const candidate of stripe().refunds.list({ payment_intent: params.intentId, limit: 100 })) {
+          if (candidate.metadata?.refundId === params.refundId && candidate.metadata?.attempt === String(params.attempt)) {
+            refund = candidate;
+            break;
+          }
+        }
+      }
+      if (!refund) {
+        await failOwnedOperation(operation.id, owner, "Stripe shows this refund was never made.", (locked, tx) => applyRefundOutcome(tx, locked, refunded(null, "failed"), now));
+      } else {
+        const found = refund;
+        await finishOwnedOperation(operation.id, owner, found.id, (locked, tx) => applyRefundOutcome(tx, locked, refunded(found.id, outcomeStatus(found.status)), now));
+      }
+    }
+    console.log(`[contributions] checked unfinished ${operation.kind} on contribution payment ${paymentId}`);
+  } catch (error) {
+    if (!asked || !isDefiniteRefusal(error)) throw error;
+    // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
+    const message = stripeErrorMessage(error);
+    if (operation.kind === "refund") await failOwnedOperation(operation.id, owner, message, (locked, tx) => applyRefundOutcome(tx, locked, refunded(null, "failed"), now));
+    else await giveUpOn(message);
+    if (operation.kind === "hold" || operation.kind === "capture") await syncPayment(paymentId, now).catch(() => undefined);
+    console.log(`[contributions] unfinished ${operation.kind} on contribution payment ${paymentId} was refused by Stripe`);
+  }
+}
