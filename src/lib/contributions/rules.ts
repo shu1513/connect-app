@@ -28,7 +28,9 @@ export const CONTRIBUTION = {
    * The helper gives a month up as missed only this long after its 7 days are over. In between it
    * neither tries the card nor gives up. A hold is accepted by the bank's own time for it, which
    * Stripe gives in whole seconds and which can reach us a moment late; after this wait, a hold
-   * with a time inside the 7 days has certainly been seen.
+   * with a time inside the 7 days has been seen in every ordering we know of. (Stripe names no
+   * longest time for a card payment that is still being worked on, so this is a wide margin and
+   * not a proof.)
    */
   missedGraceMs: 2 * 60_000,
 } as const;

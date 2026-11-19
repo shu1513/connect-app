@@ -1833,17 +1833,25 @@ pages. With this step part two is complete.
 **What the reviewers found**
 - A security check that runs on saved changes: a payment could still be made ready, and a month
   written, after a block or a pause. Both closed.
-- Astra's first review: six points that had to be fixed. A month written down just before the
-  helper stopped could be charged weeks late. Saving the switch at the moment a first hold was
-  accepted could miss that contribution, and used a stale moment. Fifty contributions that were
-  not due yet could keep one that was from being written. Several notices said "nothing was
-  charged" before that was known. The founder could not reach an ordinary payment. All taken,
-  each with a case in the check script.
+- Astra, five rounds on the code, the last one "ready to open a pull request". Its first review
+  had six points that had to be fixed. A month written down just before the helper stopped could
+  be charged weeks late. Saving the switch at the moment a first hold was accepted could miss
+  that contribution, and used a stale moment. Fifty contributions that were not due yet could
+  keep one that was from being written. Several notices said "nothing was charged" before that
+  was known. The founder could not reach an ordinary payment. The later rounds tightened the
+  same things: the rule for a late month had to hold on every way to a first hold (the helper's
+  try, paying by hand, a hold that arrives) and never against a try already on its way; the
+  founder's $1,000 email is sent at the payment that crosses the line; Stripe's own answer to a
+  cancellation now says whether a hold was there, so "nothing was charged" reaches also someone
+  whose hold the app had not heard of; and the helper waits two minutes after a month's 7 days
+  before it gives the month up. All taken, each with a case in the check script. Astra asked for
+  nothing to be removed.
 
 **How it was checked**
 - `scripts/contribution-check.ts`, against Stripe's test mode: six new journeys (starting; the
   monthly rhythm; what ends a contribution from outside, and the switch; the emails; Astra's
-  findings; the pages).
+  findings; the pages). Two of the cases are real "at the same moment" cases: the script holds
+  a lock, starts the other step, and goes on only once that step is really waiting for it.
 - In the browser, with the local test accounts and Stripe's test cards: contributing once;
   monthly with the card that asks for the bank's confirmation; stopping; the host's list and a
   refund; the founder's page and "Hold back".
@@ -1852,6 +1860,9 @@ pages. With this step part two is complete.
 **Still open**
 - The terms page is a placeholder until the lawyer writes it.
 - One collection holding a call's share, a member's and a contribution's together is still not
-  walked by a script.
+  walked by a script. Neither is the moment a collection uses for its count after waiting for
+  its locks.
+- The two minutes the helper waits before giving a late month up are a wide margin, not a proof:
+  Stripe names no longest time for a card payment that is still being worked on.
 - The box after a call is part three.
 
