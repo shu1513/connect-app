@@ -96,10 +96,11 @@ Three ideas are noted and **not built now**; why is said where each belongs:
      script), and was not cancelled;
    - its record is final and complete, and shows the two **together for at least 2 minutes**
      (the number ratings use). A record that needs review is never guessed at;
-   - it was not ended with "End call and report", neither person has ever reported the other,
-     neither has blocked the other, and the customer has not asked for a refund of this call
-     (the same list that decides whether a customer is shown a host's project after a call,
-     plan 26);
+   - it was not ended with "End call and report", and the **customer** has not reported the
+     host, has not blocked the host, and has not asked for a refund of this call. What the host
+     did does not count here: if a host's block or report stopped the follow, a customer who
+     was not followed up after a call could tell from it. Such a follow is a quiet one
+     (decision 6);
    - the host's page is open to everyone, and neither account is closed or paused;
    - there is no line yet for this customer and this host: they never followed, never
      unfollowed, never said "Don't follow" (decision 5);
@@ -133,7 +134,8 @@ Three ideas are noted and **not built now**; why is said where each belongs:
      tell them. It goes quiet: the host never shows as available to them, and part 2 sends them
      nothing. A blocked person who presses "Follow" is treated the same way: it works, and
      stays quiet;
-   - no automatic follow happens across a block.
+   - a customer who has blocked the host is not made to follow them by a call. A customer the
+     host has blocked follows after a call like anyone else, quietly.
 
    This does not make blocks invisible everywhere: "People you have talked to" already leaves
    out someone who blocked you, and says so. The promise here is only that following adds no
@@ -245,8 +247,9 @@ as one function over recorded facts, like `mayAsk` in plan 26) and `inListOrder`
 **Pages.**
 
 - `src/app/h/[handle]/page.tsx`: the button (decision 3), with its actions in
-  `src/app/following/actions.ts`. The actions take the host's handle from the form and the
-  follower from the login, nothing else.
+  `src/app/following/actions.ts`. Following takes the host's handle from the form, unfollowing
+  the host's ID (a host whose page is not open has no handle to show); the follower always
+  comes from the login.
 - `src/app/following/page.tsx`: decisions 7 and 8.
 - `src/app/page.tsx`: decision 10.
 - `src/app/calls/[id]/results/page.tsx`, for the customer of the call only: "You follow Anna"
@@ -281,11 +284,11 @@ as one function over recorded facts, like `mayAsk` in plan 26) and `inListOrder`
     gone from it and from the count;
   - available now shown and not shown (availability over, no room, across a block); the next
     call; the order of the list.
-- The actions themselves, through the running app: a form sent with someone else's ID in it
-  changes nothing for that person; someone who is not on a call gets "not found" for its results
-  page and cannot follow or say "Don't follow" through it; the pages a blocked follower gets
-  (the host's page, the results page, the list) are the same, button for button, as the ones an
-  unblocked follower gets.
+- The pages themselves, asked of the running app as the seeded test customer (the same script,
+  with `--app=`): someone who is not on a call gets "not found" for its results page; the pages
+  a blocked follower gets (the host's page, the results page, the list) are the same, button
+  for button, as the ones anyone else gets. The forms carry nothing but the host: who follows
+  is always the person logged in, so there is no ID of one's own to forge.
 - All earlier check scripts once more, since `block()` and the calls table are touched.
 - In the browser, phone-sized and wide: follow from a host's page, the list, the home page with
   a host available and a room open, unfollow, and the results page before and after the
@@ -346,3 +349,13 @@ Verdict on the first draft: "build with changes". Its points on this plan, and w
 **Third check, the same day:** no must-change problems found. The changes that were taken fit the
 code, with no new way for two steps to wait for each other, and the points that were not taken
 are "bounded imperfections". Verdict: "build as is".
+
+## What building changed
+
+- **A host's block or report no longer stops the automatic follow** (decision 4). The first
+  version of the code skipped the follow when either person had blocked or reported the other,
+  as the plan then said. Trying the results page showed what that gives away: a customer the
+  host has blocked would see "Follow Anna" where anyone else sees "You follow Anna". So only
+  what the customer did themselves counts. The follow of a blocked customer is quiet, as
+  decision 6 already says for one made with the button.
+- Unfollowing names the host by ID, not by handle (see "Pages").
