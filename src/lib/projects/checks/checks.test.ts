@@ -34,6 +34,13 @@ describe("reading OpenAI's answer", () => {
       ).kind,
     ).toBe("flagged");
   });
+  it("marks a flag that came with an incomplete answer, so it is not taken as proof that the service works", () => {
+    expect(readOpenAi(openAi((r) => (r.categories.sexual = true))).partial).toBe(false);
+    expect(readOpenAi({ results: [{ categories: { sexual: true } }] })).toMatchObject({ kind: "flagged", partial: true });
+    expect(readAzure(azure({ Sexual: 4 }))).toMatchObject({ kind: "flagged", partial: true });
+    expect(readAzure(azure({ Sexual: 4, Violence: 0, SelfHarm: 0 })).partial).toBe(false);
+    expect(readSightengine({ status: "success", nudity: { erotica: 0.9 } })).toMatchObject({ kind: "flagged", partial: true });
+  });
   it("is a fault when a check is missing, was only applied to text, or its number is not a number", () => {
     expect(readOpenAi(openAi((r) => delete r.categories.violence)).kind).toBe("fault");
     expect(readOpenAi(openAi((r) => (r.category_applied_input_types.sexual = ["text"]))).kind).toBe("fault");
@@ -68,6 +75,11 @@ describe("reading Microsoft's answer", () => {
     expect(readAzure(azure({ Sexual: 0, Violence: 3, SelfHarm: 0 })).kind).toBe("fault");
     expect(readAzure(azure({ Sexual: "0", Violence: 0, SelfHarm: 0 })).kind).toBe("fault");
     expect(readAzure({}).kind).toBe("fault");
+  });
+  it("never passes over a second level for the same name", () => {
+    const twice = (first: number, second: number) => ({ categoriesAnalysis: [{ category: "Sexual", severity: first }, { category: "Violence", severity: 0 }, { category: "SelfHarm", severity: 0 }, { category: "Sexual", severity: second }] });
+    expect(readAzure(twice(0, 6))).toMatchObject({ kind: "flagged", partial: true });
+    expect(readAzure(twice(0, 0)).kind).toBe("fault");
   });
   it("reads its own words for not now", () => {
     expect(azureRefusal(429, { error: { code: "TooManyRequests", message: "slow down" } })?.kind).toBe("out");
@@ -133,6 +145,19 @@ describe("reading Connect's own checker", () => {
     expect(readOwn(own(0, 0, 0.8)).kind).toBe("flagged");
     expect(readOwn(own(0, 0, 0.79)).kind).toBe("clean");
   });
+  it("never lets a number that is not a share, or a class given twice, hide a finding", () => {
+    const odd = [
+      { className: "Porn", probability: 0.9 },
+      { className: "Hentai", probability: -0.6 },
+      { className: "Sexy", probability: 0 },
+      { className: "Drawing", probability: 0 },
+      { className: "Neutral", probability: 0.7 },
+    ];
+    expect(readOwn(odd)).toMatchObject({ kind: "flagged", partial: true });
+    expect(readOwn([...own(0, 0, 0), { className: "Porn", probability: 0 }]).kind).toBe("fault");
+    expect(readOwn([{ className: "Porn", probability: 1 }])).toMatchObject({ kind: "flagged", partial: true });
+    expect(readOwn(own(0.1, 0.1, 0.1).map((entry) => (entry.className === "Sexy" ? { ...entry, probability: 1.5 } : entry))).kind).toBe("fault");
+  });
   it("is a fault when one of its five numbers is missing", () => {
     expect(readOwn(own(0, 0, 0).slice(1)).kind).toBe("fault");
     expect(readOwn(null).kind).toBe("fault");
@@ -152,6 +177,12 @@ describe("asking a service", () => {
     expect((await askService(reply(503, "<html>busy</html>"), clean)).kind).toBe("out");
     expect((await askService(reply(401, { error: { message: "bad key" } }), clean)).kind).toBe("fault");
     expect((await askService(reply(400, { error: { message: "bad picture" } }), clean)).kind).toBe("fault");
+  });
+  it("takes an answer that stops arriving on the way as no answer in time, not as a fault", async () => {
+    const stalls = async () => ({ ok: true, status: 200, json: async () => Promise.reject(new DOMException("timed out", "TimeoutError")) }) as unknown as Response;
+    expect((await askService(stalls, clean)).kind).toBe("out");
+    const breaks = async () => ({ ok: true, status: 200, json: async () => Promise.reject(new TypeError("terminated")) }) as unknown as Response;
+    expect((await askService(breaks, clean)).kind).toBe("out");
   });
   it("is a fault when a good answer cannot be read", async () => {
     expect((await askService(reply(200, "not json"), clean)).kind).toBe("fault");
@@ -235,6 +266,22 @@ describe("the order of the queue", () => {
     expect(out.outcome.kind).toBe("wait");
     expect(out.calls).toEqual(["openai"]);
     expect((await run([service("openai", "fault")], null)).outcome.kind).toBe("wait");
+  });
+  it("asks before every request whether the picture may still be sent, and sends it to nobody once it may not", async () => {
+    calls.length = 0;
+    let allowed = true;
+    const held = service("openai", "out");
+    const first = { ...held, check: async () => ((allowed = false), held.check()) };
+    const { outcome } = await askInOrder([first, service("azure", "clean")], ownSays("clean"), async () => allowed);
+    expect(outcome.kind).toBe("wait");
+    expect(calls).toEqual(["openai"]);
+    calls.length = 0;
+    expect((await askInOrder([service("openai", "clean")], null, async () => false)).outcome.kind).toBe("wait");
+    expect(calls).toEqual([]);
+    // Also not to the own checker.
+    let left = 1;
+    await askInOrder([service("openai", "out")], ownSays("clean"), async () => left-- > 0);
+    expect(calls).toEqual(["openai"]);
   });
   it("waits 1 minute, then 5, then 15", () => {
     expect([1, 2, 3, 9].map(waitMinutes)).toEqual([1, 5, 15, 15]);

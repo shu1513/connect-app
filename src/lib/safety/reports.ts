@@ -10,7 +10,7 @@ import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
 import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
 import { publicProfile } from "@/lib/profiles/profiles";
-import { liftSuspectedByReport, markSuspectedByReport } from "@/lib/projects/picture-steps";
+import { liftSuspectedByReport, lockPost, markSuspectedByReport } from "@/lib/projects/picture-steps";
 import { picturesOf } from "@/lib/projects/pictures";
 import { publicPost } from "@/lib/projects/posts";
 import { linksOf } from "@/lib/projects/rules";
@@ -104,12 +104,15 @@ export async function createReport(input: { reporterId: string; context: string;
       .from(schema.reports)
       .where(and(eq(schema.reports.reporterId, input.reporterId), gt(schema.reports.createdAt, new Date(input.now.getTime() - 24 * 3_600_000))));
     if (today >= REPORTS_PER_DAY) throw new ReportError("You have sent a lot of reports today. If something urgent is happening, write to " + SUPPORT_EMAIL + ".");
+    // Such a report and the post's pictures are changed under the post's lock, taken before the report is written (picture-steps.ts).
+    const marksPictures = input.context === "post" && reason.key === "under18";
+    if (marksPictures) await lockPost(tx, input.contextId);
     const [row] = await tx
       .insert(schema.reports)
       .values({ reporterId: input.reporterId, reportedId, context: input.context, contextId: input.contextId, reason: reason.key, text, urgent: reason.urgent, snapshot: JSON.stringify(full) })
       .returning();
     // "Someone under 18" about a post: its pictures are kept away from the everyday checkers while the report is open.
-    if (input.context === "post" && reason.key === "under18") await markSuspectedByReport(tx, input.contextId, input.now);
+    if (marksPictures) await markSuspectedByReport(tx, input.contextId, input.now);
     if (reason.urgent) {
       const admins = await tx.select({ email: schema.user.email, id: schema.user.id }).from(schema.admins).innerJoin(schema.user, eq(schema.user.id, schema.admins.userId));
       for (const admin of admins) {
@@ -152,13 +155,18 @@ export async function openReports() {
 
 export async function closeReport(input: { reportId: string; adminId: string; note: string }): Promise<void> {
   await db.transaction(async (tx) => {
+    // A report for "someone under 18" about a post: the post's lock first, so that two such reports closed at the
+    // same moment, or one closed while another is made, cannot both go by what was true before.
+    const [found] = await tx.select({ context: schema.reports.context, contextId: schema.reports.contextId, reason: schema.reports.reason }).from(schema.reports).where(eq(schema.reports.id, input.reportId));
+    const marksPictures = found?.context === "post" && found.reason === "under18";
+    if (found && marksPictures) await lockPost(tx, found.contextId);
     const [report] = await tx
       .update(schema.reports)
       .set({ status: "closed", adminNote: input.note, closedBy: input.adminId, closedAt: new Date() })
       .where(and(eq(schema.reports.id, input.reportId), eq(schema.reports.status, "open")))
       .returning();
     if (!report) throw new ReportError("That report is already closed.");
-    if (report.context === "post" && report.reason === "under18") await liftSuspectedByReport(tx, report.contextId, new Date());
+    if (marksPictures) await liftSuspectedByReport(tx, report.contextId, new Date());
     const [reporter] = await tx.select().from(schema.user).where(eq(schema.user.id, report.reporterId));
     if (reporter) {
       await queueEmail(tx, {

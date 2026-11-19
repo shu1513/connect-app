@@ -39,6 +39,8 @@ const COOL_MS = 5 * 60_000;
 const PER_ROUND = 10;
 const CHILD_PER_ROUND = 5;
 const DAY_MS = 24 * 3_600_000;
+/** The child-safety tool may take this long over one picture. After that the round goes on, and the picture is asked about again later. */
+const TOOL_WITHIN_MS = 15_000;
 
 /** The outside services, in the queue's order. */
 export const services = (): Checker[] => [openAiChecker(), azureChecker(), sightengineChecker()];
@@ -68,8 +70,8 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
     await checkOne(round, picture, asked, own, now);
   }
 
-  for (const id of await goneWithBytes(20)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
-  await tellAboutNudityOnly(now());
+  for (const id of await goneWithBytes(20, now(), whose)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
+  await tellAboutNudityOnly(now(), whose);
 }
 
 /** The pictures the everyday checkers may be asked about now: waiting, or shown after a check for nudity only; due; and allowed on by the child-safety rule. */
@@ -120,12 +122,23 @@ async function checkOne(round: string, picture: ProjectPicture, asked: Checker[]
   const safely = (check: Promise<Answer>): Promise<Answer> => check.catch((error) => ({ kind: "fault", detail: `the checker failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 220) }));
   const turns = asked.map((service) => {
     const row = rows.find((line) => line.service === service.name);
-    return { name: service.name, cooling: Boolean(row?.outUntil && row.outUntil > at), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(service.check(file.bytes)) };
+    // A service with a fault on record is always asked, never passed over as "still out": a fault holds the queue until the service answers properly.
+    return { name: service.name, cooling: !row?.faultSince && Boolean(row?.outUntil && row.outUntil > at), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(service.check(file.bytes)) };
   });
   // A picture that is already shown is only here for its full check: the own checker has had it.
-  const { outcome, asked: answers } = await askInOrder(turns, picture.state === "waiting" && own ? () => safely(own.check(file.bytes)) : null);
+  /** Asked before each request: is the picture still this round's, and as it was claimed? If the founder, the host or a report has changed something meanwhile, it is sent to nobody else. */
+  const mayStillAsk = async () => {
+    const [row] = await db.select().from(pictures).where(eq(pictures.id, picture.id));
+    return Boolean(row) && stillAsClaimed(round, picture, row, now());
+  };
+  const { outcome, asked: answers } = await askInOrder(turns, picture.state === "waiting" && own ? () => safely(own.check(file.bytes)) : null, mayStillAsk);
   await recordAnswers(asked, answers, now());
   await settle(round, picture, outcome, now());
+}
+
+/** Whether a picture is still held by this round, within its time, and as it was when the round claimed it. */
+function stillAsClaimed(round: string, claimed: ProjectPicture, row: ProjectPicture, at: Date): boolean {
+  return row.claimId === round && row.version === claimed.version && row.state === claimed.state && row.claimedUntil !== null && row.claimedUntil > at && mayGoOn(row);
 }
 
 /** Writes what a try came to, if this round still holds the picture and nothing was decided about it in between. */
@@ -134,14 +147,17 @@ async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, 
     const [row] = await tx.select().from(pictures).where(eq(pictures.id, claimed.id)).for("update");
     // The time ran out and another round has it now: that round's answer counts, not this one.
     if (!row || row.claimId !== round) return;
-    const stillTrue = row.version === claimed.version && row.state === claimed.state && row.claimedUntil !== null && row.claimedUntil > at && mayGoOn(row);
-    if (!stillTrue) {
+    if (!stillAsClaimed(round, claimed, row, at)) {
       // A late answer, or the host or the founder decided in between: it changes nothing. The picture is let go,
       // and if it was removed meanwhile, its bytes go now.
       await tx.update(pictures).set({ claimId: null, claimedUntil: null, updatedAt: at }).where(eq(pictures.id, row.id));
       await deleteBytesIfFree(tx, row.id, at);
       return;
     }
+    // A picture that is shown after a check for nudity only is due again the moment a service's five minutes are over,
+    // so that it is the first one asked about when full checking is back.
+    const [{ back }] = await tx.select({ back: sql<Date | null>`min(${checkers.outUntil})` }).from(checkers).where(sql`${checkers.outUntil} > ${at.toISOString()}::timestamptz`);
+    const nudityOnlyAgain = back ? new Date(back) : new Date(at.getTime() + COOL_MS);
     if (outcome.kind === "refused") {
       await refuseInStep(tx, { pictureId: row.id, by: outcome.by, detail: outcome.detail, now: at });
     } else if (outcome.kind === "shown") {
@@ -157,8 +173,7 @@ async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, 
           version: sql`${pictures.version} + 1`,
           claimId: null,
           claimedUntil: null,
-          // One that was only checked for nudity is sent to the services again when their five minutes are over.
-          nextTryAt: outcome.level === "nudity_only" ? new Date(at.getTime() + COOL_MS) : null,
+          nextTryAt: outcome.level === "nudity_only" ? nudityOnlyAgain : null,
           updatedAt: at,
         })
         .where(eq(pictures.id, row.id));
@@ -169,7 +184,7 @@ async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, 
         .where(eq(pictures.id, row.id));
     } else {
       // Shown after a check for nudity only, and still no full answer: it stays as it is.
-      await tx.update(pictures).set({ claimId: null, claimedUntil: null, nextTryAt: new Date(at.getTime() + COOL_MS), updatedAt: at }).where(eq(pictures.id, row.id));
+      await tx.update(pictures).set({ claimId: null, claimedUntil: null, nextTryAt: nudityOnlyAgain, updatedAt: at }).where(eq(pictures.id, row.id));
     }
   });
 }
@@ -186,13 +201,16 @@ async function recordAnswers(asked: Checker[], answers: Asked[], at: Date): Prom
     await db.transaction(async (tx) => {
       await tx.insert(checkers).values({ service: name }).onConflictDoNothing();
       const [row] = await tx.select().from(checkers).where(eq(checkers.service, name)).for("update");
-      if (answer.kind === "clean" || answer.kind === "flagged") {
+      if (answer.kind === "flagged" && answer.partial) {
+        // The picture is refused, but an answer with parts missing does not show that the service works with this key. Nothing is written about the service.
+      } else if (answer.kind === "clean" || answer.kind === "flagged") {
         await tx.update(checkers).set({ lastGoodAt: at, lastGoodKey: service.keyMark, outUntil: null, faultSince: null, faultDetail: null, faultToldAt: null }).where(eq(checkers.service, name));
       } else if (answer.kind === "out") {
         await tx.update(checkers).set({ outUntil: new Date(at.getTime() + COOL_MS) }).where(eq(checkers.service, name));
       } else {
         const tell = !row.faultToldAt || at.getTime() - row.faultToldAt.getTime() >= DAY_MS;
-        await tx.update(checkers).set({ faultSince: row.faultSince ?? at, faultDetail: answer.detail, faultToldAt: tell ? at : row.faultToldAt }).where(eq(checkers.service, name));
+        // Its five minutes, if it was "out" a moment ago, are over with this: a fault is never waited out.
+        await tx.update(checkers).set({ outUntil: null, faultSince: row.faultSince ?? at, faultDetail: answer.detail, faultToldAt: tell ? at : row.faultToldAt }).where(eq(checkers.service, name));
         if (tell) {
           await tellFounders(tx, {
             subject: `A picture checking service has a fault: ${name}`,
@@ -205,14 +223,18 @@ async function recordAnswers(asked: Checker[], answers: Asked[], at: Date): Prom
   }
 }
 
-/** The founder is told when pictures are being shown after a check for nudity only: at once for the first, then once a day while any is. */
-async function tellAboutNudityOnly(at: Date): Promise<void> {
-  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(pictures).where(and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only")));
+/** The founder is told when pictures are being shown after a check for nudity only: at once for the first, then once a day while any is, with how many and since when. */
+async function tellAboutNudityOnly(at: Date, whose: SQL | undefined): Promise<void> {
+  const [{ n, since }] = await db
+    .select({ n: sql<number>`count(*)::int`, since: sql<Date | null>`min(${pictures.checkedAt})` })
+    .from(pictures)
+    .where(and(whose, eq(pictures.state, "shown"), eq(pictures.level, "nudity_only")));
   if (n === 0) return;
+  const longest = since ? ` The one that has waited longest has been shown like this since ${new Date(since).toISOString().slice(0, 16).replace("T", " ")} (UTC).` : "";
   await db.transaction((tx) =>
     tellFounders(tx, {
       subject: "Pictures are being shown after a check for nudity only",
-      text: `${n === 1 ? "One picture is" : `${n} pictures are`} being shown although only Connect's own checker has looked at ${n === 1 ? "it" : "them"}, and that one only looks for nudity. This happens when every outside checking service is used up or cannot be reached. Each such picture gets its full check as soon as a service answers again.\n\n${adminUrl()}`,
+      text: `${n === 1 ? "One picture is" : `${n} pictures are`} being shown although only Connect's own checker has looked at ${n === 1 ? "it" : "them"}, and that one only looks for nudity.${longest} This happens when every outside checking service is used up or cannot be reached. Each such picture gets its full check as soon as a service answers again.\n\n${adminUrl()}`,
       key: `pictures-nudity-only:${at.toISOString().slice(0, 10)}`,
     }),
   );
@@ -236,7 +258,11 @@ async function childStep(round: string, tool: ChildTool, now: () => Date, whose:
     if (!picture) return;
     seen.push(picture.id);
     const [file] = await db.select({ bytes: files.bytes }).from(files).where(eq(files.pictureId, picture.id));
-    const answer: ChildAnswer = file ? await tool.ask(file.bytes).catch(() => "unreachable" as const) : "unreachable";
+    // Bounded here too, whatever the tool's own limits are: one picture it never answers for must not stop the round.
+    let tooSlow: NodeJS.Timeout | undefined;
+    const noAnswer = new Promise<ChildAnswer>((resolve) => (tooSlow = setTimeout(() => resolve("unreachable"), TOOL_WITHIN_MS)));
+    const answer: ChildAnswer = file ? await Promise.race([tool.ask(file.bytes).catch(() => "unreachable" as const), noAnswer]) : "unreachable";
+    clearTimeout(tooSlow);
     await settleChild(round, picture, answer, now());
     if (answer === "unreachable") return;
     await switchChildCheckOn(now());
@@ -256,7 +282,8 @@ async function settleChild(round: string, claimed: ProjectPicture, answer: Child
       return;
     }
     if (answer === "clear") {
-      await tx.update(pictures).set({ ...letGo, childCheck: "clear", updatedAt: at }).where(eq(pictures.id, row.id));
+      // A match is never taken back: a "clear" that comes in after one changes nothing.
+      await tx.update(pictures).set({ ...letGo, ...(row.childCheck === "match" ? {} : { childCheck: "clear" as const }), updatedAt: at }).where(eq(pictures.id, row.id));
       // A picture that was removed or refused meanwhile was only kept for this answer.
       await deleteBytesIfFree(tx, row.id, at);
       return;

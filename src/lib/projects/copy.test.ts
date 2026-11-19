@@ -83,6 +83,9 @@ describe("Connect's own copy of a picture", () => {
   });
   it("lowers the quality until a very detailed picture fits under 1 MB", async () => {
     const detailed = await raw(1600, 1600, true).jpeg({ quality: 95 }).toBuffer();
+    // At the first quality this picture really is too large, so the copy can only have been made at a lower one.
+    const atFirst = await sharp(detailed).jpeg({ quality: PICTURE.qualities[0], mozjpeg: true }).toBuffer();
+    expect(atFirst.length).toBeGreaterThan(PICTURE.maxBytes);
     const copy = await makeCopy(detailed);
     expect(copy.bytes.length).toBeLessThanOrEqual(PICTURE.maxBytes);
   });

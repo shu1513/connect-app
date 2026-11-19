@@ -37,8 +37,8 @@ export function readSightengine(body: unknown): Answer {
     "self-harm": answer["self-harm"]?.prob,
   };
   const found = Object.entries(scores).filter(([, score]) => isShare(score) && score > FLAG_ABOVE);
-  if (found.length > 0) return { kind: "flagged", detail: `Sightengine flagged: ${found.map(([name, score]) => `${name} ${Number(score).toFixed(2)}`).join(", ")}` };
   const missing = Object.entries(scores).find(([, score]) => !isShare(score));
+  if (found.length > 0) return { kind: "flagged", detail: `Sightengine flagged: ${found.map(([name, score]) => `${name} ${Number(score).toFixed(2)}`).join(", ")}`, partial: missing !== undefined };
   if (missing) return { kind: "fault", detail: `the answer has no valid number for "${missing[0]}"` };
   return { kind: "clean", detail: `Sightengine looked at the picture for: ${Object.keys(scores).join(", ")}` };
 }

@@ -12,7 +12,8 @@
  * It works on this computer's test database only, makes its own people (their ids start "pc-"),
  * sets the founder's projects switch for its journeys, and at the end puts the switch, the lines
  * about the checking services and the child-safety tool's switch back as it found them, and
- * removes everything it made.
+ * removes everything it made. It must have the test database to itself while it runs: no always-on
+ * helper and no second check script beside it.
  *
  * Usage: npx tsx scripts/project-check.ts            (everything)
  *        npx tsx scripts/project-check.ts --only=4   (one journey)
@@ -44,6 +45,7 @@ async function main() {
   const sharp = (await import("sharp")).default;
   const Pics = await import("../src/lib/projects/pictures");
   const Mod = await import("../src/lib/projects/moderation");
+  const Steps = await import("../src/lib/projects/picture-steps");
   const Q = await import("../src/lib/projects/queue");
   const Child = await import("../src/lib/projects/child-safety");
   const { ownChecker, stopOwnChecker } = await import("../src/lib/projects/checks/own");
@@ -445,6 +447,8 @@ async function main() {
   /** Who was asked, in order, and about which picture (the fingerprint of its bytes). */
   let asked: Name[] = [];
   let askedAbout: string[] = [];
+  /** Stand-ins whose "flagged" comes with parts of the answer missing. */
+  let partial = new Set<Name>();
   const standIn = (name: Name): Checker => ({
     name,
     get keyMark() {
@@ -455,7 +459,7 @@ async function main() {
       askedAbout.push(fingerprint(jpeg));
       const say = says[name];
       const kind = typeof say === "function" ? await say(jpeg) : say;
-      return { kind, detail: `${name} said ${kind}` };
+      return { kind, detail: `${name} said ${kind}`, ...(kind === "flagged" && partial.has(name) ? { partial: true } : {}) };
     },
   });
   const forget = () => {
@@ -469,6 +473,7 @@ async function main() {
     since = people.length;
     says = { openai: "clean", azure: "clean", sightengine: "clean", own: "clean" };
     keys = { openai: "key-1", azure: "key-1", sightengine: "key-1", own: "own" };
+    partial = new Set();
     forget();
     qclock = Date.now();
     await db.delete(schema.pictureCheckers);
@@ -696,6 +701,46 @@ async function main() {
     await round();
     row = await pic(j.id);
     check("a flag at its full check takes it down at once: refused, gone from the diary, its bytes deleted", row.state === "refused" && row.checkedBy === "openai" && !(await hasBytes(j.id)) && !(await sees(null, j.id)) && (await forAll(fourth.id)).length === 0);
+
+    // A flag that comes with parts of the answer missing refuses the picture, but does not show that the service works.
+    await db.delete(schema.pictureCheckers);
+    later(30);
+    partial = new Set<Name>(["openai"]);
+    says = { openai: "flagged", azure: "out", sightengine: "out", own: "clean" };
+    const fifth = await write(host, "A fifth post");
+    const k = await upload(host, fifth.id);
+    await round();
+    check("a flag in an incomplete answer still refuses the picture", (await pic(k.id)).state === "refused");
+    check("but is not taken as the service having worked with its key", !(await checkerLine("openai"))?.lastGoodKey);
+    forget();
+    says.openai = "out";
+    const l = await upload(host, fifth.id);
+    await round();
+    check("so with every service out afterwards, the own checker still may not pass a picture", (await pic(l.id)).state === "waiting" && !asked.includes("own"), asked);
+
+    // A fault is never waited out as if the service were only used up.
+    partial = new Set();
+    await db.delete(schema.pictureCheckers);
+    later(30);
+    says = { openai: "fault", azure: "clean", sightengine: "clean", own: "clean" };
+    await db.insert(schema.pictureCheckers).values({ service: "openai", outUntil: new Date(qclock + 4 * MIN) });
+    forget();
+    await db.update(pictures).set({ nextTryAt: qnow() }).where(eq(pictures.id, l.id));
+    await db.update(schema.pictureCheckers).set({ faultSince: qnow() }).where(eq(schema.pictureCheckers.service, "openai"));
+    await round();
+    check("a service with a fault on record is asked, not passed over as still out, and the picture waits", asked.join() === "openai" && (await pic(l.id)).state === "waiting", asked);
+    check("and recording a fault ends its five minutes", (await checkerLine("openai"))?.outUntil === null && Boolean((await checkerLine("openai"))?.faultSince));
+
+    // Tidying: pictures whose bytes cannot be freed yet do not hold up one whose bytes can.
+    const sixth = await write(host, "A sixth post");
+    const stuck = [await upload(host, sixth.id), await upload(host, sixth.id), await upload(host, sixth.id)];
+    const free = await upload(host, sixth.id);
+    for (const p of [...stuck, free]) await db.update(pictures).set({ state: "removed", removedAt: qnow(), removedBy: "host", nextTryAt: null }).where(eq(pictures.id, p.id));
+    await db.update(pictures).set({ claimId: randomUUID(), claimedUntil: new Date(qclock + 60 * MIN) }).where(inArray(pictures.id, stuck.map((p) => p.id)));
+    const next = await Steps.goneWithBytes(1, qnow(), inArray(pictures.hostId, [host.id]));
+    check("the list for tidying holds only pictures whose bytes can go now", next.join() === free.id, next);
+    await round();
+    check("and the round deletes exactly those", !(await hasBytes(free.id)) && (await hasBytes(stuck[0].id)) && (await hasBytes(stuck[2].id)));
   });
 
   // ========================================================================
@@ -748,6 +793,28 @@ async function main() {
     await round();
     check("once the hold is lifted it is checked like any other", (await pic(c.id)).state === "shown" && asked.join() === "openai");
 
+    // The same hold, but the first service is out: without asking again, the picture would go on to the next service.
+    const held = await write(host, "A post with a picture that gets held");
+    const c2 = await upload(host, held.id);
+    forget();
+    says.openai = async (): Promise<Kind> => {
+      await Mod.setSuspected({ adminId: admin.id, pictureId: c2.id, on: true, now: qnow() });
+      return "out";
+    };
+    await round();
+    check("held while the first service is being asked, which then is out: the picture is sent to no further service", asked.join() === "openai" && (await pic(c2.id)).state === "waiting", asked);
+    forget();
+    says.openai = async (): Promise<Kind> => {
+      await Mod.lockAndReport({ adminId: admin.id, pictureId: c3.id, now: qnow() });
+      return "out";
+    };
+    later(6);
+    const c3 = await upload(host, held.id);
+    await round();
+    check("the same when it is removed and reported meanwhile: no further service, and it stays locked with its bytes", asked.join() === "openai" && (await pic(c3.id)).state === "locked" && (await hasBytes(c3.id)), asked);
+    await db.delete(schema.pictureCheckers);
+    says.openai = "clean";
+
     const d = await upload(host, post.id);
     says.openai = () => {
       later(3);
@@ -781,7 +848,7 @@ async function main() {
   });
 
   // ========================================================================
-  journey("Who gets a picture at its address, in every state", async () => {
+  journey("Who is handed a picture, in every state (the one function the picture's address asks)", async () => {
     await fresh();
     const admin = await theAdmin();
     const { host, post } = await withPost();
@@ -926,6 +993,31 @@ async function main() {
     await round();
     check("and the waiting picture is checked again", asked.join() === "openai" && (await pic(b.id)).state === "shown");
 
+    // While such a report is open, a picture added to the post is suspected from the start: removing one and uploading it again is no way round.
+    const open1 = await report(reporter, "under18");
+    forget();
+    const added = await upload(host, post.id);
+    await Pics.removePicture({ hostId: host.id, pictureId: b.id, now: qnow() });
+    const again = await upload(host, post.id);
+    await round();
+    check("a picture uploaded while such a report is open carries the mark, and no checking service is sent it", added.suspectedByReport && again.suspectedByReport && asked.length === 0 && (await pic(added.id)).state === "waiting");
+    // Two such reports closed at the same moment: the mark comes off, once, and nothing is left hanging.
+    const open2 = await report(another, "under18");
+    const both = await Promise.allSettled([close(open1.id), close(open2.id)]);
+    check("two such reports closed at the same moment: both close, and the mark is lifted", both.every((r) => r.status === "fulfilled") && !(await pic(added.id)).suspectedByReport && !(await pic(again.id)).suspectedByReport && !(await pic(a.id)).suspectedByReport, both.map((r) => r.status));
+    // One is closed while another is made, many times over: whatever the order, the mark ends up saying what the open reports say.
+    let agree = true;
+    for (let i = 0; i < 6 && agree; i++) {
+      const open3 = await report(reporter, "under18");
+      const reporterN = await person("customer");
+      await Promise.allSettled([close(open3.id), createReport({ reporterId: reporterN.id, context: "post", contextId: post.id, reason: "under18", text: "", now: new Date() })]);
+      const stillOpen = (await db.select().from(schema.reports).where(and(eq(schema.reports.contextId, post.id), eq(schema.reports.reason, "under18"), eq(schema.reports.status, "open")))).length > 0;
+      agree = stillOpen && (await pic(added.id)).suspectedByReport && (await pic(a.id)).suspectedByReport;
+      for (const left of await db.select().from(schema.reports).where(and(eq(schema.reports.contextId, post.id), eq(schema.reports.status, "open")))) await close(left.id);
+      agree = agree && !(await pic(added.id)).suspectedByReport;
+    }
+    check("one closed while another is made, six times: the mark always says what the open reports say", agree);
+
     await Mod.setSuspected({ adminId: admin.id, pictureId: a.id, on: true, now: qnow() });
     const third = await report(reporter, "under18");
     await close(third.id);
@@ -1023,6 +1115,22 @@ async function main() {
     };
     await round(slow);
     check("and however late: an answer that comes back after the round's time has run out still locks the picture", (await pic(late.id)).state === "locked" && (await hasBytes(late.id)));
+
+    // A "clear" that comes in after a match changes nothing: the first asking runs over its time, a second one answers "match" meanwhile.
+    const sixth = await write(host, "A sixth post");
+    const twice = await upload(host, sixth.id, 223);
+    let asks = 0;
+    const overlapping: Tool = {
+      ask: async () => {
+        if (++asks > 1) return "match";
+        later(5);
+        await round(overlapping);
+        return "clear";
+      },
+    };
+    await round(overlapping);
+    row = await pic(twice.id);
+    check("a clear answer that comes in after a match does not take the match back", asks === 2 && row.state === "locked" && row.childCheck === "match" && (await hasBytes(twice.id)), { asks, state: row.state, childCheck: row.childCheck });
     await db.update(schema.siteSwitches).set({ childCheckOnAt: null });
   });
 
@@ -1048,14 +1156,14 @@ async function main() {
       const each = (Date.now() - from) / 100;
       const grown = (process.memoryUsage().rss - before) / 1_048_576;
       console.log(`      (100 pictures: ${each.toFixed(0)} ms each, memory changed by ${grown.toFixed(0)} MB)`);
-      check("a hundred pictures in a row are all answered, well within a second each", allValid && each < 1000, each);
-      check("and memory does not keep growing with them", grown < 80, grown);
+      check("a hundred pictures in a row are all answered, in well under a second each on average", allValid && each < 1000, each);
+      check("and the helper's memory is not more than 80 MB larger afterwards", grown < 80, grown);
       const five = await Promise.all([one, two, one, two, one].map((jpeg) => real.check(jpeg)));
-      check("pictures handed over together are answered one after the other", five.every(valid));
+      check("pictures handed over together are all answered", five.every(valid));
       check("what is not a picture is a fault, not an answer", (await real.check(Buffer.from("not a picture"))).kind === "fault");
       check("and the thread goes on after it", valid(await real.check(one)));
       stopOwnChecker();
-      check("after it has stopped for idling it starts fresh for the next picture", valid(await real.check(one)));
+      check("after its thread was stopped, the way its idle timer stops it, it starts fresh for the next picture", valid(await real.check(one)));
       stopOwnChecker();
       const broken = await ownChecker("/nowhere/own-thread-start.mjs").check(one);
       check("a thread that cannot start is a fault: the picture waits", broken.kind === "fault" && /could not start/.test(broken.detail), broken);
@@ -1220,6 +1328,8 @@ async function main() {
     await round();
     const open = await get(added.id, null);
     check("once it is shown, a visitor gets it, to be kept by their own browser for five minutes and by nobody in between", (await pic(added.id)).state === "shown" && open.status === 200 && open.body.equals(kept.bytes) && open.cache === "private, max-age=300" && open.validators.length === 0, { status: open.status, cache: open.cache });
+    const shrunk = await fetch(`${BASE}/_next/image?url=${encodeURIComponent(`/pictures/${added.id}`)}&w=640&q=75`);
+    check("the framework's own address for making and keeping smaller copies refuses a diary picture, also a shown one", shrunk.status === 400, shrunk.status);
     const asked304 = await get(added.id, null, { "if-none-match": "*", "if-modified-since": new Date().toUTCString() });
     check("the address never answers \"you already have it\": every fetch is decided afresh", asked304.status === 200 && asked304.body.equals(kept.bytes));
     const bad = [await get("nonsense", host.jar), await get(NOTHING, host.jar)];
@@ -1310,7 +1420,7 @@ async function main() {
     check("no page reads a picture's bytes itself", inApp.length === 0, inApp);
     check("no page loads the checking queue or Connect's own checker: only the always-on helper does", heavy.length === 0 && /await import\("\.\.\/src\/lib\/projects\/queue"\)/.test(readFileSync("worker/closer.ts", "utf8")), heavy);
     const moderation = readFileSync("src/lib/projects/moderation.ts", "utf8");
-    check("each of the founder's four decisions about a picture is written into the record in the same step", (moderation.match(/^    await recordAdminAction\(\{.*\}, tx\);$/gm) ?? []).length === 4);
+    check("the code of each of the founder's four decisions about a picture has its line for the record, written with the same database step", (moderation.match(/^    await recordAdminAction\(\{.*\}, tx\);$/gm) ?? []).length === 4);
     const report = readFileSync("src/lib/safety/reports.ts", "utf8");
     check("the report code blocks for a person and not for a post, in one place", (report.match(/await block\(/g) ?? []).length === 1 && /if \(input\.context !== "post"\) await block\(/.test(report));
   });

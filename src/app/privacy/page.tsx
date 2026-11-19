@@ -24,7 +24,8 @@ export default function PrivacyPage() {
         else that was hidden in the file, and we do not keep the file as it was sent. Before anyone else can see the picture, our
         copy is checked automatically. For that it is usually sent to an outside checking service: OpenAI, Microsoft (Azure AI
         Content Safety) or Sightengine. We send the picture only, without the host&apos;s name or anything else about them. A picture
-        the check does not accept is not kept.
+        the check does not accept is shown to nobody and deleted. Before it is deleted it can be compared with a list of known
+        illegal pictures.
       </p>
     </SitePage>
   );

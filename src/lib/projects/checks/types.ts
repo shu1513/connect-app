@@ -9,7 +9,12 @@
  *   out      the service is used up, too busy, cannot be reached, or did not answer in time
  *   fault    the answer was broken or incomplete, the key was refused, or the service could not read the picture
  */
-export type Answer = { kind: "clean" | "flagged" | "out" | "fault"; detail: string };
+export type Answer = {
+  kind: "clean" | "flagged" | "out" | "fault";
+  detail: string;
+  /** Only with "flagged": other parts of the answer were missing or invalid. The picture is refused all the same, but such an answer does not show that the service works. */
+  partial?: boolean;
+};
 
 export type ServiceName = "openai" | "azure" | "sightengine";
 
@@ -45,7 +50,9 @@ export async function askService(request: () => Promise<Response>, read: (body: 
   let body: unknown;
   try {
     body = await response.json();
-  } catch {
+  } catch (error) {
+    // An answer that stops arriving, or runs out of time on the way, is "no answer in time". Only one that arrived and is not what it should be is a fault.
+    if (!(error instanceof SyntaxError)) return { kind: "out", detail: `the answer did not arrive: ${error instanceof Error ? error.name : "error"}` };
     return response.ok ? { kind: "fault", detail: "the answer could not be read" } : refusalOf(response.status, "");
   }
   try {

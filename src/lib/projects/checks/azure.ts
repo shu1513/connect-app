@@ -18,16 +18,14 @@ const LEVELS = [0, 2, 4, 6];
 export function readAzure(body: unknown): Answer {
   const list = (body as { categoriesAnalysis?: Array<{ category?: unknown; severity?: unknown }> }).categoriesAnalysis;
   if (!Array.isArray(list)) return { kind: "fault", detail: "no analysis in the answer" };
-  const levelOf = (name: string) => list.find((entry) => entry?.category === name)?.severity;
-  const found = NEEDED.filter((name) => {
-    const level = levelOf(name);
-    return typeof level === "number" && LEVELS.includes(level) && level >= FLAG_FROM[name];
-  });
-  if (found.length > 0) return { kind: "flagged", detail: `Microsoft flagged: ${found.map((name) => `${name} at level ${levelOf(name)}`).join(", ")}` };
-  for (const name of NEEDED) {
-    const level = levelOf(name);
-    if (typeof level !== "number" || !LEVELS.includes(level)) return { kind: "fault", detail: `the answer has no valid level for "${name}"` };
-  }
+  const valid = (level: unknown): level is number => typeof level === "number" && LEVELS.includes(level);
+  /** Every level the answer gives for a name. One is expected; a second one is never passed over. */
+  const levelsOf = (name: string) => list.filter((entry) => entry?.category === name).map((entry) => entry.severity);
+  const found = NEEDED.filter((name) => levelsOf(name).some((level) => valid(level) && level >= FLAG_FROM[name]));
+  // Complete means: each of the three exactly once, with a valid level.
+  const unclear = NEEDED.find((name) => levelsOf(name).length !== 1 || !valid(levelsOf(name)[0]));
+  if (found.length > 0) return { kind: "flagged", detail: `Microsoft flagged: ${found.map((name) => `${name} at level ${Math.max(...levelsOf(name).filter(valid))}`).join(", ")}`, partial: unclear !== undefined };
+  if (unclear) return { kind: "fault", detail: `the answer has no single valid level for "${unclear}"` };
   return { kind: "clean", detail: `Microsoft looked at the picture for: ${NEEDED.join(", ")}` };
 }
 

@@ -10,7 +10,7 @@
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import type { OwnReply } from "./own-thread";
-import type { Answer, Checker } from "./types";
+import { isShare, type Answer, type Checker } from "./types";
 
 const START_WITHIN_MS = 30_000;
 const ANSWER_WITHIN_MS = 10_000;
@@ -20,13 +20,22 @@ const NAMES = ["Drawing", "Hentai", "Neutral", "Porn", "Sexy"] as const;
 /** What its five numbers mean for a picture. Exported for the tests. */
 export function readOwn(classes: unknown): Answer {
   const share = new Map<string, number>();
-  if (Array.isArray(classes)) for (const entry of classes) if (typeof entry?.className === "string" && typeof entry.probability === "number" && Number.isFinite(entry.probability)) share.set(entry.className, entry.probability);
+  let unclear: string | null = null;
+  if (Array.isArray(classes)) {
+    for (const entry of classes) {
+      if (typeof entry?.className !== "string") continue;
+      // A number that is not a share between 0 and 1, or a class given twice, is never used: it could hide a finding.
+      if (!isShare(entry.probability) || share.has(entry.className)) unclear ??= entry.className;
+      else share.set(entry.className, entry.probability);
+    }
+  }
   // All five must be there: a missing one is not read as zero.
-  const missing = NAMES.find((name) => !share.has(name));
-  if (missing) return { kind: "fault", detail: `Connect's own checker gave no number for "${missing}"` };
-  const explicit = share.get("Porn")! + share.get("Hentai")!;
-  const sexy = share.get("Sexy")!;
-  if (explicit >= 0.5 || sexy >= 0.8) return { kind: "flagged", detail: `Connect's own checker found nudity (explicit ${explicit.toFixed(2)}, suggestive ${sexy.toFixed(2)})` };
+  unclear ??= NAMES.find((name) => !share.has(name)) ?? null;
+  const explicit = (share.get("Porn") ?? 0) + (share.get("Hentai") ?? 0);
+  const sexy = share.get("Sexy") ?? 0;
+  // A finding counts even when another part of the answer is missing.
+  if (explicit >= 0.5 || sexy >= 0.8) return { kind: "flagged", detail: `Connect's own checker found nudity (explicit ${explicit.toFixed(2)}, suggestive ${sexy.toFixed(2)})`, partial: unclear !== null };
+  if (unclear) return { kind: "fault", detail: `Connect's own checker gave no single valid number for "${unclear}"` };
   return { kind: "clean", detail: "Connect's own checker looked for nudity only" };
 }
 

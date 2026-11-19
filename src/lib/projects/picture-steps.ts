@@ -5,7 +5,7 @@
  *
  * The order of locks, everywhere: the project, then the post, then the picture.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Project, ProjectPost } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
@@ -112,6 +112,9 @@ export async function refuseInStep(tx: Tx, input: { pictureId: string; by: strin
  * carry the report's "suspected" mark, and no everyday checker is sent them. The mark hides
  * nothing by itself (plans/23). Each change moves the picture's counter, so an answer that was
  * already on its way no longer counts.
+ *
+ * Making such a report, closing one, and uploading a picture to the post all hold the post's lock
+ * while they read or change this, so the mark always says what the open reports say.
  */
 export async function markSuspectedByReport(tx: Tx, postId: string, now: Date): Promise<void> {
   await tx
@@ -120,24 +123,41 @@ export async function markSuspectedByReport(tx: Tx, postId: string, now: Date): 
     .where(and(eq(pictures.postId, postId), inArray(pictures.state, ["waiting", "shown"]), eq(pictures.suspectedByReport, false)));
 }
 
-/** That report was closed. The mark comes off unless another such report on the same post is still open. The founder's own mark is never touched here. */
-export async function liftSuspectedByReport(tx: Tx, postId: string, now: Date): Promise<void> {
+/** Whether a report for "someone under 18" is open on this post. The caller holds the post's lock, as everyone does who reads or changes this. */
+export async function hasOpenUnder18Report(tx: Tx, postId: string): Promise<boolean> {
   const [open] = await tx
     .select({ id: schema.reports.id })
     .from(schema.reports)
     .where(and(eq(schema.reports.context, "post"), eq(schema.reports.contextId, postId), eq(schema.reports.reason, "under18"), eq(schema.reports.status, "open")))
     .limit(1);
-  if (open) return;
+  return Boolean(open);
+}
+
+/** That report was closed. The mark comes off unless another such report on the same post is still open. The founder's own mark is never touched here. */
+export async function liftSuspectedByReport(tx: Tx, postId: string, now: Date): Promise<void> {
+  if (await hasOpenUnder18Report(tx, postId)) return;
   await tx.update(pictures).set({ suspectedByReport: false, version: sql`${pictures.version} + 1`, updatedAt: now }).where(and(eq(pictures.postId, postId), eq(pictures.suspectedByReport, true)));
 }
 
-/** Removed and refused pictures whose bytes are still there. For the queue's tidying. */
-export async function goneWithBytes(limit: number): Promise<string[]> {
+/**
+ * Removed and refused pictures whose bytes are still there and that nothing needs any more, for
+ * the queue's tidying. The same rule as deleteBytesIfFree, which decides again for each: here it
+ * only keeps pictures that cannot be freed yet from filling the list and holding up the others.
+ */
+export async function goneWithBytes(limit: number, now: Date, whose?: SQL): Promise<string[]> {
+  const toolOn = await childCheckOn();
   const rows = await db
     .select({ id: pictures.id })
     .from(pictures)
     .innerJoin(schema.projectPictureFiles, eq(schema.projectPictureFiles.pictureId, pictures.id))
-    .where(inArray(pictures.state, ["removed", "refused"]))
+    .where(
+      and(
+        whose,
+        inArray(pictures.state, ["removed", "refused"]),
+        or(isNull(pictures.claimedUntil), lte(pictures.claimedUntil, now)),
+        inArray(pictures.childCheck, toolOn ? ["clear", "match"] : ["clear", "match", "not_set_up"]),
+      ),
+    )
     .limit(limit);
   return rows.map((row) => row.id);
 }

@@ -15,13 +15,12 @@ export function readOpenAi(body: unknown): Answer {
   if (!result || typeof result !== "object") return { kind: "fault", detail: "no result in the answer" };
   const { categories, category_scores: scores, category_applied_input_types: applied } = result;
   const found = NEEDED.filter((name) => categories?.[name] === true);
-  if (found.length > 0) return { kind: "flagged", detail: `OpenAI flagged: ${found.join(", ")}` };
-  for (const name of NEEDED) {
+  const missing = NEEDED.find((name) => {
     const looked = applied?.[name];
-    if (typeof categories?.[name] !== "boolean" || !isShare(scores?.[name]) || !Array.isArray(looked) || !looked.includes("image")) {
-      return { kind: "fault", detail: `the answer does not show that "${name}" was checked in the picture` };
-    }
-  }
+    return typeof categories?.[name] !== "boolean" || !isShare(scores?.[name]) || !Array.isArray(looked) || !looked.includes("image");
+  });
+  if (found.length > 0) return { kind: "flagged", detail: `OpenAI flagged: ${found.join(", ")}`, partial: missing !== undefined };
+  if (missing) return { kind: "fault", detail: `the answer does not show that "${missing}" was checked in the picture` };
   return { kind: "clean", detail: `OpenAI looked at the picture for: ${NEEDED.join(", ")}` };
 }
 

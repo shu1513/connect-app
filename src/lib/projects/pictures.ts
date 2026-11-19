@@ -14,7 +14,7 @@ import { publicProfile } from "@/lib/profiles/profiles";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { childCheckOn, mayBeFetched, mayUpload, startingChildCheck } from "./child-safety";
 import { makeCopy } from "./copy";
-import { adminUrl, lockInStep, removeInStep, tellFounders } from "./picture-steps";
+import { adminUrl, hasOpenUnder18Report, lockInStep, removeInStep, tellFounders } from "./picture-steps";
 import { ownPost } from "./posts";
 import { isId, PROJECTS_OFF } from "./projects";
 import { PICTURE, ProjectError } from "./rules";
@@ -108,6 +108,8 @@ export async function acceptUpload(input: { hostId: string; postId: string; orig
         rulesVersion: wasRefused ? PICTURE.rulesVersion : null,
         checkDetail: wasRefused ? `The same picture as one that was refused before. ${wasRefused.checkDetail ?? ""}`.trim() : null,
         childCheck: startingChildCheck(waitsForTool),
+        // A picture added while a report for "someone under 18" is open on its post is suspected like the ones that were there.
+        suspectedByReport: await hasOpenUnder18Report(tx, post.id),
         nextTryAt: wasRefused || wasLocked ? null : input.now,
       })
       .returning();
