@@ -133,13 +133,19 @@ export async function changeSuggested(input: { hostId: string; projectId: string
  * ends: what ending does to contributions (part two) is added here, in this same step. Returns
  * the project as it is afterwards, or null when that project was not her running one.
  */
-export async function endProjectInStep(tx: Tx, input: { hostId: string; projectId: string; by: "host" | "connect"; now: Date }): Promise<Project | null> {
+export async function endProjectInStep(tx: Tx, input: { hostId: string; projectId: string; by: "host" | "connect"; now: Date }): Promise<{ project: Project; givenUpPayments: string[] } | null> {
   const [ended] = await tx
     .update(schema.projects)
     .set({ status: "ended", endedAt: input.now, endedBy: input.by, updatedAt: input.now })
     .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.hostId, input.hostId), eq(schema.projects.status, "running")))
     .returning();
-  return ended ?? null;
+  if (!ended) return null;
+  // Every contribution to it ends in this same step: no monthly one is charged again, and payments that are only
+  // held, monthly ones and ones made once, are given up. The caller lets their holds go once its step is saved.
+  // (Loaded here, not at the top: that code talks to Stripe, and this file stays free of that.)
+  const { endContributionsOfProject } = await import("@/lib/contributions/ending");
+  const givenUpPayments = await endContributionsOfProject(tx, ended.id, "project_ended", input.now);
+  return { project: ended, givenUpPayments };
 }
 
 /**
@@ -150,7 +156,9 @@ export async function endProject(input: { hostId: string; projectId: string; now
   if (!isId(input.projectId)) throw new ProjectError(NOT_RUNNING);
   const ended = await db.transaction((tx) => endProjectInStep(tx, { hostId: input.hostId, projectId: input.projectId, by: "host", now: input.now }));
   if (!ended) throw new ProjectError(NOT_RUNNING);
-  return ended;
+  // The project has ended from here on, whatever happens next. What was only held is let go (the helper repeats that until it is done).
+  if (ended.givenUpPayments.length > 0) await (await import("@/lib/contributions/ending")).letGoAll(ended.givenUpPayments, input.now);
+  return ended.project;
 }
 
 /**

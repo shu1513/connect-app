@@ -87,6 +87,8 @@ export async function startContribution(input: { contributorId: string; projectI
       if (!found) throw new ContributionError(NOT_TAKING);
       // The two people's lines first, and read again below: closing or pausing an account cannot miss a contribution that starts at the same moment.
       await lockPeople(tx, [found.hostId, contributorId]);
+      // And her host page's line, so that a suspension of her page cannot miss it either.
+      await tx.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, found.hostId)).for("share");
 
       // The same press, sent twice.
       const [before] = await tx.select().from(schema.contributions).where(eq(schema.contributions.requestKey, requestKey));
@@ -105,6 +107,9 @@ export async function startContribution(input: { contributorId: string; projectI
       if (cannot) throw new ContributionError(cannot);
       if (!kindsOffered(project).includes(kind)) throw new ContributionError(kind === "monthly" ? "This project does not take monthly contributions at the moment." : "This project only takes monthly contributions at the moment.");
       await lockPair(tx, contributorId, project.hostId);
+      // Asked once more with the pair's lock held: a block that was being saved at this very moment holds
+      // that lock while it ends the contributions between the two, so it is either seen here or it sees us.
+      if (await isBlockedEitherWay(project.hostId, contributorId, tx)) throw new ContributionError(NOT_TAKING);
       if (kind === "monthly") {
         const [running] = await tx
           .select({ id: schema.contributions.id })

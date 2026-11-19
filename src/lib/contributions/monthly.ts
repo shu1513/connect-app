@@ -17,7 +17,7 @@ import { isId } from "@/lib/projects/projects";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { giveUpInStep, letGo, writeDownPayment } from "./charge";
-import { endContribution } from "./ending";
+import { endContribution, endInStep, letGoAll, whyMustEnd } from "./ending";
 import { lockContribution, lockForPayment, lockPair, lockSwitchForWriting } from "./locks";
 import { ContributionError, dueMonths } from "./rules";
 
@@ -68,20 +68,31 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
     .limit(BATCH);
   for (const found of due) {
     try {
-      await db.transaction(async (tx) => {
+      const toLetGo = await db.transaction(async (tx): Promise<string[]> => {
         // Before any other lock: writing a payment and saving the founder's switch wait for each other.
         await lockSwitchForWriting(tx);
         await lockPair(tx, found.contributorId, found.hostId);
         const contribution = await lockContribution(tx, found.id);
-        if (contribution.kind !== "monthly" || contribution.status !== "running" || !contribution.firstHoldAt || contribution.switchOffAt) return;
+        if (contribution.kind !== "monthly" || contribution.status !== "running" || !contribution.firstHoldAt || contribution.switchOffAt) return [];
+        // A contribution that can no longer go on (a block between the two, an account paused or closed, the
+        // project ended) is ended here, and no payment is written. The steps that cause these end it
+        // themselves; this is the net behind them.
+        const over = await whyMustEnd(tx, contribution);
+        if (over) return endInStep(tx, contribution, over, now);
         // Nothing new is started while the switch does not cover her. (The step that saves the switch marks her contributions; this is the net behind it.)
-        if (!(await projectsOnFor(contribution.hostId, tx))) return;
-        const { write, missed } = dueMonths(contribution.firstHoldAt, contribution.lastWrittenMonth, now);
+        if (!(await projectsOnFor(contribution.hostId, tx))) return [];
+        const due = dueMonths(contribution.firstHoldAt, contribution.lastWrittenMonth, now);
+        // A month that was skipped while the switch was off (choice 13) is never written, also when its day has only just come.
+        const alreadySkipped = due.write !== null && skippedOf(contribution).includes(due.write);
+        const missed = alreadySkipped ? [...due.missed, due.write!] : due.missed;
+        const write = alreadySkipped ? null : due.write;
         if (missed.length > 0) await addSkipped(tx, contribution, missed, now, Math.max(...missed));
-        if (write === null) return;
+        if (write === null) return [];
         const [current] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, contribution.id));
         await writeDownPayment(tx, current, { number: write, originKey: `month:${contribution.id}:${write}`, tryNow: true }, now);
+        return [];
       });
+      await letGoAll(toLetGo, now);
     } catch (error) {
       console.error(`[contributions] could not write down the next payment of contribution ${found.id}; will retry`, error);
     }

@@ -209,6 +209,7 @@ async function main() {
     }
     await db.delete(schema.adminActions).where(or(inArray(schema.adminActions.adminId, ids), inArray(schema.adminActions.targetUserId, ids)));
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
+    await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "contributioncheck-%"));
     const projectIds = (await db.select({ id: schema.projects.id }).from(schema.projects).where(inArray(schema.projects.hostId, ids))).map((row) => row.id);
     if (projectIds.length) await db.delete(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds));
     await db.delete(schema.projects).where(inArray(schema.projects.hostId, ids));
@@ -1055,6 +1056,100 @@ async function main() {
     const early = await atCardStep(host, { kind: "monthly" });
     await M.letPaymentGo({ paymentId: early.paymentId, by: "contributor", actorId: early.giver.id });
     check("cancelling at the card step, before anything was paid, ends a monthly contribution that never began", (await CO(early.contributionId)).status === "ended" && (await PM(early.paymentId)).status === "given_up");
+  });
+
+  // ========================================================================
+  journey("What ends a contribution from outside: a block, an account paused, suspended or closed, the project's end, and what the founder's switch does", async () => {
+    const { block } = await import("../src/lib/safety/blocks");
+    const { pauseAccount } = await import("../src/lib/safety/reports");
+    const { closeAccount } = await import("../src/lib/profiles/closing");
+    const { decideProfile } = await import("../src/lib/profiles/profiles");
+    const { saveProjectsSwitch } = await import("../src/lib/contributions/switch");
+    const { monthlyDue } = await import("../src/lib/contributions/rules");
+    const admin = await person("admin");
+    await db.insert(schema.admins).values({ userId: admin.id });
+    const paymentsOf = (contributionId: string) => db.select().from(pays).where(eq(pays.contributionId, contributionId)).orderBy(pays.number);
+    const rounds = async (now: Date) => {
+      await runContributionJobs(now);
+      await runContributionJobs(now);
+    };
+    /** Ended for that reason, its payment given up, and the hold gone at Stripe. */
+    const endedFor = async (m: Made, how: string) => (await CO(m.contributionId)).status === "ended" && (await CO(m.contributionId)).endedHow === how && (await PM(m.paymentId)).status === "given_up" && (await intentOf(m.paymentId)).status === "canceled";
+    const goesOn = async (m: Made) => (await CO(m.contributionId)).status === "running" && (await PM(m.paymentId)).status === "held";
+
+    // A block.
+    const host = await newHost();
+    const a = await held(host, { kind: "monthly", amountCents: 1000 });
+    const aOnce = await held(host, { giver: a.giver });
+    const aTaken = await taken(host, { giver: a.giver });
+    const bystander = await held(host);
+    await block({ blockerId: a.giver.id, blockedId: host.id, now: new Date() });
+    check("either blocks the other: the monthly contribution between them ends at once, and so does one made once that was only held; both holds are let go", (await endedFor(a, "blocked")) && (await endedFor(aOnce, "blocked")));
+    check("money that was already taken is not touched by it, and neither is anyone else's contribution", (await PM(aTaken.paymentId)).status === "taken" && (await refundsOf(aTaken.paymentId)).length === 0 && (await goesOn(bystander)));
+
+    // The net behind the block: one that was saved without ending the contribution (put in by hand) is caught by the helper.
+    const missed = await held(host, { kind: "monthly", amountCents: 1000 });
+    const missedFirst = (await CO(missed.contributionId)).firstHoldAt!;
+    await C.takePayment(missed.paymentId, (await PM(missed.paymentId)).takeAt!);
+    await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: missed.giver.id });
+    await rounds(monthlyDue(missedFirst, 2));
+    check("the helper never writes a month for two people with a block between them: it ends the contribution instead", (await CO(missed.contributionId)).status === "ended" && (await CO(missed.contributionId)).endedHow === "blocked" && (await paymentsOf(missed.contributionId)).length === 1);
+
+    // An account paused.
+    const b = await held(host, { kind: "monthly", amountCents: 1000 });
+    // (A new bystander: the helper's pretended month above has long passed the first one's hold.)
+    const another = await held(host);
+    await pauseAccount({ adminId: admin.id, userId: b.giver.id, ruleKey: "harassment", note: "", requestId: randomUUID() });
+    check("a contributor's account is paused: their contributions end, and what was held is let go; nobody else's is touched", (await endedFor(b, "paused")) && (await goesOn(another)));
+
+    // A host's page suspended, then her account closed.
+    const hostTwo = await newHost();
+    const hostThree = await newHost();
+    const toHer = await held(hostTwo);
+    const fromHer = await held(hostThree, { giver: hostTwo });
+    await decideProfile({ userId: hostTwo.id, decision: "suspended", by: admin.id });
+    check("a host's page is suspended: the contributions to her project end; what she contributes to another host goes on", (await endedFor(toHer, "suspended")) && (await goesOn(fromHer)));
+    await closeAccount({ userId: hostTwo.id, by: admin.id });
+    check("her account is closed: what she contributes to others ends too", await endedFor(fromHer, "closed"));
+
+    // The host ends her project.
+    const hostFour = await newHost();
+    const e1 = await held(hostFour, { kind: "monthly", amountCents: 1000 });
+    const e2 = await held(hostFour);
+    const e3 = await taken(hostFour);
+    await endProject({ hostId: hostFour.id, projectId: (await runningProjectOf(hostFour.id))!.id, now: new Date() });
+    check("the host ends her project: every monthly contribution stops, and payments that are only held, monthly and once, are let go", (await endedFor(e1, "project_ended")) && (await endedFor(e2, "project_ended")));
+    check("money that was already taken stays with the project and the host: nothing is returned by ending", (await PM(e3.paymentId)).status === "taken" && (await refundsOf(e3.paymentId)).length === 0 && (await shareOf(e3.paymentId)) !== undefined);
+
+    // The founder's switch ends nothing.
+    const covered = await newHost();
+    const uncovered = await newHost();
+    const s = await held(uncovered, { kind: "monthly", amountCents: 1000 });
+    const sFirst = (await CO(s.contributionId)).firstHoldAt!;
+    await C.takePayment(s.paymentId, (await PM(s.paymentId)).takeAt!);
+    await rounds(monthlyDue(sFirst, 2));
+    const second = (await paymentsOf(s.contributionId))[1];
+    const sOnce = await held(uncovered);
+    const sWaiting = await atCardStep(uncovered);
+    const keeps = await held(covered, { kind: "monthly", amountCents: 1000 });
+    const offAt = new Date(monthlyDue(sFirst, 2).getTime() + DAY);
+    await saveProjectsSwitch({ adminId: admin.id, values: { projects: "named", projectsHosts: [covered.id] }, detail: "on for one host (check)", now: offAt });
+    let c = await CO(s.contributionId);
+    check("the switch stops covering a host: her monthly contributions stay, marked with that moment", c.status === "running" && c.switchOffAt?.getTime() === offAt.getTime());
+    check("every payment of hers that is not taken is given up in that same step: one that is held, and one still waiting for its card", second?.status === "held" && (await PM(second.id)).endedHow === "switch" && (await intentOf(second.id)).status === "canceled" && (await PM(sOnce.paymentId)).endedHow === "switch" && (await PM(sWaiting.paymentId)).endedHow === "switch" && (await PM(sWaiting.paymentId)).status === "given_up");
+    check("a host the switch still covers is not touched", (await goesOn(keeps)) && (await CO(keeps.contributionId)).switchOffAt === null);
+    check("the change is written into the record of the founder's actions", (await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.adminId, admin.id), eq(schema.adminActions.action, "projects switch set")))).length === 1);
+    await rounds(monthlyDue(sFirst, 3));
+    check("while it is off for her, no month is written", (await paymentsOf(s.contributionId)).length === 2);
+    const onAt = new Date(monthlyDue(sFirst, 3).getTime() + 2 * DAY);
+    await saveProjectsSwitch({ adminId: admin.id, values: { projects: "everyone" }, detail: "on for everyone (check)", now: onAt });
+    c = await CO(s.contributionId);
+    check("on again: the month whose day passed meanwhile is recorded as skipped, and only that one; the mark is cleared", c.switchOffAt === null && c.skippedMonths === "[3]" && c.status === "running");
+    await rounds(onAt);
+    check("that month is never charged afterwards, although its day was only two days ago, and no old payment comes back", (await paymentsOf(s.contributionId)).length === 2 && (await PM(second.id)).status === "given_up");
+    await rounds(monthlyDue(sFirst, 4));
+    const fourth = (await paymentsOf(s.contributionId))[2];
+    check("the contribution goes on from its next usual day", fourth?.number === 4 && fourth.status === "held");
   });
 
   // ========================================================================

@@ -674,8 +674,10 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
       prepare: async ({ contribution: current, payment }, tx) => {
         if (payment.status !== "to_pay" || !open(payment)) throw new MoneyError("This payment is not waiting to be paid.");
         if (payment.stripePaymentIntentId !== found.intentId || payment.try !== tryNumber) throw new MoneyError("The payment changed. Nothing was tried.");
-        // Checked here, right before acting: nothing new is started after a stop.
-        if (current.status === "ended" || !(await projectsOnFor(current.hostId, tx))) throw new MoneyError("This contribution is not taking payments now.");
+        // Checked here, right before acting: nothing new is started after a stop, or between two people who
+        // may no longer deal with each other (the steps that cause that end the contribution themselves).
+        const { whyMustEnd } = await import("./ending");
+        if (current.status === "ended" || !(await projectsOnFor(current.hostId, tx)) || (await whyMustEnd(tx, current))) throw new MoneyError("This contribution is not taking payments now.");
         if (await tryFinished(tx, payment)) throw new MoneyError("This try already has its answer.");
         return { intentId: found.intentId, paymentMethodId: card.stripePaymentMethodId };
       },
