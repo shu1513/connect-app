@@ -18,13 +18,11 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, exists, inArray, isNull, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { ProjectPicture } from "@/db/schema";
-import { azureChecker } from "./checks/azure";
-import { openAiChecker } from "./checks/openai";
-import { askInOrder, waitMinutes, type Asked, type Outcome } from "./checks/order";
+import { askInOrder, waitMinutes, type Outcome } from "./checks/order";
 import { ownChecker } from "./checks/own";
-import { sightengineChecker } from "./checks/sightengine";
-import type { Answer, Checker } from "./checks/types";
-import { childCheckOn, childTool, holdSwitch, mayGoOn, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
+import { COOL_MS, recordAnswers, safely, services, turnsFor } from "./checks/services";
+import type { Checker } from "./checks/types";
+import { childCheckOn, childTool, holdSwitch, mayGoOn, mayGoOnSql, switchChildCheckOn, type ChildAnswer, type ChildTool } from "./child-safety";
 import { adminUrl, deleteBytesIfFree, lockInStep, lockPost, refuseInStep, goneWithBytes, tellFounders } from "./picture-steps";
 import { PICTURE } from "./rules";
 
@@ -34,16 +32,10 @@ const checkers = schema.pictureCheckers;
 
 /** How long a round may hold a picture. Longer than the slowest try: three services and the own checker's start. */
 const CLAIM_MS = 2 * 60_000;
-/** A service that was out is not asked again for this long. */
-const COOL_MS = 5 * 60_000;
 const PER_ROUND = 10;
 const CHILD_PER_ROUND = 5;
-const DAY_MS = 24 * 3_600_000;
 /** The round waits this long for the child-safety tool's answer about one picture. After that it goes on with other work; the answer is still written when it comes. */
 const TOOL_WITHIN_MS = 15_000;
-
-/** The outside services, in the queue's order. */
-export const services = (): Checker[] => [openAiChecker(), azureChecker(), sightengineChecker()];
 
 /**
  * What a round works with. The helper hands in nothing. The check script hands in stand-ins and
@@ -86,9 +78,6 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
   for (const id of await goneWithBytes(20, now(), whose)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
   await tellAboutNudityOnly(now(), whose);
 }
-
-/** The same rule as mayGoOn in child-safety.ts, for choosing pictures in the database. mayGoOn itself is asked again once a picture is claimed. */
-const mayGoOnSql = and(inArray(pictures.childCheck, ["clear", "not_set_up"]), eq(pictures.suspectedByFounder, false), eq(pictures.suspectedByReport, false));
 
 /** The pictures the everyday checkers may be asked about now: waiting, or shown after a check for nudity only; due; and allowed on by the child-safety rule. */
 function everyday(now: Date): SQL | undefined {
@@ -134,25 +123,8 @@ async function checkOne(round: string, picture: ProjectPicture, asked: Checker[]
   // Asked again on the picture as it was claimed: the one rule about who may go on is in child-safety.ts.
   if (!file || !mayGoOn(picture)) return settle(round, picture, { kind: "wait", detail: file ? "Held back for now." : "The picture's file is missing." }, now);
 
-  const rows = await db.select().from(checkers);
-  /** A checker that fails in any way, at once or later, is a fault for this picture, never the end of the round. */
-  const safely = async (check: () => Promise<Answer>): Promise<Answer> => {
-    try {
-      return await check();
-    } catch (error) {
-      return { kind: "fault", detail: `the checker failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 220) };
-    }
-  };
-  const turns = asked.map((service) => {
-    const row = rows.find((line) => line.service === service.name);
-    // Whether its five minutes are running is read when its turn comes, not now: an earlier service may take a while
-    // to answer, and another round may have written something about this one in that time.
-    const cooling = async () => {
-      const [line] = await db.select({ outUntil: checkers.outUntil }).from(checkers).where(eq(checkers.service, service.name));
-      return Boolean(line?.outUntil && line.outUntil > now());
-    };
-    return { name: service.name, cooling, worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(() => service.check(file.bytes)) };
-  });
+  // The services' turns, and what a failing checker counts as, are the same for every asker (checks/services.ts).
+  const turns = await turnsFor(asked, file.bytes, now);
   // A picture that is already shown is only here for its full check: the own checker has had it.
   /** Asked before each request: is the picture still this round's, and as it was claimed? If the founder, the host or a report has changed something meanwhile, it is sent to nobody else. */
   const mayStillAsk = async () => {
@@ -217,42 +189,6 @@ async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, 
       await tx.update(pictures).set({ claimId: null, claimedUntil: null, nextTryAt: nudityOnlyAgain, updatedAt: at }).where(eq(pictures.id, row.id));
     }
   });
-}
-
-/**
- * What each service's answer means for the service itself. Its last answer says how it stands: a
- * complete, valid answer is remembered with the key that gave it; "out" starts its five minutes;
- * a fault is written down, ends any five minutes that were running (a fault is never waited out:
- * the service is asked again for the next picture), and the founder is emailed at once and then
- * at most once a day.
- */
-async function recordAnswers(asked: Checker[], answers: Asked[], at: Date): Promise<void> {
-  for (const { name, answer } of answers) {
-    const service = asked.find((one) => one.name === name);
-    if (!service) continue; // Connect's own checker has no line: when it fails, the picture's own line says so.
-    await db.transaction(async (tx) => {
-      await tx.insert(checkers).values({ service: name }).onConflictDoNothing();
-      const [row] = await tx.select().from(checkers).where(eq(checkers.service, name)).for("update");
-      if (answer.kind === "flagged" && answer.partial) {
-        // The picture is refused, but an answer with parts missing does not show that the service works with this key. Nothing is written about the service.
-      } else if (answer.kind === "clean" || answer.kind === "flagged") {
-        await tx.update(checkers).set({ lastGoodAt: at, lastGoodKey: service.keyMark, outUntil: null, faultSince: null, faultDetail: null, faultToldAt: null }).where(eq(checkers.service, name));
-      } else if (answer.kind === "out") {
-        // It answers again, if only to say "not now": that is no longer a fault. (When the founder was last told stays, so a service that goes back and forth does not send an email each time.)
-        await tx.update(checkers).set({ outUntil: new Date(at.getTime() + COOL_MS), faultSince: null, faultDetail: null }).where(eq(checkers.service, name));
-      } else {
-        const tell = !row.faultToldAt || at.getTime() - row.faultToldAt.getTime() >= DAY_MS;
-        await tx.update(checkers).set({ outUntil: null, faultSince: row.faultSince ?? at, faultDetail: answer.detail, faultToldAt: tell ? at : row.faultToldAt }).where(eq(checkers.service, name));
-        if (tell) {
-          await tellFounders(tx, {
-            subject: `A picture checking service has a fault: ${name}`,
-            text: `The picture checking service "${name}" gave an answer Connect could not use:\n\n${answer.detail}\n\nThis is not the same as the service being used up. While it lasts, new pictures wait and are shown to nobody. The usual cause is a wrong or expired key. Put the right key into the settings, or take that service's key out, which takes the service out of the queue.\n\n${adminUrl()}`,
-            key: `picture-checker-fault:${name}:${at.toISOString()}`,
-          });
-        }
-      }
-    });
-  }
 }
 
 /** The founder is told when pictures are being shown after a check for nudity only: at once for the first, then once a day while any is, with how many and since when. */

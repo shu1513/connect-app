@@ -43,19 +43,26 @@ const META_TOO_OFTEN = [4, 17, 32, 613, 341, 80002];
 /** "Cannot find User": seen for real on 15 November 2026 for a name that does not exist. */
 const META_NO_USER = { code: 110, subcode: 2207013 };
 
+type Failure = Exclude<BioAnswer, { kind: "bio" }>;
+
+/** What Meta's answer says went wrong, or null when it does not carry an error. The same for every question asked of Business Discovery. */
+function metaFailure(answer: Record<string, unknown>): Failure | null {
+  const error = answer.error as { code?: unknown; error_subcode?: unknown } | undefined;
+  if (!error || typeof error !== "object") return null;
+  const code = Number.isInteger(error.code) ? (error.code as number) : undefined;
+  if (code === undefined) return { kind: "unavailable" };
+  if (code === META_NO_USER.code && error.error_subcode === META_NO_USER.subcode) return { kind: "no_account" };
+  if (META_KEY.includes(code) || code === 10 || (code >= 200 && code <= 299)) return { kind: "refused", code };
+  if (META_TOO_OFTEN.includes(code)) return { kind: "too_often", code };
+  return { kind: "unavailable", code };
+}
+
 /** Reads Meta's answer to "the bio of the professional account called <nameKey>". */
 export function readInstagramAnswer(body: string, nameKey: string): BioAnswer {
   const answer = parsed(body);
   if (!answer) return { kind: "unavailable" };
-  const error = answer.error as { code?: unknown; error_subcode?: unknown } | undefined;
-  if (error && typeof error === "object") {
-    const code = Number.isInteger(error.code) ? (error.code as number) : undefined;
-    if (code === undefined) return { kind: "unavailable" };
-    if (code === META_NO_USER.code && error.error_subcode === META_NO_USER.subcode) return { kind: "no_account" };
-    if (META_KEY.includes(code) || code === 10 || (code >= 200 && code <= 299)) return { kind: "refused", code };
-    if (META_TOO_OFTEN.includes(code)) return { kind: "too_often", code };
-    return { kind: "unavailable", code };
-  }
+  const failure = metaFailure(answer);
+  if (failure) return failure;
   const found = answer.business_discovery as { username?: unknown; biography?: unknown } | undefined;
   if (!found || typeof found !== "object" || typeof found.username !== "string") return { kind: "unavailable" };
   // The answer must be about the account we asked for.
@@ -63,6 +70,34 @@ export function readInstagramAnswer(body: string, nameKey: string): BioAnswer {
   // An account with an empty bio comes back without the field.
   if (found.biography !== undefined && typeof found.biography !== "string") return { kind: "unavailable" };
   return { kind: "bio", text: found.biography ?? "" };
+}
+
+export type PhotoAnswer =
+  /** The account was read and has a picture. `accountId` is Meta's own number for the account, `address` where its picture is, both from the same answer. */
+  | { kind: "picture"; accountId: string; address: string }
+  /** The account was read and shows no picture. */
+  | { kind: "no_picture" }
+  | Failure;
+
+/**
+ * Reads Meta's answer to "the number and the profile picture of the professional account called
+ * <nameKey>" (plans/29). The number is kept as text, exactly as it came. The address is only
+ * handed on here; whether it may be fetched is decided in photo-fetch.ts.
+ */
+export function readInstagramPhotoAnswer(body: string, nameKey: string): PhotoAnswer {
+  const answer = parsed(body);
+  if (!answer) return { kind: "unavailable" };
+  const failure = metaFailure(answer);
+  if (failure) return failure;
+  const found = answer.business_discovery as { id?: unknown; username?: unknown; profile_picture_url?: unknown } | undefined;
+  if (!found || typeof found !== "object" || typeof found.username !== "string") return { kind: "unavailable" };
+  // The answer must be about the account we asked for.
+  if (found.username.toLowerCase() !== nameKey.toLowerCase()) return { kind: "unavailable" };
+  // The account's own number, from inside the same answer as the picture. (The number beside it, outside, is ours.)
+  if (typeof found.id !== "string" || !/^[0-9]{5,30}$/.test(found.id)) return { kind: "unavailable" };
+  if (found.profile_picture_url === undefined) return { kind: "no_picture" };
+  if (typeof found.profile_picture_url !== "string" || found.profile_picture_url.length === 0 || found.profile_picture_url.length > 2000) return { kind: "unavailable" };
+  return { kind: "picture", accountId: found.id, address: found.profile_picture_url };
 }
 
 const GOOGLE_TOO_OFTEN = ["quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"];
@@ -130,17 +165,36 @@ export function isAutomatic(network: string, settings: BioSettings = bioSettings
 
 /** How long a request may take, waiting for the answer and reading it. */
 const TIME_LIMIT_MS = 8_000;
+/** The longest answer that is read. A bio or a picture's address is a few thousand characters at most. */
+const ANSWER_MAX_BYTES = 256 * 1024;
 
 /**
  * One fresh request, with our key in a header. It never follows a redirect, so the key only ever
- * goes to the address written here. Null when it did not get through, took too long or could not be read.
+ * goes to the address written here. Null when it did not get through, took too long, was longer than any
+ * real answer, or could not be read. It is read piece by piece and dropped the moment it is too long.
  */
 async function ask(address: URL, keyHeader: Record<string, string>): Promise<string | null> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const answer = await fetch(address, { headers: keyHeader, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(TIME_LIMIT_MS) });
-    return await answer.text();
+    reader = answer.body?.getReader();
+    if (!reader) return "";
+    const pieces: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.byteLength;
+      if (size > ANSWER_MAX_BYTES) return null;
+      pieces.push(next.value);
+    }
+    // Read as a browser's own "text()" reads it: a mark at the very start that only says "this is UTF-8" is left out.
+    return new TextDecoder().decode(Buffer.concat(pieces));
   } catch {
     return null;
+  } finally {
+    // Whatever was not read is let go of.
+    void reader?.cancel().catch(() => undefined);
   }
 }
 
@@ -168,6 +222,27 @@ export const readBio: BioReader = async (network, nameKey) => {
   // Only the network, the result and the network's own number are written down. Never an answer.
   if (answer.kind !== "bio" && answer.kind !== "no_account") {
     console.error(`[bio-check] ${network}: ${answer.kind}${answer.code === undefined ? "" : ` (${answer.code})`}`);
+  }
+  return answer;
+};
+
+export type PhotoReader = (nameKey: string) => Promise<PhotoAnswer>;
+
+/**
+ * Asks Meta for the number and the profile picture of one Instagram account, with the same key,
+ * in the same way and under the same care as a bio (plans/29). One request, no second try.
+ */
+export const readInstagramPhoto: PhotoReader = async (nameKey) => {
+  const settings = bioSettings();
+  let answer: PhotoAnswer = { kind: "unavailable" };
+  if (settings.instagram && /^[a-z0-9._]{1,30}$/.test(nameKey)) {
+    const address = new URL(`https://graph.facebook.com/v27.0/${settings.instagram.accountId}`);
+    address.searchParams.set("fields", `business_discovery.username(${nameKey}){id,username,profile_picture_url}`);
+    const body = await ask(address, { authorization: `Bearer ${settings.instagram.token}` });
+    if (body !== null) answer = readInstagramPhotoAnswer(body, nameKey);
+  }
+  if (answer.kind === "too_often" || answer.kind === "refused" || answer.kind === "unavailable") {
+    console.error(`[host-photo] instagram: ${answer.kind}${answer.code === undefined ? "" : ` (${answer.code})`}`);
   }
   return answer;
 };

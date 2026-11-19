@@ -28,20 +28,25 @@ const COUNTED = ["waiting", "shown", "locked"];
 // One picture is worked on at a time (plans/24, choice 9)
 // ---------------------------------------------------------------------------
 
-let busy = false;
+// The place is kept on the server's one shared object, not in this file: the framework builds its own copy of a
+// file for pages and their actions and another for addresses like the upload's, and each copy would otherwise have
+// a place of its own. A host's photo (plans/29) takes the same place from the other copy.
+const PLACE = Symbol.for("connect.pictures.the-one-place");
+const shared = globalThis as unknown as Record<symbol, { busy: boolean } | undefined>;
+const place = (shared[PLACE] ??= { busy: false });
 /**
- * Takes the one place for working on an upload, or says it is taken. A large photo needs a lot of
- * memory while it is open, so uploads are read and turned into Connect's copy one after the other.
- * A second upload is told to try again; it is never kept waiting in memory. (This counts for each
- * running copy of the web server.)
+ * Takes the one place for working on a picture, or says it is taken. A large photo needs a lot of
+ * memory while it is open, so pictures are read and turned into Connect's copy one after the other.
+ * A second one is told to try again; it is never kept waiting in memory. (This counts for each
+ * running copy of the web server.) Give it back only after taking it.
  */
 export function takePlace(): boolean {
-  if (busy) return false;
-  busy = true;
+  if (place.busy) return false;
+  place.busy = true;
   return true;
 }
 export function givePlace(): void {
-  busy = false;
+  place.busy = false;
 }
 
 // ---------------------------------------------------------------------------

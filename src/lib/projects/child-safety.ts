@@ -14,7 +14,7 @@
  * has access there is no tool: `childTool` gives null. What is here is the rule around it, and it
  * is tried with a stand-in tool in the check script.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { ProjectPicture } from "@/db/schema";
 
@@ -28,7 +28,13 @@ export type ChildAnswer = "clear" | "match" | "unreachable";
  */
 export type ChildTool = { ask: (jpeg: Buffer) => Promise<ChildAnswer> };
 
-/** The tool Connect has, or null. None yet: its file is added when access is granted. */
+/**
+ * The tool Connect has, or null. None yet: its file is added when access is granted.
+ *
+ * Before a tool is returned here, hosts' photos have to be brought under it (plans/29, "The
+ * child-safety tool, said plainly"): the queue that asks the tool only reads diary pictures, and
+ * does not find `host_photos` by itself.
+ */
 export function childTool(): ChildTool | null {
   return null;
 }
@@ -83,6 +89,13 @@ export function mayGoOn(picture: Marks): boolean {
   if (isSuspected(picture)) return false;
   return picture.childCheck === "clear" || picture.childCheck === "not_set_up";
 }
+
+/** The same rule as mayGoOn, for choosing diary pictures in the database. mayGoOn itself is asked again once a picture is in hand. */
+export const mayGoOnSql = and(
+  inArray(schema.projectPictures.childCheck, ["clear", "not_set_up"]),
+  eq(schema.projectPictures.suspectedByFounder, false),
+  eq(schema.projectPictures.suspectedByReport, false),
+);
 
 /**
  * May this picture be handed to anyone at all? Not while the tool, switched on, has not answered

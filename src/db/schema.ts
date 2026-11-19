@@ -16,7 +16,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-/** Raw bytes, as the database keeps them. Used for the pictures of a diary only (plans/24). */
+/** Raw bytes, as the database keeps them. Used for the pictures of a diary (plans/24) and for hosts' photos (plans/29). */
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 // ---------------------------------------------------------------------------
@@ -1109,8 +1109,9 @@ export const bioChecks = pgTable(
       .references(() => user.id),
     /**
      * instagram or youtube for a look at a bio. Also "tiktok" and "instagram_sign_in": a sign-in at that
-     * network that our own keys or set-up made fail (result "refused"), kept here for the founder's warning.
-     * Those two names are never counted by the bio check's limits.
+     * network that our own keys or set-up made fail (result "refused"), and "instagram_photo": a request for
+     * a host's photo that Meta refused for the same reason (plans/29). Kept here for the founder's warning.
+     * Those three names are never counted by the bio check's limits.
      */
     network: text("network").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1118,6 +1119,104 @@ export const bioChecks = pgTable(
     result: text("result"),
   },
   (t) => [index("bio_checks_user_idx").on(t.userId, t.startedAt), index("bio_checks_network_idx").on(t.network, t.startedAt)],
+);
+
+/**
+ * A host's photo: Connect's own copy of the profile picture of a social media account the host
+ * has confirmed (plans/29). One line for each photo. A host has at most one that is not locked;
+ * a new photo is a new line with a new id, so an old address stops working.
+ *
+ * A locked photo ("Remove and report") is kept exactly as it is and never deleted: not by the
+ * host, not when its account is removed or replaced, not when the host's account is closed.
+ *
+ * The bytes are in this line. Every list names the columns it reads and leaves `bytes` out; only
+ * `photoFor` (src/lib/profiles/photo.ts) reads them.
+ */
+export const hostPhotos = pgTable(
+  "host_photos",
+  {
+    /** Used in the photo's address: /host-photos/<id>. */
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    /** instagram or tiktok. */
+    network: text("network").notNull(),
+    /** The account's name and the network's own number for it, as they were in the answer that gave the picture. */
+    sourceNameKey: text("source_name_key").notNull(),
+    sourceAccountId: text("source_account_id").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    byteLength: integer("byte_length").notNull(),
+    /** A fingerprint of the exact bytes of Connect's copy. */
+    sha256: text("sha256").notNull(),
+    bytes: bytea("bytes").notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull(),
+    /** The outside service whose full check passed it, and the version of the rules it was judged by. */
+    checkedBy: text("checked_by").notNull(),
+    rulesVersion: text("rules_version").notNull(),
+    checkDetail: text("check_detail"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: text("locked_by").references(() => user.id),
+    /** When the report to the authorities was really made, as the founder says. */
+    reportMadeAt: timestamp("report_made_at", { withTimezone: true }),
+    /** The host's profile and confirmed accounts as they were at the moment of locking, as text. The host can change them afterwards; this stays. */
+    lockedContext: text("locked_context"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The database itself guarantees one photo that is not locked for each host.
+    uniqueIndex("host_photos_current_uq").on(t.userId).where(sql`${t.lockedAt} is null`),
+    index("host_photos_user_idx").on(t.userId),
+    check("host_photos_network", sql`${t.network} in ('instagram', 'tiktok')`),
+  ],
+);
+
+/**
+ * One line for each try at taking a host's photo (plans/29). Used for the limit of tries, for
+ * "one at a time", for stopping a try that is under way, and to remember the fingerprint of a
+ * copy a checking service refused. The picture of a try is never kept here.
+ *
+ * `result` is empty while the try runs. Then one of:
+ *   shown           the photo passed and is the host's photo now
+ *   not_accepted    a checking service flagged it (the fingerprint stays, so it is refused again)
+ *   refused_before  the same copy as one that was refused before; no service was asked
+ *   no_picture      the network showed no such account, no picture, or another account under that name
+ *   not_fetched     the network or its picture server could not be asked, or did not answer usably
+ *   unusable        the file was not a picture Connect can use (too small, moving, not a picture)
+ *   not_checked     no checking service could answer
+ *   stopped         something was decided meanwhile (removed, account changed or closed), or it never ended
+ */
+export const hostPhotoTries = pgTable(
+  "host_photo_tries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    network: text("network").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    /** The host's confirmed entry on that network as it was when the try started. The number is empty for an entry proven with the code. */
+    entryNameKey: text("entry_name_key").notNull(),
+    entryAccountId: text("entry_account_id"),
+    result: text("result"),
+    /** The fingerprint of Connect's copy, once one was made. */
+    sha256: text("sha256"),
+    /** The service that answered, and what it said, as text. */
+    checkedBy: text("checked_by"),
+    detail: text("detail"),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("host_photo_tries_user_idx").on(t.userId, t.startedAt),
+    index("host_photo_tries_bytes_idx").on(t.userId, t.sha256),
+    index("host_photo_tries_network_idx").on(t.network, t.startedAt),
+    check("host_photo_tries_network", sql`${t.network} in ('instagram', 'tiktok')`),
+    check(
+      "host_photo_tries_result",
+      sql`${t.result} is null or ${t.result} in ('shown', 'not_accepted', 'refused_before', 'no_picture', 'not_fetched', 'unusable', 'not_checked', 'stopped')`,
+    ),
+  ],
 );
 
 /**

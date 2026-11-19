@@ -6,11 +6,12 @@ import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { hostCountryName } from "@/lib/profiles/countries";
-import { INSTAGRAM_SIGN_IN, refusedBioChecks } from "@/lib/profiles/profiles";
+import { photosForAdmin } from "@/lib/profiles/photo";
+import { INSTAGRAM_PHOTO, INSTAGRAM_SIGN_IN, refusedBioChecks } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
 import { requireAdmin } from "@/lib/session";
-import { closeAccountAction, decideProfileAction, decideSocialAction, reopenAccountAction } from "./actions";
+import { closeAccountAction, decideProfileAction, decideSocialAction, lockPhotoAction, photoReportMadeAction, removePhotoAction, reopenAccountAction } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Hosts and accounts" };
@@ -23,7 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function AdminPeoplePage(props: PageProps<"/admin/people">) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const notice = readNotice("/admin/people", await props.searchParams);
 
   const [profiles, claims, closed] = await Promise.all([
@@ -64,6 +65,11 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
         .where(and(inArray(schema.socialAccounts.userId, waiting.map((p) => p.profile.userId)), isNotNull(schema.socialAccounts.confirmedAt)))
         .orderBy(schema.socialAccounts.network)
     : [];
+  // Every host's photo, the removed-and-reported ones too (plans/29). The facts only; a photo itself comes from its own address.
+  const photos = await photosForAdmin(profiles.map((p) => p.profile.userId));
+  const hostOf = (userId: string) => profiles.find((p) => p.profile.userId === userId)?.profile;
+  const shownPhotos = photos.filter((photo) => !photo.lockedAt);
+  const lockedPhotos = photos.filter((photo) => photo.lockedAt);
   const button = "rounded border border-neutral-500 px-3 py-1.5";
   const primary = "rounded bg-blue-600 px-3 py-1.5 font-medium text-white";
 
@@ -83,7 +89,13 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
       )}
 
       {refused.map(({ network, count }) =>
-        network === INSTAGRAM_SIGN_IN ? (
+        network === INSTAGRAM_PHOTO ? (
+          // A request for a host's photo, not a check of a bio.
+          <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+            Hosts&apos; photos from Instagram have been failing: Meta did not accept our key or our permission, {count} {count === 1 ? "time" : "times"} in the last 24
+            hours. Hosts are told to try again later; no photo is taken wrongly.
+          </p>
+        ) : network === INSTAGRAM_SIGN_IN ? (
           // A sign-in at Meta, not a check of a bio: its own words from start to end.
           <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
             &quot;Connect your Instagram&quot; has been failing: Meta did not accept our app&apos;s number or return address when a host signed in, {count}{" "}
@@ -250,10 +262,89 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
         </div>
       )}
 
+      <h2 id="photos" className="mt-10 text-lg font-semibold">Hosts&apos; photos ({shownPhotos.length})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        A host&apos;s photo is the profile picture of their confirmed Instagram account, checked by an outside service before it was shown. &quot;Remove&quot; deletes
+        it; the host can choose one again. &quot;Remove and report&quot; is for a photo you suspect of showing child abuse: nobody sees it again, it is kept exactly as
+        it is, and the host can choose no other.
+      </p>
+      {shownPhotos.length === 0 ? (
+        <p className="mt-2 text-sm opacity-70">No host has a photo.</p>
+      ) : (
+        <ul className="mt-3 space-y-3" data-host-photos>
+          {shownPhotos.map((photo) => (
+            <li key={photo.id} className="flex flex-wrap items-center gap-4 rounded border border-neutral-400 p-3 text-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element -- the framework's picture component would make and keep copies of its own */}
+              <img src={`/host-photos/${photo.id}`} width={96} height={96} alt="" className="size-24 rounded object-cover" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">
+                  {hostOf(photo.userId)?.displayName} <span className="opacity-70">@{hostOf(photo.userId)?.handle}</span>
+                </p>
+                <p className="mt-1">
+                  From {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @{photo.sourceNameKey}, taken <LocalTime iso={photo.takenAt.toISOString()} />.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-4">
+                  <form action={removePhotoAction}>
+                    <input type="hidden" name="photoId" value={photo.id} />
+                    <button type="submit" className={button}>
+                      Remove
+                    </button>
+                  </form>
+                  <form action={lockPhotoAction} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="photoId" value={photo.id} />
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" name="sure" /> I am sure
+                    </label>
+                    <button type="submit" className="rounded border border-red-600 px-3 py-1.5">
+                      Remove and report
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {lockedPhotos.length > 0 && (
+        <>
+          <h3 className="mt-6 font-semibold">Removed and reported ({lockedPhotos.length})</h3>
+          <p className="mt-1 text-sm opacity-70">
+            These photos are kept exactly as they were and shown by nothing in the app. Report each to the authorities the way your lawyer has told you to, then write
+            down here when you did.
+          </p>
+          <ul className="mt-3 space-y-3" data-locked-photos>
+            {lockedPhotos.map((photo) => (
+              <li key={photo.id} className="rounded border border-red-600 p-3 text-sm">
+                <p>
+                  The photo of {hostOf(photo.userId)?.displayName} (@{hostOf(photo.userId)?.handle}), from {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @
+                  {photo.sourceNameKey}. Removed and kept <LocalTime iso={photo.lockedAt!.toISOString()} />.
+                </p>
+                {photo.reportMadeAt ? (
+                  <p className="mt-1">
+                    You made the report <LocalTime iso={photo.reportMadeAt.toISOString()} />.
+                  </p>
+                ) : (
+                  <form action={photoReportMadeAction} className="mt-2 flex flex-wrap items-end gap-3">
+                    <input type="hidden" name="photoId" value={photo.id} />
+                    <label>
+                      When you made the report ({admin.timeZone ?? "UTC"} time)
+                      <input name="madeAt" type="datetime-local" required className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                    </label>
+                    <button type="submit" className={button}>
+                      I have made the report
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <h2 className="mt-10 text-lg font-semibold">Close an account</h2>
       <p className="mt-1 text-sm opacity-70">
         For fakes, abuse, or when a person asks. The account is logged out everywhere and cannot log in, and its calls
-        that have not started are cancelled at no charge. Nothing is deleted, and you can open the account again below.
+        that have not started are cancelled at no charge. Nothing is deleted but the host&apos;s photo, and you can open the account again below.
       </p>
       <form action={closeAccountAction} className="mt-3 flex items-end gap-2 text-sm">
         <label>

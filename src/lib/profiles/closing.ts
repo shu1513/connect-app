@@ -8,6 +8,7 @@ import { db, schema } from "@/db";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
 import { removeFromRoom } from "@/lib/video/livekit";
+import { deletePhotoInStep, stopTriesInStep } from "./photo-steps";
 import { ProfileError } from "./profiles";
 import { ownPaymentOn } from "@/lib/payments/own";
 
@@ -16,7 +17,7 @@ import { ownPaymentOn } from "@/lib/payments/own";
  * again, and its host profile is suspended. Its waiting requests end, its
  * calls that have not started are cancelled at no charge, and it is put out
  * of any call in progress.
- * Nothing is deleted; records of paid calls must be kept.
+ * Nothing is deleted but their photo (plans/29); records of paid calls must be kept.
  *
  * Returns how many of its calls could not be ended (-1 when its requests or
  * calls could not be dealt with at all), so the founder can be told to check them.
@@ -44,6 +45,9 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
     endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was closed" }, now);
     // So do their contributions, as a host and as a contributor; what was only held is let go below.
     givenUpPayments = await endContributionsOf(tx, input.userId, "closed", now);
+    // Their photo is deleted, and a try at taking one that is under way writes nothing (plans/29). A locked photo is kept.
+    await stopTriesInStep(tx, input.userId, now, "the account was closed");
+    await deletePhotoInStep(tx, input.userId);
   });
   // The account is closed from here on, whatever happens next. First what keeps people safe (requests and
   // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
