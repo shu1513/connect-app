@@ -342,3 +342,7 @@ Verdict on the first draft: "build with changes". Its points on this plan, and w
   or makes it quiet; where it was about a post, the follow stays and the customer can end it
   with one press. Tying the filing of reports to this would put a safety feature behind a lock
   for the sake of a line on a list.
+
+**Third check, the same day:** no must-change problems found. The changes that were taken fit the
+code, with no new way for two steps to wait for each other, and the points that were not taken
+are "bounded imperfections". Verdict: "build as is".

@@ -350,3 +350,7 @@ Verdict on the first draft: "not ready". Its points on this plan, and what was d
   available, or the post is new, at the moment they say yes, and that email is what they asked
   for. Decision 6 no longer claims otherwise. The switches do take the follower's lock.
 - **Its point about reports** is answered in plan 30.
+
+**Third check, the same day:** no must-change problems found. The changes that were taken fit the
+code, with no new way for two steps to wait for each other, and the points that were not taken
+are "bounded imperfections". Verdict: "build as is".
