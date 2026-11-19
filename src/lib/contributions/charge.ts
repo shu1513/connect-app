@@ -688,8 +688,7 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
   });
 
   if (stale) return false;
-  // (Stripe was just looked at, here: the letting-go does not look again.)
-  if (release) await letGo(paymentId, now, false).catch((error) => log(`could not let go of the hold of contribution payment ${paymentId} yet; the helper will retry`, error));
+  if (release) await letGo(paymentId, now).catch((error) => log(`could not let go of the hold of contribution payment ${paymentId} yet; the helper will retry`, error));
   return true;
 }
 
@@ -769,6 +768,10 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
  * of the card for it, and recorded as skipped. The contribution goes on with its next month.
  */
 async function missMonth(paymentId: string, now: Date): Promise<ContributionPayment> {
+  // Stripe is asked once more, now that the 7 days are over: a hold the contributor placed by hand in time, and
+  // that an earlier look was too early to see, is found here and accepted by the bank's own time for it. Only a
+  // payment that is still without a hold after this look is given up as missed.
+  await syncPayment(paymentId, now);
   await db.transaction(async (tx) => {
     const locked = await lockForPayment(tx, paymentId);
     // Looked at again under the locks: only a payment that is still waiting, that nobody has started to try (a try
@@ -877,16 +880,21 @@ export async function giveUpInStep(tx: Tx, locked: LockedPayment, how: string, n
 }
 
 /** Records how a letting-go ended: taken in that very moment (owed back in full), or the cancellation is finished. */
-export async function applyLetGo(tx: Tx, locked: LockedPayment, result: { status: string; amountReceived: number; chargeId: string | null }, at: Date): Promise<void> {
-  if (result.status === "succeeded") await applyTaken(tx, locked, { cents: result.amountReceived, chargeId: result.chargeId }, at);
-  else if (locked.payment.status === "to_pay" || locked.payment.status === "held") await markGivenUp(tx, locked.payment, at);
+export async function applyLetGo(tx: Tx, locked: LockedPayment, result: { status: string; amountReceived: number; chargeId: string | null; heldAt?: number | null }, at: Date): Promise<void> {
+  if (result.status === "succeeded") return applyTaken(tx, locked, { cents: result.amountReceived, chargeId: result.chargeId }, at);
+  if (locked.payment.status !== "to_pay" && locked.payment.status !== "held") return;
+  // Stripe's answer to the cancellation says whether a hold was in place on this payment. One that we had not
+  // heard of (the contributor paid, and the payment was given up before the news reached us) is kept as a hold
+  // that was there, so that its contributor is told that it is gone.
+  if (!locked.payment.authorisedAt && result.heldAt) await tx.update(pays).set({ authorisedAt: new Date(result.heldAt * 1000) }).where(eq(pays.id, locked.payment.id));
+  await markGivenUp(tx, locked.payment, at);
 }
 
 /**
  * Cancels the payment of a payment whose reason for ending is already saved. Safe to run again. A
  * payment without a PaymentIntent is simply marked as given up.
  */
-export async function letGo(paymentId: string, now: Date = new Date(), lookFirst = true): Promise<void> {
+export async function letGo(paymentId: string, now: Date = new Date()): Promise<void> {
   const seen = await paymentById(paymentId);
   if (!seen || !seen.endedHow || seen.status === "taken" || seen.status === "given_up") return;
   if (!seen.stripePaymentIntentId) {
@@ -894,17 +902,8 @@ export async function letGo(paymentId: string, now: Date = new Date(), lookFirst
     if (!seen.intentRequestedAt) await db.update(pays).set({ status: "given_up", updatedAt: now }).where(and(eq(pays.id, paymentId), inArray(pays.status, ["to_pay", "held"])));
     return;
   }
-  if (lookFirst && !seen.authorisedAt) {
-    // Nothing here says a hold was ever in place. Stripe may know of one all the same (the contributor paid, and
-    // this payment was given up before we heard of it): it is looked at once before it is cancelled, so that a
-    // hold that was there is kept as one, and its contributor is told when it is gone. (That look lets the hold go
-    // itself when it finds one; then there is nothing left to do here.)
-    await syncPayment(paymentId, now).catch((error) => log(`could not look at contribution payment ${paymentId} before letting it go`, error));
-    const after = await paymentById(paymentId);
-    if (!after || after.status === "taken" || after.status === "given_up") return;
-  }
   try {
-    await runOwnedOperation<LockedPayment, { intentId: string }, { status: string; amountReceived: number; chargeId: string | null }>({
+    await runOwnedOperation<LockedPayment, { intentId: string }, { status: string; amountReceived: number; chargeId: string | null; heldAt: number | null }>({
       owner: paymentOwner(paymentId),
       kind: "release",
       labelBase: `contributionrelease:${paymentId}`,

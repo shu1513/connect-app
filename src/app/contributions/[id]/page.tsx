@@ -5,8 +5,7 @@ import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
-import { monthMissed } from "@/lib/contributions/rules";
-import { contributionFor, secretToPay } from "@/lib/contributions/start";
+import { contributionFor, secretToPay, tooLateForItsMonth } from "@/lib/contributions/start";
 import { endedWords, paymentRows, stateOf, type PaymentRow } from "@/lib/contributions/views";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
@@ -49,8 +48,9 @@ export default async function ContributionPage(props: PageProps<"/contributions/
 
   // The one payment that waits for this person's card, if any: at the card step, after a failure, or for the bank's confirmation.
   const waiting = rows.map((row) => row.payment).find((payment) => payment.status === "to_pay" && !payment.endedHow && !payment.problem) ?? null;
-  // (A month nobody has tried to pay is missed 7 days after its day: it can no longer be paid then.)
-  const inTime = waiting && !(waiting.cardStepExpiresAt && waiting.cardStepExpiresAt <= now) && !(waiting.giveUpAt && waiting.giveUpAt <= now) && !monthMissed(contribution, waiting, now) ? waiting : null;
+  // (A month nobody has tried to pay is missed 7 days after its day: it can no longer be paid then. The same question the payment functions ask.)
+  const missed = waiting ? await tooLateForItsMonth({ payment: waiting, kind: contribution.kind, firstHoldAt: contribution.firstHoldAt }, now) : false;
+  const inTime = waiting && !(waiting.cardStepExpiresAt && waiting.cardStepExpiresAt <= now) && !(waiting.giveUpAt && waiting.giveUpAt <= now) && !missed ? waiting : null;
   // Read only: the secret of the payment this payment already has at Stripe. If Stripe cannot be reached the page still opens and says so.
   const read = inTime ? await secretToPay({ paymentId: inTime.id, contributorId: user.id, now }).then((secret) => ({ secret, reached: true }), () => ({ secret: null, reached: false })) : { secret: null, reached: true };
 

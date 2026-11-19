@@ -621,7 +621,11 @@ and in Astra's reviews of the code. All of it is built.
   contribution goes on with the next month. This holds whether or not the payment had already
   been written down. A payment that was tried and failed has its own 7 days, counted from that
   failure, as the rulebook says; so a first try made 6 days late that fails can still be paid by
-  hand for 7 days after it.
+  hand for 7 days after it. The rule is one function (`monthMissed`), asked on every way to a
+  first hold: the helper's try, paying by hand, and a hold that arrives, which is judged by the
+  bank's own time for it. A try that was started is never treated as "nobody tried"; and before a
+  month is given up as missed, Stripe is asked once more, so a hold placed by hand in time is not
+  lost to a look that was made too early.
 - **Asked again before anything new.** Before the helper writes a month or tries a saved card,
   and before a payment is made ready to be paid by hand, the app asks again whether the two
   people may still deal with each other (no block, neither account paused or closed, the host's
@@ -638,7 +642,9 @@ and in Astra's reviews of the code. All of it is built.
 - **"Nothing was charged" is said in one place only:** where a payment's hold is certainly gone
   (`markGivenUp` in `charge.ts`). The sentence that says why a contribution ended says nothing
   about money. A hold that arrived too late to be accepted is still kept as a hold that was
-  there, so its contributor is told when it has been let go.
+  there, so its contributor is told when it has been let go. The same goes for a hold the app had
+  not heard of when its payment was cancelled: Stripe's answer to the cancellation says whether a
+  hold was in place (`cancelAtStripe` now gives that back), so nobody has to have seen it first.
 - **Cancelling one payment of a monthly contribution** by the contributor skips that month, as
   it does when the host or the founder lets it go; "Stop contributing" is the button that ends
   it. At the card step, and for a contribution made once, cancelling ends the contribution.
@@ -646,9 +652,10 @@ and in Astra's reviews of the code. All of it is built.
   each project, page by page: that is how an ordinary payment is reached, to refund it after the
   host has collected. A payment taken before the $1,000 line was crossed, whose share then waits
   30 days, carries the mark too and is on the list.
-- **The founder's $1,000 email** is sent once for each crossing: at the count that finds the pair
-  over the line while none of the payments that count is marked yet. Crossing again later, after
-  those holds were let go or left the 30 days, is told again.
+- **The founder's $1,000 email** is sent once for each crossing, at the payment that crosses the
+  line: a hold that was just accepted (or money taken that was never held) with which the pair is
+  over $1,000 and without which it is not. The count only goes up when a payment enters it, so
+  that is the one moment a crossing can happen. Crossing again later is told again.
 - **When a project ends,** everyone whose money it has taken is told by email, each once; a
   monthly contributor gets the email about their contribution ending instead.
 - **The terms page** is still the placeholder that says a lawyer will write it. One paragraph

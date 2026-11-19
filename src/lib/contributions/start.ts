@@ -161,7 +161,7 @@ async function ownPayment(paymentId: string, contributorId: string): Promise<{ p
  * can no longer be paid by hand either (rules.ts, monthMissed). The helper gives it up and skips
  * the month.
  */
-async function tooLateForItsMonth(own: { payment: ContributionPayment; kind: string; firstHoldAt: Date | null }, at: Date): Promise<boolean> {
+export async function tooLateForItsMonth(own: { payment: ContributionPayment; kind: string; firstHoldAt: Date | null }, at: Date): Promise<boolean> {
   return monthMissed(own, own.payment, at) && !(await everTried(db, own.payment.id));
 }
 

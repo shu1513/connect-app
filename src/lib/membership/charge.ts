@@ -678,16 +678,21 @@ export async function giveUpInStep(tx: Tx, locked: LockedMonth, how: string, now
 /**
  * Cancels a payment at Stripe. One that is already cancelled, or was taken in this very moment,
  * is an answer and not a failure. Used by the direct path and by recovery alike.
+ *
+ * `heldAt` is the bank's own time (in seconds) of a hold that was in place on this payment, or
+ * null when there never was one: the answer says so itself, so nobody has to have seen the hold
+ * before it was let go. (Contributions use it; a membership's month does not need it.)
  */
-export async function cancelAtStripe(intentId: string, label?: string): Promise<{ stripeId: string; result: { status: string; amountReceived: number; chargeId: string | null } }> {
+export async function cancelAtStripe(intentId: string, label?: string): Promise<{ stripeId: string; result: { status: string; amountReceived: number; chargeId: string | null; heldAt: number | null } }> {
   let intent: Stripe.PaymentIntent;
   try {
-    intent = await stripe().paymentIntents.cancel(intentId, {}, label ? { idempotencyKey: label } : undefined);
+    intent = await stripe().paymentIntents.cancel(intentId, { expand: ["latest_charge"] }, label ? { idempotencyKey: label } : undefined);
   } catch (error) {
-    intent = await stripe().paymentIntents.retrieve(intentId);
+    intent = await stripe().paymentIntents.retrieve(intentId, { expand: ["latest_charge"] });
     if (intent.status !== "canceled" && intent.status !== "succeeded") throw error;
   }
-  return { stripeId: intent.id, result: { status: intent.status, amountReceived: intent.amount_received, chargeId: chargeIdOf(intent) } };
+  const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
+  return { stripeId: intent.id, result: { status: intent.status, amountReceived: intent.amount_received, chargeId: chargeIdOf(intent), heldAt: charge?.status === "succeeded" ? charge.created : null } };
 }
 
 /** Records how a letting-go ended: taken in that very moment (owed back in full), or the cancellation is finished. */

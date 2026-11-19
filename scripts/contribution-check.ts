@@ -1256,10 +1256,14 @@ async function main() {
     const admin = await person("admin");
     await db.insert(schema.admins).values({ userId: admin.id });
     const host = await newHost();
-    /** Waits until some step is really waiting for a lock another step holds: only then are the two in the order the case is about. */
-    const untilWaiting = async (): Promise<boolean> => {
+    /**
+     * Waits until another step is really waiting for this very pair's lock, which the case holds: only then are the
+     * two in the order the case is about. (The lock is named as locks.ts names it; nothing else waits for that one.)
+     */
+    const untilWaiting = async (contributorId: string, hostId: string): Promise<boolean> => {
+      const key = `pair:${contributorId}:${hostId}`;
       for (let i = 0; i < 100; i++) {
-        const [row] = await db.execute<{ n: number }>(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`);
+        const [row] = await db.execute<{ n: number }>(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted and objid::bigint = (hashtext(${key})::bigint & 4294967295)`);
         if (row.n > 0) return true;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
@@ -1295,7 +1299,7 @@ async function main() {
       await lockPair(tx, racing.giver.id, host.id);
       // The save reads what it has to do now (the contribution is still at its card step), then waits for this pair.
       save = saveProjectsSwitch({ adminId: admin.id, values: { projects: "off" }, detail: "off (check)" });
-      saveWaited = await untilWaiting();
+      saveWaited = await untilWaiting(racing.giver.id, host.id);
       // Meanwhile the first hold is accepted (put in by hand, as that step writes it).
       const soon = new Date(Date.now() + 3 * DAY);
       await tx.update(pays).set({ status: "held", authorisedAt: new Date(), holdExpiresAt: new Date(soon.getTime() + DAY), takeAt: soon, takeBy: new Date(soon.getTime() + 23 * HOUR) }).where(eq(pays.id, racing.paymentId));
@@ -1394,6 +1398,38 @@ async function main() {
     const refusedLate = await C.syncPayment(lateSecond, new Date());
     check("a hold that still arrives for it (from a page left open) is not accepted: it is let go, the month is skipped, the contribution goes on, and the contributor is told nothing was charged", refusedLate.status === "given_up" && refusedLate.endedHow === "missed" && (await intentOf(lateSecond)).status === "canceled" && (await CO(late.contributionId)).status === "running" && (await CO(late.contributionId)).skippedMonths === "[2]" && (await mail(late.giver, "Nothing was charged")).length === 1, { status: refusedLate.status, endedHow: refusedLate.endedHow, skipped: (await CO(late.contributionId)).skippedMonths });
 
+    // The helper looked at Stripe before the contributor paid by hand, in time; the answer to that look comes after the 7 days.
+    const justInTime = await held(host, { kind: "monthly", amountCents: 1000 });
+    await C.takePayment(justInTime.paymentId, (await PM(justInTime.paymentId)).takeAt!);
+    const jSecond = await nextMonth(justInTime, 2, new Date());
+    await S.payNow({ paymentId: jSecond, contributorId: justInTime.giver.id });
+    const intents = stripe().paymentIntents;
+    const early = await intents.retrieve((await PM(jSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] });
+    // (Its day is moved so that its 7 days end twenty seconds from now.)
+    const anchor = new Date(Date.now() + 20_000 - 7 * DAY);
+    anchor.setUTCMonth(anchor.getUTCMonth() - 1);
+    await db.update(schema.contributions).set({ firstHoldAt: anchor }).where(eq(schema.contributions.id, justInTime.contributionId));
+    const deadline = monthlyDue(anchor, 2).getTime() + 7 * DAY;
+    const soonEnough = deadline - Date.now() > 5000 && deadline - Date.now() < 60_000;
+    await intents.confirm(early.id, { payment_method: "pm_card_visa", return_url: RETURN });
+    const heldInTime = Date.now() < deadline;
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, deadline - Date.now()) + 1500));
+    const realRetrieve = intents.retrieve;
+    let firstLook = true;
+    intents.retrieve = ((...args: unknown[]) => {
+      if (firstLook) {
+        firstLook = false;
+        return Promise.resolve(early);
+      }
+      return Reflect.apply(realRetrieve, intents, args);
+    }) as unknown as typeof intents.retrieve;
+    try {
+      await C.tryHold(jSecond, new Date());
+    } finally {
+      intents.retrieve = realRetrieve;
+    }
+    check("a hold the contributor placed by hand within the 7 days is accepted, also when the helper's look at Stripe was made before it and answered after them: the month is not given up as missed", soonEnough && heldInTime && early.status !== "requires_capture" && !firstLook && (await PM(jSecond)).status === "held" && (await PM(jSecond)).endedHow === null && (await CO(justInTime.contributionId)).skippedMonths === "[]", { soonEnough, heldInTime, early: early.status, status: (await PM(jSecond)).status, endedHow: (await PM(jSecond)).endedHow });
+
     // A contributor pays, and cancels before we have heard of the hold.
     const unheard = await atCardStep(host);
     await confirmOnly(unheard.paymentId);
@@ -1415,7 +1451,7 @@ async function main() {
       await lockPair(tx, q.giver.id, closing.id);
       // The ending reads who contributes now (this contribution is still running), then waits for this pair.
       ending = endProject({ hostId: closing.id, projectId: closingProject, now: new Date() });
-      endingWaited = await untilWaiting();
+      endingWaited = await untilWaiting(q.giver.id, closing.id);
       // Meanwhile their own stop is saved (put in by hand, as that step writes it).
       await tx.update(schema.contributions).set({ status: "ended", endedAt: new Date(), endedHow: "stopped" }).where(eq(schema.contributions.id, q.contributionId));
     });

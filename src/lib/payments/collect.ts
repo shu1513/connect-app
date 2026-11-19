@@ -286,7 +286,9 @@ export async function acceptCollection(input: {
       if (notAsked.has(contributorId) || (await pairOutcomeUnknown(tx, contributorId, input.hostId))) {
         for (const c of candidates) if (c.contributorId === contributorId) waitingPairs.add(c.id);
       } else {
-        await countPair(tx, contributorId, input.hostId, now);
+        // Counted at this moment, with every lock held, not at the one this step began: a taking that left the 30
+        // days while this step waited no longer counts.
+        await countPair(tx, contributorId, input.hostId, freshNow(now));
       }
     }
     // Read again: the count may have moved a share's date later.
