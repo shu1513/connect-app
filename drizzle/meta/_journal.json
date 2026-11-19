@@ -267,13 +267,6 @@
       "when": 1795080529092,
       "tag": "0037_project_suggested_amounts",
       "breakpoints": true
-    },
-    {
-      "idx": 38,
-      "version": "7",
-      "when": 1795113135156,
-      "tag": "0038_host_photos",
-      "breakpoints": true
     }
   ]
 }
