@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { readNote, writeNote } from "./login-note";
 import {
   hasBothScopes,
   readAccountAnswer,
@@ -82,6 +83,22 @@ describe("the note of who started", () => {
     expect(readLoginNote(note, "another", now)).toBeNull();
     expect(readLoginNote(note, "s3cret", new Date(now.getTime() + 600_000))).toBeNull();
     for (const bad of [undefined, "", "a.b.c", `${note}.x`]) expect(readLoginNote(bad, "s3cret", now)).toBeNull();
+  });
+
+  it("writes and reads the very notes it did before the signing moved to login-note.ts", () => {
+    // Written by the code as it was on 19 November 2026, with these made-up values.
+    const before = "fixed-state-value.dXNlcjpmaXhlZC8x.1900000000000.1wRwzwSETl6gKXtpwRap7MHzpIzK2omECXH2JbEp1P8";
+    const input = { state: "fixed-state-value", userId: "user:fixed/1", expiresAt: new Date(1900000000000) };
+    expect(writeLoginNote(input, "a-fixed-test-secret")).toBe(before);
+    expect(readLoginNote(before, "a-fixed-test-secret", new Date(1899999999999))).toEqual({ state: "fixed-state-value", userId: "user:fixed/1" });
+    expect(readLoginNote(before, "a-fixed-test-secret", new Date(1900000000000))).toBeNull();
+  });
+
+  it("is not a note for another network, and another network's note is not one of TikTok's", () => {
+    const at = { state: "value-1", userId: "user_A", expiresAt: new Date(now.getTime() + 600_000) };
+    expect(readNote("instagram-login", note, "s3cret", now)).toBeNull();
+    expect(readLoginNote(writeNote("instagram-login", at, "s3cret"), "s3cret", now)).toBeNull();
+    expect(readNote("instagram-login", writeNote("instagram-login", at, "s3cret"), "s3cret", now)).toEqual({ state: "value-1", userId: "user_A" });
   });
 
   it("compares two values exactly", () => {
