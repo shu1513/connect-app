@@ -1458,8 +1458,9 @@ async function main() {
       }
     };
     walk("src/app");
-    const hostsOwn = ["src/app/host/page.tsx", "src/app/host/project/actions.ts", "src/app/host/project/page.tsx", "src/app/host/project/posts/[id]/page.tsx", "src/app/host/project/posts/[id]/pictures/route.ts"];
-    const readersOwn = ["src/app/h/[handle]/page.tsx", "src/app/h/[handle]/project/diary.tsx", "src/app/pictures/[id]/route.ts"];
+    // (With part two: the host's actions about contributions set her suggested amounts, and the summary page before a contribution reads a project's id.)
+    const hostsOwn = ["src/app/host/page.tsx", "src/app/host/project/actions.ts", "src/app/host/project/contribution-actions.ts", "src/app/host/project/page.tsx", "src/app/host/project/posts/[id]/page.tsx", "src/app/host/project/posts/[id]/pictures/route.ts"];
+    const readersOwn = ["src/app/contributions/new/page.tsx", "src/app/h/[handle]/page.tsx", "src/app/h/[handle]/project/diary.tsx", "src/app/pictures/[id]/route.ts"];
     const foundersOwn = ["src/app/admin/projects/actions.ts", "src/app/admin/projects/page.tsx"];
     const expected = [...hostsOwn, ...readersOwn, ...foundersOwn];
     const elsewhere = uses.filter((file) => !expected.includes(file.path)).map((file) => file.path);
