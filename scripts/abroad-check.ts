@@ -21,10 +21,19 @@
  *              Stripe's own test values. The setup's own account is completed by hand, once, in
  *              the browser check.
  *
- * At the end it removes everything it made, here and at Stripe (also what an earlier run that was
- * stopped left behind). A test account at Stripe that could not be removed is a failed check.
+ * At the end it removes what it made here, and at Stripe the test accounts and test customers it
+ * opened. The accounts are found again by their email address (it starts "abroadcheck-"), so also
+ * one whose id never came back, and those of an earlier run that was stopped. A test account that
+ * could not be removed is a failed check. The test payments and transfers stay at Stripe as
+ * history, as for every check script. Like the others it needs the test database to itself.
  *
  * Usage: npx tsx scripts/abroad-check.ts
+ *        npx tsx scripts/abroad-check.ts --setup-host=<email>
+ *
+ * The second form is for the one thing a script cannot do alone: a collection into an account
+ * that payout setup itself opened. First a test host applies in the app from a country abroad,
+ * presses "Set up payouts" and fills in Stripe's own form (in test mode, with Stripe's test
+ * values). Then this form of the script makes one paid call for that host and collects it.
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -73,6 +82,9 @@ async function main() {
   let made = 0;
   /** Every test account this run opened at Stripe, noted the moment its id is known. */
   const atStripe = new Set<string>();
+  /** Collections this run started for a host who is not one of its own people (--setup-host). */
+  const ownCollections: string[] = [];
+  const setupHostEmail = process.argv.find((arg) => arg.startsWith("--setup-host="))?.slice("--setup-host=".length);
 
   async function person(kind: string): Promise<Person> {
     const id = `ab-${RUN}-${++made}-${kind}`;
@@ -146,10 +158,12 @@ async function main() {
       external_account: { object: "bank_account", country, currency: test.currency, account_number: test.account_number, ...(test.routing_number ? { routing_number: test.routing_number } : {}) } as never,
     });
     atStripe.add(account.id);
-    for (let i = 0; i < 20; i++) {
-      if ((await stripe().accounts.retrieve(account.id)).capabilities?.transfers === "active") break;
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+    let active = false;
+    for (let i = 0; i < 20 && !active; i++) {
+      active = (await stripe().accounts.retrieve(account.id)).capabilities?.transfers === "active";
+      if (!active) await new Promise((resolve) => setTimeout(resolve, 3000));
     }
+    if (!active) throw new Error(`Stripe did not activate the test account ${account.id} in ${country} within a minute, so nothing can be shown with it.`);
     await db.insert(schema.hostSettings).values({ userId: host.id }).onConflictDoNothing();
     await db.update(schema.hostSettings).set({ stripeAccountId: account.id }).where(eq(schema.hostSettings.userId, host.id));
     return account.id;
@@ -174,7 +188,9 @@ async function main() {
     }
     await db.update(schema.calls).set({ closedAt: new Date(startsAt.getTime() + 11 * MIN) }).where(eq(schema.calls.id, call.id));
     await settleOrdinaryCharges(call.id, new Date(startsAt.getTime() + (24 * 60 + 3) * MIN));
-    return (await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id)))[0];
+    const charged = (await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id)))[0];
+    if (charged.status !== "charged" || !charged.transferDueAt) throw new Error(`The test call's payment was not charged (it is "${charged.status}"), so there is no share to collect.`);
+    return charged;
   }
   /** A contribution of $25.00 made once to this host's project: held on a test card, and taken at its own moment. Only this payment is acted on. */
   async function takenContribution(host: Person, giver: Person) {
@@ -185,10 +201,13 @@ async function main() {
       return (await C.writeDownPayment(tx, contribution, { number: 1, originKey: `first:${contribution.id}`, cardStepExpiresAt: new Date(Date.now() + 30 * MIN) }, new Date())).id;
     });
     const intent = await C.intentFor(paymentId);
-    await stripe().paymentIntents.confirm(intent!.intentId, { payment_method: "pm_card_visa", return_url: RETURN });
+    if (!intent) throw new Error("The test contribution's payment could not be made ready at Stripe.");
+    await stripe().paymentIntents.confirm(intent.intentId, { payment_method: "pm_card_visa", return_url: RETURN });
     const held = await C.syncPayment(paymentId, new Date());
-    await C.takePayment(paymentId, held.takeAt!);
+    if (held.status !== "held" || !held.takeAt) throw new Error(`The test contribution was not held (it is "${held.status}").`);
+    await C.takePayment(paymentId, held.takeAt);
     const [share] = await db.select().from(schema.payments).where(eq(schema.payments.contributionPaymentId, paymentId));
+    if (!share?.transferDueAt) throw new Error("The test contribution's money was not taken, so there is no share to collect.");
     return share;
   }
   const reload = async (paymentId: string) => (await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId)))[0];
@@ -205,15 +224,23 @@ async function main() {
   // --------------------------------------------------------------------------
   // Cleaning up: only this script's own people (ids starting "ab-"), and their accounts at Stripe
   // --------------------------------------------------------------------------
+  /** This script's test accounts at Stripe, found by their email: also one whose id never reached us, and those of a run that was stopped. */
+  async function ownAccountsAtStripe(): Promise<string[]> {
+    const found: string[] = [];
+    for await (const account of stripe().accounts.list({ limit: 100 })) if (account.email?.startsWith("abroadcheck-")) found.push(account.id);
+    return found;
+  }
   async function wipe() {
+    for (const id of new Set([...atStripe, ...(await ownAccountsAtStripe())])) await removeAtStripe(id);
     const ids = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, "ab-%"))).map((row) => row.id);
     if (ids.length === 0) {
       await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%"));
       return;
     }
-    // Accounts at Stripe that are written beside these people (also those of an earlier run that was stopped).
-    for (const row of await db.select({ id: schema.hostSettings.stripeAccountId }).from(schema.hostSettings).where(inArray(schema.hostSettings.userId, ids))) if (row.id) atStripe.add(row.id);
-    for (const id of [...atStripe]) await removeAtStripe(id);
+    // The test customers Stripe keeps for these people's cards. (Their payments stay at Stripe as history.)
+    for (const row of await db.select({ id: schema.stripeCustomers.stripeCustomerId }).from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {
+      await stripe().customers.del(row.id).catch((error: unknown) => check(`clean-up: the test customer ${row.id} at Stripe could be removed`, false, String((error as Error).message)));
+    }
     const contributionIds = (await db.select({ id: schema.contributions.id }).from(schema.contributions).where(or(inArray(schema.contributions.hostId, ids), inArray(schema.contributions.contributorId, ids)))).map((row) => row.id);
     const cpIds = contributionIds.length > 0 ? (await db.select({ id: pays.id }).from(pays).where(inArray(pays.contributionId, contributionIds))).map((row) => row.id) : [];
     const calls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)))).map((row) => row.id);
@@ -225,11 +252,15 @@ async function main() {
     const steps: Array<() => Promise<unknown>> = [
       () => db.delete(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, db.select({ id: schema.collections.id }).from(schema.collections).where(inArray(schema.collections.hostId, ids)))),
       () => db.delete(schema.collections).where(inArray(schema.collections.hostId, ids)),
+      // (A collection of the host of --setup-host, who is not one of this script's people: only the collections this run made for them.)
+      async () => ownCollections.length > 0 && (await db.delete(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, ownCollections))),
+      async () => ownCollections.length > 0 && (await db.delete(schema.collections).where(inArray(schema.collections.id, ownCollections))),
       async () => shares.length > 0 && (await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.paymentId, shares))),
       async () => shares.length > 0 && (await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.paymentId, shares))),
       async () => shares.length > 0 && (await db.delete(schema.payments).where(inArray(schema.payments.id, shares))),
       async () => cpIds.length > 0 && (await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.contributionPaymentId, cpIds))),
       async () => cpIds.length > 0 && (await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.contributionPaymentId, cpIds))),
+      async () => cpIds.length > 0 && (await db.delete(schema.contributionRefunds).where(inArray(schema.contributionRefunds.contributionPaymentId, cpIds))),
       async () => cpIds.length > 0 && (await db.delete(pays).where(inArray(pays.id, cpIds))),
       async () => contributionIds.length > 0 && (await db.delete(schema.contributionCards).where(inArray(schema.contributionCards.contributionId, contributionIds))),
       async () => contributionIds.length > 0 && (await db.delete(schema.contributionAgreements).where(inArray(schema.contributionAgreements.contributionId, contributionIds))),
@@ -249,6 +280,28 @@ async function main() {
 
   await wipe();
   try {
+    if (setupHostEmail) {
+      // ----------------------------------------------------------------------
+      console.log(`\nA collection into the account that payout setup itself opened, for ${setupHostEmail}`);
+      const [host] = await db.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.email, setupHostEmail));
+      const [profile] = host ? await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id)) : [];
+      const accountId = host ? await linkOf(host) : null;
+      if (!host || !profile || !accountId) throw new Error("That person has no host profile with a payout account. Apply as a host in the app and finish \"Set up payouts\" first.");
+      const seen = await seenAtStripe(accountId);
+      const abroad = profile.country !== "US";
+      check(`the account payout setup opened is in ${profile.country}, the profile's country, and ${abroad ? "also asks for card payments" : "only receives transfers"}`, seen.country === profile.country && seen.configurations === (abroad ? "merchant,recipient" : "recipient"), seen);
+      check("its host finished Stripe's form: the host counts as ready", (await refreshPayoutsReady(host.id)) === true);
+      const share = await chargedCall(host, await person("customer"));
+      const collectionId = randomUUID();
+      ownCollections.push(collectionId);
+      const pressed = await collectEarnings({ collectionId, hostId: host.id, startedBy: host.id, now: new Date(share.transferDueAt!.getTime() + MIN) }).then(() => null, (error: unknown) => error as Error);
+      const sent = await reload(share.id);
+      check("\"Collect earnings\" is accepted, and in our books the call's share is sent", pressed === null && sent.transferStatus === "sent" && (sent.transferCents ?? 0) > 0 && (await ledger(sent.id, "host_transfer")) === -(sent.transferCents ?? 0), `${pressed?.message} ${sent.transferStatus} ${sent.transferCents}`);
+      const arrived = sent.stripeTransferId ? await sentAtStripe(sent, accountId) : null;
+      const currency = (await stripe().accounts.retrieve(accountId)).default_currency;
+      check("at Stripe it is a transfer in dollars, of the amount in our books, to that account, from the call's own charge", arrived?.transfer.currency === "usd" && arrived.transfer.amount === sent.transferCents && arrived.transfer.destination === accountId && arrived.transfer.source_transaction === sent.stripeChargeId, { amount: arrived?.transfer.amount });
+      check(`and on the host's side it is a line in the account's own money (${currency})`, arrived?.arrivedCurrency === currency && (arrived?.arrivedAmount ?? 0) > 0, { currency: arrived?.arrivedCurrency, amount: arrived?.arrivedAmount });
+    } else {
     // ------------------------------------------------------------------------
     console.log("\n1. A payout account can be opened for a host in every country of the list");
     console.log("   (This shows that Stripe opens the account there. That money can be sent there is shown in part 3, for four of them.)");
@@ -292,14 +345,31 @@ async function main() {
     await applyFrom(early, "US");
     check("but can from the United States, and keeps that account", (await ensurePayoutAccount(early)) === earlyAccount.id);
 
-    // A profile that says the United Kingdom beside a US account (written straight in: no button leads here).
+    // A US account that Stripe has activated: ready beside a US profile, and the very same account not ready beside
+    // a profile that says the United Kingdom. So it is the country that makes the difference, nothing else.
+    const usFirst = await person("us-first");
+    await applyFrom(usFirst, "US");
+    const activeUs = await activatedAccount(usFirst, "US");
+    check("(a US account that Stripe has activated counts as ready beside a US profile)", (await refreshPayoutsReady(usFirst.id)) === true);
+    // When Stripe's answer does not say which country the account is in, the host is not ready either. (The script
+    // takes the country out of one answer, as a broken answer would have it.)
+    const accounts = stripe().v2.core.accounts;
+    const realRetrieve = accounts.retrieve;
+    accounts.retrieve = (async (...args: Parameters<typeof realRetrieve>) => ({ ...(await realRetrieve.apply(accounts, args)), identity: null })) as unknown as typeof realRetrieve;
+    let unnamed: { ready: boolean; setup: string | null };
+    try {
+      unnamed = { ready: await refreshPayoutsReady(usFirst.id), setup: await refusal(ensurePayoutAccount(usFirst)) };
+    } finally {
+      accounts.retrieve = realRetrieve;
+    }
+    check("an account whose country Stripe does not name is not ready, and payout setup does not go on with it", unnamed.ready === false && /could not confirm/.test(unnamed.setup ?? "") && (await refreshPayoutsReady(usFirst.id)) === true, unnamed);
+    // The same account beside a profile that says the United Kingdom (written straight in: no button leads here).
     const mismatched = await person("mismatched");
     await applyFrom(mismatched, "GB");
-    const usAccount = (await stripe().v2.core.accounts.create(payoutAccountRequest(mismatched, "US", null).params as never)) as unknown as { id: string };
-    atStripe.add(usAccount.id);
-    await db.insert(schema.hostSettings).values({ userId: mismatched.id, stripeAccountId: usAccount.id, payoutsReady: true }).onConflictDoUpdate({ target: schema.hostSettings.userId, set: { stripeAccountId: usAccount.id, payoutsReady: true } });
-    check("payout setup refuses an account in another country than the profile's", /different country/.test((await refusal(ensurePayoutAccount(mismatched))) ?? ""));
-    check("such a host counts as not ready, and that is written down", (await refreshPayoutsReady(mismatched.id)) === false && (await getHostSettings(mismatched.id)).payoutsReady === false);
+    await db.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, usFirst.id));
+    await db.insert(schema.hostSettings).values({ userId: mismatched.id, stripeAccountId: activeUs, payoutsReady: true }).onConflictDoUpdate({ target: schema.hostSettings.userId, set: { stripeAccountId: activeUs, payoutsReady: true } });
+    check("payout setup refuses an account in another country than the profile's", /could not confirm/.test((await refusal(ensurePayoutAccount(mismatched))) ?? ""));
+    check("that host counts as not ready although Stripe would pay the account, and that is written down", (await refreshPayoutsReady(mismatched.id)) === false && (await getHostSettings(mismatched.id)).payoutsReady === false);
     check("and cannot collect", /not ready/.test((await refusal(collectEarnings({ collectionId: randomUUID(), hostId: mismatched.id, startedBy: mismatched.id }))) ?? ""));
 
     // Two presses at the same moment.
@@ -308,7 +378,7 @@ async function main() {
     const both = await Promise.allSettled([ensurePayoutAccount(twice), ensurePayoutAccount(twice)]);
     const opened = [...new Set(both.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])))];
     for (const id of opened) atStripe.add(id);
-    check("two setups started at the same moment leave one account, and it is the one written beside the host", opened.length === 1 && (await linkOf(twice)) === opened[0], both.map((result) => (result.status === "fulfilled" ? result.value : String((result.reason as Error).message).slice(0, 120))));
+    check("two setups started at the same moment: every press that went through got the same account, and it is the one written beside the host", opened.length === 1 && (await linkOf(twice)) === opened[0], both.map((result) => (result.status === "fulfilled" ? result.value : String((result.reason as Error).message).slice(0, 120))));
 
     // An account that was opened at Stripe for the United States under this person's label and never saved; then they apply from the UK.
     const lost = await person("lost");
@@ -354,18 +424,20 @@ async function main() {
         const sentContribution = await reload(contributionShare.id);
         const contribution = sentContribution.stripeTransferId ? await sentAtStripe(sentContribution, accountId) : null;
         const [contributionPayment] = await db.select().from(pays).where(eq(pays.id, contributionShare.contributionPaymentId!));
-        check(`${country}: one collection sends both shares, each with its own transfer, with one 25-cent collection charge between them`, pressed === null && sentCall.transferStatus === "sent" && sentContribution.transferStatus === "sent" && sentCall.stripeTransferId !== sentContribution.stripeTransferId && (sentCall.transferCents ?? 0) + (sentContribution.transferCents ?? 0) === 1238 + (contributionShare.originalHostShareCents ?? 0) - 25 && (sentCall.payoutFeeCents ?? 0) + (sentContribution.payoutFeeCents ?? 0) === 25, `${pressed?.message} ${sentCall.transferStatus} ${sentContribution.transferStatus}`);
+        check(`${country}: one collection sends both shares, each with its own transfer, with one 25-cent collection charge between them`, pressed === null && sentCall.transferStatus === "sent" && sentContribution.transferStatus === "sent" && sentCall.stripeTransferId !== sentContribution.stripeTransferId && (sentCall.transferCents ?? 0) + (sentContribution.transferCents ?? 0) === 1238 + (contributionShare.originalHostShareCents ?? 0) - 25 && (sentCall.payoutFeeCents ?? 0) + (sentContribution.payoutFeeCents ?? 0) === 25 && (await ledger(sentCall.id, "host_transfer")) === -(sentCall.transferCents ?? 0) && (await ledger(sentContribution.id, "host_transfer")) === -(sentContribution.transferCents ?? 0) && (await ledger(sentCall.id, "payout_fee")) + (await ledger(sentContribution.id, "payout_fee")) === 25, `${pressed?.message} ${sentCall.transferStatus} ${sentContribution.transferStatus}`);
         check(`${country}: the contribution's transfer is in dollars, to the host's account, from the contribution's own charge, and arrives in ${accountCurrency}`, contribution?.transfer.currency === "usd" && contribution.transfer.amount === sentContribution.transferCents && contribution.transfer.destination === accountId && contribution.transfer.source_transaction === contributionPayment.stripeChargeId && contribution.arrivedCurrency === accountCurrency && contribution.arrivedAmount > 0, { currency: contribution?.arrivedCurrency, amount: contribution?.arrivedAmount });
       }
-      check(`${country}: at Stripe the call's share is one transfer in dollars, of the amount in our books, to the host's account, from the call's own charge`, call?.transfer.currency === "usd" && call.transfer.amount === sentCall.transferCents && call.transfer.destination === accountId && call.transfer.source_transaction === sentCall.stripeChargeId, { amount: call?.transfer.amount, destination: call?.transfer.destination });
+      check(`${country}: at Stripe the call's share is a transfer in dollars, of the amount in our books, to the host's account, from the call's own charge`, call?.transfer.currency === "usd" && call.transfer.amount === sentCall.transferCents && call.transfer.destination === accountId && call.transfer.source_transaction === sentCall.stripeChargeId, { amount: call?.transfer.amount, destination: call?.transfer.destination });
       check(`${country}: on the host's side that transfer is a line in ${accountCurrency}`, call?.arrivedCurrency === accountCurrency && (call?.arrivedAmount ?? 0) > 0, { currency: call?.arrivedCurrency, amount: call?.arrivedAmount });
+    }
     }
   } finally {
     await wipe().catch((error) => check("afterwards: what this run made could be removed", false, String(error)));
   }
 
   const [left] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user).where(like(schema.user.id, "ab-%"));
-  check("afterwards: nothing this script made is left here, and no test account of it is left at Stripe", left.n === 0 && atStripe.size === 0, { people: left.n, accounts: [...atStripe] });
+  const stillAtStripe = await ownAccountsAtStripe();
+  check("afterwards: none of this script's people is left here, and Stripe lists no test account of it", left.n === 0 && atStripe.size === 0 && stillAtStripe.length === 0, { people: left.n, accounts: [...new Set([...atStripe, ...stillAtStripe])] });
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

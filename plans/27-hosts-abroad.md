@@ -42,12 +42,13 @@ Connect's account, then a transfer of the host's share that names that charge.
 | --- | --- |
 | The payout account exactly as the app opens it today, for a host outside the US | **Refused, for every country.** Stripe wants the account to ask for "card payments" as well. |
 | The same account, also asking for "card payments" | **Accepted** for the UK, Germany, France, Switzerland, Canada, Australia, New Zealand, Singapore, Japan, Hong Kong and Mexico. |
-| Sending a $10.00 share to such an account | **Accepted** for the UK, Germany, France, Spain, Switzerland and Canada. It arrived in the host's own money (that day: £7.62, €9.10, 8.43 francs, 14.31 Canadian dollars). |
+| Sending a $10.00 share to an account with the same two abilities | **Accepted** for the UK, Germany, France, Spain, Switzerland and Canada. It arrived in the host's own money (that day: £7.62, €9.10, 8.43 francs, 14.31 Canadian dollars). These test accounts were made a slightly different way from the one payout setup opens, so that a script could fill in the host's details: see the next row but one. |
 | The same for Australia, Singapore and Mexico | **Refused:** "Funds can't be sent to accounts located in AU". |
 | Accounts in Argentina, Chile, Colombia, Peru, Uruguay | **Refused:** they cannot receive money from us at all. |
 | An account in Brazil | **Refused:** a US account cannot open one. |
 | Stripe's older, lighter kind of account for people who only receive money | **Refused** for a US account in every other country. |
 | Stripe's own form for a host abroad | The link to it is made as today. Filling the form in to the end was not tried yet. |
+| Filling in the host's details by script, for the account payout setup opens | **Refused.** Only the host can do that, on Stripe's form. So a collection into exactly that kind of account needs a person to fill in the form once (the browser check below). |
 | Removing a test account that holds test money | Worked. |
 
 **Read on Stripe's pages, not tried for every country:** money can go between the United
@@ -164,9 +165,9 @@ edited, because the Stripe account would no longer match.
 | Place | Change |
 | --- | --- |
 | `src/lib/profiles/countries.ts` (new) | The list: each country's two-letter code and its English name. One function says whether a code is in it. Nothing else. |
-| `src/db/schema.ts`, one migration | `host_profiles.country`: two letters, never empty, `'US'` for every host there is today and for a row written without one. The column `us_confirmed_at` stays, as the moment the host said where they are based; only its comment changes. |
+| `src/db/schema.ts`, one migration | `host_profiles.country`: never missing, `'US'` for every host there is today and for a row written without one. That it is a country of the list is checked where a host applies, the one place that writes it. The column `us_confirmed_at` stays, as the moment the host said where they are based; only its comment changes. |
 | `src/lib/profiles/profiles.ts`, `createHostProfile` | Takes the country in place of the tick. It must be given and be in the list: a missing or unknown one is refused, never taken as the United States. Rule 2 above. Nothing else in this file is touched (another change is being made to its social-account parts at the same time). |
-| `src/app/host/page.tsx`, `src/app/host/actions.ts` | The list in the sign-up form, with the sentence about dollars and "this cannot be changed later". The host's country shown to the host on the Hosting page (not on their public page). The payout button only with a profile, and the action's own refusal (rule 1). The paragraph under "Getting paid" for a host abroad. |
+| `src/app/host/page.tsx`, `src/app/host/actions.ts` | The list in the sign-up form, with the sentence about dollars and "this cannot be changed later". The host's country shown to the host on the Hosting page (not on their public page). The payout button only with a profile, and the action's own refusal (rule 1). The paragraph under "Getting paid" for a host abroad. When Stripe cannot be asked about the payout account, the page says that what it shows is what was last known. |
 | `src/app/host/earnings.tsx` | For a host abroad: beside what was sent, that it is the amount in dollars and arrives in their own money; no "days until the first bank payment" sentence. |
 | `src/lib/payments/hosts.ts` | `ensurePayoutAccount` needs the host's profile and follows rule 3. What is asked of Stripe is built by one small function with no side effects, from the host and their country. For the United States it gives exactly today's request. For any other country it also asks for "card payments" and hands Stripe Connect's web address, "private video calls" as what the host does, and the matching category. `refreshPayoutsReady` follows rule 4. |
 | `src/app/host/payouts-return/page.tsx` | The sentence for "not ready yet" also says to write to support if the setup cannot be continued. |
@@ -217,8 +218,10 @@ Small steps, each checked before the next:
   database, with the same two guards as the payments check (a test key, this computer's
   database). It makes its own people (their ids start `ab-`), never touches the test host
   `host@test.local` or its payout account, and removes what it made in a `finally`: every test
-  account at Stripe is noted the moment its id is known, each is removed even if another could
-  not be, and one that could not be removed is a failed check, with its id.
+  account at Stripe is noted the moment its id is known and is also found again by its email
+  address (so one whose id never came back, and those of a run that was stopped, are removed
+  too), each is removed even if another could not be, and one that could not be removed is a
+  failed check, with its id. The test customers go too; test payments stay at Stripe as history.
   **It only ever acts on its own records.** It never runs the helper's jobs, which act on every
   call and payment in the database: its call is settled by the function that settles one call
   (`settleOrdinaryCharges`), its contribution's money is taken by the function that takes one
@@ -229,7 +232,9 @@ Small steps, each checked before the next:
   2. **The rule:** payout setup without a profile is refused. Someone with a US account and no
      profile cannot apply from the UK, and can from the United States. A host whose profile says
      the UK and whose linked account is a US one is refused at setup, counts as not ready, and
-     cannot collect. Two setups started at the same moment leave one account. And an account
+     cannot collect; this is shown with a US account Stripe has activated, which counts as ready
+     beside a US profile, so that the country is the only difference. An account whose country
+     Stripe's answer does not name is not ready either. Two setups started at the same moment leave one account. And an account
      that was opened at Stripe for the United States and never saved, for someone who then
      applies from the UK: whatever Stripe answers to the second request, no US account is
      linked.
@@ -254,7 +259,9 @@ Small steps, each checked before the next:
   wide. "Set up payouts" opens Stripe's form for the right country, and the form is filled in
   to the end once, in test mode with Stripe's own test values, for a host in the UK: back in
   Connect the host is "ready", without having been asked for a website or a line of business.
-  That payout account is a new one of its own, not the test host's.
+  That payout account is a new one of its own, not the test host's. Then
+  `scripts/abroad-check.ts --setup-host=<that host's email>` makes one paid call for that host
+  and collects it: the one collection into an account that payout setup itself opened.
 - Astra reviews the code, then CodeRabbit, as for every change.
 
 ## Done when

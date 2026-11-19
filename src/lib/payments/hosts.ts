@@ -22,11 +22,12 @@ type AccountView = {
   } | null;
 };
 
-/** Payout setup cannot go on, for a reason the host can read. Nothing was opened or changed for them. */
+/** Payout setup cannot go on, for a reason the host can read. No account was linked to them, and none that was is changed. */
 export class PayoutSetupError extends Error {}
 
 const NO_PROFILE = "Send your host profile first. Your payout account is opened for the country you say you are based in.";
-const WRONG_COUNTRY = "Your payout account at Stripe is for a different country than your host profile. Please write to support; nothing was changed.";
+/** Said both when Stripe names another country and when it names none: either way the account cannot be used. */
+const WRONG_COUNTRY = "We could not confirm that your payout account at Stripe is in the country on your host profile, so payout setup cannot go on. Please write to support.";
 
 async function settingsFor(userId: string) {
   await db.insert(schema.hostSettings).values({ userId }).onConflictDoNothing();

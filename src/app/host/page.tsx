@@ -54,9 +54,13 @@ export default async function HostPage(props: PageProps<"/host">) {
   const now = new Date();
 
   let settings = await getHostSettings(user.id);
-  // Always ask Stripe; never assume the account is ready.
+  // Always ask Stripe; never assume the account is ready. If Stripe cannot be asked, the page says so:
+  // what it then shows is what was last known, not a fresh answer.
+  let payoutsUnchecked = false;
   if (settings.stripeAccountId && stripeConfigured()) {
-    await refreshPayoutsReady(user.id).catch(() => undefined);
+    await refreshPayoutsReady(user.id).catch(() => {
+      payoutsUnchecked = true;
+    });
     settings = await getHostSettings(user.id);
   }
 
@@ -383,8 +387,20 @@ export default async function HostPage(props: PageProps<"/host">) {
 
       <section id="paid" className="mt-10 scroll-mt-4">
         <h2 className="text-lg font-semibold">Getting paid</h2>
+        {payoutsUnchecked && (
+          <p className="mt-2 text-sm text-amber-700" data-payouts-unchecked>
+            We could not check your payout account with Stripe just now. What is shown here is what we last knew.
+          </p>
+        )}
         {!stripeConfigured() ? (
           <p className="mt-2 text-sm opacity-70">Paid calls are switched off because Stripe is not set up.</p>
+        ) : !profile ? (
+          // The payout account is opened for the country on the profile, so the profile comes first. (Also for someone
+          // who set payouts up before applying, which was possible once: their buttons would only be refused.)
+          <p className="mt-2 text-sm opacity-70" data-paid-needs-profile>
+            To host paid calls you set up a payout account at Stripe. First send your host profile above: the account is opened for the country you
+            are based in.
+          </p>
         ) : settings.payoutsReady ? (
           <>
             <p className="mt-2 text-sm text-green-700">Your payout account is ready. You can host paid calls.</p>
@@ -406,12 +422,6 @@ export default async function HostPage(props: PageProps<"/host">) {
               </button>
             </form>
           </>
-        ) : !profile ? (
-          // The payout account is opened for the country on the profile, so the profile comes first.
-          <p className="mt-2 text-sm opacity-70" data-paid-needs-profile>
-            To host paid calls you set up a payout account at Stripe. First send your host profile above: the account is opened for the country you
-            are based in.
-          </p>
         ) : (
           <>
             <p className="mt-2 text-sm">
