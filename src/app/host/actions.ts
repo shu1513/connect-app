@@ -20,6 +20,8 @@ import {
   socialNameReady,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
+import { removePhoto, takePhoto, type PhotoOutcome } from "@/lib/profiles/photo";
+import { PHOTO } from "@/lib/profiles/photo-rules";
 import { INSTAGRAM_COOKIE, INSTAGRAM_COOKIE_PATH, instagramSettings } from "@/lib/profiles/instagram";
 import { INSTAGRAM_OFF, startInstagramLogin } from "@/lib/profiles/instagram-login";
 import { TIKTOK_COOKIE, TIKTOK_COOKIE_PATH, tiktokSettings } from "@/lib/profiles/tiktok";
@@ -196,6 +198,54 @@ export async function removeSocial(formData: FormData) {
     notice = problem(error);
   }
   back(notice);
+}
+
+/**
+ * "Use my Instagram photo" and "Update" (plans/29). The host is the logged-in person, never taken
+ * from the form; the network's name is checked here. Everything else is decided in takePhoto.
+ */
+export async function usePhoto(formData: FormData) {
+  const user = await requireActiveUser();
+  let notice: string;
+  try {
+    if (formData.get("network") !== "instagram") throw new ProfileError("Choose one of your confirmed accounts.");
+    const { outcome, detail } = await takePhoto({ userId: user.id, network: "instagram" });
+    const later = "Please try again in a few minutes.";
+    const said: Record<PhotoOutcome, string> = {
+      shown: "Your photo was checked and is on your page now.",
+      not_accepted: "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. Nothing was changed.",
+      refused_before: "That photo was not accepted before, so it was not taken again. Nothing was changed.",
+      no_picture: "We could not read a profile picture for your Instagram account. It must be a Creator or Business account. If you have changed its name, confirm the account again first.",
+      not_fetched: `We could not fetch your photo right now. Nothing was changed. ${later}`,
+      unusable: `Your profile picture cannot be used. ${detail ?? ""}`.trim(),
+      not_checked: `Your photo could not be checked right now, so nothing was changed. ${later}`,
+      stopped: "Something changed while we were fetching your photo, so nothing was taken. Look below to see where things stand.",
+      cannot: "Your account cannot do this at the moment. Nothing was changed.",
+      locked: "Your photo was removed by Connect, and you cannot choose another one.",
+      no_account: "Confirm your Instagram account first.",
+      running: "We are still working on your last try. Please wait a moment.",
+      limit: `You have tried ${PHOTO.triesPerDay} times in the last 24 hours, which is the limit. Please try again tomorrow.`,
+      busy: "Many people are using this right now. Please try again in a little while.",
+      no_checker: `Photos cannot be checked right now, so none can be taken. ${later}`,
+      place_taken: "Another picture is being worked on right now. Please try again in a moment.",
+    };
+    notice = said[outcome];
+  } catch (error) {
+    notice = problem(error);
+  }
+  redirect(`${withNotice("/host", notice)}#photo`);
+}
+
+/** The host removes their photo. Their page shows the letter again. */
+export async function removeOwnPhoto() {
+  const user = await requireActiveUser();
+  let notice: string;
+  try {
+    notice = (await removePhoto({ userId: user.id, now: new Date() })) ? "Your photo was removed." : "You have no photo to remove.";
+  } catch (error) {
+    notice = problem(error);
+  }
+  redirect(`${withNotice("/host", notice)}#photo`);
 }
 
 /**

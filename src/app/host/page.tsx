@@ -9,6 +9,8 @@ import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
 import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
+import { ownPhotoState } from "@/lib/profiles/photo";
+import { PHOTO } from "@/lib/profiles/photo-rules";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { instagramSignInOn } from "@/lib/profiles/instagram";
@@ -21,6 +23,7 @@ import {
   connectInstagram,
   connectTikTok,
   createProfile,
+  removeOwnPhoto,
   removeSocial,
   saveCancelRule,
   saveProfile,
@@ -28,7 +31,9 @@ import {
   setHidden,
   socialReady,
   startPayoutSetup,
+  usePhoto,
 } from "./actions";
+import { HostPhoto } from "@/components/host-photo";
 import { SitePage } from "@/components/site-page";
 import { Earnings } from "./earnings";
 import { MembershipPart } from "./membership";
@@ -70,6 +75,9 @@ export default async function HostPage(props: PageProps<"/host">) {
   const tiktokOn = tiktokSignInOn();
   // While this is on, an Instagram account can also be proven by signing in at Meta. The code stays.
   const instagramOn = instagramSignInOn();
+  // The host's photo (plans/29): taken from a confirmed Instagram account, with the key that reads bios.
+  const photoState = profile ? await ownPhotoState(user.id) : { photo: null, locked: false };
+  const photoFromInstagram = Boolean(checkSettings.instagram) && socials.some((social) => social.network === "instagram" && social.confirmedAt);
   const steps: Array<{ done: boolean; text: string; note?: string; href?: string; go?: string }> = [
     { done: Boolean(profile), text: "Fill in your profile and send it for approval.", href: "#profile", go: "Your host profile" },
     { done: identity.passed, text: "Confirm who you are, with a photo of your ID and a selfie.", href: "/identity?next=%2Fhost", go: "Start the check" },
@@ -378,6 +386,58 @@ export default async function HostPage(props: PageProps<"/host">) {
             </button>
           </form>
           <p className="mt-1 text-sm opacity-70">One account per network. Adding a different name replaces the old one.</p>
+        </section>
+      )}
+
+      {profile && (
+        <section id="photo" className="mt-10 scroll-mt-4">
+          <h2 className="text-lg font-semibold">Your photo</h2>
+          {photoState.locked ? (
+            <p className="mt-2 text-sm">Your photo was removed by Connect, and you cannot choose another one. If you have questions, write to us.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm opacity-70">
+                Your page and the search results can show the profile picture of your confirmed Instagram account in place of the first
+                letter of your name. When you press the button, we fetch your public profile picture, make our own copy, and have it
+                checked automatically before anyone sees it. For the check, our copy is sent to a checking service, without your name. We
+                keep our copy until you remove it. It works for Creator and Business accounts, {PHOTO.triesPerDay} times in 24 hours.
+              </p>
+              <div className="mt-3 flex items-center gap-4">
+                <HostPhoto photoId={photoState.photo?.id ?? null} name={profile.displayName} />
+                <p className="text-sm">
+                  {photoState.photo ? (
+                    <>
+                      From Instagram @{photoState.photo.sourceNameKey}, taken <LocalTime iso={photoState.photo.takenAt.toISOString()} />.
+                    </>
+                  ) : (
+                    "You have no photo yet. Your page shows this letter."
+                  )}
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4">
+                {photoFromInstagram ? (
+                  <form action={usePhoto}>
+                    <input type="hidden" name="network" value="instagram" />
+                    <button type="submit" className={photoState.photo ? smallButton : "rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white"}>
+                      {photoState.photo ? "Update" : "Use my Instagram photo"}
+                    </button>
+                  </form>
+                ) : (
+                  <p className="text-sm">
+                    {checkSettings.instagram ? "Confirm an Instagram account above first. Then you can use its profile picture here." : "Photos from Instagram are not switched on yet."}
+                  </p>
+                )}
+                {photoState.photo && (
+                  <form action={removeOwnPhoto}>
+                    <button type="submit" className="text-sm underline underline-offset-2">
+                      Remove
+                    </button>
+                  </form>
+                )}
+              </div>
+              {photoState.photo && <p className="mt-2 text-sm opacity-70">&quot;Update&quot; fetches your profile picture again, for when you have changed it. Your photo stays as it is until the new one has passed the check.</p>}
+            </>
+          )}
         </section>
       )}
 

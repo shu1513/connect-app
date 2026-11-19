@@ -28,7 +28,13 @@ export type ChildAnswer = "clear" | "match" | "unreachable";
  */
 export type ChildTool = { ask: (jpeg: Buffer) => Promise<ChildAnswer> };
 
-/** The tool Connect has, or null. None yet: its file is added when access is granted. */
+/**
+ * The tool Connect has, or null. None yet: its file is added when access is granted.
+ *
+ * Before a tool is returned here, hosts' photos have to be brought under it (plans/29, "The
+ * child-safety tool, said plainly"): the queue that asks the tool only reads diary pictures, and
+ * does not find `host_photos` by itself.
+ */
 export function childTool(): ChildTool | null {
   return null;
 }

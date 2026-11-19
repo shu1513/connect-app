@@ -12,7 +12,9 @@ import { NOW } from "@/lib/booking/now-rules";
 import { firstLength, lengthWords } from "@/lib/booking/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
+import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
+import { photosOf } from "@/lib/profiles/photo";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { contributionOf } from "@/lib/projects/ask";
 import { postsOf } from "@/lib/projects/posts";
@@ -44,10 +46,12 @@ const CANCEL_RULE: Record<number, string> = {
  */
 const loadProfile = cache(async (handle: string) => {
   const open = await publicProfile(handle);
-  if (open) return open;
+  // The host's photo is shown only on a page that is open to everyone (plans/29): a member or an invited person
+  // who can open a hidden page sees the letter.
+  if (open) return { ...open, photoId: (await photosOf([open.userId])).get(open.userId) ?? null };
   const viewer = await getUser();
   const forMember = viewer ? await hostForMemberByHandle(viewer.id, handle) : null;
-  return forMember ? { ...forMember, socials: [] } : null;
+  return forMember ? { ...forMember, socials: [], photoId: null } : null;
 });
 
 export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise<Metadata> {
@@ -94,12 +98,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <div className="flex items-center gap-4">
-        <div
-          aria-hidden
-          className="flex size-16 shrink-0 items-center justify-center rounded-full bg-[#ffedd5] text-2xl font-bold text-[#9a3412]"
-        >
-          {(Array.from(profile.displayName)[0] ?? "").toUpperCase()}
-        </div>
+        <HostPhoto photoId={profile.photoId} name={profile.displayName} />
         <div className="min-w-0">
           <h1 className={warm.title}>{profile.displayName}</h1>
           <p className="text-sm opacity-70">@{profile.handle}</p>

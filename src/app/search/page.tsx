@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
 import { formatMoney } from "@/lib/payments/access";
 import { searchHosts } from "@/lib/profiles/search";
@@ -46,12 +47,15 @@ export default async function SearchPage(props: PageProps<"/search">) {
         <ul className="mt-8 space-y-4">
           {results.map((host) => (
             <li key={host.handle} className={`${warm.card} text-sm`}>
-              <p className="flex flex-wrap items-center gap-x-3 text-lg font-bold">
-                <Link href={`/h/${host.handle}`} className="inline-flex min-h-11 items-center underline decoration-[#c2410c] underline-offset-4">
-                  {host.displayName}
-                </Link>{" "}
-                <span className="text-sm font-normal text-[#57534e]">@{host.handle}</span>
-              </p>
+              <div className="flex items-center gap-3">
+                <HostPhoto photoId={host.photoId} name={host.displayName} small />
+                <p className="flex min-w-0 flex-wrap items-center gap-x-3 text-lg font-bold">
+                  <Link href={`/h/${host.handle}`} className="inline-flex min-h-11 items-center underline decoration-[#c2410c] underline-offset-4">
+                    {host.displayName}
+                  </Link>{" "}
+                  <span className="text-sm font-normal text-[#57534e]">@{host.handle}</span>
+                </p>
+              </div>
               <p className="mt-1">
                 <Rating shown={host.rating} newText="New on Connect" /> · {host.pricePer15Cents === 0 ? "Free calls" : `${formatMoney(host.pricePer15Cents)} per 15 minutes`}
               </p>
