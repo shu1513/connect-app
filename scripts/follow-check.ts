@@ -15,7 +15,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
@@ -307,19 +307,39 @@ async function main() {
       await unblock(h2.id, f2.id);
       check("after the host's unblock the follower sees them available again", (await list(f2.id))[0].available === true);
 
-      // A block and the decision at the same moment, in both directions, several times over.
-      let wrong = 0;
-      for (let i = 0; i < 6; i++) {
-        const rh = await host(`race${i}h`);
-        const rc = await person(`race${i}c`);
+      // A block and the decision at the same moment, in each order and each direction. The order is forced: both
+      // steps are made to wait for the customer's lock, which is held here, and are let go in the order they came.
+      const waitingFor = async (customerId: string) =>
+        Number((await db.execute(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted and objid = (hashtext(${`follows:${customerId}`})::bigint & 4294967295)::oid`))[0].n);
+      const inOrder = async (customerId: string, first: () => Promise<unknown>, second: () => Promise<unknown>) => {
+        const running: Promise<unknown>[] = [];
+        await db.transaction(async (tx) => {
+          await F.lockFollowers(tx, [customerId]);
+          for (const step of [first, second]) {
+            const before = await waitingFor(customerId);
+            running.push(step());
+            for (let i = 0; i < 200 && (await waitingFor(customerId)) <= before; i++) await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        });
+        await Promise.all(running);
+      };
+      const raced = async (name: string, who: "customer" | "host", order: "block first" | "decision first") => {
+        const rh = await host(`${name}h`);
+        const rc = await person(`${name}c`);
         const made = await call({ hostId: rh.id, customerId: rc.id });
-        const customerBlocks = i % 2 === 0;
-        const work = [block({ blockerId: customerBlocks ? rc.id : rh.id, blockedId: customerBlocks ? rh.id : rc.id, now }), decide([made.id])];
-        await Promise.all(i % 3 === 0 ? work.reverse() : work);
-        if ((await checkedAt(made.id)) === null) wrong++;
-        if (customerBlocks && (await F.followingOf(rc.id, rh.id)) === "following") wrong++;
-      }
-      check("a block and the decision at the same moment: nobody ever ends up following someone they blocked", wrong === 0, `${wrong} wrong`);
+        const blocks = () => block({ blockerId: who === "customer" ? rc.id : rh.id, blockedId: who === "customer" ? rh.id : rc.id, now });
+        const decides = () => decide([made.id]);
+        await inOrder(rc.id, order === "block first" ? blocks : decides, order === "block first" ? decides : blocks);
+        return { state: await F.followingOf(rc.id, rh.id), decided: (await checkedAt(made.id)) !== null };
+      };
+      const r1 = await raced("race1", "customer", "block first");
+      check("the customer blocks, then the decision: no follow at all", r1.state === "none" && r1.decided, r1.state);
+      const r2 = await raced("race2", "customer", "decision first");
+      check("the decision, then the customer blocks: the follow that had just begun is ended", r2.state === "ended" && r2.decided, r2.state);
+      const r3 = await raced("race3", "host", "block first");
+      check("the host blocks, then the decision: the customer follows, quietly, and is told nothing", r3.state === "following" && r3.decided, r3.state);
+      const r4 = await raced("race4", "host", "decision first");
+      check("the decision, then the host blocks: the customer's follow stays", r4.state === "following" && r4.decided, r4.state);
 
       const rh = await host("togh");
       const rc = await person("togc");

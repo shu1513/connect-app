@@ -110,6 +110,12 @@ Testing tools:
   local database: which calls can be rated and when, when a rating counts and what an average shows,
   search by name, handle and confirmed social name (and who is never found), contacts, and private
   notes. It makes and removes its own people and calls, and needs neither Stripe nor the app running.
+- `npx tsx scripts/follow-check.ts` runs the following journeys against the local database: following
+  and unfollowing, the limit, the follow that comes by itself after a call (and every kind of call that
+  must not lead to one), blocks in both directions, and the list with who is available now. It makes
+  and removes its own people and calls, and needs neither Stripe nor the app running. With
+  `--app=http://localhost:3000` (the app running, the test accounts seeded) it also asks the app for the
+  pages, to see that someone a host has blocked is shown the same as anyone else.
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call and report", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.

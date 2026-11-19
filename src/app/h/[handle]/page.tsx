@@ -76,8 +76,10 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const notice = readNotice(`/h/${profile.handle}`, query);
   // The Follow button: for everyone but the host themselves and someone who has blocked this host. Whether the
   // host has blocked the viewer plays no part, so the button never gives a block away (plans/30, decision 3).
-  // Only on a page that is open to everyone: that is what can be followed.
-  const follow = !profile.openToAll || viewer?.id === profile.userId ? null : !viewer ? ("visitor" as const) : (await hasBlocked(viewer.id, profile.userId)) ? null : await followingOf(viewer.id, profile.userId);
+  // A new follow is only offered on a page that is open to everyone: that is what can be followed. Someone who
+  // already follows keeps "Following / Unfollow" on a hidden page they can still open as a member.
+  const ownFollow = viewer && viewer.id !== profile.userId && !(await hasBlocked(viewer.id, profile.userId)) ? await followingOf(viewer.id, profile.userId) : null;
+  const follow = viewer?.id === profile.userId ? null : !viewer ? (profile.openToAll ? ("visitor" as const) : null) : ownFollow === "following" || profile.openToAll ? ownFollow : null;
   // A member of this host: their time left and the times they can book with it, beside the ordinary way.
   const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
   // Their own membership with this host, whatever state it is in: an invitation, the card step, a failed payment or a pause each get a line and a link.
