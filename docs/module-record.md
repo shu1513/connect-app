@@ -1630,3 +1630,111 @@ on her page. No pictures yet (1b) and no money (part two).
   phone-sized window too. The post form was also sent without any script, as a plain form.
 
 **Still open.** Nothing for 1a. Pictures follow in 1b.
+
+## Projects, part one, 1b: pictures and the checking queue (pull request 44, 18 November 2026)
+
+**What it is.** The second of five steps of projects (`plans/23-projects.md`,
+`plans/24-projects-part-1-the-diary.md`). A host adds up to four pictures to a diary post.
+Connect makes its own copy of each, has it checked automatically before anyone else can see it,
+and shows it, refuses it or keeps it waiting. No money yet (part two).
+
+**What the founder decided while it was built (18 November 2026)**
+- A picture a checker flags is refused by itself: from that moment nobody gets it, it is
+  deleted (kept unseen a little longer only while the child-safety tool, once switched on,
+  still has to look at it), and when the same host uploads a picture whose copy comes out the same again (it is
+  Connect's own JPEG copy that is compared, byte for byte), it is refused at once. No list for the founder and no appeal.
+- The check against known pictures of child abuse stays in the plan, because the tool is free.
+  Connect has no access to it yet; pictures do not wait for it until it is switched on.
+- OpenAI and Sightengine have accounts and keys. Microsoft is skipped for now.
+
+**What was built**
+- Tables `project_pictures`, `project_picture_files` (the bytes, kept apart) and
+  `picture_checkers`, and a column on `site_switches` for the moment the child-safety tool is
+  switched on (migration 0032).
+- `copy.ts`: Connect's own copy. The kind of file is read from its bytes (JPEG, PNG, WebP; no
+  moving pictures); the copy is a JPEG of at most 1,600 pixels and 1 MB, turned the right way
+  up, in standard colours, with nothing of what was hidden in the file. Nothing of the original
+  is kept.
+- `checks/`: one small file for each checker (OpenAI, Microsoft, Sightengine, and Connect's own:
+  the open-source NSFWJS in a thread of its own), each giving one of four answers, and
+  `order.ts`, the queue's decision as one plain function.
+- `queue.ts`: one round of the queue, run by the always-on helper in a loop of its own. A round
+  claims a picture before it is checked, and an everyday checker's answer is only written if
+  nothing was decided about the picture in between. (A match from the child-safety tool always
+  counts, however late.)
+- `child-safety.ts`: the one place that knows the rule for the child-safety check.
+- `pictures.ts` (taking an upload in; `pictureFor`, the only function that hands out a
+  picture), `moderation.ts` (the founder: remove, hold as suspected, "Remove and report", "I
+  have made the report"), `picture-steps.ts` (the steps they share).
+- Two addresses: `POST /host/project/posts/[id]/pictures` (the upload, cut off at its size while
+  it is read, one picture worked on at a time) and `/pictures/[id]` (the picture, decided afresh
+  for every request).
+- Pages: pictures on the host's post page with their state, in the diary, and on the founder's
+  projects page with how each checking service stands. The privacy page names the checking
+  companies.
+- 20 pictures a day for each host, four in a post, 10 MB an upload.
+
+**What the reviewers found**
+- The automatic security check of the first commit: a refused picture was deleted before the
+  child-safety tool, once switched on, could have seen it. Fixed.
+- Astra, four rounds on the code, ending in "ready to open a pull request". The findings that
+  mattered: the framework's own address for smaller pictures (`/_next/image`) could have kept a
+  copy of a shown picture for hours after it was removed (that address is now closed to the
+  app's paths); a picture the founder held or locked while the first service was being asked
+  could still have gone on to the next service; a host could have got round an open report for
+  "someone under 18" by removing a picture and uploading it again; two such reports closed at
+  the same moment could have left the mark on for ever; a flag in an incomplete answer counted
+  as the service having worked; a fault could be passed over as "still out". The later rounds
+  found slips in those fixes (a late answer of the child-safety tool thrown away; a refused key
+  read as an outage when its message was cut off) and asked for the rulebook's sentence about
+  the first answer of a recovered service to be kept to the letter. All taken. Astra asked for
+  nothing to be removed.
+- CodeRabbit (pull request 44): twenty comments, all rated minor. Eighteen taken. The ones that
+  changed the app: a very long, thin picture could shrink to a copy only 40 points high (it is
+  refused at upload now); the host's list of posts had no way to a single picture once her
+  project had ended or her post was hidden, so she could only remove the whole post; a service's
+  five minutes were looked at before its turn came; the clock was read before a lock that can
+  take a while; and two gaps around the moment the child-safety tool is switched on, which
+  cannot happen while there is no tool. The rest were wording in the plans and stricter checks.
+  Two were answered and not taken: a shown picture may be kept by the visitor's own browser for
+  five minutes, as the plan decided; and the check script clears the test database's attempt
+  limits, as the other check scripts do. Astra looked at these changes too: "ready to merge". CodeRabbit then withdrew those two
+  and asked for three small things more (two sentences made exact, and a service's five minutes
+  read afresh when its turn comes), which were done.
+
+**How it was checked**
+- `scripts/project-check.ts`: 311 checks in eighteen journeys. The new ones use stand-in
+  checkers whose answers the script controls: every outcome of the queue, two rounds at once,
+  answers that come back late, the founder or the host deciding during a check, who is handed a
+  picture in every state, "Remove and report" and what it protects, reports and their mark, the
+  child-safety rule with a stand-in tool, and the two addresses through the running app (a
+  request without a stated length, one that lies about it, two files, five uploads at once,
+  the framework's picture address, fetching right after logging out).
+- Connect's own checker for real, in its thread: ready and answering in under a second, about
+  40 ms a picture, a hundred in a row without the helper's memory growing, a failed start and a
+  fresh start; and once by hand with the network switched off.
+- The real try, by hand: OpenAI and Sightengine each with four harmless pictures made for the
+  purpose and with a wrong key. Both answer in the shape the code expects (0.3 to 2 seconds a
+  picture); a wrong key reads as a fault.
+- The always-on helper was run for real: it picked up an uploaded picture and kept it waiting
+  with "No checking service is set up", which was true at that moment.
+- 462 unit tests, among them each checker's reading of complete, partial and broken answers.
+- All sixteen check scripts on the finished code.
+- In the browser, as a host (uploading through the real form), a visitor and the founder (hold,
+  "Remove and report", the time of the report), on a wide and a phone-sized window.
+
+**Still open**
+- **Microsoft's checker is untried.** It has no key, so it is not in the queue. One guess is in
+  its code: a used-up free level is read as code 403 with the word "quota".
+- **No borderline pictures were tried.** The thresholds are the plan's starting values. The
+  founder can upload a few pictures through the app to see where they fall.
+- **The child-safety tool** (Image Intercept) needs its application answered. Until then
+  `childTool()` gives nothing, and the rule around it is only tried with a stand-in. Its own
+  file must give up by itself inside the two minutes the queue holds a picture.
+- **The keys are on this computer only.** The live site needs `OPENAI_API_KEY`,
+  `SIGHTENGINE_USER` and `SIGHTENGINE_SECRET` in its own settings; without any key every picture
+  waits, and the founder's page says so.
+- **The lawyer's steps for a report** are not on the founder's page yet.
+- Pictures are kept in the database. That is right for a start; a file store is a later step if
+  there are many.
+

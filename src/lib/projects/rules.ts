@@ -21,6 +21,61 @@ export const PROJECT = {
   postsPerPage: 10,
 } as const;
 
+/** The limits of a diary's pictures (plans/23, "Pictures"; plans/24). */
+export const PICTURE = {
+  perPost: 4,
+  /** For each host, in any 24 hours. Every upload counts, also one that is flagged, removed or replaced. */
+  perDay: 20,
+  /** The largest file a host can upload. */
+  uploadMaxBytes: 10 * 1024 * 1024,
+  /** Room for the form around the file, on top of the file itself. */
+  formOverheadBytes: 64 * 1024,
+  /** A file that would unpack into more points than this is refused before it is unpacked. */
+  maxPixels: 50_000_000,
+  /** A picture smaller than this on either side is refused: it shows nothing, and one checking service cannot read it. */
+  minSide: 100,
+  /** Connect's copy is no wider or taller than this, */
+  side: 1600,
+  /** and no larger than this. */
+  maxBytes: 1024 * 1024,
+  /** The JPEG qualities tried in turn until the copy is small enough. */
+  qualities: [82, 70, 60],
+  /** The version of these rules and of the checkers' thresholds. Kept with every answer a checker gives. */
+  rulesVersion: "2026-11-18",
+} as const;
+
+export type PictureKind = "jpeg" | "png" | "webp";
+
+/**
+ * What kind of picture a file is, read from its first bytes: never from its name or from what the
+ * browser says about it. Null for everything else (a phone's HEIC, SVG, GIF, AVIF, and anything
+ * that is not a picture at all).
+ */
+export function pictureKind(bytes: Uint8Array): PictureKind | null {
+  const starts = (...values: number[]) => values.every((value, index) => bytes[index] === value);
+  if (starts(0xff, 0xd8, 0xff)) return "jpeg";
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "png";
+  // "RIFF", four bytes of length, "WEBP".
+  if (starts(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "webp";
+  return null;
+}
+
+/**
+ * Whether a PNG is an animated one. Such a file carries a part named "acTL" before its picture
+ * data. The parts are walked in order, each by its own stated length, up to the first "IDAT".
+ */
+export function isAnimatedPng(bytes: Uint8Array): boolean {
+  let at = 8;
+  while (at + 8 <= bytes.length) {
+    const length = ((bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3]) >>> 0;
+    const name = String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]);
+    if (name === "acTL") return true;
+    if (name === "IDAT" || name === "IEND") return false;
+    at += 12 + length;
+  }
+  return false;
+}
+
 /**
  * Characters nobody types on purpose and nobody can see: the control characters, apart from a new
  * line and a tab. They are taken out. (The database cannot keep the first of them at all, and

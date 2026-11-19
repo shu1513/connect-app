@@ -1,7 +1,8 @@
 /**
  * The always-on helper. It closes rooms. Beside that, in loops of their own, it
  * does the payment and booking work that has to happen on a schedule (see
- * src/lib/payments/jobs.ts), writes reminders and sends what is in the outbox.
+ * src/lib/payments/jobs.ts), writes reminders, sends what is in the outbox and
+ * has the pictures of diaries checked.
  *
  * Every few seconds it looks for calls past their closing time and makes sure
  * nobody is left in the room. It keeps watching each call for a while after
@@ -36,6 +37,7 @@ async function main() {
   const { removeOldNotes } = await import("../src/lib/quality/notes");
   const { forgetOldRequests, writeAnswerReminders } = await import("../src/lib/refunds/requests");
   const { endOldTests } = await import("../src/lib/connection/tests");
+  const { runPictureRound } = await import("../src/lib/projects/queue");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -144,6 +146,15 @@ async function main() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
   }
 
+  /**
+   * The pictures of diaries are checked in a loop of their own: a slow checking service never
+   * delays closing a room or the money work. The heavy part of Connect's own checker runs in a
+   * thread of its own on top of that (src/lib/projects/checks/own.ts).
+   */
+  async function picturePass() {
+    await runPictureRound().catch((error) => console.error("[pictures] the checking round failed; will retry", error));
+  }
+
   // "npm run worker -- --once" does a single pass and exits. Handy for testing.
   if (process.argv.includes("--once")) {
     await tick();
@@ -151,6 +162,7 @@ async function main() {
     await remindPass();
     await sendPass();
     await testPass();
+    await picturePass();
     process.exit(0);
   }
 
@@ -170,7 +182,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass)]);
   process.exit(0);
 }
 

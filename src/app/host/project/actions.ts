@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { withNotice } from "@/lib/notice";
+import { removePicture } from "@/lib/projects/pictures";
 import { changePost, removePost, writePost } from "@/lib/projects/posts";
 import { changeProject, endProject, startProject } from "@/lib/projects/projects";
 import { ProjectError } from "@/lib/projects/rules";
@@ -111,4 +112,19 @@ export async function removePostAction(formData: FormData) {
     notice = problem(error);
   }
   back(/^[0-9a-f-]{36}$/i.test(earlier) ? `${PAGE}?project=${earlier}` : PAGE, notice);
+}
+
+/** The host removes one of her pictures, or clears away one that was not accepted. Like removing a post, this is always possible. */
+export async function removePictureAction(formData: FormData) {
+  const postId = String(formData.get("postId") ?? "");
+  // Back to the post's own page. The id is only used in an address of our own.
+  const page = /^[0-9a-f-]{36}$/i.test(postId) ? `${PAGE}/posts/${postId}` : PAGE;
+  const user = await requireUser(page);
+  let notice = "The picture was removed.";
+  try {
+    await removePicture({ hostId: user.id, pictureId: String(formData.get("pictureId") ?? ""), now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(page, notice);
 }

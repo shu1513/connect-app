@@ -45,6 +45,8 @@ promised reward. That is the difference from a membership, and the pages say it 
 | The largest contribution | $100,000 in one charge, once or monthly. It is the limit GoFundMe uses for a card. |
 | First a hold, then the money | A contribution is first only held on the card, for three days, and taken after that (the founder, 18 November 2026, after Astra's check). Until it is taken it can be let go at no cost to anyone: by the contributor, by the host, or by the founder. (A bank can make the time shorter for a card; the contributor is always shown the real last moment.) Once money has been taken, giving it back is a refund, and Stripe keeps its own charge on a refund (about 2.9% plus 30 cents, which is $2,900 on $100,000). Three days and not four, because a card's hold can end after four and the money must be taken safely before that; memberships use the same three days. |
 | Pictures are checked automatically | Every picture is checked before anyone else can see it. |
+| A picture a checker flags is refused | Decided 18 November 2026, during the build of part one. It is not kept for the founder to decide: it is refused at once and deleted (kept unseen a little longer only while the child-safety tool, once switched on, still has to look at it), the host is told why, and when she uploads a picture whose copy comes out the same again (Connect's own JPEG copy is compared, byte for byte), it is refused at once. There is no list for the founder and no button to appeal; a host who thinks it was a mistake uploads another picture or writes to support. (Before this decision a flagged picture waited, hidden, for the founder's "Show" or "Remove".) |
+| The child-safety tool stays | Asked again on 18 November 2026 whether it is needed in an app for adults, the founder kept it, because it is free: it is applied for and switched on when it is approved, as decided before. |
 | Pictures do not wait for the child-safety tool | Decided 18 November 2026, after Astra's second check. Pictures go live with the checking queue. The tool against known pictures of child abuse is applied for and switched on when it is approved; nothing waits for that. The founder's reasons: every host has passed an ID check, has a confirmed social media account and was approved by the founder; the diary is public, under her own name; and the checkers look for sexual pictures of any kind. What stays, because the law asks for it: "Remove and report". |
 | The order of the checkers | A queue. First OpenAI's free checking service. When it is used up or cannot be reached, Microsoft's. Then Sightengine's. Last, an open-source checker that runs on Connect's own server, so that a picture is not stuck when the three services are out. Astra advised leaving the last one out; the founder decided to keep it (18 November 2026), see below. |
 | A daily limit on pictures | Yes (the founder's idea; the number, 20 a day for each host, is the builder's). |
@@ -353,17 +355,26 @@ symbols are therefore left to the "Report" link in the first version.)
 **What happens with the answer.**
 
 - **Clean:** the picture is shown.
-- **Flagged:** it stays hidden. The host sees "This picture is waiting for a check by Connect".
-  The founder sees it on the admin page and chooses **Show** or **Remove**.
+- **Flagged:** the picture is refused. From that moment nobody gets it, and it is deleted. (Two
+  things said exactly: a picture that was already shown after a check for nudity only may have
+  been seen before its full check flagged it; and once the child-safety tool is switched on, the
+  file of a refused picture is kept, unseen, until that tool has looked at it.) The host sees
+  "This picture was not accepted. It looks like it breaks the rules on nudity, violence or
+  self-harm." Nothing goes to the founder. The app remembers the copy it made of this host's picture
+  (its own JPEG copy, byte for byte, not the file as it was uploaded), so when she uploads a
+  picture whose copy comes out the same, it is refused at once, without asking a checker.
 - **Only Connect's own checker answered, and found no nudity:** the picture is shown. It is put
   through a full check as soon as one of the three services answers, tried every few minutes, and
   before any newer picture: when a service answers again, its first answers go to these. If that
-  check flags it, it is hidden at once and goes to the founder. Until then the founder's page
+  check flags it, it is refused at once, like any flagged picture. Until then the founder's page
   lists it under "Checked for nudity only". The founder gets an email when the first picture is
   shown this way, and once a day while any is still waiting, with how many and since when.
-- **Connect's own checker found nudity:** hidden, and to the founder, like any flagged picture.
+- **Connect's own checker found nudity:** refused, like any flagged picture.
 - **Nothing answered at all:** the picture waits, hidden, and is tried again every few minutes.
-  The founder can also approve it by hand.
+
+A checker is sometimes wrong, and a harmless picture, a beach photo for example, will now and
+then be refused. That is accepted: the site's rule is "no nudity", the checkers are set strictly,
+and nobody has to decide picture by picture.
 
 The own checker does heavy work on the server. It runs apart from the helper's loop that closes
 calls and makes payments, so that a picture can never make a call close late. Which way of running
@@ -372,7 +383,7 @@ part one's plan.
 
 For each picture the app keeps which checker judged it and what it looked for. A judgement belongs
 to that exact picture: a changed picture is a new picture and is checked again. A picture that
-was flagged, removed or locked away stays hidden: an answer of "clean" that arrives late never
+was refused, removed or locked away stays gone: an answer of "clean" that arrives late never
 brings it back.
 
 **Showing and removing.** The address a picture is fetched from refuses a picture that is hidden
@@ -385,9 +396,11 @@ the reports Connect already has, with one difference: reporting a post does not 
 host, as reporting a person does today. (A block would silently stop the reporter's own monthly
 contribution.) The page also names the support address, for someone who has no account.
 
-**The founder's page.** The admin area gets a "Projects" page: pictures waiting for a decision,
-reported posts, every project with what it has received, contributions held back (choice D), and
-the switch.
+**The founder's page.** The admin area gets a "Projects" page: the pictures that have only had
+the nudity check so far, reported posts with their pictures (each with "Remove" and "Remove and
+report"), every project with what it has received, contributions held back (choice D), and the
+switch. There are no pictures waiting for the founder's decision: a checker's flag refuses a
+picture by itself.
 
 **What the checkers are sent.** Only Connect's copy of the picture. Never who uploaded it. That is
 still personal information leaving Connect, so the privacy page names the companies, and a host is
@@ -408,13 +421,12 @@ hosts should not be able to upload pictures at all until this tool is approved, 
 The founder decided otherwise, for the reasons in "What the founder decided": pictures go live
 with the checking queue, and the tool is switched on when it is approved. Said plainly, what that
 means until then: no tool compares pictures with the official list. The queue still looks for
-sexual pictures of any kind and sends what it flags to the founder; no checker catches
+sexual pictures of any kind and refuses what it flags; no checker catches
 everything.
 
 **Once it is switched on, it comes first, and nothing gets round it.** Every picture uploaded
 from then on goes through it before the queue and before anyone can see it. When it cannot be
-reached, the picture waits, hidden: Connect's own checker does not stand in for it, and neither
-does the founder's ordinary "Show".
+reached, the picture waits, hidden: Connect's own checker does not stand in for it.
 
 **Pictures from before that day** stay as they are, shown or not, and are put through the tool
 afterwards, the oldest first, until every picture has had its answer. A match locks the picture
@@ -451,6 +463,7 @@ steps, are for the lawyer.
   covered by the "Report" link.
 - Video and sound files.
 - Any scoring of how risky a payment is. Large amounts wait and the founder looks (choice D).
+- A way for a host to appeal when a checker refuses a picture.
 
 ## The three parts
 
@@ -510,13 +523,16 @@ are shared, not its code for months, talk time, or a new hold after a lost one.
 2. **The lawyer** looks at: the wording (never "donate"); what the terms and the privacy page say
    about contributions and about pictures being sent to checking companies; the monthly agreement
    and whether a yearly reminder is needed; the duty to report and keep pictures of child abuse,
-   and how Connect files a report; and whether the law on removing intimate pictures shared
+   and how Connect files a report; that a picture a checker flags is refused and deleted by the app
+   alone, with nobody at Connect deciding about it (a picture shown after a check for nudity only
+   may have been seen before its full check flagged it, and a refused picture's file can be kept,
+   unseen, until the child-safety tool has looked at it); and whether the law on removing intimate pictures shared
    without consent within 48 hours (the Take It Down Act) applies to the diary.
 3. **Accounts for the checkers,** made by the founder: OpenAI, Microsoft Azure (the free level)
    and Sightengine (the free plan). The founder puts each key into the settings file; the builder
    never sees them. At least one of them must be set up, and tried once with a real picture, before
-   pictures go live: without one every picture would get the nudity check alone, and no full check
-   would ever follow.
+   pictures go live: without one, every new picture waits and is shown to nobody but its host.
+   (Connect's own checker is never asked alone.)
 4. **Image Intercept** is applied for; the application can be sent now. Pictures do not wait for
    it (the founder's decision). It is set up and tried as soon as it is approved.
 5. **The rules page** gets a line on what a diary may show.

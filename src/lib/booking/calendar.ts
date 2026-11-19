@@ -225,8 +225,8 @@ export async function removeWeeklyHours(userId: string, id: string): Promise<voi
   await changeWeeklyHours(userId, { remove: id });
 }
 
-/** A date-and-time typed by the host ("2026-12-24T09:00"), read in their calendar's time zone. */
-function momentIn(timeZone: string, typed: string): Date | null {
+/** A date-and-time typed into a form ("2026-12-24T09:00"), read in the given time zone. */
+export function momentIn(timeZone: string, typed: string): Date | null {
   try {
     return new Date(Temporal.PlainDateTime.from(typed).toZonedDateTime(timeZone, { disambiguation: "compatible" }).epochMilliseconds);
   } catch {

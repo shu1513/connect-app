@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
+import { DiaryPicture } from "@/components/diary-picture";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
+import { picturesOf } from "@/lib/projects/pictures";
 import { postsOf } from "@/lib/projects/posts";
 import { diaryFor } from "@/lib/projects/projects";
 import { linksOf } from "@/lib/projects/rules";
@@ -35,6 +37,8 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
   const { profile, project } = diary;
   const page = typeof props.query.page === "string" && /^[1-9]\d{0,3}$/.test(props.query.page) ? Number(props.query.page) : 1;
   const { posts, older } = await postsOf(project.id, { page });
+  // Only the pictures everyone may see. Each is fetched from its own address, which decides again.
+  const pictures = await picturesOf(posts.map((post) => post.id));
   const viewer = await getUser();
   // "Older" and "newer" name this very project. Her plain address shows whichever project is current, so a
   // reader in the middle of one diary would land in another if she ended it and started a new one meanwhile.
@@ -66,6 +70,7 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
         <ul className="mt-3 space-y-4" data-diary>
           {posts.map((post) => {
             const links = linksOf(post.links);
+            const shown = pictures.get(post.id) ?? [];
             return (
               <li key={post.id} className={warm.card}>
                 <p className="text-sm opacity-70">
@@ -73,6 +78,15 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
                 </p>
                 {/* Shown as plain text: an address typed into a post is never made into a link. */}
                 <p className="mt-2 whitespace-pre-line break-words">{post.text}</p>
+                {shown.length > 0 && (
+                  <ul className="mt-3 space-y-3" data-post-pictures>
+                    {shown.map((picture) => (
+                      <li key={picture.id}>
+                        <DiaryPicture id={picture.id} width={picture.width} height={picture.height} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {links.length > 0 && (
                   <ul className="mt-3 space-y-1 text-sm">
                     {links.map((link) => (

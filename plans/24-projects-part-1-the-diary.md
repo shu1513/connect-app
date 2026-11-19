@@ -1,6 +1,7 @@
 # Plan 24: Projects, part one: the project and its diary
 
-**Status:** a plan only; nothing is built. Written 18 November 2026 by the builder alone (no
+**Status:** built. 1a is pull request 43; what building 1b changed is at the end ("What building
+1b added to this plan"). The plan itself was written 18 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 41. Astra checked it twice.
 Both verdicts were "ready with changes"; after the second, 1a can be built as it stands and the
 corrections for 1b are worked in below (the two lists are at the end).
@@ -540,3 +541,82 @@ Four things were found while building and in Astra's reviews of the code, and ar
   when the server refuses: it comes back with the reason and with everything that was typed, also
   without any script in the browser. A post can be 5,000 characters, and none of it may be lost
   over a mistyped link.
+
+## The founder's decisions during the build of 1b (18 November 2026)
+
+**A picture a checker flags is refused, by itself.** The rulebook says so now. What that changes
+in this plan, everywhere it is mentioned above:
+
+- The state `flagged` is called `refused`. A refused picture is handed to nobody from that
+  moment; its bytes are deleted at once, or, once the child-safety tool is switched on, as soon
+  as that tool has looked at them (see "What building 1b added"); its line stays, so the same
+  bytes from the same host are refused on the spot without asking a checker, and so the day's
+  count stays true. It does not count toward a post's four
+  pictures. The host sees it on her post's page as "This picture was not accepted", with the
+  reason, until she clears it away.
+- The founder has no pictures to decide: no **Show** for a refused or a waiting picture, and no
+  email about flagged pictures. A picture that no checker can answer for simply waits.
+- What the founder still does with a picture: **Remove** and **Remove and report**, for one that
+  is shown (a reported post, most likely), and **Hold as suspected** with **Lift**, which takes a
+  picture out of sight while the founder looks into it.
+
+**The child-safety tool stays as planned.** `child-safety.ts` is built as described.
+
+## What building 1b added to this plan (18 November 2026)
+
+Found while building, in Astra's four reviews of the code and in the automatic security check of
+the commits. All of it is built.
+
+- **The framework's own address for smaller pictures is closed.** Next.js has an address
+  (`/_next/image`) that fetches a picture of the site, makes a smaller copy and keeps it for
+  hours. A picture that was once shown could have been fetched there after it was removed or
+  locked. The app uses that address for nothing, so no path of the app is allowed to it.
+- **A picture is sent to nobody else once something is decided about it.** Before every single
+  request to a checker the queue asks again whether the picture is still as it was claimed. If
+  the founder held or locked it, or a report marked it, while the first service was being asked,
+  the next service is not asked.
+- **A report for "someone under 18" also covers pictures added afterwards.** A picture uploaded
+  to a post while such a report is open carries the mark from the start. Making such a report,
+  closing one and uploading to the post all hold the post's lock, so the mark always says what
+  the open reports say.
+- **Removing a post removes its pictures.** So the row "any picture of a post she has removed"
+  in the table under "Showing a picture" is: nobody.
+- **How a service stands is what its last answer said.** "Out" starts its five minutes and ends
+  a fault; a fault ends any five minutes that were running, so the service is asked again for
+  the next picture and the picture waits; a complete answer clears both. A flag that came with
+  parts of the answer missing refuses the picture but does not count as the service having
+  worked.
+- **What "out" is for each service.** Sightengine answers a reached limit with the HTTP code for
+  a bad request, so its own error numbers are read (30, 32 and 33 are "out"; a refused key or an
+  unpaid bill is a fault). Microsoft's used-up free level is read as code 403 with the word
+  "quota"; its guide does not say, and it is not tried (below). A refusal keeps what its HTTP
+  code says even when the words after it never arrive. What a service says about a refused key is
+  not kept, because it can repeat part of the key.
+- **The first answer of a service that is back.** Before a waiting picture is sent anywhere in a
+  round, one picture that is shown after a check for nudity only is tried first, whatever its own
+  time says. If a service answers it properly, the others like it are due at once.
+- **The child-safety tool and deleting.** Once the tool is switched on, the bytes of a picture it
+  has not answered for are kept until it has, also when a checker has refused the picture, and
+  also for a picture refused on the spot because it is the same as an earlier one. The queue
+  waits fifteen seconds for the tool and then goes on with other work; an answer that comes
+  later is still written, and a match is kept together with the bytes the tool was asked about.
+  The tool's own file, when it is written, must give up by itself well inside the two minutes
+  for which the queue holds a picture.
+- **The founder's page** says in red when no checking service has a key, because then every
+  picture waits. A post with a removed-and-reported picture has no "Show it again". The time of
+  "I have made the report" is typed in the founder's own time zone.
+- **Names.** The plan's `decide(answers)` is `askInOrder` in `checks/order.ts`. The founder's
+  functions are in `moderation.ts` (`removePictureAsFounder`, `lockAndReport`, `setSuspected`,
+  `recordReportMade`); there is no `showPicture`, by the founder's decision above. The steps
+  several files share are in `picture-steps.ts`.
+
+**What was tried for real, and what was not.** OpenAI and Sightengine were tried by hand on 18
+November 2026 with harmless pictures made for the purpose, and each with a wrong key: the answers
+have the shape the code expects, Sightengine counts two operations a picture, and a wrong key
+reads as a fault. Borderline pictures were not tried; the starting thresholds are as planned.
+The founder decided to skip Microsoft for now: it has no key, is not in the queue, and its part
+of the code is untried against the real service. Connect's own checker was measured in its
+thread: ready and answering in under a second, about 40 ms a picture after that, no growth of
+memory over a hundred pictures, and it works with the network switched off. The child-safety
+tool does not exist yet; its rule is tried with a stand-in.
+

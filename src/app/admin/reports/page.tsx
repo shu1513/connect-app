@@ -117,7 +117,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               booking?: { id?: string; note?: string } | null;
               call?: { id?: string; safetyEndedAt?: string | null } | null;
               profile?: { displayName: string; handle: string; about: string } | null;
-              post?: { id: string; projectName: string; text: string; links: string[] } | null;
+              post?: { id: string; projectName: string; text: string; links: string[]; pictures?: string[] } | null;
             };
             return (
               <li key={report.id} className={`rounded border p-4 text-sm ${report.urgent ? "border-red-600" : "border-neutral-400"}`}>
@@ -149,8 +149,15 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                     {snapshot.post.links.length > 0 && <p className="mt-1 break-all opacity-70">Links: {snapshot.post.links.join(", ")}</p>}
                     <p className="mt-1">
                       <Link href={`/admin/projects?post=${snapshot.post.id}`} className="underline underline-offset-2">
-                        See the post as it is now, and hide it
+                        See the post as it is now, with its pictures, and decide
                       </Link>
+                      {snapshot.post.pictures && snapshot.post.pictures.length > 0 && (
+                        <span className="opacity-70">
+                          {" "}
+                          It showed {snapshot.post.pictures.length} {snapshot.post.pictures.length === 1 ? "picture" : "pictures"} when it was reported. A picture its host removes afterwards is not
+                          kept.
+                        </span>
+                      )}
                     </p>
                   </div>
                 )}
