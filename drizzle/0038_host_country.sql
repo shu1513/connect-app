@@ -1,0 +1,1 @@
+ALTER TABLE "host_profiles" ADD COLUMN "country" text DEFAULT 'US' NOT NULL;

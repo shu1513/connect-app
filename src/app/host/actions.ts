@@ -7,7 +7,7 @@ import { db, schema } from "@/db";
 import { setVerifiedOnly } from "@/lib/booking/bookings";
 import { withNotice } from "@/lib/notice";
 import { collectEarnings } from "@/lib/payments/collect";
-import { ensurePayoutAccount, getHostSettings, payoutSetupLink, publicAppUrl } from "@/lib/payments/hosts";
+import { ensurePayoutAccount, getHostSettings, payoutSetupLink, PayoutSetupError, publicAppUrl } from "@/lib/payments/hosts";
 import { MoneyError } from "@/lib/payments/operations";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { isAutomatic } from "@/lib/profiles/bio-check";
@@ -48,6 +48,8 @@ export async function startPayoutSetup() {
       refreshUrl: `${base}/host/payouts-return?again=1`,
     });
   } catch (error) {
+    // A reason the host can read (no profile yet, or an account in another country than their profile's).
+    if (error instanceof PayoutSetupError) back(error.message);
     console.error("[payments] could not start payout setup", error);
     back("Payout setup could not be started. Please try again.");
   }
@@ -113,7 +115,7 @@ export async function createProfile(formData: FormData) {
       displayName: String(formData.get("displayName") ?? ""),
       about: String(formData.get("about") ?? ""),
       pricePer15Cents: priceCents(formData),
-      usConfirmed: formData.get("us") === "on",
+      country: String(formData.get("country") ?? ""),
     });
     notice = "Your host profile was sent for approval. It becomes public once it is approved.";
   } catch (error) {

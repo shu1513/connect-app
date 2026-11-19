@@ -233,7 +233,7 @@ export async function acceptCollection(input: {
     }
 
     if (!host?.stripeAccountId || !host.payoutsReady) {
-      throw new MoneyError("The payout account at Stripe is not ready to receive money yet.");
+      throw new MoneyError("The payout account at Stripe is not ready yet, so nothing can be collected.");
     }
     const destination = host.stripeAccountId;
 
