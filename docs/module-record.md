@@ -1810,3 +1810,48 @@ No pages yet; nobody can start a contribution until 2b.
 - The founder's email when one person passes $1,000 with a host comes with 2b.
 - Nothing here can be reached by a person yet. The browser checks come with 2b's pages.
 
+## Projects, part two, 2b: starting a contribution, and what people do with it (pull request 46, 19 November 2026)
+
+**What it is.** The fourth of five steps of projects (`plans/25-projects-part-2-contributions.md`):
+a person can now contribute to a host's project, once or every month, and everyone has their
+pages. With this step part two is complete.
+
+**What was built**
+- The amounts a host suggests (migration 0037), and the sentences a contributor sees before
+  paying, with the box for a monthly contribution (`wording.ts`).
+- `start.ts`: who may contribute, starting (one contribution for one press, the agreement kept),
+  and making a payment ready to be paid by hand. `monthly.ts`: each month written on its day,
+  "Stop contributing", and letting one payment go. `ending.ts`: a block, an account paused or
+  closed, a suspended host page and the end of a project end the contributions between those
+  people in the same step. `switch.ts`: what saving the founder's switch does. `emails.ts`: nine
+  emails, each written in the step it reports.
+- Pages: "Contribute" on a project's diary, the summary before paying, the card step and a
+  contribution's own page, "Projects you support" on the account page, the host's amounts,
+  contributors, "Let it go" and "Refund", and the founder's lists with "Hold back", "Release",
+  "Let it go" and "Refund".
+
+**What the reviewers found**
+- A security check that runs on saved changes: a payment could still be made ready, and a month
+  written, after a block or a pause. Both closed.
+- Astra's first review: six points that had to be fixed. A month written down just before the
+  helper stopped could be charged weeks late. Saving the switch at the moment a first hold was
+  accepted could miss that contribution, and used a stale moment. Fifty contributions that were
+  not due yet could keep one that was from being written. Several notices said "nothing was
+  charged" before that was known. The founder could not reach an ordinary payment. All taken,
+  each with a case in the check script.
+
+**How it was checked**
+- `scripts/contribution-check.ts`, against Stripe's test mode: six new journeys (starting; the
+  monthly rhythm; what ends a contribution from outside, and the switch; the emails; Astra's
+  findings; the pages).
+- In the browser, with the local test accounts and Stripe's test cards: contributing once;
+  monthly with the card that asks for the bank's confirmation; stopping; the host's list and a
+  refund; the founder's page and "Hold back".
+- All the earlier check scripts, and the unit tests.
+
+**Still open**
+- The terms page is a placeholder until the lawyer writes it.
+- One collection holding a call's share, a member's and a contribution's together is still not
+  walked by a script.
+- The box after a call is part three.
+
