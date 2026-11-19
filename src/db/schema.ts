@@ -1107,7 +1107,11 @@ export const bioChecks = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id),
-    /** instagram or youtube. */
+    /**
+     * instagram or youtube for a look at a bio. Also "tiktok" and "instagram_sign_in": a sign-in at that
+     * network that our own keys or set-up made fail (result "refused"), kept here for the founder's warning.
+     * Those two names are never counted by the bio check's limits.
+     */
     network: text("network").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     /** Empty while the check is under way. Then: found, not_found, no_account, too_often, refused or unavailable. */

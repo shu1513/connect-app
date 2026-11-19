@@ -3,7 +3,7 @@
  * Where the host is sent, the signed note that remembers who started, the settings, and reading
  * TikTok's answers. TikTok's name for this sign-in is "Login Kit for Web".
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { readNote, sameValue as sameNoteValue, writeNote } from "./login-note";
 
 /** Where TikTok sends the host back to. Registered with TikTok, so it never changes with the request. */
 export const TIKTOK_RETURN_PATH = "/api/social/tiktok/return";
@@ -64,38 +64,22 @@ export function tiktokLoginUrl(input: { clientKey: string; returnUrl: string; st
   return url.toString();
 }
 
-function signatureOf(body: string, secret: string): string {
-  return createHmac("sha256", secret).update(`tiktok-login:${body}`).digest("base64url");
-}
-
 /**
  * The cookie's value: the random value sent to TikTok, who started, and until when it counts,
- * signed so that only this server can have written it.
+ * signed so that only this server can have written it. (The signing itself is shared with the
+ * other sign-ins, in login-note.ts; TikTok's notes carry TikTok's own label.)
  */
 export function writeLoginNote(input: { state: string; userId: string; expiresAt: Date }, secret: string): string {
-  const body = [input.state, Buffer.from(input.userId).toString("base64url"), String(input.expiresAt.getTime())].join(".");
-  return `${body}.${signatureOf(body, secret)}`;
+  return writeNote("tiktok-login", input, secret);
 }
 
 /** Reads the cookie's value. Null when it was not written by us, was changed, or is out of date. */
 export function readLoginNote(note: string | undefined, secret: string, now: Date): { state: string; userId: string } | null {
-  if (!note) return null;
-  const parts = note.split(".");
-  if (parts.length !== 4) return null;
-  const [state, user, expires, signature] = parts;
-  const expected = Buffer.from(signatureOf([state, user, expires].join("."), secret));
-  const given = Buffer.from(signature);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
-  if (!/^[0-9]+$/.test(expires) || Number(expires) <= now.getTime()) return null;
-  return { state, userId: Buffer.from(user, "base64url").toString() };
+  return readNote("tiktok-login", note, secret, now);
 }
 
 /** True when two values are the same, compared without giving away where they differ. */
-export function sameValue(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
-}
+export const sameValue = sameNoteValue;
 
 /** True when both permissions are among those TikTok says were given. More are allowed, fewer are not. */
 export function hasBothScopes(given: unknown): boolean {

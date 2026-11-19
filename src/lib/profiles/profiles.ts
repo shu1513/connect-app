@@ -14,6 +14,7 @@ import { HOME_COUNTRY, isHostCountry } from "./countries";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
 import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
+import { chooseAccount, type SharedAccount } from "./instagram";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
 import { tiktokSignInOn } from "./tiktok";
 
@@ -352,12 +353,27 @@ export async function addSocialName(userId: string, network: string, typed: stri
  * confirmed for another host, the database refuses and nothing changes.
  */
 export async function confirmSocialByLogin(input: { userId: string; network: "tiktok"; accountId: string; username: string; now?: Date }): Promise<{ nameKey: string }> {
-  const read = readSocialName(input.network, input.username);
+  const confirmed = confirmedEntry(input.network, input, input.now ?? new Date());
+  if (!confirmed) throw new ProfileError("TikTok's answer could not be read. Nothing was changed.");
+  try {
+    await db.transaction(async (tx) => {
+      await activeHost(tx, input.userId);
+      await writeConfirmed(tx, input.userId, input.network, confirmed);
+    });
+  } catch (error) {
+    if (isTaken(error)) throw new ProfileError(TAKEN_BY_ANOTHER_HOST);
+    throw error;
+  }
+  return { nameKey: confirmed.nameKey };
+}
+
+/** What an entry holds once its account was proven by signing in, or null when the network's name or number cannot be used. */
+function confirmedEntry(network: "tiktok" | "instagram", account: { accountId: string; username: string }, now: Date) {
+  const read = readSocialName(network, account.username);
   // The number is the network's own text. It is kept exactly as it came, never read as a number.
-  if ("problem" in read || !/^[\x21-\x7e]{1,200}$/.test(input.accountId)) throw new ProfileError("TikTok's answer could not be read. Nothing was changed.");
-  const now = input.now ?? new Date();
-  const confirmed = {
-    nameTyped: input.username.slice(0, 200),
+  if ("problem" in read || !/^[\x21-\x7e]{1,200}$/.test(account.accountId)) return null;
+  return {
+    nameTyped: account.username.slice(0, 200),
     nameKey: read.nameKey,
     url: read.url,
     // The code way is not in play for this entry: a code nobody is shown, already run out.
@@ -366,24 +382,60 @@ export async function confirmSocialByLogin(input: { userId: string; network: "ti
     claimedAt: null,
     confirmedAt: now,
     confirmedBy: null,
-    providerAccountId: input.accountId,
+    providerAccountId: account.accountId,
   };
+}
+
+/** Checked with the locks held: the person may have changed while the network was answering. */
+async function activeHost(tx: Tx, userId: string): Promise<void> {
+  const { closed, paused, profile } = await lockedProfile(tx, userId);
+  if (closed || paused) throw new ProfileError("Your account cannot do this at the moment. Nothing was changed.");
+  if (!profile) throw new ProfileError("Fill in your host profile first.");
+}
+
+/** The one write that covers every case: whatever the host's entry for this network was, it becomes this account, confirmed. */
+async function writeConfirmed(tx: Tx, userId: string, network: "tiktok" | "instagram", confirmed: NonNullable<ReturnType<typeof confirmedEntry>>): Promise<void> {
+  await tx
+    .insert(schema.socialAccounts)
+    .values({ userId, network, ...confirmed })
+    .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: confirmed });
+}
+
+export const NO_INSTAGRAM_SHARED = "Meta did not share an Instagram account with us. Nothing was changed. It must be a Creator or Business account.";
+export const SEVERAL_INSTAGRAM_SHARED = "You shared more than one Instagram account. Nothing was changed. Please try again and share only the one for your page.";
+
+/**
+ * The host signed in at Meta and shared Instagram accounts with us (plans/28). Which one is
+ * taken is decided here, inside the step that saves it and with the profile's lock held, so the
+ * choice is never made against an entry that has changed meanwhile: see `chooseAccount`. The
+ * account's number and name always come from the same line of Meta's list.
+ *
+ * The same one write as for TikTok: an entry confirmed with the code under the same name stays
+ * confirmed and gains the number; a different account replaces the old one in the same step. If
+ * the account that was picked is confirmed for another host, the database refuses and nothing
+ * changes; no other shared account is taken in its place.
+ */
+export async function confirmInstagramBySignIn(input: { userId: string; shared: SharedAccount[]; now?: Date }): Promise<{ nameKey: string }> {
+  const now = input.now ?? new Date();
   try {
-    await db.transaction(async (tx) => {
-      // Checked again with the locks held: the person may have changed while the network was answering.
-      const { closed, paused, profile } = await lockedProfile(tx, input.userId);
-      if (closed || paused) throw new ProfileError("Your account cannot do this at the moment. Nothing was changed.");
-      if (!profile) throw new ProfileError("Fill in your host profile first.");
-      await tx
-        .insert(schema.socialAccounts)
-        .values({ userId: input.userId, network: input.network, ...confirmed })
-        .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: confirmed });
+    return await db.transaction(async (tx) => {
+      await activeHost(tx, input.userId);
+      const [entry] = await tx
+        .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
+        .from(schema.socialAccounts)
+        .where(and(eq(schema.socialAccounts.userId, input.userId), eq(schema.socialAccounts.network, "instagram")));
+      const choice = chooseAccount(input.shared, entry ?? null);
+      if (choice.kind === "none_shared") throw new ProfileError(NO_INSTAGRAM_SHARED);
+      if (choice.kind === "several") throw new ProfileError(SEVERAL_INSTAGRAM_SHARED);
+      const confirmed = confirmedEntry("instagram", choice.account, now);
+      if (!confirmed) throw new ProfileError("Meta's answer could not be read. Nothing was changed.");
+      await writeConfirmed(tx, input.userId, "instagram", confirmed);
+      return { nameKey: confirmed.nameKey };
     });
   } catch (error) {
     if (isTaken(error)) throw new ProfileError(TAKEN_BY_ANOTHER_HOST);
     throw error;
   }
-  return { nameKey: read.nameKey };
 }
 
 /**
@@ -391,9 +443,14 @@ export async function confirmSocialByLogin(input: { userId: string; network: "ti
  * there. Written down for the founder's page (see refusedBioChecks); nothing else about a sign-in
  * is ever written here.
  */
-export async function noteRefusedSignIn(userId: string, network: "tiktok", now: Date): Promise<void> {
-  await db.insert(schema.bioChecks).values({ userId, network, startedAt: now, result: "refused" });
+export async function noteRefusedSignIn(userId: string, network: "tiktok" | "instagram", now: Date): Promise<void> {
+  // For Instagram the line carries a name of its own, never "instagram": the bio check's limits count the lines
+  // named "instagram" and "youtube", and a sign-in that failed read no bio and must not use any of them up.
+  await db.insert(schema.bioChecks).values({ userId, network: network === "instagram" ? INSTAGRAM_SIGN_IN : network, startedAt: now, result: "refused" });
 }
+
+/** The name, in the table of checks, of a sign-in at Meta that our own set-up made fail. An event's name, not a network. */
+export const INSTAGRAM_SIGN_IN = "instagram_sign_in";
 
 /** One person can have this many automatic checks in an hour, and no two for the same network closer together than this. */
 export const BIO_CHECKS_PER_HOUR = 10;

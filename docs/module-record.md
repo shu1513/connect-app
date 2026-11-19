@@ -1963,3 +1963,63 @@ built. It adds no table, no money rule and no email.
 - A member's share, a call's and a contribution's in one collection: the journey now walks a
   call's and a contribution's together; a member's share with them is still not walked.
 - The two minutes the helper waits before giving a late month up are a wide margin, not a proof.
+
+## A later change: a host can prove an Instagram account by signing in at Meta (plan 28, 19 November 2026)
+
+**Why.** The founder asked for "Connect your Instagram", the part of plan 16 that was never
+built because Meta closed the simple "log in with Instagram" to new apps.
+
+**What it is.**
+- **For a host:** a button, "Connect your Instagram", on the Hosting page. The host logs in at
+  Meta, picks a business portfolio and the Instagram account to share, and comes back with the
+  account confirmed. The code in the bio stays as a second way.
+- **What "confirmed" means,** said openly in the plan: this host runs this account. Sharing an
+  account through Meta, like placing a code in its bio, can also be done by a manager. The
+  founder's look at each profile before approval is what guards against someone passing as
+  another person.
+- **Which account is taken** when a host shares several: the one whose number is already on
+  their page, else the one with the name on their page if exactly one has it, else none. A name
+  the host typed is never confirmed unless Meta listed it.
+- **What Connect asks Meta for:** one permission; one question (which accounts were shared, by
+  number and name). The key is used once and dropped. Meta lists Connect among the apps
+  connected to the host's business portfolio until they remove it there; the privacy page says
+  so.
+- **Settings:** `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_LOGIN_CONFIG_ID`. On only
+  when all three are there and the site's address is `https`. No change to the database.
+- **Small:** the signed note that remembers who started a sign-in is now one piece of code for
+  TikTok and Instagram (`login-note.ts`); a note written by the old code is a test, so TikTok's
+  notes are the same, byte for byte. A sign-in that our own set-up made fail is written under a
+  name of its own, so it never uses up the bio check's limits.
+
+**Tried for real (19 November 2026),** with the founder's own Instagram account: it works. Meta
+asked for one thing only ("Access profile and posts"), two screens and two clicks; "Cancel" is
+answered with "You did not connect Instagram. Nothing was changed." The details are at the end
+of plan 28. That morning Meta had locked the founder's developer account ("Account confirmation
+needed"), which also stopped the automatic check of a code in an Instagram bio; the founder
+confirmed the account and both work again.
+
+**Said plainly: it works, and it is not switched on for real hosts.** Meta lets a new app be used
+only by people with a role on it. For everyone else it wants its review of the app, the app set
+to "live", and a verified business. Until then hosts confirm Instagram with the code.
+
+**What the reviewers found.** Astra checked the plan twice ("not ready", then "ready with
+changes") and the code twice (the second: "ready for the real try"). The points that mattered:
+the plan had changed what "confirmed" means without saying so; "name or number" was not yet a
+rule and could have mixed up a renamed account with another that took its old name; a refused
+sign-in would have used up the bio check's limits; and in the code, a damaged answer from Meta
+could have been taken for a full list of one account. All taken. Astra asked for nothing to be
+removed.
+CodeRabbit, on pull request 48: one comment, taken. If the person could not be read from the
+database on the way back from Meta, the host got an error page; they now land on the Hosting
+page with the plain sentence. Tried once more for real after it (Meta's "Cancel").
+
+**How it was checked:** 532 automatic tests (32 new); `scripts/accounts-check.ts` with a new
+part of 38 checks with Meta's side pretended (203 in all); the real try above; and every other
+check script once more.
+
+**Still open.** For real hosts: Meta's business verification, its review of the app, and the app
+set to "live". Not seen in the real try: a host without a business portfolio, a personal
+account, several accounts shared, logging in with Instagram instead of Facebook. The Hosting
+page in every state of an Instagram entry, and the founder's alert as it is drawn, are not
+checked by a script.
+
