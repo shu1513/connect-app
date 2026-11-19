@@ -3,7 +3,7 @@
  * "The watch"). Each line is something the helper should have done by now and has not, or
  * something only the founder can settle.
  */
-import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 const pays = schema.contributionPayments;
@@ -13,6 +13,8 @@ export const TAKING_LATE_MS = 5 * MINUTE_MS;
 export const INTENT_UNSAVED_MS = 10 * MINUTE_MS;
 export const LETTING_GO_LATE_MS = 10 * MINUTE_MS;
 export const REFUND_IDLE_MS = 10 * MINUTE_MS;
+/** A month's 7 days, and one more day. */
+export const LATE_MONTH_UNDECIDED_MS = 8 * 24 * 60 * MINUTE_MS;
 
 const nothingUnderWay = sql`not exists (select 1 from ${schema.moneyOperations} where ${schema.moneyOperations.contributionPaymentId} = ${pays.id} and ${schema.moneyOperations.status} = 'started')`;
 
@@ -46,6 +48,29 @@ export async function contributionHealthProblems(now: Date): Promise<string[]> {
     )
     .limit(1);
   if (idle) problems.push("a contribution's refund has been owed for more than 10 minutes with nothing under way");
+
+  // A month nobody has tried to pay is given up as missed two minutes after its 7 days, unless Stripe is still
+  // working on a payment for it. One that is still waiting a day after those 7 days is said here: it is not given
+  // up because of time, and it must not wait unseen either.
+  const monthsDay = sql`((${schema.contributions.firstHoldAt} at time zone 'UTC') + make_interval(months => ${pays.number} - 1)) at time zone 'UTC'`;
+  const [stillWaiting] = await db
+    .select({ id: pays.id })
+    .from(pays)
+    .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
+    .where(
+      and(
+        eq(pays.status, "to_pay"),
+        isNull(pays.endedHow),
+        isNull(pays.problem),
+        isNull(pays.firstFailedAt),
+        gt(pays.number, 1),
+        eq(schema.contributions.kind, "monthly"),
+        isNotNull(schema.contributions.firstHoldAt),
+        sql`${monthsDay} < ${new Date(now.getTime() - LATE_MONTH_UNDECIDED_MS).toISOString()}::timestamptz`,
+      ),
+    )
+    .limit(1);
+  if (stillWaiting) problems.push("a contribution's late month has had no outcome for more than a day after its 7 days were over");
 
   if (await any(isNotNull(pays.problem))) problems.push("a contribution's payment needs the founder (see the projects page)");
   return problems;

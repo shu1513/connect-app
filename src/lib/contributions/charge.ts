@@ -41,8 +41,6 @@ const pays = schema.contributionPayments;
 
 /** A try the bank has not answered yet is looked at again this much later. */
 const LOOK_AGAIN_AT_A_TRY_MS = 5 * 60_000;
-/** A late month's payment that Stripe is still working on this long after its 7 days ended is shown to the founder. */
-const STILL_WORKING_TOO_LONG_MS = 24 * 3_600_000;
 
 /** What a bank says when a card must not be tried again. The monthly contribution ends then. */
 const NEVER_AGAIN = new Set(["do_not_try_again", "lost_card", "stolen_card", "pickup_card", "restricted_card", "revocation_of_authorization", "revocation_of_all_authorizations", "stop_payment_order", "security_violation", "fraudulent", "merchant_blacklist"]);
@@ -519,14 +517,17 @@ async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: C
         .where(and(eq(pays.id, paymentId), isNull(pays.problem), inArray(pays.status, ["to_pay", "held"])));
       return { payment: (await paymentById(paymentId))!, shown: null };
     }
-    shown = intent.status;
     let holdEndsAt = holdEndOf(chargeOf(intent));
     // When Stripe does not say when a hold ends, it is asked again. No date is ever assumed (plans/25, choice 10).
     if (intent.status === "requires_capture" && !holdEndsAt) {
       const chargeId = chargeIdOf(intent);
       if (chargeId) holdEndsAt = holdEndOf(await stripe().charges.retrieve(chargeId));
     }
-    if (await recordIntent(seen, intent, now, { readAt, holdEndsAt })) break;
+    if (await recordIntent(seen, intent, now, { readAt, holdEndsAt })) {
+      // Only an answer that was recorded is given back: one that was thrown away as stale says nothing.
+      shown = intent.status;
+      break;
+    }
   }
   return { payment: (await paymentById(paymentId))!, shown };
 }
@@ -795,16 +796,11 @@ async function missMonth(paymentId: string, now: Date): Promise<ContributionPaym
   // let go cannot be brought back.) This is judged from the very answer that was just recorded: an answer that
   // shows a hold was accepted or refused by that look, and the step below then finds nothing left to give up.
   if (looked.status === "to_pay" && open(looked) && shown === "processing") {
-    const [contribution] = await db.select().from(schema.contributions).where(eq(schema.contributions.id, looked.contributionId));
-    const at = freshNow(now);
-    if (contribution && monthMissed(contribution, looked, new Date(at.getTime() - STILL_WORKING_TOO_LONG_MS))) {
-      // More than a day past its 7 days and still no outcome: it is not given up, and it does not wait unseen
-      // either. It is set aside for the founder, who is shown it.
-      await db.update(pays).set({ problem: "Stripe has been working on this payment for more than a day after its month's 7 days ended, and has not said what became of it. Please look at it.", updatedAt: now }).where(and(eq(pays.id, paymentId), isNull(pays.problem), eq(pays.status, "to_pay")));
-    } else {
-      // Looked at again in five minutes, so that such a payment never fills the helper's rounds.
-      await db.update(pays).set({ nextTryAt: new Date(at.getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay")));
-    }
+    // Looked at again in five minutes, so that such a payment never fills the helper's rounds. Nothing else about
+    // it is changed: it stays an ordinary payment that is waiting, so every look at Stripe, and the collection's
+    // own look before it counts, still record what becomes of it. If it waits like this for more than a day, the
+    // watch says so (health.ts). (Not a payment that was given up meanwhile.)
+    await db.update(pays).set({ nextTryAt: new Date(freshNow(now).getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay"), isNull(pays.endedHow), isNull(pays.problem)));
     return (await paymentById(paymentId))!;
   }
   await db.transaction(async (tx) => {

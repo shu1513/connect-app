@@ -1479,11 +1479,13 @@ async function main() {
     await C.tryHold(tSecond, new Date(tDeadline + 20 * MIN));
     check("when a payment Stripe was still working on then goes through with a bank time inside the 7 days, it is accepted: the look that shows it is the look that is recorded", waited && Date.now() < tDeadline && (await PM(tSecond)).status === "held" && (await CO(through.contributionId)).skippedMonths === "[]", { waited, status: (await PM(tSecond)).status, endedHow: (await PM(tSecond)).endedHow });
 
-    // Stripe keeps working on it for more than a day past the 7 days: the founder is shown it; it is not given up.
+    // Stripe keeps working on it for more than a day past the 7 days: it is not given up, nothing about it is
+    // changed, and the watch says so.
     const stuck = await held(host, { kind: "monthly", amountCents: 1000 });
     await C.takePayment(stuck.paymentId, (await PM(stuck.paymentId)).takeAt!);
     const sSecond = await nextMonth(stuck, 2, new Date());
     await S.payNow({ paymentId: sSecond, contributorId: stuck.giver.id });
+    const saidBefore = (await healthProblems(new Date())).some((problem) => /late month/.test(problem));
     await db.update(schema.contributions).set({ firstHoldAt: new Date(Date.now() - 45 * DAY) }).where(eq(schema.contributions.id, stuck.contributionId));
     stillWorking(await intents.retrieve((await PM(sSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] }));
     try {
@@ -1492,8 +1494,10 @@ async function main() {
       intents.retrieve = realRetrieve;
     }
     w = await PM(sSecond);
-    check("a payment Stripe is still working on more than a day after its month's 7 days is set aside for the founder, who is shown it; it is not given up", w.status === "to_pay" && w.endedHow === null && /still|working/.test(w.problem ?? "") && (await healthProblems(new Date())).some((problem) => /needs the founder/.test(problem)), { status: w.status, problem: w.problem });
-    await db.update(pays).set({ problem: null, endedHow: "cancelled", status: "given_up" }).where(eq(pays.id, sSecond));
+    check("a payment Stripe is still working on more than a day after its month's 7 days is neither given up nor set aside: it stays an ordinary waiting payment, and the watch says that it has had no outcome", !saidBefore && w.status === "to_pay" && w.endedHow === null && w.problem === null && (await healthProblems(new Date())).some((problem) => /late month has had no outcome/.test(problem)), { saidBefore, status: w.status, problem: w.problem });
+    // (When Stripe then shows that nothing came of it, it is given up like any late month, and the watch is quiet again.)
+    await C.tryHold(sSecond, new Date(Date.now() + 6 * MIN));
+    check("and once it has its outcome the watch no longer says so", (await PM(sSecond)).endedHow === "missed" && !(await healthProblems(new Date())).some((problem) => /late month/.test(problem)));
 
     // A contributor pays, and cancels before we have heard of the hold.
     const unheard = await atCardStep(host);

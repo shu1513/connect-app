@@ -1852,7 +1852,10 @@ pages. With this step part two is complete.
   Astra then found my first fix for the former wrong: it asked Stripe a second time and used
   that answer only to look for "still being worked on", so an answer that said "it went through"
   would have been thrown away. Now one look is both recorded and decided from. A payment Stripe
-  keeps working on for more than a day past its month's 7 days is shown to the founder.
+  keeps working on for more than a day past its month's 7 days is said by the watch; nothing
+  about the payment itself is changed, so it goes on being checked against Stripe. (A first
+  version set it aside for the founder, which Astra showed would have taken it out of those
+  checks.)
 
 **How it was checked**
 - `scripts/contribution-check.ts`, against Stripe's test mode: six new journeys (starting; the
