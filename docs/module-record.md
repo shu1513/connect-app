@@ -1846,6 +1846,9 @@ pages. With this step part two is complete.
   whose hold the app had not heard of; and the helper waits two minutes after a month's 7 days
   before it gives the month up. All taken, each with a case in the check script. Astra asked for
   nothing to be removed.
+- CodeRabbit, on the pull request: two comments, both taken. A late month is not given up while
+  Stripe says its payment is still being worked on; and the two "same moment" cases of the check
+  script now always hear a failure of the step they started, and let go of their lock first.
 
 **How it was checked**
 - `scripts/contribution-check.ts`, against Stripe's test mode: six new journeys (starting; the

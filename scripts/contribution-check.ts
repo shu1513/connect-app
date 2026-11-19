@@ -1294,23 +1294,29 @@ async function main() {
 
     // The switch is saved at the very moment a monthly contribution's first hold is accepted.
     const racing = await atCardStep(host, { kind: "monthly", amountCents: 1000 });
-    let save: Promise<void> = Promise.resolve();
+    // (What became of the save is kept from the moment it starts, so a failure of it is never left unheard, and
+    // it is waited for also when this step itself fails: the fixture always lets its lock go first.)
+    let save: Promise<Error | null> = Promise.resolve(null);
+    let saveFailed: Error | null = null;
     let released = 0;
     let saveWaited = false;
-    await db.transaction(async (tx) => {
-      await lockPair(tx, racing.giver.id, host.id);
-      // The save reads what it has to do now (the contribution is still at its card step), then waits for this pair.
-      save = saveProjectsSwitch({ adminId: admin.id, values: { projects: "off" }, detail: "off (check)" });
-      saveWaited = await untilWaiting(racing.giver.id, host.id);
-      // Meanwhile the first hold is accepted (put in by hand, as that step writes it).
-      const soon = new Date(Date.now() + 3 * DAY);
-      await tx.update(pays).set({ status: "held", authorisedAt: new Date(), holdExpiresAt: new Date(soon.getTime() + DAY), takeAt: soon, takeBy: new Date(soon.getTime() + 23 * HOUR) }).where(eq(pays.id, racing.paymentId));
-      await tx.update(schema.contributions).set({ status: "running", firstHoldAt: new Date() }).where(eq(schema.contributions.id, racing.contributionId));
-      released = Date.now();
-    });
-    await save;
+    try {
+      await db.transaction(async (tx) => {
+        await lockPair(tx, racing.giver.id, host.id);
+        // The save reads what it has to do now (the contribution is still at its card step), then waits for this pair.
+        save = saveProjectsSwitch({ adminId: admin.id, values: { projects: "off" }, detail: "off (check)" }).then(() => null, (error: unknown) => error as Error);
+        saveWaited = await untilWaiting(racing.giver.id, host.id);
+        // Meanwhile the first hold is accepted (put in by hand, as that step writes it).
+        const soon = new Date(Date.now() + 3 * DAY);
+        await tx.update(pays).set({ status: "held", authorisedAt: new Date(), holdExpiresAt: new Date(soon.getTime() + DAY), takeAt: soon, takeBy: new Date(soon.getTime() + 23 * HOUR) }).where(eq(pays.id, racing.paymentId));
+        await tx.update(schema.contributions).set({ status: "running", firstHoldAt: new Date() }).where(eq(schema.contributions.id, racing.contributionId));
+        released = Date.now();
+      });
+    } finally {
+      saveFailed = await save;
+    }
     c = await CO(racing.contributionId);
-    check("(the save had read what it has to do, and was waiting for the pair, when the first hold was accepted)", saveWaited);
+    check("(the save had read what it has to do, and was waiting for the pair, when the first hold was accepted; it then went through)", saveWaited && saveFailed === null, saveFailed?.message);
     check("a contribution whose first hold is accepted while the switch is being saved is still marked, and its payment given up", c.status === "running" && c.switchOffAt !== null && (await PM(racing.paymentId)).endedHow === "switch", { status: c.status, mark: c.switchOffAt, payment: (await PM(racing.paymentId)).endedHow });
     check("the moment of the switch is read after its locks were got, not when the press arrived", c.switchOffAt !== null && c.switchOffAt.getTime() >= released);
     await saveProjectsSwitch({ adminId: admin.id, values: { projects: "everyone" }, detail: "on (check)" });
@@ -1430,6 +1436,23 @@ async function main() {
     }
     check("a hold the contributor placed by hand within the 7 days is accepted, also when the helper's look at Stripe was made before it and answered after them: the month is not given up as missed", heldInTime && early.status !== "requires_capture" && !firstLook && (await PM(jSecond)).status === "held" && (await PM(jSecond)).endedHow === null && (await CO(justInTime.contributionId)).skippedMonths === "[]", { heldInTime, early: early.status, status: (await PM(jSecond)).status, endedHow: (await PM(jSecond)).endedHow });
 
+    // Stripe is still working on a payment when its 7 days are over: nothing is decided until it has an outcome.
+    const working = await held(host, { kind: "monthly", amountCents: 1000 });
+    await C.takePayment(working.paymentId, (await PM(working.paymentId)).takeAt!);
+    const wSecond = await nextMonth(working, 2, new Date());
+    await S.payNow({ paymentId: wSecond, contributorId: working.giver.id });
+    await db.update(schema.contributions).set({ firstHoldAt: new Date(Date.now() - 40 * DAY) }).where(eq(schema.contributions.id, working.contributionId));
+    const asItIs = await intents.retrieve((await PM(wSecond)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] });
+    intents.retrieve = (() => Promise.resolve({ ...asItIs, status: "processing" })) as unknown as typeof intents.retrieve;
+    try {
+      await C.tryHold(wSecond, new Date());
+    } finally {
+      intents.retrieve = realRetrieve;
+    }
+    const undecided = (await PM(wSecond)).status === "to_pay" && (await PM(wSecond)).endedHow === null;
+    await C.tryHold(wSecond, new Date());
+    check("a late month is not given up while Stripe is still working on its payment; once Stripe shows that nothing came of it, it is", undecided && (await PM(wSecond)).status === "given_up" && (await PM(wSecond)).endedHow === "missed" && (await CO(working.contributionId)).skippedMonths === "[2]", { undecided, status: (await PM(wSecond)).status, endedHow: (await PM(wSecond)).endedHow });
+
     // A contributor pays, and cancels before we have heard of the hold.
     const unheard = await atCardStep(host);
     await confirmOnly(unheard.paymentId);
@@ -1445,18 +1468,22 @@ async function main() {
     const q = await held(closing, { kind: "monthly", amountCents: 1000 });
     await C.takePayment(q.paymentId, (await PM(q.paymentId)).takeAt!);
     const closingProject = (await runningProjectOf(closing.id))!.id;
-    let ending: Promise<unknown> = Promise.resolve();
+    let ending: Promise<Error | null> = Promise.resolve(null);
+    let endingFailed: Error | null = null;
     let endingWaited = false;
-    await db.transaction(async (tx) => {
-      await lockPair(tx, q.giver.id, closing.id);
-      // The ending reads who contributes now (this contribution is still running), then waits for this pair.
-      ending = endProject({ hostId: closing.id, projectId: closingProject, now: new Date() });
-      endingWaited = await untilWaiting(q.giver.id, closing.id);
-      // Meanwhile their own stop is saved (put in by hand, as that step writes it).
-      await tx.update(schema.contributions).set({ status: "ended", endedAt: new Date(), endedHow: "stopped" }).where(eq(schema.contributions.id, q.contributionId));
-    });
-    await ending;
-    check("someone who stopped at the very moment the project ended is still told that it ended", endingWaited && (await mail(q.giver, "\" has ended")).length === 1, { endingWaited, mails: (await mail(q.giver, "has ended")).map((email) => email.subject) });
+    try {
+      await db.transaction(async (tx) => {
+        await lockPair(tx, q.giver.id, closing.id);
+        // The ending reads who contributes now (this contribution is still running), then waits for this pair.
+        ending = endProject({ hostId: closing.id, projectId: closingProject, now: new Date() }).then(() => null, (error: unknown) => error as Error);
+        endingWaited = await untilWaiting(q.giver.id, closing.id);
+        // Meanwhile their own stop is saved (put in by hand, as that step writes it).
+        await tx.update(schema.contributions).set({ status: "ended", endedAt: new Date(), endedHow: "stopped" }).where(eq(schema.contributions.id, q.contributionId));
+      });
+    } finally {
+      endingFailed = await ending;
+    }
+    check("someone who stopped at the very moment the project ended is still told that it ended", endingWaited && endingFailed === null && (await mail(q.giver, "\" has ended")).length === 1, { endingWaited, failed: endingFailed?.message, mails: (await mail(q.giver, "has ended")).map((email) => email.subject) });
 
     // The founder reaches every payment of a project, also an ordinary one.
     const plain = await taken(big, { amountCents: 2500 });

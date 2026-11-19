@@ -776,7 +776,11 @@ async function missMonth(paymentId: string, now: Date): Promise<ContributionPaym
   // Stripe is asked once more, now that the 7 days are over: a hold the contributor placed by hand in time, and
   // that an earlier look was too early to see, is found here and accepted by the bank's own time for it. Only a
   // payment that is still without a hold after this look is given up as missed.
-  await syncPayment(paymentId, now);
+  const looked = await syncPayment(paymentId, now);
+  // A payment Stripe is still working on has no outcome yet: a hold with a bank time inside the 7 days may be
+  // about to appear. Nothing is decided until it has one; the helper looks again on its next round. (Giving it up
+  // now would cancel it, and a hold that was let go cannot be brought back.)
+  if (looked.status === "to_pay" && looked.stripePaymentIntentId && (await stripe().paymentIntents.retrieve(looked.stripePaymentIntentId)).status === "processing") return looked;
   await db.transaction(async (tx) => {
     const locked = await lockForPayment(tx, paymentId);
     // Looked at again under the locks: only a payment that is still waiting, that nobody has started to try (a try
