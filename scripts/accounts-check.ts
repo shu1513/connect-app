@@ -11,6 +11,7 @@ config({ path: ".env.local", quiet: true });
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import type { BioAnswer, BioSettings } from "../src/lib/profiles/bio-check";
+import type { InstagramAccounts, InstagramLookup, InstagramSettings } from "../src/lib/profiles/instagram";
 import type { TikTokAccount, TikTokLookup, TikTokSettings } from "../src/lib/profiles/tiktok";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
@@ -865,6 +866,218 @@ async function main() {
       const reply = await send(returnAddress, { jar: sam.jar });
       const landed = decodeURIComponent(reply.location ?? "");
       check("logged in, with a note that is not ours: the note is removed, back on the Hosting page with a plain message, nothing saved", noteRemoved(reply) && landed.includes("/host?notice=") && (landed.includes(tiktokLogin.TIKTOK_OFF) || landed.includes("TikTok was not connected")) && (await entryOf(sam.id)).nameKey === `sam.new.${tag}`, `${landed.slice(0, 110)} | ${reply.setCookies.join(" || ").slice(0, 160)}`);
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n6e. Instagram can also be proven by signing in at Meta (the code stays)");
+    await freshLimits();
+    {
+      // Meta's side, the settings and the time are pretended here. Nothing is asked of Meta.
+      const instagram = await import("../src/lib/profiles/instagram");
+      const instagramLogin = await import("../src/lib/profiles/instagram-login");
+      const { writeNote } = await import("../src/lib/profiles/login-note");
+      const ON: InstagramSettings = { appId: "20193060", appSecret: "pretend", configId: "25986641", returnUrl: "https://connect.example/api/social/instagram/return", signingSecret: "pretend-note-secret" };
+      const time = Date.now();
+      const now = () => new Date(time);
+      let asked = 0;
+      const says = (answer: InstagramAccounts): InstagramLookup => async () => (asked++, answer);
+      // Every name and account number here carries this run's own tag, so runs never meet each other's leftovers.
+      const tag = RUN.slice(0, 6);
+      const base = String(parseInt(RUN, 16));
+      const num = (n: number) => `${base}${String(n).padStart(3, "0")}`;
+      const name = (label: string) => `ig.${label}.${tag}`;
+      const shared = (...accounts: Array<[number, string]>): InstagramAccounts => ({ kind: "accounts", accounts: accounts.map(([n, username]) => ({ accountId: num(n), username })) });
+      type Return = Parameters<typeof instagramLogin.finishInstagramLogin>[0];
+      /** One sign-in from start to return, as the two addresses would run it. `change` alters what comes back. */
+      const signIn = (userId: string, accountsFor: InstagramLookup, change: (r: Return) => void = () => undefined) => {
+        const started = instagramLogin.startInstagramLogin({ userId, now: now(), settings: ON });
+        const request: Return = { settings: ON, code: "one-time-code", state: new URL(started.url).searchParams.get("state"), refused: false, note: started.note, userId, now: now(), accountsFor };
+        change(request);
+        return instagramLogin.finishInstagramLogin(request);
+      };
+      const entryOf = async (userId: string, network = "instagram") =>
+        (await db.select().from(schema.socialAccounts).where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, network))))[0];
+      const confirmedOf = async (userId: string) => (await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, userId))).filter((a) => a.confirmedAt !== null);
+      const onFoundersList = async (userId: string) =>
+        (await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, userId))).filter((a) => a.claimedAt !== null && a.confirmedAt === null && a.codeExpiresAt > new Date()).length;
+      const statusOf = async (userId: string) => (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)))[0].status;
+      const signInRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === profiles.INSTAGRAM_SIGN_IN && c.result === "refused").length;
+      const newHost = async (label: string) => {
+        const person = await newPerson(label);
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, usConfirmed: true });
+        return person;
+      };
+      /** The code way, with Meta's bio service pretended: the code is in the bio. */
+      const byCode = async (userId: string, typed: string) => {
+        await profiles.addSocialName(userId, "instagram", typed);
+        const entry = await entryOf(userId);
+        return profiles.socialNameReady(userId, entry.id, { read: async () => ({ kind: "bio", text: `hello ${entry.code}` }), settings: { instagram: { token: "pretend", accountId: "12345" }, youtube: null }, clock: now });
+      };
+
+      // Switched off, and the return's own checks.
+      const ivo = await newHost("ivo");
+      await passId(ivo);
+      check("switched off: nothing is asked and nothing saved", (await signIn(ivo.id, says(shared([1, name("ivo")])), (r) => (r.settings = null))) === instagramLogin.INSTAGRAM_OFF && asked === 0 && (await entryOf(ivo.id)) === undefined);
+      const stranger = await newHost("jon");
+      const wrong: Array<[string, (r: Return) => void]> = [
+        ["no note", (r) => (r.note = undefined)],
+        ["a note that was changed", (r) => (r.note = `${r.note}x`)],
+        ["a note out of date", (r) => (r.now = new Date(time + 11 * 60_000))],
+        ["a value that does not match", (r) => (r.state = "another-value")],
+        ["no value", (r) => (r.state = null)],
+        ["started as one person, returned as another", (r) => (r.userId = stranger.id)],
+        ["a note of TikTok's sign-in, for the same person and value", (r) => (r.note = writeNote("tiktok-login", { state: r.state ?? "", userId: r.userId, expiresAt: new Date(time + 600_000) }, ON.signingSecret))],
+        ["Meta returns a refusal", (r) => (r.refused = true)],
+        ["no code", (r) => (r.code = null)],
+      ];
+      const stopped: string[] = [];
+      for (const [label, change] of wrong) {
+        const message = await signIn(ivo.id, says(shared([1, name("ivo")])), change);
+        if (message.includes("is confirmed") || asked !== 0 || (await entryOf(ivo.id)) !== undefined || (await entryOf(stranger.id)) !== undefined) stopped.push(label);
+      }
+      check(`the return is stopped by Connect's own checks, before anything is asked of Meta (${wrong.length} cases)`, stopped.length === 0, stopped.join("; "));
+
+      // One account shared.
+      const first = await signIn(ivo.id, says(shared([1, `IG.Ivo.${tag}`])));
+      const ivoEntry = await entryOf(ivo.id);
+      check("one account shared, no entry yet: confirmed at once, with Meta's number, by nobody's hand, never on the founder's list", first === `Instagram @${name("ivo")} is confirmed.` && asked === 1 && ivoEntry.confirmedAt !== null && ivoEntry.providerAccountId === num(1) && ivoEntry.confirmedBy === null && ivoEntry.claimedAt === null && ivoEntry.codeExpiresAt <= now() && (await onFoundersList(ivo.id)) === 0, first);
+      await approve(ivo.id);
+      check("a host whose only account was confirmed by signing in can be approved, and then cannot remove it", (await statusOf(ivo.id)) === "approved" && (await refusedWith(profiles.removeSocialName(ivo.id, ivoEntry.id), "needs one confirmed account")));
+      check("the same account under a new name: the name is updated, the proof kept", (await signIn(ivo.id, says(shared([1, name("ivor")])))) === `Instagram @${name("ivor")} is confirmed.` && (await entryOf(ivo.id)).id === ivoEntry.id && (await entryOf(ivo.id)).nameKey === name("ivor") && (await confirmedOf(ivo.id)).length === 1);
+      check("only a different account shared: it replaces the old one in one step, and the approved host is never without a confirmed account", (await signIn(ivo.id, says(shared([2, name("ivo2")])))) === `Instagram @${name("ivo2")} is confirmed.` && (await entryOf(ivo.id)).providerAccountId === num(2) && (await confirmedOf(ivo.id)).length === 1 && (await statusOf(ivo.id)) === "approved");
+
+      // The code and the sign-in, for one entry.
+      const kai = await newHost("kai");
+      const coded = await byCode(kai.id, name("kai"));
+      const kaiByCode = await entryOf(kai.id);
+      check("(the code still confirms an Instagram account by itself)", coded.outcome === "confirmed" && kaiByCode.confirmedAt !== null && kaiByCode.providerAccountId === null, coded.outcome);
+      check("an account confirmed with the code stays confirmed and gains Meta's number", (await signIn(kai.id, says(shared([3, name("kai")])))) === `Instagram @${name("kai")} is confirmed.` && (await entryOf(kai.id)).id === kaiByCode.id && (await entryOf(kai.id)).providerAccountId === num(3) && (await entryOf(kai.id)).confirmedAt !== null);
+      const lea = await newHost("lea");
+      await profiles.addSocialName(lea.id, "instagram", name("lea.typed"));
+      const leaTyped = await entryOf(lea.id);
+      const leaSigned = await signIn(lea.id, says(shared([4, name("lea.real")])));
+      check("a name the host typed is never confirmed when Meta did not list it: the one shared account takes its place", leaSigned === `Instagram @${name("lea.real")} is confirmed.` && (await entryOf(lea.id)).nameKey === name("lea.real") && (await entryOf(lea.id)).providerAccountId === num(4) && (await confirmedOf(lea.id)).every((a) => a.nameKey !== leaTyped.nameKey), leaSigned);
+      check("a \"Check now\" for the old code, from a page left open, changes nothing after that", (await profiles.socialNameReady(lea.id, leaTyped.id, { read: async () => ({ kind: "bio", text: leaTyped.code }), settings: { instagram: { token: "pretend", accountId: "12345" }, youtube: null }, clock: now })).outcome === "gone" && (await entryOf(lea.id)).providerAccountId === num(4));
+
+      // Several accounts shared: the rule, case by case.
+      const mia = await newHost("mia");
+      const none = await signIn(mia.id, says(shared()));
+      const severalNoEntry = await signIn(mia.id, says(shared([10, name("mia.a")], [11, name("mia.b")])));
+      check("none shared, and several shared by a host with no entry: nothing is taken, each with its own sentence", none === profiles.NO_INSTAGRAM_SHARED && severalNoEntry === profiles.SEVERAL_INSTAGRAM_SHARED && (await entryOf(mia.id)) === undefined, `${none} | ${severalNoEntry}`);
+      await profiles.addSocialName(mia.id, "instagram", name("mia.b"));
+      const miaTyped = await entryOf(mia.id);
+      const noMatch = await signIn(mia.id, says(shared([10, name("mia.a")], [12, name("mia.c")])));
+      const afterNoMatch = await entryOf(mia.id);
+      check("several shared, and none has the name on the host's page: nothing is taken, and the entry keeps its code", noMatch === profiles.SEVERAL_INSTAGRAM_SHARED && afterNoMatch.nameKey === miaTyped.nameKey && afterNoMatch.code === miaTyped.code && afterNoMatch.confirmedAt === null);
+      check("several shared, and exactly one has that name: that one", (await signIn(mia.id, says(shared([10, name("mia.a")], [11, `IG.Mia.B.${tag}`])))) === `Instagram @${name("mia.b")} is confirmed.` && (await entryOf(mia.id)).providerAccountId === num(11) && (await entryOf(mia.id)).id === miaTyped.id);
+      // Her account (number 11) is renamed, and another shared account now carries its old name.
+      const renamed = await signIn(mia.id, says(shared([13, name("mia.b")], [11, name("mia.new")])));
+      check("several shared, and one has the number on the host's entry: that one, although another now carries its old name", renamed === `Instagram @${name("mia.new")} is confirmed.` && (await entryOf(mia.id)).providerAccountId === num(11) && (await entryOf(mia.id)).nameKey === name("mia.new"), renamed);
+      const numberGone = await signIn(mia.id, says(shared([13, name("mia.new")], [14, name("mia.d")])));
+      check("several shared, and none has that number: nothing is taken, also when one carries the entry's name", numberGone === profiles.SEVERAL_INSTAGRAM_SHARED && (await entryOf(mia.id)).providerAccountId === num(11));
+      const tooMany = await signIn(mia.id, says({ kind: "failed", reason: "the list of accounts goes on" }));
+      const broken = await signIn(mia.id, says({ kind: "failed", reason: "the list of accounts could not be read" }));
+      check("a list that goes on, or cannot be read, is refused whole", tooMany.includes("more Instagram accounts than we can look through") && broken.includes("was not connected") && (await entryOf(mia.id)).providerAccountId === num(11));
+
+      // One owner for an account.
+      const noa = await newHost("noa");
+      await profiles.addSocialName(noa.id, "instagram", name("noa"));
+      const noaOwn = await entryOf(noa.id);
+      const byName = await signIn(noa.id, says(shared([20, name("kai")])));
+      const byNumber = await signIn(noa.id, says(shared([3, name("brand.new")])));
+      // Another host has typed the same name, while nobody had it confirmed yet.
+      const oda = await newHost("oda");
+      await profiles.addSocialName(oda.id, "instagram", name("noa"));
+      const odaOwn = await entryOf(oda.id);
+      const pickedIsTaken = await signIn(noa.id, says(shared([21, name("noa")], [22, name("free")])));
+      check("(with several shared, her own name picks her own account)", pickedIsTaken === `Instagram @${name("noa")} is confirmed.`, pickedIsTaken);
+      const noFallback = await signIn(oda.id, says(shared([21, name("noa")], [23, name("free")])));
+      const odaAfter = await entryOf(oda.id);
+      check("a name or a number that is confirmed for another host is refused, and the host's own entry was untouched", byName.includes("already confirmed for another host") && byNumber.includes("already confirmed for another host") && noaOwn.confirmedAt === null, `${byName} | ${byNumber}`);
+      check("when the account the rule picks belongs to another host, no other shared account is taken in its place", noFallback.includes("already confirmed for another host") && odaAfter.nameKey === odaOwn.nameKey && odaAfter.code === odaOwn.code && odaAfter.confirmedAt === null && odaAfter.providerAccountId === null, noFallback);
+      const pat = await newHost("pat");
+      const quy = await newHost("quy");
+      const both = await Promise.all([signIn(pat.id, says(shared([30, name("same")]))), signIn(quy.id, says(shared([30, name("same")])))]);
+      check("two hosts connect the same account at the same moment: one gets it, the other is told it is taken", both.filter((m) => m.includes("is confirmed")).length === 1 && both.filter((m) => m.includes("already confirmed for another host")).length === 1 && (await confirmedOf(pat.id)).length + (await confirmedOf(quy.id)).length === 1, both.join(" | "));
+
+      // The entry changes while Meta is answering: the choice is made on the entry as it is when it is saved.
+      await freshLimits(); // this section signs up many people
+      const rex = await newHost("rex");
+      await profiles.addSocialName(rex.id, "instagram", name("rex.a"));
+      const changedMeanwhile = await signIn(rex.id, async () => {
+        await profiles.addSocialName(rex.id, "instagram", name("rex.b"));
+        return shared([40, name("rex.a")], [41, name("rex.b")]);
+      });
+      check("the host changes the name on their page while Meta is answering: the account is chosen by the page as it is then", changedMeanwhile === `Instagram @${name("rex.b")} is confirmed.` && (await entryOf(rex.id)).providerAccountId === num(41), changedMeanwhile);
+      const sue = await newHost("sue");
+      await profiles.addSocialName(sue.id, "instagram", name("sue"));
+      const removedMeanwhile = await signIn(sue.id, async () => {
+        await profiles.removeSocialName(sue.id, (await entryOf(sue.id)).id);
+        return shared([42, name("sue.a")], [43, name("sue")]);
+      });
+      check("the host removes the account from their page while Meta is answering: with several shared, nothing is taken", removedMeanwhile === profiles.SEVERAL_INSTAGRAM_SHARED && (await entryOf(sue.id)) === undefined, removedMeanwhile);
+      const sameMoment = await Promise.all([signIn(sue.id, says(shared([44, name("sue.x")]))), signIn(sue.id, says(shared([44, name("sue.x")])))]);
+      check("the same return twice at the same moment: the same account, confirmed once", sameMoment.every((m) => m === `Instagram @${name("sue.x")} is confirmed.`) && (await confirmedOf(sue.id)).length === 1, sameMoment.join(" | "));
+      const tia = await newHost("tia");
+      await passId(tia);
+      await signIn(tia.id, says(shared([45, name("tia")])));
+      const said = (r: PromiseSettledResult<unknown>) => (r.status === "fulfilled" ? String(r.value) : `refused: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
+      const swapAndApprove = await Promise.allSettled([approve(tia.id), signIn(tia.id, says(shared([46, name("tia2")])))]);
+      check("a replacement and an approval at the same moment: both go through, and the approved host has the new account", swapAndApprove[0].status === "fulfilled" && said(swapAndApprove[1]) === `Instagram @${name("tia2")} is confirmed.` && (await entryOf(tia.id)).providerAccountId === num(46) && (await statusOf(tia.id)) === "approved" && (await confirmedOf(tia.id)).length === 1, swapAndApprove.map(said).join(" | "));
+      const tiaNow = await entryOf(tia.id);
+      const swapAndRemove = await Promise.allSettled([signIn(tia.id, says(shared([47, name("tia3")]))), profiles.removeSocialName(tia.id, tiaNow.id)]);
+      check("a replacement and a removal at the same moment: the approved host still has exactly one confirmed account", (await confirmedOf(tia.id)).length === 1 && (await statusOf(tia.id)) === "approved" && swapAndRemove[1].status === "rejected", swapAndRemove.map(said).join(" | "));
+
+      // The person.
+      const uma = await newHost("uma");
+      const pausedMeanwhile = await signIn(uma.id, async () => {
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, uma.id));
+        return shared([50, name("uma")]);
+      });
+      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, uma.id));
+      const closedMeanwhile = await signIn(uma.id, async () => {
+        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, uma.id));
+        return shared([50, name("uma")]);
+      });
+      await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, uma.id));
+      const noProfile = await newPerson("val");
+      check("an account paused or closed while Meta was answering, or a person with no host profile: nothing is saved", pausedMeanwhile.includes("cannot do this at the moment") && closedMeanwhile.includes("cannot do this at the moment") && (await entryOf(uma.id)) === undefined && (await signIn(noProfile.id, says(shared([51, name("val")])))) === "Fill in your host profile first." && (await entryOf(noProfile.id)) === undefined);
+
+      // The founder's warning, and the bio check's limits.
+      const before = await signInRows(uma.id);
+      const notOurs = await signIn(uma.id, says({ kind: "failed", reason: "the code was not accepted" }));
+      const broke = await signIn(uma.id, async () => {
+        throw new Error("boom");
+      });
+      const afterOthers = await signInRows(uma.id);
+      const ours = await signIn(uma.id, says({ kind: "refused" }));
+      const forFounder = await profiles.refusedBioChecks(now());
+      check("a code Meta will not take, or a request that breaks, is not blamed on our set-up", !notOurs.includes("is confirmed") && !broke.includes("is confirmed") && afterOthers === before && (await entryOf(uma.id)) === undefined);
+      check("when Meta refuses our own set-up, the host is told to try later or use the code, and it shows up for the founder's page under its own name", ours.includes("try again later") && ours.includes("use the code") && (await signInRows(uma.id)) === before + 1 && forFounder.some((r) => r.network === profiles.INSTAGRAM_SIGN_IN && r.count >= 1) && (await entryOf(uma.id)) === undefined, ours);
+      // Right after that refusal, and with far more of them than any limit: the bio check is as free as before.
+      await db.insert(schema.bioChecks).values(Array.from({ length: profiles.INSTAGRAM_CHECKS_PER_HOUR + 5 }, () => ({ userId: uma.id, network: profiles.INSTAGRAM_SIGN_IN, startedAt: now(), result: "refused" })));
+      const atOnce = await byCode(uma.id, name("uma"));
+      check("refused sign-ins use up none of the bio check's limits: not the 30 seconds, not the person's hour, not everyone's hour", atOnce.outcome === "confirmed" && profiles.INSTAGRAM_CHECKS_PER_HOUR + 5 > profiles.BIO_CHECKS_PER_HOUR, atOnce.outcome);
+
+      // Through the running app, as a browser would. A note that is not ours is sent along. Whether the app
+      // has Meta's settings (then the note is refused) or not (then it is switched off), nothing may be saved,
+      // and the note must be removed: read from the cookie line the app really sends.
+      const returnAddress = "/api/social/instagram/return?code=one-time-code&state=some-value";
+      const noteRemoved = (reply: Reply) =>
+        reply.setCookies.some((line) => line.startsWith(`${instagram.INSTAGRAM_COOKIE}=;`) && /;\s*path=\/api\/social\/instagram(;|$)/i.test(line) && (/;\s*max-age=0(;|$)/i.test(line) || /;\s*expires=thu, 01 jan 1970/i.test(line)));
+      const visitor = await send(returnAddress, { jar: new Map([[instagram.INSTAGRAM_COOKIE, "a-note-from-before"]]) });
+      check("the return address without being logged in: the note is removed, and the person is sent to log in and then to the Hosting page", noteRemoved(visitor) && (visitor.location ?? "").includes("/login?next=%2Fhost"), `${visitor.location} | ${visitor.setCookies.join(" || ").slice(0, 160)}`);
+      const umaBefore = await entryOf(uma.id);
+      uma.jar.set(instagram.INSTAGRAM_COOKIE, "a-note-from-before");
+      const reply = await send(returnAddress, { jar: uma.jar });
+      const landed = decodeURIComponent(reply.location ?? "");
+      check("logged in, with a note that is not ours: the note is removed, back on the Hosting page with a plain message, nothing changed", noteRemoved(reply) && landed.includes("/host?notice=") && (landed.includes(instagramLogin.INSTAGRAM_OFF) || landed.includes("Instagram was not connected")) && (await entryOf(uma.id)).providerAccountId === umaBefore.providerAccountId, `${landed.slice(0, 110)} | ${reply.setCookies.join(" || ").slice(0, 160)}`);
+      // The Hosting page keeps the code for Instagram in every state; the button is there only while the sign-in is on.
+      const on = instagram.instagramSignInOn();
+      const wes = await newHost("wes");
+      await profiles.addSocialName(wes.id, "instagram", name("wes"));
+      const hosting = await send("/host", { jar: wes.jar });
+      check(`the Hosting page shows an Instagram account that is not confirmed with its code, and the button only while the sign-in is on (it is ${on ? "on" : "off"} for the app)`, hosting.status === 200 && hosting.text.includes((await entryOf(wes.id)).code) && hosting.text.includes("Connect your Instagram") === on, String(hosting.status));
     }
 
     // ----------------------------------------------------------------------

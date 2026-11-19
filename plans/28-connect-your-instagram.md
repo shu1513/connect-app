@@ -1,6 +1,8 @@
 # Plan 28: "Connect your Instagram": a host proves an Instagram account by signing in at Meta
 
-**Status:** a plan only; nothing is built. Written 19 November 2026 by the builder alone (no
+**Status:** built on branch `module/connect-instagram`, with Meta's side pretended in its
+checks; the real try with the founder's own Instagram account is still to come, and it stays
+switched off until then. Written 19 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 47, from plan 16 (whose part
 two this replaces), plan 17 and plan 18, and from Meta's developer pages as read that day. Astra
 checked it once: "not ready", six points that had to change, all worked in (the list is at the
@@ -125,6 +127,13 @@ is called working:
    the app and full control of the business portfolio that is shared, and that this portfolio
    is not the one that owns our app.
 6. Whether Meta accepts the same one-time code a second time.
+
+**Also seen for real that day, with made-up values and no secret:** Meta reads the swap's
+fields from the body of the request (with an empty body it answers "Missing client_id
+parameter"), so the body is at least understood; whether a real swap goes through that way is
+still point 2. An app number Meta does not know gives error number 101, and a return address
+that is not registered for the app gives 191: those two, and nothing else, are read as "our own
+set-up was refused". What a wrong secret gives has not been seen yet.
 
 **Seen for real on 19 November 2026,** with the key the app already has for reading bios (a key
 of the same kind, for the founder's own Instagram account): the list of accounts comes as
