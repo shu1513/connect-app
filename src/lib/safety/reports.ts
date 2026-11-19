@@ -4,6 +4,7 @@
  * already exist and are used from the same page.)
  */
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
+import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
@@ -215,10 +216,13 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   const reason = `${rule.title}.${input.note ? ` ${input.note}` : ""}`;
   if (person.pausedAt) throw new ReportError("This account is already paused.");
   let endedMemberships: string[] = [];
+  let givenUpPayments: string[] = [];
   await db.transaction(async (tx) => {
     await tx.update(schema.user).set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() }).where(and(eq(schema.user.id, input.userId), isNull(schema.user.pausedAt)));
     // Their memberships, as a host and as a member, end at once and for good, in this same step.
     endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
+    // So do their contributions, as a host and as a contributor; what was only held is let go below.
+    givenUpPayments = await endContributionsOf(tx, input.userId, "paused", new Date());
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
@@ -231,6 +235,7 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
   const callsNotEnded = await endRequestsAndCallsOf(input.userId, new Date());
   await cleanUpEndedMemberships(endedMemberships, new Date());
+  await letGoAll(givenUpPayments, new Date());
   return { callsNotEnded };
 }
 

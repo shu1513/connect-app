@@ -19,6 +19,7 @@ import { currentSplit } from "@/lib/payments/actions";
 import { addLedgerEntry, MoneyError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, runOwnedOperation, type Tx } from "@/lib/payments/operations";
 import { splitAfterRefunds } from "@/lib/payments/pricing";
 import { stripe } from "@/lib/payments/stripe";
+import { queueRefundEmail } from "./emails";
 import { lockForPayment, lockShare, paymentOwner, type LockedPayment } from "./locks";
 import { ContributionError } from "./rules";
 
@@ -116,6 +117,8 @@ export async function applyRefundOutcome(tx: Tx, locked: LockedPayment, outcome:
   await tx.update(pays).set({ refundedCents: sql`${pays.refundedCents} + ${line.amountCents}`, updatedAt: now }).where(eq(pays.id, locked.payment.id));
   // What went back to the card is written once, under the contribution's payment.
   await addLedgerEntry(tx, { contributionPaymentId: locked.payment.id, kind: "customer_refund", amountCents: -line.amountCents, stripeRef: outcome.stripeRefundId, note: line.reason });
+  // The contributor is told, once the money has really gone back.
+  await queueRefundEmail(tx, locked.contribution, { id: line.id, amountCents: line.amountCents });
   if (line.connectsOwn) {
     // After the share was sent: Connect's own money. Her share stays what she really received.
     await addLedgerEntry(tx, { contributionPaymentId: locked.payment.id, kind: "connect_cost", amountCents: line.amountCents, stripeRef: outcome.stripeRefundId, note: "refunded after the host had collected" });

@@ -8,6 +8,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Project } from "@/db/schema";
+import { ContributionError, readSuggested } from "@/lib/contributions/rules";
 import { publicProfile, type PublicProfile } from "@/lib/profiles/profiles";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { ProjectError, projectProblem, tidyName, tidyText } from "./rules";
@@ -101,17 +102,50 @@ export async function changeProject(input: { hostId: string; projectId: string; 
 }
 
 /**
+ * The host sets the amounts she suggests, for each kind of contribution, as she typed them into
+ * their boxes (plans/23, choice B). A kind she leaves empty is not offered. For the project the
+ * form was drawn for, which must be her running one; not while the founder's switch is off for her.
+ */
+export async function changeSuggested(input: { hostId: string; projectId: string; once: string[]; monthly: string[]; now: Date }): Promise<void> {
+  if (!isId(input.projectId)) throw new ProjectError(NOT_RUNNING);
+  let once: number[];
+  let monthly: number[];
+  try {
+    once = readSuggested(input.once);
+    monthly = readSuggested(input.monthly);
+  } catch (error) {
+    if (error instanceof ContributionError) throw new ProjectError(error.message);
+    throw error;
+  }
+  await db.transaction(async (tx) => {
+    if (!(await projectsOnFor(input.hostId, tx))) throw new ProjectError(PROJECTS_OFF);
+    const changed = await tx
+      .update(schema.projects)
+      .set({ suggestedOnce: once.join(","), suggestedMonthly: monthly.join(","), updatedAt: input.now })
+      .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.hostId, input.hostId), eq(schema.projects.status, "running")))
+      .returning({ id: schema.projects.id });
+    if (changed.length === 0) throw new ProjectError(NOT_RUNNING);
+  });
+}
+
+/**
  * Ends one running project of a host, inside the caller's database step. The one way a project
  * ends: what ending does to contributions (part two) is added here, in this same step. Returns
  * the project as it is afterwards, or null when that project was not her running one.
  */
-export async function endProjectInStep(tx: Tx, input: { hostId: string; projectId: string; by: "host" | "connect"; now: Date }): Promise<Project | null> {
+export async function endProjectInStep(tx: Tx, input: { hostId: string; projectId: string; by: "host" | "connect"; now: Date }): Promise<{ project: Project; givenUpPayments: string[] } | null> {
   const [ended] = await tx
     .update(schema.projects)
     .set({ status: "ended", endedAt: input.now, endedBy: input.by, updatedAt: input.now })
     .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.hostId, input.hostId), eq(schema.projects.status, "running")))
     .returning();
-  return ended ?? null;
+  if (!ended) return null;
+  // Every contribution to it ends in this same step: no monthly one is charged again, and payments that are only
+  // held, monthly ones and ones made once, are given up. The caller lets their holds go once its step is saved.
+  // (Loaded here, not at the top: that code talks to Stripe, and this file stays free of that.)
+  const { endContributionsOfProject } = await import("@/lib/contributions/ending");
+  const givenUpPayments = await endContributionsOfProject(tx, ended.id, "project_ended", input.now);
+  return { project: ended, givenUpPayments };
 }
 
 /**
@@ -122,7 +156,9 @@ export async function endProject(input: { hostId: string; projectId: string; now
   if (!isId(input.projectId)) throw new ProjectError(NOT_RUNNING);
   const ended = await db.transaction((tx) => endProjectInStep(tx, { hostId: input.hostId, projectId: input.projectId, by: "host", now: input.now }));
   if (!ended) throw new ProjectError(NOT_RUNNING);
-  return ended;
+  // The project has ended from here on, whatever happens next. What was only held is let go (the helper repeats that until it is done).
+  if (ended.givenUpPayments.length > 0) await (await import("@/lib/contributions/ending")).letGoAll(ended.givenUpPayments, input.now);
+  return ended.project;
 }
 
 /**

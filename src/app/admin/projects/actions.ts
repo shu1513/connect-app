@@ -8,8 +8,7 @@ import { momentIn } from "@/lib/booking/calendar";
 import { lockAndReport, recordReportMade, removePictureAsFounder, setSuspected } from "@/lib/projects/moderation";
 import { hidePost, showPost } from "@/lib/projects/posts";
 import { ProjectError } from "@/lib/projects/rules";
-import { recordAdminAction } from "@/lib/safety/audit";
-import { setSwitches } from "@/lib/safety/switches";
+import { saveProjectsSwitch } from "@/lib/contributions/switch";
 import { requireAdmin } from "@/lib/session";
 
 function back(text: string, postId?: string): never {
@@ -56,11 +55,8 @@ export async function projectsSwitchAction(formData: FormData) {
   if (position !== "named") {
     // Off (and everyone) are saved at once, whatever is typed in the list: switching off must never wait for a handle to be put right. The list stays as it was.
     const plain = position === "off" ? "off" : "on for everyone";
-    // The change and its line in the record of the founder's actions are saved together, or neither is.
-    await db.transaction(async (tx) => {
-      await setSwitches({ projects: position }, tx);
-      await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: plain }, tx);
-    });
+    // The change, its line in the record of the founder's actions, and what it means for contributions are saved together, or none is.
+    await saveProjectsSwitch({ adminId: admin.id, values: { projects: position }, detail: plain });
     back(`Projects are ${plain}.`);
   }
   const handles = [...new Set(String(formData.get("hosts") ?? "").split(/[\s,]+/).map((handle) => handle.replace(/^@/, "").toLowerCase()).filter(Boolean))];
@@ -68,10 +64,7 @@ export async function projectsSwitchAction(formData: FormData) {
   const unknown = handles.filter((handle) => !found.some((host) => host.handle === handle));
   if (unknown.length > 0) back(`No host has the handle ${unknown.join(", ")}. Nothing was changed.`);
   const words = `on for ${found.length === 0 ? "nobody yet" : found.map((host) => host.handle).join(", ")}`;
-  await db.transaction(async (tx) => {
-    await setSwitches({ projects: position, projectsHosts: found.map((host) => host.userId) }, tx);
-    await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: words }, tx);
-  });
+  await saveProjectsSwitch({ adminId: admin.id, values: { projects: position, projectsHosts: found.map((host) => host.userId) }, detail: words });
   back(`Projects are ${words}.`);
 }
 

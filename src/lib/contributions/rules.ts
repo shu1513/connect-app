@@ -22,6 +22,17 @@ export const CONTRIBUTION = {
   longWaitMs: 30 * DAY_MS,
   /** Held money may be taken until one hour before its hold ends (plans/25, choice 12). */
   lastMomentBeforeExpiryMs: 3_600_000,
+  /** A month's payment is still written down up to this long after its day, when the helper is late. */
+  lateMonthMs: 7 * DAY_MS,
+  /**
+   * The helper gives a month up as missed only this long after its 7 days are over. In between it
+   * neither tries the card nor gives up. A hold is accepted by the bank's own time for it, which
+   * Stripe gives in whole seconds and which can reach us a moment late; after this wait, a hold
+   * with a time inside the 7 days has been seen in every ordering we know of. (Stripe names no
+   * longest time for a card payment that is still being worked on, so this is a wide margin and
+   * not a proof.)
+   */
+  missedGraceMs: 2 * 60_000,
 } as const;
 
 /**
@@ -29,15 +40,52 @@ export const CONTRIBUTION = {
  * cents, or refuses it in words for the person. US dollars only.
  */
 export function readAmount(typed: string): number {
+  const amount = readSum(typed, "The largest contribution is $100,000.");
+  if (amount < CONTRIBUTION.minCents) throw new ContributionError("The smallest contribution is $5.");
+  if (amount > CONTRIBUTION.maxCents) throw new ContributionError("The largest contribution is $100,000.");
+  return amount;
+}
+
+/**
+ * Reads any sum of money typed in dollars and cents ("25", "25.5", "$1,000.00"), in cents: a
+ * refund's amount, for example, which can be less than the smallest contribution.
+ */
+export function readSum(typed: string, tooLarge = "That amount is too large."): number {
   const text = typed.trim().replace(/^\$\s*/, "");
   // Either plain digits, or digits grouped in threes with commas; then, if any, one or two digits of cents.
   if (!/^(\d+|\d{1,3}(,\d{3})+)(\.\d{1,2})?$/.test(text)) throw new ContributionError("Please type an amount in dollars, like 25 or 25.50.");
   const [dollars, cents = ""] = text.replace(/,/g, "").split(".");
-  if (dollars.length > 7) throw new ContributionError("The largest contribution is $100,000.");
-  const amount = Number(dollars) * 100 + Number(cents.padEnd(2, "0"));
-  if (amount < CONTRIBUTION.minCents) throw new ContributionError("The smallest contribution is $5.");
-  if (amount > CONTRIBUTION.maxCents) throw new ContributionError("The largest contribution is $100,000.");
-  return amount;
+  if (dollars.length > 7) throw new ContributionError(tooLarge);
+  return Number(dollars) * 100 + Number(cents.padEnd(2, "0"));
+}
+
+/** A host suggests up to this many amounts for each kind (plans/23, choice B). */
+export const SUGGESTED_AMOUNTS = 3;
+
+/**
+ * Reads the amounts a host typed into her boxes for one kind. Empty boxes are left out; the rest
+ * must each be a valid contribution; the same amount twice counts once. Given back in cents, the
+ * smallest first. None at all means she does not offer that kind.
+ */
+export function readSuggested(typed: string[]): number[] {
+  const filled = typed.map((box) => box.trim()).filter((box) => box !== "");
+  if (filled.length > SUGGESTED_AMOUNTS) throw new ContributionError(`You can suggest up to ${SUGGESTED_AMOUNTS} amounts.`);
+  return [...new Set(filled.map(readAmount))].sort((a, b) => a - b);
+}
+
+/** The suggested amounts as they are kept on a project (cents, separated by commas), read strictly: anything that is not a valid amount is left out. */
+export function suggestedOf(kept: string): number[] {
+  return kept
+    .split(",")
+    .filter((part) => /^\d+$/.test(part))
+    .map(Number)
+    .filter((cents) => cents >= CONTRIBUTION.minCents && cents <= CONTRIBUTION.maxCents)
+    .slice(0, SUGGESTED_AMOUNTS);
+}
+
+/** The kinds of contribution a project takes: the ones its host suggests an amount for. */
+export function kindsOffered(project: { suggestedOnce: string; suggestedMonthly: string }): Array<"once" | "monthly"> {
+  return [...(suggestedOf(project.suggestedOnce).length > 0 ? (["once"] as const) : []), ...(suggestedOf(project.suggestedMonthly).length > 0 ? (["monthly"] as const) : [])];
 }
 
 /**
@@ -50,6 +98,49 @@ export function monthlyDue(firstHold: Date, n: number): Date {
   const month = firstHold.getUTCMonth() + (n - 1);
   const daysInThatMonth = new Date(Date.UTC(firstHold.getUTCFullYear(), month + 1, 0)).getUTCDate();
   return new Date(Date.UTC(firstHold.getUTCFullYear(), month, Math.min(firstHold.getUTCDate(), daysInThatMonth), firstHold.getUTCHours(), firstHold.getUTCMinutes(), firstHold.getUTCSeconds(), firstHold.getUTCMilliseconds()));
+}
+
+/**
+ * Which month of a monthly contribution is to be written down now, and which were missed. A
+ * month's payment is written on its day, or up to 7 days after it when the helper is late (the
+ * same 7 days after which a month without a hold is given up). A month whose day lies further
+ * back was missed: it is never made up for, and the contribution goes on with the next one.
+ * `lastWritten` is the number of the last month that was written down or missed.
+ */
+export function dueMonths(firstHold: Date, lastWritten: number, now: Date): { write: number | null; missed: number[] } {
+  const missed: number[] = [];
+  // (The bound only keeps a wrong date from looping for ever: 50 years of months.)
+  for (let n = lastWritten + 1; n <= lastWritten + 600; n++) {
+    const due = monthlyDue(firstHold, n);
+    if (due > now) break;
+    if (now.getTime() - due.getTime() <= CONTRIBUTION.lateMonthMs) return { write: n, missed };
+    missed.push(n);
+  }
+  return { write: null, missed };
+}
+
+/**
+ * Whether a month's payment that nobody has tried to pay yet has been missed at this moment: a
+ * monthly payment after the first, with no failure recorded, whose day lies more than 7 days
+ * back. Every way to a first hold for it asks this: the helper's try with the saved card, paying
+ * by hand, and the acceptance of a hold that arrives. (Whether a try is under way is the caller's
+ * to look up: this only knows the dates. A payment that was tried and failed has its own 7 days,
+ * counted from that failure.)
+ */
+export function monthMissed(contribution: { kind: string; firstHoldAt: Date | null }, payment: { number: number; firstFailedAt: Date | null }, at: Date): boolean {
+  if (contribution.kind !== "monthly" || payment.number <= 1 || !contribution.firstHoldAt || payment.firstFailedAt) return false;
+  return at.getTime() - monthlyDue(contribution.firstHoldAt, payment.number).getTime() > CONTRIBUTION.lateMonthMs;
+}
+
+/** The months after `lastWritten` whose day fell after `from` and not after `to` (plans/25, choice 13: the months that passed while the switch did not cover the host). */
+export function monthsBetween(firstHold: Date, lastWritten: number, from: Date, to: Date): number[] {
+  const months: number[] = [];
+  for (let n = lastWritten + 1; n <= lastWritten + 600; n++) {
+    const due = monthlyDue(firstHold, n);
+    if (due > to) break;
+    if (due > from) months.push(n);
+  }
+  return months;
 }
 
 /** The last moment held money may still be taken: one hour before the hold ends, by Stripe's own time for that card. */

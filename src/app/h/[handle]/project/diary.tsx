@@ -6,6 +6,10 @@ import { DiaryPicture } from "@/components/diary-picture";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
+import { db } from "@/db";
+import { kindsOffered, suggestedOf } from "@/lib/contributions/rules";
+import { whyNotContribute } from "@/lib/contributions/start";
+import { formatMoney } from "@/lib/payments/access";
 import { picturesOf } from "@/lib/projects/pictures";
 import { postsOf } from "@/lib/projects/posts";
 import { diaryFor } from "@/lib/projects/projects";
@@ -40,6 +44,10 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
   // Only the pictures everyone may see. Each is fetched from its own address, which decides again.
   const pictures = await picturesOf(posts.map((post) => post.id));
   const viewer = await getUser();
+  // The "Contribute" part is shown only where it can lead somewhere: not for her own project, not to someone
+  // blocked, and not when the project has ended or takes no contributions (plans/25, choice 4). Asked again when
+  // the form is sent.
+  const canContribute = (await whyNotContribute(db, { contributorId: viewer?.id ?? null, project })) === null;
   // "Older" and "newer" name this very project. Her plain address shows whichever project is current, so a
   // reader in the middle of one diary would land in another if she ended it and started a new one meanwhile.
   const here = `/h/${profile.handle}/project/${project.id}`;
@@ -62,6 +70,43 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
         </p>
       )}
       {project.description && <p className="mt-4 whitespace-pre-line text-[#57534e]">{project.description}</p>}
+
+      {canContribute && (
+        <section className="mt-8 rounded border border-neutral-300 p-4" data-contribute>
+          <h2 className="text-lg font-semibold">Contribute</h2>
+          <p className="mt-1 text-sm opacity-80">
+            A contribution supports {profile.displayName}&apos;s project. It does not buy a call or any promised reward, and it is not a donation to a charity. The amount is first only held on your card and taken three days later; until then you can cancel and pay nothing.
+          </p>
+          <div className="mt-3 grid gap-6 sm:grid-cols-2">
+            {kindsOffered(project).map((kind) => (
+              <form key={kind} action="/contributions/new" method="get" className="text-sm" data-kind={kind}>
+                <input type="hidden" name="project" value={project.id} />
+                <input type="hidden" name="kind" value={kind} />
+                <p className="font-medium">{kind === "monthly" ? "Every month" : "Once"}</p>
+                <ul className="mt-2 space-y-1">
+                  {suggestedOf(kind === "monthly" ? project.suggestedMonthly : project.suggestedOnce).map((cents, index) => (
+                    <li key={cents}>
+                      <label className="inline-flex min-h-9 items-center gap-2">
+                        <input type="radio" name="amount" value={(cents / 100).toFixed(2)} defaultChecked={index === 0} />
+                        {formatMoney(cents)}
+                        {kind === "monthly" ? " a month" : ""}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                <label className="mt-2 block">
+                  Or another amount, in dollars ($5 to $100,000)
+                  <input type="text" name="other" inputMode="decimal" maxLength={12} placeholder="25.00" className="mt-1 w-32 rounded border border-neutral-400 bg-transparent px-3 py-2" />
+                </label>
+                <button type="submit" className="mt-3 rounded bg-blue-600 px-4 py-2 font-medium text-white">
+                  {kind === "monthly" ? "Contribute every month" : "Contribute once"}
+                </button>
+              </form>
+            ))}
+          </div>
+          <p className="mt-3 text-sm opacity-70">The next page shows everything before you pay.</p>
+        </section>
+      )}
 
       <h2 className="mt-8 text-lg font-semibold">The diary</h2>
       {posts.length === 0 ? (

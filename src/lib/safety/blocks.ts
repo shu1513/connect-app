@@ -9,6 +9,7 @@ import { lockCalendars } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
 import { ownPaymentOn } from "@/lib/payments/own";
 import { cleanUpEndedMemberships, endMembershipsBetween } from "@/lib/membership/state";
+import { endContributionsBetween, letGoAll } from "@/lib/contributions/ending";
 
 export class BlockError extends Error {}
 
@@ -24,11 +25,14 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
     and(eq(schema.bookings.hostId, blockedId), eq(schema.bookings.customerId, blockerId)),
   );
   let endedMemberships: string[] = [];
+  let givenUpPayments: string[] = [];
   await db.transaction(async (tx) => {
     await lockCalendars(tx, [blockerId, blockedId]);
     await tx.insert(schema.blocks).values({ blockerId, blockedId }).onConflictDoNothing();
     // A membership between the two ends at once and for good, in this same step. Its clean-up follows below.
     endedMemberships = await endMembershipsBetween(tx, blockerId, blockedId, { by: "connect", reason: "it can no longer go on" }, now);
+    // So does every contribution between the two, whichever of them is the host; what was only held is let go below.
+    givenUpPayments = await endContributionsBetween(tx, blockerId, blockedId, "blocked", now);
     // Requests between the two end quietly, whichever way round they were.
     const ended = await tx
       .update(schema.bookings)
@@ -71,6 +75,8 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
   }
   // Last, the money of a membership that ended with the block (the helper repeats this if it does not finish).
   await cleanUpEndedMemberships(endedMemberships, now);
+  // And the holds of the contributions that ended with it (the helper repeats this too).
+  await letGoAll(givenUpPayments, now);
   return { callsNotCancelled };
 }
 

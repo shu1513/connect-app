@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectFrom, CONTRIBUTION, ContributionError, lastMomentToTake, mayTake, monthlyDue, readAmount, waitFor, type PairPayment } from "./rules";
+import { collectFrom, CONTRIBUTION, ContributionError, dueMonths, kindsOffered, lastMomentToTake, mayTake, monthlyDue, monthMissed, monthsBetween, readAmount, readSuggested, suggestedOf, waitFor, type PairPayment } from "./rules";
 
 const DAY = 24 * 3_600_000;
 const at = (iso: string) => new Date(iso);
@@ -126,5 +126,67 @@ describe("the $1,000 rule", () => {
   });
   it("uses the limits the rulebook names", () => {
     expect([CONTRIBUTION.minCents, CONTRIBUTION.maxCents, CONTRIBUTION.lineCents]).toEqual([500, 10_000_000, 100_000]);
+  });
+});
+
+describe("which month is written down", () => {
+  const first = at("2026-01-31T10:00:00Z");
+  it("writes nothing before the next month's day, and that month on its day", () => {
+    expect(dueMonths(first, 1, at("2026-02-28T09:59:59Z"))).toEqual({ write: null, missed: [] });
+    expect(dueMonths(first, 1, at("2026-02-28T10:00:00Z"))).toEqual({ write: 2, missed: [] });
+    expect(dueMonths(first, 2, at("2026-03-31T10:00:00Z"))).toEqual({ write: 3, missed: [] });
+  });
+  it("still writes a month up to 7 days late, and not after that", () => {
+    expect(dueMonths(first, 1, at("2026-03-07T10:00:00Z"))).toEqual({ write: 2, missed: [] });
+    expect(dueMonths(first, 1, at("2026-03-07T10:00:01Z"))).toEqual({ write: null, missed: [2] });
+  });
+  it("never makes up for months that were missed: only the one whose day has just come is written", () => {
+    expect(dueMonths(first, 1, at("2026-04-30T10:00:00Z"))).toEqual({ write: 4, missed: [2, 3] });
+    expect(dueMonths(first, 1, at("2026-04-29T10:00:00Z"))).toEqual({ write: null, missed: [2, 3] });
+  });
+  it("finds the months whose day fell inside a stretch of time", () => {
+    expect(monthsBetween(first, 1, at("2026-02-20T00:00:00Z"), at("2026-04-01T00:00:00Z"))).toEqual([2, 3]);
+    // A month that fell due before the stretch began is not one of them.
+    expect(monthsBetween(first, 1, at("2026-03-01T00:00:00Z"), at("2026-04-01T00:00:00Z"))).toEqual([3]);
+    expect(monthsBetween(first, 1, at("2026-02-01T00:00:00Z"), at("2026-02-20T00:00:00Z"))).toEqual([]);
+  });
+});
+
+describe("a month nobody has tried to pay", () => {
+  const monthly = { kind: "monthly", firstHoldAt: at("2026-01-31T10:00:00Z") };
+  const second = { number: 2, firstFailedAt: null };
+  it("is missed once its day lies more than 7 days back, and not a moment before", () => {
+    expect(monthMissed(monthly, second, at("2026-03-07T10:00:00Z"))).toBe(false);
+    expect(monthMissed(monthly, second, at("2026-03-07T10:00:01Z"))).toBe(true);
+  });
+  it("is never the first payment, never a contribution made once, and never a payment that was tried and failed", () => {
+    expect(monthMissed(monthly, { number: 1, firstFailedAt: null }, at("2027-01-01T00:00:00Z"))).toBe(false);
+    expect(monthMissed({ kind: "once", firstHoldAt: monthly.firstHoldAt }, second, at("2027-01-01T00:00:00Z"))).toBe(false);
+    expect(monthMissed(monthly, { number: 2, firstFailedAt: at("2026-03-06T00:00:00Z") }, at("2026-03-10T00:00:00Z"))).toBe(false);
+    expect(monthMissed({ kind: "monthly", firstHoldAt: null }, second, at("2027-01-01T00:00:00Z"))).toBe(false);
+  });
+});
+
+describe("the amounts a host suggests", () => {
+  it("reads up to three boxes, leaves empty ones out, and sorts them", () => {
+    expect(readSuggested(["25", "", " 5 "])).toEqual([500, 2500]);
+    expect(readSuggested(["", "", ""])).toEqual([]);
+    expect(readSuggested(["10", "10.00", "$10"])).toEqual([1000]);
+  });
+  it("refuses an amount that is not a valid contribution, and a fourth amount", () => {
+    expect(() => readSuggested(["4"])).toThrow(ContributionError);
+    expect(() => readSuggested(["abc"])).toThrow(ContributionError);
+    expect(() => readSuggested(["5", "6", "7", "8"])).toThrow(ContributionError);
+  });
+  it("reads what is kept strictly", () => {
+    expect(suggestedOf("500,2500,10000")).toEqual([500, 2500, 10000]);
+    expect(suggestedOf("")).toEqual([]);
+    expect(suggestedOf("500,abc,-3,100,99999999999")).toEqual([500]);
+    expect(suggestedOf("500,600,700,800")).toEqual([500, 600, 700]);
+  });
+  it("a kind without a suggested amount is not offered", () => {
+    expect(kindsOffered({ suggestedOnce: "500", suggestedMonthly: "" })).toEqual(["once"]);
+    expect(kindsOffered({ suggestedOnce: "", suggestedMonthly: "1000,2000" })).toEqual(["monthly"]);
+    expect(kindsOffered({ suggestedOnce: "", suggestedMonthly: "" })).toEqual([]);
   });
 });

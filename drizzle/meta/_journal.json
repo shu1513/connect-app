@@ -260,6 +260,13 @@
       "when": 1795077537495,
       "tag": "0036_contribution_dispute_version",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795080529092,
+      "tag": "0037_project_suggested_amounts",
+      "breakpoints": true
     }
   ]
 }

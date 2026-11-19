@@ -32,8 +32,10 @@ import { DEFAULT_FEE_TERMS, splitCharge } from "@/lib/payments/pricing";
 import { stripe } from "@/lib/payments/stripe";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { cardInUse, retireCard, takeCardForContribution } from "./cards";
+import { queueAgreementEmail, queueHoldEmail, queueNewContributorEmail, queueNothingChargedEmail, queuePaymentFailedEmail, tellFounderOfLargeTotal } from "./emails";
 import { lockForPayment, paymentOwner, type LockedPayment } from "./locks";
-import { collectFrom, lastMomentToTake, mayTake, waitFor, type PairPayment } from "./rules";
+import { collectFrom, CONTRIBUTION, lastMomentToTake, mayTake, monthMissed, waitFor, type PairPayment } from "./rules";
+import { addSkipped } from "./skipped";
 
 const pays = schema.contributionPayments;
 
@@ -127,7 +129,7 @@ export const CLAIM_ON_ITS_WAY_MS = 8 * 60_000;
  *      founder. None: none was ever made, and the payment is given up.
  * Returns null when the payment has no PaymentIntent to pay with (given up, or a problem).
  */
-export async function intentFor(paymentId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; status: Stripe.PaymentIntent.Status } | null> {
+export async function intentFor(paymentId: string, now: Date = new Date()): Promise<{ intentId: string; clientSecret: string | null; status: Stripe.PaymentIntent.Status; keepsCard: boolean } | null> {
   const seen = await paymentById(paymentId);
   if (!seen) throw new MoneyError("Payment not found.");
   if (seen.stripePaymentIntentId) {
@@ -136,7 +138,7 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
     // Looked at again after Stripe answered: the secret of a payment given up meanwhile goes to nobody.
     const still = await paymentById(paymentId);
     if (!still || still.status !== "to_pay" || !open(still) || still.stripePaymentIntentId !== intent.id) return null;
-    return { intentId: intent.id, clientSecret: intent.client_secret, status: intent.status };
+    return { intentId: intent.id, clientSecret: intent.client_secret, status: intent.status, keepsCard: intent.setup_future_usage === "off_session" };
   }
   if (seen.problem) return null;
 
@@ -258,7 +260,7 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
   }
   if (saved === "other") return intentFor(paymentId, now);
   if (saved === "closed") return null;
-  return { intentId: found.id, clientSecret: found.client_secret, status: found.status };
+  return { intentId: found.id, clientSecret: found.client_secret, status: found.status, keepsCard: found.setup_future_usage === "off_session" };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +273,7 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
  * own taking. A date is only ever moved later here. The caller holds the pair's lock, so two
  * payments of the pair arriving at the same moment are counted one after the other.
  */
-export async function countPair(tx: Tx, contributorId: string, hostId: string, now: Date): Promise<{ over: boolean; countedCents: number }> {
+export async function countPair(tx: Tx, contributorId: string, hostId: string, now: Date, entering?: string): Promise<{ over: boolean; countedCents: number }> {
   const rows = await tx
     .select({ payment: pays, shareStatus: schema.payments.transferStatus })
     .from(pays)
@@ -289,7 +291,18 @@ export async function countPair(tx: Tx, contributorId: string, hostId: string, n
     released: payment.founderHold === "released",
   }));
   const result = waitFor(seen, now);
+  // The founder is told when the pair crosses the line (plans/25, choice 8). The count only ever goes up when a
+  // payment enters it (`entering`: a hold that was just accepted, or money taken that was never held), so that is
+  // the one moment a crossing can happen: over the line with this payment, and not over it without. Every crossing
+  // is told, once, whatever marks earlier payments carry.
+  const entered = entering ? seen.find((payment) => payment.id === entering) : undefined;
+  if (result.over && entered && result.countedCents - entered.amountCents <= CONTRIBUTION.lineCents) {
+    await tellFounderOfLargeTotal(tx, { contributorId, hostId, countedCents: result.countedCents, paymentId: entered.id });
+  }
   if (result.markHeld.length > 0) await tx.update(pays).set({ thirtyDayMark: true, updatedAt: now }).where(and(inArray(pays.id, result.markHeld), eq(pays.thirtyDayMark, false)));
+  // A payment that was taken before the line was crossed, and whose share now waits 30 days, carries the mark too:
+  // the founder's list shows every payment the rule touches.
+  if (result.thirtyDays.length > 0) await tx.update(pays).set({ thirtyDayMark: true }).where(and(inArray(pays.id, result.thirtyDays), eq(pays.thirtyDayMark, false)));
   for (const id of result.thirtyDays) {
     const takenAt = rows.find((row) => row.payment.id === id)?.payment.takenAt;
     if (!takenAt) continue;
@@ -309,6 +322,16 @@ export async function countPair(tx: Tx, contributorId: string, hostId: string, n
 
 const chargeOf = (intent: Stripe.PaymentIntent): Stripe.Charge | null => (typeof intent.latest_charge === "object" ? intent.latest_charge : null);
 const chargeIdOf = (intent: Stripe.PaymentIntent): string | null => (typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null));
+
+/**
+ * Whether a try to hold this payment's amount on the saved card was ever started, whatever became
+ * of it: one that is still on its way to Stripe counts. A payment like that is never treated as
+ * "nobody has tried yet".
+ */
+export async function everTried(reader: Pick<Tx, "select">, paymentId: string): Promise<boolean> {
+  const [started] = await reader.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.contributionPaymentId, paymentId), eq(schema.moneyOperations.kind, "hold"))).limit(1);
+  return Boolean(started);
+}
 
 /** Whether a try with the payment's current try number has been made and has an answer (with `before`: had it before that moment). */
 async function tryFinished(reader: Pick<Tx, "select">, payment: ContributionPayment, before?: Date): Promise<boolean> {
@@ -350,8 +373,9 @@ export async function applyTaken(tx: Tx, locked: LockedPayment, taken: { cents: 
   await addLedgerEntry(tx, { contributionPaymentId: payment.id, kind: "customer_charge", amountCents: taken.cents, stripeRef: chargeId, note: rightful ? "contribution" : "contribution, taken although it was not to be" });
   const shareWritten = await writeWhatFollows();
   // The second of the rule's three moments: the money is taken. Whatever becomes of it (the host's share, or all
-  // of it owed back), it is money this person paid, and it counts for the pair from this moment.
-  await countPair(tx, contribution.contributorId, contribution.hostId, at);
+  // of it owed back), it is money this person paid, and it counts for the pair from this moment. (Money that was
+  // held was counted already; money taken without a hold of ours enters the count here.)
+  await countPair(tx, contribution.contributorId, contribution.hostId, at, payment.status === "held" ? undefined : payment.id);
   // A contribution made once has nothing more to come.
   if (shareWritten && contribution.kind === "once" && contribution.status !== "ended") {
     await tx.update(schema.contributions).set({ status: "ended", endedAt: at, endedHow: "paid", updatedAt: at }).where(eq(schema.contributions.id, contribution.id));
@@ -424,6 +448,20 @@ async function recordFailedTry(tx: Tx, locked: LockedPayment, input: { needsActi
     .update(pays)
     .set({ try: payment.try + 1, firstFailedAt, giveUpAt: giveUpAt(firstFailedAt), nextTryAt: nextTryAt(firstFailedAt, payment.try), needsAction: input.needsAction, updatedAt: now })
     .where(eq(pays.id, payment.id));
+  // The contributor is told, with the link to pay: once for each try that failed.
+  await queuePaymentFailedEmail(tx, locked.contribution, payment, { failedTry: payment.try, needsAction: input.needsAction, giveUpAt: giveUpAt(firstFailedAt) });
+}
+
+/**
+ * A payment whose hold is certainly gone, or that never had one, becomes "given up" for good, with
+ * the payment locked. Only here is "nothing was charged" said to its contributor (plans/25,
+ * "Nothing is claimed before it is known").
+ */
+async function markGivenUp(tx: Tx, payment: ContributionPayment, at: Date): Promise<void> {
+  await tx.update(pays).set({ status: "given_up", updatedAt: at }).where(eq(pays.id, payment.id));
+  const [contribution] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, payment.contributionId));
+  const [now] = await tx.select().from(pays).where(eq(pays.id, payment.id));
+  if (contribution && now) await queueNothingChargedEmail(tx, contribution, now);
 }
 
 /** Why a hold that has arrived cannot be accepted, or null if it can. */
@@ -434,6 +472,8 @@ async function whyNotAccept(tx: Tx, locked: LockedPayment, intent: Stripe.Paymen
   if (payment.cardStepExpiresAt && authorisedAt > payment.cardStepExpiresAt) return "card_step";
   // The 7 days count by the bank's own time too: a hold placed in time counts when it is found late, one placed after them does not.
   if (payment.giveUpAt && authorisedAt > payment.giveUpAt) return "given_up";
+  // A month nobody had tried to pay, paid by hand more than 7 days after its day: it was missed (rules.ts, monthMissed).
+  if (monthMissed(contribution, payment, authorisedAt) && !(await everTried(tx, payment.id))) return "missed";
   if (!(await projectsOnFor(contribution.hostId, tx))) return "switch";
   const [project] = await tx.select({ status: schema.projects.status }).from(schema.projects).where(eq(schema.projects.id, contribution.projectId));
   if (project?.status !== "running") return "ending";
@@ -445,13 +485,31 @@ async function whyNotAccept(tx: Tx, locked: LockedPayment, intent: Stripe.Paymen
  * answer of every step, by Stripe's messages and by the helper; never moves a payment backwards.
  */
 export async function syncPayment(paymentId: string, now: Date = new Date()): Promise<ContributionPayment> {
+  return (await lookAndRecord(paymentId, now)).payment;
+}
+
+/**
+ * The same look, also giving back what Stripe showed in the answer that was recorded. For a caller
+ * that has to decide something from that very answer: asking Stripe a second time would be
+ * deciding from an answer that was never recorded.
+ *
+ *   a status       Stripe's answer, and it was recorded
+ *   "unrecorded"   Stripe was asked, and no answer could be recorded (the payment kept changing
+ *                  underneath the look): nothing is known, and nothing must be decided from this
+ *   null           there is no answer of Stripe to decide from, and the payment given back says
+ *                  why: nothing at Stripe to ask about, already in the books for good (also
+ *                  when another step got it there between two looks), or Stripe does not know
+ *                  the payment, which is written on it as a problem
+ */
+async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: ContributionPayment; shown: Stripe.PaymentIntent.Status | "unrecorded" | null }> {
+  let shown: Stripe.PaymentIntent.Status | "unrecorded" | null = null;
   // Stripe is asked outside the database step. If our payment moved on in between, what we read is old:
   // it is thrown away and Stripe is asked again.
   for (let round = 0; round < 3; round++) {
     const seen = await paymentById(paymentId);
     if (!seen) throw new MoneyError("Payment not found.");
     // A payment that is in the books is never touched again, whatever message arrives.
-    if (!seen.stripePaymentIntentId || seen.status === "taken" || seen.status === "given_up") return seen;
+    if (!seen.stripePaymentIntentId || seen.status === "taken" || seen.status === "given_up") return { payment: seen, shown: null };
     const readAt = new Date(); // the real clock, taken before Stripe is asked
     let intent: Stripe.PaymentIntent;
     try {
@@ -465,17 +523,22 @@ export async function syncPayment(paymentId: string, now: Date = new Date()): Pr
         .update(pays)
         .set({ problem: "Stripe does not know this payment (its PaymentIntent is missing there). Nothing can be held or taken through it. Please look at it.", updatedAt: now })
         .where(and(eq(pays.id, paymentId), isNull(pays.problem), inArray(pays.status, ["to_pay", "held"])));
-      return (await paymentById(paymentId))!;
+      return { payment: (await paymentById(paymentId))!, shown: null };
     }
+    shown = "unrecorded";
     let holdEndsAt = holdEndOf(chargeOf(intent));
     // When Stripe does not say when a hold ends, it is asked again. No date is ever assumed (plans/25, choice 10).
     if (intent.status === "requires_capture" && !holdEndsAt) {
       const chargeId = chargeIdOf(intent);
       if (chargeId) holdEndsAt = holdEndOf(await stripe().charges.retrieve(chargeId));
     }
-    if (await recordIntent(seen, intent, now, { readAt, holdEndsAt })) break;
+    if (await recordIntent(seen, intent, now, { readAt, holdEndsAt })) {
+      // Only an answer that was recorded is given back: one that was thrown away as stale says nothing.
+      shown = intent.status;
+      break;
+    }
   }
-  return (await paymentById(paymentId))!;
+  return { payment: (await paymentById(paymentId))!, shown };
 }
 
 /** When a hold ends, by Stripe's own answer for that card, or null when it does not say. */
@@ -522,7 +585,12 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
 
     // --- We are letting it go, or already have.
     if (payment.endedHow) {
-      if (intent.status === "canceled") await tx.update(pays).set({ status: "given_up", updatedAt: now }).where(eq(pays.id, payment.id));
+      // A hold that is seen here for the first time (it arrived after the payment was given up) is kept as a hold
+      // that was there, so that its contributor is told when it is gone.
+      const bankTime = charge?.created ? new Date(charge.created * 1000) : null;
+      const heldAt = intent.status === "requires_capture" ? (bankTime ?? now) : intent.status === "canceled" && charge?.status === "succeeded" ? bankTime : null;
+      if (!payment.authorisedAt && heldAt) await tx.update(pays).set({ authorisedAt: heldAt }).where(eq(pays.id, payment.id));
+      if (intent.status === "canceled") await markGivenUp(tx, payment, now);
       else if (intent.status === "succeeded") await taken();
       else if (intent.status === "requires_capture") release = true; // never accepted; the letting-go continues, or is written down now
       return;
@@ -534,7 +602,7 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
       else if (intent.status === "canceled") {
         // The bank dropped the hold. Nothing is tried again for it; a monthly contribution goes on with its next month.
         await giveUpInStep(tx, locked, "hold_lost", now);
-        await tx.update(pays).set({ status: "given_up", updatedAt: now }).where(eq(pays.id, payment.id));
+        await markGivenUp(tx, payment, now);
       } else if (intent.status !== "requires_capture" && intent.status !== "processing") {
         await tx.update(pays).set({ problem: `Stripe shows this payment as "${intent.status}" although its hold was accepted. Please look at it.`, updatedAt: now }).where(eq(pays.id, payment.id));
       }
@@ -565,7 +633,15 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
         }
       }
       if (why) {
+        // Not accepted, and let go below. That a hold was there is kept all the same (the bank's own time for
+        // it): its contributor is told when it is gone, and nobody is told that nothing was ever held.
+        await tx.update(pays).set({ authorisedAt, updatedAt: now }).where(eq(pays.id, payment.id));
         await giveUpInStep(tx, locked, why, now);
+        if (why === "missed") {
+          // The month is skipped, and the contribution goes on.
+          const [after] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, contribution.id));
+          if (after.status !== "ended") await addSkipped(tx, after, [payment.number], now);
+        }
         release = true;
         return;
       }
@@ -595,7 +671,14 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
         .where(eq(schema.contributions.id, contribution.id));
       // The first of the rule's three moments: a hold is accepted. Counted at this moment, not at the one this look
       // began: a taking that has left the 30 days meanwhile no longer counts.
-      await countPair(tx, contribution.contributorId, contribution.hostId, freshNow(now));
+      await countPair(tx, contribution.contributorId, contribution.hostId, freshNow(now), payment.id);
+      // The one email for this payment: the amount, the moment the money is taken, and how to cancel before then.
+      await queueHoldEmail(tx, contribution, { id: payment.id, amountCents: payment.amountCents, takeAt: timing.takeAt });
+      if (payment.number === 1) {
+        // With its first hold a contribution has begun: the host is told once, and a monthly contributor gets what they agreed to.
+        await queueNewContributorEmail(tx, contribution);
+        await queueAgreementEmail(tx, contribution);
+      }
       return;
     }
     if (intent.status === "succeeded") {
@@ -651,6 +734,16 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
   if (seen.giveUpAt && seen.giveUpAt <= now) return seen;
   const [contribution] = await db.select().from(schema.contributions).where(eq(schema.contributions.id, seen.contributionId));
   if (!contribution || contribution.status === "ended" || !(await projectsOnFor(contribution.hostId))) return seen;
+  // A month that was written down and never tried (the helper stopped in between) is not tried once its day lies
+  // more than 7 days back: it is missed, like a month that was never written down (rules.ts, dueMonths). It is
+  // skipped, and the contribution goes on. A month that was tried and failed has its own 7 days, from that failure.
+  // (A try that was started, also one still on its way to Stripe, is a try: its outcome is found out as usual.)
+  if (monthMissed(contribution, seen, freshNow(now)) && !(await everTried(db, paymentId))) {
+    // Past its 7 days nothing is tried any more. It is given up a little later (rules.ts, missedGraceMs), once a
+    // hold that the contributor placed by hand inside the 7 days has certainly been seen; until then it waits.
+    if (!monthMissed(contribution, seen, new Date(freshNow(now).getTime() - CONTRIBUTION.missedGraceMs))) return seen;
+    return missMonth(paymentId, now);
+  }
   if (seen.stripePaymentIntentId && (await tryFinished(db, seen))) {
     // This try has its answer, and Stripe has neither held nor refused yet. Nothing new is tried beside it.
     await db.update(pays).set({ nextTryAt: new Date(now.getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay"), eq(pays.try, seen.try)));
@@ -674,9 +767,14 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
       prepare: async ({ contribution: current, payment }, tx) => {
         if (payment.status !== "to_pay" || !open(payment)) throw new MoneyError("This payment is not waiting to be paid.");
         if (payment.stripePaymentIntentId !== found.intentId || payment.try !== tryNumber) throw new MoneyError("The payment changed. Nothing was tried.");
-        // Checked here, right before acting: nothing new is started after a stop.
-        if (current.status === "ended" || !(await projectsOnFor(current.hostId, tx))) throw new MoneyError("This contribution is not taking payments now.");
+        // Checked here, right before acting: nothing new is started after a stop, or between two people who
+        // may no longer deal with each other (the steps that cause that end the contribution themselves).
+        const { whyMustEnd } = await import("./ending");
+        if (current.status === "ended" || !(await projectsOnFor(current.hostId, tx)) || (await whyMustEnd(tx, current))) throw new MoneyError("This contribution is not taking payments now.");
         if (await tryFinished(tx, payment)) throw new MoneyError("This try already has its answer.");
+        // The 7 days for a month nobody has tried yet are looked at again here, by the real clock, where the try is
+        // written down: a round that began in time and got here late does not start one.
+        if (monthMissed(current, payment, freshNow(now)) && !(await everTried(tx, payment.id))) throw new MoneyError("This month's day lies more than 7 days back. Nothing was tried.");
         return { intentId: found.intentId, paymentMethodId: card.stripePaymentMethodId };
       },
       execute: async (params, label) => {
@@ -691,6 +789,43 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
     if (!(error instanceof MoneyError)) throw error;
   }
   return syncPayment(paymentId, now);
+}
+
+/**
+ * A month's payment that the helper came too late for: given up as missed, with nothing ever asked
+ * of the card for it, and recorded as skipped. The contribution goes on with its next month.
+ */
+async function missMonth(paymentId: string, now: Date): Promise<ContributionPayment> {
+  // Stripe is asked once more, now that the 7 days are over: a hold the contributor placed by hand in time, and
+  // that an earlier look was too early to see, is found here and accepted by the bank's own time for it. Only a
+  // payment that is still without a hold after this look is given up as missed.
+  const { payment: looked, shown } = await lookAndRecord(paymentId, now);
+  // A payment Stripe is still working on has no outcome yet: a hold with a bank time inside the 7 days may be
+  // about to appear. Nothing is decided until it has one. (Giving it up now would cancel it, and a hold that was
+  // let go cannot be brought back.) This is judged from the very answer that was just recorded: an answer that
+  // shows a hold was accepted or refused by that look, and the step below then finds nothing left to give up.
+  // The same goes for a look whose answer could not be recorded at all: nothing is known, so nothing is decided.
+  if (looked.status === "to_pay" && open(looked) && (shown === "processing" || shown === "unrecorded")) {
+    // Looked at again in five minutes, so that such a payment never fills the helper's rounds. Nothing else about
+    // it is changed: it stays an ordinary payment that is waiting, so every look at Stripe, and the collection's
+    // own look before it counts, still record what becomes of it. If it waits like this for more than a day, the
+    // watch says so (health.ts). (Not a payment that was given up meanwhile.)
+    await db.update(pays).set({ nextTryAt: new Date(freshNow(now).getTime() + LOOK_AGAIN_AT_A_TRY_MS), updatedAt: now }).where(and(eq(pays.id, paymentId), eq(pays.status, "to_pay"), isNull(pays.endedHow), isNull(pays.problem)));
+    return (await paymentById(paymentId))!;
+  }
+  await db.transaction(async (tx) => {
+    const locked = await lockForPayment(tx, paymentId);
+    // Looked at again under the locks: only a payment that is still waiting, that nobody has started to try (a try
+    // on its way to Stripe keeps its own ending), and whose 7 days, and the short wait after them, are over by the real clock.
+    if (locked.payment.status !== "to_pay" || !open(locked.payment)) return;
+    if (!monthMissed(locked.contribution, locked.payment, new Date(freshNow(now).getTime() - CONTRIBUTION.missedGraceMs)) || (await everTried(tx, paymentId))) return;
+    await giveUpInStep(tx, locked, "missed", now);
+    const [contribution] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, locked.contribution.id));
+    if (contribution.kind === "monthly" && contribution.status !== "ended") await addSkipped(tx, contribution, [locked.payment.number], now);
+  });
+  // If a PaymentIntent was made for it, it is cancelled; if one was asked for and not saved, the helper finishes that.
+  await letGo(paymentId, now).catch((error) => log(`could not let go of missed contribution payment ${paymentId} yet; the helper will retry`, error));
+  return (await paymentById(paymentId))!;
 }
 
 // ---------------------------------------------------------------------------
@@ -786,9 +921,14 @@ export async function giveUpInStep(tx: Tx, locked: LockedPayment, how: string, n
 }
 
 /** Records how a letting-go ended: taken in that very moment (owed back in full), or the cancellation is finished. */
-export async function applyLetGo(tx: Tx, locked: LockedPayment, result: { status: string; amountReceived: number; chargeId: string | null }, at: Date): Promise<void> {
-  if (result.status === "succeeded") await applyTaken(tx, locked, { cents: result.amountReceived, chargeId: result.chargeId }, at);
-  else if (locked.payment.status === "to_pay" || locked.payment.status === "held") await tx.update(pays).set({ status: "given_up", updatedAt: at }).where(eq(pays.id, locked.payment.id));
+export async function applyLetGo(tx: Tx, locked: LockedPayment, result: { status: string; amountReceived: number; chargeId: string | null; heldAt?: number | null }, at: Date): Promise<void> {
+  if (result.status === "succeeded") return applyTaken(tx, locked, { cents: result.amountReceived, chargeId: result.chargeId }, at);
+  if (locked.payment.status !== "to_pay" && locked.payment.status !== "held") return;
+  // Stripe's answer to the cancellation says whether a hold was in place on this payment. One that we had not
+  // heard of (the contributor paid, and the payment was given up before the news reached us) is kept as a hold
+  // that was there, so that its contributor is told that it is gone.
+  if (!locked.payment.authorisedAt && result.heldAt) await tx.update(pays).set({ authorisedAt: new Date(result.heldAt * 1000) }).where(eq(pays.id, locked.payment.id));
+  await markGivenUp(tx, locked.payment, at);
 }
 
 /**
@@ -804,7 +944,7 @@ export async function letGo(paymentId: string, now: Date = new Date()): Promise<
     return;
   }
   try {
-    await runOwnedOperation<LockedPayment, { intentId: string }, { status: string; amountReceived: number; chargeId: string | null }>({
+    await runOwnedOperation<LockedPayment, { intentId: string }, { status: string; amountReceived: number; chargeId: string | null; heldAt: number | null }>({
       owner: paymentOwner(paymentId),
       kind: "release",
       labelBase: `contributionrelease:${paymentId}`,

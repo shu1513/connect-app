@@ -5,6 +5,8 @@ import { ChangePasswordForm } from "@/components/auth-forms";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { db, schema } from "@/db";
+import { LocalTime } from "@/components/local-time";
+import { supportedBy } from "@/lib/contributions/views";
 import { membershipsOf } from "@/lib/membership/access";
 import { readNotice } from "@/lib/notice";
 import { Rating } from "@/components/rating";
@@ -50,6 +52,8 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const idConfirmed = (await identityState(user.id)).passed;
   // The person's own memberships as a member (also paused and ended ones, for their receipts).
   const memberships = await membershipsOf(user.id);
+  // "Projects you support". One that was left at the card step and never paid is not listed: nothing was contributed.
+  const supported = (await supportedBy(user.id)).filter(({ contribution, began }) => began || contribution.status !== "ended");
   const hostNames = new Map(
     memberships.length > 0
       ? (await db.select({ id: schema.hostProfiles.userId, name: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, memberships.map((membership) => membership.hostId)))).map((row) => [row.id, row.name])
@@ -140,6 +144,39 @@ export default async function AccountPage(props: PageProps<"/account">) {
                   {hostNames.get(membership.hostId) ?? "A host"}
                 </Link>
                 <span className="ml-2 opacity-70">{MEMBERSHIP_STATE[membership.status] ?? ""}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {supported.length > 0 && (
+        <section id="projects" className="mt-10 scroll-mt-4" data-supported>
+          <h2 className="text-lg font-semibold">Projects you support</h2>
+          <p className="mt-1 text-sm opacity-70">Your contributions to hosts&apos; projects: each payment, cancelling one that is only held, and stopping a monthly one.</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {supported.map(({ contribution, projectName, hostName, latest }) => (
+              <li key={contribution.id}>
+                <Link href={`/contributions/${contribution.id}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                  {projectName}, by {hostName}
+                </Link>
+                <span className="ml-2 opacity-70">
+                  ${(contribution.amountCents / 100).toFixed(2)}
+                  {contribution.kind === "monthly" ? " every month" : ", once"}.{" "}
+                  {contribution.status === "ended" ? (
+                    contribution.endedHow === "paid" ? "Paid." : "Ended."
+                  ) : contribution.status === "card_step" ? (
+                    "Waiting for your card."
+                  ) : latest?.status === "held" && !latest.endedHow && latest.takeAt ? (
+                    <>
+                      Held on your card; taken on <LocalTime iso={latest.takeAt.toISOString()} />. You can cancel until then.
+                    </>
+                  ) : contribution.kind === "monthly" ? (
+                    "Running."
+                  ) : (
+                    ""
+                  )}
+                </span>
               </li>
             ))}
           </ul>

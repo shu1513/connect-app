@@ -1499,6 +1499,13 @@ export const projects = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     /** Who ended it: host or connect. */
     endedBy: text("ended_by"),
+    /**
+     * The amounts she suggests for a contribution made once, in cents, separated by commas, up to
+     * three. Empty: contributions made once are not offered (plans/23, choice B).
+     */
+    suggestedOnce: text("suggested_once").notNull().default(""),
+    /** The same for a monthly contribution. */
+    suggestedMonthly: text("suggested_monthly").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

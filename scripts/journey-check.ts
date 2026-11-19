@@ -424,6 +424,7 @@ async function main() {
       check(`${who}: every link on those pages (${linked.size}) leads somewhere`, broken.length === 0, broken.join("; "));
     }
 
+    const noContribution = randomUUID();
     await walk("a visitor", undefined, [
       ["/", 200], ["/search", 200], [`/search?q=Jo+Journey+${RUN}`, 200], [`/h/${handle}`, 200], ["/login", 200], ["/signup", 200], ["/forgot-password", 200], ["/check-email", 200],
       ["/rules", 200], ["/terms", 200], ["/privacy", 200], ["/unsubscribe", 200], ["/reset-password", 200], ["/h/nobody_here_at_all", 404],
@@ -431,6 +432,8 @@ async function main() {
       ["/account", "/login?next=%2Faccount"], ["/contacts", "/login?next=%2Fcontacts"], ["/host", "/login?next=%2Fhost"], ["/host/requests", "/login?next=%2Fhost%2Frequests"],
       [`/bookings/${freeBookingId}`, `/login?next=${encodeURIComponent(`/bookings/${freeBookingId}`)}`], [`/calls/${freeCallId}`, `/login?next=${encodeURIComponent(`/calls/${freeCallId}`)}`],
       [`/calls/${freeCallId}/results`, `/login?next=${encodeURIComponent(`/calls/${freeCallId}/results`)}`], ["/admin", "/login"], ["/identity", "/login"],
+      // A contribution's pages ask for the login first, and bring the person back to where they were.
+      ["/contributions/new", `/login?next=${encodeURIComponent("/contributions/new?project=&kind=once&amount=")}`], [`/contributions/${noContribution}`, `/login?next=${encodeURIComponent(`/contributions/${noContribution}`)}`],
     ]);
     const signedIn = (jar: Jar): [string, Jar, Array<[string, number | string]>] => [
       "",
@@ -440,6 +443,8 @@ async function main() {
         [`/bookings/${freeBookingId}`, 200], [`/calls/${freeCallId}`, 200], [`/calls/${freeCallId}/results`, 200], [`/report?call=${freeCallId}`, 200], [`/h/${handle}`, 200],
         ["/rules", 200], ["/terms", 200], ["/privacy", 200], ["/unsubscribe", 200], ["/paused", "/"], ["/login", "/"], ["/signup", "/"], ["/welcome", "/"],
         [`/h/${handle}/now?length=15`, 200], ["/admin", 404], ["/admin/people", 404], ["/admin/reports", 404], ["/admin/outbox", 404], ["/admin/secure", 404], ["/calls/new", 404], [`/bookings/${randomUUID()}`, 404],
+        // A contribution that is not this person's, or does not exist, and a summary page for no project: not found.
+        [`/contributions/${noContribution}`, 404], ["/contributions/new", 404], ["/admin/projects", 404],
       ],
     ];
     await walk("the customer", ...(signedIn(customerJar).slice(1) as [Jar, Array<[string, number | string]>]));

@@ -1,6 +1,6 @@
 # Plan 25: Projects, part two: contributions
 
-**Status:** 2a is built; what building it changed is at the end ("What building 2a added to this plan"). 2b is not built. The plan itself: Written 18 November 2026 by the builder alone (no
+**Status:** 2a and 2b are built; what building them changed is at the end ("What building 2a added to this plan", "What building 2b added to this plan"). The plan itself: Written 18 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 41 and from plan 24, which
 this part is built on top of. Astra checked it three times. First: "not ready as written"; it
 agreed with the way the books are built and found nine must-fix points about refunds, the $1,000
@@ -609,4 +609,62 @@ the code. All of it is built.
 **Not done in 2a, and where it goes.** The email to the founder when a pair crosses $1,000 comes
 with the other emails in 2b. The check script collects contribution shares only: one collection
 holding a call's share, a member's and a contribution's together is not walked yet.
+
+## What building 2b added to this plan (19 November 2026)
+
+Found while building, by the check script, by a security check that runs on every saved change,
+and in Astra's reviews of the code. All of it is built.
+
+- **A month that comes late.** The plan did not say what happens when the helper was down on a
+  month's day. Built: a month's payment is still written, and still tried, up to 7 days after its
+  day. After that the month is missed: it is recorded as skipped, never charged, and the
+  contribution goes on with the next month. This holds whether or not the payment had already
+  been written down. A payment that was tried and failed has its own 7 days, counted from that
+  failure, as the rulebook says; so a first try made 6 days late that fails can still be paid by
+  hand for 7 days after it. The rule is one function (`monthMissed`), asked on every way to a
+  first hold: the helper's try, paying by hand, and a hold that arrives, which is judged by the
+  bank's own time for it. A try that was started is never treated as "nobody tried"; and before a
+  month is given up as missed, Stripe is asked once more, so a hold placed by hand in time is not
+  lost to a look that was made too early. The helper gives a month up two minutes after its 7
+  days, not at their last second: a hold counts by the bank's own time, which Stripe gives in
+  whole seconds and which can reach the app a moment late. In those two minutes nothing is tried
+  and nothing is given up. And while Stripe says a payment is still being worked on, nothing is decided at
+  all: it is looked at again every five minutes, and after a day the watch says so. Nothing about
+  the payment itself is changed meanwhile, so it stays in every check against Stripe.
+- **Asked again before anything new.** Before the helper writes a month or tries a saved card,
+  and before a payment is made ready to be paid by hand, the app asks again whether the two
+  people may still deal with each other (no block, neither account paused or closed, the host's
+  page not suspended, the project running). The steps that cause these end the contributions
+  themselves; this is the net behind them.
+- **Starting takes one more lock,** the host page's line, so that a suspension of her page cannot
+  miss a contribution that starts at the same moment; and it asks about a block once more with
+  the pair's lock held, because a block does not touch the two people's lines.
+- **The switch's step** reads each contribution again under its lock and judges it as it stands
+  then (one whose first hold was being accepted at that moment is marked too), and takes its
+  moment once its locks are held, not when the founder pressed. A month the switch skipped is
+  never written, also when its day was only just before the switch came back on. A month that
+  fell due before the switch went off is left to the rule for a late month.
+- **"Nothing was charged" is said in one place only:** where a payment's hold is certainly gone
+  (`markGivenUp` in `charge.ts`). The sentence that says why a contribution ended says nothing
+  about money. A hold that arrived too late to be accepted is still kept as a hold that was
+  there, so its contributor is told when it has been let go. The same goes for a hold the app had
+  not heard of when its payment was cancelled: Stripe's answer to the cancellation says whether a
+  hold was in place (`cancelAtStripe` now gives that back), so nobody has to have seen it first.
+- **Cancelling one payment of a monthly contribution** by the contributor skips that month, as
+  it does when the host or the founder lets it go; "Stop contributing" is the button that ends
+  it. At the card step, and for a contribution made once, cancelling ends the contribution.
+- **The founder's page** has, beside the list of payments that need a look, every payment of
+  each project, page by page: that is how an ordinary payment is reached, to refund it after the
+  host has collected. A payment taken before the $1,000 line was crossed, whose share then waits
+  30 days, carries the mark too and is on the list.
+- **The founder's $1,000 email** is sent once for each crossing, at the payment that crosses the
+  line: a hold that was just accepted (or money taken that was never held) with which the pair is
+  over $1,000 and without which it is not. The count only goes up when a payment enters it, so
+  that is the one moment a crossing can happen. Crossing again later is told again.
+- **When a project ends,** everyone whose money it has taken is told by email, each once; a
+  monthly contributor gets the email about their contribution ending instead.
+- **The terms page** is still the placeholder that says a lawyer will write it. One paragraph
+  about contributions was added to the privacy page.
+- **Names.** `whyNotContribute` is the plan's `mayContribute`. `letPaymentGo` is the plan's
+  `skipPayment`, for all three people. The switch's step is `saveProjectsSwitch` in `switch.ts`.
 

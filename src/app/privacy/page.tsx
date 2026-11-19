@@ -27,6 +27,13 @@ export default function PrivacyPage() {
         the check does not accept is shown to nobody and deleted. Before it is deleted it can be compared with a list of known
         illegal pictures.
       </p>
+      <p className="mt-4 text-sm">
+        When you contribute to a host&apos;s project, the host sees your name, the amount, whether it is once or every month, and
+        when you began. Your card is entered on our payment company&apos;s form (Stripe) and we never see its number. For a monthly
+        contribution the card is kept at Stripe for that contribution only, and removed when it ends. We keep what you agreed
+        to, with the amount and the moment, and a record of every payment and refund. We send you an email for each payment,
+        and when a payment fails, a refund is made or a monthly contribution ends.
+      </p>
     </SitePage>
   );
 }
