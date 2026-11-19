@@ -36,8 +36,9 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
   const page = typeof props.query.page === "string" && /^[1-9]\d{0,3}$/.test(props.query.page) ? Number(props.query.page) : 1;
   const { posts, older } = await postsOf(project.id, { page });
   const viewer = await getUser();
-  // The address of this diary as it was asked for, so "older" and "newer" stay on the same one.
-  const here = props.projectId ? `/h/${profile.handle}/project/${project.id}` : `/h/${profile.handle}/project`;
+  // "Older" and "newer" name this very project. Her plain address shows whichever project is current, so a
+  // reader in the middle of one diary would land in another if she ended it and started a new one meanwhile.
+  const here = `/h/${profile.handle}/project/${project.id}`;
   const pageLink = (n: number) => (n === 1 ? here : `${here}?page=${n}`);
 
   return (
@@ -77,7 +78,8 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
                     {links.map((link) => (
                       <li key={link} className="break-all">
                         <a href={link} target="_blank" rel="noopener noreferrer nofollow" className="underline underline-offset-2">
-                          {link}
+                          {/* Shown as it reads: a channel's name in another alphabet is kept in codes, and written out here. */}
+                          {decodeURI(link)}
                         </a>{" "}
                         <span className="opacity-70">(opens YouTube)</span>
                       </li>

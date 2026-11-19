@@ -145,7 +145,7 @@ export default async function HostProjectPage(props: PageProps<"/host/project">)
 
               <section id="write" className="mt-10 scroll-mt-4">
                 <h2 className="text-lg font-semibold">Write a post</h2>
-                <PostForm action={writePostAction} hidden={{ name: "projectId", value: running.id }} text="" links={[]} button="Add to the diary" rows={6} textMax={PROJECT.postTextMax} linksMax={PROJECT.linksMax} />
+                <PostForm action={writePostAction} hidden={{ name: "projectId", value: running.id }} text="" links={[]} button="Add to the diary" rows={6} textMax={PROJECT.postTextMax} linksMax={PROJECT.linksMax} linkMax={PROJECT.linkMax} />
               </section>
 
               <section className="mt-10" data-posts>

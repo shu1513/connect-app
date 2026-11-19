@@ -60,6 +60,7 @@ export default async function HostPostPage(props: PageProps<"/host/project/posts
         rows={10}
         textMax={PROJECT.postTextMax}
         linksMax={PROJECT.linksMax}
+        linkMax={PROJECT.linkMax}
       />
 
       <form action={removePostAction} className="mt-8 border-t border-neutral-400/40 pt-4 text-sm">

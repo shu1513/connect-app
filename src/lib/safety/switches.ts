@@ -34,8 +34,12 @@ export async function switches(reader: Pick<typeof db, "select"> = db): Promise<
   };
 }
 
-/** Sets only the switches that are given; the others stay as they are. */
-export async function setSwitches(values: Partial<Switches>): Promise<void> {
+/**
+ * Sets only the switches that are given; the others stay as they are. Code that has a database
+ * step of its own passes it as the writer, so that the change and whatever is recorded with it
+ * are saved together or not at all.
+ */
+export async function setSwitches(values: Partial<Switches>, writer: Pick<typeof db, "insert"> = db): Promise<void> {
   const set = {
     ...(values.requestsOff !== undefined ? { requestsOff: values.requestsOff } : {}),
     ...(values.joiningOff !== undefined ? { joiningOff: values.joiningOff } : {}),
@@ -45,7 +49,7 @@ export async function setSwitches(values: Partial<Switches>): Promise<void> {
     ...(values.projectsHosts !== undefined ? { projectsHosts: [...new Set(values.projectsHosts)].join(",") } : {}),
     updatedAt: new Date(),
   };
-  await db
+  await writer
     .insert(schema.siteSwitches)
     .values({ id: 1, ...set })
     .onConflictDoUpdate({ target: schema.siteSwitches.id, set });

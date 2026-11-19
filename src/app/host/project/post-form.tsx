@@ -31,6 +31,7 @@ export function PostForm(props: {
   rows: number;
   textMax: number;
   linksMax: number;
+  linkMax: number;
 }) {
   const [state, formAction, pending] = useActionState(props.action, { error: null, text: props.text, links: props.links });
   return (
@@ -54,7 +55,7 @@ export function PostForm(props: {
             name="link"
             type="text"
             inputMode="url"
-            maxLength={300}
+            maxLength={props.linkMax}
             defaultValue={state.links[index] ?? ""}
             readOnly={Boolean(props.closed)}
             placeholder="https://www.youtube.com/watch?v=…"

@@ -12,18 +12,30 @@ export const PROJECT = {
   descriptionMax: 1000,
   postTextMax: 5000,
   linksMax: 3,
+  /**
+   * The longest address a link box takes. It has to hold the longest address we ourselves write:
+   * a channel name of 30 letters, each written out in up to 12 characters of codes.
+   */
+  linkMax: 400,
   /** How many posts a page of the diary shows. */
   postsPerPage: 10,
 } as const;
 
-/** Text as it is kept: the same line ends everywhere, and no space around it. */
+/**
+ * Characters nobody types on purpose and nobody can see: the control characters, apart from a new
+ * line and a tab. They are taken out. (The database cannot keep the first of them at all, and
+ * would answer with an error nobody could understand.)
+ */
+const UNSEEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+/** Text as it is kept: the same line ends everywhere, nothing unseen in it, and no space around it. */
 export function tidyText(typed: string): string {
-  return typed.replace(/\r\n?/g, "\n").trim();
+  return typed.replace(/\r\n?/g, "\n").replace(UNSEEN, "").trim();
 }
 
 /** A name is one line. */
 export function tidyName(typed: string): string {
-  return typed.replace(/\s+/g, " ").trim();
+  return typed.replace(UNSEEN, "").replace(/\s+/g, " ").trim();
 }
 
 /** Says what is wrong with a tidied name and description, or null when they are fine. */
@@ -36,7 +48,8 @@ export function projectProblem(input: { name: string; description: string }): st
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
-const CHANNEL_NAME = /^@[A-Za-z0-9._-]{3,30}$/;
+/** A channel's @name: letters and numbers of any language, with dots, underscores and hyphens. */
+const CHANNEL_NAME = /^@[\p{L}\p{N}._-]{3,30}$/u;
 const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com"]);
 
 /**
@@ -47,7 +60,7 @@ const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com"
  */
 export function youtubeLink(typed: string): string | null {
   const text = typed.trim();
-  if (text.length === 0 || text.length > 300 || /\s/.test(text)) return null;
+  if (text.length === 0 || text.length > PROJECT.linkMax || /\s/.test(text)) return null;
   let url: URL;
   try {
     // An address typed without "https://" is read as if it had it. Any other kind of address is refused below.
@@ -76,8 +89,16 @@ export function youtubeLink(typed: string): string | null {
   if (parts.length === 2 && parts[0] === "channel" && CHANNEL_ID.test(parts[1])) {
     return `https://www.youtube.com/channel/${parts[1]}`;
   }
-  if (parts.length === 1 && CHANNEL_NAME.test(parts[0])) {
-    return `https://www.youtube.com/${parts[0]}`;
+  if (parts.length === 1) {
+    // A name in another alphabet arrives written out in codes (as a browser copies it) or as it reads.
+    // It is read as it reads, checked, and written out in codes again: one form, whichever was typed.
+    let name: string;
+    try {
+      name = decodeURIComponent(parts[0]);
+    } catch {
+      return null;
+    }
+    if (CHANNEL_NAME.test(name)) return `https://www.youtube.com/@${encodeURIComponent(name.slice(1))}`;
   }
   return null;
 }

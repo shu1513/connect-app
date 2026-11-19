@@ -29,6 +29,25 @@ describe("a YouTube address", () => {
     expect(youtubeLink(`https://YOUTUBE.COM/watch?v=${VIDEO}`)).toBe(`https://www.youtube.com/watch?v=${VIDEO}`);
     expect(youtubeLink(`https://youtube.com/watch?v=bad&v=${VIDEO}`)).toBeNull();
   });
+  it("takes a channel's name in another alphabet, typed as it reads or as a browser copies it, and keeps one form", () => {
+    const kept = "https://www.youtube.com/@%E6%98%A0%E7%94%BB%E6%97%A5%E8%A8%98";
+    expect(youtubeLink("https://www.youtube.com/@映画日記")).toBe(kept);
+    expect(youtubeLink(kept)).toBe(kept);
+    expect(linksOf(linksToText([kept]))).toEqual([kept]);
+    expect(youtubeLink("https://www.youtube.com/@some.channel_1")).toBe("https://www.youtube.com/@some.channel_1");
+    // The longest name there can be, in letters that take the most room when written out: what we keep must read back.
+    const longest = `https://www.youtube.com/@${"𠀀".repeat(30)}`;
+    const keptLongest = youtubeLink(longest)!;
+    expect(keptLongest.length).toBeLessThanOrEqual(PROJECT.linkMax);
+    expect(youtubeLink(keptLongest)).toBe(keptLongest);
+    expect(linksOf(linksToText([keptLongest]))).toEqual([keptLongest]);
+    expect(youtubeLink(`https://www.youtube.com/@${"𠀀".repeat(31)}`)).toBeNull();
+    // Not a name: a broken code, a slash or a tag hidden in codes, a name that is too short.
+    expect(youtubeLink("https://www.youtube.com/@%E6%98")).toBeNull();
+    expect(youtubeLink("https://www.youtube.com/@abc%2Fwatch")).toBeNull();
+    expect(youtubeLink("https://www.youtube.com/@%3Cscript%3E")).toBeNull();
+    expect(youtubeLink("https://www.youtube.com/@%E6%98%A0")).toBeNull();
+  });
   it("refuses every other site, also ones that look like YouTube", () => {
     for (const typed of [
       `https://example.com/watch?v=${VIDEO}`,
@@ -79,6 +98,11 @@ describe("a project's name and description", () => {
   it("tidies a name to one line and text to plain line ends", () => {
     expect(tidyName("  My \n film  ")).toBe("My film");
     expect(tidyText("  one\r\ntwo\rthree  ")).toBe("one\ntwo\nthree");
+  });
+  it("takes out characters nobody can see, and keeps new lines and tabs", () => {
+    expect(tidyText("one\u0000two\u0007\n\tthree\u007f")).toBe("onetwo\n\tthree");
+    expect(tidyName("My\u0000 film\u001f")).toBe("My film");
+    expect(readPost({ text: "Day\u0000 one", links: [] }).text).toBe("Day one");
   });
 });
 

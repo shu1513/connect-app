@@ -53,17 +53,22 @@ export async function projectsSwitchAction(formData: FormData) {
   const position = chosen === "named" || chosen === "everyone" ? chosen : "off";
   if (position !== "named") {
     // Off (and everyone) are saved at once, whatever is typed in the list: switching off must never wait for a handle to be put right. The list stays as it was.
-    await setSwitches({ projects: position });
     const plain = position === "off" ? "off" : "on for everyone";
-    await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: plain });
+    // The change and its line in the record of the founder's actions are saved together, or neither is.
+    await db.transaction(async (tx) => {
+      await setSwitches({ projects: position }, tx);
+      await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: plain }, tx);
+    });
     back(`Projects are ${plain}.`);
   }
   const handles = [...new Set(String(formData.get("hosts") ?? "").split(/[\s,]+/).map((handle) => handle.replace(/^@/, "").toLowerCase()).filter(Boolean))];
   const found = handles.length ? await db.select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.handle, handles)) : [];
   const unknown = handles.filter((handle) => !found.some((host) => host.handle === handle));
   if (unknown.length > 0) back(`No host has the handle ${unknown.join(", ")}. Nothing was changed.`);
-  await setSwitches({ projects: position, projectsHosts: found.map((host) => host.userId) });
   const words = `on for ${found.length === 0 ? "nobody yet" : found.map((host) => host.handle).join(", ")}`;
-  await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: words });
+  await db.transaction(async (tx) => {
+    await setSwitches({ projects: position, projectsHosts: found.map((host) => host.userId) }, tx);
+    await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: words }, tx);
+  });
   back(`Projects are ${words}.`);
 }

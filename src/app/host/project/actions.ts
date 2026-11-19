@@ -73,8 +73,12 @@ function refused(error: unknown, formData: FormData): PostFormState {
   return { error: problem(error), text: String(formData.get("text") ?? ""), links: linksOf(formData) };
 }
 
+/** Said in the form itself, so a host whose account was paused while she was typing keeps her draft. (Every other action sends a paused account to the page that explains the pause.) */
+const PAUSED = new ProjectError("Your account is paused, so you cannot write or change posts at the moment.");
+
 export async function writePostAction(_state: PostFormState, formData: FormData): Promise<PostFormState> {
-  const user = await requireActiveUser(PAGE);
+  const user = await requireUser(PAGE);
+  if (user.paused) return refused(PAUSED, formData);
   try {
     await writePost({ hostId: user.id, projectId: projectOf(formData), text: String(formData.get("text") ?? ""), links: linksOf(formData), now: new Date() });
   } catch (error) {
@@ -86,7 +90,8 @@ export async function writePostAction(_state: PostFormState, formData: FormData)
 export async function changePostAction(_state: PostFormState, formData: FormData): Promise<PostFormState> {
   const postId = String(formData.get("postId") ?? "");
   // Someone who has to log in first comes back to the post's own page. The id is only used in an address of our own.
-  const user = await requireActiveUser(/^[0-9a-f-]{36}$/i.test(postId) ? `${PAGE}/posts/${postId}` : PAGE);
+  const user = await requireUser(/^[0-9a-f-]{36}$/i.test(postId) ? `${PAGE}/posts/${postId}` : PAGE);
+  if (user.paused) return refused(PAUSED, formData);
   try {
     await changePost({ hostId: user.id, postId, text: String(formData.get("text") ?? ""), links: linksOf(formData), now: new Date() });
   } catch (error) {

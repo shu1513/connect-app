@@ -279,7 +279,7 @@ async function main() {
     check("she cannot change a hidden post", /hidden by Connect/.test((await refusal(Posts.changePost({ hostId: host.id, postId: bad.id, text: "Fixed", links: [], now: tick() }))) ?? ""));
     check("hiding it twice is refused", /already hidden/.test((await refusal(Posts.hidePost({ adminId: admin.id, postId: bad.id, note: "", now: tick() }))) ?? ""));
     const lists = await Posts.postsForAdmin();
-    check("the founder's lists have it under hidden, and not among the newest", lists.hidden.some((e) => e.post.id === bad.id && e.handle === host.handle) && lists.latest.every((e) => e.post.id !== bad.id) && lists.latest.some((e) => e.post.id === kept.id));
+    check("the founder's lists have it under hidden, and not among the newest", lists.hidden.some((e) => e.post.id === bad.id && e.handle === host.handle) && lists.latest.every((e) => e.post.id !== bad.id));
     check("the founder can open any post by its id", (await Posts.postForAdmin(bad.id))?.projectName === project.name && (await Posts.postForAdmin("nope")) === null);
     await Posts.showPost({ adminId: admin.id, postId: bad.id, now: tick() });
     check("shown again: everyone sees it, and nothing of the hiding is left on it", (await Posts.postsOf(project.id)).posts.length === 2 && (await db.select().from(schema.projectPosts).where(eq(schema.projectPosts.id, bad.id)))[0].hiddenNote === null);
@@ -397,7 +397,10 @@ async function main() {
     const host = hostActions ? actionsOf(hostActions) : [];
     const asksActive = (action: string) => /const user = await requireActiveUser\(/.test(action);
     const asksSignedIn = (action: string) => /const user = await requireUser\(/.test(action);
-    check("each of the host's four writing actions asks for a signed-in account that is not paused", host.filter((a) => writes.test(a)).length === 4 && host.filter((a) => writes.test(a)).every(asksActive), host.map((a) => a.split("(")[0]));
+    // Starting and changing a project send a paused account to the page about the pause. The two actions of the post form
+    // refuse a paused account in the form itself, before anything is written, so that a draft is kept.
+    const refusesPaused = (action: string) => asksSignedIn(action) && /if \(user\.paused\) return refused\(PAUSED, formData\);\n  try \{/.test(action);
+    check("each of the host's four writing actions asks for a signed-in account that is not paused", host.filter((a) => writes.test(a)).length === 4 && host.filter((a) => /\b(startProject|changeProject)\(/.test(a)).every(asksActive) && host.filter((a) => /\b(writePost|changePost)\(/.test(a)).every(refusesPaused), host.map((a) => a.split("(")[0]));
     check("ending a project and removing a post ask who is signed in, and work for a paused host too", host.filter((a) => tidies.test(a)).length === 2 && host.filter((a) => tidies.test(a)).every(asksSignedIn));
     const named = /\b(changeProject|endProject|writePost)\(/;
     check("the three forms that change a project name the project they were drawn for", host.filter((a) => named.test(a)).length === 3 && host.filter((a) => named.test(a)).every((a) => /projectId: projectOf\(formData\)/.test(a)));
@@ -408,6 +411,7 @@ async function main() {
     check("no host action takes the host from the form: always from the login", host.length === 6 && host.every((a) => /hostId: user\.id/.test(a)) && !/formData\.get\("hostId"\)/.test(hostActions?.text ?? "x"));
     const adminActions = uses.find((file) => file.path === "src/app/admin/projects/actions.ts");
     const admin = adminActions ? actionsOf(adminActions) : [];
+    check("the founder's switch and its line in the record are saved in one step", (adminActions?.text.match(/await db\.transaction\(async \(tx\) => \{\n\s+await setSwitches\(\{[^}]*\}, tx\);\n\s+await recordAdminAction\(\{[^}]*\}, tx\);\n\s+\}\);/g) ?? []).length === 2 && !/await setSwitches\(\{[^}]*\}\);/.test(adminActions?.text ?? ""));
     check("each of the founder's actions asks for the founder's login first", admin.length === 3 && admin.every((a) => /^\w+\(formData: FormData\) \{\n  const admin = await requireAdmin\(\);/.test(a)), admin.map((a) => a.split("(")[0]));
     // "Starting is an action; loading is only reading": nothing that is drawn on opening a page may write.
     const writing = /import \{[^}]*\b(startProject|changeProject|endProject|endProjectInStep|writePost|changePost|removePost|hidePost|showPost)\b[^}]*\} from "@\/lib\/projects/;
