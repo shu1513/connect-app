@@ -17,10 +17,10 @@
  *   pretended  the founder's approval; that the two were in the call; the waiting (a later clock
  *              is handed to the functions); and, for the collections, the host's payout account:
  *              the account that payout setup opens cannot be activated by a script, since Stripe
- *              collects its details on its own form, so the collecting hosts get an account made
- *              here with the same two abilities and the same responsibilities, filled in with
- *              Stripe's own test values. The setup's own account is completed by hand, once, in
- *              the browser check.
+ *              collects its details on its own form, so the collecting hosts get an account
+ *              opened by the very same request with one difference (no Stripe dashboard goes
+ *              with it), which lets this script fill in Stripe's own test values. The setup's
+ *              own account is completed by hand, once, in the browser check.
  *
  * At the end it removes what it made here, and at Stripe the test accounts and test customers it
  * opened. The accounts are found again by their email address (exactly the form above), so also
@@ -137,20 +137,18 @@ async function main() {
   }
 
   /**
-   * An account Stripe has activated, for a host in that country: the same two abilities (transfers and, abroad, card
-   * payments) and the same responsibilities (we pay the fees and carry the losses) as the account payout setup opens,
-   * with Stripe's test values in place of what the host would type on Stripe's form. Written beside the host as
-   * payout setup would write it.
+   * An account Stripe has activated, for a host in that country. It is opened exactly as payout setup opens it (the
+   * same request, built by the same function), with one difference: no Stripe dashboard goes with it, because only
+   * then may a script fill in what the host would type on Stripe's form. Those details are Stripe's own test values.
+   * Stripe takes a minute or so to check them. Written beside the host as payout setup would write it.
    */
   async function activatedAccount(host: Person, country: string): Promise<string> {
     const test = TEST_HOSTS[country];
-    const account = await stripe().accounts.create({
-      country,
-      email: host.email,
-      controller: { stripe_dashboard: { type: "none" }, fees: { payer: "application" }, losses: { payments: "application" }, requirement_collection: "application" },
-      capabilities: { transfers: { requested: true }, ...(country === "US" ? {} : { card_payments: { requested: true } }) },
+    const account = (await stripe().v2.core.accounts.create({ ...payoutAccountRequest(host, country, "https://accessible.stripe.com").params, dashboard: "none" } as never)) as unknown as { id: string };
+    atStripe.add(account.id);
+    await stripe().accounts.update(account.id, {
       business_type: "individual",
-      business_profile: { mcc: "8999", url: "https://accessible.stripe.com", product_description: "Private one-to-one video calls with fans, booked and paid for on Connect." },
+      ...(country === "US" ? { business_profile: { mcc: "8999", url: "https://accessible.stripe.com", product_description: "Private one-to-one video calls with fans, booked and paid for on Connect." } } : {}),
       individual: {
         first_name: "Jenny",
         last_name: "Rosen",
@@ -163,13 +161,13 @@ async function main() {
       tos_acceptance: { date: Math.floor(Date.now() / 1000), ip: "8.8.8.8" },
       external_account: { object: "bank_account", country, currency: test.currency, account_number: test.account_number, ...(test.routing_number ? { routing_number: test.routing_number } : {}) } as never,
     });
-    atStripe.add(account.id);
-    let active = false;
-    for (let i = 0; i < 20 && !active; i++) {
-      active = (await stripe().accounts.retrieve(account.id)).capabilities?.transfers === "active";
-      if (!active) await new Promise((resolve) => setTimeout(resolve, 3000));
+    let status: string | undefined;
+    for (let i = 0; i < 60 && status !== "active"; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, 4000));
+      const now = (await stripe().v2.core.accounts.retrieve(account.id, { include: ["configuration.recipient"] } as never)) as unknown as { configuration?: { recipient?: { capabilities?: { stripe_balance?: { stripe_transfers?: { status?: string } } } } } };
+      status = now.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status;
     }
-    if (!active) throw new Error(`Stripe did not activate the test account ${account.id} in ${country} within a minute, so nothing can be shown with it.`);
+    if (status !== "active") throw new Error(`Stripe did not activate the test account ${account.id} in ${country} within four minutes (it is "${status}"), so nothing can be shown with it.`);
     await db.insert(schema.hostSettings).values({ userId: host.id }).onConflictDoNothing();
     await db.update(schema.hostSettings).set({ stripeAccountId: account.id }).where(eq(schema.hostSettings.userId, host.id));
     return account.id;
@@ -462,10 +460,16 @@ async function main() {
     console.log("\n3. A real collection reaches a host abroad, in their own money");
     const customer = await person("customer");
     const collectAt = (host: Person, now: Date) => collectEarnings({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now }).then(() => null, (error: unknown) => error as Error);
+    // (The five accounts are opened and filled in side by side: Stripe takes about a minute to check each.)
+    const collecting: Array<{ country: string; host: Person }> = [];
     for (const country of ["GB", "DE", "CH", "CA", "US"]) {
       const host = await person(`collecting-${country.toLowerCase()}`);
       await applyFrom(host, country);
-      const accountId = await activatedAccount(host, country);
+      collecting.push({ country, host });
+    }
+    const theirAccounts = await Promise.all(collecting.map(({ country, host }) => activatedAccount(host, country)));
+    for (const [index, { country, host }] of collecting.entries()) {
+      const accountId = theirAccounts[index];
       check(`${country}: Stripe has activated the test account, and the host counts as ready (the account is in the profile's country)`, (await refreshPayoutsReady(host.id)) === true);
       const callShare = await chargedCall(host, customer);
       check(`${country}: (a 10-minute call at $20.00 per 15 minutes was charged: $13.33, the host's share $12.38)`, callShare.chargedCents === 1333 && callShare.originalHostShareCents === 1238, `${callShare.status} ${callShare.chargedCents}`);
