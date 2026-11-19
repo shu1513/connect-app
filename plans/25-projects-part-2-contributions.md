@@ -592,6 +592,16 @@ the code. All of it is built.
 - **The database's own word** about a share's line was made as strong as the plan says (the
   moment, both parts of the split adding up, the charge it comes from), and a taken payment must
   say how much was taken.
+- **From CodeRabbit's review and Astra's review of it.** Every taking is counted for the pair,
+  with the amount Stripe really took, also one that is paid back in full. A hold whose end Stripe
+  does not say never changes the contribution's card. Right before a taking is sent, the payment
+  is read once more: a stop that came since wins, and Stripe is not asked. "Not sent" is only
+  recorded while the helper cannot have sent the action itself (the first 30 seconds); after
+  that the action stays unanswered and the helper finds out. An answer about a dispute is only
+  recorded if no other answer was recorded since it was asked for (`dispute_version`, migration
+  0036). Before a collection counts, Stripe is asked about every payment of her contributors
+  that may just have been paid; if it cannot be asked, that person's shares wait for that
+  collection. A payment Stripe does not know at all gets a problem, for the founder.
 - **Names.** The plan's `giveUp` and `letGo` are as written. The $1,000 rule is applied by
   `countPair` in `charge.ts`. The founder's hold and release are `holdBack` and `release` in
   `founder.ts`. The test people of `scripts/contribution-check.ts` have ids starting "ctb-".

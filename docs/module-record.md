@@ -1746,7 +1746,7 @@ No pages yet; nobody can start a contribution until 2b.
 
 **What was built**
 - Tables `contributions`, `contribution_agreements`, `contribution_cards`,
-  `contribution_payments`, `contribution_refunds` (migrations 0033 to 0035). A contribution's
+  `contribution_payments`, `contribution_refunds` (migrations 0033 to 0036). A contribution's
   payment is a third kind of owner for the "never twice" record and the ledger. The host's share
   is a line of a new kind, "contribution", among her earnings, with its shape enforced by the
   database.
@@ -1776,9 +1776,23 @@ No pages yet; nobody can start a contribution until 2b.
   if the app stopped at exactly that instant; it is now always found and cancelled (migration
   0035 adds the one field this needed). All taken, each with a check. Astra asked for nothing to
   be removed.
+- CodeRabbit, on the pull request: eleven comments. Ten were taken, each with a check. The ones
+  that mattered: the $1,000 count used the amount that was held, not the amount Stripe really
+  took, and was not made when money was taken that was to be paid back; a cancellation that came
+  in the instant between writing a taking down and asking Stripe lost, so the money was taken and
+  then refunded (now the cancellation wins); a slow process could record "not sent" although the
+  helper might have sent the request itself; an older answer about a bank dispute could
+  overwrite a newer one (migration 0036 adds a counter for this); and a collection did not know
+  of a payment made with a new card seconds earlier, so it now asks Stripe first. One was not
+  taken: writing the migrations so that they do not lock a busy table, because the site is not
+  live and these tables are nearly empty.
+- Astra then reviewed those fixes in three more rounds, ending "ready to merge". It corrected
+  the last one twice: when Stripe cannot be asked, that person's shares now wait for that
+  collection (before, the collection went on); and a payment Stripe does not know at all is set
+  aside for the founder, so it cannot keep shares waiting for ever.
 
 **How it was checked**
-- `scripts/contribution-check.ts`, against Stripe's test mode and the local database: 152 checks
+- `scripts/contribution-check.ts`, against Stripe's test mode and the local database: 162 checks
   in thirteen journeys, among them a contribution from the hold to a real transfer with the
   books adding up to the cent; cancelling and the race with the taking; the card step; the
   monthly tries; a bank's confirmation; a lost hold; the last moment by the real clock;
