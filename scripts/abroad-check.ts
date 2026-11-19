@@ -232,6 +232,8 @@ async function main() {
   // --------------------------------------------------------------------------
   /** The email addresses this script gives its own people, and nothing else: "abroadcheck-", a run's eight letters, a number. */
   const OWN_EMAIL = /^abroadcheck-[0-9a-f]{8}-\d+@example\.test$/;
+  /** The same form, as the database is asked for it: emails to this script's own people, and to nobody whose address merely begins alike. */
+  const ownEmailRows = sql`${schema.emailOutbox.to} ~ '^abroadcheck-[0-9a-f]{8}-[0-9]+@example[.]test$'`;
   /** This script's test accounts at Stripe, found by their email: also one whose id never reached us, and those of a run that was stopped. */
   async function ownAccountsAtStripe(): Promise<string[]> {
     const found: string[] = [];
@@ -242,15 +244,16 @@ async function main() {
    * Removes what this script made: at Stripe its test accounts and test customers, here its people (ids starting
    * "ab-") and all that hangs on them. Here it is one step: everything goes, or nothing does and the next run tries
    * again. If something at Stripe could not be removed, nothing is removed here either, so that it can still be found.
+   * Returns whether everything is gone.
    */
-  async function wipe() {
+  async function wipe(): Promise<boolean> {
     const failedBefore = failures;
+    const kept = () => {
+      check("clean-up: this script's lines here are kept, so that the next run can find what is left", false);
+      return false;
+    };
     for (const id of new Set([...atStripe, ...(await ownAccountsAtStripe())])) await removeAtStripe(id);
     const ids = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, "ab-%"))).map((row) => row.id);
-    if (ids.length === 0) {
-      await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%@example.test"));
-      return;
-    }
     // The test customers Stripe keeps for these people's cards. (Their payments stay at Stripe as history.)
     for (const row of await db.select({ id: schema.stripeCustomers.stripeCustomerId }).from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {
       await stripe()
@@ -259,7 +262,11 @@ async function main() {
           if (!/No such customer/i.test(String((error as Error).message))) check(`clean-up: the test customer ${row.id} at Stripe could be removed`, false, String((error as Error).message));
         });
     }
-    if (failures > failedBefore) return check("clean-up: this script's lines here are kept, so that the next run can find what is left at Stripe", false);
+    if (failures > failedBefore) return kept();
+    if (ids.length === 0) {
+      await db.delete(schema.emailOutbox).where(ownEmailRows);
+      return true;
+    }
 
     const contributionIds = (await db.select({ id: schema.contributions.id }).from(schema.contributions).where(or(inArray(schema.contributions.hostId, ids), inArray(schema.contributions.contributorId, ids)))).map((row) => row.id);
     const cpIds = contributionIds.length > 0 ? (await db.select({ id: pays.id }).from(pays).where(inArray(pays.contributionId, contributionIds))).map((row) => row.id) : [];
@@ -278,7 +285,10 @@ async function main() {
       ]),
     ];
     const foreign = collectionIds.length > 0 ? (await db.select({ paymentId: schema.collectionItems.paymentId }).from(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, collectionIds))).filter((item) => !shares.includes(item.paymentId)) : [];
-    if (foreign.length > 0) return check("clean-up: a collection this script made holds only its own shares", false, `${foreign.length} share(s) of someone else are in it; nothing was removed here`);
+    if (foreign.length > 0) {
+      check("clean-up: a collection this script made holds only its own shares", false, `${foreign.length} share(s) of someone else are in it`);
+      return kept();
+    }
 
     await db.transaction(async (tx) => {
       if (collectionIds.length > 0) {
@@ -310,23 +320,27 @@ async function main() {
       await tx.delete(schema.hostSettings).where(inArray(schema.hostSettings.userId, ids));
       await tx.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
       await tx.delete(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids));
-      await tx.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%@example.test"));
+      await tx.delete(schema.emailOutbox).where(ownEmailRows);
       await tx.delete(schema.user).where(inArray(schema.user.id, ids));
     });
+    return true;
   }
 
   // The host of --setup-host is looked at before anything is cleaned up, and must be a fresh one of its own.
   if (process.argv.some((arg) => arg === "--setup-host" || arg === "--setup-host=")) throw new Error("--setup-host needs the host's email: --setup-host=<email>.");
   if (setupHostEmail && (OWN_EMAIL.test(setupHostEmail) || setupHostEmail === "host@test.local")) throw new Error("--setup-host is for a fresh test host made for this one check: not the shared test host, and not one of this script's own addresses.");
 
-  await wipe();
+  // What an earlier run left is removed first. If that cannot be done, nothing new is made on top of it.
+  if (!(await wipe())) throw new Error("What an earlier run of this script left behind could not be removed (see above). Nothing new was started.");
   try {
     if (setupHostEmail) {
       // ----------------------------------------------------------------------
       console.log(`\nA collection into the account that payout setup itself opened, for ${setupHostEmail}`);
       const [host] = await db.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.email, setupHostEmail));
       const [profile] = host ? await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id)) : [];
-      const accountId = host ? await linkOf(host) : null;
+      // (Read as it is: asking for a person's settings in the app's way would write an empty line for someone who has none.)
+      const [theirSettings] = host ? await db.select({ accountId: schema.hostSettings.stripeAccountId }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, host.id)) : [];
+      const accountId = theirSettings?.accountId ?? null;
       if (!host || !profile || !accountId) throw new Error("That person has no host profile with a payout account. Apply as a host in the app and finish \"Set up payouts\" first.");
       // Only a host with nothing else to their name: "Collect earnings" sends everything of a host that is ready, and
       // this check must send, and afterwards remove, its own call's share and nothing of anyone else's.
@@ -482,7 +496,10 @@ async function main() {
     }
     }
   } finally {
-    await wipe().catch((error) => check("afterwards: what this run made could be removed", false, String(error)));
+    await wipe().then(
+      (gone) => gone || check("afterwards: what this run made could be removed", false),
+      (error) => check("afterwards: what this run made could be removed", false, String(error)),
+    );
   }
 
   const [left] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user).where(like(schema.user.id, "ab-%"));
