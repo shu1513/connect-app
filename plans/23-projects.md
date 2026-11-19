@@ -336,8 +336,10 @@ Connect's own checker found no nudity.
 4. **Connect's own checker (the open-source NSFWJS).** It runs on Connect's server, so it has no
    monthly limit and needs no outside service; what limits it is the server's own strength. It
    only looks for nudity, so it is asked only when none of the three above could answer. And only
-   when at least one of the three has already given a full answer with the key it has now: a
-   service whose key has never worked is not "out", it is not set up, and then pictures wait.
+   when at least one of the three has already given a full answer with the key it has now. With
+   no service that has ever worked, nothing is "out": the checking is not set up yet, and
+   pictures wait. (This is asked of the three together, not of each: once one has worked, another
+   that has a key and cannot be reached counts as out like any other.)
 
 The next one is asked only when the one before is really out: used up, too busy, or not reachable
 in time. An answer that is broken or incomplete, or a picture a service cannot read, is a fault to
@@ -573,7 +575,8 @@ Six comments on the four documents. Five were right and taken; one was answered.
 | --- | --- | --- |
 | 1 | The email at the hold cannot always come three days before the money is taken: a bank can shorten a hold. | Taken: "Contributing monthly", and the lawyer's check names it. |
 | 2 | Pictures uploaded before the child-safety tool is switched on would have been handed to nobody from that day, and nothing would ever have asked the tool about them. | Taken: "Pictures from before that day"; plan 24 says how. |
-| 3 | Plan 24 asked that one service must have worked with its current key before Connect's own checker may pass a picture; the rulebook did not say so. | Taken: the rule is here now, under "The queue". |
+| 3 | Plan 24 asked that one service must have worked with its current key before Connect's own checker may pass a picture; the rulebook did not say so. | Taken: the rule is here now, under "The queue". CodeRabbit then asked about one service that has worked and another that never has, both out: the rule is asked of the three together, so that case allows the own checker, and both documents say so. |
+| 2b | A picture removed before the tool is switched on has no bytes left to check, so "until every picture has had its answer" could never be reached. | Taken: plan 24 leaves such lines out of the job. |
 | 4 | Plan 25's rule for skipped months would also have skipped a month that fell due before the switch went off, if the helper was down at that time. | Taken: plan 25, choice 13, now keeps the moment the switch stopped covering a host and skips only the months after it. |
 | 5 | A share whose sending is under way when the $1,000 line is crossed can still go through before its 30 days. | Answered, not changed: that sending was accepted before the line was crossed, and a sending that is under way is never interfered with. The rule now says so in words ("How the $1,000 is counted"). |
 | 6 | Plan 26 expected no "Contribute" line on the host's page after a closed report, although that line does not look at reports. | Taken: plan 26 tells the two kinds of report apart. |

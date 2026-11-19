@@ -187,7 +187,10 @@ questions, asked by the upload, the queue, the founder's "Show" and the picture'
 - **Pictures from before the switch-on** (the rulebook's "Pictures from before that day"): they
   keep the state they have. A job of the helper asks the tool about each of them, the oldest
   first, a few in each round, and writes `clear` or `match` in place of `not_set_up`. A match
-  locks the picture at once. The job is done when no picture is marked `not_set_up` any more.
+  locks the picture at once. The job only takes pictures whose bytes are still kept. A picture
+  that was removed before the switch-on has no bytes left to ask about; its line keeps
+  `not_set_up`, which then only says the tool never saw it. The job is done when no picture
+  that still has its bytes is marked `not_set_up`.
 - `ask(picture)`: asks the tool. Its answers are kept apart: not set up, could not be reached,
   clear, match.
 
@@ -245,7 +248,9 @@ For each waiting picture, the oldest first:
    `fault` ends this try: the picture waits.
 3. **Connect's own checker, only when all of this is true:** at least one service has given a
    complete, valid answer with the key it has now (`picture_checkers`); and every service with a
-   key is `out` in this try, just answered or still in its five minutes. Found nothing: shown, marked `nudity_only`. Found nudity: `flagged`. If the own checker
+   key is `out` in this try, just answered or still in its five minutes. The first condition is
+   asked of the services together: a service that has a key, has never yet answered, and cannot
+   be reached counts as `out` like the others, as long as another one has worked. Found nothing: shown, marked `nudity_only`. Found nudity: `flagged`. If the own checker
    itself fails or takes too long, the picture waits.
 4. **Otherwise the picture waits** and is tried again: after 1 minute, then 5, then every 15.
 
@@ -460,7 +465,10 @@ their versions fixed.
     out;
   - the founder's decisions, and that nothing removes or shows a locked picture;
   - switching the child-safety tool on with pictures already there: they stay as they were, each
-    gets its answer afterwards, and a match among them is locked;
+    gets its answer afterwards, and a match among them is locked; a picture removed before that
+    day is left alone, and the job still comes to its end;
+  - one service that has worked and one that never has, both out: the own checker may pass a
+    picture; no service that has ever worked: it may not;
   - reports of a post: what is saved, the sentence, and no block.
 - **The open-source checker for real:** in its thread, with the network switched off, a hundred
   pictures in a row (memory does not grow), a failed start, and a fresh start after idling.
