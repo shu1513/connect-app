@@ -12,6 +12,7 @@ import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { tiktokSignInOn } from "@/lib/profiles/tiktok";
+import { runningProjectOf, startProblem } from "@/lib/projects/projects";
 import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import {
@@ -399,6 +400,8 @@ export default async function HostPage(props: PageProps<"/host">) {
 
       <MembershipPart hostId={user.id} regularPricePer15Cents={profile?.pricePer15Cents ?? null} payoutsReady={Boolean(settings.payoutsReady) && stripeConfigured()} now={now} />
 
+      <ProjectPart hostId={user.id} />
+
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Your cancelling rule</h2>
         <p className="mt-2 text-sm opacity-70">
@@ -437,5 +440,34 @@ export default async function HostPage(props: PageProps<"/host">) {
         </form>
       </section>
     </SitePage>
+  );
+}
+
+/**
+ * The part "Your project" of Hosting: a short note and the way to the project's own page, where
+ * everything about it is done (plans/24, choice 1).
+ */
+async function ProjectPart({ hostId }: { hostId: string }) {
+  const running = await runningProjectOf(hostId);
+  const cannotStart = running ? null : await startProblem(hostId);
+  return (
+    <section id="project" className="mt-10 scroll-mt-4">
+      <h2 className="text-lg font-semibold">Your project</h2>
+      <p className="mt-2 text-sm opacity-70">Something you are working on, with a diary anyone can read on your page.</p>
+      <p className="mt-2 text-sm">
+        {running ? (
+          <>
+            Running: <strong>{running.name}</strong>.{" "}
+          </>
+        ) : cannotStart ? (
+          <>{cannotStart} </>
+        ) : (
+          "You have no project at the moment. "
+        )}
+        <Link href="/host/project" className="underline underline-offset-2">
+          {running ? "Write a post, change or end it" : cannotStart ? "See your earlier projects" : "Start a project"}
+        </Link>
+      </p>
+    </section>
   );
 }

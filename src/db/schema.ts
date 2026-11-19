@@ -313,6 +313,13 @@ export const siteSwitches = pgTable("site_switches", {
   memberships: text("memberships").notNull().default("everyone"),
   /** The account IDs of the hosts the founder named, separated by commas. Only read when memberships is "named". */
   membershipsHosts: text("memberships_hosts").notNull().default(""),
+  /**
+   * Projects (a host's diary and the contributions to it): "off", "named" or "everyone", read as the
+   * memberships switch is. On for everyone unless the founder says otherwise (plans/23, choice F).
+   */
+  projects: text("projects").notNull().default("everyone"),
+  /** The account IDs of the hosts the founder named for projects, separated by commas. Only read when projects is "named". */
+  projectsHosts: text("projects_hosts").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1442,8 +1449,70 @@ export const membershipRefunds = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// Projects (plans/23): a host's one project at a time, and its diary.
+// ---------------------------------------------------------------------------
+
+/**
+ * A host's project. One can be running per host; the database itself refuses a second. An ended
+ * project stays, with its diary, and is still readable at its own address.
+ */
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** running or ended. */
+    status: text("status").notNull().default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** Who ended it: host or connect. */
+    endedBy: text("ended_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("projects_one_running_uq").on(t.hostId).where(sql`${t.status} = 'running'`),
+    index("projects_host_idx").on(t.hostId, t.startedAt),
+    check("projects_status", sql`${t.status} in ('running', 'ended')`),
+    check("projects_ended_shape", sql`(${t.status} = 'running') = (${t.endedAt} is null)`),
+  ],
+);
+
+/**
+ * One post of a project's diary. A post the host removed, and one the founder hid, both stay as
+ * lines: a report made about a post must still find what it was about.
+ */
+export const projectPosts = pgTable(
+  "project_posts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id),
+    text: text("text").notNull(),
+    /** Up to three YouTube addresses, one per line, each rebuilt by us from what the host typed (see youtubeLink). */
+    links: text("links").notNull().default(""),
+    /** Set when the host removed it. Nobody sees it after that. */
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    /** Set when the founder hid it. Only the host and the founder see it, marked "Hidden by Connect". */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    hiddenBy: text("hidden_by").references(() => user.id),
+    hiddenNote: text("hidden_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("project_posts_project_idx").on(t.projectId, t.createdAt)],
+);
+
 
 export type Call = typeof calls.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type ProjectPost = typeof projectPosts.$inferSelect;
 
 export type Booking = typeof bookings.$inferSelect;
 export type HostCalendar = typeof hostCalendars.$inferSelect;

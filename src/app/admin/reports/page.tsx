@@ -16,7 +16,7 @@ import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Reports and safety" };
 
-const CONTEXT_LABEL: Record<string, string> = { call: "a call", booking: "a request", profile: "a host's page" };
+const CONTEXT_LABEL: Record<string, string> = { call: "a call", booking: "a request", profile: "a host's page", post: "a post of a host's diary" };
 
 export default async function AdminReportsPage(props: PageProps<"/admin/reports">) {
   await requireAdmin();
@@ -117,6 +117,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               booking?: { id?: string; note?: string } | null;
               call?: { id?: string; safetyEndedAt?: string | null } | null;
               profile?: { displayName: string; handle: string; about: string } | null;
+              post?: { id: string; projectName: string; text: string; links: string[] } | null;
             };
             return (
               <li key={report.id} className={`rounded border p-4 text-sm ${report.urgent ? "border-red-600" : "border-neutral-400"}`}>
@@ -140,6 +141,18 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                   <p className="mt-1 opacity-70">
                     Their page at the time: &ldquo;{snapshot.profile.displayName}&rdquo; (@{snapshot.profile.handle}){snapshot.profile.about ? `: "${snapshot.profile.about}"` : ""}
                   </p>
+                )}
+                {snapshot.post && (
+                  <div className="mt-2 rounded border border-neutral-400 p-2" data-reported-post>
+                    <p className="opacity-70">The post as it was when it was reported, in &ldquo;{snapshot.post.projectName}&rdquo;. Reporting a post does not block its host.</p>
+                    <p className="mt-1 whitespace-pre-line">{snapshot.post.text}</p>
+                    {snapshot.post.links.length > 0 && <p className="mt-1 break-all opacity-70">Links: {snapshot.post.links.join(", ")}</p>}
+                    <p className="mt-1">
+                      <Link href={`/admin/projects?post=${snapshot.post.id}`} className="underline underline-offset-2">
+                        See the post as it is now, and hide it
+                      </Link>
+                    </p>
+                  </div>
                 )}
                 {snapshot.call?.id && (
                   <p className="mt-1">

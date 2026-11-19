@@ -10,6 +10,8 @@ import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
 import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { publicPost } from "@/lib/projects/posts";
+import { linksOf } from "@/lib/projects/rules";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
 
@@ -60,10 +62,25 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
     if (!profile) throw new ReportError("Profile not found.");
     return { reportedId: profile.userId, snapshot: {} };
   }
+  if (context === "post") {
+    // A post of a host's diary. Only one the reporter can really see: removed and hidden posts, and
+    // posts on a page that is not open, give nothing away. What it said is kept, since she can change it.
+    const found = await publicPost(contextId);
+    if (!found) throw new ReportError("Post not found.");
+    return {
+      reportedId: found.project.hostId,
+      snapshot: { post: { id: found.post.id, projectId: found.project.id, projectName: found.project.name, text: found.post.text, links: linksOf(found.post.links), writtenAt: found.post.createdAt } },
+    };
+  }
   throw new ReportError("Report not understood.");
 }
 
-/** Files a report. Reporting someone also blocks them for the reporter. Urgent reports email every admin at once. */
+/**
+ * Files a report. Reporting a person (from a call, a request or their page) also blocks them for
+ * the reporter. Reporting a post of a diary does not: it is about what was written, and a block
+ * would end things between the two that the reporter did not ask to end (plans/23, choice G).
+ * Urgent reports email every admin at once.
+ */
 export async function createReport(input: { reporterId: string; context: string; contextId: string; reason: string; text: string; now: Date }): Promise<{ reference: number }> {
   const reason = REPORT_REASONS.find((r) => r.key === input.reason);
   if (!reason) throw new ReportError("Choose a reason.");
@@ -99,7 +116,7 @@ export async function createReport(input: { reporterId: string; context: string;
     }
     return row;
   });
-  await block({ blockerId: input.reporterId, blockedId: reportedId, now: input.now });
+  if (input.context !== "post") await block({ blockerId: input.reporterId, blockedId: reportedId, now: input.now });
   return { reference: report.reference };
 }
 

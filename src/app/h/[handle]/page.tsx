@@ -14,6 +14,9 @@ import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { Rating } from "@/components/rating";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { postsOf } from "@/lib/projects/posts";
+import { diaryFor } from "@/lib/projects/projects";
+import { firstLines } from "@/lib/projects/rules";
 import { averageFor } from "@/lib/ratings/ratings";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
@@ -77,6 +80,11 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
   const now = offer ? await instantOffer(profile.userId, new Date()) : null;
   const rating = await averageFor(profile.userId, "host", new Date());
+  // Her running project, with the newest post of its diary. Asked of the diary's own rule, which is "her page is
+  // open to everyone": a member or an invited person who can open a hidden page does not see the project here.
+  const diary = await diaryFor(profile.handle);
+  const project = diary?.project.status === "running" ? diary.project : null;
+  const [latestPost] = project ? (await postsOf(project.id)).posts : [];
   // A signed-in visitor who would be stopped at the booking page is offered the ID check here already.
   const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
 
@@ -120,6 +128,19 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
             </li>
           ))}
         </ul>
+      )}
+
+      {project && (
+        <section className={`${warm.card} mt-6`} data-project-box>
+          <h2 className="text-lg font-semibold">{project.name}</h2>
+          <p className="mt-1 text-sm opacity-70">A project {profile.displayName} is working on.</p>
+          <p className="mt-2 text-sm">{firstLines(latestPost ? latestPost.text : project.description, 200)}</p>
+          <p className="mt-3">
+            <Link href={`/h/${profile.handle}/project`} className={warm.secondary}>
+              Read the diary
+            </Link>
+          </p>
+        </section>
       )}
 
       <section className={`${warm.card} mt-6`}>

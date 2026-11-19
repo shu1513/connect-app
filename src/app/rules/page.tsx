@@ -22,6 +22,10 @@ export default function RulesPage() {
         ))}
       </ul>
       <p className="mt-6 text-sm">
+        The same rules apply to what a host puts in the diary of a project: its text, its links and its pictures. A post that breaks
+        them can be reported with the link under it, and we can hide it.
+      </p>
+      <p className="mt-6 text-sm">
         Talking about relationships or health is fine. If someone breaks these rules, end the call with the &quot;End call and report&quot;
         button and tell us what happened. Breaking them can mean a warning, a paused account, or a closed account.
       </p>
