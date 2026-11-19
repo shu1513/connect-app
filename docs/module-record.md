@@ -1689,9 +1689,19 @@ and shows it, refuses it or keeps it waiting. No money yet (part two).
   read as an outage when its message was cut off) and asked for the rulebook's sentence about
   the first answer of a recovered service to be kept to the letter. All taken. Astra asked for
   nothing to be removed.
+- CodeRabbit (pull request 44): twenty comments, all rated minor. Eighteen taken. The ones that
+  changed the app: a very long, thin picture could shrink to a copy only 40 points high (it is
+  refused at upload now); the host's list of posts had no way to a single picture once her
+  project had ended or her post was hidden, so she could only remove the whole post; a service's
+  five minutes were looked at before its turn came; the clock was read before a lock that can
+  take a while; and two gaps around the moment the child-safety tool is switched on, which
+  cannot happen while there is no tool. The rest were wording in the plans and stricter checks.
+  Two were answered and not taken: a shown picture may be kept by the visitor's own browser for
+  five minutes, as the plan decided; and the check script clears the test database's attempt
+  limits, as the other check scripts do. Astra looked at these changes too: "ready to merge".
 
 **How it was checked**
-- `scripts/project-check.ts`: 308 checks in eighteen journeys. The new ones use stand-in
+- `scripts/project-check.ts`: 310 checks in eighteen journeys. The new ones use stand-in
   checkers whose answers the script controls: every outcome of the queue, two rounds at once,
   answers that come back late, the founder or the host deciding during a check, who is handed a
   picture in every state, "Remove and report" and what it protects, reports and their mark, the
@@ -1706,7 +1716,7 @@ and shows it, refuses it or keeps it waiting. No money yet (part two).
   picture); a wrong key reads as a fault.
 - The always-on helper was run for real: it picked up an uploaded picture and kept it waiting
   with "No checking service is set up", which was true at that moment.
-- 461 unit tests, among them each checker's reading of complete, partial and broken answers.
+- 462 unit tests, among them each checker's reading of complete, partial and broken answers.
 - All sixteen check scripts on the finished code.
 - In the browser, as a host (uploading through the real form), a visitor and the founder (hold,
   "Remove and report", the time of the report), on a wide and a phone-sized window.
