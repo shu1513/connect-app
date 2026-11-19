@@ -328,7 +328,11 @@ async function main() {
   async function wipe() {
     await payoutAccountBack();
     const ids = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, "pjourney-%"))).map((row) => row.id);
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      // Emails are found by their address alone, so one that outlived its person is still removed.
+      await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "pjourney-%"));
+      return;
+    }
     const contributionIds = (await db.select({ id: schema.contributions.id }).from(schema.contributions).where(or(inArray(schema.contributions.hostId, ids), inArray(schema.contributions.contributorId, ids)))).map((row) => row.id);
     const theirPayments = contributionIds.length > 0 ? await db.select().from(pays).where(inArray(pays.contributionId, contributionIds)) : [];
     // Nothing stays held on a test card.
@@ -384,7 +388,8 @@ async function main() {
       () => db.delete(schema.account).where(inArray(schema.account.userId, ids)),
       () => db.delete(schema.user).where(inArray(schema.user.id, ids)),
     ];
-    for (const step of steps) await step().catch((error) => console.log(`   (clean-up: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+    // A step that fails is a failed check: what it should have removed may still be there.
+    for (const step of steps) await step().catch((error) => check("clean-up: each step could remove what it is for", false, error instanceof Error ? error.message.split("\n")[0] : String(error)));
   }
 
   const startedAt = new Date();
@@ -500,6 +505,14 @@ async function main() {
     if (monthly.contributionId === null) throw new Error(`The monthly contribution did not start: ${monthly.notice}`);
     check("with the box ticked it starts; the page before paying said every sentence for a monthly contribution", summarySentences({ kind: "monthly", amountCents: 1000, hostName: host.displayName, projectName: NAME }).every((sentence) => monthly.summary.words.includes(sentence)));
     const month1 = monthly.paymentId;
+    const diaryAtStep = await page(`/h/${host.handle}/project`, cara);
+    check("while its card step is open the diary says \"Finish contributing\", and offers no second monthly contribution", ownLine(diaryAtStep) === "card_step" && diaryAtStep.text.includes('data-kind="once"') && !diaryAtStep.text.includes('data-kind="monthly"'));
+    // Pretended: that card step's 30 minutes ran out a moment ago, and the helper has not been by yet.
+    const monthlyStepEnds = (await PM(month1)).cardStepExpiresAt;
+    await db.update(pays).set({ cardStepExpiresAt: new Date(Date.now() - MIN) }).where(eq(pays.id, month1));
+    const diaryStepOver = await page(`/h/${host.handle}/project`, cara);
+    check("and when its time is over but it has not been ended yet: no line, and still no monthly form that would only be refused", ownLine(diaryStepOver) === null && diaryStepOver.text.includes('data-kind="once"') && !diaryStepOver.text.includes('data-kind="monthly"'));
+    await db.update(pays).set({ cardStepExpiresAt: monthlyStepEnds }).where(eq(pays.id, month1));
     const paidMonthly = await payInBrowser(cara, monthly.contributionId, month1);
     check("the first month is held on her card", paidMonthly.json?.status === "held" && (await CO(monthly.contributionId)).status === "running" && (await CO(monthly.contributionId)).firstHoldAt !== null, JSON.stringify(paidMonthly.json));
     const hostPageMonthly = await page(`/h/${host.handle}`, cara);
@@ -757,8 +770,9 @@ async function main() {
   }
 
   const [left] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user).where(like(schema.user.email, "pjourney-%"));
+  const [leftEmails] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.emailOutbox).where(like(schema.emailOutbox.to, "pjourney-%"));
   const atEnd = await switches();
-  check("the script's own test data was cleaned up, and the founder's switch is as it was before the script", left.n === 0 && atEnd.projects === atStart.projects && atEnd.projectsHosts.join(",") === atStart.projectsHosts.join(","), `${left.n} people left; ${atEnd.projects}`);
+  check("the script's own test data was cleaned up, and the founder's switch is as it was before the script", left.n === 0 && leftEmails.n === 0 && atEnd.projects === atStart.projects && atEnd.projectsHosts.join(",") === atStart.projectsHosts.join(","), `${left.n} people left; ${atEnd.projects}`);
   const [checkerAfter] = await db.select().from(schema.pictureCheckers).where(eq(schema.pictureCheckers.service, "openai"));
   const [seededAfter] = seeded ? await db.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, seeded.id)) : [];
   check("what the app remembered about the first picture service, and the test payout account, are as they were", JSON.stringify(checkerAfter ?? null) === JSON.stringify(checkerBefore ?? null) && (seededAfter?.stripeAccountId ?? null) === payoutAccountBefore, { checker: checkerAfter?.lastGoodKey ?? null });

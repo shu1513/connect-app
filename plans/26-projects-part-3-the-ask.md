@@ -216,8 +216,8 @@ Nothing here changes a rule. It is what the code made exact.
   "Finish contributing" is shown only while contributing is possible and that card step can
   still be finished: its payment waits for a card and its 30 minutes are not over. (After that
   the contribution's own page asks the bank what became of it; the line would lead to a page
-  with nothing to finish.) In the diary, someone who
-  already contributes every month sees the line and "Contribute once", and no second monthly
+  with nothing to finish.) In the diary, someone who already contributes every month, or whose
+  monthly contribution is still being set up, sees "Contribute once" and no second monthly
   form, which would only be refused. So `src/app/h/[handle]/project/diary.tsx` changed too.
 - **The journey.** As planned, with these things made exact:
   - Collecting is its step 6 and runs only with `--payouts`. It is not walked through the

@@ -93,26 +93,31 @@ export type OwnContribution = { is: "monthly"; contributionId: string; amountCen
  * runs every month, or one they began and left at a card step that can still be finished. The
  * host's page and the diary both ask this, so the two never disagree. Without a visitor (not
  * signed in) there is no `own`.
+ *
+ * `hasMonthly` says that a monthly contribution of theirs to this project is being set up or
+ * running, whatever its card step's clock says: a second one would be refused when it is started
+ * (start.ts), so it is not offered.
  */
-export async function contributionOf(viewerId: string | null, project: Project, now: Date = new Date()): Promise<{ can: boolean; own: OwnContribution | null }> {
+export async function contributionOf(viewerId: string | null, project: Project, now: Date = new Date()): Promise<{ can: boolean; own: OwnContribution | null; hasMonthly: boolean }> {
   const can = (await whyNotContribute(db, { contributorId: viewerId, project })) === null;
-  if (!viewerId) return { can, own: null };
+  if (!viewerId) return { can, own: null, hasMonthly: false };
   const open = await db
     .select()
     .from(schema.contributions)
     .where(and(eq(schema.contributions.contributorId, viewerId), eq(schema.contributions.projectId, project.id), ne(schema.contributions.status, "ended")))
     .orderBy(desc(schema.contributions.createdAt));
   const monthly = open.find((contribution) => contribution.kind === "monthly" && contribution.status === "running");
-  if (monthly) return { can, own: { is: "monthly", contributionId: monthly.id, amountCents: monthly.amountCents } };
+  if (monthly) return { can, own: { is: "monthly", contributionId: monthly.id, amountCents: monthly.amountCents }, hasMonthly: true };
+  const hasMonthly = open.some((contribution) => contribution.kind === "monthly");
   // A card step is only worth going back to while a contribution could still be made, and while that very step
   // can still be finished: its payment waits for a card, and its 30 minutes are not over. (Only read here: what
   // became of a payment whose time ran out is asked on the contribution's own page.)
   const atCardStep = can ? open.filter((contribution) => contribution.status === "card_step").map((contribution) => contribution.id) : [];
-  if (atCardStep.length === 0) return { can, own: null };
+  if (atCardStep.length === 0) return { can, own: null, hasMonthly };
   const payable = await db
     .select({ contributionId: pays.contributionId })
     .from(pays)
     .where(and(inArray(pays.contributionId, atCardStep), eq(pays.status, "to_pay"), isNull(pays.endedHow), isNull(pays.problem), gt(pays.cardStepExpiresAt, now)));
   const unfinished = atCardStep.find((id) => payable.some((payment) => payment.contributionId === id));
-  return { can, own: unfinished ? { is: "card_step", contributionId: unfinished } : null };
+  return { can, own: unfinished ? { is: "card_step", contributionId: unfinished } : null, hasMonthly };
 }

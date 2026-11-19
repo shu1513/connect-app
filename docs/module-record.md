@@ -1897,7 +1897,7 @@ built. It adds no table, no money rule and no email.
   first lines of what it is about, and "See the project". No amount and nothing that pays.
 - One line for a signed-in visitor in the project's box on the host's page, and the same line on
   the diary: "You contribute $X a month", "Finish contributing", or "Contribute".
-- `scripts/project-journey-check.ts`: 89 checks through the real pages, from a host's first post
+- `scripts/project-journey-check.ts`: 91 checks through the real pages, from a host's first post
   to the founder's switch.
 
 **What building changed in the plan** (written into plan 26)
@@ -1930,6 +1930,11 @@ built. It adds no table, no money rule and no email.
   app for the sake of a test), and making the script safe beside other work on the same test
   database (like the other check scripts, it needs the database to itself).
 - Astra asked for nothing to be removed.
+- CodeRabbit, on the pull request: two comments, both taken. The diary still offered "Contribute
+  every month" to someone whose monthly contribution was at its card step, where pressing it is
+  only refused: the form is now left out whenever a monthly contribution of theirs is being set
+  up or running. And a step of the journey script's clean-up that fails is now a failed check,
+  and emails are removed by their address also when their person is already gone.
 
 **How it was checked**
 - The unit tests of the rule: every condition failing alone, and all of them true.

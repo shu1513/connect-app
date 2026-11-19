@@ -46,9 +46,9 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
   // The "Contribute" part is shown only where it can lead somewhere: not for her own project, not to someone
   // blocked, and not when the project has ended or takes no contributions (plans/25, choice 4). Asked again when
   // the form is sent. A visitor's own contribution gets its line here as on the host's page: both ask one function.
-  const { can: canContribute, own } = await contributionOf(viewer?.id ?? null, project);
-  // Someone who already contributes every month is not offered a second monthly contribution: it would only be refused.
-  const kinds = canContribute ? kindsOffered(project).filter((kind) => !(kind === "monthly" && own?.is === "monthly")) : [];
+  const { can: canContribute, own, hasMonthly } = await contributionOf(viewer?.id ?? null, project);
+  // Someone who already contributes every month, or is setting that up, is not offered a second monthly contribution: it would only be refused.
+  const kinds = canContribute ? kindsOffered(project).filter((kind) => !(kind === "monthly" && hasMonthly)) : [];
   // "Older" and "newer" name this very project. Her plain address shows whichever project is current, so a
   // reader in the middle of one diary would land in another if she ended it and started a new one meanwhile.
   const here = `/h/${profile.handle}/project/${project.id}`;
