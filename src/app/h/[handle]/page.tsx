@@ -47,10 +47,10 @@ const CANCEL_RULE: Record<number, string> = {
  */
 const loadProfile = cache(async (handle: string) => {
   const open = await publicProfile(handle);
-  if (open) return open;
+  if (open) return { ...open, openToAll: true };
   const viewer = await getUser();
   const forMember = viewer ? await hostForMemberByHandle(viewer.id, handle) : null;
-  return forMember ? { ...forMember, socials: [] } : null;
+  return forMember ? { ...forMember, socials: [], openToAll: false } : null;
 });
 
 export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise<Metadata> {
@@ -77,8 +77,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   // The Follow button: for everyone but the host themselves and someone who has blocked this host. Whether the
   // host has blocked the viewer plays no part, so the button never gives a block away (plans/30, decision 3).
   // Only on a page that is open to everyone: that is what can be followed.
-  const canBeFollowed = Boolean(await publicProfile(profile.handle));
-  const follow = !canBeFollowed || viewer?.id === profile.userId ? null : !viewer ? ("visitor" as const) : (await hasBlocked(viewer.id, profile.userId)) ? null : await followingOf(viewer.id, profile.userId);
+  const follow = !profile.openToAll || viewer?.id === profile.userId ? null : !viewer ? ("visitor" as const) : (await hasBlocked(viewer.id, profile.userId)) ? null : await followingOf(viewer.id, profile.userId);
   // A member of this host: their time left and the times they can book with it, beside the ordinary way.
   const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
   // Their own membership with this host, whatever state it is in: an invitation, the card step, a failed payment or a pause each get a line and a link.
