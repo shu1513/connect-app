@@ -18,9 +18,11 @@
  *              is handed to the functions); and, for the collections, the host's payout account:
  *              the account that payout setup opens cannot be activated by a script, since Stripe
  *              collects its details on its own form, so the collecting hosts get an account
- *              opened by the very same request with one difference (no Stripe dashboard goes
- *              with it), which lets this script fill in Stripe's own test values. The setup's
- *              own account is completed by hand, once, in the browser check.
+ *              opened with what the app's own request builder gives, with a test web address
+ *              and without a Stripe dashboard, which lets this script fill in Stripe's own test
+ *              values (for the US one also what a business is, which Stripe's form would ask
+ *              the host). The setup's own account is completed by hand, once, in the browser
+ *              check.
  *
  * At the end it removes what it made here, and at Stripe the test accounts and test customers it
  * opened. The accounts are found again by their email address (exactly the form above), so also
@@ -137,10 +139,12 @@ async function main() {
   }
 
   /**
-   * An account Stripe has activated, for a host in that country. It is opened exactly as payout setup opens it (the
-   * same request, built by the same function), with one difference: no Stripe dashboard goes with it, because only
-   * then may a script fill in what the host would type on Stripe's form. Those details are Stripe's own test values.
-   * Stripe takes a minute or so to check them. Written beside the host as payout setup would write it.
+   * An account Stripe has activated, for a host in that country. It is opened with what the app's own request
+   * builder gives (a test web address in place of Connect's, and no label against a second press), with one
+   * difference: no Stripe dashboard goes with it, because only then may a script fill in what the host would type
+   * on Stripe's form. Those details are Stripe's own test values; the US one is also told what the business is,
+   * which Stripe's form would ask a US host. In the runs so far Stripe took about a minute to check a UK one.
+   * Written beside the host as payout setup would write it.
    */
   async function activatedAccount(host: Person, country: string): Promise<string> {
     const test = TEST_HOSTS[country];
@@ -467,7 +471,11 @@ async function main() {
       await applyFrom(host, country);
       collecting.push({ country, host });
     }
-    const theirAccounts = await Promise.all(collecting.map(({ country, host }) => activatedAccount(host, country)));
+    // Every one of them is waited for, also when one fails: the clean-up must not start while another is still being opened.
+    const opening = await Promise.allSettled(collecting.map(({ country, host }) => activatedAccount(host, country)));
+    const notOpened = opening.flatMap((result, index) => (result.status === "rejected" ? [`${collecting[index].country}: ${String((result.reason as Error).message ?? result.reason).slice(0, 200)}`] : []));
+    if (notOpened.length > 0) throw new Error(`A test account could not be opened and activated, so no collection is shown (${notOpened.join("; ")}).`);
+    const theirAccounts = opening.map((result) => (result.status === "fulfilled" ? result.value : ""));
     for (const [index, { country, host }] of collecting.entries()) {
       const accountId = theirAccounts[index];
       check(`${country}: Stripe has activated the test account, and the host counts as ready (the account is in the profile's country)`, (await refreshPayoutsReady(host.id)) === true);

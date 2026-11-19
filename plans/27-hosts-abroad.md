@@ -349,14 +349,15 @@ in the design, one new point that had to change, and several details.
 Nothing here changes a rule.
 
 - **The test accounts of the check script.** The plan had them made the older way, with no
-  Stripe dashboard. An account made that way cannot be read the newer way for a long time
-  ("try again shortly"), and the app only ever asks the newer way. So they are opened by the
-  app's own request, with one difference: no Stripe dashboard goes with them, which lets the
-  script fill in Stripe's test details. That is closer to the real thing than planned.
-- **Stripe checks a host's details for about a minute** after its form, for a host abroad (a US
-  test account is ready at once). During that minute the Hosting page and the page a host comes
-  back to used to say that Stripe still needs details from them. They now say that Stripe may
-  still be checking, and to look again.
+  Stripe dashboard. An account made that way could not be read the newer way for minutes ("try
+  again shortly"), and the app only ever asks the newer way. So they are opened with what the
+  app's own request builder gives, with a test web address and no Stripe dashboard, which lets
+  the script fill in Stripe's test details. That is closer to the real thing than planned.
+- **Stripe checks a host's details after its form.** In the test that took about a minute for
+  a host in the UK (a US test account was ready at once); for a real host it is not known.
+  During that time the Hosting page and the page a host comes back to used to say that Stripe
+  still needs details from them. They now say that Stripe may still be checking, that the setup
+  can be continued if Stripe needs more, and to write to support if it cannot be.
 - **The second form of the check script,** `--setup-host=<email>`: one collection into an
   account that payout setup itself opened and its host completed on Stripe's form. It takes only
   a fresh host with no calls, members, contributions or collections, and refuses the shared test

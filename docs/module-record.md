@@ -2051,8 +2051,9 @@ product, not code.
   hosts outside the US about dollars and Stripe's exchange rate.
 - The payout account is opened for the host's country (`host-account.ts`, `hosts.ts`). For the
   United States the request to Stripe is exactly what it was. For other countries it also asks
-  for "card payments", and hands Stripe Connect's web address and "private video calls", so
-  the host is not asked about a website or a line of business.
+  for "card payments", and hands Stripe "private video calls" and, when Connect runs on a
+  public https address, that address, so the host is not asked about a website or a line of
+  business.
 - One rule: Connect never links, sets up or pays a Stripe account in another country than the
   host's profile. Payout setup needs a host profile first; someone who set payouts up before
   applying can only apply from the United States; Stripe is asked for an account's country
@@ -2075,17 +2076,24 @@ product, not code.
   used an account Stripe had not activated), a clean-up that could lose track of an account at
   Stripe, and a second form of the script that could have collected, and then removed, someone
   else's earnings. All taken. Astra asked for nothing to be removed.
+- Astra once more after the checks had been run: the merge with "Connect your Instagram" lost
+  nothing of either change. One more thing in the check script (it opened its five test
+  accounts side by side, and when one failed the clean-up could start while another was still
+  being opened), and the new sentence on the Hosting page said "Stripe is still checking" in
+  states where the app cannot know that. Both taken.
 - (CodeRabbit: see below, added after its review.)
 
 **What building changed** (also at the end of plan 27)
-- An account made the older way cannot be read the newer way, which is the only way the app
-  asks. So the check script's test accounts are opened by the app's own request, with one
-  difference: no Stripe dashboard goes with them, which lets a script fill in Stripe's test
-  details. The account payout setup itself opens can only be filled in by its host, on Stripe's
-  form.
-- Stripe takes about a minute to check a host's details after the form (a US test account is
-  ready at once). The page used to say "Stripe still needs some details from you" during that
-  minute; it now says Stripe may still be checking.
+- An account made the older way could not be read the newer way for minutes after it was made
+  (Stripe: "try again shortly"), and the newer way is the only way the app asks. So the check
+  script's test accounts are opened with what the app's own request builder gives, with a test
+  web address and no Stripe dashboard, which lets a script fill in Stripe's test details. The
+  account payout setup itself opens can only be filled in by its host, on Stripe's form.
+- In the test, Stripe took about a minute to check a UK host's details after the form (a US
+  test account was ready at once). How long it takes for a real host is not known. The pages
+  used to say "Stripe still needs some details from you" during that time; they now say that
+  Stripe may still be checking, that the setup can be continued if Stripe needs more, and to
+  write to support if it cannot be.
 
 **How it was checked**
 - Unit tests of the list and of the request to Stripe (the US request compared field for field

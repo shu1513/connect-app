@@ -446,7 +446,7 @@ export default async function HostPage(props: PageProps<"/host">) {
           <>
             <p className="mt-2 text-sm">
               {settings.stripeAccountId
-                ? "Your payout account is not ready yet. If you have just finished Stripe's form, Stripe is still checking your details: that can take a few minutes, so look at this page again. Otherwise Stripe still needs some details from you."
+                ? "Your payout account is not ready yet. Stripe may still be checking your details, which can take a few minutes: look at this page again. If Stripe needs something more from you, you can continue the setup below. If the setup cannot be continued, write to support."
                 : "To host paid calls, set up a payout account. Stripe collects your identity and bank details on its own secure pages; we never see them."}
             </p>
             <form action={startPayoutSetup} className="mt-3">
