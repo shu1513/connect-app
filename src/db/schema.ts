@@ -1797,6 +1797,8 @@ export const contributionPayments = pgTable(
     refundedCents: integer("refunded_cents").notNull().default(0),
     /** none, open, won or lost. */
     dispute: text("dispute").notNull().default("none"),
+    /** Goes up each time an answer from Stripe about its disputes is recorded, so an answer that was read before another was recorded is thrown away. */
+    disputeVersion: integer("dispute_version").notNull().default(0),
     /** The founder's hold on the share, or release: none, held or released, with who, when and why. */
     founderHold: text("founder_hold").notNull().default("none"),
     founderBy: text("founder_by").references(() => user.id),

@@ -18,7 +18,7 @@
  * the same steps below; only the row that is locked differs. The functions with "Money" or "Payment" in their
  * name are the payment's, exactly as they were; the "owned" ones take the owner.
  */
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, eq, gt, like, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { isDefiniteRefusal, stripeErrorMessage } from "./stripe";
@@ -32,9 +32,14 @@ export class MoneyError extends Error {}
 
 /**
  * Thrown by an action's `execute` when it decides, at the last moment, not to ask Stripe at all.
- * Nothing was sent, so this is as certain as a refusal from Stripe, and is recorded like one.
+ * Nothing was sent by this process, so it is recorded like a refusal from Stripe, but only while the
+ * helper cannot have picked the action up (see RECONCILE_AFTER_MS): after that the helper may have
+ * sent it itself, so the action is left unanswered and the helper finds out.
  */
 export class NotSentError extends Error {}
+
+/** An unfinished action is only checked by the helper once Stripe has had time to finish it. */
+export const RECONCILE_AFTER_MS = 60_000;
 
 /** The action may or may not have happened. It will be checked with Stripe before anything else runs. */
 export class OutcomeUnknownError extends Error {}
@@ -156,18 +161,25 @@ export async function completeOwnedOperation<Row, P, R>(
   try {
     outcome = await plan.execute(started.params, started.label);
   } catch (error) {
-    if (isDefiniteRefusal(error) || error instanceof NotSentError) {
-      const message = stripeErrorMessage(error);
-      await db.transaction(async (tx) => {
+    const notSent = error instanceof NotSentError;
+    if (isDefiniteRefusal(error) || notSent) {
+      const message = notSent ? (error as Error).message : stripeErrorMessage(error);
+      const marked = await db.transaction(async (tx) => {
         const row = await plan.owner.lock(tx);
         // Only an action that is still unanswered: the helper may have recorded its real outcome meanwhile.
-        const marked = await tx
+        // And "we did not send it" is only certain while the helper cannot have picked the action up and sent it
+        // itself: well inside the time it leaves an unfinished action alone.
+        const young = notSent ? gt(schema.moneyOperations.createdAt, new Date(Date.now() - RECONCILE_AFTER_MS / 2)) : undefined;
+        const rows = await tx
           .update(schema.moneyOperations)
           .set({ status: "failed", error: message, finishedAt: new Date() })
-          .where(and(eq(schema.moneyOperations.id, started.operationId), eq(schema.moneyOperations.status, "started")))
+          .where(and(eq(schema.moneyOperations.id, started.operationId), eq(schema.moneyOperations.status, "started"), young))
           .returning({ id: schema.moneyOperations.id });
-        if (marked.length > 0) await plan.onRefused?.(row, started.params, message, tx);
+        if (rows.length > 0) await plan.onRefused?.(row, started.params, message, tx);
+        return rows.length > 0;
       });
+      // Not sent by us, but too old to be sure nobody else sent it: left unanswered for the helper.
+      if (notSent && !marked) throw new OutcomeUnknownError(message);
       throw new MoneyError(message);
     }
     // No clear answer. Leave the action written down as "started".

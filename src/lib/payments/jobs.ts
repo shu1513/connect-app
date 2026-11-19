@@ -32,7 +32,7 @@ import {
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
-import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, refusedRecently } from "./operations";
+import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, RECONCILE_AFTER_MS, refusedRecently } from "./operations";
 import { attendanceChargeCents, countedSeconds } from "./pricing";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
@@ -40,8 +40,6 @@ import { settleOrdinaryCharges } from "./take";
 import { isDefiniteRefusal, stripe, stripeErrorMessage } from "./stripe";
 import { handleStripeEvent } from "./stripe-events";
 
-/** An unfinished action is only checked once Stripe has had time to finish it. */
-const RECONCILE_AFTER_MS = 60_000;
 /**
  * Stripe remembers an action's label for at least 24 hours. Inside this
  * window, sending the same request again is safe: Stripe returns the original

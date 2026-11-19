@@ -281,6 +281,13 @@ async function main() {
     check("the books: charged $25.00, refunded $25.00, nothing left", (await ledger({ contributionPaymentId: b.paymentId })).total === 0 && (await PM(b.paymentId)).refundedCents === 2500);
     await R.runRefunds(new Date());
     check("it is sent once", (await stripe().refunds.list({ payment_intent: (await PM(b.paymentId)).stripePaymentIntentId!, limit: 10 })).data.length === 1);
+
+    // The contributor cancels after the taking was written down and before Stripe was asked (the script holds the request back for that).
+    const lateStop = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR) }).where(eq(pays.id, lateStop.paymentId));
+    p = await C.takePayment(lateStop.paymentId, undefined, { beforeDispatch: async () => void (await C.giveUp(lateStop.paymentId, "cancelled", new Date())) });
+    const stopOps = await operations(lateStop.paymentId, "capture");
+    check("a cancellation that comes after the taking was written down, and before Stripe was asked, wins: nothing is taken and the hold is let go", p.status === "given_up" && p.endedHow === "cancelled" && stopOps.length === 1 && stopOps[0].status === "failed" && (await intentOf(lateStop.paymentId)).status === "canceled" && (await intentOf(lateStop.paymentId)).amount_received === 0 && (await ledger({ contributionPaymentId: lateStop.paymentId })).lines === 0, { status: p.status, endedHow: p.endedHow, ops: stopOps.map((o) => o.status) });
   });
 
   // ========================================================================
@@ -401,6 +408,11 @@ async function main() {
     await C.recordIntent(await PM(b.paymentId), intent, new Date(), { holdEndsAt: null });
     p = await PM(b.paymentId);
     check("Stripe does not say when a hold ends: no date is assumed, the hold is let go, and the founder is shown it", p.status === "given_up" && p.endedHow === "no_hold_end" && Boolean(p.problem) && p.takeAt === null && (await intentOf(b.paymentId)).status === "canceled", { status: p.status, endedHow: p.endedHow });
+    const noEnd = await atCardStep(host, { kind: "monthly" });
+    await confirmOnly(noEnd.paymentId);
+    const noEndIntent = await stripe().paymentIntents.retrieve((await PM(noEnd.paymentId)).stripePaymentIntentId!, { expand: ["latest_charge", "payment_method"] });
+    await C.recordIntent(await PM(noEnd.paymentId), noEndIntent, new Date(), { holdEndsAt: null });
+    check("and the card of such a hold never becomes a monthly contribution's card", (await PM(noEnd.paymentId)).endedHow === "no_hold_end" && (await db.select().from(schema.contributionCards).where(eq(schema.contributionCards.contributionId, noEnd.contributionId))).length === 0);
 
     const edge = await held(host);
     check("at its own last moment the money is still taken", (await C.takePayment(edge.paymentId, (await PM(edge.paymentId)).takeBy!)).status === "taken");
@@ -431,6 +443,21 @@ async function main() {
     p = await C.takePayment(gap.paymentId, undefined, { beforeDispatch: () => new Promise((resolve) => setTimeout(resolve, 3500)) });
     const gapOps = await operations(gap.paymentId, "capture");
     check("the clock is looked at once more at the very moment before Stripe is asked: too late by then, nothing is sent, and the payment is given up and let go", p.status === "given_up" && p.endedHow === "not_taken_in_time" && gapOps.length === 1 && gapOps[0].status === "failed" && (await intentOf(gap.paymentId)).status === "canceled" && (await intentOf(gap.paymentId)).amount_received === 0, { status: p.status, endedHow: p.endedHow, ops: gapOps.map((o) => o.status) });
+    // The same, when the taking was written down so long ago that the helper may have sent it itself: this process
+    // does not say "not sent" then. The action stays unanswered, and the helper finds out.
+    const oldOne = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR), takeBy: new Date(Date.now() + 2000) }).where(eq(pays.id, oldOne.paymentId));
+    p = await C.takePayment(oldOne.paymentId, undefined, {
+      beforeDispatch: async () => {
+        await db.update(schema.moneyOperations).set({ createdAt: new Date(Date.now() - 2 * MIN) }).where(and(eq(schema.moneyOperations.contributionPaymentId, oldOne.paymentId), eq(schema.moneyOperations.status, "started")));
+        await new Promise((resolve) => setTimeout(resolve, 3500));
+      },
+    });
+    const oldOps = await operations(oldOne.paymentId, "capture");
+    const leftUnanswered = p.status === "held" && !p.endedHow && oldOps.length === 1 && oldOps[0].status === "started";
+    await reconcileOperations(new Date());
+    p = await PM(oldOne.paymentId);
+    check("when the helper may already have sent the taking itself, a late process leaves the action unanswered; the helper finds nothing was taken, gives the payment up and lets the hold go", leftUnanswered && p.status === "given_up" && p.endedHow === "not_taken_in_time" && (await intentOf(oldOne.paymentId)).status === "canceled" && (await intentOf(oldOne.paymentId)).amount_received === 0, { leftUnanswered, status: p.status, endedHow: p.endedHow });
     // And the moment that is recorded is read after Stripe's answer, not just before the request.
     const answered = await held(host);
     await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR) }).where(eq(pays.id, answered.paymentId));
@@ -728,6 +755,31 @@ async function main() {
     check("counting again does not put its 30 days back, while the new payment that crosses the line waits 30", (await shareOf(first.paymentId)).transferDueAt?.getTime() === releasedAt.getTime() && (await shareOf(third.paymentId)).transferDueAt?.getTime() === third.at.getTime() + 30 * DAY);
     await F.release({ paymentId: e1.paymentId, adminId: admin.id, note: "Fine", now: whenReady });
     check("a release lifts the founder's own hold", (await unsentEarnings(whenReady, host.id)).find((x) => x.payment.contributionPaymentId === e1.paymentId)?.heldBack === null);
+
+    // What Stripe really took is what counts. (A taking of another amount is the founder's to settle; it is put in by hand here.)
+    const odd = await person("giver");
+    const o1 = await taken(host, { giver: odd, amountCents: 90_000 });
+    await db.update(pays).set({ takenCents: 10_000 }).where(eq(pays.id, o1.paymentId));
+    const o2 = await held(host, { giver: odd, amountCents: 20_000 });
+    check("money that was taken counts with the amount Stripe really took", !(await PM(o2.paymentId)).thirtyDayMark);
+    // Money that was taken although it was not to be is money paid too: the pair is counted at that moment.
+    const racer = await person("giver");
+    const r1 = await held(host, { giver: racer, amountCents: 30_000 });
+    await taken(host, { giver: racer, amountCents: 50_000 });
+    const r3 = await atCardStep(host, { giver: racer, amountCents: 30_000 });
+    await confirmOnly(r3.paymentId);
+    const before3 = (await PM(r1.paymentId)).thirtyDayMark;
+    await stripe().paymentIntents.capture((await PM(r3.paymentId)).stripePaymentIntentId!);
+    await C.syncPayment(r3.paymentId, new Date());
+    check("a payment taken although it was never accepted is owed back in full, and still counts: a hold of that person gets its mark at that moment", !before3 && (await PM(r1.paymentId)).thirtyDayMark && (await PM(r3.paymentId)).status === "taken" && (await refundsOf(r3.paymentId)).length === 1 && (await shareOf(r3.paymentId)) === undefined);
+    // The count at a hold's acceptance is made at that moment, not at the moment the helper's round began.
+    const aged = await person("giver");
+    const g1 = await taken(host, { giver: aged, amountCents: 60_000 });
+    await db.update(pays).set({ takenAt: new Date(Date.now() - 30 * DAY - 60_000) }).where(eq(pays.id, g1.paymentId));
+    const g2 = await atCardStep(host, { giver: aged, amountCents: 60_000 });
+    await confirmOnly(g2.paymentId);
+    await C.syncPayment(g2.paymentId, new Date(Date.now() - 10 * MIN));
+    check("a taking that left the 30 days a minute ago does not count for a new hold, also when the helper's round began before that", (await PM(g2.paymentId)).status === "held" && !(await PM(g2.paymentId)).thirtyDayMark);
   });
 
   // ========================================================================
@@ -755,6 +807,8 @@ async function main() {
     check("won: the share can be collected again, and the contribution stays ended", (await unsentEarnings(when, host.id))[0]?.heldBack === null && (await CO(m.contributionId)).status === "ended");
     await D.recordDispute(m.paymentId, "lost", new Date());
     check("lost: held back again, for the founder to settle", (await unsentEarnings(when, host.id))[0]?.heldBack === "dispute");
+    const version = (await PM(m.paymentId)).disputeVersion;
+    check("an answer about a dispute that was read before another one was recorded is thrown away, and a fresh one is recorded", (await D.recordDispute(m.paymentId, "won", new Date(), version - 1)) === false && (await PM(m.paymentId)).dispute === "lost" && (await D.recordDispute(m.paymentId, "lost", new Date(), version)) === true && (await PM(m.paymentId)).disputeVersion === version + 1);
   });
 
   // ========================================================================
@@ -864,6 +918,7 @@ async function main() {
           await tx.update(schema.hostSettings).set({ stripeAccountId: account, payoutsReady: true }).where(eq(schema.hostSettings.userId, to));
         });
       await give(seeded.id, host.id);
+      let holder = host;
       try {
         const press = (now: Date) => collectEarnings({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now }).then(() => null, (error: unknown) => error as Error);
         const m = await taken(host, { amountCents: 2500 });
@@ -900,8 +955,19 @@ async function main() {
         const both = await press(new Date(two.at.getTime() + 33 * DAY));
         check("after their 30 days both are collected in one collection", both === null && (await shareOf(one.paymentId)).transferStatus === "sent" && (await shareOf(two.paymentId)).transferStatus === "sent", both?.message);
         check("after that the host can no longer refund it; only the founder can", /only Connect/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() }))) ?? ""));
+        // A payment Stripe already holds and that we have not heard of yet (the contributor just paid with a new card).
+        // (With a host of her own, so the 24 hours between two collections do not come into it.)
+        const other = await newHost();
+        await give(host.id, other.id);
+        holder = other;
+        const fresh = await person("giver");
+        const f1 = await taken(other, { giver: fresh, amountCents: 60_000 });
+        const f2 = await atCardStep(other, { giver: fresh, amountCents: 60_000 });
+        await confirmOnly(f2.paymentId);
+        const unheard = await collectEarnings({ collectionId: randomUUID(), hostId: other.id, startedBy: other.id, now: new Date(f1.at.getTime() + 8 * DAY) }).then(() => null, (error: unknown) => error as Error);
+        check("a collection asks Stripe first about a payment that may just have been paid: its hold is recorded and counted, so the earlier share waits 30 days and is not sent", unheard instanceof MoneyError && (await PM(f2.paymentId)).status === "held" && (await shareOf(f1.paymentId)).transferDueAt?.getTime() === f1.at.getTime() + 30 * DAY && (await shareOf(f1.paymentId)).transferStatus === "not_due", unheard?.message);
       } finally {
-        await give(host.id, seeded.id);
+        await give(holder.id, seeded.id);
       }
     });
   }

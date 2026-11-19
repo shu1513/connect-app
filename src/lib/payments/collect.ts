@@ -11,11 +11,11 @@
  * reaches more than 23 hours later is not repeated. If Stripe never made it,
  * that share is ready again for the host's next collection.
  */
-import { and, asc, desc, eq, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, MembershipMonth, Payment } from "@/db/schema";
 import { isFrozen } from "@/lib/membership/rules";
-import { countPair } from "@/lib/contributions/charge";
+import { countPair, syncPayment } from "@/lib/contributions/charge";
 import { lockContribution, lockContributionPayment, lockPair } from "@/lib/contributions/locks";
 import { applyTransferSent, currentSplit, transferSteps, type TransferParams } from "./actions";
 import { requestHolds } from "@/lib/refunds/requests";
@@ -165,7 +165,18 @@ async function countPairsOf(hostId: string, now: Date): Promise<void> {
     .innerJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.payments.contributionPaymentId))
     .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
     .where(and(eq(schema.contributions.hostId, hostId), UNSENT));
-  for (const contributorId of givers.map((row) => row.contributorId).sort()) {
+  const contributorIds = givers.map((row) => row.contributorId).sort();
+  if (contributorIds.length === 0) return;
+  // A payment of one of these people that may just have been paid with a new card: Stripe can hold it already
+  // while the payment here still says "to be paid", because Stripe's message has not come yet. Stripe is asked
+  // now, so the count below sees that hold. (One that cannot be asked is left to the message or the helper.)
+  const maybePaid = await db
+    .select({ id: schema.contributionPayments.id })
+    .from(schema.contributionPayments)
+    .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
+    .where(and(eq(schema.contributions.hostId, hostId), inArray(schema.contributions.contributorId, contributorIds), eq(schema.contributionPayments.status, "to_pay"), isNull(schema.contributionPayments.endedHow), isNull(schema.contributionPayments.problem), isNotNull(schema.contributionPayments.stripePaymentIntentId)));
+  for (const { id } of maybePaid) await syncPayment(id, now).catch((error) => console.error(`[payments] could not ask Stripe about contribution payment ${id} before a collection`, error));
+  for (const contributorId of contributorIds) {
     await db.transaction(async (tx) => {
       await lockPair(tx, contributorId, hostId);
       if (!(await pairOutcomeUnknown(tx, contributorId, hostId))) await countPair(tx, contributorId, hostId, now);

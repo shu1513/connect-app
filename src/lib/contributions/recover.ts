@@ -44,10 +44,12 @@ export async function recoverContributionOperation(operation: typeof schema.mone
 
   try {
     if (operation.kind === "hold") {
-      const payment = await paymentById(paymentId);
       // A try is only made again for a payment that is still waiting for one. For a payment given up meanwhile, Stripe is only asked.
-      // And only while the founder's switch covers the host: no new hold is placed after a stop.
-      if (canRepeat() && payment?.status === "to_pay" && !payment.endedHow && !payment.problem && (await covered())) {
+      // And only while the founder's switch covers the host: no new hold is placed after a stop. The payment is
+      // read last of all: the next thing that happens is the request to Stripe.
+      const mayStill = canRepeat() && (await covered());
+      const payment = mayStill ? await paymentById(paymentId) : undefined;
+      if (payment?.status === "to_pay" && !payment.endedHow && !payment.problem) {
         asked = true;
         await confirmSavedCard({ intentId: params.intentId, paymentMethodId: params.paymentMethodId }, operation.label);
         await finishOwnedOperation(operation.id, owner, params.intentId, async () => undefined);

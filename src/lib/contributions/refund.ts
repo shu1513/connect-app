@@ -191,7 +191,16 @@ export async function runRefunds(now: Date): Promise<void> {
     .select({ id: lines.id })
     .from(lines)
     .innerJoin(pays, eq(pays.id, lines.contributionPaymentId))
-    .where(and(eq(lines.status, "owed"), or(isNull(lines.lastFailedAt), lte(lines.lastFailedAt, new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS))), inArray(pays.dispute, ["none", "won"]), eq(pays.status, "taken")))
+    .where(
+      and(
+        eq(lines.status, "owed"),
+        or(isNull(lines.lastFailedAt), lte(lines.lastFailedAt, new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS))),
+        inArray(pays.dispute, ["none", "won"]),
+        eq(pays.status, "taken"),
+        // A payment with an action under way cannot start a refund now, so its lines never fill the batch.
+        sql`not exists (select 1 from ${schema.moneyOperations} where ${schema.moneyOperations.contributionPaymentId} = ${pays.id} and ${schema.moneyOperations.status} = 'started')`,
+      ),
+    )
     .orderBy(lines.createdAt)
     .limit(50);
   for (const line of owed) {

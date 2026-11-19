@@ -16,17 +16,24 @@ import { lockForPayment } from "./locks";
 
 const pays = schema.contributionPayments;
 
-/** Records where the dispute over a payment stands, with the payment locked. Open or lost ends a monthly contribution, in the same step. */
-export async function recordDispute(paymentId: string, state: "open" | "won" | "lost", now: Date): Promise<void> {
+/**
+ * Records where the dispute over a payment stands, with the payment locked. Open or lost ends a
+ * monthly contribution, in the same step. `readAtVersion` is the payment's `disputeVersion` as it
+ * was before Stripe was asked: if another answer was recorded since, this one may be older than
+ * that one, so nothing is recorded and false is returned (the caller asks Stripe again).
+ */
+export async function recordDispute(paymentId: string, state: "open" | "won" | "lost", now: Date, readAtVersion?: number): Promise<boolean> {
   const toLetGo = await db.transaction(async (tx) => {
     const { contribution, payment } = await lockForPayment(tx, paymentId);
-    if (payment.dispute === state) return [];
-    await tx.update(pays).set({ dispute: state, updatedAt: now }).where(eq(pays.id, payment.id));
+    if (readAtVersion !== undefined && payment.disputeVersion !== readAtVersion) return null;
+    await tx.update(pays).set({ dispute: state, disputeVersion: payment.disputeVersion + 1, updatedAt: now }).where(eq(pays.id, payment.id));
     // Winning later does not start it again.
-    if (state === "won" || contribution.status === "ended" || contribution.kind !== "monthly") return [];
+    if (payment.dispute === state || state === "won" || contribution.status === "ended" || contribution.kind !== "monthly") return [];
     return endInStep(tx, contribution, "dispute", now);
   });
+  if (!toLetGo) return false;
   for (const id of toLetGo) await letGo(id, now).catch((error) => console.error(`[contributions] could not let go of payment ${id} yet; the helper will retry`, error));
+  return true;
 }
 
 /**
@@ -38,13 +45,14 @@ export async function refreshDispute(paymentId: string, now: Date = new Date()):
   const [payment] = await db.select({ intentId: pays.stripePaymentIntentId }).from(pays).where(eq(pays.id, paymentId));
   if (!payment?.intentId) return;
   let recorded: string | null = null;
-  for (let round = 0; round < 3; round++) {
+  for (let round = 0; round < 5; round++) {
+    // Read before Stripe is asked: an answer is only recorded if no other answer was recorded since.
+    const [seen] = await db.select({ version: pays.disputeVersion }).from(pays).where(eq(pays.id, paymentId));
     const disputes = await stripe().disputes.list({ payment_intent: payment.intentId, limit: 100 }).autoPagingToArray({ limit: 300 });
     if (disputes.length === 0) break;
     const state = disputes.some((dispute) => dispute.status === "lost") ? "lost" : disputes.some((dispute) => BLOCKING_DISPUTE.has(dispute.status)) ? "open" : "won";
     if (state === recorded) break;
-    await recordDispute(paymentId, state, now);
-    recorded = state;
+    if (await recordDispute(paymentId, state, now, seen.version)) recorded = state;
   }
   // Marked as looked at, so the helper's hourly look goes round all open disputes in turn.
   await db.update(pays).set({ updatedAt: now }).where(eq(pays.id, paymentId));

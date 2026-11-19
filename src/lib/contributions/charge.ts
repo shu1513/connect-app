@@ -280,7 +280,8 @@ export async function countPair(tx: Tx, contributorId: string, hostId: string, n
     .where(and(eq(schema.contributions.contributorId, contributorId), eq(schema.contributions.hostId, hostId)));
   const seen: PairPayment[] = rows.map(({ payment, shareStatus }) => ({
     id: payment.id,
-    amountCents: payment.amountCents,
+    // What the contributor really paid: for money that was taken, the amount Stripe took.
+    amountCents: payment.status === "taken" ? (payment.takenCents ?? payment.amountCents) : payment.amountCents,
     // A hold counts while it is in place, also one that is being let go, until that is certain.
     state: payment.status === "held" ? "held" : payment.status === "taken" ? "taken" : "other",
     takenAt: payment.takenAt,
@@ -347,64 +348,71 @@ export async function applyTaken(tx: Tx, locked: LockedPayment, taken: { cents: 
     })
     .where(eq(pays.id, payment.id));
   await addLedgerEntry(tx, { contributionPaymentId: payment.id, kind: "customer_charge", amountCents: taken.cents, stripeRef: chargeId, note: rightful ? "contribution" : "contribution, taken although it was not to be" });
-  if (taken.cents !== payment.amountCents) return;
-  if (rightful && !chargeId) {
-    // A share's line must name the charge its transfer comes from. Without one nothing is written for the host, and the founder is shown it.
-    await tx.update(pays).set({ problem: "Stripe did not name the charge of this payment, so nothing was written for the host. Please settle it by hand.", updatedAt: at }).where(eq(pays.id, payment.id));
-    return;
-  }
-
-  if (!rightful) {
-    // Taken although it was given up or never accepted: all of it goes back. The line is what makes it owed.
-    await tx
-      .insert(schema.contributionRefunds)
-      .values({ contributionPaymentId: payment.id, sourceKey: `late:${payment.id}`, amountCents: taken.cents, decidedBy: "app", reason: "This payment went through although it had been cancelled, so all of it is paid back." })
-      .onConflictDoNothing();
-    return;
-  }
-
-  // The host's share, as one line among her earnings, under this payment (plans/25, "What the share's line holds").
-  const terms = { percentBps: payment.feePercentBps, fixedCents: payment.feeFixedCents, foreignCardBps: payment.feeForeignCardBps };
-  const split = splitCharge(taken.cents, terms, payment.cardCountry !== null && payment.cardCountry !== "US");
-  const [share] = await tx
-    .insert(schema.payments)
-    .values({
-      kind: "contribution",
-      contributionPaymentId: payment.id,
-      // No call and no month. The stretch it stands for is the moment the money was taken.
-      coversFrom: at,
-      coversUntil: at,
-      pricePer15Cents: 0,
-      bookedCents: taken.cents,
-      feePercentBps: terms.percentBps,
-      feeFixedCents: terms.fixedCents,
-      feeForeignCardBps: terms.foreignCardBps,
-      status: "charged",
-      chargedCents: taken.cents,
-      chargeReason: "contribution",
-      chargedAt: at,
-      // The charge a transfer names as its source. The PaymentIntent stays on the contribution's payment alone.
-      stripeChargeId: chargeId,
-      cardCountry: payment.cardCountry,
-      originalFeeCents: split.feeCents,
-      originalHostShareCents: split.hostShareCents,
-      transferStatus: split.hostShareCents > 0 ? "not_due" : "not_owed",
-      // 30 days if the payment carries the mark from when it was held; 7 otherwise. The count below can still make it 30.
-      // A payment the founder released while it was still held keeps to that: it waits the usual 7 days.
-      transferDueAt: split.hostShareCents > 0 ? collectFrom(at, payment.thirtyDayMark && payment.founderHold !== "released") : null,
-    })
-    .onConflictDoNothing()
-    .returning({ id: schema.payments.id });
-  if (share) {
-    // No "charged to the contributor" line here: the contribution's payment has the only one.
-    await addLedgerEntry(tx, { paymentId: share.id, kind: "platform_fee", amountCents: split.feeCents, stripeRef: chargeId, note: "contribution" });
-    await addLedgerEntry(tx, { paymentId: share.id, kind: "host_share", amountCents: split.hostShareCents, stripeRef: chargeId, note: "contribution" });
-  }
-  // The second of the rule's three moments: the money is taken.
+  const shareWritten = await writeWhatFollows();
+  // The second of the rule's three moments: the money is taken. Whatever becomes of it (the host's share, or all
+  // of it owed back), it is money this person paid, and it counts for the pair from this moment.
   await countPair(tx, contribution.contributorId, contribution.hostId, at);
   // A contribution made once has nothing more to come.
-  if (contribution.kind === "once" && contribution.status !== "ended") {
+  if (shareWritten && contribution.kind === "once" && contribution.status !== "ended") {
     await tx.update(schema.contributions).set({ status: "ended", endedAt: at, endedHow: "paid", updatedAt: at }).where(eq(schema.contributions.id, contribution.id));
+  }
+
+  /** The host's share, or what stands in its place. Returns whether the share was written. */
+  async function writeWhatFollows(): Promise<boolean> {
+    if (taken.cents !== payment.amountCents) return false;
+    if (rightful && !chargeId) {
+      // A share's line must name the charge its transfer comes from. Without one nothing is written for the host, and the founder is shown it.
+      await tx.update(pays).set({ problem: "Stripe did not name the charge of this payment, so nothing was written for the host. Please settle it by hand.", updatedAt: at }).where(eq(pays.id, payment.id));
+      return false;
+    }
+
+    if (!rightful) {
+      // Taken although it was given up or never accepted: all of it goes back. The line is what makes it owed.
+      await tx
+        .insert(schema.contributionRefunds)
+        .values({ contributionPaymentId: payment.id, sourceKey: `late:${payment.id}`, amountCents: taken.cents, decidedBy: "app", reason: "This payment went through although it had been cancelled, so all of it is paid back." })
+        .onConflictDoNothing();
+      return false;
+    }
+
+    // The host's share, as one line among her earnings, under this payment (plans/25, "What the share's line holds").
+    const terms = { percentBps: payment.feePercentBps, fixedCents: payment.feeFixedCents, foreignCardBps: payment.feeForeignCardBps };
+    const split = splitCharge(taken.cents, terms, payment.cardCountry !== null && payment.cardCountry !== "US");
+    const [share] = await tx
+      .insert(schema.payments)
+      .values({
+        kind: "contribution",
+        contributionPaymentId: payment.id,
+        // No call and no month. The stretch it stands for is the moment the money was taken.
+        coversFrom: at,
+        coversUntil: at,
+        pricePer15Cents: 0,
+        bookedCents: taken.cents,
+        feePercentBps: terms.percentBps,
+        feeFixedCents: terms.fixedCents,
+        feeForeignCardBps: terms.foreignCardBps,
+        status: "charged",
+        chargedCents: taken.cents,
+        chargeReason: "contribution",
+        chargedAt: at,
+        // The charge a transfer names as its source. The PaymentIntent stays on the contribution's payment alone.
+        stripeChargeId: chargeId,
+        cardCountry: payment.cardCountry,
+        originalFeeCents: split.feeCents,
+        originalHostShareCents: split.hostShareCents,
+        transferStatus: split.hostShareCents > 0 ? "not_due" : "not_owed",
+        // 30 days if the payment carries the mark from when it was held; 7 otherwise. The count below can still make it 30.
+        // A payment the founder released while it was still held keeps to that: it waits the usual 7 days.
+        transferDueAt: split.hostShareCents > 0 ? collectFrom(at, payment.thirtyDayMark && payment.founderHold !== "released") : null,
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.payments.id });
+    if (share) {
+      // No "charged to the contributor" line here: the contribution's payment has the only one.
+      await addLedgerEntry(tx, { paymentId: share.id, kind: "platform_fee", amountCents: split.feeCents, stripeRef: chargeId, note: "contribution" });
+      await addLedgerEntry(tx, { paymentId: share.id, kind: "host_share", amountCents: split.hostShareCents, stripeRef: chargeId, note: "contribution" });
+    }
+    return true;
   }
 }
 
@@ -525,6 +533,12 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
     if (intent.status === "requires_capture") {
       const authorisedAt = charge?.created ? new Date(charge.created * 1000) : now;
       let why = await whyNotAccept(tx, locked, intent, authorisedAt);
+      if (!why && !read.holdEndsAt) {
+        // Stripe did not say when this hold ends, also when asked again. No date is assumed: the hold is let go, and the founder is shown it.
+        // (Looked at before the card: a hold that is not accepted never changes the contribution's card.)
+        await tx.update(pays).set({ problem: "Stripe did not say when this payment's hold ends, so it was let go and nothing was taken.", updatedAt: now }).where(eq(pays.id, payment.id));
+        why = "no_hold_end";
+      }
       let cardId: string | null = null;
       if (!why && contribution.kind === "monthly") {
         // The card of this payment becomes the contribution's card in use, if Stripe really kept it for the contributor.
@@ -536,11 +550,6 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
           if (!(error instanceof MoneyError)) throw error;
           why = "card_step";
         }
-      }
-      if (!why && !read.holdEndsAt) {
-        // Stripe did not say when this hold ends, also when asked again. No date is assumed: the hold is let go, and the founder is shown it.
-        await tx.update(pays).set({ problem: "Stripe did not say when this payment's hold ends, so it was let go and nothing was taken.", updatedAt: now }).where(eq(pays.id, payment.id));
-        why = "no_hold_end";
       }
       if (why) {
         await giveUpInStep(tx, locked, why, now);
@@ -571,8 +580,9 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
         // The day the first hold succeeded is a monthly contribution's day of the month, for good.
         .set({ status: "running", ...(contribution.kind === "monthly" && !contribution.firstHoldAt ? { firstHoldAt: authorisedAt } : {}), updatedAt: now })
         .where(eq(schema.contributions.id, contribution.id));
-      // The first of the rule's three moments: a hold is accepted.
-      await countPair(tx, contribution.contributorId, contribution.hostId, now);
+      // The first of the rule's three moments: a hold is accepted. Counted at this moment, not at the one this look
+      // began: a taking that has left the 30 days meanwhile no longer counts.
+      await countPair(tx, contribution.contributorId, contribution.hostId, freshNow(now));
       return;
     }
     if (intent.status === "succeeded") {
@@ -702,6 +712,10 @@ export async function takePayment(paymentId: string, now?: Date, test?: { before
       execute: async (params, label) => {
         // (Only the check script passes this, to let the last moment go by between the decision and the request.)
         await test?.beforeDispatch?.();
+        // A stop that came after the taking was written down (the contributor cancelled, the contribution ended):
+        // Stripe is not asked, and the letting-go that the stop began goes on.
+        const current = await paymentById(paymentId);
+        if (!current || current.status !== "held" || !open(current)) throw new NotSentError("This payment was stopped, so Stripe was not asked to take its money.");
         // The last look at the clock, with everything else done: writing the action down and saving it take time
         // too. The very next thing that happens is the request to Stripe.
         if (clock().getTime() > params.takeByMs) throw new NotSentError("The last moment to take this payment's money has passed, so Stripe was not asked.");
