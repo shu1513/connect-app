@@ -242,24 +242,35 @@ describe("instagramAccountsFor (with a pretended connection)", () => {
   it("the real requests have a time limit, follow no redirect and are never answered from a store", async () => {
     const calls: Array<{ url: string; options: RequestInit }> = [];
     const answers = [key, accounts];
+    // Each request's limit must be the one made here, with eight seconds: a signal that never runs out would not do.
+    const limits: AbortSignal[] = [];
+    const limit = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
+      const made = new AbortController().signal;
+      limits.push(made);
+      return made;
+    });
     vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
       calls.push({ url, options });
       return new Response(answers.shift());
     });
+    let askedFor: unknown[][] = [];
     try {
       expect((await instagramAccountsFor("the-code", SETTINGS)).kind).toBe("accounts");
+      askedFor = limit.mock.calls.map((call) => [...call]);
     } finally {
       vi.unstubAllGlobals();
+      limit.mockRestore();
     }
     expect(calls).toHaveLength(2);
-    for (const call of calls) {
+    expect(askedFor).toEqual([[8000], [8000]]);
+    calls.forEach((call, index) => {
       expect(call.options.redirect).toBe("error");
       expect(call.options.cache).toBe("no-store");
-      expect(call.options.signal).toBeInstanceOf(AbortSignal);
-    }
+      expect(call.options.signal).toBe(limits[index]);
+    });
   });
 
-  it("a request that breaks (no connection, a redirect, too slow) is \"no answer\", never an error thrown on", async () => {
+  it("a request that is rejected (as when there is no connection, a redirect is refused or the limit runs out) is \"no answer\", never an error thrown on", async () => {
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("fetch failed");
     });

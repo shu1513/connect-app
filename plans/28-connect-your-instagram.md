@@ -1,8 +1,8 @@
 # Plan 28: "Connect your Instagram": a host proves an Instagram account by signing in at Meta
 
-**Status:** built on branch `module/connect-instagram`, with Meta's side pretended in its
-checks; the real try with the founder's own Instagram account is still to come, and it stays
-switched off until then. Written 19 November 2026 by the builder alone (no
+**Status:** built on branch `module/connect-instagram`, and tried for real with the founder's
+own Instagram account on 19 November 2026: it works (see "The real try" at the end). It is not
+switched on for real hosts, which waits for Meta's review of the app. Written 19 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 47, from plan 16 (whose part
 two this replaces), plan 17 and plan 18, and from Meta's developer pages as read that day. Astra
 checked it once: "not ready", six points that had to change, all worked in (the list is at the
@@ -359,3 +359,48 @@ return is tied to its person, not "harmless"; an empty list has its own sentence
 cannot be read or goes on is refused whole; a dispute is repaired by hand, with no button; the
 tester's portfolio must not be the app's; and "no request to hand a key back" is said as "none
 found".
+
+## The real try (19 November 2026)
+
+With the founder's Meta developer account (unlocked that morning), the app "Connect" in
+development state, the configuration "Connect prove account", the founder's Instagram account as
+the one shared, a temporary https address, and the local test host logged in at that address.
+Two things were added in Meta's dashboard for it, with the founder's go-ahead: the temporary
+address's domain under "App domains", and the return address under "Valid OAuth Redirect URIs".
+
+What happened, and what it settled of the points Meta's pages left open:
+
+1. **One permission is enough.** Meta's first screen, "Select the business assets to share with
+   Connect", had the founder's business portfolio and Instagram account picked already. Its
+   second screen said: "Connect will be able to: Access profile and posts from the selected
+   Instagram account", and nothing else: no messages, no ads. So a host is asked for one thing.
+   Meta's words for it are wider than what Connect reads (the number and the name); the Hosting
+   page and the privacy page now say so.
+2. **The secret in the body works.** The swap went through as built, with the return address
+   sent again. Meta checks the return address first (error 191 until it was registered), then
+   the code's form (error 100 for a made-up code, with the real and with a made-up secret
+   alike). What a wrong secret gives with a real code was not seen.
+3. **The value comes back unchanged,** and the list of accounts is as recorded above.
+4. **After "Confirm":** back on the Hosting page with "Instagram @name is confirmed." The entry
+   holds Meta's number for the account (the same number the bio check knows it by), is
+   confirmed by nobody's hand, and its code has run out.
+5. **"Cancel" on Meta's first screen:** back on the Hosting page with "You did not connect
+   Instagram. Nothing was changed.", and the confirmed account untouched.
+6. **What the sign-in is like:** two screens and two clicks for someone who is already logged in
+   to Facebook in that browser and whose Instagram account sits in their own business
+   portfolio. The way in through Instagram itself was not offered, as Meta's pages say for a
+   browser already logged in to Facebook; `prompt=login` was not added.
+
+Not seen, and still open: a host with no business portfolio, or with a personal account; a host
+who shares several accounts; logging in with Instagram instead of Facebook; whether Meta takes
+the same code twice; how long the configuration's key lives (to be read from the configuration
+in Meta's dashboard); and, for real hosts, everything under "Before real hosts can use it".
+
+**Astra's review of the code** (two rounds; the second: "ready for the real try"). The one point
+that had to be fixed: a damaged "paging" part in Meta's list was taken for "nothing follows", so
+a broken answer with one line could have replaced a host's account; it is now a damaged answer.
+The rest was the strength of the scripted checks (entries compared whole after a refusal, one
+return really sent twice, the founder's "confirm" at the same moment, a look at a bio that comes
+back late, the real requests' time limit) and words on the Hosting and privacy pages, all taken.
+Not done: the Hosting page in every state with the switch on and off, and the admin page's
+alert as drawn, are not checked by a script. Astra found nothing over-built.

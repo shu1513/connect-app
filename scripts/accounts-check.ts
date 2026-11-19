@@ -991,8 +991,14 @@ async function main() {
       const said0 = (r: PromiseSettledResult<unknown>) => (r.status === "fulfilled" ? String(r.value) : `refused: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
       const confirmAndSignIn = await Promise.allSettled([profiles.confirmSocialName({ id: louTyped.id, nameKey: louTyped.nameKey, code: louTyped.code, by: host.id }), signIn(lou.id, says(shared([7, name("lou")])))]);
       const louAfter = await entryOf(lou.id);
-      check("the founder's \"confirm\" and the host's sign-in at the same moment: whichever is first, the entry ends confirmed with Meta's number, once", said0(confirmAndSignIn[1]) === `Instagram @${name("lou")} is confirmed.` && louAfter.id === louTyped.id && louAfter.confirmedAt !== null && louAfter.providerAccountId === num(7) && (await confirmedOf(lou.id)).length === 1, confirmAndSignIn.map(said0).join(" | "));
-      check("and the founder's \"confirm\" or \"the code is not there\" from a page left open changes nothing after that", (await refused(profiles.confirmSocialName({ id: louTyped.id, nameKey: louTyped.nameKey, code: louTyped.code, by: host.id }))) && (await refused(profiles.rejectSocialName({ id: louTyped.id, nameKey: louTyped.nameKey, code: louTyped.code }))) && (await entryOf(lou.id)).providerAccountId === num(7));
+      // The founder's press either went through (it was first) or was told that the entry is no longer waiting (the sign-in was first): nothing else.
+      const founderOk = confirmAndSignIn[0].status === "fulfilled" || (confirmAndSignIn[0].status === "rejected" && confirmAndSignIn[0].reason instanceof ProfileError);
+      check("the founder's \"confirm\" and the host's sign-in at the same moment (in whichever order this run took them): the entry ends as the sign-in's proof, with Meta's number, by nobody's hand", founderOk && said0(confirmAndSignIn[1]) === `Instagram @${name("lou")} is confirmed.` && louAfter.id === louTyped.id && louAfter.confirmedAt !== null && louAfter.confirmedBy === null && louAfter.claimedAt === null && louAfter.providerAccountId === num(7) && (await confirmedOf(lou.id)).length === 1, confirmAndSignIn.map(said0).join(" | "));
+      const louProof = await proofOf(lou.id);
+      const staleConfirm = await refused(profiles.confirmSocialName({ id: louTyped.id, nameKey: louTyped.nameKey, code: louTyped.code, by: host.id }));
+      const afterStaleConfirm = await proofOf(lou.id);
+      const staleReject = await refused(profiles.rejectSocialName({ id: louTyped.id, nameKey: louTyped.nameKey, code: louTyped.code }));
+      check("and the founder's \"confirm\" or \"the code is not there\" from a page left open is refused, and after each the entry is exactly as it was", staleConfirm && afterStaleConfirm === louProof && staleReject && (await proofOf(lou.id)) === louProof);
 
       // Several accounts shared: the rule, case by case.
       await freshLimits(); // this section signs up many people
@@ -1074,7 +1080,7 @@ async function main() {
       check("a replacement and an approval at the same moment: both go through, and the approved host has the new account", swapAndApprove[0].status === "fulfilled" && said(swapAndApprove[1]) === `Instagram @${name("tia2")} is confirmed.` && (await entryOf(tia.id)).providerAccountId === num(46) && (await statusOf(tia.id)) === "approved" && (await confirmedOf(tia.id)).length === 1, swapAndApprove.map(said).join(" | "));
       const tiaNow = await entryOf(tia.id);
       const swapAndRemove = await Promise.allSettled([signIn(tia.id, says(shared([47, name("tia3")]))), profiles.removeSocialName(tia.id, tiaNow.id)]);
-      check("a replacement and a removal at the same moment: the replacement goes through, the removal is refused, and the approved host has the new account", said(swapAndRemove[0]) === `Instagram @${name("tia3")} is confirmed.` && swapAndRemove[1].status === "rejected" && (await entryOf(tia.id)).providerAccountId === num(47) && (await confirmedOf(tia.id)).length === 1 && (await statusOf(tia.id)) === "approved", swapAndRemove.map(said).join(" | "));
+      check("a replacement and a removal at the same moment: the replacement goes through, the removal is refused, and the approved host has the new account", said(swapAndRemove[0]) === `Instagram @${name("tia3")} is confirmed.` && swapAndRemove[1].status === "rejected" && swapAndRemove[1].reason instanceof ProfileError && /needs one confirmed account/.test(swapAndRemove[1].reason.message) && (await entryOf(tia.id)).providerAccountId === num(47) && (await confirmedOf(tia.id)).length === 1 && (await statusOf(tia.id)) === "approved", swapAndRemove.map(said).join(" | "));
 
       // The person.
       await freshLimits(); // this section signs up many people

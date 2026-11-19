@@ -287,9 +287,10 @@ export default async function HostPage(props: PageProps<"/host">) {
                 Connect your Instagram
               </button>
               <p className="mt-1 text-sm opacity-70">
-                Log in at Meta and share your Instagram account with us: it is then confirmed with no code. It works for Creator
-                and Business accounts. Meta will ask you to pick a business portfolio and the account to share; share only the
-                one for your page. We never see your password.
+                A way to confirm your Instagram account without a code: log in at Meta and share the account with us. It works for
+                Creator and Business accounts. Meta will ask you to pick a business portfolio and the account to share; share only
+                the one for your page. Meta&apos;s screen says we can &quot;access profile and posts&quot;; we read the account&apos;s number
+                and name and nothing else. We never see your password.
               </p>
             </form>
           )}
