@@ -27,6 +27,7 @@ async function main() {
   const { stripeConfigured } = await import("../src/lib/payments/stripe");
   const { runPaymentJobs } = await import("../src/lib/payments/jobs");
   const { runMembershipJobs } = await import("../src/lib/membership/jobs");
+  const { runContributionJobs } = await import("../src/lib/contributions/jobs");
   const { runBookingJobs } = await import("../src/lib/booking/jobs");
   const { closeFinishedExtensions } = await import("../src/lib/extend/extend");
   const { refreshPendingIdentityChecks } = await import("../src/lib/safety/identity");
@@ -98,9 +99,17 @@ async function main() {
             return false;
           },
         );
+        // Contributions after that, on the same terms: a failure here is not a finished round, and holds nothing else up.
+        const contributionsDone = await runContributionJobs(now).then(
+          () => true,
+          (error) => {
+            console.error("[contributions] the contribution work of this round failed; will retry", error);
+            return false;
+          },
+        );
         // Only a round that ran and finished counts. The health address goes "not healthy" when this gets old,
         // also when Stripe's key has gone missing: then no payment work is being done at all.
-        if (membershipsDone) await recordBeat("payments", new Date());
+        if (membershipsDone && contributionsDone) await recordBeat("payments", new Date());
       }
     } finally {
       // Requests for more time that nobody answered, and holds of requests that were not accepted.

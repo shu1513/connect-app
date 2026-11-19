@@ -1,0 +1,1 @@
+ALTER TABLE "contribution_payments" ADD COLUMN "dispute_version" integer DEFAULT 0 NOT NULL;

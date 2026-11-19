@@ -1738,3 +1738,75 @@ and shows it, refuses it or keeps it waiting. No money yet (part two).
 - Pictures are kept in the database. That is right for a start; a file store is a later step if
   there are many.
 
+## Projects, part two, 2a: the money of a contribution (pull request 45, 19 November 2026)
+
+**What it is.** The third of five steps of projects (`plans/23-projects.md`,
+`plans/25-projects-part-2-contributions.md`): everything that moves the money of a contribution.
+No pages yet; nobody can start a contribution until 2b.
+
+**What was built**
+- Tables `contributions`, `contribution_agreements`, `contribution_cards`,
+  `contribution_payments`, `contribution_refunds` (migrations 0033 to 0036). A contribution's
+  payment is a third kind of owner for the "never twice" record and the ledger. The host's share
+  is a line of a new kind, "contribution", among her earnings, with its shape enforced by the
+  database.
+- `src/lib/contributions/`: the plain rules with tests (amounts, the monthly day, the last
+  moment, the $1,000 rule); the hold, the taking and letting go (`charge.ts`); refunds owed once
+  and sent until done (`refund.ts`); finding out after an interruption (`recover.ts`); bank
+  disputes; ending; the saved card; the founder's hold and release; the helper's jobs; the watch.
+- Each payment is held first and taken 72 hours and 3 minutes later, never before, and never
+  after one hour before the hold ends. A lost hold is not replaced. When Stripe does not say when
+  a hold ends, no date is assumed: the hold is let go.
+- "Collect earnings" knows a contribution's share: whose it is, its locks, the $1,000 count
+  before it judges, and that it is held back while a refund is owed, a dispute is open, the
+  founder holds it, or anything of its payment is not finished.
+
+**What the reviewers found**
+- The check script itself found one real gap on its first runs: the 30 days written at the
+  moment of collecting were lost when that collection had nothing else to send.
+- Astra, six rounds on the code, the last one "ready to open a pull request". The findings that mattered: the helper decided about a taking
+  by the moment its round began, so a slow round could have taken money after the last moment;
+  the moment a taking was recorded at could lie before Stripe's answer, which would have made a
+  wait too short; recovery after an interruption did not ask the founder's switch; a saved-card
+  hold that Stripe had accepted and that was not yet written down was missing from the $1,000
+  count for that moment; a release made while a payment was held was forgotten at the taking;
+  and the earnings list could show as ready what a collection would refuse. Rounds three to
+  six were about one rare case only: a payment that is stopped while Stripe is still making the
+  request for it. No card could be charged in it, but an unused request could be left at Stripe
+  if the app stopped at exactly that instant; it is now always found and cancelled (migration
+  0035 adds the one field this needed). All taken, each with a check. Astra asked for nothing to
+  be removed.
+- CodeRabbit, on the pull request: eleven comments. Ten were taken, each with a check. The ones
+  that mattered: the $1,000 count used the amount that was held, not the amount Stripe really
+  took, and was not made when money was taken that was to be paid back; a cancellation that came
+  in the instant between writing a taking down and asking Stripe lost, so the money was taken and
+  then refunded (now the cancellation wins); a slow process could record "not sent" although the
+  helper might have sent the request itself; an older answer about a bank dispute could
+  overwrite a newer one (migration 0036 adds a counter for this); and a collection did not know
+  of a payment made with a new card seconds earlier, so it now asks Stripe first. One was not
+  taken: writing the migrations so that they do not lock a busy table, because the site is not
+  live and these tables are nearly empty.
+- Astra then reviewed those fixes in three more rounds, ending "ready to merge". It corrected
+  the last one twice: when Stripe cannot be asked, that person's shares now wait for that
+  collection (before, the collection went on); and a payment Stripe does not know at all is set
+  aside for the founder, so it cannot keep shares waiting for ever.
+
+**How it was checked**
+- `scripts/contribution-check.ts`, against Stripe's test mode and the local database: 162 checks
+  in thirteen journeys, among them a contribution from the hold to a real transfer with the
+  books adding up to the cent; cancelling and the race with the taking; the card step; the
+  monthly tries; a bank's confirmation; a lost hold; the last moment by the real clock;
+  interruptions of a payment asked for, a taking, a letting-go and a refund; refunds before and
+  after the share is sent; the $1,000 rule at its three moments; a real dispute from Stripe's
+  test card; ending, the switch and cards; the watch.
+- 483 unit tests. All sixteen earlier check scripts, above all the payment, refund and
+  membership ones, since their shared code was touched.
+
+**Still open**
+- One collection holding a call's share, a member's and a contribution's together is not walked
+  by a script.
+- Stripe's refusal of a refund, and a dispute won or lost, are handed in by hand in the script:
+  Stripe's test mode offers neither on request.
+- The founder's email when one person passes $1,000 with a host comes with 2b.
+- Nothing here can be reached by a person yet. The browser checks come with 2b's pages.
+

@@ -61,12 +61,18 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
             {waiting.length === 1 ? "payment" : "payments"}; the reason is beside each)
           </summary>
           <ul className="mt-1 space-y-1">
-            {waiting.map(({ payment, call, month, shareCents, heldBack }) => (
+            {waiting.map(({ payment, call, month, project, shareCents, heldBack }) => (
               <li key={payment.id}>
                 {call ? (
                   <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
                     Call on <LocalTime iso={call.startsAt.toISOString()} />
                   </Link>
+                ) : payment.kind === "contribution" ? (
+                  // A contribution to her project: it has no call to link to either.
+                  <span data-contribution>
+                    Contribution{project ? <> to &ldquo;{project}&rdquo;</> : null}
+                    {payment.chargedAt ? <>, taken <LocalTime iso={payment.chargedAt.toISOString()} /></> : null}
+                  </span>
                 ) : (
                   // A membership month's unused time that expired: it has no call to link to.
                   <span data-expired-time>Expired member time{month?.endsAt ? <>, month to <LocalTime iso={month.endsAt.toISOString()} /></> : null}</span>
@@ -76,6 +82,8 @@ export async function Earnings({ hostId, payoutsReady, now }: { hostId: string; 
                   "the customer's bank is disputing this charge"
                 ) : heldBack === "refund" ? (
                   "a refund is on its way"
+                ) : heldBack === "founder" ? (
+                  "held back by Connect for now"
                 ) : heldBack === "request" ? (
                   "waiting for your answer to a refund request"
                 ) : heldBack === "answer_applying" ? (

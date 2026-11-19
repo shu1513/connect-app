@@ -13,12 +13,12 @@
  * action stays "started". Nothing else can run on that payment until
  * reconcile.ts has asked Stripe what actually happened.
  *
- * An action is owned by a payment or, for a membership, by a month
- * (src/lib/membership). Both go through the same steps below; only the row
- * that is locked differs. The functions with "Money" or "Payment" in their
+ * An action is owned by a payment, by a membership's month (src/lib/membership)
+ * or by a contribution's payment (src/lib/contributions). All three go through
+ * the same steps below; only the row that is locked differs. The functions with "Money" or "Payment" in their
  * name are the payment's, exactly as they were; the "owned" ones take the owner.
  */
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, eq, gt, like, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { isDefiniteRefusal, stripeErrorMessage } from "./stripe";
@@ -30,6 +30,17 @@ export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hol
 /** An action was refused for a reason a person can read. Nothing was changed. */
 export class MoneyError extends Error {}
 
+/**
+ * Thrown by an action's `execute` when it decides, at the last moment, not to ask Stripe at all.
+ * Nothing was sent by this process, so it is recorded like a refusal from Stripe, but only while the
+ * helper cannot have picked the action up (see RECONCILE_AFTER_MS): after that the helper may have
+ * sent it itself, so the action is left unanswered and the helper finds out.
+ */
+export class NotSentError extends Error {}
+
+/** An unfinished action is only checked by the helper once Stripe has had time to finish it. */
+export const RECONCILE_AFTER_MS = 60_000;
+
 /** The action may or may not have happened. It will be checked with Stripe before anything else runs. */
 export class OutcomeUnknownError extends Error {}
 
@@ -40,16 +51,15 @@ export async function lockPayment(tx: Tx, paymentId: string): Promise<Payment> {
 }
 
 /**
- * Who owns an action: a payment or a month, and how that owner is locked. The
+ * Who owns an action: a payment, a month or a contribution's payment, and how that owner is locked. The
  * lock is called inside the transaction of every step (starting, finishing,
  * refusing, recovering), so each owner keeps one order of locks everywhere.
  */
-export type Owner<Row> = { column: "paymentId" | "monthId"; id: string; lock: (tx: Tx) => Promise<Row> };
+export type Owner<Row> = { column: "paymentId" | "monthId" | "contributionPaymentId"; id: string; lock: (tx: Tx) => Promise<Row> };
 
 const paymentOwner = (paymentId: string): Owner<Payment> => ({ column: "paymentId", id: paymentId, lock: (tx) => lockPayment(tx, paymentId) });
 
-const ownedBy = (owner: Pick<Owner<unknown>, "column" | "id">) =>
-  owner.column === "paymentId" ? eq(schema.moneyOperations.paymentId, owner.id) : eq(schema.moneyOperations.monthId, owner.id);
+const ownedBy = (owner: Pick<Owner<unknown>, "column" | "id">) => eq(schema.moneyOperations[owner.column], owner.id);
 
 /** The steps of one action for an owner of any kind. */
 export type OwnedPlan<Row, P, R> = {
@@ -151,18 +161,25 @@ export async function completeOwnedOperation<Row, P, R>(
   try {
     outcome = await plan.execute(started.params, started.label);
   } catch (error) {
-    if (isDefiniteRefusal(error)) {
-      const message = stripeErrorMessage(error);
-      await db.transaction(async (tx) => {
+    const notSent = error instanceof NotSentError;
+    if (isDefiniteRefusal(error) || notSent) {
+      const message = notSent ? (error as Error).message : stripeErrorMessage(error);
+      const marked = await db.transaction(async (tx) => {
         const row = await plan.owner.lock(tx);
         // Only an action that is still unanswered: the helper may have recorded its real outcome meanwhile.
-        const marked = await tx
+        // And "we did not send it" is only certain while the helper cannot have picked the action up and sent it
+        // itself: well inside the time it leaves an unfinished action alone.
+        const young = notSent ? gt(schema.moneyOperations.createdAt, new Date(Date.now() - RECONCILE_AFTER_MS / 2)) : undefined;
+        const rows = await tx
           .update(schema.moneyOperations)
           .set({ status: "failed", error: message, finishedAt: new Date() })
-          .where(and(eq(schema.moneyOperations.id, started.operationId), eq(schema.moneyOperations.status, "started")))
+          .where(and(eq(schema.moneyOperations.id, started.operationId), eq(schema.moneyOperations.status, "started"), young))
           .returning({ id: schema.moneyOperations.id });
-        if (marked.length > 0) await plan.onRefused?.(row, started.params, message, tx);
+        if (rows.length > 0) await plan.onRefused?.(row, started.params, message, tx);
+        return rows.length > 0;
       });
+      // Not sent by us, but too old to be sure nobody else sent it: left unanswered for the helper.
+      if (notSent && !marked) throw new OutcomeUnknownError(message);
       throw new MoneyError(message);
     }
     // No clear answer. Leave the action written down as "started".
@@ -214,14 +231,14 @@ export async function failOwnedOperation<Row>(operationId: string, owner: Owner<
   });
 }
 
-/** Adds one line to the money record. Lines are never edited or removed. Owned by a payment or by a month. */
+/** Adds one line to the money record. Lines are never edited or removed. Owned by a payment, by a month or by a contribution's payment. */
 export async function addLedgerEntry(
   tx: Tx,
-  entry: ({ paymentId: string } | { monthId: string }) & { kind: string; amountCents: number; stripeRef?: string | null; note?: string },
+  entry: ({ paymentId: string } | { monthId: string } | { contributionPaymentId: string }) & { kind: string; amountCents: number; stripeRef?: string | null; note?: string },
 ): Promise<void> {
   if (entry.amountCents === 0) return;
   await tx.insert(schema.ledgerEntries).values({
-    ...("paymentId" in entry ? { paymentId: entry.paymentId } : { monthId: entry.monthId }),
+    ...("paymentId" in entry ? { paymentId: entry.paymentId } : "monthId" in entry ? { monthId: entry.monthId } : { contributionPaymentId: entry.contributionPaymentId }),
     kind: entry.kind,
     amountCents: entry.amountCents,
     stripeRef: entry.stripeRef ?? null,

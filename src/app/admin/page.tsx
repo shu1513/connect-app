@@ -307,7 +307,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         </div>
       )}
 
-      <h2 className="mt-10 text-lg font-semibold">All payments (latest 200)</h2>
+      <h2 className="mt-10 text-lg font-semibold">Call payments (latest 200)</h2>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-neutral-400">

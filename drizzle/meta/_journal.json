@@ -232,6 +232,34 @@
       "when": 1795061646664,
       "tag": "0032_project_pictures",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795069818524,
+      "tag": "0033_contributions",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795073488916,
+      "tag": "0034_contribution_shapes",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795075220836,
+      "tag": "0035_contribution_intent_asked",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795077537495,
+      "tag": "0036_contribution_dispute_version",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,8 @@
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { syncPayment } from "@/lib/contributions/charge";
+import { refreshDispute } from "@/lib/contributions/dispute";
 import { syncMonth } from "@/lib/membership/charge";
 import { refreshMonthDispute } from "@/lib/membership/ending";
 import { BLOCKING_DISPUTE } from "./disputes";
@@ -28,6 +30,13 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     if (monthId && IS_ID.test(monthId)) {
       const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, monthId));
       if (month) await syncMonth(monthId, new Date());
+      return;
+    }
+    // A contribution's payment: the same nudge, to its own code. It carries its id under a name of its own.
+    const contributionPaymentId = (object.metadata as Record<string, string> | undefined)?.contributionPaymentId;
+    if (contributionPaymentId && IS_ID.test(contributionPaymentId)) {
+      const [ours] = await db.select({ id: schema.contributionPayments.id }).from(schema.contributionPayments).where(eq(schema.contributionPayments.id, contributionPaymentId));
+      if (ours) await syncPayment(contributionPaymentId, new Date());
       return;
     }
     const paymentId = (object.metadata as Record<string, string> | undefined)?.paymentId;
@@ -60,6 +69,9 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
       // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
       const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
       if (month) await refreshMonthDispute(month.id, new Date());
+      // A dispute over a contribution's charge: recorded on its payment, where collecting and refunding look.
+      const [contributed] = await db.select({ id: schema.contributionPayments.id }).from(schema.contributionPayments).where(eq(schema.contributionPayments.stripePaymentIntentId, intentId));
+      if (contributed) await refreshDispute(contributed.id, new Date());
       recorded = dispute.status;
     }
   }

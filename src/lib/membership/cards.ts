@@ -1,5 +1,5 @@
 /**
- * Cards. A card at Stripe belongs to a membership or to a booking, never both, and that has to
+ * Cards. A card at Stripe belongs to a membership, a booking or a contribution, never two of them, and that has to
  * hold when both sides act at the same instant. So everything that takes or removes a card takes
  * one lock on the card's id first:
  *   - a membership taking a card (when its hold is accepted),
@@ -39,6 +39,9 @@ export async function takeCardForMembership(tx: Tx, membershipId: string, paymen
   const [booked] = await tx.select({ id: schema.bookingCards.bookingId }).from(schema.bookingCards).where(eq(schema.bookingCards.stripePaymentMethodId, paymentMethodId));
   const [onBooking] = await tx.select({ id: schema.bookings.id }).from(schema.bookings).where(eq(schema.bookings.stripePaymentMethodId, paymentMethodId)).limit(1);
   if (booked || onBooking) throw new MoneyError("This card was saved for a booking, so it cannot be a membership's card.");
+  // Nor a card that is, or ever was, a contribution's (src/lib/contributions/cards.ts).
+  const [contributed] = await tx.select({ id: schema.contributionCards.id }).from(schema.contributionCards).where(eq(schema.contributionCards.stripePaymentMethodId, paymentMethodId));
+  if (contributed) throw new MoneyError("This card was saved for a contribution, so it cannot be a membership's card.");
   const [known] = await tx.select().from(schema.membershipCards).where(eq(schema.membershipCards.stripePaymentMethodId, paymentMethodId));
   if (known) {
     if (known.membershipId !== membershipId || known.retiredAt) throw new MoneyError("This card can no longer be used for a membership.");
@@ -63,6 +66,9 @@ export async function bookingCardSeen(tx: Tx, bookingId: string, paymentMethodId
   await lockCard(tx, paymentMethodId);
   const [members] = await tx.select({ id: schema.membershipCards.id }).from(schema.membershipCards).where(and(eq(schema.membershipCards.stripePaymentMethodId, paymentMethodId), isNull(schema.membershipCards.removedAt)));
   if (members) return false;
+  // The same for a card a contribution has, and has not removed.
+  const [contributed] = await tx.select({ id: schema.contributionCards.id }).from(schema.contributionCards).where(and(eq(schema.contributionCards.stripePaymentMethodId, paymentMethodId), isNull(schema.contributionCards.removedAt)));
+  if (contributed) return false;
   await tx.insert(schema.bookingCards).values({ stripePaymentMethodId: paymentMethodId, bookingId }).onConflictDoNothing();
   return true;
 }

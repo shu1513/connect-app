@@ -32,7 +32,7 @@ import {
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
-import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, refusedRecently } from "./operations";
+import { failOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, RECONCILE_AFTER_MS, refusedRecently } from "./operations";
 import { attendanceChargeCents, countedSeconds } from "./pricing";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
@@ -40,8 +40,6 @@ import { settleOrdinaryCharges } from "./take";
 import { isDefiniteRefusal, stripe, stripeErrorMessage } from "./stripe";
 import { handleStripeEvent } from "./stripe-events";
 
-/** An unfinished action is only checked once Stripe has had time to finish it. */
-const RECONCILE_AFTER_MS = 60_000;
 /**
  * Stripe remembers an action's label for at least 24 hours. Inside this
  * window, sending the same request again is safe: Stripe returns the original
@@ -110,8 +108,9 @@ export async function reconcileOperations(now: Date): Promise<void> {
     );
 
   for (const operation of stuck) {
-    // An action owned by a membership's month is checked by the membership code, with the month's own locks.
-    if (!operation.paymentId) {
+    // By owner. An action owned by a membership's month is checked by the membership code, with the month's own
+    // locks; one owned by a contribution's payment by the contribution code; everything else is a payment's.
+    if (operation.monthId) {
       try {
         const { recoverMonthOperation } = await import("@/lib/membership/recover");
         await recoverMonthOperation(operation, now);
@@ -120,6 +119,16 @@ export async function reconcileOperations(now: Date): Promise<void> {
       }
       continue;
     }
+    if (operation.contributionPaymentId) {
+      try {
+        const { recoverContributionOperation } = await import("@/lib/contributions/recover");
+        await recoverContributionOperation(operation, now);
+      } catch (error) {
+        log(`could not check unfinished ${operation.kind} on contribution payment ${operation.contributionPaymentId}; will retry`, error);
+      }
+      continue;
+    }
+    if (!operation.paymentId) continue;
     const paymentId = operation.paymentId;
     try {
       const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));

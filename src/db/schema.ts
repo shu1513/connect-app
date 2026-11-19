@@ -733,10 +733,12 @@ export const payments = pgTable(
   "payments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** The call this payment is for. Only a "member_expired" payment has none. */
+    /** The call this payment is for. A "member_expired" payment and a "contribution" share have none. */
     callId: uuid("call_id").references(() => calls.id),
-    /** card, member_call or member_expired. */
+    /** card, member_call, member_expired or contribution. */
     kind: text("kind").notNull().default("card"),
+    /** For a "contribution" share: the contribution's payment the money came from, which owns everything at Stripe. */
+    contributionPaymentId: uuid("contribution_payment_id").references((): AnyPgColumn => contributionPayments.id),
     /** The membership month this money belongs to. Null for a card payment. */
     monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
     /** For a member_call payment: how much of the amount set aside was money that had come back because of the host. */
@@ -799,7 +801,11 @@ export const payments = pgTable(
 
     /** not_due, due, sent or not_owed. */
     transferStatus: text("transfer_status").notNull().default("not_due"),
-    /** From when the host can collect this share. Fixed when the charge is recorded, never moved. */
+    /**
+     * From when the host can collect this share. Set when the charge is recorded. It can move later (a
+     * refund request on a call; the 30 days of a contribution), and for a contribution's share it can
+     * move sooner when the founder releases it.
+     */
     transferDueAt: timestamp("transfer_due_at", { withTimezone: true }),
     /** What was actually sent to the host for this call. */
     transferCents: integer("transfer_cents"),
@@ -820,11 +826,18 @@ export const payments = pgTable(
     uniqueIndex("payments_own_call_uq").on(t.callId).where(sql`${t.extensionId} is null`),
     // One "expired time" payment per month.
     uniqueIndex("payments_expired_month_uq").on(t.monthId).where(sql`${t.kind} = 'member_expired'`),
+    // One share line at most for each contribution's payment.
+    uniqueIndex("payments_contribution_payment_uq").on(t.contributionPaymentId).where(sql`${t.contributionPaymentId} is not null`),
     check(
       "payments_kind_shape",
-      sql`(${t.kind} = 'card' and ${t.callId} is not null and ${t.monthId} is null)
-        or (${t.kind} = 'member_call' and ${t.callId} is not null and ${t.monthId} is not null)
-        or (${t.kind} = 'member_expired' and ${t.callId} is null and ${t.monthId} is not null)`,
+      sql`(${t.kind} = 'card' and ${t.callId} is not null and ${t.monthId} is null and ${t.contributionPaymentId} is null)
+        or (${t.kind} = 'member_call' and ${t.callId} is not null and ${t.monthId} is not null and ${t.contributionPaymentId} is null)
+        or (${t.kind} = 'member_expired' and ${t.callId} is null and ${t.monthId} is not null and ${t.contributionPaymentId} is null)
+        or (${t.kind} = 'contribution' and ${t.callId} is null and ${t.monthId} is null and ${t.extensionId} is null and ${t.contributionPaymentId} is not null
+          and ${t.stripePaymentIntentId} is null and ${t.pricePer15Cents} = 0 and ${t.coversFrom} = ${t.coversUntil}
+          and ${t.status} = 'charged' and ${t.chargedCents} is not null and ${t.chargedCents} = ${t.bookedCents} and ${t.chargedAt} is not null
+          and ${t.coversFrom} = ${t.chargedAt} and ${t.originalFeeCents} is not null and ${t.originalHostShareCents} is not null
+          and ${t.originalFeeCents} + ${t.originalHostShareCents} = ${t.chargedCents} and ${t.stripeChargeId} is not null)`,
     ),
     check("payments_host_caused_range", sql`${t.hostCausedCents} >= 0`),
   ],
@@ -862,9 +875,10 @@ export const moneyOperations = pgTable(
   "money_operations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** The owner is a payment or a membership month: exactly one of the two. */
+    /** The owner is a payment, a membership month or a contribution's payment: exactly one of the three. */
     paymentId: uuid("payment_id").references(() => payments.id),
     monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
+    contributionPaymentId: uuid("contribution_payment_id").references((): AnyPgColumn => contributionPayments.id),
     /** hold, capture, release, refund or transfer. */
     kind: text("kind").notNull(),
     /** The fixed label for this action. Sent to Stripe as the idempotency key. */
@@ -882,10 +896,12 @@ export const moneyOperations = pgTable(
     index("money_operations_payment_idx").on(t.paymentId),
     index("money_operations_month_idx").on(t.monthId),
     index("money_operations_status_idx").on(t.status),
-    check("money_operations_one_owner", sql`(${t.paymentId} is null) <> (${t.monthId} is null)`),
+    index("money_operations_contribution_payment_idx").on(t.contributionPaymentId),
+    check("money_operations_one_owner", sql`num_nonnulls(${t.paymentId}, ${t.monthId}, ${t.contributionPaymentId}) = 1`),
     // One action in flight per owner. The code checks it under the owner's lock; this is the database's own word.
     uniqueIndex("money_operations_payment_started_uq").on(t.paymentId).where(sql`${t.status} = 'started' and ${t.paymentId} is not null`),
     uniqueIndex("money_operations_month_started_uq").on(t.monthId).where(sql`${t.status} = 'started' and ${t.monthId} is not null`),
+    uniqueIndex("money_operations_contribution_payment_started_uq").on(t.contributionPaymentId).where(sql`${t.status} = 'started' and ${t.contributionPaymentId} is not null`),
   ],
 );
 
@@ -1107,10 +1123,11 @@ export const ledgerEntries = pgTable(
   "ledger_entries",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    /** The owner is a payment or a membership month: exactly one of the two. */
+    /** The owner is a payment, a membership month or a contribution's payment: exactly one of the three. */
     paymentId: uuid("payment_id").references(() => payments.id),
     monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
-    /** customer_charge, customer_refund, platform_fee, host_share, host_transfer, payout_fee, hold_released. */
+    contributionPaymentId: uuid("contribution_payment_id").references((): AnyPgColumn => contributionPayments.id),
+    /** customer_charge, customer_refund, platform_fee, host_share, host_transfer, payout_fee, hold_released, connect_cost. */
     kind: text("kind").notNull(),
     /** Positive adds, negative takes away. */
     amountCents: integer("amount_cents").notNull(),
@@ -1122,7 +1139,8 @@ export const ledgerEntries = pgTable(
   (t) => [
     index("ledger_entries_payment_idx").on(t.paymentId),
     index("ledger_entries_month_idx").on(t.monthId),
-    check("ledger_entries_one_owner", sql`(${t.paymentId} is null) <> (${t.monthId} is null)`),
+    index("ledger_entries_contribution_payment_idx").on(t.contributionPaymentId),
+    check("ledger_entries_one_owner", sql`num_nonnulls(${t.paymentId}, ${t.monthId}, ${t.contributionPaymentId}) = 1`),
   ],
 );
 
@@ -1625,7 +1643,227 @@ export const pictureCheckers = pgTable("picture_checkers", {
 });
 
 
+// ---------------------------------------------------------------------------
+// Contributions to a project (plans/23, plans/25)
+// ---------------------------------------------------------------------------
+
+/**
+ * One person's contribution to one project: made once, or every month. The money itself is in
+ * contribution_payments, one line for the payment made once and one for each month.
+ */
+export const contributions = pgTable(
+  "contributions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    contributorId: text("contributor_id")
+      .notNull()
+      .references(() => user.id),
+    /** once or monthly. */
+    kind: text("kind").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    /** card_step, running or ended. */
+    status: text("status").notNull().default("card_step"),
+    /** Made when the form was shown: the same press, sent twice, is one contribution. */
+    requestKey: text("request_key").notNull().unique(),
+    /** For a monthly one: the moment of the first hold. Every later month's day is counted from it. */
+    firstHoldAt: timestamp("first_hold_at", { withTimezone: true }),
+    /** The number of the last month whose payment was written down, so no month is ever made up for. */
+    lastWrittenMonth: integer("last_written_month").notNull().default(0),
+    /** The numbers of months that were skipped, as JSON. */
+    skippedMonths: text("skipped_months").notNull().default("[]"),
+    /** Set while the founder's switch does not cover its host (plans/25, choice 13). */
+    switchOffAt: timestamp("switch_off_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** Why it ended, for the record and the email. */
+    endedHow: text("ended_how"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("contributions_project_idx").on(t.projectId),
+    index("contributions_host_idx").on(t.hostId),
+    index("contributions_contributor_idx").on(t.contributorId),
+    // One monthly contribution that is not ended for each person and project.
+    uniqueIndex("contributions_one_monthly_uq").on(t.contributorId, t.projectId).where(sql`${t.kind} = 'monthly' and ${t.status} <> 'ended'`),
+    check("contributions_kind", sql`${t.kind} in ('once', 'monthly')`),
+    check("contributions_status", sql`${t.status} in ('card_step', 'running', 'ended')`),
+    check("contributions_amount", sql`${t.amountCents} between 500 and 10000000`),
+    check("contributions_ended_shape", sql`(${t.status} = 'ended') = (${t.endedAt} is not null)`),
+    check("contributions_not_own", sql`${t.hostId} <> ${t.contributorId}`),
+  ],
+);
+
+/** What a contributor agreed to, written when they sent the form with the box ticked. Lines are only ever added. */
+export const contributionAgreements = pgTable("contribution_agreements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contributionId: uuid("contribution_id")
+    .notNull()
+    .references(() => contributions.id),
+  /** The version of the wording they saw. */
+  version: text("version").notNull(),
+  kind: text("kind").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  agreedAt: timestamp("agreed_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * The card saved for a monthly contribution, as membership_cards is for a membership: one in use,
+ * retired when the contribution ends, removed at Stripe when nothing needs it. The line stays
+ * afterwards, so the card is always known to have been a contribution's.
+ */
+export const contributionCards = pgTable(
+  "contribution_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contributionId: uuid("contribution_id")
+      .notNull()
+      .references(() => contributions.id),
+    stripePaymentMethodId: text("stripe_payment_method_id").notNull().unique(),
+    savedAt: timestamp("saved_at", { withTimezone: true }).notNull(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("contribution_cards_in_use_uq").on(t.contributionId).where(sql`${t.retiredAt} is null`)],
+);
+
+/**
+ * One payment of a contribution: the one made once, or one month's. It owns everything at Stripe
+ * (its one PaymentIntent, every action, every ledger line about the contributor's card). The
+ * host's share of it is a line in `payments`, written when the money is taken.
+ */
+export const contributionPayments = pgTable(
+  "contribution_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contributionId: uuid("contribution_id")
+      .notNull()
+      .references(() => contributions.id),
+    /** 1 for a contribution made once; the number of the month for a monthly one. */
+    number: integer("number").notNull(),
+    /** Makes each payment exist once. */
+    originKey: text("origin_key").notNull().unique(),
+    amountCents: integer("amount_cents").notNull(),
+    // The fee terms as they were when the payment was written down.
+    feePercentBps: integer("fee_percent_bps").notNull(),
+    feeFixedCents: integer("fee_fixed_cents").notNull(),
+    feeForeignCardBps: integer("fee_foreign_card_bps").notNull(),
+
+    /** The claim for its one PaymentIntent: when it was asked for, and the exact request. Never reset. */
+    intentRequestedAt: timestamp("intent_requested_at", { withTimezone: true }),
+    intentRequest: text("intent_request"),
+    /** The moment its PaymentIntent was last asked of Stripe (the first time or again). Stripe's list showing none is believed only some minutes after it. */
+    intentAskedAt: timestamp("intent_asked_at", { withTimezone: true }),
+    stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
+    stripeChargeId: text("stripe_charge_id"),
+
+    /** to_pay, held, taken or given_up. */
+    status: text("status").notNull().default("to_pay"),
+    /** Why it was given up. Set first; from that moment nothing new is asked of Stripe for it except letting it go. */
+    endedHow: text("ended_how"),
+
+    /** The bank's own time for the hold. */
+    authorisedAt: timestamp("authorised_at", { withTimezone: true }),
+    /** When the hold ends, by Stripe's own answer for that card. Never a guess. */
+    holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }),
+    /** When the money is to be taken. */
+    takeAt: timestamp("take_at", { withTimezone: true }),
+    /** The last moment it may still be taken: one hour before the hold ends. */
+    takeBy: timestamp("take_by", { withTimezone: true }),
+    /** The moment Connect had Stripe's answer that the money was taken. Kept, never changed. */
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+    takenCents: integer("taken_cents"),
+
+    /** The first payment's card step ends here. */
+    cardStepExpiresAt: timestamp("card_step_expires_at", { withTimezone: true }),
+    // The tries with the saved card, for a monthly payment after the first.
+    try: integer("try").notNull().default(1),
+    firstFailedAt: timestamp("first_failed_at", { withTimezone: true }),
+    nextTryAt: timestamp("next_try_at", { withTimezone: true }),
+    giveUpAt: timestamp("give_up_at", { withTimezone: true }),
+    /** The bank wants the contributor to confirm. */
+    needsAction: boolean("needs_action").notNull().default(false),
+    cardId: uuid("card_id").references(() => contributionCards.id),
+    cardCountry: text("card_country"),
+
+    /** The 30-day mark of the $1,000 rule, set while the payment is still only held. It stays. */
+    thirtyDayMark: boolean("thirty_day_mark").notNull().default(false),
+    /** What has been refunded to the contributor's card so far. */
+    refundedCents: integer("refunded_cents").notNull().default(0),
+    /** none, open, won or lost. */
+    dispute: text("dispute").notNull().default("none"),
+    /** Goes up each time an answer from Stripe about its disputes is recorded, so an answer that was read before another was recorded is thrown away. */
+    disputeVersion: integer("dispute_version").notNull().default(0),
+    /** The founder's hold on the share, or release: none, held or released, with who, when and why. */
+    founderHold: text("founder_hold").notNull().default("none"),
+    founderBy: text("founder_by").references(() => user.id),
+    founderAt: timestamp("founder_at", { withTimezone: true }),
+    founderNote: text("founder_note"),
+    /** Something Stripe showed that the code does not decide. For the founder's list. */
+    problem: text("problem"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("contribution_payments_number_uq").on(t.contributionId, t.number),
+    index("contribution_payments_status_idx").on(t.status),
+    check("contribution_payments_status", sql`${t.status} in ('to_pay', 'held', 'taken', 'given_up')`),
+    check("contribution_payments_dispute", sql`${t.dispute} in ('none', 'open', 'won', 'lost')`),
+    check("contribution_payments_founder_hold", sql`${t.founderHold} in ('none', 'held', 'released')`),
+    check("contribution_payments_given_up_why", sql`${t.status} <> 'given_up' or ${t.endedHow} is not null`),
+    check("contribution_payments_taken_shape", sql`(${t.status} = 'taken') = (${t.takenAt} is not null) and (${t.takenAt} is null) = (${t.takenCents} is null)`),
+    check("contribution_payments_amounts", sql`${t.amountCents} between 500 and 10000000 and ${t.refundedCents} >= 0 and ${t.refundedCents} <= coalesce(${t.takenCents}, 0)`),
+  ],
+);
+
+/**
+ * A sum that is owed back to a contributor's card: a refund the host or the founder decided, or
+ * the full refund owed when a cancellation lost the race with the taking. Writing the line is what
+ * makes the money owed; sending it is the helper's work, repeated until it is done.
+ */
+export const contributionRefunds = pgTable(
+  "contribution_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contributionPaymentId: uuid("contribution_payment_id")
+      .notNull()
+      .references(() => contributionPayments.id),
+    /** Names the one event that owes it, so it exists once. */
+    sourceKey: text("source_key").notNull().unique(),
+    amountCents: integer("amount_cents").notNull(),
+    /** host, founder or app. */
+    decidedBy: text("decided_by").notNull(),
+    deciderId: text("decider_id").references(() => user.id),
+    reason: text("reason").notNull(),
+    /** True for a refund after the share was sent: it is Connect's own money, and the host's share is not lowered. */
+    connectsOwn: boolean("connects_own").notNull().default(false),
+    /** owed, at_stripe or done. */
+    status: text("status").notNull().default("owed"),
+    attempt: integer("attempt").notNull().default(1),
+    stripeRefundId: text("stripe_refund_id"),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("contribution_refunds_status_idx").on(t.status),
+    index("contribution_refunds_payment_idx").on(t.contributionPaymentId),
+    check("contribution_refunds_status", sql`${t.status} in ('owed', 'at_stripe', 'done')`),
+    check("contribution_refunds_amount", sql`${t.amountCents} > 0`),
+    check("contribution_refunds_decided_by", sql`${t.decidedBy} in ('host', 'founder', 'app')`),
+  ],
+);
+
 export type Call = typeof calls.$inferSelect;
+export type Contribution = typeof contributions.$inferSelect;
+export type ContributionPayment = typeof contributionPayments.$inferSelect;
+export type ContributionRefund = typeof contributionRefunds.$inferSelect;
+export type ContributionCard = typeof contributionCards.$inferSelect;
 export type ProjectPicture = typeof projectPictures.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectPost = typeof projectPosts.$inferSelect;
