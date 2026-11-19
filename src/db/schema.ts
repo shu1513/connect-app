@@ -835,7 +835,9 @@ export const payments = pgTable(
         or (${t.kind} = 'member_expired' and ${t.callId} is null and ${t.monthId} is not null and ${t.contributionPaymentId} is null)
         or (${t.kind} = 'contribution' and ${t.callId} is null and ${t.monthId} is null and ${t.extensionId} is null and ${t.contributionPaymentId} is not null
           and ${t.stripePaymentIntentId} is null and ${t.pricePer15Cents} = 0 and ${t.coversFrom} = ${t.coversUntil}
-          and ${t.status} = 'charged' and ${t.chargedCents} is not null and ${t.chargedCents} = ${t.bookedCents} and ${t.chargedAt} is not null)`,
+          and ${t.status} = 'charged' and ${t.chargedCents} is not null and ${t.chargedCents} = ${t.bookedCents} and ${t.chargedAt} is not null
+          and ${t.coversFrom} = ${t.chargedAt} and ${t.originalFeeCents} is not null and ${t.originalHostShareCents} is not null
+          and ${t.originalFeeCents} + ${t.originalHostShareCents} = ${t.chargedCents})`,
     ),
     check("payments_host_caused_range", sql`${t.hostCausedCents} >= 0`),
   ],
@@ -1810,7 +1812,7 @@ export const contributionPayments = pgTable(
     check("contribution_payments_dispute", sql`${t.dispute} in ('none', 'open', 'won', 'lost')`),
     check("contribution_payments_founder_hold", sql`${t.founderHold} in ('none', 'held', 'released')`),
     check("contribution_payments_given_up_why", sql`${t.status} <> 'given_up' or ${t.endedHow} is not null`),
-    check("contribution_payments_taken_shape", sql`(${t.status} = 'taken') = (${t.takenAt} is not null)`),
+    check("contribution_payments_taken_shape", sql`(${t.status} = 'taken') = (${t.takenAt} is not null) and (${t.takenAt} is null) = (${t.takenCents} is null)`),
     check("contribution_payments_amounts", sql`${t.amountCents} between 500 and 10000000 and ${t.refundedCents} >= 0 and ${t.refundedCents} <= coalesce(${t.takenCents}, 0)`),
   ],
 );

@@ -239,7 +239,7 @@ async function main() {
     p = await C.takePayment(m.paymentId, at);
     const after = await intentOf(m.paymentId);
     check("at its moment the money is taken, whole", p.status === "taken" && p.takenCents === 2500 && after.status === "succeeded" && after.amount_received === 2500, { status: p.status, intent: after.status });
-    check("the moment kept is the one Connect knew it at", p.takenAt?.getTime() === at.getTime());
+    check("the moment kept is the pretended day that was handed in (it lies ahead of the real clock)", p.takenAt?.getTime() === at.getTime());
     const share = await shareOf(m.paymentId);
     // $25.00 at 4.9% plus 30 cents: $1.2250 rounds to $1.23, plus $0.30 is $1.53; the host's share is $23.47.
     check("the host's share is one line among her earnings: $23.47 of $25.00, our fee $1.53", share?.kind === "contribution" && share.chargedCents === 2500 && share.originalFeeCents === 153 && share.originalHostShareCents === 2347 && share.status === "charged" && share.callId === null && share.monthId === null && share.stripePaymentIntentId === null && share.stripeChargeId === p.stripeChargeId, share && { fee: share.originalFeeCents, hostShare: share.originalHostShareCents });
@@ -340,7 +340,7 @@ async function main() {
     // The contributor pays by hand on day six, with a card that works.
     await stripe().paymentIntents.confirm(p.stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: RETURN });
     p = await C.syncPayment(third, new Date(T.getTime() + 6 * DAY));
-    check("a hold that succeeds on day six counts, and is taken three days after it", p.status === "held" && p.takeAt?.getTime() === p.authorisedAt!.getTime() + 72 * HOUR + 3 * MIN && p.giveUpAt === null && p.nextTryAt === null);
+    check("a hold that is found on day six, inside the 7 days, counts, and is to be taken three days after the bank's own time for it", p.status === "held" && p.takeAt?.getTime() === p.authorisedAt!.getTime() + 72 * HOUR + 3 * MIN && p.giveUpAt === null && p.nextTryAt === null);
     check("a try that succeeds late does not move the contribution's day", (await CO(m.contributionId)).firstHoldAt?.getTime() === first.authorisedAt?.getTime());
     await C.giveUp(third, "skipped", new Date());
     check("letting one month's hold go skips that month: the contribution goes on", (await PM(third)).status === "given_up" && (await CO(m.contributionId)).status === "running");
@@ -402,9 +402,10 @@ async function main() {
     p = await PM(b.paymentId);
     check("Stripe does not say when a hold ends: no date is assumed, the hold is let go, and the founder is shown it", p.status === "given_up" && p.endedHow === "no_hold_end" && Boolean(p.problem) && p.takeAt === null && (await intentOf(b.paymentId)).status === "canceled", { status: p.status, endedHow: p.endedHow });
 
+    const edge = await held(host);
+    check("at its own last moment the money is still taken", (await C.takePayment(edge.paymentId, (await PM(edge.paymentId)).takeBy!)).status === "taken");
     const c = await held(host);
     const held3 = await PM(c.paymentId);
-    check("the last moment is still fine", (await C.takePayment((await held(host)).paymentId, held3.takeBy!)).status === "taken");
     p = await C.takePayment(c.paymentId, new Date(held3.takeBy!.getTime() + 1000));
     check("a second after the last moment the money is not taken: the payment is given up as not taken in time, and its hold let go", p.status === "given_up" && p.endedHow === "not_taken_in_time" && (await intentOf(c.paymentId)).status === "canceled" && (await ledger({ contributionPaymentId: c.paymentId })).lines === 0);
     const d = await held(host);
@@ -413,10 +414,27 @@ async function main() {
     const e = await held(host);
     await runContributionJobs(new Date((await PM(e.paymentId)).takeAt!.getTime() + 2 * HOUR));
     check("a helper that is late but in time still takes the money", (await PM(e.paymentId)).status === "taken");
+
+    // The helper hands in the moment its round began, which can be minutes old. The real clock decides.
+    const stale = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - 2 * HOUR), takeBy: new Date(Date.now() - 1000) }).where(eq(pays.id, stale.paymentId));
+    p = await C.takePayment(stale.paymentId, new Date(Date.now() - 10 * MIN));
+    check("a round that began before the last moment and reaches the payment after it does not take the money", p.status === "given_up" && p.endedHow === "not_taken_in_time" && (await intentOf(stale.paymentId)).amount_received === 0);
+    const slow = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR) }).where(eq(pays.id, slow.paymentId));
+    const began = Date.now();
+    p = await C.takePayment(slow.paymentId, new Date(began - 30 * MIN));
+    check("the moment a taking is recorded at is read after Stripe has answered, never the moment the round began", p.status === "taken" && p.takenAt!.getTime() >= began && (await shareOf(slow.paymentId)).transferDueAt!.getTime() === p.takenAt!.getTime() + 7 * DAY, { takenAt: p.takenAt, began: new Date(began) });
+    const heard = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR) }).where(eq(pays.id, heard.paymentId));
+    await stripe().paymentIntents.capture((await PM(heard.paymentId)).stripePaymentIntentId!);
+    const asked = Date.now();
+    p = await C.syncPayment(heard.paymentId, new Date(asked - 30 * MIN));
+    check("the same when a taking is learned of by looking at Stripe", p.status === "taken" && p.takenAt!.getTime() >= asked);
   });
 
   // ========================================================================
-  journey("Every interruption is finished by the helper, without a second charge", async () => {
+  journey("Interruptions (a payment asked for, a taking, a letting-go, a refund) are finished by the helper, without a second charge", async () => {
     const host = await newHost();
     // Asked for at Stripe, and the id never saved.
     const a = await atCardStep(host);
@@ -463,6 +481,39 @@ async function main() {
     await runContributionJobs(tooLate);
     check("nor after the last moment: nothing is taken, and the payment is given up", (await PM(e.paymentId)).status === "given_up" && (await PM(e.paymentId)).endedHow === "not_taken_in_time" && (await intentOf(e.paymentId)).amount_received === 0);
 
+    // By the real clock, with no pretended day: a taking that was written down, and the last moment passes before the helper comes.
+    const e2 = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - 2 * HOUR), takeBy: new Date(Date.now() - MIN) }).where(eq(pays.id, e2.paymentId));
+    const [op4b] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: e2.paymentId, kind: "capture", label: `contributioncapture:${e2.paymentId}:1`, params: JSON.stringify({ intentId: (await PM(e2.paymentId)).stripePaymentIntentId, amountCents: 2500 }) }).returning();
+    await age(op4b.id, 2 * MIN);
+    await reconcileOperations(new Date());
+    check("the helper that finds it gives the payment up and lets the hold go at once, without waiting out the hour between two tries", (await PM(e2.paymentId)).status === "given_up" && (await PM(e2.paymentId)).endedHow === "not_taken_in_time" && (await intentOf(e2.paymentId)).status === "canceled");
+
+    // A taking was written down while the switch covered the host; the founder switches projects off before the helper comes.
+    const sw = await held(host);
+    const swAt = (await PM(sw.paymentId)).takeAt!;
+    const [op4c] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: sw.paymentId, kind: "capture", label: `contributioncapture:${sw.paymentId}:1`, params: JSON.stringify({ intentId: (await PM(sw.paymentId)).stripePaymentIntentId, amountCents: 2500 }) }).returning();
+    await age(op4c.id, 2 * MIN);
+    await setSwitches({ projects: "off" });
+    await reconcileOperations(swAt);
+    check("with the switch off, recovery does not send that taking: nothing is taken", (await PM(sw.paymentId)).status === "held" && (await intentOf(sw.paymentId)).amount_received === 0 && (await operations(sw.paymentId, "capture"))[0].status === "failed");
+    await runContributionJobs(swAt);
+    check("and the helper's first job then gives the hold up and lets it go", (await PM(sw.paymentId)).endedHow === "switch" && (await intentOf(sw.paymentId)).status === "canceled");
+    await setSwitches({ projects: "everyone", projectsHosts: [] });
+
+    // A try with the saved card that Stripe accepted, and whose result is not recorded on the payment yet.
+    const mo = await held(host, { kind: "monthly", amountCents: 1000 });
+    const moAt = (await PM(mo.paymentId)).takeAt!;
+    await C.takePayment(mo.paymentId, moAt);
+    const waitingOne = await nextMonth(mo, 2, moAt);
+    await db.update(pays).set({ nextTryAt: null }).where(eq(pays.id, waitingOne));
+    const [unrecorded] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: waitingOne, kind: "hold", label: `contributionhold:${waitingOne}:1:1`, params: "{}", status: "succeeded", finishedAt: new Date() }).returning();
+    const ready = new Date(moAt.getTime() + 8 * DAY);
+    check("while a try's result is not recorded yet, the pair cannot be counted: the earlier share of that pair waits, and the host is told so", (await unsentEarnings(ready, host.id)).find((x) => x.payment.contributionPaymentId === mo.paymentId)?.heldBack === "being_sent");
+    await db.delete(schema.moneyOperations).where(eq(schema.moneyOperations.id, unrecorded.id));
+    check("once it is recorded, the share is ready again", (await unsentEarnings(ready, host.id)).find((x) => x.payment.contributionPaymentId === mo.paymentId)?.heldBack === null);
+    await db.update(pays).set({ status: "given_up", endedHow: "skipped" }).where(eq(pays.id, waitingOne));
+
     // Letting go, written down and never sent.
     const f = await held(host);
     await db.update(pays).set({ endedHow: "cancelled" }).where(eq(pays.id, f.paymentId));
@@ -496,12 +547,15 @@ async function main() {
     const key = randomUUID();
     const part = await R.refundContribution({ paymentId: m.paymentId, amountCents: 2500, by: "host", deciderId: host.id, reason: "A quarter back", requestKey: key });
     check("the host refunds a part: the line is what makes it owed", part.status === "owed" && part.connectsOwn === false && (await R.refundContribution({ paymentId: m.paymentId, amountCents: 2500, by: "host", deciderId: host.id, reason: "", requestKey: key })).id === part.id);
+    const twiceKey = randomUUID();
+    const twice = await Promise.allSettled([1, 2].map(() => R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "The same press, twice", requestKey: twiceKey })));
+    check("the same press sent twice at the same moment is one refund, and both get it", twice.every((r) => r.status === "fulfilled") && new Set(twice.map((r) => (r.status === "fulfilled" ? r.value.id : ""))).size === 1 && (await refundsOf(m.paymentId)).length === 2, twice.map((r) => r.status));
     check("while it is owed, her share cannot be collected", (await unsentEarnings(new Date(m.at.getTime() + 8 * DAY), host.id))[0]?.heldBack === "refund");
-    check("what is owed already counts against what can still be refunded", /At most \$75\.00/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 7501, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() }))) ?? ""));
+    check("what is owed already counts against what can still be refunded", /At most \$74\.00/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 7401, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() }))) ?? ""));
     await R.runRefunds(new Date());
     let s = await shareOf(m.paymentId);
-    // A quarter back: her share shrinks by a quarter, to $71.10, and our fee to $3.90.
-    check("when Stripe has sent it, her share and our fee shrink in the same proportion: $71.10 and $3.90", (await PM(m.paymentId)).refundedCents === 2500 && s.refundedCents === 2500 && (await ledger({ paymentId: s.id }, "host_share")).total === 7110 && (await ledger({ paymentId: s.id }, "platform_fee")).total === 390 && (await ledger({ contributionPaymentId: m.paymentId })).total === 7500);
+    // $26.00 back of $100.00: her share shrinks in the same proportion, to $70.15 (74% of $94.80, rounded), and our fee to $3.85.
+    check("when Stripe has sent them, her share and our fee shrink in the same proportion: $70.15 and $3.85", (await PM(m.paymentId)).refundedCents === 2600 && s.refundedCents === 2600 && (await ledger({ paymentId: s.id }, "host_share")).total === 7015 && (await ledger({ paymentId: s.id }, "platform_fee")).total === 385 && (await ledger({ contributionPaymentId: m.paymentId })).total === 7400, { refunded: s.refundedCents, share: (await ledger({ paymentId: s.id }, "host_share")).total });
     check("someone else's host cannot refund it, and a refund needs an amount", /not found/i.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "host", deciderId: (await newHost()).id, reason: "", requestKey: randomUUID() }))) ?? "") && /amount/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 0, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() }))) ?? ""));
 
     // A sending of the share is written down and not finished.
@@ -511,7 +565,7 @@ async function main() {
     check("if Stripe refuses that sending, the host can refund as before", (await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() }))) === null);
     await R.runRefunds(new Date());
 
-    // A refund Stripe refuses is tried again, never dropped.
+    // A refund Stripe refuses is tried again, never dropped. (Stripe's refusal is handed in by hand: its test mode does not refuse a refund on request.)
     const again = await R.refundContribution({ paymentId: m.paymentId, amountCents: 200, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() });
     await db.transaction(async (tx) => {
       const { lockForPayment } = await import("../src/lib/contributions/locks");
@@ -523,7 +577,7 @@ async function main() {
     check("it is not tried again within the hour, and her share stays held back meanwhile", (await refundsOf(m.paymentId)).find((r) => r.id === again.id)!.status === "owed" && (await unsentEarnings(new Date(m.at.getTime() + 8 * DAY), host.id))[0]?.heldBack === "refund");
     await R.runRefunds(new Date(Date.now() + 61 * MIN));
     line = (await refundsOf(m.paymentId)).find((r) => r.id === again.id)!;
-    check("and is sent on the next try", line.status === "done" && (await PM(m.paymentId)).refundedCents === 2800);
+    check("and is sent on the next try", line.status === "done" && (await PM(m.paymentId)).refundedCents === 2900);
 
     // After the share was sent: only the founder, from Connect's own money.
     s = await shareOf(m.paymentId);
@@ -533,8 +587,8 @@ async function main() {
     const own = await R.refundContribution({ paymentId: m.paymentId, amountCents: 1000, by: "founder", deciderId: admin.id, reason: "A mistake of ours", requestKey: randomUUID() });
     await R.runRefunds(new Date());
     s = await shareOf(m.paymentId);
-    check("the founder's refund after that is Connect's own money: her share is not lowered, and the books record Connect's cost", own.connectsOwn && s.refundedCents === 2800 && s.transferStatus === "sent" && (await ledger({ paymentId: s.id }, "host_share")).total === hers.share && (await ledger({ contributionPaymentId: m.paymentId }, "connect_cost")).total === 1000 && (await ledger({ contributionPaymentId: m.paymentId }, "customer_refund")).total === -3800 && (await PM(m.paymentId)).refundedCents === 3800);
-    check("never more than was taken", /At most \$62\.00/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 6201, by: "founder", deciderId: admin.id, reason: "", requestKey: randomUUID() }))) ?? ""));
+    check("the founder's refund after that is Connect's own money: her share is not lowered, and the books record Connect's cost", own.connectsOwn && s.refundedCents === 2900 && s.transferStatus === "sent" && (await ledger({ paymentId: s.id }, "host_share")).total === hers.share && (await ledger({ contributionPaymentId: m.paymentId }, "connect_cost")).total === 1000 && (await ledger({ contributionPaymentId: m.paymentId }, "customer_refund")).total === -3900 && (await PM(m.paymentId)).refundedCents === 3900);
+    check("never more than was taken", /At most \$61\.00/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 6101, by: "founder", deciderId: admin.id, reason: "", requestKey: randomUUID() }))) ?? ""));
 
     const full = await taken(host, { amountCents: 2500 });
     await R.refundContribution({ paymentId: full.paymentId, amountCents: 2500, by: "host", deciderId: host.id, reason: "All of it", requestKey: randomUUID() });
@@ -568,6 +622,18 @@ async function main() {
     const atA = (await PM(a.paymentId)).takeAt!;
     await C.takePayment(a.paymentId, atA);
     check("one is cancelled, the other is taken: it keeps the mark it got while held, and waits 30 days", (await shareOf(a.paymentId)).transferDueAt?.getTime() === atA.getTime() + 30 * DAY);
+
+    // The founder releases a payment while it is still only held: that is kept to when its money is taken.
+    const admin0 = await person("admin");
+    await db.insert(schema.admins).values({ userId: admin0.id });
+    const freed = await person("giver");
+    const f1 = await held(host, { giver: freed, amountCents: 60_000 });
+    const f2 = await held(host, { giver: freed, amountCents: 60_000 });
+    await F.release({ paymentId: f1.paymentId, adminId: admin0.id, note: "Known to us", now: new Date() });
+    await C.giveUp(f2.paymentId, "cancelled", new Date());
+    const atF = (await PM(f1.paymentId)).takeAt!;
+    await C.takePayment(f1.paymentId, atF);
+    check("a payment the founder released while it was held, mark and all, waits the usual 7 days once taken, never less", (await PM(f1.paymentId)).thirtyDayMark && (await shareOf(f1.paymentId)).transferDueAt?.getTime() === atF.getTime() + 7 * DAY);
 
     // Exactly $1,000 does not cross the line; another host, and another person, are counted apart.
     const exact = await person("giver");
@@ -617,6 +683,7 @@ async function main() {
     check("the share cannot be collected while the dispute is open", (await unsentEarnings(when, host.id))[0]?.heldBack === "dispute");
     check("and nothing can be refunded from it", /disputed/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "", requestKey: randomUUID() }))) ?? ""));
     await D.recordDispute(m.paymentId, "won", new Date());
+    // (Won and lost are written by hand here: Stripe's test dispute cannot be decided from a script.)
     check("won: the share can be collected again, and the contribution stays ended", (await unsentEarnings(when, host.id))[0]?.heldBack === null && (await CO(m.contributionId)).status === "ended");
     await D.recordDispute(m.paymentId, "lost", new Date());
     check("lost: held back again, for the founder to settle", (await unsentEarnings(when, host.id))[0]?.heldBack === "dispute");
@@ -654,6 +721,16 @@ async function main() {
     check("and no payment is asked for", (await C.intentFor(d.paymentId)) === null);
     await runContributionJobs(new Date());
     check("the helper gives up what is only held for a host the switch does not cover, and lets the hold go", (await PM(c.paymentId)).endedHow === "switch" && (await PM(c.paymentId)).status === "given_up" && (await intentOf(c.paymentId)).status === "canceled");
+    // Named hosts: only the payments of a host who is not named are given up.
+    await setSwitches({ projects: "everyone", projectsHosts: [] });
+    const namedHost = await newHost();
+    const other = await newHost();
+    const stays = await held(namedHost);
+    const goes = await held(other);
+    await setSwitches({ projects: "named", projectsHosts: [namedHost.id] });
+    await runContributionJobs(new Date());
+    check("with the switch on for named hosts, a named host's hold stays and another host's is given up", (await PM(stays.paymentId)).status === "held" && (await PM(goes.paymentId)).endedHow === "switch");
+    await C.giveUp(stays.paymentId, "cancelled", new Date());
     const done = await taken(await newHostWithSwitchOn(), { amountCents: 2500 });
     await setSwitches({ projects: "off" });
     await R.refundContribution({ paymentId: done.paymentId, amountCents: 500, by: "host", deciderId: done.host.id, reason: "", requestKey: randomUUID() });
@@ -749,7 +826,7 @@ async function main() {
         const [unknown] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: third.paymentId, kind: "capture", label: `contributioncapture:${third.paymentId}:1`, params: "{}" }).returning();
         const waits = (await unsentEarnings(new Date(two.at.getTime() + 31 * DAY), host.id)).filter((e) => e.payment.contributionPaymentId === one.paymentId || e.payment.contributionPaymentId === two.paymentId);
         const blockedPair = await press(new Date(two.at.getTime() + 32 * DAY));
-        check("while a payment of that pair has an outcome that is not known, the pair's shares wait", blockedPair instanceof MoneyError && waits.length === 2 && (await shareOf(one.paymentId)).transferStatus === "not_due", blockedPair?.message);
+        check("while a payment of that pair has an outcome that is not known, the pair's shares wait, and the earnings list says so", blockedPair instanceof MoneyError && waits.length === 2 && waits.every((e) => e.heldBack === "being_sent") && (await shareOf(one.paymentId)).transferStatus === "not_due", { refused: blockedPair?.message, shown: waits.map((e) => e.heldBack) });
         await db.update(schema.moneyOperations).set({ status: "failed", finishedAt: new Date() }).where(eq(schema.moneyOperations.id, unknown.id));
         await C.giveUp(third.paymentId, "cancelled", new Date());
         const both = await press(new Date(two.at.getTime() + 33 * DAY));

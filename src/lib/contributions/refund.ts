@@ -45,6 +45,9 @@ export async function refundContribution(input: { paymentId: string; amountCents
     const [existing] = await tx.select().from(lines).where(eq(lines.sourceKey, `refund:${input.requestKey}`));
     if (existing) return existing;
     const { contribution, payment } = await lockForPayment(tx, input.paymentId);
+    // Looked up again now that the locks are held: the same press sent twice at the same moment gets the one line.
+    const [meanwhile] = await tx.select().from(lines).where(eq(lines.sourceKey, `refund:${input.requestKey}`));
+    if (meanwhile) return meanwhile;
     if (input.by === "host" && contribution.hostId !== input.deciderId) throw new ContributionError("Payment not found.");
     if (payment.status !== "taken" || payment.problem) throw new ContributionError("This payment's money has not been taken, so there is nothing to refund.");
     if (frozen(payment)) throw new ContributionError("This charge is disputed at the contributor's bank, so nothing can be refunded from it now.");

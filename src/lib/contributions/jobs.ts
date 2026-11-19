@@ -13,10 +13,10 @@
  * reconcileOperations, which hands them to recover.ts. Writing down the monthly payments that are
  * due comes with part 2b.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { MoneyError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, type OperationKind } from "@/lib/payments/operations";
-import { projectsOnFor } from "@/lib/safety/switches";
+import { projectsOnFor, switches } from "@/lib/safety/switches";
 import { removeRetiredCards } from "./cards";
 import { giveUp, intentFor, letGo, syncPayment, takePayment, tryHold } from "./charge";
 import { runDisputeLooks } from "./dispute";
@@ -64,15 +64,20 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
   );
   //    And for every host the founder's switch does not cover: what is only held is given up. (The step that
   //    saves the switch does this itself, in part 2b; this is the net behind it.)
-  const held = await db
-    .select({ id: pays.id, hostId: schema.contributions.hostId })
-    .from(pays)
-    .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
-    .where(and(eq(pays.status, "held"), open))
-    .limit(500);
-  const covered = new Map<string, boolean>();
-  for (const hostId of new Set(held.map((row) => row.hostId))) covered.set(hostId, await projectsOnFor(hostId));
-  await each("give up a held payment of a host the switch does not cover", held.filter((row) => !covered.get(row.hostId)), (id) => giveUp(id, "switch", now));
+  //    The hosts are told apart in the query itself, so payments of covered hosts never fill the batch.
+  const current = await switches();
+  if (current.projects !== "everyone") {
+    const uncovered = current.projects === "named" && current.projectsHosts.length > 0 ? notInArray(schema.contributions.hostId, current.projectsHosts) : undefined;
+    await each(
+      "give up a held payment of a host the switch does not cover",
+      await db.select({ id: pays.id }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(and(eq(pays.status, "held"), open, uncovered)).limit(BATCH),
+      async (id) => {
+        // Asked once more for this host, by the one function that knows, right before acting.
+        const [owner] = await db.select({ hostId: schema.contributions.hostId }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(eq(pays.id, id));
+        if (owner && !(await projectsOnFor(owner.hostId))) await giveUp(id, "switch", now);
+      },
+    );
+  }
 
   // 2. PaymentIntents that were asked for and whose id was never saved (also of payments given up meanwhile).
   await each(
@@ -111,6 +116,14 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
   await each(
     "take the payment's money",
     await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "held"), open, lte(pays.takeAt, now), notRefusedRecently("capture", now))).orderBy(pays.takeAt).limit(BATCH),
+    (id) => takePayment(id, now),
+  );
+
+  //    A hold whose last moment has passed is given up and let go at once: it does not wait out the hour the
+  //    helper leaves after a taking that Stripe refused.
+  await each(
+    "give up a hold whose last moment has passed",
+    await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "held"), open, lt(pays.takeBy, now))).limit(BATCH),
     (id) => takePayment(id, now),
   );
 

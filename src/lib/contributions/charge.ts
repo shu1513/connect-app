@@ -49,6 +49,14 @@ function log(message: string, error?: unknown) {
   else console.log(`[contributions] ${message}`);
 }
 
+/**
+ * The clock for anything that decides about money, or writes down when money was taken: the moment
+ * that was handed in, or the real clock if that is later. The helper hands in the start of its
+ * round, which can be minutes old by the time a payment's turn comes; a check script hands in a
+ * pretended day that lies ahead. Read at the moment it is needed, never earlier.
+ */
+export const freshNow = (given?: Date): Date => new Date(Math.max(given?.getTime() ?? 0, Date.now()));
+
 export async function paymentById(paymentId: string): Promise<ContributionPayment | undefined> {
   const [payment] = await db.select().from(pays).where(eq(pays.id, paymentId));
   return payment;
@@ -167,9 +175,14 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
     request = JSON.parse(seen.intentRequest!) as IntentRequest;
     requestedAt = seen.intentRequestedAt;
   }
+  // After a stop (the payment was given up, or the founder's switch no longer covers the host) the request is
+  // not sent again: Stripe is only asked what was made, so that it can be let go.
+  const [owner] = await db.select({ hostId: schema.contributions.hostId }).from(schema.contributions).where(eq(schema.contributions.id, seen.contributionId));
+  const current = (await paymentById(paymentId)) ?? seen;
+  const stopped = current.status !== "to_pay" || !open(current) || !owner || !(await projectsOnFor(owner.hostId));
 
   let intent: Stripe.PaymentIntent | null;
-  if (Date.now() - requestedAt.getTime() < LABEL_SAFE_MS) {
+  if (!stopped && Date.now() - requestedAt.getTime() < LABEL_SAFE_MS) {
     // 2 and 3. The same request under the same label always gives the same PaymentIntent.
     intent = await stripe().paymentIntents.create(request, { idempotencyKey: `contributionintent:${paymentId}` });
   } else {
@@ -341,7 +354,8 @@ export async function applyTaken(tx: Tx, locked: LockedPayment, taken: { cents: 
       originalHostShareCents: split.hostShareCents,
       transferStatus: split.hostShareCents > 0 ? "not_due" : "not_owed",
       // 30 days if the payment carries the mark from when it was held; 7 otherwise. The count below can still make it 30.
-      transferDueAt: split.hostShareCents > 0 ? collectFrom(at, payment.thirtyDayMark) : null,
+      // A payment the founder released while it was still held keeps to that: it waits the usual 7 days.
+      transferDueAt: split.hostShareCents > 0 ? collectFrom(at, payment.thirtyDayMark && payment.founderHold !== "released") : null,
     })
     .onConflictDoNothing()
     .returning({ id: schema.payments.id });
@@ -446,8 +460,8 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
     }
     if (payment.stripePaymentIntentId !== intent.id || payment.status === "taken" || payment.status === "given_up") return;
     await tx.update(pays).set({ updatedAt: now }).where(eq(pays.id, payment.id));
-    // Read after Stripe has answered (plans/25, choice 11). A pretended clock in a check script counts as that moment.
-    const taken = () => applyTaken(tx, locked, { cents: intent.amount_received, chargeId: chargeIdOf(intent) }, now);
+    // The moment of a taking is read here, after Stripe has answered (plans/25, choice 11), never the moment this look began.
+    const taken = () => applyTaken(tx, locked, { cents: intent.amount_received, chargeId: chargeIdOf(intent) }, freshNow(now));
 
     // --- We are letting it go, or already have.
     if (payment.endedHow) {
@@ -529,7 +543,7 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
       // Cannot come from our code, which only takes a held payment. Recorded, and all of it is owed back.
       await giveUpInStep(tx, locked, "cancelled_at_stripe", now);
       const [again] = await tx.select().from(pays).where(eq(pays.id, payment.id));
-      await applyTaken(tx, { contribution, payment: again }, { cents: intent.amount_received, chargeId: chargeIdOf(intent) }, now);
+      await applyTaken(tx, { contribution, payment: again }, { cents: intent.amount_received, chargeId: chargeIdOf(intent) }, freshNow(now));
       return;
     }
     if (intent.status === "canceled") {
@@ -627,11 +641,13 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
 /**
  * Takes the held money, whole. `mayTake` is asked with the clock read at that moment, right
  * before Stripe is asked, so nothing is taken early, late, or after a stop. A hold whose last
- * moment has passed is given up as "not taken in time" and let go. `now` is only passed by the
- * check scripts, to pretend it is another day.
+ * moment has passed is given up as "not taken in time" and let go. A `now` that is handed in (the
+ * start of the helper's round, or a check script's pretended day) never stands for a moment
+ * earlier than the real clock.
  */
 export async function takePayment(paymentId: string, now?: Date): Promise<ContributionPayment> {
-  const clock = () => now ?? new Date();
+  // Read afresh each time it is asked: the moment handed in may be the start of a helper's round that has run long.
+  const clock = () => freshNow(now);
   const seen = await paymentById(paymentId);
   if (!seen) throw new MoneyError("Payment not found.");
   if (seen.status !== "held" || !open(seen)) return seen;
@@ -722,7 +738,7 @@ export async function letGo(paymentId: string, now: Date = new Date()): Promise<
         return { intentId: payment.stripePaymentIntentId };
       },
       execute: (params, label) => cancelAtStripe(params.intentId, label),
-      apply: (locked, _params, outcome, tx) => applyLetGo(tx, locked, outcome.result, now),
+      apply: (locked, _params, outcome, tx) => applyLetGo(tx, locked, outcome.result, freshNow(now)),
     });
   } catch (error) {
     if (error instanceof MoneyError || error instanceof OutcomeUnknownError) log(`letting go of contribution payment ${paymentId}`, error);

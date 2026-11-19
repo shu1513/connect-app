@@ -11,7 +11,7 @@
  * reaches more than 23 hours later is not repeated. If Stripe never made it,
  * that share is ready again for the host's next collection.
  */
-import { and, asc, desc, eq, inArray, isNull, like, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, MembershipMonth, Payment } from "@/db/schema";
 import { isFrozen } from "@/lib/membership/rules";
@@ -121,14 +121,34 @@ type StartedTransfer = StartedOperation<TransferParams> & { paymentId: string };
  */
 const hostOfPayment = sql<string>`coalesce(${schema.calls.hostId}, ${schema.memberships.hostId}, ${schema.contributions.hostId})`;
 
-/** Whether any payment of this contributor to this host has an action whose outcome is not known yet. */
-async function pairOutcomeUnknown(tx: Tx, contributorId: string, hostId: string): Promise<boolean> {
-  const [unknown] = await tx
+/**
+ * Whether any payment of this contributor to this host has an outcome that is not known yet: an
+ * action that was written down and not answered, or a try with the saved card that Stripe accepted
+ * and whose result (a hold, or a refusal) is not recorded on the payment yet. Until it is, the
+ * pair cannot be counted, so the pair's shares wait.
+ */
+async function pairOutcomeUnknown(reader: Reader, contributorId: string, hostId: string): Promise<boolean> {
+  const pair = and(eq(schema.contributions.contributorId, contributorId), eq(schema.contributions.hostId, hostId));
+  const [unknown] = await reader
     .select({ id: schema.moneyOperations.id })
     .from(schema.moneyOperations)
     .innerJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.moneyOperations.contributionPaymentId))
     .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
-    .where(and(eq(schema.contributions.contributorId, contributorId), eq(schema.contributions.hostId, hostId), eq(schema.moneyOperations.status, "started")))
+    .where(
+      and(
+        pair,
+        or(
+          eq(schema.moneyOperations.status, "started"),
+          // The try of the payment's current number went through at Stripe, and the payment still says "to be paid".
+          and(
+            eq(schema.moneyOperations.status, "succeeded"),
+            eq(schema.moneyOperations.kind, "hold"),
+            eq(schema.contributionPayments.status, "to_pay"),
+            sql`${schema.moneyOperations.label} like 'contributionhold:' || ${schema.contributionPayments.id} || ':' || ${schema.contributionPayments.try} || ':%'`,
+          ),
+        ),
+      ),
+    )
     .limit(1);
   return Boolean(unknown);
 }
@@ -382,7 +402,7 @@ export type Earning = { payment: Payment; call: Call | null; month: MembershipMo
 /** Every share that was charged and not yet sent: one host's, or everybody's for the founder. */
 export async function unsentEarnings(now: Date, hostId?: string): Promise<Earning[]> {
   const rows = await db
-    .select({ payment: schema.payments, call: schema.calls, month: schema.membershipMonths, project: schema.projects.name, hostId: hostOfPayment })
+    .select({ payment: schema.payments, call: schema.calls, month: schema.membershipMonths, project: schema.projects.name, contributorId: schema.contributions.contributorId, hostId: hostOfPayment })
     .from(schema.payments)
     .leftJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
     .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
@@ -392,7 +412,16 @@ export async function unsentEarnings(now: Date, hostId?: string): Promise<Earnin
     .leftJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
     .where(hostId ? and(sql`${hostOfPayment} = ${hostId}`, UNSENT) : UNSENT)
     .orderBy(schema.payments.transferDueAt);
-  const judged = await heldBackNow(db, rows.map((row) => row.payment), now);
+  // The same barrier a collection uses: while a payment of the pair has an outcome that is not known, the pair's shares wait.
+  const waitingPairs = new Set<string>();
+  const unknownFor = new Map<string, boolean>();
+  for (const row of rows) {
+    if (!row.contributorId) continue;
+    const pair = `${row.contributorId}:${row.hostId}`;
+    if (!unknownFor.has(pair)) unknownFor.set(pair, await pairOutcomeUnknown(db, row.contributorId, row.hostId));
+    if (unknownFor.get(pair)) waitingPairs.add(row.payment.id);
+  }
+  const judged = await heldBackNow(db, rows.map((row) => row.payment), now, waitingPairs);
   return rows.map(({ payment, call, month, project, hostId: owner }) => ({ payment, call, month, project, hostId: owner, shareCents: currentSplit(payment).hostShareCents, heldBack: judged.get(payment.id) ?? null }));
 }
 

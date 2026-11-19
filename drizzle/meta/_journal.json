@@ -239,6 +239,13 @@
       "when": 1795069818524,
       "tag": "0033_contributions",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795072636533,
+      "tag": "0034_contribution_shapes",
+      "breakpoints": true
     }
   ]
 }
