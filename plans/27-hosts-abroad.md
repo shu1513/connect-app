@@ -120,7 +120,8 @@ be paid. Four things keep the rule:
    used, after the same question to Stripe.
 4. **"Can be paid" also asks it.** `refreshPayoutsReady` already asks Stripe about the account
    on every visit to the Hosting page, on the way back from Stripe's form, before a new
-   collection and before a hold is placed for a call. It now also reads the account's country
+   collection and before the app itself places a hold for a call (not at the customer's own
+   "pay" step, which was so before and is left as it is). It now also reads the account's country
    (written the same way as the profile's before the two are compared), and for a host whose
    profile says another country, or whose account's country cannot be read, it writes down "not
    ready" like any other no. (A payout account with no profile beside it has nothing to be
@@ -249,7 +250,8 @@ Small steps, each checked before the next:
      beside a US profile, so that the country is the only difference. An account whose country
      Stripe's answer does not name is not ready either. Nor is an account that Stripe would send
      our transfers to and that has no bank account. Two setups started at the same moment leave
-     one account: one saved beside the host, and one in Stripe's own list for that person. And
+     one account: one saved beside the host, and one in Stripe's own list for that person
+     (watched for fifteen seconds; what the list has not shown by then, the script cannot see). And
      an account that was opened at Stripe for the United States and never saved, for someone
      who then applies from the UK: they get their own account in the UK, and the US one is
      never linked.

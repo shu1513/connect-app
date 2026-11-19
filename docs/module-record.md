@@ -2088,12 +2088,18 @@ product, not code.
   before the bank details could have counted as ready. Now both are needed, for US hosts too
   (the shared test host's account has both). Also taken: the label sent to Stripe for a host
   abroad names the country, so a US account opened earlier under the plain label and never
-  saved cannot block theirs for 30 days; Connect's address is not handed to Stripe when it is
+  saved cannot block theirs for as long as Stripe remembers that label; Connect's address is not handed to Stripe when it is
   `127.0.0.1` or `[::1]`; the check script counts the accounts in Stripe's own list after two
   presses, works out what it will remove before it removes anything at Stripe, and says that
   it needs projects switched on for every host. Not taken, written down instead: a way to tell
   apart two local databases that share one Stripe test account. The script needs that account
   to itself, as it needs the database.
+- Astra on those fixes: "ready to merge", nothing that must be fixed. Taken: two sentences that
+  said "not ready to receive money" or "finish your payout setup" where the account may now be
+  waiting only for the bank side or for Stripe's check; the count of accounts after two presses
+  watches Stripe's list for fifteen seconds and says that is all it shows; and the plan said
+  readiness is asked "before a hold is placed", which is true of the holds the app places by
+  itself, not of the customer's own "pay" step (that was so before, and is left as it is).
 
 **What building changed** (also at the end of plan 27)
 - An account made the older way could not be read the newer way for minutes after it was made

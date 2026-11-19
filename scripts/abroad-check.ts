@@ -461,15 +461,16 @@ async function main() {
     const opened = [...new Set(both.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])))];
     for (const id of opened) atStripe.add(id);
     check("two setups started at the same moment: every press that went through got the same account, and it is the one written beside the host", opened.length === 1 && (await linkOf(twice)) === opened[0], both.map((result) => (result.status === "fulfilled" ? result.value : String((result.reason as Error).message).slice(0, 120))));
-    // And at Stripe there is one account with this person's email, not a second one that nobody kept. (Stripe's list
-    // may take a moment to show a new account, so it is asked until it shows one, for half a minute at most.)
-    let theirs: string[] = [];
-    for (let i = 0; i < 10 && theirs.length === 0; i++) {
+    // And Stripe's own list shows one account with this person's email, not a second one that nobody kept. Stripe's
+    // list may take a moment to show a new account, so it is asked five times over about fifteen seconds and every
+    // account it ever shows is counted. (What it has not shown by then, this cannot see.)
+    const theirs = new Set<string>();
+    for (let i = 0; i < 5; i++) {
       if (i > 0) await new Promise((resolve) => setTimeout(resolve, 3000));
-      theirs = await accountsAtStripe((email) => email === twice.email);
+      for (const id of await accountsAtStripe((email) => email === twice.email)) theirs.add(id);
     }
     for (const id of theirs) atStripe.add(id);
-    check("and Stripe has opened one account for them, not two", theirs.length === 1 && theirs[0] === opened[0], theirs);
+    check("and Stripe's list shows one account for them over the next fifteen seconds, not two", theirs.size === 1 && theirs.has(opened[0]), [...theirs]);
 
     // An account that was opened at Stripe for the United States under this person's label and never saved; then they apply from the UK.
     const lost = await person("lost");

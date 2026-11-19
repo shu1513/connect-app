@@ -33,7 +33,7 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
       {ready.length > 0 && !would && (
         <p className="mt-1 opacity-80">That is not more than the 25-cent collection charge, so there is nothing to collect yet.</p>
       )}
-      {would && !payoutsReady && <p className="mt-1 opacity-80">Finish your payout setup at Stripe first. Then you can collect it.</p>}
+      {would && !payoutsReady && <p className="mt-1 opacity-80">Your payout account at Stripe is not ready yet (see above). Once it is, you can collect this.</p>}
       {would && payoutsReady && tooSoon && (
         <p className="mt-1 opacity-80">
           You can collect again from <LocalTime iso={collection.againAt.toISOString()} />.
