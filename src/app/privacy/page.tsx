@@ -20,6 +20,15 @@ export default function PrivacyPage() {
         no key.
       </p>
       <p className="mt-4 text-sm">
+        When you connect Instagram by signing in at Meta, we ask Meta once which Instagram account you shared, and keep that
+        account&apos;s number and name, nothing else. (Meta&apos;s own screen describes what you allow as &quot;access profile and posts&quot;; we
+        do not read your posts.) We do not keep Meta&apos;s key. Meta lists Connect among the apps connected to
+        your business portfolio until you remove it there (in Meta&apos;s Business Settings, under Integrations, Connected apps).
+        The two are separate: removing it at Meta does not take the account off your Connect page, and removing the account
+        from your Connect page (&quot;Remove&quot; on your Hosting page) does not remove the connection at Meta. An approved host&apos;s
+        page needs one confirmed account, so to take away the last one, confirm another first or write to us.
+      </p>
+      <p className="mt-4 text-sm">
         When a host adds a picture to the diary of a project, we make our own copy of it, without the place, the camera or anything
         else that was hidden in the file, and we do not keep the file as it was sent. Before anyone else can see the picture, our
         copy is checked automatically. For that it is usually sent to an outside checking service: OpenAI, Microsoft (Azure AI

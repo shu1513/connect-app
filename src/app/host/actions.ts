@@ -20,6 +20,8 @@ import {
   socialNameReady,
   updateHostProfile,
 } from "@/lib/profiles/profiles";
+import { INSTAGRAM_COOKIE, INSTAGRAM_COOKIE_PATH, instagramSettings } from "@/lib/profiles/instagram";
+import { INSTAGRAM_OFF, startInstagramLogin } from "@/lib/profiles/instagram-login";
 import { TIKTOK_COOKIE, TIKTOK_COOKIE_PATH, tiktokSettings } from "@/lib/profiles/tiktok";
 import { startTikTokLogin, TIKTOK_OFF } from "@/lib/profiles/tiktok-login";
 import { requireActiveUser, requireUser } from "@/lib/session";
@@ -194,6 +196,29 @@ export async function removeSocial(formData: FormData) {
     notice = problem(error);
   }
   back(notice);
+}
+
+/**
+ * "Connect your Instagram": sends the host to Meta to log in there and share their Instagram
+ * account. A note of who started is kept in a cookie only this server can read and that is sent
+ * only to the return address.
+ */
+export async function connectInstagram() {
+  const user = await requireActiveUser();
+  const settings = instagramSettings();
+  if (!settings) back(INSTAGRAM_OFF);
+  const [profile] = await db.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
+  if (!profile) back("Fill in your host profile first.");
+  const login = startInstagramLogin({ userId: user.id, now: new Date(), settings });
+  (await cookies()).set(INSTAGRAM_COOKIE, login.note, {
+    httpOnly: true,
+    secure: true,
+    // "lax" is what lets the cookie come back when Meta returns the host to us.
+    sameSite: "lax",
+    path: INSTAGRAM_COOKIE_PATH,
+    maxAge: login.maxAgeSeconds,
+  });
+  redirect(login.url);
 }
 
 /**
