@@ -388,4 +388,6 @@ Nothing here changes a rule.
   when Stripe says the account can also pay the host's bank (rule 4); the label sent to Stripe
   for a host abroad names the country (rule 3); Connect's address is not handed to Stripe when
   it is this computer's own (`127.0.0.1`, `[::1]`, as `localhost` already was). The check script
-  has two more checks, 45 in all.
+  has two more checks, 45 in all. The last full run then showed that its Canadian test host
+  could not pay a bank until Stripe was also given a title, which Stripe's form asks a host in
+  Canada: with the stricter "ready" the script noticed, and the test host now has one.

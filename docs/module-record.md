@@ -2113,6 +2113,13 @@ product, not code.
   Stripe may still be checking, that the setup can be continued if Stripe needs more, and to
   write to support if it cannot be.
 
+- The last full run found one more thing, in the check script. Its Canadian test host could
+  receive our transfers and could not pay a bank, although it had a bank account: Stripe asks
+  a person in Canada for a title first, which its form asks the host. So until then that
+  test had "collected" into an account that could not pay out, and nothing had noticed. With
+  the stricter "ready" the script stopped there; the test host now has a title, and Stripe
+  made the account able to pay out in about a minute.
+
 **How it was checked**
 - Unit tests of the list and of the request to Stripe (the US request compared field for field
   with what it was): 543 tests pass in all.
@@ -2121,12 +2128,16 @@ product, not code.
   a paid test call for hosts in the UK, Germany, Switzerland, Canada and the United States,
   which arrived in pounds, euros, francs, Canadian dollars and dollars. For the UK host a
   contribution's share went out in the same collection.
-- All 18 earlier check scripts.
+- All 18 earlier check scripts, the last time on the finished app code (commit 0754de2), after
+  both reviews. The new script's last run, all 45 checks, was on the commit after it
+  (bd5dd30), which differs only in that script.
 - In the browser, phone-sized and wide: a fresh person applied from the United Kingdom through
   the form, pressed "Set up payouts", went through Stripe's own test form (which asked for no
   website and no line of business), and came back "ready". Then
   `scripts/abroad-check.ts --setup-host=<that host>` collected one paid test call into that
-  very account: it arrived in pounds.
+  very account: it arrived in pounds. (This was before "ready" also asked for the bank side.
+  It was not repeated: an account completed on Stripe's form has a bank account, and the
+  shared test host's account, made that way, has both.)
 
 **Still open**
 - What Stripe keeps when it turns dollars into pounds or euros was not found on its pages; its
@@ -2137,6 +2148,8 @@ product, not code.
 - Stripe says its ID check cannot read Greek or Cyrillic letters. Greece, Cyprus and Bulgaria
   are in the list; a host there can use a passport. To be tried with a real host from there.
 - A real host abroad, before launch: apply, pass the ID check, open the payout account, collect.
+- Stripe asks for different details in different countries (in Canada also a title). Its own
+  form collects them; a script filled them in for five countries only.
 - How long a first payment to a bank abroad takes was not measured.
 - On a developer's computer the web address handed to Stripe is the temporary public address
   of that computer. On the live site it is the site's own.
