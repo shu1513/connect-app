@@ -39,7 +39,7 @@ const COOL_MS = 5 * 60_000;
 const PER_ROUND = 10;
 const CHILD_PER_ROUND = 5;
 const DAY_MS = 24 * 3_600_000;
-/** The child-safety tool may take this long over one picture. After that the round goes on, and the picture is asked about again later. */
+/** The round waits this long for the child-safety tool's answer about one picture. After that it goes on with other work; the answer is still written when it comes. */
 const TOOL_WITHIN_MS = 15_000;
 
 /** The outside services, in the queue's order. */
@@ -50,14 +50,14 @@ export const services = (): Checker[] => [openAiChecker(), azureChecker(), sight
  * its own clock, and keeps the round to the pictures of the people it made (`onlyHosts`), so that
  * a stand-in never decides about a real picture in the test database.
  */
-export type RoundOptions = { now?: () => Date; services?: Checker[]; own?: Checker | null; tool?: ChildTool | null; onlyHosts?: string[] };
+export type RoundOptions = { now?: () => Date; services?: Checker[]; own?: Checker | null; tool?: ChildTool | null; onlyHosts?: string[]; toolWithinMs?: number };
 
 export async function runPictureRound(options: RoundOptions = {}): Promise<void> {
   const now = options.now ?? (() => new Date());
   const round = randomUUID();
   const tool = options.tool === undefined ? childTool() : options.tool;
   const whose = options.onlyHosts ? inArray(pictures.hostId, options.onlyHosts) : undefined;
-  if (tool) await childStep(round, tool, now, whose);
+  if (tool) await childStep(round, tool, now, whose, options.toolWithinMs ?? TOOL_WITHIN_MS);
 
   // A service without a key is not part of the queue.
   const asked = (options.services ?? services()).filter((service) => service.keyMark);
@@ -77,8 +77,12 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
 /** The pictures the everyday checkers may be asked about now: waiting, or shown after a check for nudity only; due; and allowed on by the child-safety rule. */
 function everyday(now: Date): SQL | undefined {
   return and(
-    or(eq(pictures.state, "waiting"), and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"))),
-    lte(pictures.nextTryAt, now),
+    or(
+      and(eq(pictures.state, "waiting"), lte(pictures.nextTryAt, now)),
+      // One that is shown after a check for nudity only is due at its time, and also the moment any service has
+      // answered properly since it was last tried: full checking is back, and it comes before every waiting picture.
+      and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), or(lte(pictures.nextTryAt, now), exists(db.select({ one: sql`1` }).from(checkers).where(sql`${checkers.lastGoodAt} > ${pictures.updatedAt}`)))),
+    ),
     // The same rule as mayGoOn in child-safety.ts, which is asked again once the picture is claimed.
     inArray(pictures.childCheck, ["clear", "not_set_up"]),
     eq(pictures.suspectedByFounder, false),
@@ -122,8 +126,7 @@ async function checkOne(round: string, picture: ProjectPicture, asked: Checker[]
   const safely = (check: Promise<Answer>): Promise<Answer> => check.catch((error) => ({ kind: "fault", detail: `the checker failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 220) }));
   const turns = asked.map((service) => {
     const row = rows.find((line) => line.service === service.name);
-    // A service with a fault on record is always asked, never passed over as "still out": a fault holds the queue until the service answers properly.
-    return { name: service.name, cooling: !row?.faultSince && Boolean(row?.outUntil && row.outUntil > at), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(service.check(file.bytes)) };
+    return { name: service.name, cooling: Boolean(row?.outUntil && row.outUntil > at), worked: Boolean(service.keyMark) && row?.lastGoodKey === service.keyMark, check: () => safely(service.check(file.bytes)) };
   });
   // A picture that is already shown is only here for its full check: the own checker has had it.
   /** Asked before each request: is the picture still this round's, and as it was claimed? If the founder, the host or a report has changed something meanwhile, it is sent to nobody else. */
@@ -190,9 +193,11 @@ async function settle(round: string, claimed: ProjectPicture, outcome: Outcome, 
 }
 
 /**
- * What each service's answer means for the service itself: a complete, valid answer is remembered
- * with the key that gave it; "out" starts its five minutes; a fault is written down, and the
- * founder is emailed at once and then once a day while it lasts.
+ * What each service's answer means for the service itself. Its last answer says how it stands: a
+ * complete, valid answer is remembered with the key that gave it; "out" starts its five minutes;
+ * a fault is written down, ends any five minutes that were running (a fault is never waited out:
+ * the service is asked again for the next picture), and the founder is emailed at once and then
+ * at most once a day.
  */
 async function recordAnswers(asked: Checker[], answers: Asked[], at: Date): Promise<void> {
   for (const { name, answer } of answers) {
@@ -206,10 +211,10 @@ async function recordAnswers(asked: Checker[], answers: Asked[], at: Date): Prom
       } else if (answer.kind === "clean" || answer.kind === "flagged") {
         await tx.update(checkers).set({ lastGoodAt: at, lastGoodKey: service.keyMark, outUntil: null, faultSince: null, faultDetail: null, faultToldAt: null }).where(eq(checkers.service, name));
       } else if (answer.kind === "out") {
-        await tx.update(checkers).set({ outUntil: new Date(at.getTime() + COOL_MS) }).where(eq(checkers.service, name));
+        // It answers again, if only to say "not now": that is no longer a fault. (When the founder was last told stays, so a service that goes back and forth does not send an email each time.)
+        await tx.update(checkers).set({ outUntil: new Date(at.getTime() + COOL_MS), faultSince: null, faultDetail: null }).where(eq(checkers.service, name));
       } else {
         const tell = !row.faultToldAt || at.getTime() - row.faultToldAt.getTime() >= DAY_MS;
-        // Its five minutes, if it was "out" a moment ago, are over with this: a fault is never waited out.
         await tx.update(checkers).set({ outUntil: null, faultSince: row.faultSince ?? at, faultDetail: answer.detail, faultToldAt: tell ? at : row.faultToldAt }).where(eq(checkers.service, name));
         if (tell) {
           await tellFounders(tx, {
@@ -250,7 +255,7 @@ async function tellAboutNudityOnly(at: Date, whose: SQL | undefined): Promise<vo
  * round. Only pictures whose bytes are still kept. The first real answer switches the tool on for
  * good. If the tool does not answer, the round asks it nothing more.
  */
-async function childStep(round: string, tool: ChildTool, now: () => Date, whose: SQL | undefined): Promise<void> {
+async function childStep(round: string, tool: ChildTool, now: () => Date, whose: SQL | undefined, within: number): Promise<void> {
   const seen: string[] = [];
   const which = and(whose, inArray(pictures.childCheck, ["waiting", "not_set_up"]), ne(pictures.state, "locked"), exists(db.select({ one: sql`1` }).from(files).where(eq(files.pictureId, pictures.id))));
   for (let i = 0; i < CHILD_PER_ROUND; i++) {
@@ -258,11 +263,23 @@ async function childStep(round: string, tool: ChildTool, now: () => Date, whose:
     if (!picture) return;
     seen.push(picture.id);
     const [file] = await db.select({ bytes: files.bytes }).from(files).where(eq(files.pictureId, picture.id));
-    // Bounded here too, whatever the tool's own limits are: one picture it never answers for must not stop the round.
+    // The round does not wait for ever, whatever the tool's own limits are.
+    const asking: Promise<ChildAnswer> = file ? tool.ask(file.bytes).catch(() => "unreachable" as const) : Promise.resolve("unreachable" as const);
     let tooSlow: NodeJS.Timeout | undefined;
-    const noAnswer = new Promise<ChildAnswer>((resolve) => (tooSlow = setTimeout(() => resolve("unreachable"), TOOL_WITHIN_MS)));
-    const answer: ChildAnswer = file ? await Promise.race([tool.ask(file.bytes).catch(() => "unreachable" as const), noAnswer]) : "unreachable";
+    const answer = await Promise.race([asking, new Promise<null>((resolve) => (tooSlow = setTimeout(() => resolve(null), within)))]);
     clearTimeout(tooSlow);
+    if (answer === null) {
+      // No answer yet. The round goes on and asks the tool nothing more, but this answer is still written when it
+      // comes: a match always counts, however late. The picture stays held by this round until its time runs out,
+      // so nothing asks about it a second time meanwhile and its bytes stay.
+      void asking
+        .then(async (late) => {
+          await settleChild(round, picture, late, now());
+          if (late !== "unreachable") await switchChildCheckOn(now());
+        })
+        .catch((error) => console.error("[pictures] a late answer of the child-safety tool could not be written", error));
+      return;
+    }
     await settleChild(round, picture, answer, now());
     if (answer === "unreachable") return;
     await switchChildCheckOn(now());

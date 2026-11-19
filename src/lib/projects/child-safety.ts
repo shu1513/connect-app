@@ -20,6 +20,12 @@ import type { ProjectPicture } from "@/db/schema";
 
 /** What the tool says about one picture. "unreachable" is no answer: the picture waits. */
 export type ChildAnswer = "clear" | "match" | "unreachable";
+/**
+ * What the tool's own file must keep to. `ask` gives up by itself, with "unreachable", well inside
+ * the two minutes for which the queue holds a picture (queue.ts): then a picture is never asked
+ * about twice at the same time. The queue stops waiting after fifteen seconds and goes on with
+ * other work, but an answer that comes later is still written, and a match always counts.
+ */
 export type ChildTool = { ask: (jpeg: Buffer) => Promise<ChildAnswer> };
 
 /** The tool Connect has, or null. None yet: its file is added when access is granted. */

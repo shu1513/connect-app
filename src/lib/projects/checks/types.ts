@@ -51,9 +51,11 @@ export async function askService(request: () => Promise<Response>, read: (body: 
   try {
     body = await response.json();
   } catch (error) {
-    // An answer that stops arriving, or runs out of time on the way, is "no answer in time". Only one that arrived and is not what it should be is a fault.
+    // A refusal has said what it is with its code, whatever became of the words after it: a refused key stays a fault.
+    if (!response.ok) return refusalOf(response.status, "");
+    // A good answer that stops arriving, or runs out of time on the way, is "no answer in time". Only one that arrived and is not what it should be is a fault.
     if (!(error instanceof SyntaxError)) return { kind: "out", detail: `the answer did not arrive: ${error instanceof Error ? error.name : "error"}` };
-    return response.ok ? { kind: "fault", detail: "the answer could not be read" } : refusalOf(response.status, "");
+    return { kind: "fault", detail: "the answer could not be read" };
   }
   try {
     if (!response.ok) return refused?.(response.status, body) ?? refusalOf(response.status, saidBy(body));

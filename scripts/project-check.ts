@@ -481,7 +481,7 @@ async function main() {
   };
   type Tool = { ask: (jpeg: Buffer) => Promise<ChildAnswer> };
   /** One round of the queue, with the stand-ins, on this run's pictures only. No child-safety tool unless one is handed in. */
-  const round = (tool: Tool | null = null) => Q.runPictureRound({ now: qnow, services: [standIn("openai"), standIn("azure"), standIn("sightengine")], own: standIn("own"), tool, onlyHosts: people.slice(since) });
+  const round = (tool: Tool | null = null, toolWithinMs?: number) => Q.runPictureRound({ now: qnow, services: [standIn("openai"), standIn("azure"), standIn("sightengine")], own: standIn("own"), tool, onlyHosts: people.slice(since), toolWithinMs });
   const checkerLine = async (name: Name) => (await db.select().from(schema.pictureCheckers).where(eq(schema.pictureCheckers.service, name)))[0];
 
   // ========================================================================
@@ -718,18 +718,59 @@ async function main() {
     await round();
     check("so with every service out afterwards, the own checker still may not pass a picture", (await pic(l.id)).state === "waiting" && !asked.includes("own"), asked);
 
-    // A fault is never waited out as if the service were only used up.
+    // A service's last answer says how it stands. A fault is never waited out; "out" after a fault starts the five minutes again.
     partial = new Set();
     await db.delete(schema.pictureCheckers);
     later(30);
+    // (The picture that is still waiting from above is kept out of these rounds.)
+    await db.update(pictures).set({ nextTryAt: new Date(qclock + 600 * MIN) }).where(eq(pictures.id, l.id));
     says = { openai: "fault", azure: "clean", sightengine: "clean", own: "clean" };
-    await db.insert(schema.pictureCheckers).values({ service: "openai", outUntil: new Date(qclock + 4 * MIN) });
     forget();
-    await db.update(pictures).set({ nextTryAt: qnow() }).where(eq(pictures.id, l.id));
-    await db.update(schema.pictureCheckers).set({ faultSince: qnow() }).where(eq(schema.pictureCheckers.service, "openai"));
+    // As when two rounds were asking at once: while this one waits for its answer, the other one's "out" is written, and then this one's fault.
+    says.openai = async (): Promise<Kind> => {
+      await db.insert(schema.pictureCheckers).values({ service: "openai", outUntil: new Date(qclock + 4 * MIN) }).onConflictDoUpdate({ target: schema.pictureCheckers.service, set: { outUntil: new Date(qclock + 4 * MIN) } });
+      return "fault";
+    };
+    const m = await upload(host, fifth.id);
     await round();
-    check("a service with a fault on record is asked, not passed over as still out, and the picture waits", asked.join() === "openai" && (await pic(l.id)).state === "waiting", asked);
-    check("and recording a fault ends its five minutes", (await checkerLine("openai"))?.outUntil === null && Boolean((await checkerLine("openai"))?.faultSince));
+    check("recording a fault leaves no five minutes running, also when an \"out\" was written a moment before", asked.join() === "openai" && (await pic(m.id)).state === "waiting" && (await checkerLine("openai"))?.outUntil === null && Boolean((await checkerLine("openai"))?.faultSince), asked);
+    forget();
+    says.openai = "fault";
+    later(1);
+    await round();
+    check("so the service is asked again for the next try, not passed over, and the picture waits", asked.join() === "openai" && (await pic(m.id)).state === "waiting", asked);
+    later(5);
+    forget();
+    says.openai = "out";
+    await round();
+    const afterOut = await checkerLine("openai");
+    check("when it then says \"not now\", that is its state: no fault any more, five minutes running, and the next service answers", asked.join() === "openai,azure" && afterOut?.faultSince === null && Boolean(afterOut?.outUntil) && (await pic(m.id)).checkedBy === "azure", asked);
+    forget();
+    const n = await upload(host, fifth.id);
+    await round();
+    check("and in those five minutes it is not asked", asked.join() === "azure" && (await pic(n.id)).state === "shown", asked);
+
+    // The moment any service answers properly again, a picture shown for nudity only is due, whatever its own time says.
+    await db.delete(schema.pictureCheckers);
+    await db.insert(schema.pictureCheckers).values({ service: "azure", lastGoodAt: qnow(), lastGoodKey: "key-2" });
+    later(30);
+    says = { openai: "fault", azure: "out", sightengine: "out", own: "clean" };
+    const seventh = await write(host, "A seventh post");
+    await db.delete(schema.pictureCheckers).where(eq(schema.pictureCheckers.service, "openai"));
+    says.openai = "out";
+    const o = await upload(host, seventh.id);
+    await round();
+    check("(a picture shown for nudity only)", (await pic(o.id)).level === "nudity_only");
+    later(6);
+    says.openai = "fault";
+    await round();
+    const notYet = (await pic(o.id)).nextTryAt;
+    later(1);
+    says.openai = "clean";
+    forget();
+    const q = await upload(host, seventh.id);
+    await round();
+    check("a service recovers from a fault before that picture's own time: the newer waiting picture is checked, and the one shown for nudity only gets its full check in the same round", notYet !== null && notYet.getTime() > qclock && (await pic(q.id)).state === "shown" && (await pic(o.id)).level === "full", { asked, level: (await pic(o.id)).level });
 
     // Tidying: pictures whose bytes cannot be freed yet do not hold up one whose bytes can.
     const sixth = await write(host, "A sixth post");
@@ -1010,13 +1051,14 @@ async function main() {
     for (let i = 0; i < 6 && agree; i++) {
       const open3 = await report(reporter, "under18");
       const reporterN = await person("customer");
-      await Promise.allSettled([close(open3.id), createReport({ reporterId: reporterN.id, context: "post", contextId: post.id, reason: "under18", text: "", now: new Date() })]);
+      const pair = await Promise.allSettled([close(open3.id), createReport({ reporterId: reporterN.id, context: "post", contextId: post.id, reason: "under18", text: "", now: new Date() })]);
+      agree = pair.every((r) => r.status === "fulfilled");
       const stillOpen = (await db.select().from(schema.reports).where(and(eq(schema.reports.contextId, post.id), eq(schema.reports.reason, "under18"), eq(schema.reports.status, "open")))).length > 0;
-      agree = stillOpen && (await pic(added.id)).suspectedByReport && (await pic(a.id)).suspectedByReport;
+      agree = agree && stillOpen && (await pic(added.id)).suspectedByReport && (await pic(a.id)).suspectedByReport;
       for (const left of await db.select().from(schema.reports).where(and(eq(schema.reports.contextId, post.id), eq(schema.reports.status, "open")))) await close(left.id);
       agree = agree && !(await pic(added.id)).suspectedByReport;
     }
-    check("one closed while another is made, six times: the mark always says what the open reports say", agree);
+    check("one closed while another is made, six times: both go through, and the mark always says what the open reports say", agree);
 
     await Mod.setSuspected({ adminId: admin.id, pictureId: a.id, on: true, now: qnow() });
     const third = await report(reporter, "under18");
@@ -1131,6 +1173,25 @@ async function main() {
     await round(overlapping);
     row = await pic(twice.id);
     check("a clear answer that comes in after a match does not take the match back", asks === 2 && row.state === "locked" && row.childCheck === "match" && (await hasBytes(twice.id)), { asks, state: row.state, childCheck: row.childCheck });
+
+    // The round stops waiting for a slow tool, by the real clock, and its answer is still written when it comes.
+    const seventh = await write(host, "A seventh post");
+    const slowOne = await upload(host, seventh.id, 224);
+    let answered = false;
+    const dawdling: Tool = {
+      ask: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        answered = true;
+        return "match";
+      },
+    };
+    await round(dawdling, 50);
+    row = await pic(slowOne.id);
+    check("a tool that takes longer than the round waits: the round goes on, the picture stays held and is not locked yet", !answered && row.state !== "locked" && row.claimId !== null && (await hasBytes(slowOne.id)));
+    await until(() => answered);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    row = await pic(slowOne.id);
+    check("its match, when it comes, still locks the picture and tells the founder", row.state === "locked" && row.childCheck === "match" && (await hasBytes(slowOne.id)));
     await db.update(schema.siteSwitches).set({ childCheckOnAt: null });
   });
 
@@ -1346,7 +1407,7 @@ async function main() {
   });
 
   // ========================================================================
-  journey("Who can reach what: only the pages meant to, each asking who is signed in", async () => {
+  journey("Who can reach what, as far as the source text shows: which files use this code, and how each action begins", async () => {
     const uses: { path: string; text: string }[] = [];
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {

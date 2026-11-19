@@ -13,7 +13,8 @@ const nextConfig: NextConfig = {
   logging: { incomingRequests: { ignore: [/\/api\/social\/tiktok\/return/] } },
   // The framework has an address of its own (/_next/image) that fetches a picture of the site, makes a smaller
   // copy and keeps that copy for hours. The app uses it for nothing, and a diary picture must never be kept
-  // anywhere that does not ask again who may see it (plans/24, "Showing a picture"). So no path is allowed to it.
+  // anywhere that does not ask again who may see it (plans/24, "Showing a picture"). So no path of the app is
+  // allowed to it. (The framework still lets its own built-in media files through; a picture's address is not among them.)
   images: { localPatterns: [] },
   turbopack: {
     rules: {

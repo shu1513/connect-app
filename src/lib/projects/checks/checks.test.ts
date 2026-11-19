@@ -157,6 +157,12 @@ describe("reading Connect's own checker", () => {
     expect(readOwn([...own(0, 0, 0), { className: "Porn", probability: 0 }]).kind).toBe("fault");
     expect(readOwn([{ className: "Porn", probability: 1 }])).toMatchObject({ kind: "flagged", partial: true });
     expect(readOwn(own(0.1, 0.1, 0.1).map((entry) => (entry.className === "Sexy" ? { ...entry, probability: 1.5 } : entry))).kind).toBe("fault");
+    // A finding in the second of two entries for one class counts too, whatever the order.
+    expect(readOwn([...own(0, 0, 0), { className: "Porn", probability: 1 }])).toMatchObject({ kind: "flagged", partial: true });
+    expect(readOwn([{ className: "Porn", probability: 1 }, ...own(0, 0, 0)])).toMatchObject({ kind: "flagged", partial: true });
+    // An entry without a name never makes an empty answer look complete.
+    expect(readOwn([{ className: "", probability: -1 }]).kind).toBe("fault");
+    expect(readOwn([]).kind).toBe("fault");
   });
   it("is a fault when one of its five numbers is missing", () => {
     expect(readOwn(own(0, 0, 0).slice(1)).kind).toBe("fault");
@@ -183,6 +189,10 @@ describe("asking a service", () => {
     expect((await askService(stalls, clean)).kind).toBe("out");
     const breaks = async () => ({ ok: true, status: 200, json: async () => Promise.reject(new TypeError("terminated")) }) as unknown as Response;
     expect((await askService(breaks, clean)).kind).toBe("out");
+    // A refusal has said what it is with its code: a refused key stays a fault when the words after it never arrive.
+    const refused = (status: number) => async () => ({ ok: false, status, json: async () => Promise.reject(new DOMException("aborted", "AbortError")) }) as unknown as Response;
+    expect((await askService(refused(401), clean)).kind).toBe("fault");
+    expect((await askService(refused(429), clean)).kind).toBe("out");
   });
   it("is a fault when a good answer cannot be read", async () => {
     expect((await askService(reply(200, "not json"), clean)).kind).toBe("fault");
