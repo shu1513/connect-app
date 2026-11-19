@@ -63,10 +63,10 @@ export async function recoverContributionOperation(operation: typeof schema.mone
           const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : (intent.latest_charge?.id ?? null);
           // It went through. Recorded as it is: taken rightly, or taken although the payment was given up (then owed back in full).
           await finishOwnedOperation(operation.id, owner, intent.id, (locked, tx) => applyTaken(tx, locked, { cents: intent.amount_received, chargeId }, now));
-        } else if (intent.status === "requires_capture" && canRepeat()) {
-          // Not taken, and the first request may still be on its way: nothing is decided yet. Looked at again next pass.
-          return;
         } else {
+          // Not taken, and it will not be asked for again. If the first request were still to land, the letting-go
+          // that follows finds the money taken (Stripe either cancels a payment or has taken it, never both) and
+          // records it as owed back.
           await giveUpOn("Stripe shows this payment's money was not taken.");
           await syncPayment(paymentId, now); // a hold that is gone is recorded as such; one that is still there and may not be taken is let go by the jobs
         }

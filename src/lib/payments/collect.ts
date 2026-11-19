@@ -121,6 +121,38 @@ type StartedTransfer = StartedOperation<TransferParams> & { paymentId: string };
  */
 const hostOfPayment = sql<string>`coalesce(${schema.calls.hostId}, ${schema.memberships.hostId}, ${schema.contributions.hostId})`;
 
+/** Whether any payment of this contributor to this host has an action whose outcome is not known yet. */
+async function pairOutcomeUnknown(tx: Tx, contributorId: string, hostId: string): Promise<boolean> {
+  const [unknown] = await tx
+    .select({ id: schema.moneyOperations.id })
+    .from(schema.moneyOperations)
+    .innerJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.moneyOperations.contributionPaymentId))
+    .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
+    .where(and(eq(schema.contributions.contributorId, contributorId), eq(schema.contributions.hostId, hostId), eq(schema.moneyOperations.status, "started")))
+    .limit(1);
+  return Boolean(unknown);
+}
+
+/**
+ * Counts the $1,000 rule again for every contributor who has a share with this host that is not
+ * sent, each in a step of its own under the pair's lock, and writes any 30 days that are due. A
+ * pair with an outcome that is not known is left for now: its shares wait anyway.
+ */
+async function countPairsOf(hostId: string, now: Date): Promise<void> {
+  const givers = await db
+    .selectDistinct({ contributorId: schema.contributions.contributorId })
+    .from(schema.payments)
+    .innerJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.payments.contributionPaymentId))
+    .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
+    .where(and(eq(schema.contributions.hostId, hostId), UNSENT));
+  for (const contributorId of givers.map((row) => row.contributorId).sort()) {
+    await db.transaction(async (tx) => {
+      await lockPair(tx, contributorId, hostId);
+      if (!(await pairOutcomeUnknown(tx, contributorId, hostId))) await countPair(tx, contributorId, hostId, now);
+    });
+  }
+}
+
 /**
  * The locked step. With the host's row locked, so that two presses at once
  * make one collection:
@@ -141,6 +173,10 @@ export async function acceptCollection(input: {
   now?: Date;
 }): Promise<{ existing: boolean; started: StartedTransfer[] }> {
   if (!UUID.test(input.collectionId)) throw new MoneyError(NOT_VALID);
+  // The $1,000 rule's count for her contribution shares, written in steps of its own first, so that the later
+  // dates it finds are kept also when this press ends up with nothing to collect. (The step below counts
+  // again under its own locks before it judges anything.)
+  await countPairsOf(input.hostId, input.now ?? new Date());
 
   return db.transaction(async (tx) => {
     const [host] = await tx.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, input.hostId)).for("update");
@@ -204,14 +240,7 @@ export async function acceptCollection(input: {
     // counted again and any 30 days that are due are written. Only then is anything judged.
     const waitingPairs = new Set<string>();
     for (const contributorId of contributorIds) {
-      const [unknown] = await tx
-        .select({ id: schema.moneyOperations.id })
-        .from(schema.moneyOperations)
-        .innerJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.moneyOperations.contributionPaymentId))
-        .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
-        .where(and(eq(schema.contributions.contributorId, contributorId), eq(schema.contributions.hostId, input.hostId), eq(schema.moneyOperations.status, "started")))
-        .limit(1);
-      if (unknown) {
+      if (await pairOutcomeUnknown(tx, contributorId, input.hostId)) {
         for (const c of candidates) if (c.contributorId === contributorId) waitingPairs.add(c.id);
       } else {
         await countPair(tx, contributorId, input.hostId, now);
