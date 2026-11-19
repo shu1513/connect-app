@@ -1242,6 +1242,60 @@ async function main() {
   });
 
   // ========================================================================
+  journey("The pages: only a pressed button starts anything, and every action takes the person from the login", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const uses: { path: string; text: string }[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = `${dir}/${name}`;
+        if (statSync(path).isDirectory()) walk(path);
+        else if (/\.(ts|tsx)$/.test(name)) {
+          const text = readFileSync(path, "utf8");
+          if (/contributions\/(start|monthly|charge|refund|founder|switch|ending)["']/.test(text)) uses.push({ path, text });
+        }
+      }
+    };
+    walk("src/app");
+    const contributors = ["src/app/contributions/actions.ts", "src/app/contributions/new/page.tsx", "src/app/contributions/[id]/page.tsx", "src/app/api/contributions/[id]/sync/route.ts", "src/app/h/[handle]/project/diary.tsx"];
+    const hosts = ["src/app/host/project/contribution-actions.ts"];
+    const founders = ["src/app/admin/projects/contribution-actions.ts", "src/app/admin/projects/actions.ts"];
+    const known = [...contributors, ...hosts, ...founders];
+    check("only the contributor's, the host's and the founder's own pages reach the code that starts, pays, stops or refunds a contribution", uses.every((file) => known.includes(file.path)) && uses.length === known.length, { found: uses.map((file) => file.path) });
+
+    // "Starting is an action; loading is only reading": nothing that is drawn on opening a page may write a
+    // contribution or a payment, or ask Stripe for one. (Recording what Stripe shows belongs to the one address the card form posts to.)
+    const isRoute = (file: { path: string }) => file.path.endsWith("/route.ts");
+    const writes = /\b(startContribution|payNow|intentFor|syncPayment|recordIntent|tryHold|takePayment|giveUp|letGo|letGoAll|stopContribution|letPaymentGo|refundContribution|runRefunds|holdBack|release|saveProjectsSwitch|endContribution|writeDuePayments|writeDownPayment)\b/;
+    const starting = uses.filter((file) => !file.text.startsWith("\"use server\"") && !isRoute(file) && [...file.text.matchAll(/import \{([^}]*)\} from "@\/lib\/contributions\/[a-z]+";/g)].some((match) => writes.test(match[1]))).map((file) => file.path);
+    const routes = uses.filter(isRoute);
+    check("no page that is only being opened can start a contribution, a payment, a stop or a refund, and the one address that asks Stripe only answers a post", starting.length === 0 && routes.length === 1 && routes.every((file) => /export async function POST\(/.test(file.text) && !/export async function (GET|PUT|PATCH|DELETE)\(/.test(file.text)), { starting, routes: routes.map((file) => file.path) });
+    check("that address records a payment only for its own contributor", /contributionFor\(user\.id, id\)/.test(routes[0]?.text ?? "") && /found\?\.payments\.find/.test(routes[0]?.text ?? ""));
+
+    const actionsOf = (path: string) => (uses.find((file) => file.path === path)?.text ?? "").split(/^export async function /m).slice(1);
+    const mine = actionsOf("src/app/contributions/actions.ts");
+    check("each of the contributor's actions asks who is signed in and acts as that person; none takes the person from the form", mine.length === 4 && mine.every((action) => /const user = await require(Active)?User\("\/account"\);/.test(action) && /(contributorId|actorId): user\.id/.test(action)) && !/formData\.get\("(contributorId|userId|actorId)"\)/.test(mine.join("")));
+    check("cancelling and stopping work for a paused account too; starting and paying do not", mine.filter((action) => /^(cancelPaymentAction|stopContributionAction)/.test(action)).every((action) => action.includes("await requireUser(")) && mine.filter((action) => /^(startContributionAction|payNowAction)/.test(action)).every((action) => action.includes("await requireActiveUser(")));
+    const hers = actionsOf("src/app/host/project/contribution-actions.ts");
+    check("each of the host's actions asks who is signed in and acts as that host", hers.length === 3 && hers.every((action) => /const user = await require(Active)?User\(PAGE\);/.test(action) && /(hostId|actorId|deciderId): user\.id/.test(action)) && !/formData\.get\("(hostId|userId|actorId|deciderId)"\)/.test(hers.join("")));
+    const founders2 = actionsOf("src/app/admin/projects/contribution-actions.ts");
+    check("each of the founder's actions asks for the founder's login first, and gives the founder as who did it", founders2.length === 4 && founders2.every((action) => /^\w+\(formData: FormData\) \{\n  const admin = await requireAdmin\(\);/.test(action) && /(adminId|actorId|deciderId): admin\.id/.test(action)));
+    check("a refund by the founder needs a reason, and so does letting a payment go", /if \(!reason\) throw new ContributionError\("Please give a reason\. It is kept\."\);/.test(founders2.join("")) && /by === "founder" && !note\) throw/.test(readFileSync("src/lib/contributions/monthly.ts", "utf8")));
+
+    // What a person is shown.
+    const summary = readFileSync("src/app/contributions/new/page.tsx", "utf8");
+    check("the summary page makes only a request's id; it writes nothing", /name="request" value=\{randomUUID\(\)\}/.test(summary) && !/\.insert\(|\.update\(/.test(summary));
+    const { summarySentences, agreementBox } = await import("../src/lib/contributions/wording");
+    const once = summarySentences({ kind: "once", amountCents: 2500, hostName: "Hana", projectName: "Bread" }).join(" ");
+    const monthlyWords = summarySentences({ kind: "monthly", amountCents: 1000, hostName: "Hana", projectName: "Bread" }).join(" ");
+    check("before paying once, the page says what the rulebook asks: the amount, held first and normally three days, cancel and pay nothing, supports the project and buys no call or reward, no charity and no tax deduction, refunds are the host's decision", /\$25\.00, once/.test(once) && /first only held/.test(once) && /three days/.test(once) && /cancel and pay nothing/.test(once) && /does not buy a call or any promised reward/.test(once) && /not a donation to a charity/.test(once) && /no charitable tax deduction/.test(once) && /Hana's decision/.test(once));
+    check("before a monthly contribution it also says: every month, starting with a hold today, taken three days later each time, how to stop", /\$10\.00 every month, starting with a hold today/.test(monthlyWords) && /taken three days later/.test(monthlyWords) && /stop at any time/.test(monthlyWords) && agreementBox(1000) === "I agree that Connect holds $10.00 on my card today and every month, and takes it three days later each time, until I cancel.");
+    const ownPage = readFileSync("src/app/contributions/[id]/page.tsx", "utf8");
+    check("\"nothing was charged\" is said on the page only for a payment whose hold is certainly gone; until then it says the payment is being cancelled", /state === "cancelling" && \(\s*<>\s*<p className="mt-1">We are cancelling this payment\./.test(ownPage) && /state === "cancelled" && <p className="mt-1">\{payment\.authorisedAt \? "Cancelled\. The hold was let go, and nothing was charged\."/.test(ownPage));
+    const { stateOf } = await import("../src/lib/contributions/views");
+    check("a payment that was given up and whose hold is not yet let go is \"being cancelled\", never \"cancelled\"", stateOf({ status: "held", endedHow: "cancelled", problem: null, needsAction: false, firstFailedAt: null }) === "cancelling" && stateOf({ status: "given_up", endedHow: "cancelled", problem: null, needsAction: false, firstFailedAt: null }) === "cancelled" && stateOf({ status: "to_pay", endedHow: null, problem: null, needsAction: true, firstFailedAt: new Date() }) === "confirm");
+  });
+
+  // ========================================================================
   if (process.argv.includes("--payouts")) {
     journey("Collecting: a contribution's share reaches the host through \"Collect earnings\", and the books add up to the cent", async () => {
       const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");
