@@ -144,8 +144,15 @@ It walks, as a host and as a contributor:
     and her diary stays readable. The script puts the switch back as it found it and removes
     everything it made.
 
-Beside the journey, a few short cases the journey does not reach: a paused host, a hidden host
-page opened by a member, and a report that was closed. In each, no box and no "Contribute" line.
+Beside the journey, a few short cases the journey does not reach:
+
+- a paused host, and a hidden host page opened by a member: no box after a call and no
+  "Contribute" line;
+- a report about the person that was closed: no box, and no "Contribute" line either, because
+  such a report also blocks;
+- a report about one of her posts that was closed: no box after a call, since the customer
+  reported her. The "Contribute" line on her page stays, because a report of a post does not
+  block and that line follows `mayContribute` alone.
 And one search through the code of the two pages, as the membership check does: neither imports
 anything that writes or asks Stripe.
 

@@ -1571,6 +1571,10 @@ membership.
 - The builder tried the open-source picture checker on its own machine: about 50 milliseconds a
   picture, nothing to compile.
 
+- CodeRabbit (pull request 42): six comments, five right and taken, one answered. They are listed
+  at the end of the rulebook. The largest: pictures uploaded before the child-safety tool is
+  switched on would have disappeared from that day, with nothing ever asking the tool about them.
+
 **Still open, before projects can go live:** Stripe's yes to this exact kind of payment; the
 lawyer (the wording, the monthly agreement, the duty to report); the founder's accounts at the
 three checking services; and the application for the child-safety tool. They are in the rulebook

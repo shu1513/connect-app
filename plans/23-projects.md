@@ -173,9 +173,11 @@ is charged again and again:
 - an email at once that confirms the agreement and says how to cancel;
 - the email for each payment, described above.
 
-That email reaches the contributor three days before each month's money is taken, so no other
-reminder is sent. Where the law asks for a yearly reminder, these emails are written to count as
-it; the lawyer confirms the wording, or says that a separate yearly email is needed.
+That email reaches the contributor before each month's money is taken: normally three days
+before, and less when a bank has made that card's hold shorter. The email always states the real
+moment. No other reminder is sent. Where the law asks for a yearly reminder, these emails are
+written to count as it; the lawyer confirms the wording, with the shorter notice for such a card
+in mind, or says that a separate yearly email is needed.
 
 **When the monthly payment is made.** The day the first hold succeeded is the contribution's day
 of the month. Each later hold is placed on that day; in a shorter month on the last day, and the
@@ -279,7 +281,9 @@ again.
 - **The line:** more than $1,000. Exactly $1,000 does not cross it.
 - **Who waits 30 days:** the payment that crosses the line, that person's earlier payments to her
   that have not been collected yet, and their later ones while the count is over the line. Each
-  waits 30 days from its own taking. Money already sent to the host is not touched.
+  waits 30 days from its own taking. Money already sent to the host is not touched. A share
+  whose sending was already accepted when the line was crossed counts as sent; if Stripe then
+  refuses that sending, the share waits the 30 days after all.
 - **It never gets shorter by itself.** A payment that got the 30 days keeps them. Only the founder
   can release it sooner.
 - **It is counted at three moments:** when a hold is accepted, when the money is taken, and when
@@ -331,7 +335,9 @@ Connect's own checker found no nudity.
    counts a picture: about 1,000 pictures a month and 250 a day. It needs no card and also stops.
 4. **Connect's own checker (the open-source NSFWJS).** It runs on Connect's server, so it has no
    monthly limit and needs no outside service; what limits it is the server's own strength. It
-   only looks for nudity, so it is asked only when none of the three above could answer.
+   only looks for nudity, so it is asked only when none of the three above could answer. And only
+   when at least one of the three has already given a full answer with the key it has now: a
+   service whose key has never worked is not "out", it is not set up, and then pictures wait.
 
 The next one is asked only when the one before is really out: used up, too busy, or not reachable
 in time. An answer that is broken or incomplete, or a picture a service cannot read, is a fault to
@@ -403,10 +409,14 @@ means until then: no tool compares pictures with the official list. The queue st
 sexual pictures of any kind and sends what it flags to the founder; no checker catches
 everything.
 
-**Once it is switched on, it comes first, and nothing gets round it.** Every picture then goes
-through it before the queue and before anyone can see it. When it cannot be reached, the picture
-waits, hidden: Connect's own checker does not stand in for it, and neither does the founder's
-ordinary "Show". (Cloudflare's tool only looks at pictures as they are served through
+**Once it is switched on, it comes first, and nothing gets round it.** Every picture uploaded
+from then on goes through it before the queue and before anyone can see it. When it cannot be
+reached, the picture waits, hidden: Connect's own checker does not stand in for it, and neither
+does the founder's ordinary "Show".
+
+**Pictures from before that day** stay as they are, shown or not, and are put through the tool
+afterwards, the oldest first, until every picture has had its answer. A match locks the picture
+at once, like any other match. (Cloudflare's tool only looks at pictures as they are served through
 Cloudflare, so it cannot hold a picture back before it is shown. It can be switched on as well if
 the site runs through Cloudflare.) When this tool flags a picture, the picture does not go to the
 everyday checkers at all. The same goes for a picture that is suspected for another reason: a
@@ -554,3 +564,16 @@ Left to the part plans, as Astra advised: the exact tables and locks, the named 
 payment code, how a contribution's card is cleaned up, the time zone of the monthly day, each
 checker's thresholds and limits, which way the open-source checker runs, and the limits of the
 picture work.
+
+## CodeRabbit's review (pull request 42, 18 November 2026)
+
+Six comments on the four documents. Five were right and taken; one was answered.
+
+| # | CodeRabbit's point | What was done |
+| --- | --- | --- |
+| 1 | The email at the hold cannot always come three days before the money is taken: a bank can shorten a hold. | Taken: "Contributing monthly", and the lawyer's check names it. |
+| 2 | Pictures uploaded before the child-safety tool is switched on would have been handed to nobody from that day, and nothing would ever have asked the tool about them. | Taken: "Pictures from before that day"; plan 24 says how. |
+| 3 | Plan 24 asked that one service must have worked with its current key before Connect's own checker may pass a picture; the rulebook did not say so. | Taken: the rule is here now, under "The queue". |
+| 4 | Plan 25's rule for skipped months would also have skipped a month that fell due before the switch went off, if the helper was down at that time. | Taken: plan 25, choice 13, now keeps the moment the switch stopped covering a host and skips only the months after it. |
+| 5 | A share whose sending is under way when the $1,000 line is crossed can still go through before its 30 days. | Answered, not changed: that sending was accepted before the line was crossed, and a sending that is under way is never interfered with. The rule now says so in words ("How the $1,000 is counted"). |
+| 6 | Plan 26 expected no "Contribute" line on the host's page after a closed report, although that line does not look at reports. | Taken: plan 26 tells the two kinds of report apart. |

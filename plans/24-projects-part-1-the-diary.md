@@ -180,9 +180,14 @@ questions, asked by the upload, the queue, the founder's "Show" and the picture'
   picture is marked `not_set_up` at upload and goes on. From the moment the tool is switched on
   (the moment kept in `site_switches`), every picture uploaded goes on only when the tool's answer
   is `clear`, and keeps waiting for that answer even if the tool's settings later go missing.
-- `mayBeFetched(picture)`: once the tool is switched on, a picture it has not answered for is
-  handed to nobody, not to the host and not to the founder. The picture's address asks this
-  before its own table.
+- `mayBeFetched(picture)`: a picture uploaded after the tool was switched on, and that it has not
+  answered for, is handed to nobody, not to the host and not to the founder. The picture's
+  address asks this before its own table. A picture from before the switch-on (`not_set_up`) is
+  not held back by this.
+- **Pictures from before the switch-on** (the rulebook's "Pictures from before that day"): they
+  keep the state they have. A job of the helper asks the tool about each of them, the oldest
+  first, a few in each round, and writes `clear` or `match` in place of `not_set_up`. A match
+  locks the picture at once. The job is done when no picture is marked `not_set_up` any more.
 - `ask(picture)`: asks the tool. Its answers are kept apart: not set up, could not be reached,
   clear, match.
 
@@ -454,6 +459,8 @@ their versions fixed.
   - who gets a picture at its address in every row of the table above, also right after logging
     out;
   - the founder's decisions, and that nothing removes or shows a locked picture;
+  - switching the child-safety tool on with pictures already there: they stay as they were, each
+    gets its answer afterwards, and a match among them is locked;
   - reports of a post: what is saved, the sentence, and no block.
 - **The open-source checker for real:** in its thread, with the network switched off, a hundred
   pictures in a row (memory does not grow), a failed start, and a fresh start after idling.

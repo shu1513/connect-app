@@ -105,7 +105,7 @@ calls and memberships in about a dozen named places.
 | 10 | When Stripe does not say when a hold ends | Stripe is asked again. If it still does not say, the hold is let go and the payment goes to the founder's list. No date is assumed. | The rulebook: "always Stripe's own answer for that card, never a guess." |
 | 11 | When the money counts as taken | At the moment Connect has Stripe's answer that it was taken: right after the taking, or, after an interruption, when the helper learns of it. The clock is read after Stripe has answered, never before the question was sent. That moment is kept and never changed. | Stripe keeps no field for the moment of a taking (Astra checked: a charge only says that it was taken). Connect's moment is the real one or later, never earlier, so no wait before collecting can come out too short; learning of a taking late only makes a wait longer. Astra's other idea, to fetch the time of Stripe's own message about the taking, was not taken: Stripe keeps those messages for 30 days only, and it would add a second way for the same fact to be wrong. |
 | 12 | The last moment held money may be taken | One hour before the hold ends, by Stripe's own time for that card. From the planned moment until then, a late helper still takes the money. After it, the payment is given up as "not taken in time" and the hold is let go. | The rulebook says a hold whose safe moment was missed is never taken late; this is the number for "safe". One hour keeps a taking from racing the end of the hold. Added to the rulebook with this plan. |
-| 13 | A month whose day passed while the switch did not cover the host | When the switch is saved so that it covers a host again, that same step records as skipped, for each of her running monthly contributions, every month whose day has already passed. Hosts the switch covered all along are not touched. | The rulebook: such a month is never charged afterwards. Done in the step that changes the switch, it works even if the helper was not running in between, and it can never skip a month of a host who was covered the whole time. |
+| 13 | A month whose day passed while the switch did not cover the host | When the switch is saved so that it no longer covers a host, that step writes the moment on each of her running monthly contributions. When it is saved so that it covers her again, that step records as skipped every month whose day fell between that moment and now, and clears the moment. Hosts the switch covered all along are not touched, and neither is a month that fell due before the switch went off. | The rulebook: a month that passed while it was off is never charged afterwards, and only such a month. Done in the steps that change the switch, it works even if the helper was not running in between. (CodeRabbit found that the earlier wording would also have skipped a month that fell due before the switch went off.) |
 
 ## Why the books are built this way
 
@@ -141,7 +141,8 @@ charge: under the share's line, as for every other share.
 
 **`contributions`:** the project, the host, the contributor, once or monthly, the amount, and
 where it stands: `card_step`, `running`, `ended`. For a monthly one: the moment of the first hold
-(the monthly day), which month's payment was written down last, and how and when it ended. The
+(the monthly day), which month's payment was written down last, which months were skipped, the
+moment the switch stopped covering its host (choice 13), and how and when it ended. The
 database allows one monthly contribution that is not ended for each person and project, and one
 contribution for each request (see `startContribution`).
 
