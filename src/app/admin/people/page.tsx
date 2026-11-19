@@ -5,7 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
-import { refusedBioChecks } from "@/lib/profiles/profiles";
+import { INSTAGRAM_SIGN_IN, refusedBioChecks } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
 import { requireAdmin } from "@/lib/session";
@@ -81,13 +81,21 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
         </p>
       )}
 
-      {refused.map(({ network, count }) => (
-        <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
-          Automatic {isNetwork(network) ? NETWORKS[network].label : network} checks have been failing:{" "}
-          {network === "youtube" ? "Google" : network === "tiktok" ? "TikTok" : "Meta"} did not accept our key or our permission in {count}{" "}
-          {count === 1 ? "check" : "checks"} in the last 24 hours. Hosts are told to try again later; nobody is confirmed wrongly.
-        </p>
-      ))}
+      {refused.map(({ network, count }) =>
+        network === INSTAGRAM_SIGN_IN ? (
+          // A sign-in at Meta, not a check of a bio: its own words from start to end.
+          <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+            &quot;Connect your Instagram&quot; has been failing: Meta did not accept our app&apos;s number or return address when a host signed in, {count}{" "}
+            {count === 1 ? "time" : "times"} in the last 24 hours. Hosts are told to try again later or to use the code; nobody is confirmed wrongly.
+          </p>
+        ) : (
+          <p key={network} role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
+            Automatic {isNetwork(network) ? NETWORKS[network].label : network} checks have been failing:{" "}
+            {network === "youtube" ? "Google" : network === "tiktok" ? "TikTok" : "Meta"} did not accept our key or our permission in {count}{" "}
+            {count === 1 ? "check" : "checks"} in the last 24 hours. Hosts are told to try again later; nobody is confirmed wrongly.
+          </p>
+        ),
+      )}
 
       <h2 className="mt-8 text-lg font-semibold">Host profiles waiting for approval ({waiting.length})</h2>
       <p className="mt-1 text-sm opacity-70">
@@ -164,7 +172,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
           {claims.map(({ claim, displayName, handle }) => (
             <li key={claim.id} className="rounded border border-neutral-400 p-4 text-sm">
               <p className="font-medium">
-                {displayName} <span className="opacity-70">@{handle}</span> says they own{" "}
+                {displayName} <span className="opacity-70">@{handle}</span> says they run{" "}
                 {isNetwork(claim.network) ? NETWORKS[claim.network].label : claim.network} @{claim.nameKey}
               </p>
               <p className="mt-1">

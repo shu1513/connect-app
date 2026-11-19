@@ -11,12 +11,14 @@ import { stripeConfigured } from "@/lib/payments/stripe";
 import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
+import { instagramSignInOn } from "@/lib/profiles/instagram";
 import { tiktokSignInOn } from "@/lib/profiles/tiktok";
 import { runningProjectOf, startProblem } from "@/lib/projects/projects";
 import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import {
   addSocial,
+  connectInstagram,
   connectTikTok,
   createProfile,
   removeSocial,
@@ -66,6 +68,8 @@ export default async function HostPage(props: PageProps<"/host">) {
   const checkSettings = bioSettings();
   // While this is on, a TikTok account is proven by signing in at TikTok, and no longer with a code.
   const tiktokOn = tiktokSignInOn();
+  // While this is on, an Instagram account can also be proven by signing in at Meta. The code stays.
+  const instagramOn = instagramSignInOn();
   const steps: Array<{ done: boolean; text: string; note?: string; href?: string; go?: string }> = [
     { done: Boolean(profile), text: "Fill in your profile and send it for approval.", href: "#profile", go: "Your host profile" },
     { done: identity.passed, text: "Confirm who you are, with a photo of your ID and a selfie.", href: "/identity?next=%2Fhost", go: "Start the check" },
@@ -261,7 +265,7 @@ export default async function HostPage(props: PageProps<"/host">) {
         <section id="social" className="mt-10 scroll-mt-4">
           <h2 className="text-lg font-semibold">Your social media accounts</h2>
           <p className="mt-2 text-sm opacity-70">
-            People find you by these names, and we use one of them to check that you are you. Your page needs at least one
+            People find you by these names, and one of them shows us that you run that account. Your page needs at least one
             confirmed account before we can approve it. Add an account, put the code we give you in that account&apos;s bio
             (on YouTube, the channel&apos;s description), and press the button next to it. Where we can, the account is
             confirmed at once; otherwise we look ourselves. Only confirmed accounts are shown on your page.
@@ -274,6 +278,17 @@ export default async function HostPage(props: PageProps<"/host">) {
               <p className="mt-1 text-sm opacity-70">
                 For TikTok there is no code: you log in at TikTok, and your account is confirmed at once. We never see your
                 TikTok password.
+              </p>
+            </form>
+          )}
+          {instagramOn && (
+            <form action={connectInstagram} className="mt-3">
+              <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+                Connect your Instagram
+              </button>
+              <p className="mt-1 text-sm opacity-70">
+                Log in at Meta and your Instagram account is confirmed at once, with no code. It works for Creator and Business
+                accounts. Meta will ask you to pick a business portfolio and the account to share. We never see your password.
               </p>
             </form>
           )}
@@ -313,6 +328,7 @@ export default async function HostPage(props: PageProps<"/host">) {
                           The code works until <LocalTime iso={social.codeExpiresAt.toISOString()} />.
                           {automatic && social.network === "instagram" && " This works for Creator and Business accounts."}
                         </p>
+                        {instagramOn && social.network === "instagram" && <p className="mt-1 opacity-70">Or press &quot;Connect your Instagram&quot; above.</p>}
                       </>
                     )}
                     <div className="mt-2 flex gap-4">
