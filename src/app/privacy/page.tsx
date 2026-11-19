@@ -19,6 +19,13 @@ export default function PrivacyPage() {
         When you connect TikTok by signing in there, we read the account&apos;s number and name, nothing else, and we keep
         no key.
       </p>
+      <p className="mt-4 text-sm">
+        When a host adds a picture to the diary of a project, we make our own copy of it, without the place, the camera or anything
+        else that was hidden in the file, and we do not keep the file as it was sent. Before anyone else can see the picture, our
+        copy is checked automatically. For that it is usually sent to an outside checking service: OpenAI, Microsoft (Azure AI
+        Content Safety) or Sightengine. We send the picture only, without the host&apos;s name or anything else about them. A picture
+        the check does not accept is not kept.
+      </p>
     </SitePage>
   );
 }

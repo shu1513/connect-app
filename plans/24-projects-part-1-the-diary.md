@@ -540,3 +540,21 @@ Four things were found while building and in Astra's reviews of the code, and ar
   when the server refuses: it comes back with the reason and with everything that was typed, also
   without any script in the browser. A post can be 5,000 characters, and none of it may be lost
   over a mistyped link.
+
+## The founder's decisions during the build of 1b (18 November 2026)
+
+**A picture a checker flags is refused, by itself.** The rulebook says so now. What that changes
+in this plan, everywhere it is mentioned above:
+
+- The state `flagged` is called `refused`. A refused picture is seen by nobody; its bytes are
+  deleted at once; its line stays, so the same bytes uploaded again are refused again without
+  asking a checker, and so the day's count stays true. It does not count toward a post's four
+  pictures. The host sees it on her post's page as "This picture was not accepted", with the
+  reason, until she clears it away.
+- The founder has no pictures to decide: no **Show** for a refused or a waiting picture, and no
+  email about flagged pictures. A picture that no checker can answer for simply waits.
+- What the founder still does with a picture: **Remove** and **Remove and report**, for one that
+  is shown (a reported post, most likely), and **Hold as suspected** with **Lift**, which takes a
+  picture out of sight while the founder looks into it.
+
+**The child-safety tool stays as planned.** `child-safety.ts` is built as described.

@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { inArray } from "drizzle-orm";
 import Link from "next/link";
+import { DiaryPicture } from "@/components/diary-picture";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
+import type { ProjectPicture } from "@/db/schema";
+import { mayBeFetched } from "@/lib/projects/child-safety";
+import { checkerStates, picturesForAdmin, picturesOfPostForAdmin, type AdminPicture } from "@/lib/projects/moderation";
 import { postForAdmin, postsForAdmin, projectPostsForAdmin, publicPostCount, type AdminPost } from "@/lib/projects/posts";
 import { allProjects } from "@/lib/projects/projects";
 import { firstLines, linksOf } from "@/lib/projects/rules";
 import { switches } from "@/lib/safety/switches";
 import { requireAdmin } from "@/lib/session";
-import { hidePostAction, projectsSwitchAction, showPostAction } from "./actions";
+import { hidePostAction, holdPictureAction, liftPictureAction, lockPictureAction, projectsSwitchAction, removePictureAction, reportMadeAction, showPostAction } from "./actions";
 
 export const metadata: Metadata = { title: "Admin: projects" };
 
@@ -18,23 +22,27 @@ const field = "mt-1 rounded border border-neutral-400 bg-transparent px-2 py-1";
 const button = "rounded border border-neutral-500 px-3 py-1.5";
 
 /**
- * The founder's page for projects (plans/24): the switch, every project, and the posts of the
- * diaries with "hide" and "show". A report about a post links here with that post's id
+ * The founder's page for projects (plans/24): the switch, every project, the posts of the
+ * diaries with "hide" and "show", and the pictures: how the checking stands, the pictures that
+ * are waiting or were only checked for nudity, and "Remove and report". A report about a post links here with that post's id
  * (`?post=`). Every post of a project, page by page, is under `?project=`, whether or not the
  * host's page is open, so there is no post the founder cannot reach.
  */
 export default async function AdminProjectsPage(props: PageProps<"/admin/projects">) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const query = await props.searchParams;
   const notice = readNotice("/admin/projects", query);
   const page = typeof query.page === "string" && /^[1-9]\d{0,3}$/.test(query.page) ? Number(query.page) : 1;
-  const [current, projects, lists, one, ofProject] = await Promise.all([
+  const [current, projects, lists, one, ofProject, checking, pictures] = await Promise.all([
     switches(),
     allProjects(),
     postsForAdmin(),
     typeof query.post === "string" ? postForAdmin(query.post) : null,
     typeof query.project === "string" ? projectPostsForAdmin(query.project, page) : null,
+    checkerStates(new Date()),
+    picturesForAdmin(),
   ]);
+  const onePictures = one ? await picturesOfPostForAdmin(one.post.id) : [];
   const chosen = ofProject ? projects.find(({ project }) => project.id === query.project) : undefined;
   const namedHosts = current.projectsHosts.length
     ? await db.select({ handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, current.projectsHosts))
@@ -63,6 +71,22 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
         <section className="mt-8" data-one-post>
           <h2 className="text-lg font-semibold">The post you asked for</h2>
           {one ? <PostCard entry={one} full /> : <p className="mt-2 text-sm opacity-70">There is no such post.</p>}
+          {one && (
+            <div className="mt-3" data-post-pictures>
+              <h3 className="font-medium">Its pictures ({onePictures.length})</h3>
+              {onePictures.length === 0 ? (
+                <p className="mt-1 text-sm opacity-70">This post has no pictures, or its host has removed them. A removed picture is not kept.</p>
+              ) : (
+                <ul className="mt-2 space-y-3">
+                  {onePictures.map((picture) => (
+                    <li key={picture.id}>
+                      <PictureCard picture={picture} postId={one.post.id} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
       )}
 
@@ -121,6 +145,95 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
           Save projects switch
         </button>
       </form>
+
+      <h2 className="mt-10 text-lg font-semibold">Picture checking</h2>
+      <p className="mt-1 text-sm opacity-70">
+        Every picture is checked before anyone but its host can see it. A picture a checker flags is refused by itself and not kept; you
+        do not have to decide those. The services are asked in this order; the next one is only asked when the one before is used up or
+        cannot be reached.
+      </p>
+      <ul className="mt-2 space-y-1 text-sm" data-checkers>
+        {checking.services.map((service) => (
+          <li key={service.name}>
+            <strong>{service.label}:</strong>{" "}
+            {!service.hasKey ? (
+              "not set up (no key in the settings), so it is not asked."
+            ) : service.faultSince ? (
+              <span className="text-red-700">
+                has a fault since <LocalTime iso={service.faultSince.toISOString()} />: {service.faultDetail}. While this lasts, new pictures wait and are shown to
+                nobody. The way out: put the right key into the settings, or take this service&apos;s key out, which takes it out of the queue.
+              </span>
+            ) : service.outUntil ? (
+              <>
+                used up or not reachable; it is asked again after <LocalTime iso={service.outUntil.toISOString()} />.
+              </>
+            ) : service.worksWithThisKey ? (
+              <>
+                working. Its last answer was <LocalTime iso={service.lastGoodAt!.toISOString()} />.
+              </>
+            ) : (
+              "set up, but it has not answered yet with the key it has now."
+            )}
+          </li>
+        ))}
+        <li>
+          <strong>Connect&apos;s own checker:</strong> the last in the queue. It only looks for nudity, and is only asked when every service above is out.
+        </li>
+        <li>
+          <strong>The check against known pictures of child abuse:</strong>{" "}
+          {checking.childCheckOn
+            ? checking.childToolThere
+              ? "switched on. Every new picture waits for its answer."
+              : "switched on, but its settings are missing. Every new picture waits until they are back."
+            : "not set up yet (the application for the tool is not answered). Pictures do not wait for it."}
+        </li>
+      </ul>
+
+      <PictureList
+        title="Shown after a check for nudity only"
+        empty="None. Every picture that is shown has had its full check."
+        note="Every outside service was out when these were uploaded, so only Connect's own checker has looked at them. Each gets its full check as soon as a service answers again."
+        entries={pictures.nudityOnly}
+      />
+      <PictureList title="Waiting for a check" empty="No picture is waiting." note="Only their hosts can see these. Each is tried again by itself." entries={pictures.waiting} />
+      <PictureList title="Held by you" empty="You hold no picture." note="Nobody but you can see these, and no checking service is sent them, until you lift the hold." entries={pictures.held} />
+
+      <h2 className="mt-10 text-lg font-semibold">Removed and reported ({pictures.locked.length})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        These pictures are kept exactly as they were and shown by nothing in the app. Report each to the authorities the way your lawyer has told you to, then write
+        down here when you did. (Your lawyer&apos;s exact steps will be put on this page when you have them.)
+      </p>
+      {pictures.locked.length === 0 ? (
+        <p className="mt-2 text-sm opacity-70">None.</p>
+      ) : (
+        <ul className="mt-3 space-y-3" data-locked-pictures>
+          {pictures.locked.map(({ picture, projectName, hostName, handle }) => (
+            <li key={picture.id} className="rounded border border-red-600 p-3 text-sm">
+              <p>
+                A picture in &ldquo;{projectName}&rdquo;, by {hostName}
+                {handle ? ` (@${handle})` : ""}. Removed and kept <LocalTime iso={picture.lockedAt!.toISOString()} />
+                {picture.lockedBy ? "" : ", by Connect itself"}.
+              </p>
+              {picture.reportMadeAt ? (
+                <p className="mt-1">
+                  You made the report <LocalTime iso={picture.reportMadeAt.toISOString()} />.
+                </p>
+              ) : (
+                <form action={reportMadeAction} className="mt-2 flex flex-wrap items-end gap-3">
+                  <input type="hidden" name="pictureId" value={picture.id} />
+                  <label>
+                    When you made the report ({admin.timeZone ?? "UTC"} time)
+                    <input name="madeAt" type="datetime-local" required className={`${field} block`} />
+                  </label>
+                  <button type="submit" className={button}>
+                    I have made the report
+                  </button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h2 className="mt-10 text-lg font-semibold">Posts hidden by you ({lists.hidden.length})</h2>
       {lists.hidden.length === 0 ? (
@@ -224,6 +337,92 @@ function PostCard({ entry, full = false }: { entry: AdminPost; full?: boolean })
           </button>
         </form>
       )}
+    </div>
+  );
+}
+
+/** One of the founder's lists of pictures. */
+function PictureList({ title, empty, note, entries }: { title: string; empty: string; note: string; entries: AdminPicture[] }) {
+  return (
+    <>
+      <h2 className="mt-10 text-lg font-semibold">
+        {title} ({entries.length})
+      </h2>
+      {entries.length === 0 ? (
+        <p className="mt-2 text-sm opacity-70">{empty}</p>
+      ) : (
+        <>
+          <p className="mt-1 text-sm opacity-70">{note}</p>
+          <ul className="mt-3 space-y-3">
+            {entries.map(({ picture, projectName, hostName, handle }) => (
+              <li key={picture.id}>
+                <PictureCard picture={picture} where={`In "${projectName}", by ${hostName}${handle ? ` (@${handle})` : ""}`} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
+/** One picture with where it stands and what the founder can do with it. `postId` is set when the founder is looking at one post, to come back to it. */
+function PictureCard({ picture, where, postId }: { picture: ProjectPicture; where?: string; postId?: string }) {
+  const hidden = (
+    <>
+      {postId && <input type="hidden" name="postId" value={postId} />}
+      <input type="hidden" name="pictureId" value={picture.id} />
+    </>
+  );
+  if (picture.state === "locked") {
+    return <p className="rounded border border-red-600 p-3 text-sm">A picture of this post was removed and reported. It is kept and shown by nothing in the app. See &ldquo;Removed and reported&rdquo; below.</p>;
+  }
+  return (
+    <div className="rounded border border-neutral-400 p-3 text-sm" data-admin-picture={picture.state}>
+      {where && (
+        <p className="opacity-70">
+          {where}.{" "}
+          <Link href={`/admin/projects?post=${picture.postId}`} className="underline underline-offset-2">
+            Its post
+          </Link>
+        </p>
+      )}
+      {mayBeFetched(picture) ? (
+        <div className="mt-2">
+          <DiaryPicture id={picture.id} width={picture.width} height={picture.height} small />
+        </div>
+      ) : (
+        <p className="mt-2 text-amber-700">Not shown to anyone, you included, until the check against known pictures of child abuse has answered for it.</p>
+      )}
+      <p className="mt-2">
+        {picture.state === "shown" ? (picture.level === "nudity_only" ? "Shown, checked for nudity only." : "Shown, fully checked.") : "Waiting for a check; only its host sees it."} Uploaded{" "}
+        <LocalTime iso={picture.uploadedAt.toISOString()} />.{picture.suspectedByFounder ? " Held by you." : ""}
+        {picture.suspectedByReport ? " A report for \"someone under 18\" is open on its post, so no checking service is sent it." : ""}
+      </p>
+      {picture.checkDetail && <p className="mt-1 opacity-70">The last check said: {picture.checkDetail}</p>}
+      <div className="mt-2 flex flex-wrap items-end gap-3">
+        <form action={picture.suspectedByFounder ? liftPictureAction : holdPictureAction}>
+          {hidden}
+          <button type="submit" className={button}>
+            {picture.suspectedByFounder ? "Lift the hold" : "Hold as suspected"}
+          </button>
+        </form>
+        <form action={removePictureAction}>
+          {hidden}
+          <button type="submit" className={button}>
+            Remove
+          </button>
+        </form>
+        <form action={lockPictureAction} className="flex flex-wrap items-center gap-2">
+          {hidden}
+          <label className="flex items-center gap-1">
+            <input type="checkbox" name="sure" /> This must be reported to the authorities
+          </label>
+          <button type="submit" className={`${button} border-red-600`}>
+            Remove and report
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

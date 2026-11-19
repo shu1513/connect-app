@@ -227,7 +227,7 @@ function PostList({ posts, page, earlierId, canChange }: { posts: ProjectPost[];
           <div className="mt-2 flex items-center gap-4">
             {canChange && !post.hiddenAt && (
               <Link href={`/host/project/posts/${post.id}`} className="underline underline-offset-2">
-                Change
+                Change, or add pictures
               </Link>
             )}
             <form action={removePostAction}>

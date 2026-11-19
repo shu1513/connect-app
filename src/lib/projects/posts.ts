@@ -7,12 +7,13 @@
  *   the host   also her hidden posts, marked "Hidden by Connect"
  *   nobody     a post she removed (its line stays, for a report made about it)
  */
-import { and, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Project, ProjectPost } from "@/db/schema";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { projectsOnFor } from "@/lib/safety/switches";
+import { hasLockedPicture, removeInStep } from "./picture-steps";
 import { isId, NOT_RUNNING, PROJECTS_OFF } from "./projects";
 import { linksToText, PROJECT, ProjectError, readPost } from "./rules";
 
@@ -20,8 +21,12 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const NOT_FOUND = "Post not found.";
 
-/** The post and its project, both locked, if the post is this host's and she has not removed it. Someone else's post and one that does not exist look the same. */
-async function ownPost(tx: Tx, hostId: string, postId: string): Promise<{ post: ProjectPost; project: Project }> {
+/**
+ * The post and its project, both locked, if the post is this host's and she has not removed it.
+ * Someone else's post and one that does not exist look the same. Also the way in for her pictures
+ * (pictures.ts), so that a post and its pictures are changed one after the other, never at once.
+ */
+export async function ownPost(tx: Tx, hostId: string, postId: string): Promise<{ post: ProjectPost; project: Project }> {
   if (!isId(postId)) throw new ProjectError(NOT_FOUND);
   const [found] = await tx
     .select({ projectId: schema.projects.id })
@@ -66,11 +71,18 @@ export async function changePost(input: { hostId: string; postId: string; text: 
   });
 }
 
-/** The host removes a post. Always allowed for a post of hers: also a hidden one, in an ended project, and while the switch is off. */
+/**
+ * The host removes a post, and with it its pictures. Always allowed for a post of hers: also a
+ * hidden one, in an ended project, and while the switch is off. The one exception is a post with
+ * a picture Connect has removed and reported: that post is kept as it is (plans/24, "What locked protects").
+ */
 export async function removePost(input: { hostId: string; postId: string; now: Date }): Promise<void> {
   await db.transaction(async (tx) => {
     const { post } = await ownPost(tx, input.hostId, input.postId);
+    if (await hasLockedPicture(tx, post.id)) throw new ProjectError("This post is kept by Connect and cannot be removed.");
     await tx.update(schema.projectPosts).set({ removedAt: input.now, updatedAt: input.now }).where(eq(schema.projectPosts.id, post.id));
+    const mine = await tx.select({ id: schema.projectPictures.id }).from(schema.projectPictures).where(and(eq(schema.projectPictures.postId, post.id), inArray(schema.projectPictures.state, ["waiting", "shown", "refused"])));
+    await removeInStep(tx, mine.map((picture) => picture.id), "host", input.now);
   });
 }
 
@@ -147,17 +159,16 @@ export async function hidePost(input: { adminId: string; postId: string; note: s
   });
 }
 
-/** The founder shows a hidden post again. */
+/** The founder shows a hidden post again. Never one with a picture that was removed and reported: that post stays hidden for good. */
 export async function showPost(input: { adminId: string; postId: string; now: Date }): Promise<void> {
   if (!isId(input.postId)) throw new ProjectError(NOT_FOUND);
   await db.transaction(async (tx) => {
-    const [shown] = await tx
-      .update(schema.projectPosts)
-      .set({ hiddenAt: null, hiddenBy: null, hiddenNote: null, updatedAt: input.now })
-      .where(and(eq(schema.projectPosts.id, input.postId), isNotNull(schema.projectPosts.hiddenAt)))
-      .returning({ projectId: schema.projectPosts.projectId });
-    if (!shown) throw new ProjectError("That post is not hidden, or does not exist.");
-    const [project] = await tx.select({ hostId: schema.projects.hostId }).from(schema.projects).where(eq(schema.projects.id, shown.projectId));
+    // The post is locked first, so that showing it and locking one of its pictures wait for each other.
+    const [post] = await tx.select().from(schema.projectPosts).where(eq(schema.projectPosts.id, input.postId)).for("update");
+    if (!post || !post.hiddenAt) throw new ProjectError("That post is not hidden, or does not exist.");
+    if (await hasLockedPicture(tx, post.id)) throw new ProjectError("A picture of this post was removed and reported, so the post stays hidden.");
+    await tx.update(schema.projectPosts).set({ hiddenAt: null, hiddenBy: null, hiddenNote: null, updatedAt: input.now }).where(eq(schema.projectPosts.id, post.id));
+    const [project] = await tx.select({ hostId: schema.projects.hostId }).from(schema.projects).where(eq(schema.projects.id, post.projectId));
     await recordAdminAction({ adminId: input.adminId, action: "diary post shown again", targetUserId: project?.hostId, targetId: input.postId }, tx);
   });
 }

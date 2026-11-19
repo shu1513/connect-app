@@ -10,6 +10,8 @@ import { queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
 import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { liftSuspectedByReport, markSuspectedByReport } from "@/lib/projects/picture-steps";
+import { picturesOf } from "@/lib/projects/pictures";
 import { publicPost } from "@/lib/projects/posts";
 import { linksOf } from "@/lib/projects/rules";
 import { recordAdminAction } from "./audit";
@@ -69,7 +71,10 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
     if (!found) throw new ReportError("Post not found.");
     return {
       reportedId: found.project.hostId,
-      snapshot: { post: { id: found.post.id, projectId: found.project.id, projectName: found.project.name, text: found.post.text, links: linksOf(found.post.links), writtenAt: found.post.createdAt } },
+      // With the ids of the pictures that were showing. The pictures themselves are not copied: one the host removes afterwards is gone.
+      snapshot: {
+        post: { id: found.post.id, projectId: found.project.id, projectName: found.project.name, text: found.post.text, links: linksOf(found.post.links), writtenAt: found.post.createdAt, pictures: ((await picturesOf([found.post.id])).get(found.post.id) ?? []).map((picture) => picture.id) },
+      },
     };
   }
   throw new ReportError("Report not understood.");
@@ -103,6 +108,8 @@ export async function createReport(input: { reporterId: string; context: string;
       .insert(schema.reports)
       .values({ reporterId: input.reporterId, reportedId, context: input.context, contextId: input.contextId, reason: reason.key, text, urgent: reason.urgent, snapshot: JSON.stringify(full) })
       .returning();
+    // "Someone under 18" about a post: its pictures are kept away from the everyday checkers while the report is open.
+    if (input.context === "post" && reason.key === "under18") await markSuspectedByReport(tx, input.contextId, input.now);
     if (reason.urgent) {
       const admins = await tx.select({ email: schema.user.email, id: schema.user.id }).from(schema.admins).innerJoin(schema.user, eq(schema.user.id, schema.admins.userId));
       for (const admin of admins) {
@@ -151,6 +158,7 @@ export async function closeReport(input: { reportId: string; adminId: string; no
       .where(and(eq(schema.reports.id, input.reportId), eq(schema.reports.status, "open")))
       .returning();
     if (!report) throw new ReportError("That report is already closed.");
+    if (report.context === "post" && report.reason === "under18") await liftSuspectedByReport(tx, report.contextId, new Date());
     const [reporter] = await tx.select().from(schema.user).where(eq(schema.user.id, report.reporterId));
     if (reporter) {
       await queueEmail(tx, {

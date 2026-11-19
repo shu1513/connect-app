@@ -4,6 +4,8 @@ import { inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
+import { momentIn } from "@/lib/booking/calendar";
+import { lockAndReport, recordReportMade, removePictureAsFounder, setSuspected } from "@/lib/projects/moderation";
 import { hidePost, showPost } from "@/lib/projects/posts";
 import { ProjectError } from "@/lib/projects/rules";
 import { recordAdminAction } from "@/lib/safety/audit";
@@ -71,4 +73,67 @@ export async function projectsSwitchAction(formData: FormData) {
     await recordAdminAction({ adminId: admin.id, action: "projects switch set", detail: words }, tx);
   });
   back(`Projects are ${words}.`);
+}
+
+/** Where a picture's form was pressed: on one post's view (`postId`), or on the lists. The browser comes back to the same place. */
+const placeOf = (formData: FormData): string | undefined => String(formData.get("postId") ?? "") || undefined;
+const pictureOf = (formData: FormData): string => String(formData.get("pictureId") ?? "");
+
+export async function removePictureAction(formData: FormData) {
+  const admin = await requireAdmin();
+  let notice = "The picture was removed. Nobody can see it any more.";
+  try {
+    await removePictureAsFounder({ adminId: admin.id, pictureId: pictureOf(formData), now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice, placeOf(formData));
+}
+
+/** "Remove and report". Behind a tick box, because it cannot be undone. */
+export async function lockPictureAction(formData: FormData) {
+  const admin = await requireAdmin();
+  if (formData.get("sure") !== "on") back("Tick the box to remove and report a picture. Nothing was changed.", placeOf(formData));
+  let notice = "The picture is removed and kept for the report. Its post is hidden. Now make the report, then write down below when you made it.";
+  try {
+    await lockAndReport({ adminId: admin.id, pictureId: pictureOf(formData), now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice, placeOf(formData));
+}
+
+export async function holdPictureAction(formData: FormData) {
+  const admin = await requireAdmin();
+  let notice = "The picture is held. Nobody but you can see it, and no checking service is sent it.";
+  try {
+    await setSuspected({ adminId: admin.id, pictureId: pictureOf(formData), on: true, now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice, placeOf(formData));
+}
+
+export async function liftPictureAction(formData: FormData) {
+  const admin = await requireAdmin();
+  let notice = "The picture is no longer held.";
+  try {
+    await setSuspected({ adminId: admin.id, pictureId: pictureOf(formData), on: false, now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice, placeOf(formData));
+}
+
+/** "I have made the report", with the day and time it was really made, typed in the founder's own time zone. */
+export async function reportMadeAction(formData: FormData) {
+  const admin = await requireAdmin();
+  let notice = "The time of the report is written down.";
+  try {
+    const madeAt = momentIn(admin.timeZone ?? "UTC", String(formData.get("madeAt") ?? ""));
+    await recordReportMade({ adminId: admin.id, pictureId: pictureOf(formData), madeAt: madeAt ?? new Date(Number.NaN), now: new Date() });
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
 }

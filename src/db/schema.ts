@@ -5,6 +5,7 @@ import {
   bigserial,
   boolean,
   check,
+  customType,
   index,
   integer,
   pgTable,
@@ -14,6 +15,9 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/** Raw bytes, as the database keeps them. Used for the pictures of a diary only (plans/24). */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 // ---------------------------------------------------------------------------
 // Login tables. The shape is dictated by the Better Auth library.
@@ -320,6 +324,11 @@ export const siteSwitches = pgTable("site_switches", {
   projects: text("projects").notNull().default("everyone"),
   /** The account IDs of the hosts the founder named for projects, separated by commas. Only read when projects is "named". */
   projectsHosts: text("projects_hosts").notNull().default(""),
+  /**
+   * The moment the tool against known pictures of child abuse first answered correctly. From then on it
+   * counts as switched on, whether or not its settings are still there (plans/24, child-safety.ts).
+   */
+  childCheckOnAt: timestamp("child_check_on_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1509,8 +1518,115 @@ export const projectPosts = pgTable(
   (t) => [index("project_posts_project_idx").on(t.projectId, t.createdAt)],
 );
 
+/**
+ * A picture of a diary post (plans/24). Only Connect's own copy is ever kept: a JPEG, made again
+ * from what was uploaded, with everything hidden in the file left out. Its bytes are in
+ * project_picture_files, apart, so that no list can fetch them by accident.
+ *
+ * Where it stands (state):
+ *   waiting   stored; no answer that counts yet. Only the host and the founder see it.
+ *   shown     passed. `level` says how far the check went: full, or nudity_only.
+ *   refused   a checker flagged it. Nobody sees it, and its bytes are deleted. The host is told
+ *             it was not accepted, until she clears it away. Nothing goes to the founder.
+ *   removed   removed by the host or the founder. Nobody can fetch it; its bytes are deleted at once
+ *             or as soon as a check that is still out has come back. The line stays.
+ *   locked    "Remove and report". Its bytes and everything about it are kept and never deleted.
+ *
+ * `version` goes up with every decision by the founder or the host and with every change of a
+ * "suspected" mark; an everyday checker's answer is written only if it has not moved meanwhile.
+ * A claim (claimId, claimedUntil) lets one check of a picture run at a time.
+ */
+export const projectPictures = pgTable(
+  "project_pictures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => projectPosts.id),
+    /** The host who uploaded it. Kept here for the count of a day's uploads. */
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    byteLength: integer("byte_length").notNull(),
+    /** A fingerprint of the exact bytes of Connect's copy. */
+    sha256: text("sha256").notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull(),
+    state: text("state").notNull().default("waiting"),
+    /** full or nudity_only. Set when it is shown. */
+    level: text("level"),
+    /** Whose answer counts: openai, azure, sightengine, own or founder. */
+    checkedBy: text("checked_by"),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    /** The version of the plan's rules the answer was judged by. */
+    rulesVersion: text("rules_version"),
+    /** What the checker looked at and found, as text. Also kept after the picture is removed. */
+    checkDetail: text("check_detail"),
+    /** Set once a checker has refused these bytes, and kept when the host clears the picture away: the same bytes are refused again. */
+    refusedByChecker: boolean("refused_by_checker").notNull().default(false),
+    /** The check against known pictures of child abuse: not_set_up, waiting, clear or match. */
+    childCheck: text("child_check").notNull().default("not_set_up"),
+    /** Two marks, kept apart: the founder's own, and one that is on while a report for "someone under 18" is open on its post. */
+    suspectedByFounder: boolean("suspected_by_founder").notNull().default(false),
+    suspectedByReport: boolean("suspected_by_report").notNull().default(false),
+    claimId: uuid("claim_id"),
+    claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+    version: integer("version").notNull().default(0),
+    tries: integer("tries").notNull().default(0),
+    nextTryAt: timestamp("next_try_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    /** host or founder. */
+    removedBy: text("removed_by"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: text("locked_by").references(() => user.id),
+    /** When the report to the authorities was really made, as the founder says. */
+    reportMadeAt: timestamp("report_made_at", { withTimezone: true }),
+    /** The post as it was at the moment of locking, as text. */
+    lockedPost: text("locked_post"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("project_pictures_post_idx").on(t.postId, t.uploadedAt),
+    index("project_pictures_host_day_idx").on(t.hostId, t.uploadedAt),
+    index("project_pictures_queue_idx").on(t.state, t.nextTryAt),
+    index("project_pictures_bytes_idx").on(t.hostId, t.sha256),
+    check("project_pictures_state", sql`${t.state} in ('waiting', 'shown', 'refused', 'removed', 'locked')`),
+    check("project_pictures_level", sql`${t.level} is null or ${t.level} in ('full', 'nudity_only')`),
+    check("project_pictures_shown_has_level", sql`${t.state} <> 'shown' or ${t.level} is not null`),
+    check("project_pictures_child_check", sql`${t.childCheck} in ('not_set_up', 'waiting', 'clear', 'match')`),
+    check("project_pictures_locked_shape", sql`(${t.state} = 'locked') = (${t.lockedAt} is not null)`),
+  ],
+);
+
+/** The bytes of a picture, and nothing else. A locked picture's bytes are never deleted. */
+export const projectPictureFiles = pgTable("project_picture_files", {
+  pictureId: uuid("picture_id")
+    .primaryKey()
+    .references(() => projectPictures.id),
+  bytes: bytea("bytes").notNull(),
+});
+
+/**
+ * One line for each outside checking service (openai, azure, sightengine): when it last gave a
+ * complete, valid answer and with which key, until when it counts as out, and since when it has a
+ * fault (a broken answer or a refused key).
+ */
+export const pictureCheckers = pgTable("picture_checkers", {
+  service: text("service").primaryKey(),
+  lastGoodAt: timestamp("last_good_at", { withTimezone: true }),
+  /** A fingerprint of the key that gave that answer, so "has worked" means "with the key it has now". Never the key itself. */
+  lastGoodKey: text("last_good_key"),
+  outUntil: timestamp("out_until", { withTimezone: true }),
+  faultSince: timestamp("fault_since", { withTimezone: true }),
+  faultDetail: text("fault_detail"),
+  faultToldAt: timestamp("fault_told_at", { withTimezone: true }),
+});
+
 
 export type Call = typeof calls.$inferSelect;
+export type ProjectPicture = typeof projectPictures.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectPost = typeof projectPosts.$inferSelect;
 
