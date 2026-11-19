@@ -32,6 +32,7 @@ import { DEFAULT_FEE_TERMS, splitCharge } from "@/lib/payments/pricing";
 import { stripe } from "@/lib/payments/stripe";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { cardInUse, retireCard, takeCardForContribution } from "./cards";
+import { queueAgreementEmail, queueHoldEmail, queueNewContributorEmail, queueNothingChargedEmail, queuePaymentFailedEmail, tellFounderOfLargeTotal } from "./emails";
 import { lockForPayment, paymentOwner, type LockedPayment } from "./locks";
 import { collectFrom, lastMomentToTake, mayTake, waitFor, type PairPayment } from "./rules";
 
@@ -289,6 +290,8 @@ export async function countPair(tx: Tx, contributorId: string, hostId: string, n
     released: payment.founderHold === "released",
   }));
   const result = waitFor(seen, now);
+  // The founder is told when a pair is over the line (once for the pair in a calendar month, however often it is counted).
+  if (result.over) await tellFounderOfLargeTotal(tx, { contributorId, hostId, countedCents: result.countedCents }, now);
   if (result.markHeld.length > 0) await tx.update(pays).set({ thirtyDayMark: true, updatedAt: now }).where(and(inArray(pays.id, result.markHeld), eq(pays.thirtyDayMark, false)));
   for (const id of result.thirtyDays) {
     const takenAt = rows.find((row) => row.payment.id === id)?.payment.takenAt;
@@ -424,6 +427,20 @@ async function recordFailedTry(tx: Tx, locked: LockedPayment, input: { needsActi
     .update(pays)
     .set({ try: payment.try + 1, firstFailedAt, giveUpAt: giveUpAt(firstFailedAt), nextTryAt: nextTryAt(firstFailedAt, payment.try), needsAction: input.needsAction, updatedAt: now })
     .where(eq(pays.id, payment.id));
+  // The contributor is told, with the link to pay: once for each try that failed.
+  await queuePaymentFailedEmail(tx, locked.contribution, payment, { failedTry: payment.try, needsAction: input.needsAction, giveUpAt: giveUpAt(firstFailedAt) });
+}
+
+/**
+ * A payment whose hold is certainly gone, or that never had one, becomes "given up" for good, with
+ * the payment locked. Only here is "nothing was charged" said to its contributor (plans/25,
+ * "Nothing is claimed before it is known").
+ */
+async function markGivenUp(tx: Tx, payment: ContributionPayment, at: Date): Promise<void> {
+  await tx.update(pays).set({ status: "given_up", updatedAt: at }).where(eq(pays.id, payment.id));
+  const [contribution] = await tx.select().from(schema.contributions).where(eq(schema.contributions.id, payment.contributionId));
+  const [now] = await tx.select().from(pays).where(eq(pays.id, payment.id));
+  if (contribution && now) await queueNothingChargedEmail(tx, contribution, now);
 }
 
 /** Why a hold that has arrived cannot be accepted, or null if it can. */
@@ -522,7 +539,7 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
 
     // --- We are letting it go, or already have.
     if (payment.endedHow) {
-      if (intent.status === "canceled") await tx.update(pays).set({ status: "given_up", updatedAt: now }).where(eq(pays.id, payment.id));
+      if (intent.status === "canceled") await markGivenUp(tx, payment, now);
       else if (intent.status === "succeeded") await taken();
       else if (intent.status === "requires_capture") release = true; // never accepted; the letting-go continues, or is written down now
       return;
@@ -534,7 +551,7 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
       else if (intent.status === "canceled") {
         // The bank dropped the hold. Nothing is tried again for it; a monthly contribution goes on with its next month.
         await giveUpInStep(tx, locked, "hold_lost", now);
-        await tx.update(pays).set({ status: "given_up", updatedAt: now }).where(eq(pays.id, payment.id));
+        await markGivenUp(tx, payment, now);
       } else if (intent.status !== "requires_capture" && intent.status !== "processing") {
         await tx.update(pays).set({ problem: `Stripe shows this payment as "${intent.status}" although its hold was accepted. Please look at it.`, updatedAt: now }).where(eq(pays.id, payment.id));
       }
@@ -596,6 +613,13 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
       // The first of the rule's three moments: a hold is accepted. Counted at this moment, not at the one this look
       // began: a taking that has left the 30 days meanwhile no longer counts.
       await countPair(tx, contribution.contributorId, contribution.hostId, freshNow(now));
+      // The one email for this payment: the amount, the moment the money is taken, and how to cancel before then.
+      await queueHoldEmail(tx, contribution, { id: payment.id, amountCents: payment.amountCents, takeAt: timing.takeAt });
+      if (payment.number === 1) {
+        // With its first hold a contribution has begun: the host is told once, and a monthly contributor gets what they agreed to.
+        await queueNewContributorEmail(tx, contribution);
+        await queueAgreementEmail(tx, contribution);
+      }
       return;
     }
     if (intent.status === "succeeded") {
@@ -790,7 +814,7 @@ export async function giveUpInStep(tx: Tx, locked: LockedPayment, how: string, n
 /** Records how a letting-go ended: taken in that very moment (owed back in full), or the cancellation is finished. */
 export async function applyLetGo(tx: Tx, locked: LockedPayment, result: { status: string; amountReceived: number; chargeId: string | null }, at: Date): Promise<void> {
   if (result.status === "succeeded") await applyTaken(tx, locked, { cents: result.amountReceived, chargeId: result.chargeId }, at);
-  else if (locked.payment.status === "to_pay" || locked.payment.status === "held") await tx.update(pays).set({ status: "given_up", updatedAt: at }).where(eq(pays.id, locked.payment.id));
+  else if (locked.payment.status === "to_pay" || locked.payment.status === "held") await markGivenUp(tx, locked.payment, at);
 }
 
 /**

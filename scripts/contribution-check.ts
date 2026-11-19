@@ -1153,6 +1153,95 @@ async function main() {
   });
 
   // ========================================================================
+  journey("The emails: one for each payment at its hold, and each thing a person has to be told", async () => {
+    const { monthlyDue } = await import("../src/lib/contributions/rules");
+    const { block } = await import("../src/lib/safety/blocks");
+    const mail = async (to: Person, subject: string) => db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, to.email), like(schema.emailOutbox.subject, `%${subject}%`)));
+    const rounds = async (now: Date) => {
+      await runContributionJobs(now);
+      await runContributionJobs(now);
+    };
+    const host = await newHost();
+    const page = (m: Made) => `/contributions/${m.contributionId}`;
+
+    // Made once.
+    const once = await atCardStep(host);
+    check("nothing is sent before a hold is in place", (await mail(once.giver, "")).length === 0 && (await mail(host, "")).length === 0);
+    await pay(once.paymentId);
+    let sent = await mail(once.giver, "Your contribution to");
+    check("when the hold is in place the contributor gets one email: the amount, the moment the money is taken, and the link to cancel before then", sent.length === 1 && sent[0].body.includes("$25.00") && sent[0].body.includes("The money is taken on") && sent[0].body.includes(page(once)) && /receipt/.test(sent[0].body));
+    check("the host is told that someone contributes, and a contribution made once has no agreement email", (await mail(host, "contributes to")).length === 1 && (await mail(once.giver, "monthly contribution")).length === 0);
+    await C.syncPayment(once.paymentId, new Date());
+    await C.takePayment(once.paymentId, (await PM(once.paymentId)).takeAt!);
+    check("no second email is sent when the money is taken, however often Stripe is asked", (await mail(once.giver, "")).length === 1);
+
+    // Cancelled while held: "nothing was charged" only once that is known.
+    const gone = await held(host);
+    await M.letPaymentGo({ paymentId: gone.paymentId, by: "contributor", actorId: gone.giver.id });
+    sent = await mail(gone.giver, "Nothing was charged");
+    check("\"nothing was charged\" is sent once Stripe has confirmed that the hold is gone, with the reason", (await intentOf(gone.paymentId)).status === "canceled" && sent.length === 1 && sent[0].body.includes("You cancelled it."));
+    const never = await atCardStep(host);
+    await C.giveUp(never.paymentId, "card_step", new Date());
+    check("a payment that never had a hold gets no such email: there was nothing to let go", (await PM(never.paymentId)).status === "given_up" && (await mail(never.giver, "")).length === 0);
+    // The money was taken at that very moment: nothing claims "nothing was charged".
+    const raced = await held(host);
+    await stripe().paymentIntents.capture((await PM(raced.paymentId)).stripePaymentIntentId!);
+    await M.letPaymentGo({ paymentId: raced.paymentId, by: "contributor", actorId: raced.giver.id });
+    check("when the money was taken at that very moment, \"nothing was charged\" is never said", (await PM(raced.paymentId)).status === "taken" && (await mail(raced.giver, "Nothing was charged")).length === 0);
+    await R.runRefunds(new Date());
+    sent = await mail(raced.giver, "was paid back");
+    check("the refund that follows is told when it has really gone back", (await refundsOf(raced.paymentId))[0].status === "done" && sent.length === 1 && sent[0].subject.includes("$25.00"));
+
+    // Monthly.
+    const m = await held(host, { kind: "monthly", amountCents: 1000 });
+    const first = (await CO(m.contributionId)).firstHoldAt!;
+    sent = await mail(m.giver, "Your monthly contribution to");
+    check("a monthly contribution's first hold: the agreement is confirmed at once, word for word, with how to stop", sent.length === 1 && sent[0].body.includes("holds $10.00 on your card today and every month, and takes it three days later each time, until you cancel") && sent[0].body.includes("Stop contributing") && sent[0].body.includes(page(m)));
+    check("and the email for the payment is sent as well", (await mail(m.giver, "Your contribution to")).length === 1);
+    await C.takePayment(m.paymentId, (await PM(m.paymentId)).takeAt!);
+    await rounds(monthlyDue(first, 2));
+    check("every month's hold has its own email; the host is told once, not every month", (await mail(m.giver, "Your contribution to")).length === 2 && (await mail(m.giver, "Your monthly contribution to")).length === 1 && (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, host.email), like(schema.emailOutbox.body, `%${m.giver.name}%`), like(schema.emailOutbox.subject, "%contributes to%")))).length === 1);
+    const second = (await db.select().from(pays).where(eq(pays.contributionId, m.contributionId)).orderBy(pays.number))[1];
+    await C.takePayment(second.id, second.takeAt!);
+
+    // A month whose card fails.
+    await saveCard(m, "pm_card_chargeCustomerFail");
+    await rounds(monthlyDue(first, 3));
+    sent = await mail(m.giver, "did not go through");
+    check("a monthly payment that fails: the contributor gets an email with the link to pay, and is told nothing has been charged", sent.length === 1 && sent[0].body.includes(page(m)) && sent[0].body.includes("Nothing has been charged") && sent[0].body.includes("is stopped"));
+    await rounds(new Date(monthlyDue(first, 3).getTime() + DAY + MIN));
+    check("each try that fails has its own email, and none is sent twice", (await mail(m.giver, "did not go through")).length === 2);
+
+    // Ended.
+    await M.stopContribution({ contributionId: m.contributionId, contributorId: m.giver.id });
+    sent = await mail(m.giver, "has ended");
+    check("the contributor stops: they are told it has ended and why, and the host is told one of her monthly contributors is gone", sent.length === 1 && sent[0].body.includes("You stopped it.") && (await mail(host, "A monthly contribution to")).length === 1);
+    const cut = await held(host, { kind: "monthly", amountCents: 1000 });
+    await block({ blockerId: host.id, blockedId: cut.giver.id, now: new Date() });
+    sent = await mail(cut.giver, "has ended");
+    check("ended by a block: the contributor is told it ended, with no reason that gives the block away, and the host gets no email about it", sent.length === 1 && sent[0].body.includes("It can no longer go on.") && !/block/i.test(sent[0].body) && (await mail(host, "A monthly contribution to")).length === 1);
+    const last = await held(host, { kind: "monthly", amountCents: 1000 });
+    await endProject({ hostId: host.id, projectId: (await runningProjectOf(host.id))!.id, now: new Date() });
+    sent = await mail(last.giver, "has ended");
+    check("the host ends her project: her monthly contributors are told so by email", sent.length === 1 && sent[0].body.includes("ended the project") && (await mail(last.giver, "Nothing was charged")).length === 1);
+
+    // The founder's notice.
+    const admin = await person("admin");
+    await db.insert(schema.admins).values({ userId: admin.id });
+    const big = await newHost();
+    const giver = await person("giver");
+    await held(big, { giver, amountCents: 60_000 });
+    check("under the $1,000 line the founder gets no email", (await mail(admin, "over $1,000")).length === 0);
+    await held(big, { giver, amountCents: 60_000 });
+    await held(big, { giver, amountCents: 60_000 });
+    sent = await mail(admin, "over $1,000");
+    check("when one person's contributions to a host cross $1,000 in 30 days the founder is told, once", sent.length === 1 && sent[0].body.includes("$1200.00") && sent[0].body.includes("/admin/projects"));
+
+    const all = await db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.to, `contributioncheck-${RUN}-%`));
+    check("no email calls a contribution a donation", all.length > 10 && all.every((email) => !/donat/i.test(email.body.replace(/not a donation to a charity/g, "")) && !/donat/i.test(email.subject)));
+  });
+
+  // ========================================================================
   if (process.argv.includes("--payouts")) {
     journey("Collecting: a contribution's share reaches the host through \"Collect earnings\", and the books add up to the cent", async () => {
       const { refreshPayoutsReady, getHostSettings } = await import("../src/lib/payments/hosts");

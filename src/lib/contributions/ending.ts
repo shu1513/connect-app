@@ -15,6 +15,7 @@ import { MoneyError, type Tx } from "@/lib/payments/operations";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { retireCard } from "./cards";
 import { letGo } from "./charge";
+import { queueEndedEmails } from "./emails";
 import { lockContribution, lockPair } from "./locks";
 
 const pays = schema.contributionPayments;
@@ -26,6 +27,8 @@ const pays = schema.contributionPayments;
 export async function endInStep(tx: Tx, contribution: Contribution, how: string, now: Date): Promise<string[]> {
   if (contribution.status !== "ended") {
     await tx.update(schema.contributions).set({ status: "ended", endedAt: now, endedHow: how, updatedAt: now }).where(eq(schema.contributions.id, contribution.id));
+    // A monthly contribution that had begun: its contributor is told, with the reason, and its host where she is to know.
+    await queueEndedEmails(tx, contribution, how);
   }
   await retireCard(tx, contribution.id, now);
   const openOnes = await tx
