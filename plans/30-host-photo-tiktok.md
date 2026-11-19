@@ -1,8 +1,10 @@
 # Plan 30: A host's photo from TikTok (part two of plan 29)
 
-**Status:** a plan only; nothing of this part is built. Written 19 November 2026 by the builder
-alone (no helper agents), from the code as it is on `main` after pull request 50 (the host photo
-from Instagram), and from TikTok's own page "Get User Info" as it read that day.
+**Status:** a plan; the first small step is built (TikTok can be asked for the picture's
+address). Written 19 November 2026 by the builder alone (no helper agents), from the code as it
+is on `main` after pull request 50 (the host photo from Instagram), and from TikTok's own page
+"Get User Info" as it read that day. Astra checked it ("ready with changes"); what it found is
+worked in, and listed at the end.
 
 ## For the founder: what this is
 
@@ -28,8 +30,9 @@ the day TikTok says yes.
   So **no new permission**: the host sees the same TikTok screen as today.
 - The page's own example of a picture address is on a server called
   `p19-sign.tiktokcdn-us.com`.
-- The page says a change to this part of TikTok's service is planned ("a migration plan"). It
-  does not say what changes. Worth a look before the live site is approved.
+- The page carries a notice about "a migration plan". Astra opened it: it is the change of 2024
+  that moved the account's name under the permission `user.info.profile`, which Connect already
+  asks for. Nothing new is announced there.
 
 ## The rules (on top of plan 29's, which all apply)
 
@@ -45,7 +48,9 @@ the day TikTok says yes.
    also when the host then cancels at TikTok.
 5. **The picture is asked for only when the host pressed the photo button.** An ordinary "Connect
    your TikTok" reads the account's number and name and nothing else, exactly as today.
-6. **TikTok's key is used once and handed back,** as today. Nothing of it is kept.
+6. **TikTok's key is used once and handed back,** as today. Nothing of it is kept. (Said exactly,
+   as the code already says it: handing it back is tried every time a key was issued; if TikTok
+   cannot be reached at that moment, the key runs out by itself.)
 
 ## What the host sees
 
@@ -59,6 +64,10 @@ On the Hosting page, under "Your photo":
   finish at TikTok; and so on.
 - A second press within two minutes of the first says: "You started this a moment ago. Finish at
   TikTok, or wait two minutes and try again." (Plan 29's "one at a time" rule.)
+- **Two browser tabs at once:** both sign-ins keep their note in the same cookie, as TikTok's
+  sign-in always has. If a host starts a second sign-in before finishing the first, the first
+  one's return is not accepted, and the second one may have to be started again too. Nothing
+  wrong is ever saved; the host presses the button once more.
 
 ## How it is built
 
@@ -102,7 +111,20 @@ corrected to what TikTok really answered.
   as Instagram's: fetch, Connect's copy, the look for an earlier refusal, the services, the
   finish that compares the entry once more. The entry itself is never written to.
 - A try that never comes back from TikTok stays open and is marked as stopped at the host's next
-  press, two minutes or more after it started, as plan 29 already has it.
+  press that gets that far, two minutes or more after it started, as plan 29 already has it.
+  Coming back later than two minutes is fine as long as no newer press has stopped the try; the
+  note itself runs out after ten minutes.
+- **One return owns the try.** The try's line gets one new field, the moment its return was
+  taken up. The return takes the try up with one guarded change (this try, this host, TikTok,
+  still running, not taken up before) and only then asks TikTok anything. A second request for
+  the same return finds the try taken, does no work at all, and ends nothing. (One small
+  database change: a column on `host_photo_tries`.)
+- **The account must not be another host's.** Besides rule 2, TikTok's number for the account
+  must not be confirmed for another host. That can only matter for an entry confirmed without a
+  number, and it is the same guarantee the ordinary sign-in gets from the database.
+- The photo remembers TikTok's number from the answer and the entry's name, also when the entry
+  itself has no number. Plan 29's keep rule then does the right thing: by name until the entry
+  gains its number through "Connect your TikTok", by number afterwards.
 
 ### 5. Start and return (`tiktok-photo.ts`, new; the return address)
 
@@ -110,13 +132,18 @@ corrected to what TikTok really answered.
   `tiktok-photo` note in the same cookie as today.
 - **Return** (`/api/social/tiktok/return`, the one address registered with TikTok): the cookie is
   removed first, as today. If it holds a valid `tiktok-photo` note, this is a photo's return;
-  otherwise it is handled exactly as today. A photo's return makes the same checks in the same
-  order as an ordinary one before anything TikTok sent is used (our own note, the value sent
-  along, the same person, not refused, both permissions given, the person neither paused nor
-  closed). Those checks are one piece of code used by both. Then TikTok is asked, with the
-  picture, and the answer goes to `finishTikTokTry`.
-- When the host cancels at TikTok, or the checks fail after the note was accepted, the try is
-  ended there and then, so the host need not wait two minutes to press again.
+  otherwise it is handled exactly as today, which checks an ordinary note by itself (a photo's
+  note is never read as an ordinary one). A photo's return goes in this order:
+  1. our own note, the value TikTok sent along, and the same person. If any of these does not
+     fit, the return says "not finished" and **touches no try**: a note can be genuine and still
+     belong to another tab's sign-in.
+  2. the try named in the note is taken up (above). If it cannot be, nothing more happens.
+  3. only now, as the owner of the try: the host cancelled at TikTok, a permission is missing, or
+     the person is paused or closed. Each ends the try there and then, so the host need not wait
+     two minutes to press again.
+  4. TikTok is asked, with the picture, and the answer goes to `finishTikTokTry`.
+  The photo's return never calls the function that confirms an account: that one replaces the
+  entry, which a photo's sign-in must not do.
 - TikTok refusing our own keys is written down for the founder's page as it is for an ordinary
   sign-in.
 
@@ -141,14 +168,19 @@ corrected to what TikTok really answered.
   out of date, or belongs to an ordinary sign-in; started as one person and returned as another;
   the entry untouched in every case (compared field by field); the photo, the account or the
   whole Connect account changed while the host is away at TikTok; a second press within two
-  minutes and after; an Instagram photo replaced only when the TikTok one has passed; a refused
-  TikTok picture; TikTok refusing our keys.
+  minutes and after; coming back after three minutes, after eleven, and never; an Instagram
+  press that takes the TikTok try's place; the same return arriving twice, with the first one
+  succeeding and with it failing; an ordinary sign-in and a photo's sign-in in two tabs, in both
+  orders; an entry without a number that later gains the same number, or another; an account
+  whose number is another host's; an Instagram photo replaced only when the TikTok one has
+  passed; a refused TikTok picture; TikTok refusing our keys.
 - **`scripts/accounts-check.ts`** unchanged and passing: the ordinary sign-in is as it was.
 - **Every other check script,** once more.
 - **The real try,** in TikTok's test mode with the founder's own TikTok account, through a
   temporary https address: the founder starts the address, puts it into TikTok's developer page
-  and signs in; the builder does the rest. What TikTok really answers (the picture's server, its
-  size and kind) is written into this plan.
+  and signs in; the builder does the rest. What TikTok really answers is written into this plan:
+  the picture's server, its size and kind, how long the whole return took, and that the picture
+  can still be fetched after the key was handed back (which is the order the code works in).
 - Astra checks this plan and reviews the code; then CodeRabbit, both the comments on lines and
   the body of its review.
 
@@ -164,3 +196,26 @@ corrected to what TikTok really answered.
 - TikTok's approval of the live site (plan 18): the founder's, as before.
 - TikTok's planned change to "Get User Info": to be read before the live site is approved.
 - Everything plan 29 left open stays open (the child-safety tool; the lawyer).
+
+## Astra's check of this plan (19 November 2026): "ready with changes"
+
+It found the main shape right (the try written at the press and carried through; the try's id
+inside the signed note, which it called necessary; asking for the picture only at a photo's
+sign-in) and nothing over-built. Two things had to change, both taken:
+
+1. *The same return arriving twice.* Both requests would have seen the try as running: one could
+   end it while the other was finishing it, or both could do the work. Now one return takes the
+   try up with a guarded change before anything is asked of TikTok.
+2. *A genuine note that belongs to another tab.* With two sign-ins started, the older one's
+   return carries the newer one's note. Ending "the try in the note" on any failed check would
+   have stopped the newer try. Now a try is ended only after the note, the value TikTok sent
+   along and the person all fit, and only by the return that took it up.
+
+Also taken: the two-tabs behaviour said openly; the longer list of checks; the account's number
+must not be another host's; what the real try has to record; the wording about TikTok's
+"migration" notice and about handing the key back.
+
+Not taken: keeping a newer note when an older return's value does not fit (the return address
+has always removed the cookie first, for both kinds of sign-in; a host who overlaps two
+sign-ins presses the button again).
+
