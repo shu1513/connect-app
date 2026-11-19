@@ -40,6 +40,35 @@ export function readAmount(typed: string): number {
   return amount;
 }
 
+/** A host suggests up to this many amounts for each kind (plans/23, choice B). */
+export const SUGGESTED_AMOUNTS = 3;
+
+/**
+ * Reads the amounts a host typed into her boxes for one kind. Empty boxes are left out; the rest
+ * must each be a valid contribution; the same amount twice counts once. Given back in cents, the
+ * smallest first. None at all means she does not offer that kind.
+ */
+export function readSuggested(typed: string[]): number[] {
+  const filled = typed.map((box) => box.trim()).filter((box) => box !== "");
+  if (filled.length > SUGGESTED_AMOUNTS) throw new ContributionError(`You can suggest up to ${SUGGESTED_AMOUNTS} amounts.`);
+  return [...new Set(filled.map(readAmount))].sort((a, b) => a - b);
+}
+
+/** The suggested amounts as they are kept on a project (cents, separated by commas), read strictly: anything that is not a valid amount is left out. */
+export function suggestedOf(kept: string): number[] {
+  return kept
+    .split(",")
+    .filter((part) => /^\d+$/.test(part))
+    .map(Number)
+    .filter((cents) => cents >= CONTRIBUTION.minCents && cents <= CONTRIBUTION.maxCents)
+    .slice(0, SUGGESTED_AMOUNTS);
+}
+
+/** The kinds of contribution a project takes: the ones its host suggests an amount for. */
+export function kindsOffered(project: { suggestedOnce: string; suggestedMonthly: string }): Array<"once" | "monthly"> {
+  return [...(suggestedOf(project.suggestedOnce).length > 0 ? (["once"] as const) : []), ...(suggestedOf(project.suggestedMonthly).length > 0 ? (["monthly"] as const) : [])];
+}
+
 /**
  * The day of a monthly contribution's payment number `n` (1 is the first): the same day of the
  * month as the first hold, at the same minute, by the UTC clock. Counted from the first hold each

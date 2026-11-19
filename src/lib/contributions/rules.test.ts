@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectFrom, CONTRIBUTION, ContributionError, lastMomentToTake, mayTake, monthlyDue, readAmount, waitFor, type PairPayment } from "./rules";
+import { collectFrom, CONTRIBUTION, ContributionError, kindsOffered, lastMomentToTake, mayTake, monthlyDue, readAmount, readSuggested, suggestedOf, waitFor, type PairPayment } from "./rules";
 
 const DAY = 24 * 3_600_000;
 const at = (iso: string) => new Date(iso);
@@ -126,5 +126,29 @@ describe("the $1,000 rule", () => {
   });
   it("uses the limits the rulebook names", () => {
     expect([CONTRIBUTION.minCents, CONTRIBUTION.maxCents, CONTRIBUTION.lineCents]).toEqual([500, 10_000_000, 100_000]);
+  });
+});
+
+describe("the amounts a host suggests", () => {
+  it("reads up to three boxes, leaves empty ones out, and sorts them", () => {
+    expect(readSuggested(["25", "", " 5 "])).toEqual([500, 2500]);
+    expect(readSuggested(["", "", ""])).toEqual([]);
+    expect(readSuggested(["10", "10.00", "$10"])).toEqual([1000]);
+  });
+  it("refuses an amount that is not a valid contribution, and a fourth amount", () => {
+    expect(() => readSuggested(["4"])).toThrow(ContributionError);
+    expect(() => readSuggested(["abc"])).toThrow(ContributionError);
+    expect(() => readSuggested(["5", "6", "7", "8"])).toThrow(ContributionError);
+  });
+  it("reads what is kept strictly", () => {
+    expect(suggestedOf("500,2500,10000")).toEqual([500, 2500, 10000]);
+    expect(suggestedOf("")).toEqual([]);
+    expect(suggestedOf("500,abc,-3,100,99999999999")).toEqual([500]);
+    expect(suggestedOf("500,600,700,800")).toEqual([500, 600, 700]);
+  });
+  it("a kind without a suggested amount is not offered", () => {
+    expect(kindsOffered({ suggestedOnce: "500", suggestedMonthly: "" })).toEqual(["once"]);
+    expect(kindsOffered({ suggestedOnce: "", suggestedMonthly: "1000,2000" })).toEqual(["monthly"]);
+    expect(kindsOffered({ suggestedOnce: "", suggestedMonthly: "" })).toEqual([]);
   });
 });
