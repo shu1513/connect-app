@@ -14,6 +14,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { Rating } from "@/components/rating";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { contributionOf } from "@/lib/projects/ask";
 import { postsOf } from "@/lib/projects/posts";
 import { diaryFor } from "@/lib/projects/projects";
 import { firstLines } from "@/lib/projects/rules";
@@ -85,6 +86,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const diary = await diaryFor(profile.handle);
   const project = diary?.project.status === "running" ? diary.project : null;
   const [latestPost] = project ? (await postsOf(project.id)).posts : [];
+  // A signed-in visitor's own line beside it: what they contribute, a card step to finish, or the way to contribute.
+  const mine = project && viewer ? await contributionOf(viewer.id, project) : null;
   // A signed-in visitor who would be stopped at the booking page is offered the ID check here already.
   const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
 
@@ -140,6 +143,19 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
               Read the diary
             </Link>
           </p>
+          {mine?.own ? (
+            <p className="mt-3 text-sm" data-own-line={mine.own.is}>
+              <Link href={`/contributions/${mine.own.contributionId}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                {mine.own.is === "monthly" ? `You contribute ${formatMoney(mine.own.amountCents)} a month` : "Finish contributing"}
+              </Link>
+            </p>
+          ) : mine?.can ? (
+            <p className="mt-3 text-sm" data-own-line="contribute">
+              <Link href={`/h/${profile.handle}/project#contribute`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                Contribute
+              </Link>
+            </p>
+          ) : null}
         </section>
       )}
 

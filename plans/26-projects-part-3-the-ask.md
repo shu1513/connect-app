@@ -1,7 +1,8 @@
 # Plan 26: Projects, part three: the ask, and joining it up
 
-**Status:** a plan only; nothing is built. Written 18 November 2026 by the builder alone (no
-helper agents), from the code as it is on `main` after pull request 41 and from plans 24 and 25,
+**Status:** built, 19 November 2026 (see "What building this part added to this plan" at the
+end). Written 18 November 2026 by the builder alone (no
+helper agents), from the code as it was on `main` after pull request 41 and from plans 24 and 25,
 which this part is built on top of. Astra checked it once: "ready with changes", three must-fix
 points and three details, all worked in below (the list is at the end).
 
@@ -193,3 +194,38 @@ anything that writes or asks Stripe.
 | Which calls count, and what became of a refund request or a report. | Said in the table: every kind of call; any request or report, whatever became of it. |
 | "Already contributes" was open to two readings. | Said in the table and added to the rulebook; "Finish contributing" for an unfinished card step. |
 | Collecting in the journey needs a real test payout account, and the pretended clock must follow each hold's real end. | Said under "The check of the whole journey". |
+
+## What building this part added to this plan (19 November 2026)
+
+Nothing here changes a rule. It is what the code made exact.
+
+- **Names.** Part two built `mayContribute` as `whyNotContribute` (it gives the reason, or
+  nothing when the person may). This part asks that.
+- **Where the deciding is.** The plain rule, `mayAsk`, is in `src/lib/projects/rules.ts`, where
+  it can be tested without a database: one test for each condition failing alone, and one with
+  all of them true. `askAfterCall` in `ask.ts` only gathers the facts for it. The kind of call
+  is not one of those facts, so there is nothing to test "for each kind of call": the rule
+  cannot tell them apart.
+- **"Final".** The call's record counts as final when the charge would count it so: the time
+  for late messages is over, the room is confirmed closed, and the record is complete.
+- **No amounts, no box.** A project whose host suggests no amount takes no contributions
+  (plan 25), so the customer could not contribute, and there is no box after a call.
+- **The visitor's line.** `contributionOf` answers two things: whether the visitor could
+  contribute now, and their own contribution if it gets a line. "You contribute $X a month" is
+  shown as long as that contribution runs, also while the founder's switch is off for the host.
+  "Finish contributing" is shown only while contributing is possible. In the diary, someone who
+  already contributes every month sees the line and "Contribute once", and no second monthly
+  form, which would only be refused. So `src/app/h/[handle]/project/diary.tsx` changed too.
+- **The journey.** As planned, with these things made exact:
+  - Collecting is its step 6 and runs only with `--payouts`. The paid call that is collected
+    with the contribution's share is made by the app's functions, not through the pages, like
+    the paid call in the membership check.
+  - The "Your earnings" part of the Hosting page is drawn only for a host with a payout account,
+    which the journey's host has during step 6 only. Elsewhere the script reads her earnings
+    from the function that part is drawn from.
+  - The founder's steps (the founder's page, hiding a post, holding a share back, and saving the
+    switch on the founder's page) run when the test admin's login is set up, and are skipped
+    with a note when it is not. The switch is then set directly.
+  - The call "ended with a report" is a call with that mark on it and no report written, and the
+    refund request is written straight in: a real report would also block, and then the other
+    calls of the same two people could not show that the box is still there for them.

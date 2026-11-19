@@ -190,3 +190,39 @@ export function firstLines(text: string, max: number): string {
   const space = cut.lastIndexOf(" ");
   return `${space > max * 0.6 ? cut.slice(0, space) : cut}…`;
 }
+
+/**
+ * What the box after a call is decided from (plans/23, "After a call"; plans/26). Each is read
+ * from what is recorded, by `askAfterCall`; nothing is guessed.
+ */
+export type AskFacts = {
+  /** Who is looking at the call's results. */
+  role: "host" | "customer" | "admin";
+  cancelled: boolean;
+  /** Ended with "End call and report". */
+  safetyEnded: boolean;
+  /** The call's record is final and complete, as the charge judges it. A record that needs review is not. */
+  recordFinal: boolean;
+  /** Time the two were in the room together. Null while the record has no totals. */
+  togetherSeconds: number | null;
+  /** Either has reported the other, about anything, whatever became of the report. */
+  reported: boolean;
+  blocked: boolean;
+  /** The customer asked for a refund of this call, whatever became of the request. */
+  refundAsked: boolean;
+  /** The host has a running project, and her page is open to everyone. */
+  projectShown: boolean;
+  /** The customer could contribute to it right now (plans/25, choice 4). */
+  mayContribute: boolean;
+  /** A monthly contribution of theirs to it is being set up or running, or a payment of theirs to it was ever held or taken. */
+  alreadyContributes: boolean;
+};
+
+/** Whether the customer is shown the host's project after this call. Every condition must hold. */
+export function mayAsk(facts: AskFacts): boolean {
+  if (facts.role !== "customer") return false;
+  // The call took place.
+  if (facts.cancelled || !facts.recordFinal || (facts.togetherSeconds ?? 0) <= 0) return false;
+  if (facts.safetyEnded || facts.reported || facts.blocked || facts.refundAsked) return false;
+  return facts.projectShown && facts.mayContribute && !facts.alreadyContributes;
+}

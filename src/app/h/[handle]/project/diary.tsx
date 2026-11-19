@@ -6,10 +6,9 @@ import { DiaryPicture } from "@/components/diary-picture";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
-import { db } from "@/db";
 import { kindsOffered, suggestedOf } from "@/lib/contributions/rules";
-import { whyNotContribute } from "@/lib/contributions/start";
 import { formatMoney } from "@/lib/payments/access";
+import { contributionOf } from "@/lib/projects/ask";
 import { picturesOf } from "@/lib/projects/pictures";
 import { postsOf } from "@/lib/projects/posts";
 import { diaryFor } from "@/lib/projects/projects";
@@ -46,8 +45,10 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
   const viewer = await getUser();
   // The "Contribute" part is shown only where it can lead somewhere: not for her own project, not to someone
   // blocked, and not when the project has ended or takes no contributions (plans/25, choice 4). Asked again when
-  // the form is sent.
-  const canContribute = (await whyNotContribute(db, { contributorId: viewer?.id ?? null, project })) === null;
+  // the form is sent. A visitor's own contribution gets its line here as on the host's page: both ask one function.
+  const { can: canContribute, own } = await contributionOf(viewer?.id ?? null, project);
+  // Someone who already contributes every month is not offered a second monthly contribution: it would only be refused.
+  const kinds = canContribute ? kindsOffered(project).filter((kind) => !(kind === "monthly" && own?.is === "monthly")) : [];
   // "Older" and "newer" name this very project. Her plain address shows whichever project is current, so a
   // reader in the middle of one diary would land in another if she ended it and started a new one meanwhile.
   const here = `/h/${profile.handle}/project/${project.id}`;
@@ -71,14 +72,22 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
       )}
       {project.description && <p className="mt-4 whitespace-pre-line text-[#57534e]">{project.description}</p>}
 
-      {canContribute && (
-        <section className="mt-8 rounded border border-neutral-300 p-4" data-contribute>
+      {own && (
+        <p className="mt-8 rounded border border-neutral-300 p-4 text-sm" data-own-line={own.is}>
+          <Link href={`/contributions/${own.contributionId}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+            {own.is === "monthly" ? `You contribute ${formatMoney(own.amountCents)} a month` : "Finish contributing"}
+          </Link>
+        </p>
+      )}
+
+      {kinds.length > 0 && (
+        <section id="contribute" className={`${own ? "mt-4" : "mt-8"} scroll-mt-4 rounded border border-neutral-300 p-4`} data-contribute>
           <h2 className="text-lg font-semibold">Contribute</h2>
           <p className="mt-1 text-sm opacity-80">
             A contribution supports {profile.displayName}&apos;s project. It does not buy a call or any promised reward, and it is not a donation to a charity. The amount is first only held on your card and taken three days later; until then you can cancel and pay nothing.
           </p>
           <div className="mt-3 grid gap-6 sm:grid-cols-2">
-            {kindsOffered(project).map((kind) => (
+            {kinds.map((kind) => (
               <form key={kind} action="/contributions/new" method="get" className="text-sm" data-kind={kind}>
                 <input type="hidden" name="project" value={project.id} />
                 <input type="hidden" name="kind" value={kind} />

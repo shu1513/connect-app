@@ -1856,6 +1856,10 @@ pages. With this step part two is complete.
   about the payment itself is changed, so it goes on being checked against Stripe. (A first
   version set it aside for the founder, which Astra showed would have taken it out of those
   checks.)
+  CodeRabbit then asked whether Stripe promises that a hold placed in time can always be seen
+  two minutes later. No such promise is leaned on, and the answer was left at that: if a look
+  were ever wrong, the month is skipped, the hold is let go, nothing is charged, and the
+  contributor is told so.
 
 **How it was checked**
 - `scripts/contribution-check.ts`, against Stripe's test mode: six new journeys (starting; the
@@ -1876,3 +1880,56 @@ pages. With this step part two is complete.
   Stripe names no longest time for a card payment that is still being worked on.
 - The box after a call is part three.
 
+## Projects, part three: the ask after a call, and the whole journey (pull request PRNUM, 19 November 2026)
+
+**What it is.** The last of the five steps of projects (`plans/26-projects-part-3-the-ask.md`):
+the two places where a customer meets a host's project without looking for it, and the check
+that walks the whole feature the way two real people would. With this step the feature is
+built. It adds no table, no money rule and no email.
+
+**What was built**
+- `src/lib/projects/ask.ts`, which only reads. `askAfterCall` gathers what is recorded about a
+  call and its two people, and one plain rule (`mayAsk`, in `rules.ts`, with a test for each
+  condition) decides whether the customer is shown the host's project. `contributionOf` says
+  what a visitor is to a project: whether they could contribute, and their own contribution if
+  it gets a line.
+- The box on a call's results, for the customer only: "*Name* is working on *project*", the
+  first lines of what it is about, and "See the project". No amount and nothing that pays.
+- One line for a signed-in visitor in the project's box on the host's page, and the same line on
+  the diary: "You contribute $X a month", "Finish contributing", or "Contribute".
+- `scripts/project-journey-check.ts`: 87 checks through the real pages, from a host's first post
+  to the founder's switch.
+
+**What building changed in the plan** (written into plan 26)
+- "The call's record is final" is judged as the charge judges it: the room is confirmed closed,
+  too.
+- A project with no suggested amounts takes no contributions, so it has no box after a call
+  either.
+- "Finish contributing" is shown only while contributing is possible. Someone who already
+  contributes every month is not offered a second monthly contribution in the diary, which
+  would only be refused.
+- The "Your earnings" part of the Hosting page is drawn only for a host with a payout account.
+  The journey's host borrows one for the collecting step alone, so outside that step the script
+  reads her earnings from the function that part is drawn from.
+
+**How it was checked**
+- The unit tests of the rule: every condition failing alone, and all of them true.
+- `scripts/project-journey-check.ts --payouts`, against the running app and Stripe's test mode.
+  Real: sign-up, every page and button, a picture's upload, every contribution's payment, one
+  collection that sends a contribution's share and a call's share together, the emails.
+  Pretended: the host's approval, that two people had a call, the picture checker, the waiting,
+  and in the short cases a pause, a hidden page, a membership and the closing of a report.
+- All 17 earlier check scripts, once more on the finished code.
+- In the browser, phone-sized and wide: the box after a call and the "Contribute" line, as a
+  signed-in customer. That the host and a visitor who is not signed in see neither was checked
+  by the script on the real pages, not by eye.
+
+**Still open, for the whole feature**
+- Before it can go live (the rulebook's list): Stripe's word on this exact model, the lawyer's
+  terms (the terms page is a placeholder), and the settings of the picture services on the live
+  site. The child-safety tool is applied for and switched on when it is approved.
+- Microsoft's picture service has no key, so it is not in the queue and its adapter has never
+  met the real service.
+- A member's share, a call's and a contribution's in one collection: the journey now walks a
+  call's and a contribution's together; a member's share with them is still not walked.
+- The two minutes the helper waits before giving a late month up are a wide margin, not a proof.
