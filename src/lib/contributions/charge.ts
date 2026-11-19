@@ -496,8 +496,10 @@ export async function syncPayment(paymentId: string, now: Date = new Date()): Pr
  *   a status       Stripe's answer, and it was recorded
  *   "unrecorded"   Stripe was asked, and no answer could be recorded (the payment kept changing
  *                  underneath the look): nothing is known, and nothing must be decided from this
- *   null           Stripe was not asked: there is nothing at Stripe to ask about, or the payment
- *                  is already in the books for good
+ *   null           there is no answer of Stripe to decide from, and the payment given back says
+ *                  why: nothing at Stripe to ask about, already in the books for good (also
+ *                  when another step got it there between two looks), or Stripe does not know
+ *                  the payment, which is written on it as a problem
  */
 async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: ContributionPayment; shown: Stripe.PaymentIntent.Status | "unrecorded" | null }> {
   let shown: Stripe.PaymentIntent.Status | "unrecorded" | null = null;
