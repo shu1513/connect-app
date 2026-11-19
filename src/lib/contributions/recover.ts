@@ -59,10 +59,12 @@ export async function recoverContributionOperation(operation: typeof schema.mone
       }
       await syncPayment(paymentId, now);
     } else if (operation.kind === "capture") {
-      const payment = await paymentById(paymentId);
       // A taking is only sent again while it may still be made: not after a stop, not while the switch does not
-      // cover the host, and not after the last moment, by the clock read right now.
-      if (canRepeat() && Number.isInteger(params.amountCents) && payment && (await covered()) && mayTake(payment, freshNow(now))) {
+      // cover the host, and not after the last moment. The payment is read, and the clock looked at, last of all:
+      // the next thing that happens is the request to Stripe.
+      const mayStill = canRepeat() && Number.isInteger(params.amountCents) && (await covered());
+      const payment = mayStill ? await paymentById(paymentId) : undefined;
+      if (payment && mayTake(payment, freshNow(now))) {
         asked = true;
         const outcome = await captureAtStripe(params.intentId, params.amountCents, operation.label);
         await finishOwnedOperation(operation.id, owner, outcome.stripeId, (locked, tx) => applyTaken(tx, locked, { cents: outcome.result.amountReceived, chargeId: outcome.result.chargeId }, freshNow(now)));

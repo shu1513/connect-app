@@ -27,7 +27,7 @@ import { cancelAtStripe, confirmSavedCard, LABEL_SAFE_MS } from "@/lib/membershi
 import { giveUpAt, holdTiming, nextTryAt } from "@/lib/membership/rules";
 import { captureAtStripe } from "@/lib/payments/actions";
 import { stripeCustomerFor } from "@/lib/payments/hold";
-import { addLedgerEntry, MoneyError, OutcomeUnknownError, runOwnedOperation, type Tx } from "@/lib/payments/operations";
+import { addLedgerEntry, MoneyError, NotSentError, OutcomeUnknownError, runOwnedOperation, type Tx } from "@/lib/payments/operations";
 import { DEFAULT_FEE_TERMS, splitCharge } from "@/lib/payments/pricing";
 import { stripe } from "@/lib/payments/stripe";
 import { projectsOnFor } from "@/lib/safety/switches";
@@ -223,6 +223,11 @@ export async function intentFor(paymentId: string, now: Date = new Date()): Prom
   if (saved === "abandoned") {
     // The payment was given up while Stripe was answering: the letting-go takes care of it. Its secret goes to nobody.
     await letGo(paymentId, now).catch((error) => log(`could not let go of the payment of abandoned contribution payment ${paymentId} yet; the helper will retry`, error));
+    // A payment that had already been written off as given up, with no PaymentIntent known, before this one arrived
+    // late: the letting-go has nothing left to do for it, so this PaymentIntent is cancelled here. Nobody was ever
+    // given its secret, so it cannot have been paid.
+    const after = await paymentById(paymentId);
+    if (after?.status === "given_up") await cancelAtStripe(found.id).catch((error) => log(`could not cancel the late PaymentIntent of contribution payment ${paymentId}`, error));
     return null;
   }
   if (saved === "other") return intentFor(paymentId, now);
@@ -317,6 +322,11 @@ export async function applyTaken(tx: Tx, locked: LockedPayment, taken: { cents: 
     .where(eq(pays.id, payment.id));
   await addLedgerEntry(tx, { contributionPaymentId: payment.id, kind: "customer_charge", amountCents: taken.cents, stripeRef: chargeId, note: rightful ? "contribution" : "contribution, taken although it was not to be" });
   if (taken.cents !== payment.amountCents) return;
+  if (rightful && !chargeId) {
+    // A share's line must name the charge its transfer comes from. Without one nothing is written for the host, and the founder is shown it.
+    await tx.update(pays).set({ problem: "Stripe did not name the charge of this payment, so nothing was written for the host. Please settle it by hand.", updatedAt: at }).where(eq(pays.id, payment.id));
+    return;
+  }
 
   if (!rightful) {
     // Taken although it was given up or never accepted: all of it goes back. The line is what makes it owed.
@@ -643,9 +653,10 @@ export async function tryHold(paymentId: string, now: Date = new Date()): Promis
  * before Stripe is asked, so nothing is taken early, late, or after a stop. A hold whose last
  * moment has passed is given up as "not taken in time" and let go. A `now` that is handed in (the
  * start of the helper's round, or a check script's pretended day) never stands for a moment
- * earlier than the real clock.
+ * earlier than the real clock. The clock is looked at three times: before anything is written
+ * down, with the payment locked, and once more at the very moment before Stripe is asked.
  */
-export async function takePayment(paymentId: string, now?: Date): Promise<ContributionPayment> {
+export async function takePayment(paymentId: string, now?: Date, test?: { beforeDispatch?: () => Promise<void> }): Promise<ContributionPayment> {
   // Read afresh each time it is asked: the moment handed in may be the start of a helper's round that has run long.
   const clock = () => freshNow(now);
   const seen = await paymentById(paymentId);
@@ -653,23 +664,34 @@ export async function takePayment(paymentId: string, now?: Date): Promise<Contri
   if (seen.status !== "held" || !open(seen)) return seen;
   if (seen.takeBy && clock() > seen.takeBy) return giveUp(paymentId, "not_taken_in_time", clock());
   try {
-    await runOwnedOperation<LockedPayment, { intentId: string; amountCents: number }, { chargeId: string | null; amountReceived: number }>({
+    await runOwnedOperation<LockedPayment, { intentId: string; amountCents: number; takeByMs: number }, { chargeId: string | null; amountReceived: number }>({
       owner: paymentOwner(paymentId),
       kind: "capture",
       labelBase: `contributioncapture:${paymentId}`,
       prepare: async ({ contribution, payment }, tx) => {
-        if (!payment.stripePaymentIntentId || !mayTake(payment, clock())) throw new MoneyError("This payment's money may not be taken now.");
+        if (!payment.stripePaymentIntentId || !payment.takeBy || !mayTake(payment, clock())) throw new MoneyError("This payment's money may not be taken now.");
         if (!(await projectsOnFor(contribution.hostId, tx))) throw new MoneyError("Contributions to this host are switched off, so nothing is taken.");
-        return { intentId: payment.stripePaymentIntentId, amountCents: payment.amountCents };
+        return { intentId: payment.stripePaymentIntentId, amountCents: payment.amountCents, takeByMs: payment.takeBy.getTime() };
       },
-      execute: (params, label) => captureAtStripe(params.intentId, params.amountCents, label),
+      execute: async (params, label) => {
+        // (Only the check script passes this, to let the last moment go by between the decision and the request.)
+        await test?.beforeDispatch?.();
+        // The last look at the clock, with everything else done: writing the action down and saving it take time
+        // too. The very next thing that happens is the request to Stripe.
+        if (clock().getTime() > params.takeByMs) throw new NotSentError("The last moment to take this payment's money has passed, so Stripe was not asked.");
+        return captureAtStripe(params.intentId, params.amountCents, label);
+      },
       // The clock is read here, after Stripe has answered.
       apply: (locked, _params, outcome, tx) => applyTaken(tx, locked, { cents: outcome.result.amountReceived, chargeId: outcome.result.chargeId }, clock()),
+      // Not sent because it was too late, or refused by Stripe when it already was: the payment is given up in this same step.
+      onRefused: async (locked, params, _message, tx) => {
+        if (clock().getTime() > params.takeByMs) await giveUpInStep(tx, locked, "not_taken_in_time", clock());
+      },
     });
   } catch (error) {
     if (error instanceof OutcomeUnknownError) return (await paymentById(paymentId))!;
     if (!(error instanceof MoneyError)) throw error;
-    // Refused, by us or by Stripe (usually the hold is gone). Record how things really stand.
+    // Refused, by us or by Stripe (usually the hold is gone). Record how things really stand; a payment that was just given up is let go by that.
     return syncPayment(paymentId, clock());
   }
   return (await paymentById(paymentId))!;

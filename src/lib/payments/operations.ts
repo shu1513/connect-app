@@ -30,6 +30,12 @@ export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hol
 /** An action was refused for a reason a person can read. Nothing was changed. */
 export class MoneyError extends Error {}
 
+/**
+ * Thrown by an action's `execute` when it decides, at the last moment, not to ask Stripe at all.
+ * Nothing was sent, so this is as certain as a refusal from Stripe, and is recorded like one.
+ */
+export class NotSentError extends Error {}
+
 /** The action may or may not have happened. It will be checked with Stripe before anything else runs. */
 export class OutcomeUnknownError extends Error {}
 
@@ -150,7 +156,7 @@ export async function completeOwnedOperation<Row, P, R>(
   try {
     outcome = await plan.execute(started.params, started.label);
   } catch (error) {
-    if (isDefiniteRefusal(error)) {
+    if (isDefiniteRefusal(error) || error instanceof NotSentError) {
       const message = stripeErrorMessage(error);
       await db.transaction(async (tx) => {
         const row = await plan.owner.lock(tx);

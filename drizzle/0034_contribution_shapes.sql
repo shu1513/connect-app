@@ -8,4 +8,4 @@ ALTER TABLE "payments" ADD CONSTRAINT "payments_kind_shape" CHECK (("payments"."
           and "payments"."stripe_payment_intent_id" is null and "payments"."price_per_15_cents" = 0 and "payments"."covers_from" = "payments"."covers_until"
           and "payments"."status" = 'charged' and "payments"."charged_cents" is not null and "payments"."charged_cents" = "payments"."booked_cents" and "payments"."charged_at" is not null
           and "payments"."covers_from" = "payments"."charged_at" and "payments"."original_fee_cents" is not null and "payments"."original_host_share_cents" is not null
-          and "payments"."original_fee_cents" + "payments"."original_host_share_cents" = "payments"."charged_cents"));
+          and "payments"."original_fee_cents" + "payments"."original_host_share_cents" = "payments"."charged_cents" and "payments"."stripe_charge_id" is not null));

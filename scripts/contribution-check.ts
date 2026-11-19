@@ -425,6 +425,19 @@ async function main() {
     const began = Date.now();
     p = await C.takePayment(slow.paymentId, new Date(began - 30 * MIN));
     check("the moment a taking is recorded at is read after Stripe has answered, never the moment the round began", p.status === "taken" && p.takenAt!.getTime() >= began && (await shareOf(slow.paymentId)).transferDueAt!.getTime() === p.takenAt!.getTime() + 7 * DAY, { takenAt: p.takenAt, began: new Date(began) });
+    // The last moment goes by between the decision to take and the request to Stripe (the script holds the request back for that).
+    const gap = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR), takeBy: new Date(Date.now() + 2000) }).where(eq(pays.id, gap.paymentId));
+    p = await C.takePayment(gap.paymentId, undefined, { beforeDispatch: () => new Promise((resolve) => setTimeout(resolve, 3500)) });
+    const gapOps = await operations(gap.paymentId, "capture");
+    check("the clock is looked at once more at the very moment before Stripe is asked: too late by then, nothing is sent, and the payment is given up and let go", p.status === "given_up" && p.endedHow === "not_taken_in_time" && gapOps.length === 1 && gapOps[0].status === "failed" && (await intentOf(gap.paymentId)).status === "canceled" && (await intentOf(gap.paymentId)).amount_received === 0, { status: p.status, endedHow: p.endedHow, ops: gapOps.map((o) => o.status) });
+    // And the moment that is recorded is read after Stripe's answer, not just before the request.
+    const answered = await held(host);
+    await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR) }).where(eq(pays.id, answered.paymentId));
+    let sentAt = 0;
+    p = await C.takePayment(answered.paymentId, undefined, { beforeDispatch: async () => void (sentAt = Date.now()) });
+    check("the recorded moment of a taking is later than the moment the request left: it is read after Stripe answered", p.status === "taken" && sentAt > 0 && p.takenAt!.getTime() - sentAt >= 50, { ms: p.takenAt ? p.takenAt.getTime() - sentAt : null });
+
     const heard = await held(host);
     await db.update(pays).set({ takeAt: new Date(Date.now() - HOUR) }).where(eq(pays.id, heard.paymentId));
     await stripe().paymentIntents.capture((await PM(heard.paymentId)).stripePaymentIntentId!);
@@ -444,6 +457,13 @@ async function main() {
     check("a payment asked for whose id was never saved: asked again under the same name, Stripe gives the same one", again.intentId === made1.intentId && (await PM(a.paymentId)).stripePaymentIntentId === made1.intentId);
     await db.update(pays).set({ stripePaymentIntentId: null, intentRequestedAt: new Date(Date.now() - 24 * HOUR) }).where(eq(pays.id, a.paymentId));
     check("and when that is too old to send again, it is found in Stripe's own list", (await C.intentFor(a.paymentId))?.intentId === made1.intentId);
+
+    // After a stop a claim is never sent again, and a PaymentIntent that arrives late for a payment already written off is cancelled.
+    const lateOne = await atCardStep(host);
+    const lateIntent = (await C.intentFor(lateOne.paymentId))!;
+    await db.update(pays).set({ stripePaymentIntentId: null, endedHow: "cancelled", status: "given_up" }).where(eq(pays.id, lateOne.paymentId));
+    const countBefore = (await stripe().paymentIntents.list({ customer: await stripeCustomerFor(lateOne.giver), limit: 10 })).data.length;
+    check("a stopped payment's request is not sent again: Stripe is only asked what was made, and that one is cancelled", (await C.intentFor(lateOne.paymentId)) === null && (await stripe().paymentIntents.list({ customer: await stripeCustomerFor(lateOne.giver), limit: 10 })).data.length === countBefore && (await stripe().paymentIntents.retrieve(lateIntent.intentId)).status === "canceled" && (await PM(lateOne.paymentId)).stripePaymentIntentId === lateIntent.intentId);
 
     // The taking was written down, and Stripe was never asked.
     const b = await held(host);
@@ -500,19 +520,48 @@ async function main() {
     await runContributionJobs(swAt);
     check("and the helper's first job then gives the hold up and lets it go", (await PM(sw.paymentId)).endedHow === "switch" && (await intentOf(sw.paymentId)).status === "canceled");
     await setSwitches({ projects: "everyone", projectsHosts: [] });
+    // The same for a try with the saved card that was written down and never sent.
+    const swm = await held(host, { kind: "monthly", amountCents: 1000 });
+    const swNext = await nextMonth(swm, 2, new Date());
+    const swIntent = (await C.intentFor(swNext))!;
+    const swCard = (await Cards.cardInUse(db, swm.contributionId))!.stripePaymentMethodId;
+    const [opHold] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: swNext, kind: "hold", label: `contributionhold:${swNext}:1:1`, params: JSON.stringify({ intentId: swIntent.intentId, paymentMethodId: swCard }) }).returning();
+    await age(opHold.id, 2 * MIN);
+    await setSwitches({ projects: "off" });
+    await reconcileOperations(new Date());
+    check("with the switch off, recovery does not send a saved-card try again either: no hold is placed", (await stripe().paymentIntents.retrieve(swIntent.intentId)).status === "requires_payment_method" && (await operations(swNext, "hold"))[0].status === "failed" && (await PM(swNext)).status === "to_pay");
+    await setSwitches({ projects: "everyone", projectsHosts: [] });
+    await E.endContribution(swm.contributionId, "stopped", new Date());
 
-    // A try with the saved card that Stripe accepted, and whose result is not recorded on the payment yet.
-    const mo = await held(host, { kind: "monthly", amountCents: 1000 });
+    // A try with the saved card that Stripe accepted, and whose result is not recorded on the payment yet: the helper
+    // stopped right after Stripe's answer. $600 a month, so the second month takes the pair over $1,000.
+    const { confirmSavedCard } = await import("../src/lib/membership/charge");
+    const mo = await held(host, { kind: "monthly", amountCents: 60_000 });
     const moAt = (await PM(mo.paymentId)).takeAt!;
     await C.takePayment(mo.paymentId, moAt);
-    const waitingOne = await nextMonth(mo, 2, moAt);
-    await db.update(pays).set({ nextTryAt: null }).where(eq(pays.id, waitingOne));
-    const [unrecorded] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: waitingOne, kind: "hold", label: `contributionhold:${waitingOne}:1:1`, params: "{}", status: "succeeded", finishedAt: new Date() }).returning();
+    const second = await nextMonth(mo, 2, moAt);
+    await db.update(pays).set({ nextTryAt: null }).where(eq(pays.id, second));
+    const secondIntent = (await C.intentFor(second))!;
+    const moCard = (await Cards.cardInUse(db, mo.contributionId))!.stripePaymentMethodId;
+    const holdLabel = `contributionhold:${second}:1:1`;
+    await confirmSavedCard({ intentId: secondIntent.intentId, paymentMethodId: moCard }, holdLabel);
+    await db.insert(schema.moneyOperations).values({ contributionPaymentId: second, kind: "hold", label: holdLabel, params: JSON.stringify({ intentId: secondIntent.intentId, paymentMethodId: moCard }), status: "succeeded", stripeId: secondIntent.intentId, finishedAt: new Date() });
     const ready = new Date(moAt.getTime() + 8 * DAY);
-    check("while a try's result is not recorded yet, the pair cannot be counted: the earlier share of that pair waits, and the host is told so", (await unsentEarnings(ready, host.id)).find((x) => x.payment.contributionPaymentId === mo.paymentId)?.heldBack === "being_sent");
-    await db.delete(schema.moneyOperations).where(eq(schema.moneyOperations.id, unrecorded.id));
-    check("once it is recorded, the share is ready again", (await unsentEarnings(ready, host.id)).find((x) => x.payment.contributionPaymentId === mo.paymentId)?.heldBack === null);
-    await db.update(pays).set({ status: "given_up", endedHow: "skipped" }).where(eq(pays.id, waitingOne));
+    const first = () => unsentEarnings(ready, host.id).then((all) => all.find((x) => x.payment.contributionPaymentId === mo.paymentId));
+    check("while a try's result is not recorded yet, the pair cannot be counted: the earlier share of that pair waits, and the host is told so", (await PM(second)).status === "to_pay" && (await first())?.heldBack === "being_sent");
+    await C.syncPayment(second, new Date());
+    const counted = moAt.getTime() > Date.now() - CONTRIBUTION.windowMs;
+    check("when the hold is recorded, the pair is counted: over $1,000 now, so the earlier share waits 30 days from its own taking", (await PM(second)).status === "held" && counted && (await shareOf(mo.paymentId)).transferDueAt?.getTime() === moAt.getTime() + 30 * DAY && (await first())?.heldBack === "not_yet");
+    // And a try that ends in a refusal: the try number moves on, so the pair is not held up by it.
+    const re = await held(host, { kind: "monthly", amountCents: 1000 });
+    const reAt = (await PM(re.paymentId)).takeAt!;
+    await C.takePayment(re.paymentId, reAt);
+    await saveCard(re, "pm_card_authenticationRequired");
+    const reNext = await nextMonth(re, 2, reAt);
+    await C.tryHold(reNext, reAt);
+    check("a try the bank answers with a request to confirm does not hold the pair's earlier share up", (await PM(reNext)).try === 2 && (await unsentEarnings(new Date(reAt.getTime() + 8 * DAY), host.id)).find((x) => x.payment.contributionPaymentId === re.paymentId)?.heldBack === null);
+    await E.endContribution(mo.contributionId, "stopped", new Date());
+    await E.endContribution(re.contributionId, "stopped", new Date());
 
     // Letting go, written down and never sent.
     const f = await held(host);

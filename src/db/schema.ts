@@ -837,7 +837,7 @@ export const payments = pgTable(
           and ${t.stripePaymentIntentId} is null and ${t.pricePer15Cents} = 0 and ${t.coversFrom} = ${t.coversUntil}
           and ${t.status} = 'charged' and ${t.chargedCents} is not null and ${t.chargedCents} = ${t.bookedCents} and ${t.chargedAt} is not null
           and ${t.coversFrom} = ${t.chargedAt} and ${t.originalFeeCents} is not null and ${t.originalHostShareCents} is not null
-          and ${t.originalFeeCents} + ${t.originalHostShareCents} = ${t.chargedCents})`,
+          and ${t.originalFeeCents} + ${t.originalHostShareCents} = ${t.chargedCents} and ${t.stripeChargeId} is not null)`,
     ),
     check("payments_host_caused_range", sql`${t.hostCausedCents} >= 0`),
   ],
