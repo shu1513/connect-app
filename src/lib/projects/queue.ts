@@ -63,8 +63,21 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
   const asked = (options.services ?? services()).filter((service) => service.keyMark);
   const own = options.own === undefined ? ownChecker() : options.own;
   const seen: string[] = [];
-  for (let i = 0; i < PER_ROUND; i++) {
-    const picture = await claimOne(round, now(), and(everyday(now()), whose), [sql`case when ${pictures.state} = 'shown' then 0 else 1 end`, asc(pictures.uploadedAt), asc(pictures.id)], seen, true);
+  const first = [sql`case when ${pictures.state} = 'shown' then 0 else 1 end`, asc(pictures.uploadedAt), asc(pictures.id)];
+  // "The first time a service is asked again, it is asked for a picture that is waiting for its full check." So before
+  // a waiting picture is sent anywhere in this round, one picture that is shown after a check for nudity only is
+  // tried, also when its own time has not come. If a service answers it properly, the others like it are due at once
+  // (see `everyday`) and come before every waiting picture.
+  const [waitingIsDue] = await db.select({ id: pictures.id }).from(pictures).where(and(whose, eq(pictures.state, "waiting"), lte(pictures.nextTryAt, now()), mayGoOnSql)).limit(1);
+  if (waitingIsDue) {
+    const picture = await claimOne(round, now(), and(whose, eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), mayGoOnSql), [asc(pictures.uploadedAt), asc(pictures.id)], seen, true);
+    if (picture) {
+      seen.push(picture.id);
+      await checkOne(round, picture, asked, own, now);
+    }
+  }
+  while (seen.length < PER_ROUND) {
+    const picture = await claimOne(round, now(), and(everyday(now()), whose), first, seen, true);
     if (!picture) break;
     seen.push(picture.id);
     await checkOne(round, picture, asked, own, now);
@@ -73,6 +86,9 @@ export async function runPictureRound(options: RoundOptions = {}): Promise<void>
   for (const id of await goneWithBytes(20, now(), whose)) await db.transaction((tx) => deleteBytesIfFree(tx, id, now()));
   await tellAboutNudityOnly(now(), whose);
 }
+
+/** The same rule as mayGoOn in child-safety.ts, for choosing pictures in the database. mayGoOn itself is asked again once a picture is claimed. */
+const mayGoOnSql = and(inArray(pictures.childCheck, ["clear", "not_set_up"]), eq(pictures.suspectedByFounder, false), eq(pictures.suspectedByReport, false));
 
 /** The pictures the everyday checkers may be asked about now: waiting, or shown after a check for nudity only; due; and allowed on by the child-safety rule. */
 function everyday(now: Date): SQL | undefined {
@@ -83,10 +99,7 @@ function everyday(now: Date): SQL | undefined {
       // answered properly since it was last tried: full checking is back, and it comes before every waiting picture.
       and(eq(pictures.state, "shown"), eq(pictures.level, "nudity_only"), or(lte(pictures.nextTryAt, now), exists(db.select({ one: sql`1` }).from(checkers).where(sql`${checkers.lastGoodAt} > ${pictures.updatedAt}`)))),
     ),
-    // The same rule as mayGoOn in child-safety.ts, which is asked again once the picture is claimed.
-    inArray(pictures.childCheck, ["clear", "not_set_up"]),
-    eq(pictures.suspectedByFounder, false),
-    eq(pictures.suspectedByReport, false),
+    mayGoOnSql,
   );
 }
 
@@ -274,20 +287,20 @@ async function childStep(round: string, tool: ChildTool, now: () => Date, whose:
       // so nothing asks about it a second time meanwhile and its bytes stay.
       void asking
         .then(async (late) => {
-          await settleChild(round, picture, late, now());
+          await settleChild(round, picture, late, now(), file?.bytes);
           if (late !== "unreachable") await switchChildCheckOn(now());
         })
         .catch((error) => console.error("[pictures] a late answer of the child-safety tool could not be written", error));
       return;
     }
-    await settleChild(round, picture, answer, now());
+    await settleChild(round, picture, answer, now(), file?.bytes);
     if (answer === "unreachable") return;
     await switchChildCheckOn(now());
   }
 }
 
 /** Writes the tool's answer. It is about the picture's exact bytes, which never change, so it counts whatever else has happened to the picture since. */
-async function settleChild(round: string, claimed: ProjectPicture, answer: ChildAnswer, at: Date): Promise<void> {
+async function settleChild(round: string, claimed: ProjectPicture, answer: ChildAnswer, at: Date, askedAbout?: Buffer): Promise<void> {
   await db.transaction(async (tx) => {
     // The post first, then the picture, as everywhere: a match also hides the post.
     await lockPost(tx, claimed.postId);
@@ -305,6 +318,8 @@ async function settleChild(round: string, claimed: ProjectPicture, answer: Child
       await deleteBytesIfFree(tx, row.id, at);
       return;
     }
+    // The bytes the tool was asked about are kept with the match, also if they were deleted in between.
+    if (askedAbout) await tx.insert(files).values({ pictureId: row.id, bytes: askedAbout }).onConflictDoNothing();
     await tx.update(pictures).set({ childCheck: "match", updatedAt: at }).where(eq(pictures.id, row.id));
     if (row.state !== "locked") await lockInStep(tx, { pictureId: row.id, postId: row.postId, by: null, now: at });
     await tellFounders(tx, {

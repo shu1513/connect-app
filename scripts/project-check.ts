@@ -770,7 +770,8 @@ async function main() {
     forget();
     const q = await upload(host, seventh.id);
     await round();
-    check("a service recovers from a fault before that picture's own time: the newer waiting picture is checked, and the one shown for nudity only gets its full check in the same round", notYet !== null && notYet.getTime() > qclock && (await pic(q.id)).state === "shown" && (await pic(o.id)).level === "full", { asked, level: (await pic(o.id)).level });
+    check("a service recovers from a fault before that picture's own time, and a newer picture is waiting: the first answer still goes to the picture shown for nudity only", notYet !== null && notYet.getTime() > qclock && askedAbout[0] === (await pic(o.id)).sha256 && (await pic(o.id)).level === "full", { asked, level: (await pic(o.id)).level });
+    check("and the waiting picture is checked after it", askedAbout[1] === q.sha256 && (await pic(q.id)).state === "shown");
 
     // Tidying: pictures whose bytes cannot be freed yet do not hold up one whose bytes can.
     const sixth = await write(host, "A sixth post");
@@ -1185,13 +1186,26 @@ async function main() {
         return "match";
       },
     };
+    const told = await mails(admin.email, "matched the list");
     await round(dawdling, 50);
     row = await pic(slowOne.id);
     check("a tool that takes longer than the round waits: the round goes on, the picture stays held and is not locked yet", !answered && row.state !== "locked" && row.claimId !== null && (await hasBytes(slowOne.id)));
     await until(() => answered);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    for (let i = 0; i < 100 && (await pic(slowOne.id)).state !== "locked"; i++) await new Promise((resolve) => setTimeout(resolve, 50));
     row = await pic(slowOne.id);
-    check("its match, when it comes, still locks the picture and tells the founder", row.state === "locked" && row.childCheck === "match" && (await hasBytes(slowOne.id)));
+    check("its match, when it comes, still locks the picture and tells the founder", row.state === "locked" && row.childCheck === "match" && (await hasBytes(slowOne.id)) && (await mails(admin.email, "matched the list")) === told + 1);
+
+    // A match keeps the bytes it was asked about, also when they were deleted while the tool was thinking.
+    const eighth = await write(host, "An eighth post");
+    const emptied = await upload(host, eighth.id, 225);
+    const wiping: Tool = {
+      ask: async () => {
+        await db.delete(files).where(eq(files.pictureId, emptied.id));
+        return "match";
+      },
+    };
+    await round(wiping);
+    check("a match is kept with the bytes the tool was asked about, also if they were gone by then", (await pic(emptied.id)).state === "locked" && (await hasBytes(emptied.id)) && fingerprint((await db.select().from(files).where(eq(files.pictureId, emptied.id)))[0].bytes) === emptied.sha256);
     await db.update(schema.siteSwitches).set({ childCheckOnAt: null });
   });
 
