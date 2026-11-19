@@ -31,15 +31,23 @@ export const CONTRIBUTION = {
  * cents, or refuses it in words for the person. US dollars only.
  */
 export function readAmount(typed: string): number {
+  const amount = readSum(typed, "The largest contribution is $100,000.");
+  if (amount < CONTRIBUTION.minCents) throw new ContributionError("The smallest contribution is $5.");
+  if (amount > CONTRIBUTION.maxCents) throw new ContributionError("The largest contribution is $100,000.");
+  return amount;
+}
+
+/**
+ * Reads any sum of money typed in dollars and cents ("25", "25.5", "$1,000.00"), in cents: a
+ * refund's amount, for example, which can be less than the smallest contribution.
+ */
+export function readSum(typed: string, tooLarge = "That amount is too large."): number {
   const text = typed.trim().replace(/^\$\s*/, "");
   // Either plain digits, or digits grouped in threes with commas; then, if any, one or two digits of cents.
   if (!/^(\d+|\d{1,3}(,\d{3})+)(\.\d{1,2})?$/.test(text)) throw new ContributionError("Please type an amount in dollars, like 25 or 25.50.");
   const [dollars, cents = ""] = text.replace(/,/g, "").split(".");
-  if (dollars.length > 7) throw new ContributionError("The largest contribution is $100,000.");
-  const amount = Number(dollars) * 100 + Number(cents.padEnd(2, "0"));
-  if (amount < CONTRIBUTION.minCents) throw new ContributionError("The smallest contribution is $5.");
-  if (amount > CONTRIBUTION.maxCents) throw new ContributionError("The largest contribution is $100,000.");
-  return amount;
+  if (dollars.length > 7) throw new ContributionError(tooLarge);
+  return Number(dollars) * 100 + Number(cents.padEnd(2, "0"));
 }
 
 /** A host suggests up to this many amounts for each kind (plans/23, choice B). */

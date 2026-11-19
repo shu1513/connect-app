@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
-import type { ProjectPost } from "@/db/schema";
+import type { Project, ProjectPost } from "@/db/schema";
+import { suggestedOf } from "@/lib/contributions/rules";
+import { contributorsOf, stateOf } from "@/lib/contributions/views";
 import { readNotice } from "@/lib/notice";
+import { formatMoney } from "@/lib/payments/access";
+import { currentSplit } from "@/lib/payments/actions";
 import { postsOf } from "@/lib/projects/posts";
 import { projectsOf, startProblem } from "@/lib/projects/projects";
 import { firstLines, PROJECT } from "@/lib/projects/rules";
@@ -13,6 +18,7 @@ import { publicProfile } from "@/lib/profiles/profiles";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { requireUser } from "@/lib/session";
 import { changeProjectAction, endProjectAction, removePostAction, startProjectAction, writePostAction } from "./actions";
+import { letGoAsHostAction, refundAsHostAction, saveSuggestedAction } from "./contribution-actions";
 import { PostForm } from "./post-form";
 
 export const metadata: Metadata = { title: "Your project" };
@@ -80,6 +86,7 @@ export default async function HostProjectPage(props: PageProps<"/host/project">)
           </p>
           <PostList posts={posts} page={page} earlierId={earlier.id} canChange={false} />
           <Paging page={page} older={older} link={pageLink} />
+          <ContributionsPart hostId={user.id} project={earlier} earlierId={earlier.id} canChange={false} />
         </section>
       ) : (
         <>
@@ -154,6 +161,8 @@ export default async function HostProjectPage(props: PageProps<"/host/project">)
                 <Paging page={page} older={older} link={pageLink} />
               </section>
 
+              <ContributionsPart hostId={user.id} project={running} earlierId={null} canChange={switchOn} />
+
               <section className="mt-10">
                 <h2 className="text-lg font-semibold">End this project</h2>
                 <p className="mt-2 text-sm opacity-70">
@@ -205,6 +214,149 @@ export default async function HostProjectPage(props: PageProps<"/host/project">)
         </>
       )}
     </SitePage>
+  );
+}
+
+const amountBox = "w-24 rounded border border-neutral-400 bg-transparent px-2 py-1.5";
+
+/**
+ * The contributions to one of her projects (plans/23, "Her contributors", "Refunding"): the
+ * amounts she suggests, who contributes, each payment with where it stands, "Let it go" while a
+ * payment is only held, and "Refund" once its money was taken and until her share has been sent.
+ * For a project that has ended only the list is left, with its buttons: money that was taken
+ * stays with the project, and she can still give it back.
+ */
+async function ContributionsPart({ hostId, project, earlierId, canChange }: { hostId: string; project: Project; earlierId: string | null; canChange: boolean }) {
+  const { contributors, paidCents, shareCents, readyCents } = await contributorsOf(hostId, project.id, new Date());
+  const boxes = (kept: string) => {
+    const amounts = suggestedOf(kept).map((cents) => (cents / 100).toFixed(2));
+    return [0, 1, 2].map((index) => amounts[index] ?? "");
+  };
+  const earlier = earlierId ? <input type="hidden" name="earlier" value={earlierId} /> : null;
+  return (
+    <section className="mt-10" data-contributions>
+      <h2 className="text-lg font-semibold">Contributions</h2>
+      {!earlierId && (
+        <>
+          <p className="mt-2 text-sm opacity-70">
+            People can support this project with money, once or every month. A contribution buys nothing: no call and no promised reward. You suggest up to three amounts for each kind, and a contributor can also type their own ($5 to $100,000). A kind you leave empty is not
+            offered; with no amount at all, your project takes no contributions.
+          </p>
+          {canChange && (
+            <form action={saveSuggestedAction} className="mt-3 space-y-3 text-sm" data-amounts>
+              <input type="hidden" name="projectId" value={project.id} />
+              <fieldset>
+                <legend>Once, in dollars</legend>
+                <div className="mt-1 flex gap-2">
+                  {boxes(project.suggestedOnce).map((value, index) => (
+                    <input key={index} name="once" type="text" inputMode="decimal" maxLength={12} defaultValue={value} aria-label={`Suggested amount ${index + 1}, once`} className={amountBox} />
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Every month, in dollars</legend>
+                <div className="mt-1 flex gap-2">
+                  {boxes(project.suggestedMonthly).map((value, index) => (
+                    <input key={index} name="monthly" type="text" inputMode="decimal" maxLength={12} defaultValue={value} aria-label={`Suggested amount ${index + 1}, every month`} className={amountBox} />
+                  ))}
+                </div>
+              </fieldset>
+              <button type="submit" className={smallButton}>
+                Save the amounts
+              </button>
+            </form>
+          )}
+        </>
+      )}
+
+      <p className="mt-4 text-sm" data-totals>
+        Contributors have paid {formatMoney(paidCents)} in all, after refunds. Your share of it is {formatMoney(shareCents)}.{" "}
+        {readyCents > 0 ? (
+          <>
+            {formatMoney(readyCents)} is ready to collect on{" "}
+            <Link href="/host" className="underline underline-offset-2">
+              Hosting, under Earnings
+            </Link>
+            .
+          </>
+        ) : (
+          "Nothing is ready to collect right now: a share can be collected 7 days after its money was taken, or 30 days for large amounts from one person."
+        )}
+      </p>
+
+      {contributors.length === 0 ? (
+        <p className="mt-2 text-sm opacity-70">Nobody has contributed yet.</p>
+      ) : (
+        <ul className="mt-3 space-y-3" data-contributors>
+          {contributors.map(({ contribution, name, payments }) => (
+            <li key={contribution.id} className="rounded border border-neutral-400 p-3 text-sm">
+              <p>
+                <strong>{name}</strong>: {formatMoney(contribution.amountCents)}
+                {contribution.kind === "monthly" ? " every month" : ", once"}, since <LocalTime iso={contribution.createdAt.toISOString()} />.
+                {contribution.kind === "monthly" && contribution.status === "ended" ? " This monthly contribution has ended." : ""}
+              </p>
+              <ul className="mt-2 space-y-2">
+                {[...payments].reverse().map((row) => {
+                  const { payment, share } = row;
+                  const state = stateOf(payment);
+                  const sent = share?.transferStatus === "sent";
+                  return (
+                    <li key={payment.id} className="border-t border-neutral-300 pt-2" data-payment={state}>
+                      {contribution.kind === "monthly" && <span className="opacity-70">Month {payment.number}: </span>}
+                      {state === "held" && payment.takeAt && (
+                        <>
+                          {formatMoney(payment.amountCents)} is held on their card and taken on <LocalTime iso={payment.takeAt.toISOString()} />. Until then you can let it go, at no cost to anyone.
+                          <form action={letGoAsHostAction} className="mt-1">
+                            {earlier}
+                            <input type="hidden" name="payment" value={payment.id} />
+                            <button type="submit" className={smallButton}>
+                              Let it go
+                            </button>
+                          </form>
+                        </>
+                      )}
+                      {(state === "to_pay" || state === "failed" || state === "confirm") && "Not paid yet."}
+                      {state === "cancelling" && "Being let go."}
+                      {state === "cancelled" && "Let go. Nothing was charged."}
+                      {state === "problem" && "Connect is looking at this payment."}
+                      {state === "taken" && payment.takenAt && (
+                        <>
+                          {formatMoney(payment.takenCents ?? payment.amountCents)} was taken on <LocalTime iso={payment.takenAt.toISOString()} />.
+                          {share && <> Your share: {formatMoney(currentSplit(share).hostShareCents)}{sent ? ", sent to you" : ""}.</>}
+                          {payment.refundedCents > 0 && <> {formatMoney(payment.refundedCents)} was paid back.</>}
+                          {row.refundUnderWayCents > 0 && <> {formatMoney(row.refundUnderWayCents)} is on its way back.</>}
+                          {payment.dispute === "open" || payment.dispute === "lost" ? (
+                            <> The contributor&apos;s bank has disputed this charge, so nothing can be collected or refunded from it now.</>
+                          ) : sent ? (
+                            <> Your share has been sent to you, so only Connect can refund this now.</>
+                          ) : (
+                            row.refundableCents > 0 && (
+                              <form action={refundAsHostAction} className="mt-1 flex flex-wrap items-end gap-2">
+                                {earlier}
+                                <input type="hidden" name="payment" value={payment.id} />
+                                {/* Made when this page was drawn: the same press, sent twice, is one refund. */}
+                                <input type="hidden" name="request" value={randomUUID()} />
+                                <label>
+                                  Give back, in dollars
+                                  <input name="amount" type="text" inputMode="decimal" maxLength={12} defaultValue={(row.refundableCents / 100).toFixed(2)} className={`${amountBox} ml-2`} />
+                                </label>
+                                <button type="submit" className={smallButton}>
+                                  Refund
+                                </button>
+                              </form>
+                            )
+                          )}
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
