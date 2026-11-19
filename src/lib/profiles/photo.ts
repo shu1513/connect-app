@@ -126,13 +126,16 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
 
 async function startTry(userId: string, network: PhotoNetwork, hasChecker: boolean, clock: () => Date, diaryHosts: string[] | undefined): Promise<Started | Exclude<PhotoOutcome, "shown">> {
   return db.transaction(async (tx) => {
-    // All of Instagram first, then this host: the same order as the bio check, which takes the first lock too.
-    if (network === "instagram") await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
+    // This host's presses one after the other.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`host-photo:${userId}`}))`);
     // Then the person and the profile, in the app's order. Removing a photo, changing an account and closing an
     // account hold these too while they stop the tries that are running: so each of them either sees this try,
     // or has finished before this try is written.
     const { closed, paused, profile } = await lockedProfile(tx, userId);
+    // Last, the lock that guards everyone's requests to Instagram (the bio check takes it too), so that it is held
+    // only for the few reads below and never while waiting for a host's own locks. Nothing that holds it ever
+    // waits for a person or a profile, so the order cannot turn round.
+    if (network === "instagram") await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
     // Read with the locks held, never before waiting for them.
     const now = clock();
     if (closed || paused || !profile) return "cannot";

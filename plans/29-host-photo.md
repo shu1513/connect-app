@@ -178,9 +178,9 @@ The diary's queue only reads diary pictures. It does not find host photos by its
 
 **`src/lib/profiles/photo.ts` (new). One press is three steps:**
 
-1. **Start,** one short database step under a lock for that host (and, for Instagram, the lock
-   that already guards all of Instagram's requests), and then with the person's and the
-   profile's locks, in the app's order. Everything that removes a photo or changes an account
+1. **Start,** one short database step under a lock for that host, then with the person's and
+   the profile's locks, in the app's order, and last (for Instagram) the lock that already
+   guards everyone's requests to Instagram, which is so held only for a few reads. Everything that removes a photo or changes an account
    holds those two locks as well, so it either sees this try and stops it, or has finished
    before the try is written. Read with the locks held: the account is neither closed nor
    paused and has a host profile; the host has no locked photo; there is a confirmed entry on
