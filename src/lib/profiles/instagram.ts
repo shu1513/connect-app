@@ -130,8 +130,14 @@ export function readAccountsAnswer(body: string): AccountsAnswer {
   const unreadable = { kind: "failed", reason: "the list of accounts could not be read" } as const;
   const answer = parsed(body);
   if (!answer || answer.error !== undefined || !Array.isArray(answer.data)) return unreadable;
-  const paging = answer.paging as { next?: unknown } | undefined;
-  if (paging && typeof paging === "object" && paging.next !== undefined && paging.next !== null) return { kind: "failed", reason: "the list of accounts goes on" };
+  // "Nothing follows" is only believed from an answer whose paging part is as Meta sends it: left out, or a
+  // plain set of fields without a "next". Anything else there (a text, a list) is a damaged answer, not a full list.
+  const paging: unknown = answer.paging;
+  if (paging !== undefined && paging !== null) {
+    if (typeof paging !== "object" || Array.isArray(paging)) return unreadable;
+    const next = (paging as { next?: unknown }).next;
+    if (next !== undefined && next !== null) return { kind: "failed", reason: "the list of accounts goes on" };
+  }
   if (answer.data.length > INSTAGRAM_ACCOUNTS_ASKED) return { kind: "failed", reason: "the list of accounts goes on" };
   const accounts: SharedAccount[] = [];
   for (const line of answer.data as unknown[]) {

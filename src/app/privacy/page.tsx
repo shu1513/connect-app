@@ -23,7 +23,9 @@ export default function PrivacyPage() {
         When you connect Instagram by signing in at Meta, we ask Meta once which Instagram account you shared, and keep that
         account&apos;s number and name, nothing else. We do not keep Meta&apos;s key. Meta lists Connect among the apps connected to
         your business portfolio until you remove it there (in Meta&apos;s Business Settings, under Integrations, Connected apps).
-        Removing it at Meta does not take the account off your Connect page; for that, press &quot;Remove&quot; on your Hosting page.
+        The two are separate: removing it at Meta does not take the account off your Connect page, and removing the account
+        from your Connect page (&quot;Remove&quot; on your Hosting page) does not remove the connection at Meta. An approved host&apos;s
+        page needs one confirmed account, so to take away the last one, confirm another first or write to us.
       </p>
       <p className="mt-4 text-sm">
         When a host adds a picture to the diary of a project, we make our own copy of it, without the place, the camera or anything

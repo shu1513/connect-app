@@ -287,8 +287,9 @@ export default async function HostPage(props: PageProps<"/host">) {
                 Connect your Instagram
               </button>
               <p className="mt-1 text-sm opacity-70">
-                Log in at Meta and your Instagram account is confirmed at once, with no code. It works for Creator and Business
-                accounts. Meta will ask you to pick a business portfolio and the account to share. We never see your password.
+                Log in at Meta and share your Instagram account with us: it is then confirmed with no code. It works for Creator
+                and Business accounts. Meta will ask you to pick a business portfolio and the account to share; share only the
+                one for your page. We never see your password.
               </p>
             </form>
           )}
@@ -328,9 +329,11 @@ export default async function HostPage(props: PageProps<"/host">) {
                           The code works until <LocalTime iso={social.codeExpiresAt.toISOString()} />.
                           {automatic && social.network === "instagram" && " This works for Creator and Business accounts."}
                         </p>
-                        {instagramOn && social.network === "instagram" && <p className="mt-1 opacity-70">Or press &quot;Connect your Instagram&quot; above.</p>}
+
                       </>
                     )}
+                    {/* For an Instagram account that is not confirmed, in whatever state its code is: the other way. */}
+                    {instagramOn && social.network === "instagram" && !social.confirmedAt && <p className="mt-1 opacity-70">Or press &quot;Connect your Instagram&quot; above.</p>}
                     <div className="mt-2 flex gap-4">
                       {!social.confirmedAt && !expired && !bySignIn && (automatic || !social.claimedAt) && (
                         <form action={socialReady}>

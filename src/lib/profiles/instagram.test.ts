@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chooseAccount,
   INSTAGRAM_ACCOUNTS_ASKED,
@@ -122,6 +122,14 @@ describe("readAccountsAnswer", () => {
     expect(readAccountsAnswer(list(many))).toEqual({ kind: "failed", reason: "the list of accounts goes on" });
   });
 
+  it("a paging part that is damaged is a damaged answer, never taken for \"nothing follows\"", () => {
+    const one = [{ id: "11111", username: "jane" }];
+    for (const paging of ["damaged", ["next"], 5, true]) expect(readAccountsAnswer(list(one, paging))).toEqual(unreadable);
+    // Left out, empty, or with an empty "next": nothing follows.
+    for (const paging of [null, {}, { next: null }]) expect(readAccountsAnswer(list(one, paging)).kind).toBe("accounts");
+    expect(readAccountsAnswer(JSON.stringify({ data: one })).kind).toBe("accounts");
+  });
+
   it("one line that cannot be read makes the whole list unreadable: lines are never dropped", () => {
     const good = { id: "11111", username: "jane" };
     for (const bad of [{ username: "other" }, { id: "22222" }, { id: "", username: "other" }, { id: "22x22", username: "other" }, { id: "22222", username: "ot her" }, { id: "22222", username: "a".repeat(31) }, null, "22222"]) {
@@ -229,6 +237,37 @@ describe("instagramAccountsFor (with a pretended connection)", () => {
     const second = connection([key, null]);
     expect(await instagramAccountsFor("c", SETTINGS, second.send)).toEqual({ kind: "failed", reason: "no answer" });
     expect(second.sent).toHaveLength(2);
+  });
+
+  it("the real requests have a time limit, follow no redirect and are never answered from a store", async () => {
+    const calls: Array<{ url: string; options: RequestInit }> = [];
+    const answers = [key, accounts];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push({ url, options });
+      return new Response(answers.shift());
+    });
+    try {
+      expect((await instagramAccountsFor("the-code", SETTINGS)).kind).toBe("accounts");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.options.redirect).toBe("error");
+      expect(call.options.cache).toBe("no-store");
+      expect(call.options.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("a request that breaks (no connection, a redirect, too slow) is \"no answer\", never an error thrown on", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("fetch failed");
+    });
+    try {
+      expect(await instagramAccountsFor("the-code", SETTINGS)).toEqual({ kind: "failed", reason: "no answer" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("a list Meta would not give (the permission was not granted) is a failure", async () => {
