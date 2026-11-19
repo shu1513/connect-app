@@ -489,12 +489,18 @@ export async function syncPayment(paymentId: string, now: Date = new Date()): Pr
 }
 
 /**
- * The same look, also giving back what Stripe showed in the answer that was recorded (null when
- * Stripe was not asked). For a caller that has to decide something from that very answer: asking
- * Stripe a second time would be deciding from an answer that was never recorded.
+ * The same look, also giving back what Stripe showed in the answer that was recorded. For a caller
+ * that has to decide something from that very answer: asking Stripe a second time would be
+ * deciding from an answer that was never recorded.
+ *
+ *   a status       Stripe's answer, and it was recorded
+ *   "unrecorded"   Stripe was asked, and no answer could be recorded (the payment kept changing
+ *                  underneath the look): nothing is known, and nothing must be decided from this
+ *   null           Stripe was not asked: there is nothing at Stripe to ask about, or the payment
+ *                  is already in the books for good
  */
-async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: ContributionPayment; shown: Stripe.PaymentIntent.Status | null }> {
-  let shown: Stripe.PaymentIntent.Status | null = null;
+async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: ContributionPayment; shown: Stripe.PaymentIntent.Status | "unrecorded" | null }> {
+  let shown: Stripe.PaymentIntent.Status | "unrecorded" | null = null;
   // Stripe is asked outside the database step. If our payment moved on in between, what we read is old:
   // it is thrown away and Stripe is asked again.
   for (let round = 0; round < 3; round++) {
@@ -517,6 +523,7 @@ async function lookAndRecord(paymentId: string, now: Date): Promise<{ payment: C
         .where(and(eq(pays.id, paymentId), isNull(pays.problem), inArray(pays.status, ["to_pay", "held"])));
       return { payment: (await paymentById(paymentId))!, shown: null };
     }
+    shown = "unrecorded";
     let holdEndsAt = holdEndOf(chargeOf(intent));
     // When Stripe does not say when a hold ends, it is asked again. No date is ever assumed (plans/25, choice 10).
     if (intent.status === "requires_capture" && !holdEndsAt) {
@@ -795,7 +802,8 @@ async function missMonth(paymentId: string, now: Date): Promise<ContributionPaym
   // about to appear. Nothing is decided until it has one. (Giving it up now would cancel it, and a hold that was
   // let go cannot be brought back.) This is judged from the very answer that was just recorded: an answer that
   // shows a hold was accepted or refused by that look, and the step below then finds nothing left to give up.
-  if (looked.status === "to_pay" && open(looked) && shown === "processing") {
+  // The same goes for a look whose answer could not be recorded at all: nothing is known, so nothing is decided.
+  if (looked.status === "to_pay" && open(looked) && (shown === "processing" || shown === "unrecorded")) {
     // Looked at again in five minutes, so that such a payment never fills the helper's rounds. Nothing else about
     // it is changed: it stays an ordinary payment that is waiting, so every look at Stripe, and the collection's
     // own look before it counts, still record what becomes of it. If it waits like this for more than a day, the
