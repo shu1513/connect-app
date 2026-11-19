@@ -2,8 +2,9 @@
  * Testing tool: hosts outside the United States (plans/27-hosts-abroad.md), against Stripe's test
  * mode and this computer's test database. No real money moves.
  *
- * It only ever acts on its own records. It makes its own people (their ids start "ab-"), never
- * touches the test host host@test.local or its payout account, and never runs the always-on
+ * It only ever acts on its own records. It makes its own people (their ids start "ab-", their
+ * email is "abroadcheck-<run>-<number>@example.test"), never touches the test host
+ * host@test.local or its payout account, and never runs the always-on
  * helper's jobs, which act on every call and payment in the database: its calls are settled by the
  * function that settles one call, its contribution's money is taken by the function that takes one
  * payment, and its collections are its own hosts'.
@@ -22,18 +23,25 @@
  *              the browser check.
  *
  * At the end it removes what it made here, and at Stripe the test accounts and test customers it
- * opened. The accounts are found again by their email address (it starts "abroadcheck-"), so also
- * one whose id never came back, and those of an earlier run that was stopped. A test account that
- * could not be removed is a failed check. The test payments and transfers stay at Stripe as
- * history, as for every check script. Like the others it needs the test database to itself.
+ * opened. The accounts are found again by their email address (exactly the form above), so also
+ * one whose id never came back, and those of an earlier run that was stopped. What it made here
+ * is removed in one step, and only if everything at Stripe could be removed first: otherwise it
+ * all stays, the run fails, and the next run tries again. The test payments and transfers stay at
+ * Stripe as history, as for every check script, and so does a test customer whose id Stripe gave
+ * and that never got written down here. Like the others it needs the test database to itself.
  *
  * Usage: npx tsx scripts/abroad-check.ts
  *        npx tsx scripts/abroad-check.ts --setup-host=<email>
  *
  * The second form is for the one thing a script cannot do alone: a collection into an account
- * that payout setup itself opened. First a test host applies in the app from a country abroad,
- * presses "Set up payouts" and fills in Stripe's own form (in test mode, with Stripe's test
- * values). Then this form of the script makes one paid call for that host and collects it.
+ * that payout setup itself opened. First a fresh test host, made for this and with nothing else
+ * to their name, applies in the app from a country abroad, presses "Set up payouts" and fills in
+ * Stripe's own form (in test mode, with Stripe's test values). Then this form of the script makes
+ * one paid call for that host and collects it. The host, their profile and their account stay;
+ * the call, its share and its collection are removed again. It refuses the shared test host, and
+ * a host who already has calls, members, contributions or collections. (That the account was
+ * opened by payout setup is the host's doing in the app; the script can only see that it looks
+ * like one.)
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -82,8 +90,6 @@ async function main() {
   let made = 0;
   /** Every test account this run opened at Stripe, noted the moment its id is known. */
   const atStripe = new Set<string>();
-  /** Collections this run started for a host who is not one of its own people (--setup-host). */
-  const ownCollections: string[] = [];
   const setupHostEmail = process.argv.find((arg) => arg.startsWith("--setup-host="))?.slice("--setup-host=".length);
 
   async function person(kind: string): Promise<Person> {
@@ -224,23 +230,37 @@ async function main() {
   // --------------------------------------------------------------------------
   // Cleaning up: only this script's own people (ids starting "ab-"), and their accounts at Stripe
   // --------------------------------------------------------------------------
+  /** The email addresses this script gives its own people, and nothing else: "abroadcheck-", a run's eight letters, a number. */
+  const OWN_EMAIL = /^abroadcheck-[0-9a-f]{8}-\d+@example\.test$/;
   /** This script's test accounts at Stripe, found by their email: also one whose id never reached us, and those of a run that was stopped. */
   async function ownAccountsAtStripe(): Promise<string[]> {
     const found: string[] = [];
-    for await (const account of stripe().accounts.list({ limit: 100 })) if (account.email?.startsWith("abroadcheck-")) found.push(account.id);
+    for await (const account of stripe().accounts.list({ limit: 100 })) if (account.email && OWN_EMAIL.test(account.email)) found.push(account.id);
     return found;
   }
+  /**
+   * Removes what this script made: at Stripe its test accounts and test customers, here its people (ids starting
+   * "ab-") and all that hangs on them. Here it is one step: everything goes, or nothing does and the next run tries
+   * again. If something at Stripe could not be removed, nothing is removed here either, so that it can still be found.
+   */
   async function wipe() {
+    const failedBefore = failures;
     for (const id of new Set([...atStripe, ...(await ownAccountsAtStripe())])) await removeAtStripe(id);
     const ids = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, "ab-%"))).map((row) => row.id);
     if (ids.length === 0) {
-      await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%"));
+      await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%@example.test"));
       return;
     }
     // The test customers Stripe keeps for these people's cards. (Their payments stay at Stripe as history.)
     for (const row of await db.select({ id: schema.stripeCustomers.stripeCustomerId }).from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {
-      await stripe().customers.del(row.id).catch((error: unknown) => check(`clean-up: the test customer ${row.id} at Stripe could be removed`, false, String((error as Error).message)));
+      await stripe()
+        .customers.del(row.id)
+        .catch((error: unknown) => {
+          if (!/No such customer/i.test(String((error as Error).message))) check(`clean-up: the test customer ${row.id} at Stripe could be removed`, false, String((error as Error).message));
+        });
     }
+    if (failures > failedBefore) return check("clean-up: this script's lines here are kept, so that the next run can find what is left at Stripe", false);
+
     const contributionIds = (await db.select({ id: schema.contributions.id }).from(schema.contributions).where(or(inArray(schema.contributions.hostId, ids), inArray(schema.contributions.contributorId, ids)))).map((row) => row.id);
     const cpIds = contributionIds.length > 0 ? (await db.select({ id: pays.id }).from(pays).where(inArray(pays.contributionId, contributionIds))).map((row) => row.id) : [];
     const calls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)))).map((row) => row.id);
@@ -249,34 +269,55 @@ async function main() {
       ...(calls.length > 0 ? await db.select({ id: schema.payments.id }).from(schema.payments).where(inArray(schema.payments.callId, calls)) : []),
     ].map((row) => row.id);
     const projectIds = (await db.select({ id: schema.projects.id }).from(schema.projects).where(inArray(schema.projects.hostId, ids))).map((row) => row.id);
-    const steps: Array<() => Promise<unknown>> = [
-      () => db.delete(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, db.select({ id: schema.collections.id }).from(schema.collections).where(inArray(schema.collections.hostId, ids)))),
-      () => db.delete(schema.collections).where(inArray(schema.collections.hostId, ids)),
-      // (A collection of the host of --setup-host, who is not one of this script's people: only the collections this run made for them.)
-      async () => ownCollections.length > 0 && (await db.delete(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, ownCollections))),
-      async () => ownCollections.length > 0 && (await db.delete(schema.collections).where(inArray(schema.collections.id, ownCollections))),
-      async () => shares.length > 0 && (await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.paymentId, shares))),
-      async () => shares.length > 0 && (await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.paymentId, shares))),
-      async () => shares.length > 0 && (await db.delete(schema.payments).where(inArray(schema.payments.id, shares))),
-      async () => cpIds.length > 0 && (await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.contributionPaymentId, cpIds))),
-      async () => cpIds.length > 0 && (await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.contributionPaymentId, cpIds))),
-      async () => cpIds.length > 0 && (await db.delete(schema.contributionRefunds).where(inArray(schema.contributionRefunds.contributionPaymentId, cpIds))),
-      async () => cpIds.length > 0 && (await db.delete(pays).where(inArray(pays.id, cpIds))),
-      async () => contributionIds.length > 0 && (await db.delete(schema.contributionCards).where(inArray(schema.contributionCards.contributionId, contributionIds))),
-      async () => contributionIds.length > 0 && (await db.delete(schema.contributionAgreements).where(inArray(schema.contributionAgreements.contributionId, contributionIds))),
-      async () => contributionIds.length > 0 && (await db.delete(schema.contributions).where(inArray(schema.contributions.id, contributionIds))),
-      async () => calls.length > 0 && (await db.delete(schema.attendanceEvents).where(inArray(schema.attendanceEvents.callId, calls))),
-      async () => calls.length > 0 && (await db.delete(schema.calls).where(inArray(schema.calls.id, calls))),
-      async () => projectIds.length > 0 && (await db.delete(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds))),
-      () => db.delete(schema.projects).where(inArray(schema.projects.hostId, ids)),
-      () => db.delete(schema.hostSettings).where(inArray(schema.hostSettings.userId, ids)),
-      () => db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids)),
-      () => db.delete(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids)),
-      () => db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%")),
-      () => db.delete(schema.user).where(inArray(schema.user.id, ids)),
+    // The collections these shares went out in: those of this script's own hosts, and (after --setup-host) one of a host
+    // who is not one of its people. Such a collection is only removed if every share in it is one of this script's.
+    const collectionIds = [
+      ...new Set([
+        ...(await db.select({ id: schema.collections.id }).from(schema.collections).where(inArray(schema.collections.hostId, ids))).map((row) => row.id),
+        ...(shares.length > 0 ? await db.select({ id: schema.collectionItems.collectionId }).from(schema.collectionItems).where(inArray(schema.collectionItems.paymentId, shares)) : []).map((row) => row.id),
+      ]),
     ];
-    for (const step of steps) await step().catch((error) => check("clean-up: each step could remove what it is for", false, error instanceof Error ? error.message.split("\n")[0] : String(error)));
+    const foreign = collectionIds.length > 0 ? (await db.select({ paymentId: schema.collectionItems.paymentId }).from(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, collectionIds))).filter((item) => !shares.includes(item.paymentId)) : [];
+    if (foreign.length > 0) return check("clean-up: a collection this script made holds only its own shares", false, `${foreign.length} share(s) of someone else are in it; nothing was removed here`);
+
+    await db.transaction(async (tx) => {
+      if (collectionIds.length > 0) {
+        await tx.delete(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, collectionIds));
+        await tx.delete(schema.collections).where(inArray(schema.collections.id, collectionIds));
+      }
+      if (shares.length > 0) {
+        await tx.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.paymentId, shares));
+        await tx.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.paymentId, shares));
+        await tx.delete(schema.payments).where(inArray(schema.payments.id, shares));
+      }
+      if (cpIds.length > 0) {
+        await tx.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.contributionPaymentId, cpIds));
+        await tx.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.contributionPaymentId, cpIds));
+        await tx.delete(schema.contributionRefunds).where(inArray(schema.contributionRefunds.contributionPaymentId, cpIds));
+        await tx.delete(pays).where(inArray(pays.id, cpIds));
+      }
+      if (contributionIds.length > 0) {
+        await tx.delete(schema.contributionCards).where(inArray(schema.contributionCards.contributionId, contributionIds));
+        await tx.delete(schema.contributionAgreements).where(inArray(schema.contributionAgreements.contributionId, contributionIds));
+        await tx.delete(schema.contributions).where(inArray(schema.contributions.id, contributionIds));
+      }
+      if (calls.length > 0) {
+        await tx.delete(schema.attendanceEvents).where(inArray(schema.attendanceEvents.callId, calls));
+        await tx.delete(schema.calls).where(inArray(schema.calls.id, calls));
+      }
+      if (projectIds.length > 0) await tx.delete(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds));
+      await tx.delete(schema.projects).where(inArray(schema.projects.hostId, ids));
+      await tx.delete(schema.hostSettings).where(inArray(schema.hostSettings.userId, ids));
+      await tx.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
+      await tx.delete(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids));
+      await tx.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "abroadcheck-%@example.test"));
+      await tx.delete(schema.user).where(inArray(schema.user.id, ids));
+    });
   }
+
+  // The host of --setup-host is looked at before anything is cleaned up, and must be a fresh one of its own.
+  if (process.argv.some((arg) => arg === "--setup-host" || arg === "--setup-host=")) throw new Error("--setup-host needs the host's email: --setup-host=<email>.");
+  if (setupHostEmail && (OWN_EMAIL.test(setupHostEmail) || setupHostEmail === "host@test.local")) throw new Error("--setup-host is for a fresh test host made for this one check: not the shared test host, and not one of this script's own addresses.");
 
   await wipe();
   try {
@@ -287,16 +328,25 @@ async function main() {
       const [profile] = host ? await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id)) : [];
       const accountId = host ? await linkOf(host) : null;
       if (!host || !profile || !accountId) throw new Error("That person has no host profile with a payout account. Apply as a host in the app and finish \"Set up payouts\" first.");
+      // Only a host with nothing else to their name: "Collect earnings" sends everything of a host that is ready, and
+      // this check must send, and afterwards remove, its own call's share and nothing of anyone else's.
+      const [{ n: theirCalls }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.calls).where(eq(schema.calls.hostId, host.id));
+      const [{ n: theirCollections }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.collections).where(eq(schema.collections.hostId, host.id));
+      const [{ n: theirMembers }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.memberships).where(eq(schema.memberships.hostId, host.id));
+      const [{ n: theirContributions }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.contributions).where(eq(schema.contributions.hostId, host.id));
+      if (theirCalls + theirCollections + theirMembers + theirContributions > 0) throw new Error("That host already has calls, members, contributions or collections. This check needs a fresh host made for it, so that it collects and removes only its own call.");
       const seen = await seenAtStripe(accountId);
       const abroad = profile.country !== "US";
-      check(`the account payout setup opened is in ${profile.country}, the profile's country, and ${abroad ? "also asks for card payments" : "only receives transfers"}`, seen.country === profile.country && seen.configurations === (abroad ? "merchant,recipient" : "recipient"), seen);
-      check("its host finished Stripe's form: the host counts as ready", (await refreshPayoutsReady(host.id)) === true);
+      const asSetupOpensIt = seen.country === profile.country && seen.configurations === (abroad ? "merchant,recipient" : "recipient");
+      check(`the account is in ${profile.country}, the profile's country, and ${abroad ? "also asks for card payments" : "only receives transfers"}, as payout setup opens it`, asSetupOpensIt, seen);
+      const ready = await refreshPayoutsReady(host.id);
+      check("its host finished Stripe's form: the host counts as ready", ready);
+      if (!asSetupOpensIt || !ready) throw new Error("The host's payout account is not ready or not as payout setup opens it, so no call is made and nothing is collected.");
       const share = await chargedCall(host, await person("customer"));
-      const collectionId = randomUUID();
-      ownCollections.push(collectionId);
-      const pressed = await collectEarnings({ collectionId, hostId: host.id, startedBy: host.id, now: new Date(share.transferDueAt!.getTime() + MIN) }).then(() => null, (error: unknown) => error as Error);
+      const pressed = await collectEarnings({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now: new Date(share.transferDueAt!.getTime() + MIN) }).then(() => null, (error: unknown) => error as Error);
       const sent = await reload(share.id);
-      check("\"Collect earnings\" is accepted, and in our books the call's share is sent", pressed === null && sent.transferStatus === "sent" && (sent.transferCents ?? 0) > 0 && (await ledger(sent.id, "host_transfer")) === -(sent.transferCents ?? 0), `${pressed?.message} ${sent.transferStatus} ${sent.transferCents}`);
+      // A 10-minute call at $20.00 per 15 minutes: $13.33 charged, the host's share $12.38, less the 25-cent collection charge.
+      check("\"Collect earnings\" is accepted, and in our books the call's share is sent: $12.13 after the 25-cent collection charge", pressed === null && sent.transferStatus === "sent" && sent.transferCents === 1213 && sent.payoutFeeCents === 25 && (await ledger(sent.id, "host_transfer")) === -1213 && (await ledger(sent.id, "payout_fee")) === 25, `${pressed?.message} ${sent.transferStatus} ${sent.transferCents}`);
       const arrived = sent.stripeTransferId ? await sentAtStripe(sent, accountId) : null;
       const currency = (await stripe().accounts.retrieve(accountId)).default_currency;
       check("at Stripe it is a transfer in dollars, of the amount in our books, to that account, from the call's own charge", arrived?.transfer.currency === "usd" && arrived.transfer.amount === sent.transferCents && arrived.transfer.destination === accountId && arrived.transfer.source_transaction === sent.stripeChargeId, { amount: arrived?.transfer.amount });
