@@ -2186,7 +2186,7 @@ too.
   says which photo was showing.
 - **Closing an account** deletes its photo (not one that was removed and reported).
 - **Database:** two new tables, `host_photos` and `host_photo_tries` (migration
-  `0038_host_photos`).
+  `0039_host_photos`).
 - **Small:** the list of checking services, their turns and what an answer means for a service
   moved out of the diary's queue into `checks/services.ts`, so the photo uses the very same
   code; the queue behaves as before. The "one picture is opened at a time" place is now shared
@@ -2245,11 +2245,18 @@ copy. **That changed one rule:** when a host presses "Update" without a new pict
 service now flags it, their photo is taken down and they are told so (before, it would have
 stayed). Not taken: keeping a refusal when the database fails for both of its writes at that
 very moment, which would mean locking hosts out of their own picture for a fault of ours; the
-diary's queue has the same limit. Tried once more for real after it ("Update").
+diary's queue has the same limit. Tried once more for real after it ("Update"). Three more
+comments were in the body of the review (the founder pointed them out): that a browser which
+already has a photo may keep showing it for up to five minutes after the page is hidden
+(decided: accepted, as for a diary picture, and the plan says so now); that a service's "not
+now" can be written down a moment late (not taken: at worst five minutes' pause); and a tidy-up
+in a test (taken).
 
-**How it was checked:** 554 automatic tests (22 new); a check script of its own,
-`scripts/photo-check.ts`, 134 checks with Meta, its picture server and the checking services
-pretended; the real tries above; and every other check script once more.
+**How it was checked:** 565 automatic tests on the code with hosts abroad merged in (22 of them
+new here); a check script of its own, `scripts/photo-check.ts`, 134 checks with Meta, its
+picture server and the checking services pretended; the real tries above; and all 20 check
+scripts on the merged code. The database change is number 39 (`0039_host_photos`), after hosts
+abroad's.
 
 **Still open.** Part two, TikTok (the picture can only be had at a sign-in there, and TikTok's
 sign-in waits for TikTok's approval). Before the child-safety tool is switched on: host photos

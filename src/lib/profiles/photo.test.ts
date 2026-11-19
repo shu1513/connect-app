@@ -187,6 +187,8 @@ describe("readInstagramPhoto: how Meta's answer is read", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    // Also the stand-in for console.error, so a later test does not lose what is written there.
+    vi.restoreAllMocks();
   });
   const withSettings = () => {
     vi.stubEnv("INSTAGRAM_CHECK_TOKEN", "a-pretend-key");

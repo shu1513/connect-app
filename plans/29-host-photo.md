@@ -92,6 +92,12 @@ For three accounts, asked by name for `id`, `username` and `profile_picture_url`
    - A paused account: as its page. (Today a paused host's page stays open and the host is left
      out of the search results; the photo follows both.)
    - A closed account: the photo is deleted (rule 9).
+   - **Said plainly: "at once" means for every new request.** A browser that has already
+     fetched a photo from a page that was open may keep its own copy for up to five minutes. So
+     after a host hides their page, or the founder suspends it or removes the photo, that one
+     browser can still show the photo for up to five minutes. Nobody new gets it. This is the
+     same as for a diary picture, and it is accepted: the other choice is that no browser keeps
+     any photo, and every page that shows hosts fetches every photo again each time.
 7. **The founder can remove a host's photo,** on the admin page for people. The host sees that
    their photo is gone and can choose one again.
 8. **"Remove and report", as for a diary picture** (plan 23, "What the law asks"). For a photo
@@ -464,6 +470,16 @@ Five comments. Four taken, one not.
    finish looks for a refusal of this very copy before it writes; and a refusal takes down a
    photo that is this very copy (rule 4's exception). The copy is also sent to no further
    service once a refusal of it is known.
+Three more comments were in the body of the review, not on a line of code (the founder pointed
+them out):
+
+6. *A hidden page's photo can stay in a browser that already has it for up to five minutes.*
+   CodeRabbit asked for a decision. Decided: the delay is accepted, and rule 6 now says so.
+7. *A service's "not now" could be written down a moment late and start five minutes the service
+   did not need* (CodeRabbit's own label: a poor trade-off). Not taken: at worst a service sits
+   out five minutes, and the diary's queue writes its answers down the same way.
+8. *A test left a stand-in for the error log in place.* Tidied.
+
 5. *If the database cannot be reached for both writes of a refusal, the refusal is lost.* Not
    taken. It needs the database to fail at exactly that moment, twice, and then a service to
    answer differently about the same picture. Holding every picture whose answer could not be
