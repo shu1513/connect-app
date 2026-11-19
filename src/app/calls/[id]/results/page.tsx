@@ -24,6 +24,8 @@ import { requireUser } from "@/lib/session";
 import { myRating, ratingStateOf } from "@/lib/ratings/ratings";
 import { RATING } from "@/lib/ratings/rules";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { askAfterCall } from "@/lib/projects/ask";
+import { firstLines } from "@/lib/projects/rules";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { rateCallAction, refundAction } from "../actions";
 import { SitePage } from "@/components/site-page";
@@ -55,7 +57,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
 
   // Every payment of the call: its own, then one for each request for more time. Each is its own line.
   const payments = payment ? await paymentsOfCall(call.id) : [];
-  const [{ result, events, bookedSeconds }, people, refunds, extensions] = await Promise.all([
+  const [attendance, people, refunds, extensions] = await Promise.all([
     loadAttendance(call),
     db
       .select({ id: schema.user.id, name: schema.user.name })
@@ -66,6 +68,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
     db.select().from(schema.callExtensions).where(eq(schema.callExtensions.callId, call.id)).orderBy(asc(schema.callExtensions.createdAt)),
   ]);
+  const { result, events, bookedSeconds } = attendance;
   // For a call paid from a membership: money of it that is owed back to the member's card (what came back after the
   // member could no longer book from that month). Everything else that came back is membership time again.
   const memberPayments = payments.filter((p) => p.kind === "member_call").map((p) => p.id);
@@ -111,7 +114,11 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   if (hostProfile) nameOf.set(call.hostId, hostProfile.displayName);
   // For a customer, the way back to the host's page: only while that page can really be opened
   // (approved, not hidden, account open), and never across a block in either direction.
-  const bookAgain = hostProfile && (await publicProfile(hostProfile.handle)) && !(await isBlockedEitherWay(user.id, call.hostId)) ? `/h/${hostProfile.handle}` : null;
+  const openPage = hostProfile ? await publicProfile(hostProfile.handle) : null;
+  const bookAgain = hostProfile && openPage && !(await isBlockedEitherWay(user.id, call.hostId)) ? `/h/${hostProfile.handle}` : null;
+  // The host's project, for a customer after a call that took place (plans/23, "After a call"). Asked of its own
+  // function, which asks more than "Book another call" does. Only read: showing the box writes nothing.
+  const ask = await askAfterCall({ role, call, attendance, hostPage: openPage });
   // Rating: for the two people on the call only. Each sees their own rating, never the other's.
   const otherName = role === "admin" ? "" : (nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
   const rating = role === "admin" ? null : { state: await ratingStateOf(call, new Date()), mine: await myRating(call.id, user.id) };
@@ -190,6 +197,20 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           ) : (
             <p className="opacity-80">You can rate this call a few minutes after its booked end, once its record is final. Refresh this page then.</p>
           )}
+        </section>
+      )}
+
+      {ask && (
+        <section className="mt-4 rounded border border-neutral-400 p-4 text-sm" data-project-ask>
+          <h2 className="text-base font-semibold">
+            {ask.hostName} is working on {ask.project.name}
+          </h2>
+          {ask.project.description && <p className="mt-1 opacity-80">{firstLines(ask.project.description, 200)}</p>}
+          <p className="mt-2">
+            <Link href={ask.href} className="inline-flex min-h-11 items-center underline underline-offset-2">
+              See the project
+            </Link>
+          </p>
         </section>
       )}
 

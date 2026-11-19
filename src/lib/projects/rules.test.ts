@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstLines, linksOf, linksToText, PROJECT, ProjectError, projectProblem, readPost, tidyName, tidyText, youtubeLink } from "./rules";
+import { type AskFacts, firstLines, linksOf, linksToText, mayAsk, PROJECT, ProjectError, projectProblem, readPost, tidyName, tidyText, youtubeLink } from "./rules";
 
 const VIDEO = "dQw4w9WgXcQ";
 
@@ -142,5 +142,52 @@ describe("the first lines of a text", () => {
     expect(cut.length).toBeLessThanOrEqual(21);
     expect(cut.endsWith("…")).toBe(true);
     expect(cut).toBe("one two three four…");
+  });
+});
+
+describe("the box after a call", () => {
+  // A customer after a call that took place, with a host whose project they could contribute to and do not yet.
+  const all: AskFacts = {
+    role: "customer",
+    cancelled: false,
+    safetyEnded: false,
+    recordFinal: true,
+    togetherSeconds: 600,
+    reported: false,
+    blocked: false,
+    refundAsked: false,
+    projectShown: true,
+    mayContribute: true,
+    alreadyContributes: false,
+  };
+  it("is shown when every condition holds", () => {
+    expect(mayAsk(all)).toBe(true);
+    // One second together is a call that took place.
+    expect(mayAsk({ ...all, togetherSeconds: 1 })).toBe(true);
+  });
+  it("is never shown to the host or to the founder", () => {
+    expect(mayAsk({ ...all, role: "host" })).toBe(false);
+    expect(mayAsk({ ...all, role: "admin" })).toBe(false);
+  });
+  it("is not shown for a call that did not take place", () => {
+    expect(mayAsk({ ...all, cancelled: true })).toBe(false);
+    expect(mayAsk({ ...all, togetherSeconds: 0 })).toBe(false);
+    expect(mayAsk({ ...all, togetherSeconds: null })).toBe(false);
+  });
+  it("waits for the call's record to be final, and is not shown for a record that needs review", () => {
+    expect(mayAsk({ ...all, recordFinal: false })).toBe(false);
+  });
+  it("is not shown after End call and report, a report, a block or a refund request", () => {
+    expect(mayAsk({ ...all, safetyEnded: true })).toBe(false);
+    expect(mayAsk({ ...all, reported: true })).toBe(false);
+    expect(mayAsk({ ...all, blocked: true })).toBe(false);
+    expect(mayAsk({ ...all, refundAsked: true })).toBe(false);
+  });
+  it("is not shown without a project the customer could contribute to", () => {
+    expect(mayAsk({ ...all, projectShown: false })).toBe(false);
+    expect(mayAsk({ ...all, mayContribute: false })).toBe(false);
+  });
+  it("is not shown to someone who already contributes", () => {
+    expect(mayAsk({ ...all, alreadyContributes: true })).toBe(false);
   });
 });
