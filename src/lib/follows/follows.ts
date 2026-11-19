@@ -292,8 +292,9 @@ export async function followAfterCalls(now: Date, onlyCalls?: string[]): Promise
  * For the results page of a call: whether the automatic follow is still to be decided for it,
  * and could be a yes as far as the call itself goes. Only then is "Don't follow" offered.
  */
-export function followStillToCome(call: { followCheckedAt: Date | null; cancelledAt: Date | null; safetyEndedAt: Date | null; endsAt: Date }, source: string | null, now: Date): boolean {
-  if (call.followCheckedAt || call.cancelledAt || call.safetyEndedAt) return false;
+export function followStillToCome(call: { followCheckedAt: Date | null; cancelledAt: Date | null; safetyEndedAt: Date | null; startsAt: Date; endsAt: Date }, source: string | null, now: Date): boolean {
+  // Not before the call has begun: there is nothing to say no to yet.
+  if (call.followCheckedAt || call.cancelledAt || call.safetyEndedAt || call.startsAt > now) return false;
   if (source !== "customer" && source !== "now" && source !== "member") return false;
   return call.endsAt.getTime() > now.getTime() - FOLLOW.lookBackDays * DAY;
 }

@@ -392,9 +392,9 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log("\n6. The results page's question");
     {
-      const base = { followCheckedAt: null, cancelledAt: null, safetyEndedAt: null, endsAt: new Date(now.getTime() - 5 * MINUTE) };
+      const base = { followCheckedAt: null, cancelledAt: null, safetyEndedAt: null, startsAt: new Date(now.getTime() - 35 * MINUTE), endsAt: new Date(now.getTime() - 5 * MINUTE) };
       check("'Don't follow' is offered while the decision is still to come", F.followStillToCome(base, "customer", now) && F.followStillToCome(base, "now", now) && F.followStillToCome(base, "member", now));
-      check("not once it is decided, for a call that cannot lead to a follow, or for an old one", !F.followStillToCome({ ...base, followCheckedAt: now }, "customer", now) && !F.followStillToCome({ ...base, cancelledAt: now }, "customer", now) && !F.followStillToCome({ ...base, safetyEndedAt: now }, "customer", now) && !F.followStillToCome(base, "admin", now) && !F.followStillToCome({ ...base, endsAt: new Date(now.getTime() - 8 * DAY) }, "customer", now));
+      check("not once it is decided, for a call that cannot lead to a follow, or for an old one", !F.followStillToCome({ ...base, followCheckedAt: now }, "customer", now) && !F.followStillToCome({ ...base, cancelledAt: now }, "customer", now) && !F.followStillToCome({ ...base, safetyEndedAt: now }, "customer", now) && !F.followStillToCome(base, "admin", now) && !F.followStillToCome({ ...base, startsAt: new Date(now.getTime() + MINUTE), endsAt: new Date(now.getTime() + 31 * MINUTE) }, "customer", now) && !F.followStillToCome({ ...base, endsAt: new Date(now.getTime() - 8 * DAY) }, "customer", now));
     }
 
     // ----------------------------------------------------------------------
