@@ -18,7 +18,7 @@ type AccountView = {
   id: string;
   identity?: { country?: string | null } | null;
   configuration?: {
-    recipient?: { capabilities?: { stripe_balance?: { stripe_transfers?: { status?: string } } } } | null;
+    recipient?: { capabilities?: { stripe_balance?: { stripe_transfers?: { status?: string }; payouts?: { status?: string } } } } | null;
   } | null;
 };
 
@@ -58,7 +58,7 @@ async function accountCountry(accountId: string): Promise<string | null> {
 function publicSiteAddress(): string | null {
   try {
     const url = new URL(publicAppUrl());
-    return url.protocol === "https:" && url.hostname !== "localhost" ? url.origin : null;
+    return url.protocol === "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ? url.origin : null;
   } catch {
     return null;
   }
@@ -118,6 +118,11 @@ export async function payoutSetupLink(accountId: string, urls: { returnUrl: stri
  * Asks Stripe whether the host's account can receive money, and records the
  * answer. Coming back from Stripe's form proves nothing; this does.
  *
+ * Stripe must say two things: that the account can receive our transfers, and that it can pay its
+ * balance out to the host's bank. The first alone is not enough: in Stripe's test mode an account
+ * with a checked person and no bank account had the first and not the second, and money sent to
+ * it would have stayed at Stripe.
+ *
  * An account in another country than the host's profile is never ready, whatever Stripe says
  * about it: money sent there would go to the wrong place or be refused. (A payout account with
  * no host profile beside it has no country to compare with, and is judged by Stripe's answer.)
@@ -131,7 +136,8 @@ export async function refreshPayoutsReady(userId: string): Promise<boolean> {
   const country = await profileCountry(userId);
   const rightCountry = country === null || account.identity?.country?.toUpperCase() === country;
   if (!rightCountry) console.error(`[payments] the payout account of ${userId} is not in ${country}, the country of their host profile. They are not ready to be paid.`);
-  const ready = rightCountry && account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status === "active";
+  const balance = account.configuration?.recipient?.capabilities?.stripe_balance;
+  const ready = rightCountry && balance?.stripe_transfers?.status === "active" && balance?.payouts?.status === "active";
   await db
     .update(schema.hostSettings)
     .set({ payoutsReady: ready, payoutsCheckedAt: new Date(), updatedAt: new Date() })

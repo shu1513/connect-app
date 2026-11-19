@@ -111,8 +111,11 @@ be paid. Four things keep the rule:
 3. **Before an account is used or kept, Stripe is asked for its country.** When payout setup is
    started with an account that already exists, and after a new one is opened, its country at
    Stripe must be the profile's. If it is not, nothing is saved or linked, the person is told to
-   write to support, and it is logged. The same label is sent to Stripe for a host as today
-   (`host-account:<their id>`), so pressing twice still opens one account. A new account's id is
+   write to support, and it is logged. The label sent to Stripe for a US host is today's
+   (`host-account:<their id>`); for a host abroad it also names the country
+   (`host-account:<their id>:GB`). A profile's country never changes, so pressing twice still
+   opens one account, and a US account that was once opened under the plain label and never
+   saved cannot block the right one (CodeRabbit's point). A new account's id is
    saved only if none was saved meanwhile, in one step; otherwise the one that was saved is
    used, after the same question to Stripe.
 4. **"Can be paid" also asks it.** `refreshPayoutsReady` already asks Stripe about the account
@@ -123,6 +126,11 @@ be paid. Four things keep the rule:
    ready" like any other no. (A payout account with no profile beside it has nothing to be
    compared with and is judged as today: the check scripts make such accounts, and so did a
    person who pressed the button before applying.)
+
+   Since CodeRabbit's review "ready" also needs Stripe to say the account can pay its balance
+   out to the host's bank, not only that it can receive our transfers. In Stripe's test mode an
+   account with a checked person and no bank account could receive our transfers and could not
+   pay a bank, in the United States and in the UK. This holds for US hosts as well.
 
 What the rule does not do: it does not remove an account at Stripe that was opened and never
 linked (it holds nothing and is never paid), and it does not look again at a collection that
@@ -223,6 +231,10 @@ Small steps, each checked before the next:
   address (so one whose id never came back, and those of a run that was stopped, are removed
   too), each is removed even if another could not be, and one that could not be removed is a
   failed check, with its id. The test customers go too; test payments stay at Stripe as history.
+  What is to be removed here is worked out before anything is removed at Stripe. It needs the
+  test database and the Stripe test account to itself (a run on a second database with the same
+  Stripe test key would remove the first run's accounts), and projects switched on for every
+  host: the host who gets a contribution is made by the run.
   **It only ever acts on its own records.** It never runs the helper's jobs, which act on every
   call and payment in the database: its call is settled by the function that settles one call
   (`settleOrdinaryCharges`), its contribution's money is taken by the function that takes one
@@ -235,10 +247,12 @@ Small steps, each checked before the next:
      the UK and whose linked account is a US one is refused at setup, counts as not ready, and
      cannot collect; this is shown with a US account Stripe has activated, which counts as ready
      beside a US profile, so that the country is the only difference. An account whose country
-     Stripe's answer does not name is not ready either. Two setups started at the same moment leave one account. And an account
-     that was opened at Stripe for the United States and never saved, for someone who then
-     applies from the UK: whatever Stripe answers to the second request, no US account is
-     linked.
+     Stripe's answer does not name is not ready either. Nor is an account that Stripe would send
+     our transfers to and that has no bank account. Two setups started at the same moment leave
+     one account: one saved beside the host, and one in Stripe's own list for that person. And
+     an account that was opened at Stripe for the United States and never saved, for someone
+     who then applies from the UK: they get their own account in the UK, and the US one is
+     never linked.
   3. **A real collection, for the UK, Germany, Switzerland and Canada.** A test host there gets
      a test account that Stripe has activated (its details are Stripe's own test values; the
      account is written beside the host as payout setup would). The account that payout setup
@@ -368,3 +382,8 @@ Nothing here changes a rule.
 - **Checked:** 43 checks of the new script, all 18 earlier scripts, and the browser check with
   Stripe's own test form for a host in the United Kingdom, ending in a collection that arrived
   in pounds.
+- **After CodeRabbit's review** (two of these change what the app does): a host is "ready" only
+  when Stripe says the account can also pay the host's bank (rule 4); the label sent to Stripe
+  for a host abroad names the country (rule 3); Connect's address is not handed to Stripe when
+  it is this computer's own (`127.0.0.1`, `[::1]`, as `localhost` already was). The check script
+  has two more checks, 45 in all.

@@ -30,7 +30,11 @@
  * is removed in one step, and only if everything at Stripe could be removed first: otherwise it
  * all stays, the run fails, and the next run tries again. The test payments and transfers stay at
  * Stripe as history, as for every check script, and so does a test customer whose id Stripe gave
- * and that never got written down here. Like the others it needs the test database to itself.
+ * and that never got written down here. Like the others it needs the test database to itself, and
+ * the Stripe test account too: its accounts there are found by their email address, so a run on
+ * another database with the same Stripe test key would remove the accounts of a run that is still
+ * going here. Projects must be switched on for every host (the founder's switch, "everyone"): the
+ * UK host's contribution needs it, and the host is made by the run, so naming hosts is not enough.
  *
  * Usage: npx tsx scripts/abroad-check.ts
  *        npx tsx scripts/abroad-check.ts --setup-host=<email>
@@ -124,6 +128,12 @@ async function main() {
     return { country: account.identity?.country?.toUpperCase() ?? null, configurations: [...(account.applied_configurations ?? [])].sort().join(",") };
   };
   const linkOf = async (who: Person) => (await getHostSettings(who.id)).stripeAccountId;
+  /** The test accounts Stripe lists whose email address is one of these. */
+  async function accountsAtStripe(wanted: (email: string) => boolean): Promise<string[]> {
+    const found: string[] = [];
+    for await (const account of stripe().accounts.list({ limit: 100 })) if (account.email && wanted(account.email)) found.push(account.id);
+    return found;
+  }
   /** Removes a test account at Stripe. One that cannot be removed is a failed check, with its id. */
   async function removeAtStripe(accountId: string) {
     await stripe()
@@ -144,9 +154,10 @@ async function main() {
    * difference: no Stripe dashboard goes with it, because only then may a script fill in what the host would type
    * on Stripe's form. Those details are Stripe's own test values; the US one is also told what the business is,
    * which Stripe's form would ask a US host. In the runs so far Stripe took about a minute to check a UK one.
-   * Written beside the host as payout setup would write it.
+   * Written beside the host as payout setup would write it. Without a bank account (the last argument), Stripe
+   * is waited for only until it would accept our transfers: it can then not pay the host's bank.
    */
-  async function activatedAccount(host: Person, country: string): Promise<string> {
+  async function activatedAccount(host: Person, country: string, withBank = true): Promise<string> {
     const test = TEST_HOSTS[country];
     const account = (await stripe().v2.core.accounts.create({ ...payoutAccountRequest(host, country, "https://accessible.stripe.com").params, dashboard: "none" } as never)) as unknown as { id: string };
     atStripe.add(account.id);
@@ -163,15 +174,18 @@ async function main() {
         ...(test.extra ?? {}),
       },
       tos_acceptance: { date: Math.floor(Date.now() / 1000), ip: "8.8.8.8" },
-      external_account: { object: "bank_account", country, currency: test.currency, account_number: test.account_number, ...(test.routing_number ? { routing_number: test.routing_number } : {}) } as never,
+      ...(withBank ? { external_account: { object: "bank_account", country, currency: test.currency, account_number: test.account_number, ...(test.routing_number ? { routing_number: test.routing_number } : {}) } as never } : {}),
     });
-    let status: string | undefined;
-    for (let i = 0; i < 60 && status !== "active"; i++) {
+    let transfers: string | undefined;
+    let payouts: string | undefined;
+    for (let i = 0; i < 60 && !(transfers === "active" && (payouts === "active" || !withBank)); i++) {
       if (i > 0) await new Promise((resolve) => setTimeout(resolve, 4000));
-      const now = (await stripe().v2.core.accounts.retrieve(account.id, { include: ["configuration.recipient"] } as never)) as unknown as { configuration?: { recipient?: { capabilities?: { stripe_balance?: { stripe_transfers?: { status?: string } } } } } };
-      status = now.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status;
+      const now = (await stripe().v2.core.accounts.retrieve(account.id, { include: ["configuration.recipient"] } as never)) as unknown as { configuration?: { recipient?: { capabilities?: { stripe_balance?: { stripe_transfers?: { status?: string }; payouts?: { status?: string } } } } } };
+      transfers = now.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status;
+      payouts = now.configuration?.recipient?.capabilities?.stripe_balance?.payouts?.status;
     }
-    if (status !== "active") throw new Error(`Stripe did not activate the test account ${account.id} in ${country} within four minutes (it is "${status}"), so nothing can be shown with it.`);
+    if (transfers !== "active" || (withBank && payouts !== "active")) throw new Error(`Stripe did not activate the test account ${account.id} in ${country} within four minutes (transfers "${transfers}", payouts to the bank "${payouts}"), so nothing can be shown with it.`);
+    if (!withBank && payouts === "active") throw new Error(`Stripe says the test account ${account.id} can pay a bank although it was given none, so the check that needs such an account cannot be made.`);
     await db.insert(schema.hostSettings).values({ userId: host.id }).onConflictDoNothing();
     await db.update(schema.hostSettings).set({ stripeAccountId: account.id }).where(eq(schema.hostSettings.userId, host.id));
     return account.id;
@@ -237,11 +251,7 @@ async function main() {
   /** The same form, as the database is asked for it: emails to this script's own people, and to nobody whose address merely begins alike. */
   const ownEmailRows = sql`${schema.emailOutbox.to} ~ '^abroadcheck-[0-9a-f]{8}-[0-9]+@example[.]test$'`;
   /** This script's test accounts at Stripe, found by their email: also one whose id never reached us, and those of a run that was stopped. */
-  async function ownAccountsAtStripe(): Promise<string[]> {
-    const found: string[] = [];
-    for await (const account of stripe().accounts.list({ limit: 100 })) if (account.email && OWN_EMAIL.test(account.email)) found.push(account.id);
-    return found;
-  }
+  const ownAccountsAtStripe = () => accountsAtStripe((email) => OWN_EMAIL.test(email));
   /**
    * Removes what this script made: at Stripe its test accounts and test customers, here its people (ids starting
    * "ab-") and all that hangs on them. Here it is one step: everything goes, or nothing does and the next run tries
@@ -254,22 +264,8 @@ async function main() {
       check("clean-up: this script's lines here are kept, so that the next run can find what is left", false);
       return false;
     };
-    for (const id of new Set([...atStripe, ...(await ownAccountsAtStripe())])) await removeAtStripe(id);
     const ids = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.id, "ab-%"))).map((row) => row.id);
-    // The test customers Stripe keeps for these people's cards. (Their payments stay at Stripe as history.)
-    for (const row of await db.select({ id: schema.stripeCustomers.stripeCustomerId }).from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {
-      await stripe()
-        .customers.del(row.id)
-        .catch((error: unknown) => {
-          if (!/No such customer/i.test(String((error as Error).message))) check(`clean-up: the test customer ${row.id} at Stripe could be removed`, false, String((error as Error).message));
-        });
-    }
-    if (failures > failedBefore) return kept();
-    if (ids.length === 0) {
-      await db.delete(schema.emailOutbox).where(ownEmailRows);
-      return true;
-    }
-
+    // What is to be removed here is worked out, and looked at, before anything is removed anywhere.
     const contributionIds = (await db.select({ id: schema.contributions.id }).from(schema.contributions).where(or(inArray(schema.contributions.hostId, ids), inArray(schema.contributions.contributorId, ids)))).map((row) => row.id);
     const cpIds = contributionIds.length > 0 ? (await db.select({ id: pays.id }).from(pays).where(inArray(pays.contributionId, contributionIds))).map((row) => row.id) : [];
     const calls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)))).map((row) => row.id);
@@ -290,6 +286,21 @@ async function main() {
     if (foreign.length > 0) {
       check("clean-up: a collection this script made holds only its own shares", false, `${foreign.length} share(s) of someone else are in it`);
       return kept();
+    }
+
+    for (const id of new Set([...atStripe, ...(await ownAccountsAtStripe())])) await removeAtStripe(id);
+    // The test customers Stripe keeps for these people's cards. (Their payments stay at Stripe as history.)
+    for (const row of await db.select({ id: schema.stripeCustomers.stripeCustomerId }).from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {
+      await stripe()
+        .customers.del(row.id)
+        .catch((error: unknown) => {
+          if (!/No such customer/i.test(String((error as Error).message))) check(`clean-up: the test customer ${row.id} at Stripe could be removed`, false, String((error as Error).message));
+        });
+    }
+    if (failures > failedBefore) return kept();
+    if (ids.length === 0) {
+      await db.delete(schema.emailOutbox).where(ownEmailRows);
+      return true;
     }
 
     await db.transaction(async (tx) => {
@@ -417,6 +428,11 @@ async function main() {
     await applyFrom(usFirst, "US");
     const activeUs = await activatedAccount(usFirst, "US");
     check("(a US account that Stripe has activated counts as ready beside a US profile)", (await refreshPayoutsReady(usFirst.id)) === true);
+    // The same kind of account with no bank account: Stripe would accept our transfers, and could not pay them out.
+    const noBank = await person("no-bank");
+    await applyFrom(noBank, "US");
+    await activatedAccount(noBank, "US", false);
+    check("an account Stripe would send our transfers to, but that has no bank account to pay out to, is not ready", (await refreshPayoutsReady(noBank.id)) === false);
     // When Stripe's answer does not say which country the account is in, the host is not ready either. (The script
     // takes the country out of one answer, as a broken answer would have it.)
     const accounts = stripe().v2.core.accounts;
@@ -445,6 +461,15 @@ async function main() {
     const opened = [...new Set(both.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])))];
     for (const id of opened) atStripe.add(id);
     check("two setups started at the same moment: every press that went through got the same account, and it is the one written beside the host", opened.length === 1 && (await linkOf(twice)) === opened[0], both.map((result) => (result.status === "fulfilled" ? result.value : String((result.reason as Error).message).slice(0, 120))));
+    // And at Stripe there is one account with this person's email, not a second one that nobody kept. (Stripe's list
+    // may take a moment to show a new account, so it is asked until it shows one, for half a minute at most.)
+    let theirs: string[] = [];
+    for (let i = 0; i < 10 && theirs.length === 0; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, 3000));
+      theirs = await accountsAtStripe((email) => email === twice.email);
+    }
+    for (const id of theirs) atStripe.add(id);
+    check("and Stripe has opened one account for them, not two", theirs.length === 1 && theirs[0] === opened[0], theirs);
 
     // An account that was opened at Stripe for the United States under this person's label and never saved; then they apply from the UK.
     const lost = await person("lost");
@@ -458,7 +483,7 @@ async function main() {
     );
     if (retried.id) atStripe.add(retried.id);
     const linked = await linkOf(lost);
-    check("after an account was opened for the United States and its id lost, applying from the UK never links the US account", linked !== orphan.id && (linked === null || (await seenAtStripe(linked)).country === "GB"), retried);
+    check("after an account was opened for the United States and its id lost, applying from the UK opens their own account in the UK, and the US one is never linked", retried.id !== null && linked === retried.id && linked !== orphan.id && (await seenAtStripe(linked)).country === "GB", retried);
 
     // ------------------------------------------------------------------------
     console.log("\n3. A real collection reaches a host abroad, in their own money");

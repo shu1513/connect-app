@@ -20,7 +20,7 @@ describe("what Stripe is asked for when a host's payout account is opened", () =
   });
   it("for a host abroad also asks for card payments, in their country, with what Stripe would otherwise ask them about a business", () => {
     const { params, idempotencyKey } = payoutAccountRequest(jo, "GB", "https://connect.example");
-    expect(idempotencyKey).toBe("host-account:user_1");
+    expect(idempotencyKey).toBe("host-account:user_1:GB");
     expect(params).toEqual({
       contact_email: "jo@example.test",
       display_name: "Jo Host",
@@ -41,7 +41,11 @@ describe("what Stripe is asked for when a host's payout account is opened", () =
     expect((params.defaults as { profile: Record<string, unknown> }).profile).toEqual({ product_description: "Private one-to-one video calls with fans, booked and paid for on Connect." });
     expect((params.identity as { country: string }).country).toBe("de");
   });
-  it("uses one label for a person whatever the country, so a second press opens no second account", () => {
-    expect(payoutAccountRequest(jo, "FR", null).idempotencyKey).toBe(payoutAccountRequest(jo, "US", null).idempotencyKey);
+  it("uses one label for a person in a country, so a second press opens no second account", () => {
+    expect(payoutAccountRequest(jo, "FR", null).idempotencyKey).toBe(payoutAccountRequest(jo, "FR", "https://connect.example").idempotencyKey);
+    expect(payoutAccountRequest(jo, "US", null).idempotencyKey).toBe(payoutAccountRequest(jo, "US", "https://connect.example").idempotencyKey);
+  });
+  it("gives a host abroad another label than the US one, so a US account opened earlier and never saved does not block theirs", () => {
+    expect(payoutAccountRequest(jo, "FR", null).idempotencyKey).not.toBe(payoutAccountRequest(jo, "US", null).idempotencyKey);
   });
 });

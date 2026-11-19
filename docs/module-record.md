@@ -2081,7 +2081,19 @@ product, not code.
   accounts side by side, and when one failed the clean-up could start while another was still
   being opened), and the new sentence on the Hosting page said "Stripe is still checking" in
   states where the app cannot know that. Both taken.
-- (CodeRabbit: see below, added after its review.)
+- CodeRabbit, seven points, six taken. The one that mattered: "ready" only asked Stripe whether
+  the account can receive our transfers, not whether it can pay the host's bank. Tried in
+  Stripe's test mode before it was taken: an account with a checked person and no bank account
+  had the first and not the second, in the US and in the UK, so a host who left Stripe's form
+  before the bank details could have counted as ready. Now both are needed, for US hosts too
+  (the shared test host's account has both). Also taken: the label sent to Stripe for a host
+  abroad names the country, so a US account opened earlier under the plain label and never
+  saved cannot block theirs for 30 days; Connect's address is not handed to Stripe when it is
+  `127.0.0.1` or `[::1]`; the check script counts the accounts in Stripe's own list after two
+  presses, works out what it will remove before it removes anything at Stripe, and says that
+  it needs projects switched on for every host. Not taken, written down instead: a way to tell
+  apart two local databases that share one Stripe test account. The script needs that account
+  to itself, as it needs the database.
 
 **What building changed** (also at the end of plan 27)
 - An account made the older way could not be read the newer way for minutes after it was made
@@ -2097,8 +2109,8 @@ product, not code.
 
 **How it was checked**
 - Unit tests of the list and of the request to Stripe (the US request compared field for field
-  with what it was): 542 tests pass in all.
-- `scripts/abroad-check.ts`, 43 checks against Stripe's test mode: Stripe opens the account in
+  with what it was): 543 tests pass in all.
+- `scripts/abroad-check.ts`, 45 checks against Stripe's test mode: Stripe opens the account in
   all 33 countries; the country rule in every way that was thought of; and a real collection of
   a paid test call for hosts in the UK, Germany, Switzerland, Canada and the United States,
   which arrived in pounds, euros, francs, Canadian dollars and dollars. For the UK host a
