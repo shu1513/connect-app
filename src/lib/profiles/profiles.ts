@@ -14,6 +14,7 @@ import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type Bi
 import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { chooseAccount, type SharedAccount } from "./instagram";
+import { dropPhotoIfSourceGone } from "./photo-steps";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
 import { tiktokSignInOn } from "./tiktok";
 
@@ -46,7 +47,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * the meantime cannot slip past. It is locked in the way that still lets other rows point at the
  * person (adding a social account does), which a full lock would make wait, and deadlock.
  */
-async function lockedProfile(tx: Tx, userId: string): Promise<{ closed: boolean; paused: boolean; profile: { status: string } | undefined }> {
+export async function lockedProfile(tx: Tx, userId: string): Promise<{ closed: boolean; paused: boolean; profile: { status: string } | undefined }> {
   const [person] = await tx
     .select({ closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt })
     .from(schema.user)
@@ -323,6 +324,8 @@ export async function addSocialName(userId: string, network: string, typed: stri
       .insert(schema.socialAccounts)
       .values({ userId, network, ...fresh })
       .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: fresh });
+    // A photo taken from the account that was confirmed here until now goes with it (plans/29).
+    await dropPhotoIfSourceGone(tx, userId);
   });
 }
 
@@ -385,6 +388,8 @@ async function writeConfirmed(tx: Tx, userId: string, network: "tiktok" | "insta
     .insert(schema.socialAccounts)
     .values({ userId, network, ...confirmed })
     .onConflictDoUpdate({ target: [schema.socialAccounts.userId, schema.socialAccounts.network], set: confirmed });
+  // If this is another account than the one the host's photo came from, the photo goes in this same step (plans/29).
+  await dropPhotoIfSourceGone(tx, userId);
 }
 
 export const NO_INSTAGRAM_SHARED = "Meta did not share an Instagram account with us. Nothing was changed. It must be a Creator or Business account.";
@@ -437,6 +442,8 @@ export async function noteRefusedSignIn(userId: string, network: "tiktok" | "ins
 
 /** The name, in the table of checks, of a sign-in at Meta that our own set-up made fail. An event's name, not a network. */
 export const INSTAGRAM_SIGN_IN = "instagram_sign_in";
+/** And of a request for a host's photo that Meta refused because of our own key or permission (plans/29). Never counted by the bio check's limits either. */
+export const INSTAGRAM_PHOTO = "instagram_photo";
 
 /** One person can have this many automatic checks in an hour, and no two for the same network closer together than this. */
 export const BIO_CHECKS_PER_HOUR = 10;
@@ -625,6 +632,8 @@ export async function removeSocialName(userId: string, id: string): Promise<void
     if (!mine) return;
     if (mine.confirmedAt) await keepOneConfirmed(tx, userId, profile);
     await tx.delete(schema.socialAccounts).where(and(eq(schema.socialAccounts.id, id), eq(schema.socialAccounts.userId, userId)));
+    // A photo taken from this account goes with it (plans/29).
+    await dropPhotoIfSourceGone(tx, userId);
   });
 }
 

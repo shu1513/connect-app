@@ -1,0 +1,47 @@
+/**
+ * The steps on a host's photo that other files need inside their own database step (plans/29):
+ * deleting it, stopping a try that is under way, and dropping it when the account it came from is
+ * no longer the host's confirmed account. This file imports neither profiles.ts nor photo.ts, so
+ * both can use it.
+ *
+ * A locked photo ("Remove and report") is never touched by anything here.
+ */
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { sameAccount } from "./photo-rules";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const photos = schema.hostPhotos;
+const tries = schema.hostPhotoTries;
+
+/** Deletes the host's photo, if they have one that is not locked. Says whether there was one. */
+export async function deletePhotoInStep(tx: Tx, userId: string): Promise<boolean> {
+  const gone = await tx.delete(photos).where(and(eq(photos.userId, userId), isNull(photos.lockedAt))).returning({ id: photos.id });
+  return gone.length > 0;
+}
+
+/** Stops every try of this host that is still running: whatever it brings back later is not written. */
+export async function stopTriesInStep(tx: Tx, userId: string, now: Date, why: string): Promise<void> {
+  await tx.update(tries).set({ result: "stopped", detail: why, endedAt: now }).where(and(eq(tries.userId, userId), isNull(tries.result)));
+}
+
+/**
+ * Called at the end of every step that changes a host's confirmed accounts, with the profile's
+ * lock held: typing another name, removing an account, and a sign-in that confirms one. If the
+ * photo's account is no longer the host's confirmed account on that network (`sameAccount`), the
+ * photo goes in this same step. A try that is under way needs nothing here: it compares the
+ * account itself before it writes.
+ */
+export async function dropPhotoIfSourceGone(tx: Tx, userId: string): Promise<void> {
+  const [photo] = await tx
+    .select({ network: photos.network, sourceNameKey: photos.sourceNameKey, sourceAccountId: photos.sourceAccountId })
+    .from(photos)
+    .where(and(eq(photos.userId, userId), isNull(photos.lockedAt)));
+  if (!photo) return;
+  const [entry] = await tx
+    .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
+    .from(schema.socialAccounts)
+    .where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, photo.network), isNotNull(schema.socialAccounts.confirmedAt)));
+  if (!sameAccount(photo, entry ?? null)) await deletePhotoInStep(tx, userId);
+}
