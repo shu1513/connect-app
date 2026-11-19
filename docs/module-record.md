@@ -1880,7 +1880,7 @@ pages. With this step part two is complete.
   Stripe names no longest time for a card payment that is still being worked on.
 - The box after a call is part three.
 
-## Projects, part three: the ask after a call, and the whole journey (pull request PRNUM, 19 November 2026)
+## Projects, part three: the ask after a call, and the whole journey (pull request 47, 19 November 2026)
 
 **What it is.** The last of the five steps of projects (`plans/26-projects-part-3-the-ask.md`):
 the two places where a customer meets a host's project without looking for it, and the check
@@ -1912,6 +1912,24 @@ built. It adds no table, no money rule and no email.
 - The "Your earnings" part of the Hosting page is drawn only for a host with a payout account.
   The journey's host borrows one for the collecting step alone, so outside that step the script
   reads her earnings from the function that part is drawn from.
+
+**What the reviewers found**
+- Astra, three rounds on the code, the last one "ready to open a pull request". Its first review had two points that had to be fixed.
+  "Finish contributing" could lead to a card step whose 30 minutes were over, with nothing left
+  to finish: the line is now shown only while that step can be finished. And a payment that was
+  cancelled at Stripe itself (in Stripe's own pages, not by Connect) just after its hold was
+  placed lost the note that a hold had been there, so its contributor would not have been told
+  "nothing was charged" and could have been asked again after a call: that note is now kept,
+  as it already was on every other way a hold can end. That second point is in the money code
+  of part two, found because this part reads "was ever held".
+- The rest was about the journey script, and all of it was taken except two things: checks
+  that would have passed on a page that failed to open, a founder's login that fails being
+  skipped instead of failing, the collecting step described as a button press, amounts and
+  reasons that were only roughly checked, and a clean-up that could leave a hold at Stripe.
+  Not done: marking the founder's record lines of a run that was stopped (it would change the
+  app for the sake of a test), and making the script safe beside other work on the same test
+  database (like the other check scripts, it needs the database to itself).
+- Astra asked for nothing to be removed.
 
 **How it was checked**
 - The unit tests of the rule: every condition failing alone, and all of them true.
