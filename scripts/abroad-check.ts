@@ -63,12 +63,13 @@ function check(label: string, ok: boolean, detail: unknown = "") {
 }
 
 /** Stripe's own test values for an activated account of a person in each country the collections are tried in. */
-const TEST_HOSTS: Record<string, { currency: string; account_number: string; routing_number?: string; city: string; postal_code: string; state?: string; phone: string; extra?: Record<string, string> }> = {
+const TEST_HOSTS: Record<string, { currency: string; account_number: string; routing_number?: string; city: string; postal_code: string; state?: string; phone: string; title?: string; extra?: Record<string, string> }> = {
   US: { currency: "usd", account_number: "000123456789", routing_number: "110000000", city: "San Francisco", postal_code: "94103", state: "CA", phone: "+14155550123", extra: { ssn_last_4: "0000", id_number: "000000000" } },
   GB: { currency: "gbp", account_number: "00012345", routing_number: "108800", city: "London", postal_code: "SW1A 1AA", phone: "+442071234567" },
   DE: { currency: "eur", account_number: "DE89370400440532013000", city: "Berlin", postal_code: "10115", phone: "+4930123456" },
   CH: { currency: "chf", account_number: "CH9300762011623852957", city: "Zurich", postal_code: "8001", phone: "+41446681800" },
-  CA: { currency: "cad", account_number: "000123456789", routing_number: "11000-000", city: "Toronto", postal_code: "M5V 2T6", state: "ON", phone: "+14165550123" },
+  // (Stripe asks a person in Canada for a title before it pays their bank; its own form asks the host for it.)
+  CA: { currency: "cad", account_number: "000123456789", routing_number: "11000-000", city: "Toronto", postal_code: "M5V 2T6", state: "ON", phone: "+14165550123", title: "Host" },
 };
 
 async function main() {
@@ -171,6 +172,7 @@ async function main() {
         email: host.email,
         phone: test.phone,
         address: { line1: "address_full_match", city: test.city, postal_code: test.postal_code, country, ...(test.state ? { state: test.state } : {}) },
+        ...(test.title ? { relationship: { title: test.title } } : {}),
         ...(test.extra ?? {}),
       },
       tos_acceptance: { date: Math.floor(Date.now() / 1000), ip: "8.8.8.8" },
