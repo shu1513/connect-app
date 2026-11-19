@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectFrom, CONTRIBUTION, ContributionError, dueMonths, kindsOffered, lastMomentToTake, mayTake, monthlyDue, monthsBetween, readAmount, readSuggested, suggestedOf, waitFor, type PairPayment } from "./rules";
+import { collectFrom, CONTRIBUTION, ContributionError, dueMonths, kindsOffered, lastMomentToTake, mayTake, monthlyDue, monthMissed, monthsBetween, readAmount, readSuggested, suggestedOf, waitFor, type PairPayment } from "./rules";
 
 const DAY = 24 * 3_600_000;
 const at = (iso: string) => new Date(iso);
@@ -149,6 +149,21 @@ describe("which month is written down", () => {
     // A month that fell due before the stretch began is not one of them.
     expect(monthsBetween(first, 1, at("2026-03-01T00:00:00Z"), at("2026-04-01T00:00:00Z"))).toEqual([3]);
     expect(monthsBetween(first, 1, at("2026-02-01T00:00:00Z"), at("2026-02-20T00:00:00Z"))).toEqual([]);
+  });
+});
+
+describe("a month nobody has tried to pay", () => {
+  const monthly = { kind: "monthly", firstHoldAt: at("2026-01-31T10:00:00Z") };
+  const second = { number: 2, firstFailedAt: null };
+  it("is missed once its day lies more than 7 days back, and not a moment before", () => {
+    expect(monthMissed(monthly, second, at("2026-03-07T10:00:00Z"))).toBe(false);
+    expect(monthMissed(monthly, second, at("2026-03-07T10:00:01Z"))).toBe(true);
+  });
+  it("is never the first payment, never a contribution made once, and never a payment that was tried and failed", () => {
+    expect(monthMissed(monthly, { number: 1, firstFailedAt: null }, at("2027-01-01T00:00:00Z"))).toBe(false);
+    expect(monthMissed({ kind: "once", firstHoldAt: monthly.firstHoldAt }, second, at("2027-01-01T00:00:00Z"))).toBe(false);
+    expect(monthMissed(monthly, { number: 2, firstFailedAt: at("2026-03-06T00:00:00Z") }, at("2026-03-10T00:00:00Z"))).toBe(false);
+    expect(monthMissed({ kind: "monthly", firstHoldAt: null }, second, at("2027-01-01T00:00:00Z"))).toBe(false);
   });
 });
 

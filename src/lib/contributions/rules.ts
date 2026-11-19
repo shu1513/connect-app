@@ -110,6 +110,19 @@ export function dueMonths(firstHold: Date, lastWritten: number, now: Date): { wr
   return { write: null, missed };
 }
 
+/**
+ * Whether a month's payment that nobody has tried to pay yet has been missed at this moment: a
+ * monthly payment after the first, with no failure recorded, whose day lies more than 7 days
+ * back. Every way to a first hold for it asks this: the helper's try with the saved card, paying
+ * by hand, and the acceptance of a hold that arrives. (Whether a try is under way is the caller's
+ * to look up: this only knows the dates. A payment that was tried and failed has its own 7 days,
+ * counted from that failure.)
+ */
+export function monthMissed(contribution: { kind: string; firstHoldAt: Date | null }, payment: { number: number; firstFailedAt: Date | null }, at: Date): boolean {
+  if (contribution.kind !== "monthly" || payment.number <= 1 || !contribution.firstHoldAt || payment.firstFailedAt) return false;
+  return at.getTime() - monthlyDue(contribution.firstHoldAt, payment.number).getTime() > CONTRIBUTION.lateMonthMs;
+}
+
 /** The months after `lastWritten` whose day fell after `from` and not after `to` (plans/25, choice 13: the months that passed while the switch did not cover the host). */
 export function monthsBetween(firstHold: Date, lastWritten: number, from: Date, to: Date): number[] {
   const months: number[] = [];

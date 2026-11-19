@@ -537,7 +537,7 @@ function ContributionRow({ row }: { row: FounderRow }) {
         )}
       </p>
       {payment.problem && <p className="mt-1 text-red-700">Problem: {payment.problem}</p>}
-      {payment.thirtyDayMark && <p className="mt-1">Over the $1,000 line: its share waits 30 days.</p>}
+      {payment.thirtyDayMark && <p className="mt-1">{payment.founderHold === "released" ? "It was counted over the $1,000 line; you released it." : "Counted over the $1,000 line: its share waits 30 days from its taking."}</p>}
       {(payment.dispute === "open" || payment.dispute === "lost") && <p className="mt-1">The contributor&apos;s bank has disputed this charge ({payment.dispute}). Nothing can be collected or refunded from it.</p>}
       {payment.founderHold !== "none" && (
         <p className="mt-1">

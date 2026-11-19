@@ -8,7 +8,7 @@
  * except letting their holds go, which comes right after and is repeated by the helper until it
  * is done. Money that was already taken is not touched.
  */
-import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Contribution } from "@/db/schema";
 import { MoneyError, type Tx } from "@/lib/payments/operations";
@@ -71,15 +71,23 @@ export async function whyMustEnd(reader: Reader, contribution: Pick<Contribution
  * (`letGoAll`), and the helper repeats it until it is done.
  */
 async function endAllInStep(tx: Tx, found: Array<{ id: string; contributorId: string; hostId: string }>, how: string, now: Date): Promise<string[]> {
+  return (await endAllAndTell(tx, found, how, now)).toLetGo;
+}
+
+/** The same, and also which contributions this very step ended (one that another step ended while this one waited for its lock is not among them). */
+async function endAllAndTell(tx: Tx, found: Array<{ id: string; contributorId: string; hostId: string }>, how: string, now: Date): Promise<{ toLetGo: string[]; endedNow: Contribution[] }> {
   const pairs = new Map<string, { contributorId: string; hostId: string }>();
   for (const row of found) pairs.set(`${row.contributorId}:${row.hostId}`, row);
   for (const key of [...pairs.keys()].sort()) await lockPair(tx, pairs.get(key)!.contributorId, pairs.get(key)!.hostId);
   const toLetGo: string[] = [];
+  const endedNow: Contribution[] = [];
   for (const id of found.map((row) => row.id).sort()) {
     const contribution = await lockContribution(tx, id);
-    if (contribution.status !== "ended") toLetGo.push(...(await endInStep(tx, contribution, how, now)));
+    if (contribution.status === "ended") continue;
+    toLetGo.push(...(await endInStep(tx, contribution, how, now)));
+    endedNow.push(contribution);
   }
-  return toLetGo;
+  return { toLetGo, endedNow };
 }
 
 const notEnded = ne(schema.contributions.status, "ended");
@@ -110,19 +118,16 @@ export async function endContributionsOf(tx: Tx, userId: string, how: string, no
 /** The host ends her project: every contribution to it. In the step that ends the project. */
 export async function endContributionsOfProject(tx: Tx, projectId: string, how: string, now: Date): Promise<string[]> {
   const live = await found(tx, and(notEnded, eq(schema.contributions.projectId, projectId)));
-  const toLetGo = await endAllInStep(tx, live, how, now);
+  const { toLetGo, endedNow } = await endAllAndTell(tx, live, how, now);
   // Everyone whose money this project has taken is told that it ended. The monthly contributors whose
-  // contribution ended just now were told by that step, with the same reason.
+  // contribution this very step ended were told by it, with the same reason (endInStep). One whose contribution
+  // was ended by something else while this step waited (they stopped it at that moment) was not, and is told here.
   const paid = await tx
     .selectDistinct({ contributorId: schema.contributions.contributorId, hostId: schema.contributions.hostId })
     .from(pays)
     .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
     .where(and(eq(schema.contributions.projectId, projectId), eq(pays.status, "taken")));
-  const toldAlready = new Set(
-    live.length === 0
-      ? []
-      : (await tx.select({ contributorId: schema.contributions.contributorId }).from(schema.contributions).where(and(eq(schema.contributions.kind, "monthly"), isNotNull(schema.contributions.firstHoldAt), inArray(schema.contributions.id, live.map((row) => row.id))))).map((row) => row.contributorId),
-  );
+  const toldAlready = new Set(endedNow.filter((contribution) => contribution.kind === "monthly" && contribution.firstHoldAt).map((contribution) => contribution.contributorId));
   for (const person of paid) if (!toldAlready.has(person.contributorId)) await queueProjectEndedEmail(tx, { projectId, hostId: person.hostId, contributorId: person.contributorId });
   return toLetGo;
 }

@@ -44,7 +44,7 @@ export async function holdBackAction(formData: FormData) {
 
 export async function releaseAction(formData: FormData) {
   const admin = await requireAdmin();
-  let notice = "Released. The host can collect this share from now, unless a refund, a dispute or a sending is under way.";
+  let notice = "Released. If the money has been taken, the host can collect this share from now, unless a refund, a dispute or a sending is under way. If it is only held, its share waits the usual 7 days once the money is taken.";
   try {
     await release({ paymentId: paymentOf(formData), adminId: admin.id, note: noteOf(formData), now: new Date() });
   } catch (error) {

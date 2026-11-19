@@ -1242,7 +1242,7 @@ async function main() {
   });
 
   // ========================================================================
-  journey("What Astra's first review of this step found, each as a case of its own", async () => {
+  journey("What Astra's reviews of this step found, each as a case of its own", async () => {
     const { monthlyDue } = await import("../src/lib/contributions/rules");
     const { saveProjectsSwitch } = await import("../src/lib/contributions/switch");
     const { lockPair } = await import("../src/lib/contributions/locks");
@@ -1256,6 +1256,15 @@ async function main() {
     const admin = await person("admin");
     await db.insert(schema.admins).values({ userId: admin.id });
     const host = await newHost();
+    /** Waits until some step is really waiting for a lock another step holds: only then are the two in the order the case is about. */
+    const untilWaiting = async (): Promise<boolean> => {
+      for (let i = 0; i < 100; i++) {
+        const [row] = await db.execute<{ n: number }>(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`);
+        if (row.n > 0) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
 
     // A month that was written down, and the helper stopped before it tried the card.
     const m = await held(host, { kind: "monthly", amountCents: 1000 });
@@ -1281,11 +1290,12 @@ async function main() {
     const racing = await atCardStep(host, { kind: "monthly", amountCents: 1000 });
     let save: Promise<void> = Promise.resolve();
     let released = 0;
+    let saveWaited = false;
     await db.transaction(async (tx) => {
       await lockPair(tx, racing.giver.id, host.id);
       // The save reads what it has to do now (the contribution is still at its card step), then waits for this pair.
       save = saveProjectsSwitch({ adminId: admin.id, values: { projects: "off" }, detail: "off (check)" });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      saveWaited = await untilWaiting();
       // Meanwhile the first hold is accepted (put in by hand, as that step writes it).
       const soon = new Date(Date.now() + 3 * DAY);
       await tx.update(pays).set({ status: "held", authorisedAt: new Date(), holdExpiresAt: new Date(soon.getTime() + DAY), takeAt: soon, takeBy: new Date(soon.getTime() + 23 * HOUR) }).where(eq(pays.id, racing.paymentId));
@@ -1294,25 +1304,30 @@ async function main() {
     });
     await save;
     c = await CO(racing.contributionId);
+    check("(the save had read what it has to do, and was waiting for the pair, when the first hold was accepted)", saveWaited);
     check("a contribution whose first hold is accepted while the switch is being saved is still marked, and its payment given up", c.status === "running" && c.switchOffAt !== null && (await PM(racing.paymentId)).endedHow === "switch", { status: c.status, mark: c.switchOffAt, payment: (await PM(racing.paymentId)).endedHow });
     check("the moment of the switch is read after its locks were got, not when the press arrived", c.switchOffAt !== null && c.switchOffAt.getTime() >= released);
     await saveProjectsSwitch({ adminId: admin.id, values: { projects: "everyone" }, detail: "on (check)" });
 
-    // Contributions that are not due yet never take the places of one that is.
+    // Contributions that are not due yet never take the places of one that is. (Fixed days, so the case is the same whenever it runs.)
     const crowded = await newHost();
     const project = (await runningProjectOf(crowded.id))!;
-    const base = Date.now();
     const insert = async (firstHoldAt: Date, updatedAt: Date) => {
       const giver = await person("giver");
       const [row] = await db.insert(schema.contributions).values({ projectId: project.id, hostId: crowded.id, contributorId: giver.id, kind: "monthly", amountCents: 1000, status: "running", requestKey: randomUUID(), firstHoldAt, lastWrittenMonth: 1, updatedAt }).returning();
       return row;
     };
-    const at = new Date(base + 40 * DAY);
-    // Fifty-five whose second month is 18 hours away at that moment, all touched long ago; then one that is due.
-    for (let i = 0; i < 55; i++) await insert(new Date(monthlyDue(at, 0 + 1).getTime() - 30 * DAY + 18 * HOUR + i * 1000), new Date(base - 100 * DAY));
-    const dueOne = await insert(new Date(at.getTime() - 33 * DAY), new Date(base));
+    const at = new Date("2027-03-15T12:00:00Z");
+    // Fifty-five whose second month is 18 hours away at that moment, all touched long ago; then one whose second month fell due three days before it.
+    const tomorrow = Array.from({ length: 55 }, (_, i) => new Date(Date.parse("2027-02-16T06:00:00Z") + i * 1000));
+    for (const anchor of tomorrow) await insert(anchor, new Date("2026-01-01T00:00:00Z"));
+    const dueOne = await insert(new Date("2027-02-12T12:00:00Z"), new Date());
+    check("(the days of the case: fifty-five second months fall due 18 hours after that moment, and one fell due three days before it)", tomorrow.every((anchor) => monthlyDue(anchor, 2).getTime() - at.getTime() >= 18 * HOUR && monthlyDue(anchor, 2).getTime() - at.getTime() < 19 * HOUR) && at.getTime() - monthlyDue(dueOne.firstHoldAt!, 2).getTime() === 3 * DAY);
+    // (Twice: other contributions of this run whose day lies further back come first, and leave the list once they were dealt with.)
     await M.writeDuePayments(at);
-    check("with more than a batch of contributions that are due only tomorrow, the one that is due today is still written", (await paymentsOf(dueOne.id)).length === 1, { written: (await paymentsOf(dueOne.id)).length, due: monthlyDue(dueOne.firstHoldAt!, 2), at });
+    await M.writeDuePayments(at);
+    const untouched = await db.select({ id: schema.contributions.id }).from(schema.contributions).where(and(eq(schema.contributions.hostId, crowded.id), eq(schema.contributions.lastWrittenMonth, 1)));
+    check("with more than a batch of contributions that are due only tomorrow, the one that is due today is written, and none of the others is", (await paymentsOf(dueOne.id)).length === 1 && untouched.length === 55, { written: (await paymentsOf(dueOne.id)).length, untouched: untouched.length });
 
     // What a person is told.
     for (const how of ["card_step", "host_let_go", "hold_lost", "not_taken_in_time", "no_hold_end", "project_ended", "stopped", "blocked", "paused"]) {
@@ -1341,21 +1356,71 @@ async function main() {
     // The founder's notice: once for each crossing of the line.
     const big = await newHost();
     const giver = await person("giver");
-    const b1 = await held(big, { giver, amountCents: 60_000 });
+    const b1 = await taken(big, { giver, amountCents: 60_000 });
+    check("under the line the founder is not told, and nothing is marked", (await mail(admin, "over $1,000")).length === 0 && !(await PM(b1.paymentId)).thirtyDayMark);
     const b2 = await held(big, { giver, amountCents: 60_000 });
-    await C.takePayment(b1.paymentId, (await PM(b1.paymentId)).takeAt!);
     await C.syncPayment(b2.paymentId, new Date());
-    check("the founder is told once when the line is crossed, however often the pair is counted afterwards", (await mail(admin, "over $1,000")).length === 1);
-    check("a payment that was taken before the line was crossed carries the mark too, so the founder's list shows it", (await PM(b1.paymentId)).thirtyDayMark && (await PM(b2.paymentId)).thirtyDayMark);
+    check("the founder is told once when a new hold crosses the line, however often the pair is counted afterwards", (await mail(admin, "over $1,000")).length === 1 && (await mail(admin, "over $1,000"))[0].body.includes("$1200.00"));
+    check("a payment that was taken before the line was crossed carries the mark too, so the founder's list shows it", (await PM(b1.paymentId)).thirtyDayMark && (await PM(b2.paymentId)).thirtyDayMark && (await shareOf(b1.paymentId)).transferDueAt?.getTime() === b1.at.getTime() + 30 * DAY);
     const giver2 = await person("giver");
     const c1 = await held(big, { giver: giver2, amountCents: 60_000 });
-    const c2 = await held(big, { giver: giver2, amountCents: 60_000 });
-    await C.giveUp(c1.paymentId, "cancelled", new Date());
-    await C.giveUp(c2.paymentId, "cancelled", new Date());
     await held(big, { giver: giver2, amountCents: 60_000 });
     const before = (await mail(admin, "over $1,000")).length;
+    // One of the two holds is let go: under the line again, while the other keeps its mark. Then a new hold.
+    await C.giveUp(c1.paymentId, "cancelled", new Date());
     await held(big, { giver: giver2, amountCents: 60_000 });
-    check("after the holds that crossed it were let go, crossing the line again is a new crossing, and the founder is told again", before === 2 && (await mail(admin, "over $1,000")).length === 3, { before, after: (await mail(admin, "over $1,000")).length });
+    check("after one of the holds that crossed it was let go, crossing the line again is a new crossing, and the founder is told again", before === 2 && (await mail(admin, "over $1,000")).length === 3, { before, after: (await mail(admin, "over $1,000")).length });
+
+    // A try that was started and has no answer yet is a try: its month is not given up as missed.
+    const u = await held(host, { kind: "monthly", amountCents: 1000 });
+    const uFirst = (await CO(u.contributionId)).firstHoldAt!;
+    await C.takePayment(u.paymentId, (await PM(u.paymentId)).takeAt!);
+    await runContributionJobs(monthlyDue(uFirst, 2));
+    const uSecond = (await paymentsOf(u.contributionId))[1];
+    const [onItsWay] = await db.insert(schema.moneyOperations).values({ contributionPaymentId: uSecond.id, kind: "hold", label: `contributionhold:${uSecond.id}:1:1`, params: JSON.stringify({ intentId: "pi_made_up", paymentMethodId: "pm_made_up" }) }).returning();
+    await rounds(new Date(monthlyDue(uFirst, 2).getTime() + 7 * DAY + MIN));
+    check("a month whose first try is on its way to Stripe when the 7 days end is not given up as missed: the try keeps its own ending", (await PM(uSecond.id)).status === "to_pay" && (await PM(uSecond.id)).endedHow === null && (await CO(u.contributionId)).skippedMonths === "[]");
+    await db.update(schema.moneyOperations).set({ status: "failed", finishedAt: new Date() }).where(eq(schema.moneyOperations.id, onItsWay.id));
+
+    // Paying a month by hand: possible while the helper has not tried it, and not after its 7 days.
+    const late = await held(host, { kind: "monthly", amountCents: 1000 });
+    await C.takePayment(late.paymentId, (await PM(late.paymentId)).takeAt!);
+    const lateSecond = await nextMonth(late, 2, new Date());
+    check("a month the helper has not tried yet can be paid by hand", Boolean(await S.payNow({ paymentId: lateSecond, contributorId: late.giver.id })));
+    // (Its day is moved more than 7 days back, by moving the contribution's first hold by hand.)
+    await db.update(schema.contributions).set({ firstHoldAt: new Date(Date.now() - 40 * DAY) }).where(eq(schema.contributions.id, late.contributionId));
+    check("more than 7 days after its day it is neither made ready nor shown for paying", (await S.payNow({ paymentId: lateSecond, contributorId: late.giver.id })) === null && (await S.secretToPay({ paymentId: lateSecond, contributorId: late.giver.id })) === null);
+    await stripe().paymentIntents.confirm((await PM(lateSecond)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: RETURN });
+    const refusedLate = await C.syncPayment(lateSecond, new Date());
+    check("a hold that still arrives for it (from a page left open) is not accepted: it is let go, the month is skipped, the contribution goes on, and the contributor is told nothing was charged", refusedLate.status === "given_up" && refusedLate.endedHow === "missed" && (await intentOf(lateSecond)).status === "canceled" && (await CO(late.contributionId)).status === "running" && (await CO(late.contributionId)).skippedMonths === "[2]" && (await mail(late.giver, "Nothing was charged")).length === 1, { status: refusedLate.status, endedHow: refusedLate.endedHow, skipped: (await CO(late.contributionId)).skippedMonths });
+
+    // A contributor pays, and cancels before we have heard of the hold.
+    const unheard = await atCardStep(host);
+    await confirmOnly(unheard.paymentId);
+    await M.letPaymentGo({ paymentId: unheard.paymentId, by: "contributor", actorId: unheard.giver.id });
+    check("a hold we had not heard of when its payment was cancelled is still kept as a hold that was there: once it is gone, its contributor is told", (await PM(unheard.paymentId)).status === "given_up" && (await PM(unheard.paymentId)).authorisedAt !== null && (await intentOf(unheard.paymentId)).status === "canceled" && (await mail(unheard.giver, "Nothing was charged")).length === 1);
+    const neverPaid = await atCardStep(host);
+    await C.intentFor(neverPaid.paymentId);
+    await M.letPaymentGo({ paymentId: neverPaid.paymentId, by: "contributor", actorId: neverPaid.giver.id });
+    check("and a payment that never had a hold still gets no such email", (await PM(neverPaid.paymentId)).status === "given_up" && (await PM(neverPaid.paymentId)).authorisedAt === null && (await mail(neverPaid.giver, "Nothing was charged")).length === 0);
+
+    // The contributor stops at the very moment the host ends her project.
+    const closing = await newHost();
+    const q = await held(closing, { kind: "monthly", amountCents: 1000 });
+    await C.takePayment(q.paymentId, (await PM(q.paymentId)).takeAt!);
+    const closingProject = (await runningProjectOf(closing.id))!.id;
+    let ending: Promise<unknown> = Promise.resolve();
+    let endingWaited = false;
+    await db.transaction(async (tx) => {
+      await lockPair(tx, q.giver.id, closing.id);
+      // The ending reads who contributes now (this contribution is still running), then waits for this pair.
+      ending = endProject({ hostId: closing.id, projectId: closingProject, now: new Date() });
+      endingWaited = await untilWaiting();
+      // Meanwhile their own stop is saved (put in by hand, as that step writes it).
+      await tx.update(schema.contributions).set({ status: "ended", endedAt: new Date(), endedHow: "stopped" }).where(eq(schema.contributions.id, q.contributionId));
+    });
+    await ending;
+    check("someone who stopped at the very moment the project ended is still told that it ended", endingWaited && (await mail(q.giver, "\" has ended")).length === 1, { endingWaited, mails: (await mail(q.giver, "has ended")).map((email) => email.subject) });
 
     // The founder reaches every payment of a project, also an ordinary one.
     const plain = await taken(big, { amountCents: 2500 });

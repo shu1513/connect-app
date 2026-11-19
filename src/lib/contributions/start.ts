@@ -16,9 +16,9 @@ import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { isId } from "@/lib/projects/projects";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { projectsOnFor } from "@/lib/safety/switches";
-import { intentFor, paymentById, syncPayment, writeDownPayment } from "./charge";
+import { everTried, intentFor, paymentById, syncPayment, writeDownPayment } from "./charge";
 import { lockPair, lockSwitchForWriting } from "./locks";
-import { ContributionError, kindsOffered, readAmount } from "./rules";
+import { ContributionError, kindsOffered, monthMissed, readAmount } from "./rules";
 import { CONTRIBUTION_WORDING_VERSION } from "./wording";
 
 type Reader = Pick<typeof db, "select">;
@@ -143,17 +143,26 @@ export async function contributionFor(contributorId: string, contributionId: str
   return { ...found, payments };
 }
 
-/** A payment with its contribution's kind and host, if it is this person's. */
-async function ownPayment(paymentId: string, contributorId: string): Promise<{ payment: ContributionPayment; kind: string; hostId: string } | null> {
+/** A payment with its contribution's kind, host and first hold, if it is this person's. */
+async function ownPayment(paymentId: string, contributorId: string): Promise<{ payment: ContributionPayment; kind: string; hostId: string; firstHoldAt: Date | null } | null> {
   if (!isId(paymentId)) return null;
   const [found] = await db
-    .select({ contributorId: schema.contributions.contributorId, kind: schema.contributions.kind, hostId: schema.contributions.hostId })
+    .select({ contributorId: schema.contributions.contributorId, kind: schema.contributions.kind, hostId: schema.contributions.hostId, firstHoldAt: schema.contributions.firstHoldAt })
     .from(schema.contributionPayments)
     .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
     .where(eq(schema.contributionPayments.id, paymentId));
   if (!found || found.contributorId !== contributorId) return null;
   const payment = await paymentById(paymentId);
-  return payment ? { payment, kind: found.kind, hostId: found.hostId } : null;
+  return payment ? { payment, kind: found.kind, hostId: found.hostId, firstHoldAt: found.firstHoldAt } : null;
+}
+
+/**
+ * A month's payment nobody has tried to pay, more than 7 days after its day, has been missed: it
+ * can no longer be paid by hand either (rules.ts, monthMissed). The helper gives it up and skips
+ * the month.
+ */
+async function tooLateForItsMonth(own: { payment: ContributionPayment; kind: string; firstHoldAt: Date | null }, at: Date): Promise<boolean> {
+  return monthMissed(own, own.payment, at) && !(await everTried(db, own.payment.id));
 }
 
 /**
@@ -182,6 +191,7 @@ export async function payNow(input: { paymentId: string; contributorId: string; 
   const at = input.now ?? new Date();
   // Not after the card step's time or the 7 days have run out, also when the helper has not been by yet: a hold placed now would only be let go again.
   if (!own || !canPay(own.payment, at)) return null;
+  if (await tooLateForItsMonth(own, new Date(Math.max(at.getTime(), Date.now())))) return null;
   if (!(await stillOpenBetween(own.hostId, input.contributorId))) return null;
   const intent = await intentFor(input.paymentId, at);
   if (!intent?.clientSecret) return null;
@@ -205,6 +215,7 @@ export async function secretToPay(input: { paymentId: string; contributorId: str
   const own = await ownPayment(input.paymentId, input.contributorId);
   const at = input.now ?? new Date();
   if (!own?.payment.stripePaymentIntentId || !canPay(own.payment, at)) return null;
+  if (await tooLateForItsMonth(own, new Date(Math.max(at.getTime(), Date.now())))) return null;
   if (!(await stillOpenBetween(own.hostId, input.contributorId))) return null;
   const intent = await stripe().paymentIntents.retrieve(own.payment.stripePaymentIntentId);
   // Only a payment that waits for the contributor; for a monthly one, with the card set to be kept for the months that follow.

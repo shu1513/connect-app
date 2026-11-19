@@ -240,13 +240,14 @@ export async function queueNewContributorEmail(tx: Tx, contribution: Contributio
 /**
  * The founder is told when one person's contributions to a host cross $1,000 in 30 days
  * (plans/25, choice 8): the founder has the hold button, and this says when to look. The caller
- * (countPair) decides when the line was crossed; this is sent once for that moment.
+ * (countPair) decides when the line was crossed, and names the payment that crossed it.
  */
-export async function tellFounderOfLargeTotal(tx: Tx, input: { contributorId: string; hostId: string; countedCents: number }, now: Date): Promise<void> {
+export async function tellFounderOfLargeTotal(tx: Tx, input: { contributorId: string; hostId: string; countedCents: number; paymentId: string }): Promise<void> {
   const people = await tx.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, [input.contributorId, input.hostId]));
   const name = (id: string) => people.find((person) => person.id === id)?.name ?? "someone";
   await tellFounders(tx, {
-    key: `contribution-1000:${input.contributorId}:${input.hostId}:${now.toISOString()}`,
+    // Named by the payment that crossed the line: one email for each crossing.
+    key: `contribution-1000:${input.paymentId}`,
     subject: `Contributions over $1,000 in 30 days: ${name(input.contributorId)} to ${name(input.hostId)}`,
     text:
       `${name(input.contributorId)} has contributed ${money(input.countedCents)} to ${name(input.hostId)} in the last 30 days, counting money that was taken and holds that are in place. That is over $1,000.\n\n` +
