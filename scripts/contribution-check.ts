@@ -966,6 +966,29 @@ async function main() {
         await confirmOnly(f2.paymentId);
         const unheard = await collectEarnings({ collectionId: randomUUID(), hostId: other.id, startedBy: other.id, now: new Date(f1.at.getTime() + 8 * DAY) }).then(() => null, (error: unknown) => error as Error);
         check("a collection asks Stripe first about a payment that may just have been paid: its hold is recorded and counted, so the earlier share waits 30 days and is not sent", unheard instanceof MoneyError && (await PM(f2.paymentId)).status === "held" && (await shareOf(f1.paymentId)).transferDueAt?.getTime() === f1.at.getTime() + 30 * DAY && (await shareOf(f1.paymentId)).transferStatus === "not_due", unheard?.message);
+        // And when Stripe cannot be asked about such a payment, that person's shares wait for this collection.
+        // (The script makes Stripe's look-up fail once, as a network fault would.)
+        const quiet = await person("giver");
+        const q1 = await taken(other, { giver: quiet });
+        const q2 = await atCardStep(other, { giver: quiet });
+        await C.intentFor(q2.paymentId);
+        const pressOther = (now: Date) => collectEarnings({ collectionId: randomUUID(), hostId: other.id, startedBy: other.id, now }).then(() => null, (error: unknown) => error as Error);
+        const intents = stripe().paymentIntents;
+        const realRetrieve = intents.retrieve;
+        intents.retrieve = (() => Promise.reject(new Error("The network is down (made up by the check script)."))) as unknown as typeof intents.retrieve;
+        let notAsked: Error | null;
+        try {
+          notAsked = await pressOther(new Date(q1.at.getTime() + 8 * DAY));
+        } finally {
+          intents.retrieve = realRetrieve;
+        }
+        const waited = (await shareOf(q1.paymentId)).transferStatus;
+        const asked = await pressOther(new Date(q1.at.getTime() + 8 * DAY));
+        check("when Stripe cannot be asked about a payment that may just have been paid, that person's shares wait; once it can, they are collected", notAsked instanceof MoneyError && waited === "not_due" && asked === null && (await shareOf(q1.paymentId)).transferStatus === "sent", { first: notAsked?.message, waited, second: asked?.message });
+        // When Stripe is certain that it has no such payment, asking again never helps: the founder is shown it.
+        await db.update(pays).set({ stripePaymentIntentId: `pi_not_there_${RUN}` }).where(eq(pays.id, q2.paymentId));
+        const gone = await C.syncPayment(q2.paymentId, new Date());
+        check("a payment Stripe does not know at all is set aside for the founder, so it does not stay \"to be paid\" for ever", gone.status === "to_pay" && /Stripe does not know/.test(gone.problem ?? "") && (await healthProblems(new Date())).some((problem) => /needs the founder/.test(problem)));
       } finally {
         await give(holder.id, seeded.id);
       }

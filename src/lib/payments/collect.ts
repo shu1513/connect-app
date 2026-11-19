@@ -15,7 +15,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lte, ne, or, sql 
 import { db, schema } from "@/db";
 import type { Call, MembershipMonth, Payment } from "@/db/schema";
 import { isFrozen } from "@/lib/membership/rules";
-import { countPair, syncPayment } from "@/lib/contributions/charge";
+import { countPair, freshNow, syncPayment } from "@/lib/contributions/charge";
 import { lockContribution, lockContributionPayment, lockPair } from "@/lib/contributions/locks";
 import { applyTransferSent, currentSplit, transferSteps, type TransferParams } from "./actions";
 import { requestHolds } from "@/lib/refunds/requests";
@@ -156,9 +156,10 @@ async function pairOutcomeUnknown(reader: Reader, contributorId: string, hostId:
 /**
  * Counts the $1,000 rule again for every contributor who has a share with this host that is not
  * sent, each in a step of its own under the pair's lock, and writes any 30 days that are due. A
- * pair with an outcome that is not known is left for now: its shares wait anyway.
+ * pair with an outcome that is not known is left for now: its shares wait anyway. Returns the
+ * contributors with a payment Stripe could not be asked about: their shares wait too.
  */
-async function countPairsOf(hostId: string, now: Date): Promise<void> {
+async function countPairsOf(hostId: string, now: Date): Promise<Set<string>> {
   const givers = await db
     .selectDistinct({ contributorId: schema.contributions.contributorId })
     .from(schema.payments)
@@ -166,22 +167,32 @@ async function countPairsOf(hostId: string, now: Date): Promise<void> {
     .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
     .where(and(eq(schema.contributions.hostId, hostId), UNSENT));
   const contributorIds = givers.map((row) => row.contributorId).sort();
-  if (contributorIds.length === 0) return;
+  const notAsked = new Set<string>();
+  if (contributorIds.length === 0) return notAsked;
   // A payment of one of these people that may just have been paid with a new card: Stripe can hold it already
   // while the payment here still says "to be paid", because Stripe's message has not come yet. Stripe is asked
-  // now, so the count below sees that hold. (One that cannot be asked is left to the message or the helper.)
+  // now, so the count below sees that hold. If Stripe cannot be asked, that person's total is not known, so
+  // their shares wait for this collection.
   const maybePaid = await db
-    .select({ id: schema.contributionPayments.id })
+    .select({ id: schema.contributionPayments.id, contributorId: schema.contributions.contributorId })
     .from(schema.contributionPayments)
     .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
     .where(and(eq(schema.contributions.hostId, hostId), inArray(schema.contributions.contributorId, contributorIds), eq(schema.contributionPayments.status, "to_pay"), isNull(schema.contributionPayments.endedHow), isNull(schema.contributionPayments.problem), isNotNull(schema.contributionPayments.stripePaymentIntentId)));
-  for (const { id } of maybePaid) await syncPayment(id, now).catch((error) => console.error(`[payments] could not ask Stripe about contribution payment ${id} before a collection`, error));
-  for (const contributorId of contributorIds) {
-    await db.transaction(async (tx) => {
-      await lockPair(tx, contributorId, hostId);
-      if (!(await pairOutcomeUnknown(tx, contributorId, hostId))) await countPair(tx, contributorId, hostId, now);
+  for (const { id, contributorId } of maybePaid) {
+    await syncPayment(id, now).catch((error) => {
+      notAsked.add(contributorId);
+      console.error(`[payments] could not ask Stripe about contribution payment ${id} before a collection; that person's shares wait`, error);
     });
   }
+  for (const contributorId of contributorIds) {
+    if (notAsked.has(contributorId)) continue;
+    await db.transaction(async (tx) => {
+      await lockPair(tx, contributorId, hostId);
+      // Counted at this moment, not at the one the press arrived: asking Stripe above took time.
+      if (!(await pairOutcomeUnknown(tx, contributorId, hostId))) await countPair(tx, contributorId, hostId, freshNow(now));
+    });
+  }
+  return notAsked;
 }
 
 /**
@@ -207,7 +218,7 @@ export async function acceptCollection(input: {
   // The $1,000 rule's count for her contribution shares, written in steps of its own first, so that the later
   // dates it finds are kept also when this press ends up with nothing to collect. (The step below counts
   // again under its own locks before it judges anything.)
-  await countPairsOf(input.hostId, input.now ?? new Date());
+  const notAsked = await countPairsOf(input.hostId, input.now ?? new Date());
 
   return db.transaction(async (tx) => {
     const [host] = await tx.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, input.hostId)).for("update");
@@ -271,7 +282,8 @@ export async function acceptCollection(input: {
     // counted again and any 30 days that are due are written. Only then is anything judged.
     const waitingPairs = new Set<string>();
     for (const contributorId of contributorIds) {
-      if (await pairOutcomeUnknown(tx, contributorId, input.hostId)) {
+      // (Also a pair with a payment Stripe could not be asked about just now: its total is not known.)
+      if (notAsked.has(contributorId) || (await pairOutcomeUnknown(tx, contributorId, input.hostId))) {
         for (const c of candidates) if (c.contributorId === contributorId) waitingPairs.add(c.id);
       } else {
         await countPair(tx, contributorId, input.hostId, now);

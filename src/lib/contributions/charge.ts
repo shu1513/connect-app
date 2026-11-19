@@ -20,7 +20,7 @@
  * money is never taken early or late, and a hold whose end Stripe does not state is let go.
  */
 import type Stripe from "stripe";
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Contribution, ContributionPayment } from "@/db/schema";
 import { cancelAtStripe, confirmSavedCard, LABEL_SAFE_MS } from "@/lib/membership/charge";
@@ -453,7 +453,20 @@ export async function syncPayment(paymentId: string, now: Date = new Date()): Pr
     // A payment that is in the books is never touched again, whatever message arrives.
     if (!seen.stripePaymentIntentId || seen.status === "taken" || seen.status === "given_up") return seen;
     const readAt = new Date(); // the real clock, taken before Stripe is asked
-    const intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge", "payment_method"] });
+    let intent: Stripe.PaymentIntent;
+    try {
+      intent = await stripe().paymentIntents.retrieve(seen.stripePaymentIntentId, { expand: ["latest_charge", "payment_method"] });
+    } catch (error) {
+      // Any other failure is passed on, and whoever asked tries again later. But when Stripe is certain that it has
+      // no such payment, asking again never helps: the payment is set aside for the founder, who is shown it, so it
+      // does not stay "to be paid" for ever (and keep that person's shares from being collected).
+      if ((error as { code?: string } | null)?.code !== "resource_missing") throw error;
+      await db
+        .update(pays)
+        .set({ problem: "Stripe does not know this payment (its PaymentIntent is missing there). Nothing can be held or taken through it. Please look at it.", updatedAt: now })
+        .where(and(eq(pays.id, paymentId), isNull(pays.problem), inArray(pays.status, ["to_pay", "held"])));
+      return (await paymentById(paymentId))!;
+    }
     let holdEndsAt = holdEndOf(chargeOf(intent));
     // When Stripe does not say when a hold ends, it is asked again. No date is ever assumed (plans/25, choice 10).
     if (intent.status === "requires_capture" && !holdEndsAt) {
