@@ -1891,13 +1891,13 @@ built. It adds no table, no money rule and no email.
 - `src/lib/projects/ask.ts`, which only reads. `askAfterCall` gathers what is recorded about a
   call and its two people, and one plain rule (`mayAsk`, in `rules.ts`, with a test for each
   condition) decides whether the customer is shown the host's project. `contributionOf` says
-  what a visitor is to a project: whether they could contribute, and their own contribution if
-  it gets a line.
+  what a visitor is to a project: which kinds of contribution they could start now, and their
+  own contribution if it gets a line.
 - The box on a call's results, for the customer only: "*Name* is working on *project*", the
   first lines of what it is about, and "See the project". No amount and nothing that pays.
 - One line for a signed-in visitor in the project's box on the host's page, and the same line on
   the diary: "You contribute $X a month", "Finish contributing", or "Contribute".
-- `scripts/project-journey-check.ts`: 91 checks through the real pages, from a host's first post
+- `scripts/project-journey-check.ts`: 94 checks through the real pages, from a host's first post
   to the founder's switch.
 
 **What building changed in the plan** (written into plan 26)
@@ -1935,6 +1935,10 @@ built. It adds no table, no money rule and no email.
   only refused: the form is now left out whenever a monthly contribution of theirs is being set
   up or running. And a step of the journey script's clean-up that fails is now a failed check,
   and emails are removed by their address also when their person is already gone.
+- Astra then looked at those fixes and found that the first one opened a gap of its own: for a
+  project that takes monthly contributions only, the host's page could say "Contribute" for a
+  moment while the diary had nothing left to press. Both pages now ask one function which
+  kinds can be offered to this visitor, so the line always leads to a form.
 
 **How it was checked**
 - The unit tests of the rule: every condition failing alone, and all of them true.

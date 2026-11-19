@@ -748,6 +748,17 @@ async function main() {
     await close(jay);
     check("a report about one of her posts, closed since: no box after a call, but the \"Contribute\" line stays, since such a report does not block", noBox(await results(jayCall, jay)) && ownLine(await page(`/h/${hoa.handle}`, jay)) === "contribute");
 
+    // A project that takes monthly contributions only, and a customer who began one and left its card step.
+    await press(hoa, "/host/project", "Save the amounts", { once: ["", "", ""], monthly: ["5", "", ""] });
+    const finnMonthly = await contribute(finn, hoa, "monthly", "5.00");
+    if (finnMonthly.contributionId === null) throw new Error(`Finn's monthly contribution did not start: ${finnMonthly.notice}`);
+    check("(at its open card step both pages say \"Finish contributing\")", ownLine(await page(`/h/${hoa.handle}`, finn)) === "card_step" && ownLine(await page(`/h/${hoa.handle}/project`, finn)) === "card_step");
+    // Pretended: the card step's 30 minutes ran out a moment ago, and the helper has not been by yet.
+    await db.update(pays).set({ cardStepExpiresAt: new Date(Date.now() - MIN) }).where(eq(pays.id, finnMonthly.paymentId));
+    const onlyMonthlyDiary = await page(`/h/${hoa.handle}/project`, finn);
+    check("with that step's time over and nothing else to offer, the host's page has no \"Contribute\" line that would lead to a diary with nothing to press", ownLine(await page(`/h/${hoa.handle}`, finn)) === null && onlyMonthlyDiary.status === 200 && ownLine(onlyMonthlyDiary) === null && !hasMark(onlyMonthlyDiary, "data-contribute"));
+    check("(another customer is still offered it)", ownLine(await page(`/h/${hoa.handle}`, jay)) === "contribute" && (await page(`/h/${hoa.handle}/project`, jay)).text.includes('data-kind="monthly"'));
+
     // The code of the two boxes only reads.
     const askCode = readFileSync("src/lib/projects/ask.ts", "utf8");
     const resultsCode = readFileSync("src/app/calls/[id]/results/page.tsx", "utf8");

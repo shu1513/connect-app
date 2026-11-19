@@ -210,8 +210,9 @@ Nothing here changes a rule. It is what the code made exact.
   for late messages is over, the room is confirmed closed, and the record is complete.
 - **No amounts, no box.** A project whose host suggests no amount takes no contributions
   (plan 25), so the customer could not contribute, and there is no box after a call.
-- **The visitor's line.** `contributionOf` answers two things: whether the visitor could
-  contribute now, and their own contribution if it gets a line. "You contribute $X a month" is
+- **The visitor's line.** `contributionOf` answers two things: which kinds of contribution the
+  visitor could start now (none when they cannot contribute), and their own contribution if it
+  gets a line. The host's page says "Contribute" exactly when the diary has a form to offer. "You contribute $X a month" is
   shown as long as that contribution runs, also while the founder's switch is off for the host.
   "Finish contributing" is shown only while contributing is possible and that card step can
   still be finished: its payment waits for a card and its 30 minutes are not over. (After that
