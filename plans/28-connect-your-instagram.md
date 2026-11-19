@@ -46,22 +46,30 @@ an Instagram bio (plan 17) does not work either.
 
 ## What this proves, said plainly
 
-Signing in at Meta shows that the host **is allowed to manage that Instagram account**: Meta lets
-someone share an account who has full control of the business portfolio it sits in. For a
-creator that is the creator. It can also be a manager or an agency. That is the same strength of
-proof as the code in the bio, which anyone who can edit the bio can place, and it is what the
-word "confirmed" has meant since plan 16: the host runs this account. It does not say the host is
-the person in the pictures; the ID check and the founder's own look at each new profile are there
-for that.
+Signing in at Meta shows that the host **is allowed to share that Instagram account through
+Meta**: Meta lets someone do that who has full control of the business portfolio it sits in. For
+a creator that is the creator. It can also be a manager or an agency.
 
-This plan accepts that, and says so here, so it is a choice and not an accident. Two things
-follow from it and are kept:
+Connect accepts two proofs for Instagram from now on: the code was seen in the account's bio, or
+the account was shared with us through Meta. They are not the same thing technically, and
+either can be given by a manager. Neither alone shows that the host is the person the account is
+about. Plan 16 spoke of "the person behind that account"; what the proofs really show, and what
+"confirmed" means in the app, is: **this host runs this account.** This plan says so here, so
+it is a choice and not an accident. What follows from it:
 
 - The founder still looks at every profile before it is approved, with the confirmed accounts
-  beside it.
+  beside it, and that look (does the name and the page fit the account?) is what guards against
+  someone passing as another person. A confirmed account is not the answer to that question.
+- That look happens once, at approval. An approved host can later replace their account by
+  signing in with another one they may share, as with TikTok today, and nobody looks again.
+- The ID check shows who the Connect person is and that they are 18. It is not compared with
+  the Instagram account.
 - An account is confirmed for one host only. If a manager confirms a creator's account first,
-  the creator is refused and writes to us; the founder can take the account off the manager's
-  page. That is already so for the code.
+  the creator is refused and writes to us. Sorting that out is the founder's decision and is
+  done by hand in the database; there is no button for it, and suspending the manager's page
+  alone does not free the account. No dispute screen is built for this.
+- Two sentences in the app say more than this and are reworded with this plan: the Hosting page
+  ("we use one of them to check that you are you") and the founder's list ("says they own").
 
 ## What Meta's pages say (read 19 November 2026)
 
@@ -93,9 +101,9 @@ follow from it and are kept:
   that list is the account's lasting number (the one the older login called `user_id`), not a
   number that differs from app to app. It is kept as text, exactly as it came.
 - **Taking the connection away:** in Meta's own settings, under the business portfolio's
-  "Integrations", "Connected apps". Meta's pages name no request by which an app hands one key
-  back without asking for the wider permission to manage the host's business, which this plan
-  does not ask for.
+  "Integrations", "Connected apps". We have not found, in the pages read, a request by which an
+  app hands back one key of this kind; the requests Meta describes for managing these keys need
+  the wider permission to manage the host's business, which this plan does not ask for.
 
 **What those pages do not say, or say in two ways,** and the real try has to settle before this
 is called working:
@@ -114,7 +122,15 @@ is called working:
 4. What the sign-in is like for a host, and whether `prompt=login` (which makes Meta always offer
    both the Instagram and the Facebook way in) is needed.
 5. Who can be a tester: Meta's page for this kind of login asks that the tester has a role on
-   the app and full control of the business portfolio that is shared.
+   the app and full control of the business portfolio that is shared, and that this portfolio
+   is not the one that owns our app.
+6. Whether Meta accepts the same one-time code a second time.
+
+**Seen for real on 19 November 2026,** with the key the app already has for reading bios (a key
+of the same kind, for the founder's own Instagram account): the list of accounts comes as
+`{"data":[{"id":"…","username":"…"}],"paging":{"cursors":{…}}}`. The cursors are there also when
+there is nothing more, so they do not mean "more"; a `next` address would. And the `id` in that
+list is the same number Meta's other requests use for that account.
 
 ## How it works for a host
 
@@ -137,11 +153,18 @@ confirmed unless Meta's list holds it. The rule, in this order:
    entry: that one, whatever the names say. (A renamed account stays the same account.)
 3. Meta shared several, the host's entry has no number, and **exactly one** has the name on the
    host's entry: that one.
-4. Anything else: nothing is taken. "You shared more than one Instagram account. Please try
-   again and share only the one for your page."
+4. Several, and neither of those: nothing is taken. "You shared more than one Instagram account.
+   Please try again and share only the one for your page."
 
-The list is asked for up to 100 accounts; if Meta says there are more, nothing is taken, with
-the same sentence. The number and the name always come from the same line of Meta's list. The
+Meta shared none: nothing is taken. "Meta did not share an Instagram account with us. Nothing
+was changed. It must be a Creator or Business account."
+
+The list is asked for up to 100 accounts. If Meta's answer says there is a further page,
+whatever the number on this one, nothing is taken, with the sentence of case 4. A list in which
+any line cannot be read (no number, no name, the same account twice) is not a list: nothing is
+taken and nothing is written; lines are never dropped to leave "exactly one". If the account
+that the rule picks is confirmed for another host, the sign-in is refused; no other shared
+account is taken in its place. The number and the name always come from the same line. The
 host's entry is read, and the account chosen, inside the same database step that saves it, with
 the profile's lock held, so a choice is never made against an entry that has changed meanwhile.
 
@@ -204,7 +227,8 @@ changes.
     confirmed and gains the number; a different account replaces the old one in the same step.
     (As for TikTok, the entry's "confirmed at" becomes the moment of the sign-in.)
   - `noteRefusedSignIn`: a refusal at an Instagram sign-in is written under a name of its own
-    ("instagram_sign_in"), never as "instagram". The limits of the bio check count the lines
+    ("instagram_sign_in"), never as "instagram". That is the name of an event in that one table;
+    it is not added to the list of networks. The limits of the bio check count the lines
     named "instagram" and "youtube" (so many an hour for one person, so many an hour for
     everyone, 30 seconds apart); a sign-in that failed read no bio and must not use any of them
     up. The founder's line counts refusals under any name, so it shows this one without a
@@ -215,7 +239,10 @@ changes.
   switch. An Instagram entry is drawn as today in every state (waiting for its code, code run
   out, waiting for the founder, confirmed with the code, confirmed by signing in), with the
   sign-in on or off, and only gains the one line about the button while it is not confirmed.
-- **`src/app/admin/people/page.tsx`:** the words of the founder's line for a refused sign-in.
+- **`src/app/admin/people/page.tsx`:** the founder's line for a refused sign-in gets its own
+  words from start to end ("Meta did not accept our keys when a host signed in with Instagram,
+  N times in the last 24 hours"), so the event's name never shows; and "says they own" becomes
+  "says they run".
 - **`src/app/privacy/page.tsx`:** the sentences above, beside TikTok's.
 - **`next.config.ts`:** the return address for Instagram joins TikTok's in the list of addresses
   the development server does not print: it carries a one-time code. (On the live site the same
@@ -230,10 +257,11 @@ changes.
 2. Meta sends the host back with a one-time code and the value. The return address removes the
    cookie, then checks: the note is ours and in time; the value matches; the person logged in to
    Connect now is the one who started; their account is not paused or closed. Only after that is
-   anything else Meta sent looked at, a refusal included. (Removing the cookie stops an ordinary
-   second visit. It is the check of who started, and the database's rule of one owner for an
-   account, that keep a repeated or copied return harmless: it can only confirm the same
-   person's own account again.)
+   anything else Meta sent looked at, a refusal included. (This is not "once only": removing the
+   cookie stops an ordinary reload, and a return that is sent twice or with a cookie put back
+   stays tied to the person who started. Each one that gets an answer from Meta goes through the
+   rule for which account is taken and the database's one-owner rules again, as they stand at
+   that moment.)
 3. The server swaps the code for a key and asks once which accounts were shared. The key is then
    dropped.
 4. The account is chosen (see above) and saved as confirmed, in one database step under the
@@ -312,3 +340,13 @@ all worked in above:
 
 Astra found nothing over-built, and advised against three things this plan does not do: keeping
 or managing Meta's keys, a screen for picking an account, and a general sign-in framework.
+
+**Astra's second check (19 November 2026): "ready with changes", nothing that must change.** It
+walked the rule for which account is taken through five cases against the code and found it
+right, and the same as TikTok's where one account is shared; it found every reader of the table
+of checks copes with the new event name. Its wording points are worked in: the two proofs are
+both accepted, not "the same strength"; the founder's look happens at approval only; a repeated
+return is tied to its person, not "harmless"; an empty list has its own sentence; a list that
+cannot be read or goes on is refused whole; a dispute is repaired by hand, with no button; the
+tester's portfolio must not be the app's; and "no request to hand a key back" is said as "none
+found".
