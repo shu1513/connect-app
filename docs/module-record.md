@@ -2010,7 +2010,7 @@ sign-in would have used up the bio check's limits; and in the code, a damaged an
 could have been taken for a full list of one account. All taken. Astra asked for nothing to be
 removed.
 
-**How it was checked:** 532 automatic tests (33 new); `scripts/accounts-check.ts` with a new
+**How it was checked:** 532 automatic tests (32 new); `scripts/accounts-check.ts` with a new
 part of 38 checks with Meta's side pretended (203 in all); the real try above; and every other
 check script once more.
 
