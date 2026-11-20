@@ -1,4 +1,4 @@
-# Plan 37: The phone apps (iPhone and Android)
+# Plan 39: The phone apps (iPhone and Android)
 
 **Status:** a plan only; nothing is built. Written 19 November 2026 by the builder, from the code
 as it is on `main` after pull request 58, from research the builder and Astra each did on their
@@ -6,7 +6,10 @@ own that day, and from what the founder said. This is the rulebook for the whole
 part gets its own short plan, checked by Astra, just before it is built, because the website is
 still changing every day and a detailed plan written now would be out of date by then.
 Astra checked this plan twice ("ready with changes" both times); the builder read every point
-against the code, and all eleven are worked in below (the lists are at the end).
+against the code, and all eleven are worked in below (the lists are at the end). CodeRabbit
+had reached its limit, so on the founder's word the builder read the whole plan line by line
+in its place (what that found is at the end too). It was first written as plan 37 and given
+the number 39 when another plan 37 reached `main` first.
 
 ## For the founder: what this is
 
@@ -42,9 +45,9 @@ install from the App Store and Google Play.
    better-auth (sign-in) each offer an official kit for it. It lives in this repository, in its
    own folder, so the rules that are plain TypeScript can be used by both.
    Not chosen: the website wrapped in an app shell (Apple refuses "a repackaged website", and
-   video inside a wrapped page goes quiet when an iPhone locks); an installable website only
-   (no store, weak alerts on iPhone); Flutter or separate Swift and Kotlin apps (new languages,
-   nothing reused, too much for one builder).
+   developers report that sound from a wrapped page stops when an iPhone locks); an
+   installable website only (no store, weak alerts on iPhone); Flutter or separate Swift and
+   Kotlin apps (new languages, nothing reused, too much for one builder).
 
 2. **When: after the website is live.** Three reasons. The website's pages still change daily,
    and every change would then be made twice. A call can only be tried properly on real
@@ -217,8 +220,10 @@ green checks, merge, a note in `docs/module-record.md`.
   notifications on an iPhone (part 5). Both cost money, so the builder asks before anything
   is signed up. To be confirmed at sign-up: Apple lists an app under a company's name only
   for a registered company; without one it is listed under the founder's own name.
-- The lawyer's look at what deleting an account must wipe, and which records must be kept
-  and for how long.
+- The lawyer's look at what deleting an account must wipe, which records must be kept and
+  for how long, and the charge for a late cancellation when a customer deletes their account.
+  These points, and what the privacy page must say about the apps, are in
+  `docs/for-the-lawyer.md` (sections 2 and 4).
 
 ## Not in this plan
 
@@ -228,7 +233,8 @@ green checks, merge, a note in `docs/module-record.md`.
 
 ## What could not be checked
 
-- Nothing was tried on a real phone.
+- Nothing was tried on a real phone. That a wrapped web page loses its sound on a locked
+  iPhone comes from developers' reports, not from a test.
 - Whether a store's reviewer accepts memberships paid with Stripe. Only a review answers that.
 - Whether Apple's free pass for a link to a website payment in the United States lasts: the
   Supreme Court hears that case on 11 January 2027. This plan does not lean on it.
@@ -275,15 +281,27 @@ Astra also confirmed that the new rules leave no customer with held money or a r
 nothing cleans up, and that a host's last earnings need a real collection before deletion,
 which part 1's plan must provide.
 
+## The builder's own read-through, in CodeRabbit's place (19 November 2026)
+
+CodeRabbit answered "review rate limited". The founder said to read it instead. Found and fixed:
+
+1. The plan's number: 37 was taken on `main` meanwhile; it is 39 now.
+2. The points for a lawyer were only in this plan; they are now in `docs/for-the-lawyer.md`,
+   as every plan's must be.
+3. Decision 3 still said "closing your own account"; it is "deleting".
+4. Decision 1 stated as a fact that a wrapped page goes quiet on a locked iPhone. It is what
+   developers report; the plan now says so.
+5. The list of sources was split in two and left out Apple's rule 4.5.4, which decision 9
+   leans on.
+
 ## Where the facts come from
 
+- Apple's App Review Guidelines, 3.1.1, 3.1.3(d), 3.2.1(vii), 4.2, 4.5.4 and 4.8:
+  https://developer.apple.com/app-store/review/guidelines/
 - Apple, deleting an account:
   https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion
 - Google Play, deleting an account:
   https://support.google.com/googleplay/android-developer/answer/13327111
-
-- Apple's App Review Guidelines, 3.1.1, 3.1.3(d), 3.2.1(vii), 4.2 and 4.8:
-  https://developer.apple.com/app-store/review/guidelines/
 - Google Play, "Understanding Google Play's Payments policy" (1:1 services; tips):
   https://support.google.com/googleplay/android-developer/answer/10281818
 - Apple, the call screen and its notifications:
