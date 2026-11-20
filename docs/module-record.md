@@ -3412,6 +3412,12 @@ blocks; the list has full-size rows.
   call ended with a report; the rule for the figure has its own tests, and those payments need
   several more tables to set up.
 
+- *CodeRabbit* had reached its review limit again (the founder: "code rabbit is at its limit so
+  you can do it instead, as usual"). The builder read the whole change line by line. Two small
+  things changed: the words shown when more than 500 calls touch the days said "the first 500"
+  although the nearest are kept now; and the clock for the blocks was made anew for every
+  block, where once is enough for a week that can hold hundreds.
+
 **How it was checked.** 708 automatic tests on the code, 27 of them new (the calendar's rules,
 the figure earned) and 4 removed with the old grouping. On this computer, against the local
 database: `scripts/home-check.ts`, 103 checks, 17 of them new (part 9, what the calendar is

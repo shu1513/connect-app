@@ -90,8 +90,10 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
   const inView = calls.filter((call) => firstDayOf.has(call.id));
   const chosenCall = inView.find((call) => call.id === chosen) ?? null;
   const dayName = (one: string, long = false) => plain(one).toLocaleDateString(undefined, { weekday: long ? "long" : "short", day: "numeric", ...(long ? { month: "long" } : {}), timeZone: "UTC" });
+  // Made once for all the blocks: a week can hold hundreds.
+  const hourAndMinute = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone });
   const clock = (iso: string) =>
-    new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone })
+    hourAndMinute
       .formatToParts(new Date(iso))
       .filter((part) => part.type !== "dayPeriod")
       .map((part) => part.value)
@@ -137,7 +139,7 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
           List
         </button>
       </div>
-      {cut && <p className="mt-2 text-sm text-[#9a3412]">There are more calls around these days than can be shown at once. The first {CALENDAR.most} are here; the rest are on &quot;Past calls&quot;.</p>}
+      {cut && <p className="mt-2 text-sm text-[#9a3412]">There are more calls around these days than can be shown at once. The {CALENDAR.most} nearest to them are here.</p>}
 
       {view === "calendar" ? (
         <>
