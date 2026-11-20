@@ -6,28 +6,47 @@
  * Each button and field has a name a screen reader can say, is at least 44 points tall, and its
  * text grows with the phone's text size.
  */
-import type { ReactNode } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { shape, type, useColors } from "./theme";
 
 /**
  * A whole screen: the warm page colour, safe from the phone's notch and bars, scrolling when it
  * is long. When the keyboard is up the page ends above it, so the field being typed in, and what
- * is under it, can be scrolled into sight.
+ * is under it, can be scrolled into sight. With `onRefresh`, pulling the page down asks again.
  */
-export function Page({ title, children }: { title?: string; children: ReactNode }) {
+export function Page({ title, children, refreshing, onRefresh }: { title?: string; children: ReactNode; refreshing?: boolean; onRefresh?: () => void }) {
   const colors = useColors();
+  // Counts up whenever the page has stopped moving, so a piece that needs to know whether it is on the screen can look.
+  const [settled, setSettled] = useState(0);
+  const moved = () => setSettled((count) => count + 1);
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: colors.page }]} edges={["top", "left", "right"]}>
       <KeyboardAvoidingView style={styles.fill} behavior="padding">
-        <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-          {title ? <Title>{title}</Title> : null}
-          {children}
+        <ScrollView
+          contentContainerStyle={styles.page}
+          keyboardShouldPersistTaps="handled"
+          onScrollEndDrag={moved}
+          onMomentumScrollEnd={moved}
+          onContentSizeChange={moved}
+          // Pulling the page down asks the server again, on a page that has something to ask.
+          refreshControl={onRefresh ? <RefreshControl refreshing={refreshing ?? false} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} /> : undefined}
+        >
+          <Settled.Provider value={settled}>
+            {title ? <Title>{title}</Title> : null}
+            {children}
+          </Settled.Provider>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+const Settled = createContext(0);
+/** A number that changes each time the page has come to rest after moving or growing: the moment to look where one is on the screen. */
+export function usePageSettled(): number {
+  return useContext(Settled);
 }
 
 export function Title({ children }: { children: ReactNode }) {

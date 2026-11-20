@@ -1,7 +1,9 @@
 # Phone apps, part 04: the home page
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
+the end). What the building changed or added is under "What the building changed"; where that
+list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
 
@@ -99,6 +101,38 @@ The session that built the page left nine rules for a phone version. They are bi
 The page shows prices and earnings but sells nothing. No diary, no contribution, no tip, and
 no word pointing to the website for any of them. The one hidden carrier Astra found, the
 diary choice inside the followed hosts, is cut by decision 1.
+
+## What the building changed (20 November 2026)
+
+1. **The putting-together now lives in `src/lib/home/gather.ts`,** and the website's page and
+   the app's address both call it. The website's page asks for the diary news; the app's
+   address never does, and then nothing of a diary is read at all. The page's own sentences
+   that both show (how a request stands, what the card says when no call is coming, "Why these
+   hosts?") moved to one place each, so the two cannot come to differ.
+2. **No account's number leaves the server.** A followed host goes out as a name, a page, "is
+   available" and a photo; a suggested host by her page's name and her place in the row. The
+   plan did not say; the website's page does not show them either.
+3. **Requests a host must answer** (decision 6) go out as: when, how long, the price, the name,
+   and the time to answer by. The rating, "ID confirmed", what the person wrote and the host's
+   own note about them are on the request's own screen, which is part 07's.
+4. **Rows do not lead anywhere yet.** The call's own page (parts 08 and 09), a request's
+   screen (07), a host's page (05), rating a call (10), "see all" of the followed hosts and the
+   people talked to (17) and the hosting shortcuts (11, 15, 16) are each wired in by the part
+   that builds the screen. Until then the home page shows them and stops there. Decision 6
+   said this of requests; it holds for all of them.
+5. **Photos** (decision 4) are asked for through the app's one way of asking the server, never
+   by the phone's own picture loader, which keeps pictures on the phone by its own rules. A
+   photo anyone may see is kept in the app's memory for five minutes; every other photo lives
+   only on the screen that asked for it. Nothing is written to the phone's storage.
+6. **"Available now"** beside a followed or suggested host also follows the apps' own switch
+   (part 01): with it off, nobody is shown as available in the apps.
+7. **The app reads the website's calendar files as they are** (decision 3). For that the app's
+   bundler and its tests are told where those two folders are (`mobile/metro.config.js`).
+8. **Every page can now be pulled down to ask again,** and knows when it has come to rest (a
+   suggested host counts as seen when the middle of its card is on the screen then).
+9. **If the server says today's suggestions are not made, the app asks for them** each time it
+   reads the page, not once per opening of the app. Once made, the server says so, so it is
+   still once a day.
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 

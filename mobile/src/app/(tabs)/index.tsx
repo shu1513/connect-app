@@ -1,25 +1,64 @@
+import { useState } from "react";
+import { Calendar } from "@/home/calendar";
+import { NextCall } from "@/home/next-call";
+import { HostsYouFollow, SuggestedHosts, WaitingForYou, YourRequests } from "@/home/sections";
+import { useHome } from "@/home/use-home";
 import { useStart } from "@/lib/opening";
-import { Notice, Page, Words } from "@/ui/pieces";
+import { Card, Heading, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
 
 /**
- * Home (plans/45-phone-apps/04-the-home-page.md). An empty page for now: its part of the plan
- * fills it. A paused account is told so here, in the words of the website's own page for it
- * (plans/45-phone-apps/03-signing-in.md). It is told in the app, not on a page of the website:
- * that page shows whoever is signed in to the browser, who need not be the person in the app.
+ * Home (plans/45-phone-apps/04-the-home-page.md): the website's home page on a phone. From top
+ * to bottom: the next call with its countdown, what is waiting for this person, their calendar,
+ * their own requests, the hosts they follow, and suggested hosts. One page for everyone; a host
+ * sees more on it. No diary, no project, no tip.
+ *
+ * It shows what the server says and decides nothing itself. It never opens a room.
  */
 export default function HomePlace() {
   const start = useStart();
   const me = start?.me;
+  // The day the calendar shows; null is today. It is part of the question to the server.
+  const [day, setDay] = useState<string | null>(null);
+  const { home, problem, pulling, pull, reload } = useHome(day);
+
+  if (!home) return problem ? <Problem words={problem} onRetry={() => void reload()} /> : <Loading />;
+  const nextCall = home.next ? (home.calls.find((call) => call.id === home.next!.id) ?? null) : null;
   return (
-    <Page title="Home">
+    <Page title={home.firstName ? `Hello, ${home.firstName}` : "Hello"} refreshing={pulling} onRefresh={() => void pull()}>
+      {/* What is on the screen is the last answer that came. If a newer one did not come, that is said. */}
+      {problem ? <Notice>{problem}</Notice> : null}
       {me?.paused ? (
+        // Told in the app, in the words of the website's own page for it: that page shows whoever is signed in to the
+        // browser, who need not be the person in the app.
         <Notice>
           Your account is paused: you can look, but not book, host or join calls.
           {me.pausedReason ? `\n\nReason: ${me.pausedReason}` : ""}
           {`\n\nIf you think this is a mistake, write to ${start?.supportEmail}.`}
         </Notice>
       ) : null}
-      <Words soft>Your next call, your calendar and your requests will be here.</Words>
+      {home.hosting?.page ? <Words soft>You are a host. Your page: /h/{home.hosting.page}</Words> : null}
+
+      {nextCall && home.next ? (
+        <NextCall call={nextCall} next={home.next} serverNow={home.serverNow} onDue={() => void reload()} />
+      ) : (
+        <Card>
+          <Heading>Your next call</Heading>
+          <Words soft>{home.noCall ?? "You have no call coming up."}</Words>
+        </Card>
+      )}
+
+      <WaitingForYou toAnswer={home.toAnswer} toRate={home.toRate} serverNow={home.serverNow} />
+
+      {home.calendar.shown ? (
+        <Card>
+          <Heading>Your calendar</Heading>
+          <Calendar calls={home.calls} asks={home.calendar.asks} serverNow={home.serverNow} day={day} cut={home.calendar.cut} most={home.calendar.most} nextId={home.next?.id ?? null} onDay={setDay} />
+        </Card>
+      ) : null}
+
+      <YourRequests requests={home.requests} />
+      <HostsYouFollow followed={home.followed} />
+      {home.suggested ? <SuggestedHosts suggested={home.suggested} onChanged={() => void reload()} /> : null}
     </Page>
   );
 }

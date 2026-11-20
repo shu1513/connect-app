@@ -83,3 +83,99 @@ export type AppWelcome = {
 
 /** The answer of POST /api/app/welcome. */
 export type AppWelcomeDone = { done: true };
+
+/**
+ * About the customer of a call, for the host of that call only. Decided on the server; a call a
+ * person booked never has one. Never the customer's email, the name on an ID, or card details.
+ */
+export type AppAbout = {
+  /** What the customer wrote when asking for the call; empty when they wrote nothing. */
+  words: string;
+  /** Only a yes or no. */
+  idConfirmed: boolean;
+  /** The customer has an active membership with this host. */
+  member: boolean;
+  /** How often the two have talked before. */
+  callsBefore: number;
+  /** When the last of those calls started; null when there was none. */
+  lastCallAt: string | null;
+  /** The host's own private note about this customer, or null. */
+  note: string | null;
+};
+
+/** One call as a list or a calendar shows it: the words and numbers for the person looking, never a whole record. */
+export type AppCall = {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  minutes: number;
+  /** The other person, as this person knows them: a host by the name on their page. */
+  name: string;
+  /** The other person's photo, when this person is handed one. Asked for by its id (GET /api/app/photos/…). */
+  photoId: string | null;
+  /** This person hosts the call. */
+  hosting: boolean;
+  /** The room is open now. */
+  open: boolean;
+  /** The call is over. */
+  finished: boolean;
+  /** What a list says about the call's money. */
+  payment: string;
+  /** What the call earned its host: only for a finished call this person hosted, once something of it is charged. */
+  earned?: { text: string; cents: number; soFar: boolean };
+  /** For a finished call this person hosted: part of its money is not settled yet. */
+  moneyOpen?: true;
+  /** Only ever on a call this person hosts that is not over. */
+  about?: AppAbout;
+};
+
+/** A time people have asked a host for and she has not answered: when, and how many asked. Never who. */
+export type AppAsk = { startsAt: string; endsAt: string; count: number };
+
+/** A request waiting for this host's answer, as the home page lists it. What else she may know about the person asking is on the request's own screen. */
+export type AppWaitingRequest = { id: string; startsAt: string; endsAt: string; minutes: number; price: string; name: string; respondBy: string | null };
+
+/** A suggested host, as a search result shows one. Never why they are suggested. */
+export type AppSuggestedHost = {
+  /** The place in today's row (1 to 6): what "seen", "opened" and "hide" name. */
+  place: number;
+  handle: string;
+  name: string;
+  price: string;
+  languages: string[];
+  /** Already marked as seen today. */
+  seen: boolean;
+  rating: { average: number; count: number } | null;
+  photoId: string | null;
+  availableNow: boolean;
+  nextOpen: string | null;
+};
+
+/** The answer of GET /api/app/home: the home page of someone who is signed in. No diary, no project, no tip. */
+export type AppHome = {
+  /** The server's clock when this was put together: what the countdown counts from. */
+  serverNow: string;
+  firstName: string;
+  /** Null for someone with no hosting to do. `page`: her page's handle while it is open to everyone. */
+  hosting: { page: string | null } | null;
+  /** Every call the page speaks of: the soonest few that are not over, and the ones around the day in view. */
+  calls: AppCall[];
+  /** The call the countdown is about (one of `calls`), or null. */
+  next: { id: string; opensAt: string; notPaid: boolean } | null;
+  /** What the "next call" card says when no call is coming; null when one is. */
+  noCall: string | null;
+  /** The calendar: whether it is shown at all, the day in view (null: today), the asked-for times, and whether the calls were cut short. */
+  calendar: { shown: boolean; day: string | null; asks: AppAsk[]; cut: boolean; most: number };
+  /** Requests waiting for this person's answer as a host. */
+  toAnswer: { count: number; times: number; shown: AppWaitingRequest[] };
+  toRate: Array<{ callId: string; otherName: string; endsAt: string }>;
+  /** This person's own requests. */
+  requests: Array<{ id: string; hostName: string; startsAt: string; words: string }>;
+  followed: { total: number; hosts: Array<{ name: string; handle: string | null; available: boolean; photoId: string | null }> };
+  /** Null for a paused person. `made`: whether today's have been made (if not, the app asks for that once the page is up). */
+  suggested: { day: string; made: boolean; shownFirst: number; why: string; hosts: AppSuggestedHost[] } | null;
+  /** The last line of the page. */
+  takeCalls: boolean;
+  /** How often the app asks again while the page is in front. */
+  refreshSeconds: number;
+};
