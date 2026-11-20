@@ -2629,7 +2629,7 @@ searching or filtering by language, which needs a decision about browsing hosts 
 **How it was checked:** 616 automatic tests on the code with the emails to followers (plan 31)
 and the photo from TikTok (plan 33) merged in, 11 of them new here (the list, and what a host
 ticked). On this computer, against the local database: `scripts/accounts-check.ts`, 217 checks,
-11 of them new (applying with none, six, or a made-up language is refused in its own words and
+12 of them new (applying with none, six, or a made-up language is refused in its own words and
 writes nothing; the languages are saved once each in the list's order; changing them keeps an
 approved page public; a refused save changes nothing; the public reader and the search give
 them; a host written without languages is still found and shown, with no line);
