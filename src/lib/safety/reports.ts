@@ -125,8 +125,7 @@ export async function createReport(input: { reporterId: string; context: string;
     // "Someone under 18" about a post: its pictures are kept away from the everyday checkers while the report is open.
     if (marksPictures) await markSuspectedByReport(tx, input.contextId, input.now);
     if (reason.urgent) {
-      const admins = await tx.select({ email: schema.user.email, id: schema.user.id }).from(schema.admins).innerJoin(schema.user, eq(schema.user.id, schema.admins.userId));
-      for (const admin of admins) {
+      for (const admin of await adminsIn(tx)) {
         await queueEmail(tx, {
           to: admin.email,
           subject: `Urgent report R-${row.reference}`,
@@ -225,28 +224,122 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   if (admin) throw new ReportError("An admin account cannot be paused here.");
   const reason = `${rule.title}.${input.note ? ` ${input.note}` : ""}`;
   if (person.pausedAt) throw new ReportError("This account is already paused.");
+  const paused = await pause({ person, reason, because: `because of this rule:\n\n${reason}`, emailKey: `paused:${input.userId}:${input.requestId}`, adminId: input.adminId });
+  if (!paused) throw new ReportError("This account is already paused.");
+  return paused;
+}
+
+/**
+ * The pause itself, the same whoever decides it: the founder (pauseAccount) or the app, when an identity check
+ * gives an age under 18 (pauseUnderage). Null when the account was paused already: nothing is done a second time.
+ */
+async function pause(input: {
+  person: { id: string; name: string; email: string };
+  /** What the paused page and the founder's list show. */
+  reason: string;
+  /** How the email goes on after "Your account has been paused". */
+  because: string;
+  emailKey: string;
+  /** The admin who decided it, for the admins' record. Null when the app paused the account by itself. */
+  adminId: string | null;
+  /** When the app paused the account by itself: what the founder is told, in the same step. */
+  tellFounder?: { subject: string; text: string; key: string };
+}): Promise<{ callsNotEnded: number } | null> {
+  const { person, reason } = input;
   let endedMemberships: string[] = [];
   let givenUpPayments: string[] = [];
-  await db.transaction(async (tx) => {
-    await tx.update(schema.user).set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() }).where(and(eq(schema.user.id, input.userId), isNull(schema.user.pausedAt)));
+  const done = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(schema.user)
+      .set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() })
+      .where(and(eq(schema.user.id, person.id), isNull(schema.user.pausedAt)))
+      .returning({ id: schema.user.id });
+    if (!row) return false;
     // Their memberships, as a host and as a member, end at once and for good, in this same step.
-    endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
+    endedMemberships = await endMembershipsOf(tx, person.id, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
     // So do their contributions, as a host and as a contributor; what was only held is let go below.
-    givenUpPayments = await endContributionsOf(tx, input.userId, "paused", new Date());
+    givenUpPayments = await endContributionsOf(tx, person.id, "paused", new Date());
     await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
-      text: `Hi ${person.name},\n\nYour account has been paused because of this rule:\n\n${reason}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. We are ending your requests that were waiting and cancelling your calls that have not started, at no charge to anyone. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
-      key: `paused:${input.userId}:${input.requestId}`,
+      text: `Hi ${person.name},\n\nYour account has been paused ${input.because}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. We are ending your requests that were waiting and cancelling your calls that have not started, at no charge to anyone. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
+      key: input.emailKey,
     });
-    await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: input.userId, detail: reason }, tx);
+    if (input.adminId) await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: person.id, detail: reason }, tx);
+    if (input.tellFounder) {
+      for (const admin of await adminsIn(tx)) await queueEmail(tx, { to: admin.email, subject: input.tellFounder.subject, text: input.tellFounder.text, key: `${input.tellFounder.key}:${admin.id}` });
+    }
+    return true;
   });
+  if (!done) return null;
   // The account is paused from here on, whatever happens next. First what keeps people safe (requests and
   // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
-  const callsNotEnded = await endRequestsAndCallsOf(input.userId, new Date());
+  const callsNotEnded = await endRequestsAndCallsOf(person.id, new Date());
   await cleanUpEndedMemberships(endedMemberships, new Date());
   await letGoAll(givenUpPayments, new Date());
   return { callsNotEnded };
+}
+
+/** The admins and their addresses, read inside a database step. */
+function adminsIn(reader: Pick<typeof db, "select">) {
+  return reader.select({ email: schema.user.email, id: schema.user.id }).from(schema.admins).innerJoin(schema.user, eq(schema.user.id, schema.admins.userId));
+}
+
+/**
+ * An identity check came back "a real person, under 18" (the legal review of 20 November 2026). The app pauses
+ * the account by itself, at once, exactly as the founder's pause does: the two ticked boxes at sign-up no longer
+ * count against what an ID says. The person is told why and where to write; the founder is told by email, sees
+ * the account under "Paused accounts" with this reason, and lifts the pause there if the check was wrong.
+ *
+ * It is not written in the admins' record, which needs an admin: no admin did this. The check's own line
+ * (verified, not an adult, and when) is the record. An admin's own account is never paused, as with the
+ * founder's pause; a closed account needs no pause. Asked twice for the same person, it does nothing the second time.
+ */
+export async function pauseUnderage(input: { userId: string; checkId: string }): Promise<void> {
+  const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
+  if (!person || person.closedAt) return;
+  const [admin] = await db.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
+  if (admin) {
+    console.error(`[identity] the check of an admin account (${input.userId}) gave an age under 18. Admin accounts are not paused by the app; please look at it.`);
+    return;
+  }
+  const rule = RULES.find((r) => r.key === "under18")!;
+  const key = `paused:${input.userId}:underage:${input.checkId}`;
+  const paused = await pause({
+    person,
+    reason: `${rule.title}. An identity check gave an age under 18.`,
+    because: "because the identity check you took gave an age under 18, and Connect is for adults only.",
+    emailKey: key,
+    adminId: null,
+    tellFounder: {
+      subject: "An identity check gave an age under 18",
+      text: `The identity check of ${person.name} (${person.email}) gave an age under 18. The app has paused the account by itself: their waiting requests are ended and their calls that have not started are cancelled at no charge.\n\nPlease look at the account, and at any calls this person has already had. If the check was wrong, you can lift the pause on the same page:\n\n${appUrl()}/admin/reports`,
+      key: `${key}:founder`,
+    },
+  });
+  if (!paused) {
+    // Paused already, for another reason. That pause stays as it is; the founder is still told, so that it is not lifted without knowing this.
+    for (const one of await adminsIn(db)) {
+      await queueEmail(db, {
+        to: one.email,
+        subject: "An identity check gave an age under 18",
+        text: `The identity check of ${person.name} (${person.email}) gave an age under 18. The account was paused already, for another reason, so nothing was changed. Please look at it before lifting that pause:\n\n${appUrl()}/admin/reports`,
+        key: `${key}:founder:${one.id}`,
+      });
+    }
+    return;
+  }
+  if (paused.callsNotEnded === 0) return;
+  // The founder's own pause shows this number on the page. Here nobody is looking, so it is sent.
+  console.error(`[identity] account ${input.userId} was paused for an age under 18, but ${paused.callsNotEnded === -1 ? "its requests and calls" : `${paused.callsNotEnded} of its calls`} could not be ended.`);
+  for (const one of await adminsIn(db)) {
+    await queueEmail(db, {
+      to: one.email,
+      subject: "A paused account still has calls",
+      text: `The account of ${person.name} (${person.email}) was paused because an identity check gave an age under 18, but ${paused.callsNotEnded === -1 ? "its requests and calls" : `${paused.callsNotEnded} of its calls`} could not be ended. Please look at them now:\n\n${appUrl()}/admin`,
+      key: `${key}:calls:${one.id}`,
+    });
+  }
 }
 
 export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {

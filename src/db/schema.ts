@@ -450,7 +450,7 @@ export const bookings = pgTable(
     pricePer15Cents: integer("price_per_15_cents").notNull(),
     totalCents: integer("total_cents").notNull(),
     freeCancelMinutes: integer("free_cancel_minutes").notNull(),
-    /** What the customer wants to talk about. Only the host sees it. */
+    /** What the customer wants to talk about. The host sees it; the founder only in a report one of the two made about the other (it is copied there). */
     note: text("note").notNull().default(""),
     stage: text("stage").notNull(),
     /** "customer" for a booked request; "now" for an instant call while the host is available; "admin" for a call made by a check script (once also by a test page, now removed). */

@@ -318,6 +318,23 @@ async function main() {
       await db.insert(schema.identityChecks).values({ userId: minor.id, stripeSessionId: `vs_check_${randomUUID()}`, status: "verified", adult: false, checkedAt: now });
       check("a verified person under 18 does not count as passed", (await identityState(minor.id)).passed === false);
 
+      // Such a result pauses the account by itself (the legal review of 20 November 2026). What Stripe answers
+      // cannot be made up here, so the step the app takes on that answer is called directly.
+      const [minorCheck] = await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, minor.id));
+      const minorHost = await person("minorhost6");
+      const soon6 = new Date(Date.now() + 5 * 3_600_000);
+      const minorCall = await B.createTestCall({ hostId: minorHost.id, customerId: minor.id, startsAt: soon6, endsAt: new Date(soon6.getTime() + 15 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
+      const toldBefore = await emails(adminUser.email, "age under 18");
+      await R.pauseUnderage({ userId: minor.id, checkId: minorCheck.id });
+      const minorNow = await reloadUser(minor.id);
+      check("an identity check that gives an age under 18 pauses the account by itself, and says why", minorNow.pausedAt !== null && Boolean(minorNow.pausedReason?.startsWith("Nobody under 18")), String(minorNow.pausedReason));
+      check("their call that has not started is cancelled at no charge", (await db.select().from(schema.calls).where(eq(schema.calls.id, minorCall.callId)))[0].cancelledAt !== null);
+      check("they are told by email, and so is the founder", (await emails(minor.email, "is paused")) === 1 && (await emails(adminUser.email, "age under 18")) === toldBefore + 1);
+      await R.pauseUnderage({ userId: minor.id, checkId: minorCheck.id });
+      check("asked again for the same check, nothing is done or sent a second time", (await emails(minor.email, "is paused")) === 1 && (await emails(adminUser.email, "age under 18")) === toldBefore + 1);
+      await R.pauseUnderage({ userId: adminUser.id, checkId: randomUUID() });
+      check("an admin's own account is not paused by it", (await reloadUser(adminUser.id)).pausedAt === null);
+
       const freeHost = await person("free6");
       await makeHost(freeHost, 0);
       await verified(freeHost.id);

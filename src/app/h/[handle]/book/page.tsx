@@ -166,7 +166,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
         <input type="hidden" name="seenPrice" value={offer.pricePer15Cents} />
         <input type="hidden" name="seenFreeCancel" value={offer.freeCancelMinutes} />
         <label className="block">
-          What would you like to talk about? (optional, up to {LIMITS.noteMax} characters; only {profile.displayName} sees it)
+          What would you like to talk about? (optional, up to {LIMITS.noteMax} characters; {profile.displayName} sees it, and Connect only if one of you reports the other)
           <textarea name="note" rows={3} maxLength={LIMITS.noteMax} className="mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2" />
         </label>
         {paid && (

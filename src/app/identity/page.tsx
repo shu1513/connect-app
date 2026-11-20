@@ -50,8 +50,9 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
         <>
           <p className="mt-4 text-sm">
             This confirms that you are a real adult. Hosts need it, and some hosts only take calls from
-            people who have done it. You take a photo of your ID and a selfie on Stripe&apos;s own pages. We never see or keep the photos:
-            Stripe tells us only that you are a real person, 18 or older, and the name on the ID.
+            people who have done it. You take a photo of your ID and a selfie on Stripe&apos;s own pages. We never see or keep the photos.
+            Stripe tells us that you are a real person, your date of birth and the name on the ID. We use the date of birth once, to
+            see that you are 18 or older, and do not keep it.
           </p>
           {state.pending && <p className="mt-3 text-sm">Your last check is still being looked at. This usually takes a minute or two. Reload this page to see the result.</p>}
           {state.triesLeft === 0 ? (

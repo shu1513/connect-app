@@ -1,8 +1,10 @@
 /**
  * The identity check: a photo of an ID and a matching selfie, on Stripe's own
  * pages (Stripe Identity). We keep the outcome, "18 or older" and the name on
- * the ID; never the date of birth, the ID number or any picture. The result
- * is always read from Stripe, never from the browser.
+ * the ID; never the date of birth, the ID number or any picture. The date of
+ * birth is read from Stripe once, to work out the age, and is not kept (the
+ * identity page says so). The result is always read from Stripe, never from
+ * the browser. A result of "under 18" pauses the account (refreshIdentity).
  */
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import Stripe from "stripe";
@@ -109,6 +111,10 @@ export async function refreshIdentity(userId: string): Promise<IdentityState> {
     else if (session.status === "processing") status = "processing";
     else if (session.status === "requires_input" && session.last_error) status = "failed";
     else status = check.status === "processing" ? "processing" : "started";
+    // A real person under 18: the account is paused at once (pauseUnderage says how). It is done before the
+    // result is written, so a pause that fails leaves the check open and is tried again with the next look.
+    // Loaded here and not at the top: reports.ts reads the profiles, and those read this file.
+    if (status === "verified" && adult === false) await (await import("./reports")).pauseUnderage({ userId, checkId: check.id });
     await db
       .update(schema.identityChecks)
       .set({ status, adult, verifiedName, checkedAt: new Date() })
