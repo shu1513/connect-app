@@ -245,7 +245,7 @@ async function main() {
       await db.insert(schema.blocks).values({ blockerId: h.id, blockedId: blockedOne.id });
       const ended = await follower("ended", h.id);
       await F.unfollow({ followerId: ended.id, hostId: h.id, now: T0 });
-      const fine = await follower("fine", h.id);
+      await follower("fine", h.id);
       const at = moment();
       const wrote = await onAndAnnounced(h.id, at);
       const none = async (...names: string[]) => (await Promise.all(names.map((name) => mail(name)))).every((rows) => rows.length === 0);
