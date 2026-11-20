@@ -1196,7 +1196,7 @@ async function main() {
     const m = await held(host, { kind: "monthly", amountCents: 1000 });
     const first = (await CO(m.contributionId)).firstHoldAt!;
     sent = await mail(m.giver, "Your monthly contribution to");
-    check("a monthly contribution's first hold: the agreement is confirmed at once, word for word, with how to stop", sent.length === 1 && sent[0].body.includes("holds $10.00 on your card today and every month, and takes it three days later each time, or sooner if your bank shortens the hold, until you cancel") && sent[0].body.includes("Stop contributing") && sent[0].body.includes(page(m)));
+    check("a monthly contribution's first hold: the agreement is confirmed at once, word for word, with how to stop", sent.length === 1 && sent[0].body.includes("\"I agree that Connect holds $10.00 on my card today and every month, and takes it three days later each time, or sooner if my bank shortens the hold, until I cancel.\"") && sent[0].body.includes("Stop contributing") && sent[0].body.includes(page(m)));
     check("and the email for the payment is sent as well", (await mail(m.giver, "Your contribution to")).length === 1);
     await C.takePayment(m.paymentId, (await PM(m.paymentId)).takeAt!);
     await rounds(monthlyDue(first, 2));

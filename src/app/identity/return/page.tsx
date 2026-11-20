@@ -16,11 +16,10 @@ export default async function IdentityReturnPage(props: PageProps<"/identity/ret
   let pausedNow = false;
   try {
     const state = await refreshIdentity(user.id);
-    // A result of "under 18" pauses the account. The person is shown the page that says why, not "try again".
-    if (!state.passed && !user.paused) {
-      const [row] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, user.id));
-      pausedNow = Boolean(row?.pausedAt);
-    }
+    // A result of "under 18" pauses the account, here or a moment ago by the helper. Read now, not from before the
+    // look at Stripe: a paused person is shown the page that says why, whatever the notice below would be.
+    const [row] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, user.id));
+    pausedNow = Boolean(row?.pausedAt);
     notice = state.passed
       ? "Thank you. Your identity is confirmed."
       : state.pending

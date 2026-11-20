@@ -3,7 +3,7 @@
  */
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
@@ -112,6 +112,34 @@ async function endCallsOf(userId: string, now: Date): Promise<number> {
     }
   }
   return notEnded;
+}
+
+/** How long a pause or a closure is left to finish by itself before the helper looks for what it left. */
+const LEFT_ALONE_MS = 2 * 60_000;
+
+/**
+ * For the helper, about once a minute. A paused or closed account has no waiting request and no call ahead:
+ * pausing and closing end them. They do it after the account is marked, though, and a server that stops in
+ * between would leave them there (a customer waiting for a call the paused person may not join). So the helper
+ * looks for such leftovers and ends them with the same step. Normally it finds nothing.
+ *
+ * A call that is under way is found again each time until it ends; putting the person out again is harmless.
+ */
+export async function finishPausesAndClosures(now: Date): Promise<void> {
+  const before = new Date(now.getTime() - LEFT_ALONE_MS);
+  // Paused or closed, and not just now: the pause or the closure itself may still be at work.
+  const off = or(lt(schema.user.pausedAt, before), lt(schema.user.closedAt, before));
+  const withCalls = await db
+    .selectDistinct({ id: schema.user.id })
+    .from(schema.user)
+    .innerJoin(schema.calls, or(eq(schema.calls.hostId, schema.user.id), eq(schema.calls.customerId, schema.user.id)))
+    .where(and(off, isNull(schema.calls.cancelledAt), isNull(schema.calls.closedAt), gt(schema.calls.endsAt, now)));
+  const withRequests = await db
+    .selectDistinct({ id: schema.user.id })
+    .from(schema.user)
+    .innerJoin(schema.bookings, or(eq(schema.bookings.hostId, schema.user.id), eq(schema.bookings.customerId, schema.user.id)))
+    .where(and(off, eq(schema.bookings.stage, "waiting")));
+  for (const id of new Set([...withCalls, ...withRequests].map((row) => row.id))) await endRequestsAndCallsOf(id, now);
 }
 
 /** Undoes a closure made by mistake. A host profile stays suspended until the founder approves it again. */

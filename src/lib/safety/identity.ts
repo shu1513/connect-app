@@ -6,7 +6,7 @@
  * identity page says so). The result is always read from Stripe, never from
  * the browser. A result of "under 18" pauses the account (refreshIdentity).
  */
-import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { db, schema } from "@/db";
 import { stripe } from "@/lib/payments/stripe";
@@ -111,16 +111,30 @@ export async function refreshIdentity(userId: string): Promise<IdentityState> {
     else if (session.status === "processing") status = "processing";
     else if (session.status === "requires_input" && session.last_error) status = "failed";
     else status = check.status === "processing" ? "processing" : "started";
-    // A real person under 18: the account is paused at once (pauseUnderage says how). It is done before the
-    // result is written, so a pause that fails leaves the check open and is tried again with the next look.
+    const result: IdentityResult = { status, adult, verifiedName, checkedAt: new Date() };
+    // A real person under 18: the account is paused at once (pauseUnderage says how), and the result is written
+    // in the same database step as the pause. So the two are there together or not at all: a pause that fails
+    // leaves the check open for the next look, and a check never pauses anyone a second time.
     // Loaded here and not at the top: reports.ts reads the profiles, and those read this file.
-    if (status === "verified" && adult === false) await (await import("./reports")).pauseUnderage({ userId, checkId: check.id });
-    await db
-      .update(schema.identityChecks)
-      .set({ status, adult, verifiedName, checkedAt: new Date() })
-      .where(eq(schema.identityChecks.id, check.id));
+    if (status === "verified" && adult === false) await (await import("./reports")).pauseUnderage({ userId, checkId: check.id, save: (writer) => saveIdentityResult(writer, check.id, result) });
+    else await saveIdentityResult(db, check.id, result);
   }
   return identityState(userId);
+}
+
+export type IdentityResult = { status: string; adult: boolean | null; verifiedName: string | null; checkedAt: Date };
+
+/**
+ * Writes what Stripe said about one check, unless the check has its final answer already (passed with a known
+ * age, or cancelled): a slower look at Stripe never writes over that. True when this call wrote it.
+ */
+export async function saveIdentityResult(writer: Pick<typeof db, "update">, checkId: string, result: IdentityResult): Promise<boolean> {
+  const written = await writer
+    .update(schema.identityChecks)
+    .set(result)
+    .where(and(eq(schema.identityChecks.id, checkId), ne(schema.identityChecks.status, "canceled"), or(ne(schema.identityChecks.status, "verified"), isNull(schema.identityChecks.adult))))
+    .returning({ id: schema.identityChecks.id });
+  return written.length > 0;
 }
 
 /** For the helper: finish checks that Stripe was still thinking about. */

@@ -26,10 +26,21 @@ export function summarySentences(input: { kind: "once" | "monthly"; amountCents:
 }
 
 /**
- * The box a person ticks for a monthly contribution. What they agreed to, word for word, is kept.
- * It says "or sooner" because a bank can shorten a hold: the box is what the person agrees to, so it
- * must not promise more than the sentences beside it (the legal review of 20 November 2026).
+ * The box as it read in every version of the wording. Old ones are never taken out: the email that
+ * confirms a monthly contribution quotes the box the person ticked, and that can be an older one
+ * (someone who sent the form before a change and finished the card step after it).
+ * Since 2026-11-20 it says "or sooner", because a bank can shorten a hold: the box is what the person
+ * agrees to, so it must not promise more than the sentences beside it (the legal review of that day).
  */
-export function agreementBox(amountCents: number): string {
-  return `I agree that Connect holds ${money(amountCents)} on my card today and every month, and takes it three days later each time, or sooner if my bank shortens the hold, until I cancel.`;
+const BOXES: Record<string, (amount: string) => string> = {
+  "2026-11-19": (amount) => `I agree that Connect holds ${amount} on my card today and every month, and takes it three days later each time, until I cancel.`,
+  "2026-11-20": (amount) => `I agree that Connect holds ${amount} on my card today and every month, and takes it three days later each time, or sooner if my bank shortens the hold, until I cancel.`,
+};
+
+/**
+ * The box a person ticks for a monthly contribution: today's, or the one of the version they agreed
+ * to. A version this file does not know (there is none) reads as today's.
+ */
+export function agreementBox(amountCents: number, version: string = CONTRIBUTION_WORDING_VERSION): string {
+  return (BOXES[version] ?? BOXES[CONTRIBUTION_WORDING_VERSION])(money(amountCents));
 }

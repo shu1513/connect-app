@@ -31,6 +31,7 @@ async function main() {
   const { runBookingJobs } = await import("../src/lib/booking/jobs");
   const { closeFinishedExtensions } = await import("../src/lib/extend/extend");
   const { refreshPendingIdentityChecks } = await import("../src/lib/safety/identity");
+  const { finishPausesAndClosures } = await import("../src/lib/profiles/closing");
   const { writeCallReminders, writeRequestReminders } = await import("../src/lib/notifications/reminders");
   const { writeMembershipReminders } = await import("../src/lib/notifications/membership-reminders");
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
@@ -124,6 +125,8 @@ async function main() {
     // Identity checks are read back on their own rhythm (about once a minute), so slow answers from
     // Stripe never hold up closing rooms or the money jobs.
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
+    // About once a minute: what a pause or a closure left behind when the server stopped in the middle of it.
+    if (passes % 12 === 0) await finishPausesAndClosures(now).catch((error) => console.error("[accounts] finishing pauses and closures failed; will retry", error));
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.

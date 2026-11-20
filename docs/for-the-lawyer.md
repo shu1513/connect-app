@@ -291,8 +291,9 @@ sections above leave out. The places in the code are named so each point can be 
 - **A representative in the EU and in the UK.** A company outside them that offers its service to
   people there usually has to name one. Does Connect?
 - **Things the app keeps that the privacy page does not mention.** Each login keeps the internet
-  address and the browser (`session` in `src/db/schema.ts`). Every email the app sends is kept in
-  full with no end date (`email_outbox`). Most records have no end date in the code at all.
+  address and the browser (`session` in `src/db/schema.ts`). The emails the app sends about
+  bookings and money are kept in full with no end date (`email_outbox`); only login emails are
+  emptied once sent, and emails about a refund request after a year. Most records have no end date in the code at all.
 - **Cookies.** The app sets only the cookies it needs to log in and to connect an Instagram or
   TikTok account, and Stripe sets its own on payment pages. No tracking or advertising tools were found. Does that mean no cookie banner is needed
   in the EU and the UK? (Adding any tracking tool later changes the answer.)
@@ -320,8 +321,9 @@ sections above leave out. The places in the code are named so each point can be 
 - **Customers "can be anywhere".** Section 6 asks which countries must not be served. To add: the
   code blocks no country for customers. The United States forbids doing business with people in
   some countries and with named persons. Is relying on Stripe to refuse those cards enough?
-- **Showing that the rule against sexual content is enforced.** The rules forbid it, and it is
-  found only when someone reports it. US law (FOSTA) and Stripe both look at what a site does, not
+- **Showing that the rule against sexual content is enforced.** The rules forbid it. Pictures
+  are checked by machine, but on a call it is found only when someone reports it. US law (FOSTA)
+  and Stripe both look at what a site does, not
   only what it says. What record of reports and actions should Connect keep to show it acts?
 - **Ratings.** Only a person who had the call can rate, and only averages are shown. Is anything
   else needed under the US rule against fake reviews (2024)?
@@ -338,7 +340,7 @@ written here.
 
 - **A person the ID check finds to be under 18.** As found, such a person kept full use of the
   app: the result was saved, but the gate looked only at the two ticked boxes. **Changed the same
-  day:** the app now pauses the account by itself the moment the result arrives
+  day:** the app now pauses the account by itself when it reads that result from Stripe
   (`pauseUnderage` in `src/lib/safety/reports.ts`). Their waiting requests end, their calls that
   have not started are cancelled at no charge, they are told why and where to write, and the
   founder is told by email. Still to decide: is a pause enough, or must the account be closed and

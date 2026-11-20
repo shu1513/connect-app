@@ -3732,3 +3732,74 @@ and US debit cards have rules against adding a charge for paying by card); and t
 collection charge can fall on a collection that holds only a tip. The builder's own choices
 listed above can each be changed. A refund of a tip after its money was taken costs Connect
 Stripe's fee (46 cents on $5), and all of it once the host has collected.
+
+## A legal review, and four small faults it found (20 November 2026)
+
+**Why.** The founder asked for the app to be read as a lawyer would, for the areas that still
+need covering, and for Astra to do the same. Both reads were of the whole app, not of one
+change. They agreed on the order: a company first, then who the seller is and who holds the
+money, then child safety.
+
+**What it produced.** `docs/for-the-lawyer.md` grew from eight sections to fifteen. Sections 9 to
+14 are the builder's 30 points; section 15 holds the 23 that Astra added, each checked against
+the code before it was written down. The file names the place in the code for each point. The
+review also found that the repository is public on GitHub, with the plans and that file in it;
+the founder said they will make it private later.
+
+**Four faults that were not questions for a lawyer, and were fixed** (the founder: "Yes, fix
+them"):
+
+1. *An identity check that came back "a real person, under 18" did nothing.* The result was
+   saved, but the gate looks only at the two boxes ticked at sign-up, so such a person could
+   still book any host who does not ask for ID. Now `refreshIdentity` calls the new
+   `pauseUnderage` (`src/lib/safety/reports.ts`): the account is paused exactly as by the
+   founder's own pause (requests ended, calls that have not started cancelled at no charge,
+   memberships and contributions ended, put out of a call in progress). The person is told why
+   and where to write. The founder is told by email and sees the account under "Paused accounts"
+   with the reason "Nobody under 18. An identity check gave an age under 18." If a call could
+   not be ended, a second email says so. The founder's pause and this one share one function,
+   `pause()`. Both identity pages send a paused person to the page that says why.
+2. *The booking form said "only the host sees" the customer's note.* A report copies the note
+   for the founder. It now says the host sees it, "and Connect only if one of you reports the
+   other".
+3. *The identity page said Stripe tells Connect "only" real person, 18 or older, and the name.*
+   The server reads the date of birth to work out the age and does not keep it. The page now
+   says so.
+4. *The tick box for a monthly contribution promised "three days later each time".* A bank can
+   shorten a hold. The box and the email that repeats it now add "or sooner if my bank shortens
+   the hold"; two summaries say "normally". The wording's version is now `2026-11-20`.
+
+**The builder's own choices** (each can be changed):
+- *A pause, not a closed account.* An ID can be misread, and a pause can be lifted by the
+  founder. Whether a pause is enough is now a question in the lawyer file.
+- *Not written in the admins' record.* That record needs an admin, and no admin did this. The
+  check's own line (verified, not an adult, when) is the record.
+- *An admin's own account is not paused by it* (as with the founder's pause); it is logged.
+- *A closed account is paused too*, so that opening it again does not give back the use of the
+  app (Astra's point).
+- *The pause is made before the result is saved*, so a pause that fails is tried again at the
+  next look.
+
+**What the reviewers found.** *Astra* (GPT 6.2 Astra, effort high, read-only) reviewed the
+commit. It found the founder's own pause unchanged for every caller, and no way to pause the
+wrong person. Taken: a closed account is paused too; the two identity pages read the pause
+after the look at Stripe and give it first place; "we use the date of birth once" promised an
+exact count and became "only to check whether you are 18 or older"; the founder's email no
+longer says the calls "are cancelled" before that has happened; three sentences of the lawyer
+file that said more than the code does. Not taken, with the reason:
+- *People already recorded as under 18 are not paused afterwards.* The app has no real users;
+  the only such lines are made by the check scripts. Before real users, nothing is there to
+  bring in.
+- *Saving the result and pausing in one database step.* It would guard against a second pause
+  after the founder lifted the first, which needs a failed write and a lift within the same
+  minutes. The cost is a wider change to the pause for a case that pauses, once more, an
+  account whose ID says under 18.
+- *A pause interrupted between its two halves* (the account paused, the calls not yet ended).
+  This gap is the same for the founder's pause and for closing an account, and was there
+  before. It deserves its own change, not a corner of this one.
+- *A join that is under way at the very moment of a pause* can still get its pass. Also there
+  before, for every pause, and in the middle of the call's join step.
+- *The email that confirms a monthly contribution quotes today's wording* to someone who agreed
+  to yesterday's and finished the card step after the change. With no real users, nobody is in
+  that state.
+The last four are worth doing before launch; they are listed under "Still open".

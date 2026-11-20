@@ -225,15 +225,20 @@ export async function pauseAccount(input: { adminId: string; userId: string; rul
   const reason = `${rule.title}.${input.note ? ` ${input.note}` : ""}`;
   if (person.pausedAt) throw new ReportError("This account is already paused.");
   const paused = await pause({ person, reason, because: `because of this rule:\n\n${reason}`, emailKey: `paused:${input.userId}:${input.requestId}`, adminId: input.adminId });
-  if (!paused) throw new ReportError("This account is already paused.");
+  if (typeof paused === "string") throw new ReportError("This account is already paused.");
   return paused;
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
  * The pause itself, the same whoever decides it: the founder (pauseAccount) or the app, when an identity check
- * gives an age under 18 (pauseUnderage). Null when the account was paused already: nothing is done a second time.
+ * gives an age under 18 (pauseUnderage). "already_paused" when the account was paused already: it is not paused
+ * a second time. "not_first" when `first` said no: then nothing at all is done.
  */
 async function pause(input: {
+  /** Done first, in the same database step as the pause. If it answers false, nothing is paused or written. */
+  first?: (tx: Tx) => Promise<boolean>;
   person: { id: string; name: string; email: string };
   /** What the paused page and the founder's list show. */
   reason: string;
@@ -242,19 +247,26 @@ async function pause(input: {
   emailKey: string;
   /** The admin who decided it, for the admins' record. Null when the app paused the account by itself. */
   adminId: string | null;
-  /** When the app paused the account by itself: what the founder is told, in the same step. */
-  tellFounder?: { subject: string; text: string; key: string };
-}): Promise<{ callsNotEnded: number } | null> {
+  /** When the app paused the account by itself: what the founder is told, in the same step. `alreadyText` when the account was paused already. */
+  tellFounder?: { subject: string; text: string; alreadyText: string; key: string };
+}): Promise<{ callsNotEnded: number } | "already_paused" | "not_first"> {
   const { person, reason } = input;
   let endedMemberships: string[] = [];
   let givenUpPayments: string[] = [];
   const done = await db.transaction(async (tx) => {
+    if (input.first && !(await input.first(tx))) return "not_first" as const;
     const [row] = await tx
       .update(schema.user)
       .set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() })
       .where(and(eq(schema.user.id, person.id), isNull(schema.user.pausedAt)))
       .returning({ id: schema.user.id });
-    if (!row) return false;
+    // Paused already: what `first` wrote stays written, the founder is told, and nothing else is done.
+    if (!row) {
+      if (input.tellFounder) {
+        for (const admin of await adminsIn(tx)) await queueEmail(tx, { to: admin.email, subject: input.tellFounder.subject, text: input.tellFounder.alreadyText, key: `${input.tellFounder.key}:${admin.id}` });
+      }
+      return "already_paused" as const;
+    }
     // Their memberships, as a host and as a member, end at once and for good, in this same step.
     endedMemberships = await endMembershipsOf(tx, person.id, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
     // So do their contributions, as a host and as a contributor; what was only held is let go below.
@@ -269,11 +281,12 @@ async function pause(input: {
     if (input.tellFounder) {
       for (const admin of await adminsIn(tx)) await queueEmail(tx, { to: admin.email, subject: input.tellFounder.subject, text: input.tellFounder.text, key: `${input.tellFounder.key}:${admin.id}` });
     }
-    return true;
+    return "paused" as const;
   });
-  if (!done) return null;
+  if (done !== "paused") return done;
   // The account is paused from here on, whatever happens next. First what keeps people safe (requests and
-  // calls), then the money of the memberships that ended with it (the helper repeats that if it does not finish).
+  // calls), then the money of the memberships that ended with it. If the server stops before this is done, the
+  // helper does it: the requests and calls with finishPausesAndClosures, the money with its usual rounds.
   const callsNotEnded = await endRequestsAndCallsOf(person.id, new Date());
   await cleanUpEndedMemberships(endedMemberships, new Date());
   await letGoAll(givenUpPayments, new Date());
@@ -293,19 +306,30 @@ function adminsIn(reader: Pick<typeof db, "select">) {
  *
  * It is not written in the admins' record, which needs an admin: no admin did this. The check's own line
  * (verified, not an adult, and when) is the record. An admin's own account is never paused, as with the
- * founder's pause; a closed account needs no pause. Asked twice for the same person, it does nothing the second time.
+ * founder's pause. A closed account is paused too, so that opening it again does not give it back the use of
+ * the app.
+ *
+ * The check's result is written by `save`, in the same database step as the pause: both are there, or neither.
+ * `save` answers false when the result was written before, and then nothing is done: one check pauses at most
+ * once, so a pause the founder lifted is never made again by the same check.
  */
-export async function pauseUnderage(input: { userId: string; checkId: string }): Promise<void> {
+export async function pauseUnderage(input: {
+  userId: string;
+  checkId: string;
+  /** Writes the check's result. Called exactly once: in the pause's own database step, or alone when nobody is paused. False when the result was written already. */
+  save: (writer: Pick<typeof db, "update">) => Promise<boolean>;
+}): Promise<void> {
   const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
-  if (!person || person.closedAt) return;
   const [admin] = await db.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
-  if (admin) {
-    console.error(`[identity] the check of an admin account (${input.userId}) gave an age under 18. Admin accounts are not paused by the app; please look at it.`);
+  if (!person || admin) {
+    await input.save(db);
+    if (admin) console.error(`[identity] the check of an admin account (${input.userId}) gave an age under 18. Admin accounts are not paused by the app; please look at it.`);
     return;
   }
   const rule = RULES.find((r) => r.key === "under18")!;
   const key = `paused:${input.userId}:underage:${input.checkId}`;
   const paused = await pause({
+    first: input.save,
     person,
     reason: `${rule.title}. An identity check gave an age under 18.`,
     because: "because the identity check you took gave an age under 18, and Connect is for adults only.",
@@ -313,22 +337,14 @@ export async function pauseUnderage(input: { userId: string; checkId: string }):
     adminId: null,
     tellFounder: {
       subject: "An identity check gave an age under 18",
-      text: `The identity check of ${person.name} (${person.email}) gave an age under 18. The app has paused the account by itself: their waiting requests are ended and their calls that have not started are cancelled at no charge.\n\nPlease look at the account, and at any calls this person has already had. If the check was wrong, you can lift the pause on the same page:\n\n${appUrl()}/admin/reports`,
+      text: `The identity check of ${person.name} (${person.email}) gave an age under 18. The app has paused the account by itself, and is now ending their waiting requests and cancelling their calls that have not started, at no charge. If a call could not be ended, a second email says so.\n\nPlease look at the account, and at any calls this person has already had. If the check was wrong, you can lift the pause on the same page:\n\n${appUrl()}/admin/reports`,
+      alreadyText: `The identity check of ${person.name} (${person.email}) gave an age under 18. The account was paused already, for another reason, so nothing was changed. Please look at it before lifting that pause:\n\n${appUrl()}/admin/reports`,
       key: `${key}:founder`,
     },
   });
-  if (!paused) {
-    // Paused already, for another reason. That pause stays as it is; the founder is still told, so that it is not lifted without knowing this.
-    for (const one of await adminsIn(db)) {
-      await queueEmail(db, {
-        to: one.email,
-        subject: "An identity check gave an age under 18",
-        text: `The identity check of ${person.name} (${person.email}) gave an age under 18. The account was paused already, for another reason, so nothing was changed. Please look at it before lifting that pause:\n\n${appUrl()}/admin/reports`,
-        key: `${key}:founder:${one.id}`,
-      });
-    }
-    return;
-  }
+  // "not_first": another look at Stripe wrote this result, and did what follows from it. "already_paused": the
+  // account was paused for another reason; that pause stays as it is, and the founder was told in the same step.
+  if (typeof paused === "string") return;
   if (paused.callsNotEnded === 0) return;
   // The founder's own pause shows this number on the page. Here nobody is looking, so it is sent.
   console.error(`[identity] account ${input.userId} was paused for an age under 18, but ${paused.callsNotEnded === -1 ? "its requests and calls" : `${paused.callsNotEnded} of its calls`} could not be ended.`);
