@@ -19,7 +19,7 @@ describe("a host's yearly statement", () => {
       ],
       2026,
     );
-    expect(s.months[2]).toEqual({ paidCents: 5000, givenBackCents: 0, feesCents: 540, tipFeesCents: 0, shareCents: 4460, sentCents: 4435, collectionChargesCents: 25 });
+    expect(s.months[2]).toEqual({ paidCents: 5000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 540, tipFeesCents: 0, shareCents: 4460, sentCents: 4435, collectionChargesCents: 25 });
     expect(s.total).toEqual(s.months[2]);
     expect(s.paidBy).toEqual({ call: 5000, membership: 0, contribution: 0, tip: 0 });
   });
@@ -67,8 +67,11 @@ describe("a host's yearly statement", () => {
     expect(s.paidBy.membership).toBe(12000);
   });
 
-  it("leaves out what moves nothing of hers: a hold let go, a cost of Connect's own", () => {
-    expect(buildStatement([line("hold_released", 5000, "2026-02-01T00:00:00Z"), line("connect_cost", 700, "2026-02-01T00:00:00Z", "contribution")], 2026).total).toEqual(buildStatement([], 2026).total);
+  it("leaves out a hold that was let go, and shows beside a refund what Connect paid of it itself", () => {
+    expect(buildStatement([line("hold_released", 5000, "2026-02-01T00:00:00Z")], 2026).total).toEqual(buildStatement([], 2026).total);
+    // A contribution refunded after the host had collected: her share stays, and Connect bears the refund.
+    const s = buildStatement([line("customer_refund", -2500, "2026-02-01T00:00:00Z", "contribution"), line("connect_cost", 2500, "2026-02-01T00:00:00Z", "contribution")], 2026);
+    expect(s.total).toMatchObject({ givenBackCents: 2500, paidByConnectCents: 2500, shareCents: 0, feesCents: 0 });
   });
 
   it("has twelve months that add up to the year, for every column", () => {
@@ -90,11 +93,13 @@ describe("the file and the year", () => {
   it("is a file a spreadsheet reads: a line of titles, twelve months and the year", () => {
     const csv = statementCsv(buildStatement([line("customer_charge", 5000, "2026-03-10T12:00:00Z"), line("customer_refund", -500, "2026-04-01T12:00:00Z")], 2026)).split("\r\n");
     expect(csv[0]).toContain("Not a tax form");
-    expect(csv[1]).toBe('Month,"Paid by customers","Given back (refunds)","Connect\'s fees","Payment fees on tips","Your share","Sent to you","Collection charges"');
-    expect(csv[4]).toBe("March,50.00,0.00,0.00,0.00,0.00,0.00,0.00");
-    expect(csv[5]).toBe("April,0.00,5.00,0.00,0.00,0.00,0.00,0.00");
-    expect(csv[14]).toBe("Year 2026,50.00,5.00,0.00,0.00,0.00,0.00,0.00");
-    expect(csv).toHaveLength(16);
+    expect(csv[1]).toBe('Month,"Paid by customers","Given back (refunds)","Of that, paid by Connect","Connect\'s fees","Payment fees on tips","Your share","Sent to you","Collection charges"');
+    expect(csv[4]).toBe("March,50.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00");
+    expect(csv[5]).toBe("April,0.00,5.00,0.00,0.00,0.00,0.00,0.00,0.00");
+    expect(csv[14]).toBe("Year 2026,50.00,5.00,0.00,0.00,0.00,0.00,0.00,0.00");
+    // Then what was paid for, so that someone who keeps only the file has those figures too.
+    expect(csv.slice(16, 21)).toEqual(['"Paid by customers in 2026, by what it was paid for"', '"Calls paid by card",50.00', '"Membership months",0.00', '"Contributions to your project",0.00', '"Tips, with the payment fee paid on top",0.00']);
+    expect(csv).toHaveLength(22);
   });
 
   it("takes only a year the host can have a statement for", () => {

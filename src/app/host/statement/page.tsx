@@ -3,13 +3,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SitePage } from "@/components/site-page";
 import { formatMoney } from "@/lib/payments/access";
-import { COLUMNS, MONTH_NAMES, readYear, SOURCES, statementFor, statementYears, type Source } from "@/lib/payments/statement";
+import { COLUMNS, MONTH_NAMES, PAID_FOR, readYear, SOURCES, statementFor, statementYears } from "@/lib/payments/statement";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Yearly statement" };
 export const dynamic = "force-dynamic";
-
-const PAID_FOR: Record<Source, string> = { call: "Calls paid by card", membership: "Membership months", contribution: "Contributions to your project", tip: "Tips, with the payment fee paid on top" };
 
 /**
  * A host's statement of one calendar year (plans/46, part 5): a page made for printing, and a link to the same
@@ -113,7 +111,10 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Paid by customers:</strong> what was charged to your customers. A member&apos;s month is counted when the member paid it. A tip is counted with the payment fee the customer paid on top.
         </li>
         <li>
-          <strong>Given back:</strong> refunds, in the month the refund went through. A payment of December given back in January is in two different years.
+          <strong>Given back:</strong> refunds, in the month the refund was written into our books. A payment of December given back in January is in two different years.
+        </li>
+        <li>
+          <strong>Of that, paid by Connect:</strong> the part of those refunds that Connect paid itself, because you had already collected your share. Your share was not taken back for it.
         </li>
         <li>
           <strong>Connect&apos;s fees:</strong> our fee on calls, memberships and contributions. A fee we returned with a refund is taken off again, so a month can show a minus.
