@@ -1,9 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AudioSession, isTrackReference, LiveKitRoom, useConnectionState, useLocalParticipant, useRemoteParticipants, useTracks, VideoTrack } from "@livekit/react-native";
 import { useKeepAwake } from "expo-keep-awake";
+import { StatusBar } from "expo-status-bar";
 import { usePreventScreenCapture } from "expo-screen-capture";
 import { ConnectionState, type DisconnectReason, Room, RoomEvent, Track } from "livekit-client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AppPass, AppRoom } from "../../../src/lib/app-door/types";
@@ -11,6 +12,19 @@ import { useWatch } from "@/lib/here";
 import { type } from "@/ui/theme";
 
 type Words = AppRoom["words"];
+
+/**
+ * A test build can be told to let pictures of the call screen be taken (`EXPO_PUBLIC_CALL_PICTURES=1`
+ * in `mobile/.env.local`), so that the screen can be looked at while it is tried. A build for a
+ * store never can: there the phone's own screenshots and recordings of a call show black.
+ */
+const PICTURES_ALLOWED = __DEV__ && process.env.EXPO_PUBLIC_CALL_PICTURES === "1";
+
+/** While this is on the screen, the phone's screenshots and screen recordings show black (where the phone allows the app to ask for that). */
+function NoPictures() {
+  usePreventScreenCapture();
+  return null;
+}
 
 /**
  * Inside the call (plans/45-phone-apps/09-the-call.md): the other person large, oneself small in
@@ -39,7 +53,6 @@ export function InCall(props: {
   // One room for this stay in the call.
   const room = useMemo(() => new Room(), []);
   useKeepAwake();
-  usePreventScreenCapture();
 
   // The phone's sound is set up for a conversation while the person is in the call, and given back after.
   useEffect(() => {
@@ -62,16 +75,19 @@ export function InCall(props: {
     };
   }, [room]);
 
+  // What the video kit is handed stays the very same from one drawing to the next (this screen is drawn again
+  // every second, for the clock): handed something new each time, the kit would enter the room again each time,
+  // and switch the camera back on after the person had switched it off.
+  const video = useMemo(() => (props.choices.camera ? { facingMode: "user" as const } : false), [props.choices.camera]);
+  const problem = useRef(props.onProblem);
+  useEffect(() => {
+    problem.current = props.onProblem;
+  });
+  const failed = useCallback((error: Error) => problem.current(error.message), []);
+
   return (
-    <LiveKitRoom
-      room={room}
-      serverUrl={props.pass.serverUrl}
-      token={props.pass.token}
-      connect
-      audio={props.choices.microphone}
-      video={props.choices.camera ? { facingMode: "user" } : false}
-      onError={(error) => props.onProblem(error.message)}
-    >
+    <LiveKitRoom room={room} serverUrl={props.pass.serverUrl} token={props.pass.token} connect audio={props.choices.microphone} video={video} onError={failed}>
+      {PICTURES_ALLOWED ? null : <NoPictures />}
       <Stage words={props.words} clock={props.clock} onLeave={props.onLeave} onEndAndReport={props.onEndAndReport} onProblem={props.onProblem} />
     </LiveKitRoom>
   );
@@ -142,6 +158,8 @@ function Stage({ words, clock, onLeave, onEndAndReport, onProblem }: { words: Wo
 
   return (
     <View style={styles.stage}>
+      {/* The call's screen is dark whatever the phone's own look: the clock and battery at the top are drawn light. */}
+      <StatusBar style="light" />
       {large ? <VideoTrack trackRef={large} objectFit={shared ? "contain" : "cover"} zOrder={0} style={styles.large} /> : null}
       {mine ? (
         <View style={[styles.small, { bottom: insets.bottom + 132 }]}>
@@ -203,7 +221,7 @@ const styles = StyleSheet.create({
   reportWords: { color: "#fecaca", fontSize: type.small, fontWeight: "700", lineHeight: 20 },
   said: { color: "#ffffff", fontSize: type.body, lineHeight: 22 },
   bar: { position: "absolute", right: 0, bottom: 0, left: 0, flexDirection: "row", justifyContent: "space-around", alignItems: "flex-start", paddingTop: 12, paddingHorizontal: 8, backgroundColor: "rgba(12,10,9,0.55)" },
-  button: { alignItems: "center", gap: 4, width: 68, minHeight: 44 },
+  button: { flex: 1, alignItems: "center", gap: 4, minHeight: 44 },
   dim: { opacity: 0.4 },
   round: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.22)" },
   roundOff: { backgroundColor: "#ffffff" },

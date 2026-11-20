@@ -118,7 +118,11 @@ export default function ReportScreen() {
           {form.reasons.map((one) => {
             const chosen = reason === one.key;
             return (
-              <Pressable key={one.key} accessibilityRole="radio" accessibilityState={{ selected: chosen }} accessibilityLabel={one.label} onPress={() => setReason(one.key)} style={styles.row}>
+              <Pressable key={one.key} accessibilityRole="radio" accessibilityState={{ selected: chosen }} accessibilityLabel={one.label} onPress={() => {
+                  setReason(one.key);
+                  // "Choose a reason." has been answered.
+                  setSaid(null);
+                }} style={styles.row}>
                 <View style={[styles.dot, { borderColor: chosen ? colors.accent : colors.edge }]}>{chosen ? <View style={[styles.dotIn, { backgroundColor: colors.accent }]} /> : null}</View>
                 <Text style={[styles.words, { color: colors.text }]}>{one.label}</Text>
               </Pressable>

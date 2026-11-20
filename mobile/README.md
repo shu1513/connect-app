@@ -117,6 +117,21 @@ Both use Stripe in test mode, with the website's own test keys. Nothing is ever 
 - **The ID check** opens Stripe's page in the phone's browser. The first time, the test
   phone's browser shows Google's own first screen; press through it once by hand.
 
+## Trying a call
+
+A call needs two people: the app on the test phone as one, and the website in a browser on this
+Mac as the other (the same room). The test phone's camera shows a made-up moving picture.
+
+- The first time, the app asks for the camera and the microphone: allow both.
+- **Pictures of the call screen are black, on purpose** (nobody should be able to record a
+  call with the phone's own tools). To look at the screen while trying it, add
+  `EXPO_PUBLIC_CALL_PICTURES=1` to `mobile/.env.local` and start the code server again with
+  `--clear`. Only a test build obeys this; a build for a store never does.
+- A database used for checking collects old calls. If "Join call" takes very long, mark them
+  as closed (`update calls set closed_at = now() where closed_at is null` on the checking
+  database only): the server steps out of every room a person could still be in before it
+  lets them into another.
+
 ## The iPhone
 
 Building the iPhone app needs Xcode 26.4 or later. Until this Mac has it, only the Android app is

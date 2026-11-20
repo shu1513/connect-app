@@ -1,8 +1,10 @@
 # Phone apps, part 09: the call itself (entering, talking, leaving, "end and report")
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked the first draft ("not ready"); it was split in three (this part, 09b and 09c) and
-every point is worked in (the list is at the end). This is the heart of the product and the
+**Status:** built on 20 November 2026 (not merged yet: it waits, with parts 01 to 08, behind the
+tips pull request; Astra has not looked at the code yet). Written by the builder alone. Part of
+plan 45. Astra checked the first draft of the plan ("not ready"); it was split in three (this
+part, 09b and 09c) and every point is worked in (the list is at the end). What the building
+changed is listed below. This is the heart of the product and the
 part with the most that cannot be proven without real phones.
 
 ## For the founder: what this is
@@ -98,6 +100,75 @@ founder's two-phone test, listed in part 20.
 
 Calls stay between two people and unrecorded: both are conditions of the stores' rule, so
 both are checked here.
+
+## What the building changed (20 November 2026)
+
+1. **One join check, in one place** (`src/lib/video/enter.ts`). The website's address for the
+   entry pass and the app's both call it, so the two can never differ in who may enter.
+   "Where the call stands" is one reading too (`src/lib/call-page/live.ts`).
+2. **The room's sentences and the report form's sentences are in one place each**
+   (`src/lib/call-page/room-words.ts`, `src/lib/safety/report-words.ts`). The website's call
+   screen and report page were moved onto them, word for word.
+3. **The addresses:** `GET /api/app/calls/[id]/room` (what the screen needs before anyone
+   enters, every sentence included), `POST …/enter` (the entry pass), `GET …/live`,
+   `POST …/end-and-report`, and `GET` and `POST /api/app/report` (the form, and sending it).
+4. **The app's screens:** the call's page gets a button "Go to the call" once the room is
+   open; the call's own screen has the camera check, the call, and its end; the report form.
+5. **Leaving the screen leaves the call.** Whatever way the person leaves the call's screen
+   (the Leave button, the phone's back button, a link opened from outside), they are out of
+   the room: nobody is on camera with another screen in front. What happens when the whole
+   app goes behind another app is part 09b's.
+6. **The entry pass is only taken for a video service on a locked address** (`wss://`). The
+   app hands its camera and microphone to nothing else.
+7. **After a lost connection the app asks the server where the call stands** before it says
+   anything: if the call was stopped by the other person's "End call and report", it says the
+   call has ended, not "you were disconnected, join again".
+8. **Camera and microphone:** on Android the app asks once, after two plain sentences on why;
+   if the answer is no it says how to allow it in the phone's settings and does not ask again.
+   On an iPhone the phone itself asks, with the same two sentences. Either can be refused and
+   the call still entered (without picture, or without sound of one's own).
+9. **Screenshots during the call** show black on Android (the phone's own marking). The piece
+   that does it would also have asked for permission to read the phone's photos, which the
+   app has no use for: those two permissions are shut out in the app's settings file.
+10. **Not built here, each with its own part:** what happens when the phone is locked or
+    another app is in front, the connection grades, asking for more time, and the chat (part
+    09b); the connection check before a call (part 09c); the results of a call, where "See
+    the results" will lead (part 10; until then it leads to the call's page).
+
+### How it was tried
+
+- `scripts/app-room-check.ts`, 55 checks, against the real video service and Stripe's test
+  mode: what the screen is sent (every sentence, the website's own where the website has
+  them); the entry pass refused before the room opens, while unpaid, after a cancellation,
+  after the end, for a blocked pair, for a paused account and while calls are paused across
+  Connect, and handed out otherwise, for this person and this room only, exactly as the
+  website's own address does; a paid call entered once its money is held; where the call
+  stands, also after time was added; "End call and report" (not before the room opens; ended
+  for both; by a paused person too; the website's own button does the same); the report form
+  (the website's reasons, its refusals, who the report is about, the block that follows).
+- **A real call on this Mac,** with pictures: the Android test phone as the customer, and the
+  website in Chrome as the host with a real camera. The phone asked for the camera and the
+  microphone once, after the two sentences; the camera check showed the phone's picture; in
+  the call the host's live video filled the phone's screen and the website showed the
+  phone's; muting and switching the camera off showed on the other side; leaving and joining
+  again; the host leaving ("has left the call, they can come back") while the phone stayed
+  in; a second device joining as the same person put the phone out, and "Use this phone
+  instead" took the call back; a network cut of a few seconds did not end the call; "End
+  call and report" asked once, ended the call for both (the host was put out on the
+  website), opened the report form, which refused to send without a reason and then thanked
+  with the report's number; a short call ran out and the screen said "This call has ended."
+- With the test switch off, a picture taken of the call screen is black, as it should be. (A
+  test build can be told to allow pictures, `EXPO_PUBLIC_CALL_PICTURES=1`, which is how the
+  screen was looked at; a build for a store cannot.)
+- Not walked: a connection lost for so long that "Join again" is offered; saying no to the
+  camera or the microphone; the host's side in the app (her note folded in the camera
+  check); the earpiece (the test phone has none).
+
+### What could not be tried here
+
+A real camera and microphone (the test phone's camera shows a made-up moving picture); an
+iPhone; two real phones in two places; a call with the phone locked. These are on the
+founder's two-phone list in part 20.
 
 ## Astra's check (20 November 2026): "not ready", now worked in
 
