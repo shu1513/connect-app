@@ -1,0 +1,38 @@
+import { router } from "expo-router";
+import { APP_VERSION, SERVER, TEST_SCREENS } from "@/lib/config";
+import { useOpening } from "@/lib/opening";
+import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
+
+/**
+ * Account (plans/45-phone-apps/18-the-account-page.md). An empty page for now, with what the
+ * server said when the app opened, so the frame can be seen to work, and, in a test build only,
+ * the two test screens.
+ */
+export default function AccountPlace() {
+  const { opening, askAgain } = useOpening();
+  const start = opening.kind === "ready" ? opening.start : null;
+  return (
+    <Page title="Account">
+      <Words soft>Your account will be here.</Words>
+      <Card>
+        <Heading>What Connect said when the app opened</Heading>
+        <Words>{start?.me ? `Signed in as ${start.me.name}.` : "Nobody is signed in."}</Words>
+        <Words soft>
+          Memberships: {start?.switches.memberships ?? "unknown"}. Tips: {start?.switches.tips ? "on" : "off"}. Available now: {start?.switches.availableNow ? "on" : "off"}.
+        </Words>
+        <Words soft>
+          App version {APP_VERSION}.{TEST_SCREENS ? ` Server: ${SERVER || "not set"}.` : ""}
+        </Words>
+        <Button label="Ask again" kind="plain" onPress={askAgain} />
+      </Card>
+      {TEST_SCREENS ? (
+        <Card>
+          <Heading>Test screens</Heading>
+          <Words soft>Only in a test build.</Words>
+          <Button label="Check the kits" kind="plain" onPress={() => router.push("/dev/kit-check")} />
+          <Button label="The look" kind="plain" onPress={() => router.push("/dev/look")} />
+        </Card>
+      ) : null}
+    </Page>
+  );
+}

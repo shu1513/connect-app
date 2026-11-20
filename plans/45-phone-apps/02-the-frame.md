@@ -1,7 +1,9 @@
 # Phone apps, part 02: the app's frame
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone. Part of plan 45. Astra checked the plan once and the code twice; every point was
+worked in. What the building changed or added is listed under "What the building changed" near
+the end; where that list and a decision differ, the list is what was built.
 
 **Tried already, while this plan was being checked** (20 November, in a throwaway folder
 outside the repository): Expo 58.0.26 (React Native 0.88.1, React 19.3.0) with
@@ -118,7 +120,79 @@ The iPhone build (this Mac's Xcode is too old). The camera in a real call (part 
 
 No money, nothing sold. Stripe's kit is only installed and woken with the test key.
 
-## Astra's check (20 November 2026): "ready with changes", worked in
+## What the building changed (20 November 2026)
+
+1. **Expo 58 was kept.** Every kit works with it on the Android test phone, in the everyday test
+   build and in a build made the way a store build is made. No step down was needed.
+2. **A store build stopped twice on Stripe's kit,** both times on its feature for adding a card
+   to Google Wallet, which Connect does not use: once on a Google library that is not published
+   openly, once in the step that makes the app smaller. `mobile/plugins/stripe-store-build.js`
+   deals with both; nothing the app does changes. This is the fault decision 2 expected to find
+   only there.
+3. **The sign-in cannot follow a redirect.** Decision 4 said the sign-in goes to Connect's own
+   server only, and the code checked the address it was given. Astra's review found the gap: if
+   the server, or something on the way, answered "go to this other address", the phone would
+   have gone there with the sign-in. A request now stops instead of following.
+4. **A locked connection, always, outside a test build** (decision 3 said "plain connections
+   only in the test build" of the phone; now the app itself refuses too). With a plain `http`
+   address in its settings, a store build sends nothing at all. The server's address must be a
+   bare one: no name and password in it, nothing after it.
+5. **An answer is checked before the app opens on it.** Half an answer, a list, or another
+   site's page counts as "cannot reach Connect". A refusal is a refusal whatever number came
+   with it.
+6. **Coming back to the app with no connection keeps the screen the person was on** (decision 8
+   only spoke of opening). The app says "cannot reach Connect" when it opens without a
+   connection, and when something the person does cannot be sent. Whatever Connect itself
+   answers still counts at once: signed out elsewhere, or "this copy is too old".
+7. **The two test screens exist only in a test build.** In any other copy they cannot be opened
+   by a button or by a link. Expo Router's own list of screens and its own "no such screen"
+   page are switched off: both sat outside the app's frame, where a too-old copy could have
+   shown them. A link to no screen now leads to the front page.
+8. **Camera and microphone: the app says why it asks** ("so the person you are talking to can
+   see you"). The permission to draw over other apps, a leftover of the tools, is removed.
+9. **The outline of a field is darker than the website's,** so that an empty field can be seen
+   on a white card (3 to 1; the website's grey gave 2.5 to 1).
+
+Seen on the test phone and left for part 20: changing the phone's text size while the app is
+open restarts the screen, and the test build then prints a warning about "multiple navigation
+containers". The app carries on correctly.
+
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+1. *A redirect could carry the sign-in to another address.* Point 3 above.
+2. *Any 2xx answer with a body opened the app,* even an empty one, and a refusal sent with 200
+   was taken for an answer. Point 5.
+3. *Plain `http`, and a server address with a name and password in it, were accepted in every
+   build;* a "%" in a path could change its meaning on the way. Point 4.
+4. *Expo Router's own list of screens and "no such screen" page sat outside the frame.* Point 7.
+5. *A refusal on coming back kept the old signed-in screens; and if the phone could not read
+   its kept sign-in, the app asked as nobody* and would have taken the person for signed out.
+   Point 6; and in that case nothing is sent now.
+6. *The trial of a store build left its hand-made change and its code in the folder.* The
+   README now ends the trial by deleting the folder.
+7. *The test screen called the sign-in kit alive without asking the server anything.* It now
+   asks the server's login tool who is signed in. LiveKit's parts are put in place when the
+   check runs, not when the file is read.
+8. *The camera and microphone questions gave no reason; an unused permission.* Point 8.
+9. *The field outline was too faint.* Point 9.
+
+## Astra's second look at the code (20 November 2026): "ready with changes", worked in
+
+All nine fixes were found complete. Four further points, none a "must", all taken:
+
+1. *The everyday test build copies every request, with its headers, to the code server on the
+   developer's computer* (a tool for looking at network traffic). From part 03 on a request
+   carries the sign-in. `mobile/plugins/quiet-test-build.js` switches that tool off. A store
+   build never has it.
+2. *"This copy is too old" must be understood before anything else in the answer is read:* a
+   later server may send parts an old copy does not know, and the old copy would have taken the
+   whole answer for unreadable and stayed open.
+3. *The test screen took any answer for the login tool's.* It now takes only the one right
+   answer ("nobody is signed in").
+4. *A refusal this copy does not know yet, sent with 200, counted as a success.* Any answer with
+   a part called "error" that is not a known refusal now counts as "cannot reach Connect".
+
+## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *The website's checks would have found the app's files.* Decision 1, with part 01.
 2. *Which versions, and that nobody has proven them together.* Decision 2: exact pins, and the

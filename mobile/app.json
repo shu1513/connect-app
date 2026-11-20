@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "Connect",
+    "slug": "connect",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "connect",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "app.connect.mobile",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "app.connect.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFBF7",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "sitemap": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFBF7",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "enableGooglePay": false
+        }
+      ],
+      "expo-secure-store",
+      "@livekit/react-native-expo-plugin",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Connect uses the camera during a one-to-one video call, so the person you are talking to can see you.",
+          "microphonePermission": "Connect uses the microphone during a one-to-one video call, so the person you are talking to can hear you."
+        }
+      ],
+      "expo-font",
+      "./plugins/stripe-store-build",
+      "./plugins/quiet-test-build"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

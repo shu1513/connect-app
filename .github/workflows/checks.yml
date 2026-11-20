@@ -38,3 +38,24 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # The phone app (plans/45-phone-apps/02-the-frame.md) is a project of its own in mobile/, with its
+  # own libraries. This job checks its code. It builds no app: that is done on the builder's Mac.
+  mobile:
+    name: Phone app, lint, types, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
