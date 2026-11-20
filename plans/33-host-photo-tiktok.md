@@ -296,3 +296,16 @@ the whole change once more, line by line. Three small things, all changed:
 Looked at and left as it is: the look "is this account another host's" now also runs for an
 Instagram photo at the finish (it is the same guarantee, and the Instagram checks pass with it).
 
+**Checked once more after that review,** on the final code with `main` merged in (following's
+emails and a host's notes): 605 automatic tests; `scripts/photo-check.ts` 184 and
+`scripts/accounts-check.ts` 205, all passing; and the return address asked for real through the
+running app on this computer as the logged-in test host, without TikTok: a photo's sign-in that
+was cancelled ("You did not finish at TikTok", its try ended there and then), the same return a
+second time ("This sign-in was already used"), a photo's note that was changed ("Your photo was
+not taken from TikTok"), an ordinary sign-in that was cancelled ("You did not connect TikTok", on
+the other part of the page), and no note at all. The note was removed from the browser every
+time, and the host's accounts and photo were as before.
+
+The full round of every check script was not run again for this one: the other sessions had
+each just run it on `main`'s code, and this change touches only the photo and TikTok's sign-in.
+
