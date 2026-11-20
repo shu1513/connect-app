@@ -64,8 +64,9 @@ export const LIMITS = {
 
 /**
  * The wording version a customer agrees to when saving a card. Change it when the wording changes.
- * The wording itself is the tick box on the two pages where a paid request is made
- * (src/app/h/[handle]/book/page.tsx and src/app/h/[handle]/now/page.tsx); the version is recorded
+ * The wording itself is the tick box where a paid request is made: `cardTermsWords` in
+ * book-words.ts (the website's booking page and the phone app's) and the page
+ * src/app/h/[handle]/now/page.tsx; the version is recorded
  * with the request when that box is sent. Other pages must not restate it in a way that only
  * holds for one version.
  */

@@ -591,6 +591,19 @@ async function cardStepFor(found: Booking, customer: Person): Promise<{ booking:
 }
 
 /**
+ * The card step of a paid request that is still at it, for the customer who made it: what
+ * Stripe's form needs. If the step could not be made when the request was (Stripe did not
+ * answer then), it is made now. Null for anything that is not this person's own request at its
+ * card step. Nothing is held or charged by this, and nothing about the request changes.
+ */
+export async function cardStepOf(input: { bookingId: string; customer: Person }): Promise<{ booking: Booking; clientSecret: string } | null> {
+  const found = await bookingFor(input.bookingId, input.customer.id);
+  if (!found || found.role !== "customer" || found.booking.stage !== "card") return null;
+  const step = await cardStepFor(found.booking, input.customer);
+  return step.clientSecret ? { booking: step.booking, clientSecret: step.clientSecret } : null;
+}
+
+/**
  * The customer has entered their card. We ask Stripe ourselves whether it was
  * really saved, check everything again, and only then send the request to the
  * host. Safe to call again, and safe to call late: an unfinished request that

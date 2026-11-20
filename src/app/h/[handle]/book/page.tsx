@@ -3,14 +3,15 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
-import { isHostToo, offerOf, openTimes } from "@/lib/booking/bookings";
+import { isHostToo } from "@/lib/booking/bookings";
+import { gatherBookPage } from "@/lib/booking/book-page";
+import { BOOK_WORDS, bookPoints, cardTermsWords, type Part } from "@/lib/booking/book-words";
 import { whenFor } from "@/lib/booking/emails";
-import { AFTER_CALL_MINUTES, answerDeadline, LIMITS, payCutoff } from "@/lib/booking/rules";
+import { LIMITS } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { hostForMemberByHandle } from "@/lib/membership/access";
 import { memberBookingView, memberCallCents, memberOpenTimes } from "@/lib/membership/book";
 import { formatMoney } from "@/lib/payments/access";
-import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { SellerLine } from "@/components/seller-line";
 import { ConfirmIdFirst } from "@/components/confirm-id-first";
@@ -24,12 +25,16 @@ export const metadata: Metadata = { title: "Ask for a call" };
 
 export const dynamic = "force-dynamic";
 
-const CANCEL_RULE: Record<number, string> = {
-  0: "You can cancel for free any time before the call starts.",
-  60: "You can cancel for free until 1 hour before the call starts. After that, cancelling costs the full booked price.",
-  720: "You can cancel for free until 12 hours before the call starts. After that, cancelling costs the full booked price.",
-  1440: "You can cancel for free until 24 hours before the call starts. After that, cancelling costs the full booked price.",
-};
+/** A sentence given in parts (book-words.ts): stressed words in bold, a moment in the browser's own time zone. */
+function Sentence({ parts }: { parts: Part[] }) {
+  return (
+    <>
+      {parts.map((part, index) =>
+        typeof part === "string" ? part : "bold" in part ? <strong key={index}>{part.bold}</strong> : <LocalTime key={index} iso={part.time} />,
+      )}
+    </>
+  );
+}
 
 /** The summary a customer sees before sending a request. */
 export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
@@ -48,54 +53,43 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
 
   // Only a message this site made for this page is shown; words put in a link by someone else are not.
   const problem = readNotice(`/h/${profile.handle}/book`, query);
-  const minutes = Number(length);
-  const startsAt = new Date(String(start));
   const now = new Date();
-  if (asMember) return <MemberBook profile={profile} person={person} minutes={minutes} startsAt={startsAt} now={now} problem={problem} here={here} />;
-  const offer = await offerOf(profile.userId);
-  const open = offer && offer.lengths.includes(minutes) && !Number.isNaN(startsAt.getTime()) ? await openTimes(offer, minutes, now) : [];
-  const stillOpen = open.some((o) => o.getTime() === startsAt.getTime());
-  const back = `/h/${profile.handle}?length=${minutes || ""}`;
+  if (asMember) return <MemberBook profile={profile} person={person} minutes={Number(length)} startsAt={new Date(String(start))} now={now} problem={problem} here={here} />;
+  // What this page shows is gathered in one place, for this page and for the phone app (book-page.ts).
+  const page = await gatherBookPage(person, profile, { start, length }, now);
 
-  // A block either way looks, from here, exactly like a time that is no longer open.
-  if (!offer || !stillOpen || (await isBlockedEitherWay(person.id, profile.userId))) {
+  if (page.kind === "gone") {
     return (
       <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
-        <h1 className="text-2xl font-semibold">That time is no longer open</h1>
+        <h1 className="text-2xl font-semibold">{BOOK_WORDS.gone}</h1>
         <p className="mt-4 text-sm">
-          <Link href={back} className="inline-flex min-h-11 items-center underline underline-offset-2">
-            Choose another time
+          <Link href={`/h/${profile.handle}?length=${page.minutes || ""}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+            {BOOK_WORDS.chooseAnother}
           </Link>
         </p>
       </SitePage>
     );
   }
-  if (person.id === profile.userId) {
+  if (page.kind === "own") {
     return (
       <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
-        <h1 className="text-2xl font-semibold">This is your own page</h1>
-        <p className="mt-4 text-sm">You cannot book a call with yourself.</p>
+        <h1 className="text-2xl font-semibold">{BOOK_WORDS.ownTitle}</h1>
+        <p className="mt-4 text-sm">{BOOK_WORDS.own}</p>
       </SitePage>
     );
   }
-
-  const total = bookedTotalCents(offer.pricePer15Cents, minutes * 60);
-  const paid = total > 0;
-  const idConfirmed = (await identityState(person.id)).passed;
-  if ((!paid || offer.verifiedOnly) && !idConfirmed) return <ConfirmIdFirst reason={paid ? "host" : "free"} hostName={profile.displayName} next={here} />;
-  const terms = { startsAt, paid, freeCancelMinutes: offer.freeCancelMinutes };
-  const answerBy = answerDeadline({ ...terms, requestedAt: now });
-  const hostZoneTime = whenFor({ timeZone: offer.timeZone }, startsAt);
-  const hostToo = await isHostToo(person.id);
+  if (page.kind === "confirm_id") return <ConfirmIdFirst reason={page.reason} hostName={profile.displayName} next={here} />;
+  const { offer, startsAt, minutes, totalCents: total, paid } = page;
+  const points = bookPoints({ hostName: profile.displayName, totalCents: total, freeCancelMinutes: offer.freeCancelMinutes, answerBy: page.answerBy, payBy: page.payBy, hostToo: page.hostToo });
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <p className="text-sm">
-        <Link href={back} className="inline-flex min-h-11 items-center underline underline-offset-2">
+        <Link href={`/h/${profile.handle}?length=${minutes || ""}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
           ← Other times
         </Link>
       </p>
-      <h1 className="mt-4 text-2xl font-semibold">Ask {profile.displayName} for a call</h1>
+      <h1 className="mt-4 text-2xl font-semibold">{BOOK_WORDS.title(profile.displayName)}</h1>
 
       {problem && (
         <p role="alert" className="mt-4 rounded border border-red-600 p-3 text-sm">
@@ -109,53 +103,23 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
           <dd className="font-medium">
             <LocalTime iso={startsAt.toISOString()} /> ({minutes} minutes)
           </dd>
-          <dd className="opacity-70">For {profile.displayName}: {hostZoneTime}</dd>
+          <dd className="opacity-70">{BOOK_WORDS.hostTime(profile.displayName, page.hostZoneTime)}</dd>
         </div>
         <div>
           <dt className="opacity-70">Price</dt>
-          <dd className="font-medium">{paid ? `${formatMoney(total)} at most (${formatMoney(offer.pricePer15Cents)} per 15 minutes)` : "Free"}</dd>
+          <dd className="font-medium">{BOOK_WORDS.price(total, offer.pricePer15Cents)}</dd>
         </div>
       </dl>
 
       <section className="mt-6 rounded border border-neutral-400 p-4 text-sm">
-        <h2 className="font-semibold">Request this time, subject to {profile.displayName}&apos;s approval</h2>
+        <h2 className="font-semibold">{BOOK_WORDS.pointsTitle(profile.displayName)}</h2>
         <SellerLine hostId={profile.userId} name={profile.displayName} />
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>
-            <strong>This is a request, not a reservation.</strong> Other people may ask for the same time, and {profile.displayName} chooses.
-          </li>
-          <li>
-            You will have an answer by <LocalTime iso={answerBy.toISOString()} />. If there is none by then, the request ends by itself.
-          </li>
-          <li>
-            While you wait, this time is kept for this request in your own Connect calendar: you cannot ask for another call that overlaps it
-            or starts in the {AFTER_CALL_MINUTES} minutes after it.
-          </li>
-          {hostToo && (
-            <li>
-              <strong>You are a host too:</strong> while this request waits, and during the call, nobody can book you at this time.
+          {points.map((point, index) => (
+            <li key={index}>
+              <Sentence parts={point} />
             </li>
-          )}
-          <li>You can take the request back for free at any time before it is accepted.</li>
-          {paid && (
-            <>
-              <li>
-                <strong>Nothing is held or charged now.</strong> If your request is accepted, {formatMoney(total)} is held on your card 2 days
-                before the call (or right away, if the call is sooner). You do not need to come back for that.
-              </li>
-              <li>
-                After the call you are charged for the time {profile.displayName} was in the call during the booked time, never more than{" "}
-                {formatMoney(total)}. <strong>That includes time they spend waiting if you are late or do not join.</strong> If they are late,
-                leave early or do not show up, you do not pay for that time.
-              </li>
-              <li>{CANCEL_RULE[offer.freeCancelMinutes]}</li>
-              <li>
-                If your card cannot be held, we email you and you can fix it until <LocalTime iso={payCutoff(startsAt, offer.freeCancelMinutes).toISOString()} />.
-                After that an unpaid call is cancelled at no cost.
-              </li>
-            </>
-          )}
-          {!paid && <li>{CANCEL_RULE[0]}</li>}
+          ))}
         </ul>
       </section>
 
@@ -168,23 +132,18 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
         <input type="hidden" name="seenPrice" value={offer.pricePer15Cents} />
         <input type="hidden" name="seenFreeCancel" value={offer.freeCancelMinutes} />
         <label className="block">
-          What would you like to talk about? (optional, up to {LIMITS.noteMax} characters; {profile.displayName} sees it, and Connect only if one of you reports the other)
+          {BOOK_WORDS.note(profile.displayName)}
           <textarea name="note" rows={3} maxLength={LIMITS.noteMax} className="mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2" />
         </label>
         {paid && (
           <label className="flex items-start gap-2">
             <input type="checkbox" name="cardTerms" required className="mt-1" />
-            <span>
-              I allow Connect to save my card for this booking only and, if my request is accepted, to hold up to {formatMoney(total)} on it
-              without my being present, and to charge it after the call as described above. If I ask for more time during the call, the
-              price of that extra time is held on the same card and charged in the same way. The card is removed once the call is over. Where a 14-day right to cancel applies to me (in the United Kingdom and Europe): I ask for this call to take
-              place as booked, also within those 14 days, and I understand that the right ends once the call has taken place.
-            </span>
+            <span>{cardTermsWords(total)}</span>
           </label>
         )}
-        {idConfirmed && <p className="opacity-70">{profile.displayName} can see that your ID is confirmed, never your ID or the name on it.</p>}
+        {page.idConfirmed && <p className="opacity-70">{BOOK_WORDS.idLine(profile.displayName)}</p>}
         <button type="submit" className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white">
-          {paid ? "Continue to card details" : "Send request"}
+          {BOOK_WORDS.button(paid)}
         </button>
       </form>
     </SitePage>
