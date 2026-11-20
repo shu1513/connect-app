@@ -286,7 +286,7 @@ async function main() {
       freeCallId = callId;
       check("the customer got the \"accepted\" email, with a link to the request", ((await emailTo(customer.email, "accepted your request", 5))?.body ?? "").includes(`/bookings/${booking.id}`));
       const customerHome = await page("/", customer.jar);
-      check("the call is on the customer's home page, under the host's display name", customerHome.words.includes(`Jo Journey ${RUN}`) && customerHome.words.includes("Not open yet"));
+      check("the call is on the customer's home page, under the host's display name", customerHome.words.includes(`Jo Journey ${RUN}`) && customerHome.words.includes("You can enter"));
 
       await happenedAlready(callId, booking.id, 15);
       const results = await page(`/calls/${callId}/results`, customer.jar);

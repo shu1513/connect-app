@@ -510,11 +510,13 @@ async function main() {
       await db.update(schema.projectPosts).set({ removedAt: T0 }).where(eq(schema.projectPosts.id, gone.id));
       const hid = await post(hosts[1].projectId, 7, "Hidden by Connect.");
       await db.update(schema.projectPosts).set({ hiddenAt: T0 }).where(eq(schema.projectPosts.id, hid.id));
-      await post(hosts[2].projectId, 8 * 24 * 60, "Eight days old.");
+      await post(hosts[2].projectId, 31 * 24 * 60, "Thirty-one days old.");
+      // Older than the old limit of a week, and inside the 30 days.
+      const weeksOld = await post(hosts[2].projectId, 20 * 24 * 60, "Twenty days old.");
       let news = await F.diaryNews(reader.id, T0);
-      check("the posts of followed hosts, the newest first", news.map((n) => n.postId).join() === [shown.id, older.id].join(), news.map((n) => n.text));
-      check("with the host's name, the project and the way to the diary, and nothing else", news[0].hostName === "News One" && news[0].handle === hosts[0].handle && news[0].projectId === hosts[0].projectId && Object.keys(news[0]).sort().join() === "handle,hostName,postId,projectId,projectName,text,writtenAt");
-      check("never a removed post, a hidden post or one older than a week", !news.some((n) => [gone.id, hid.id].includes(n.postId)) && !news.some((n) => n.text === "Eight days old."));
+      check("the posts of followed hosts from the last 30 days, the newest first", news.map((n) => n.postId).join() === [shown.id, older.id, weeksOld.id].join(), news.map((n) => n.text));
+      check("with the host's name, the project and the way to the diary, and nothing else", news[0].hostName === "News One" && news[0].handle === hosts[0].handle && news[0].projectId === hosts[0].projectId && news[0].hostId === hosts[0].id && Object.keys(news[0]).sort().join() === "handle,hostId,hostName,postId,projectId,projectName,text,writtenAt");
+      check("never a removed post, a hidden post or one older than 30 days", !news.some((n) => [gone.id, hid.id].includes(n.postId)) && !news.some((n) => n.text === "Thirty-one days old."));
       await db.insert(schema.blocks).values({ blockerId: hosts[0].id, blockedId: reader.id });
       check("a follower the host has blocked sees what any visitor could read: the same", (await F.diaryNews(reader.id, T0)).some((n) => n.postId === shown.id));
       await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, hosts[1].id));
@@ -522,9 +524,10 @@ async function main() {
       await F.unfollow({ followerId: reader.id, hostId: hosts[0].id, now: T0 });
       check("and so is a host who is no longer followed", !(await F.diaryNews(reader.id, T0)).some((n) => n.postId === shown.id));
       await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, hosts[1].id));
-      for (let i = 0; i < 7; i++) await post(hosts[2].projectId, 20 + i, `Post ${i}`);
+      // One more than the limit, so the cut is really made.
+      for (let i = 0; i < 11; i++) await post(hosts[2].projectId, 20 + i, `Post ${i}`);
       news = await F.diaryNews(reader.id, T0);
-      check("five at most", news.length === 5 && news[0].text === "Post 0");
+      check("ten at most", news.length === 10 && news[0].text === "Post 0");
       check("someone who follows nobody has none", (await F.diaryNews(hosts[0].id, T0)).length === 0);
     }
 
