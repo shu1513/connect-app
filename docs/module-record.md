@@ -4693,3 +4693,29 @@ dispute still has to be answered by hand in Stripe, and a share a host collected
 dispute is settled by hand. The phone apps do not show messages yet (the phone-app session was
 told what exists). Registering Stripe's two extra message kinds for a live account is a step
 for go-live.
+
+## Phone apps, part 07: a host's requests (plan 45)
+
+**What was built.**
+- *One place decides what a host may know about each waiting request,* and the website's list
+  is drawn from it. The sentences about requests and about blocking are shared too.
+- *The app's addresses:* the host's list of requests; a request's page now also answers for
+  its host; accept, decline, save the note, block.
+- *The screens:* the list (requests for the same time together, Accept and Decline on each), a
+  request as its host sees it (who is asking as far as she may know, her private note, Block),
+  and the home page's waiting requests now lead on.
+
+**What the building changed.** Nine things, listed in the plan. The main ones: in the app,
+nothing personal is shown about a customer whose account is closed or across a block, at every
+stage of a request (stricter than the website's page for one request); a call asked for "right
+now" is listed but answered elsewhere (part 11); the buttons are on the list and the request's
+page, not on the home page itself.
+
+**How it was checked.** `scripts/app-requests-check.ts`, 68 checks. Part 06's check and the
+website's own checks pass unchanged. On the Android test phone, with pictures: the list, a
+request's page, Accept with its question, Decline, the note, Block.
+
+**Not built here:** the payout set-up screen (part 14b) and Report.
+
+**For the founder.** Should the website's page for one request follow the app's stricter rule
+(no rating shown about a customer whose account is closed or who is blocked)?
