@@ -4434,4 +4434,4 @@ Terms' page, on the last step of sign-up, and on the Hosting page.
 **What cannot be tested here.** A real email leaving through the sending service (the check uses
 a stand-in). The new part of the founder's Emails page was type-checked and its numbers are
 checked by the script, but it was not looked at in a browser: the test admin's login is not set
-up. Whether this way of giving notice holds in law: `docs/for-the-lawyer.md`, section 16.
+up. Whether this way of giving notice holds in law: `docs/for-the-lawyer.md`, section 17.

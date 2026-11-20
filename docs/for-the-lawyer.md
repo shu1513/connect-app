@@ -478,7 +478,7 @@ plan has the app do it. Nothing of this is built yet.
   messages Connect writes to a person are kept in the app ("Messages"). For how long may each be
   kept, and what happens to them when an account is closed?
 
-## 16. Telling people about new terms (new, plan 46 part 2, 20 November 2026)
+## 17. Telling people about new terms (new, plan 46 part 2, 20 November 2026)
 
 How it is built: a new version of a document is put on the site at least 30 days before its day;
 the page of the current version says so; everyone it concerns is sent one email with the day, a
