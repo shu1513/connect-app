@@ -3586,8 +3586,25 @@ time ("2 requests") and one asking for a time beside a booked call (side by side
 "4 calls hosted in these days · earned $94.20 so far" for a week with three paid calls and one
 held; the red line at the right height in today's column.
 
-**What the automatic checks cannot test, and what was not tried.** How it looks at phone size
-(part one was tried there; these three additions were not). Pressing a dashed block was not
-tried: it is a plain link to the requests page.
+**What the automatic checks cannot test, and what was not tried.** Pressing a dashed block was
+not tried: it is a plain link to the requests page. (This entry first said the three additions
+were not tried at phone size. They were, after it was written and before the merge: at 375
+pixels wide, the dashed blocks beside a call, and the total for the three days in view,
+"3 calls hosted in these days · earned $56.46 so far".)
 
 **Still open.** For the founder: a month view was left out; say if you miss it.
+
+## A small change after the calendar: a note under the plain list (20 November 2026)
+
+**Why.** The first of Astra's two second looks at part one of the calendar lost its connection
+and answered only after everything was merged. It had read an older state of the code. Of its
+three points, two were already dealt with (the words "the first 500", and "nearest" being only
+close to right when more than 500 calls touch the days). The third was new: before the calendar
+is drawn, the page shows a plain list, and since part one that list holds only the soonest
+three calls and the calls of the days around today, without saying so. It stays on the page if
+a browser never runs the page's scripts.
+
+**What was changed.** A line under that list: "These are your calls of the coming days. The
+calendar, which shows every week, appears here once the page has finished loading." It is gone
+with the list when the calendar is drawn. The founder was asked first and said "Yes, tidy up".
+Words only, so it was not sent to Astra again.
