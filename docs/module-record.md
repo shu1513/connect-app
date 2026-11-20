@@ -3439,3 +3439,92 @@ be brought back. Nothing outside the local test database was touched. The founde
 **Still open.** For the founder: the three choices above that are the builder's. Old test calls
 keep what was saved with them, so two of them may sit closer than 2 minutes. When the home page
 for hosts (plan 38) is built, it should show her own bookings too.
+
+## A later change: a calendar on the home page, part one (plan 43, 20 November 2026)
+
+**What the founder asked for.** "so the homepage calendar shows the week's schedule (also maybe
+there is a monthly view or next button for next week) where you see your calls that you booked,
+the calls someone booked to call you (you as a host) and the complete calls (and how much you
+earned in those calls)". Then, with a picture of a week in a calendar app: "shouldn't the
+calendar looks like something like this? an actual calendar look that people are used to". And
+after a picture of the plan: "each completed call square inside of the calendar shows the dollar
+earned for that call". Then: "Yes, build it".
+
+**What was decided** (`plans/43-calendar-on-the-home-page.md`). The founder's: a real week
+calendar; both kinds of calls and the finished ones; the amount earned inside the block of each
+finished call. The builder's: three days at a time in a narrow window; no month view; the week's
+first day follows the browser's language; a switch between the calendar and a list of the same
+days; two pull requests. This is the first: the grid, the arrows, tapping a call, what a
+finished call earned, the list. Requests on the calendar, the total for the days in view and a
+line for "now" are the second.
+
+**What was built.** No change to the database.
+- `src/lib/home/calendar.ts`: the plain rules. Which days are in view; where a call sits in a
+  day in the viewer's time zone, also across midnight and in the hour that comes twice when the
+  clocks go back; calls that would cover each other stand side by side; which hours are drawn;
+  reading the day from the address; and the stretch of time the server loads (nine days either
+  side of the day asked for, which holds every week in every time zone).
+- `src/lib/home/earned.ts`: what a finished call earned its host: her share of each charge of
+  that call, by the one rule for a share (`currentSplit`), after a refund. No figure while
+  nothing is charged; "so far" while part of the money is not settled.
+- `src/components/calls-calendar.tsx`: the calendar, laid out in the browser. Blocks are
+  buttons that say in words what they are. `src/components/call-row.tsx`: the row of one call,
+  moved out of the old list, which can now say "Finished", "You earned …" and lead to the
+  results. The old list by day (`calls-by-day.tsx`, and `byDay`) is gone; before the page runs
+  in the browser the plain list of the coming calls is shown, as before.
+- `src/app/page.tsx`: reads the day from the address; loads the calls around it (never a
+  cancelled one), at most 500, the nearest to that day first; works out what each finished call
+  she hosted earned; hands the calendar only the words and numbers it draws. The page no longer
+  loads every coming call a person has: the soonest few for the card, and the ones around the
+  day in view.
+
+**Changed after seeing it in a browser.** The hours drawn without any call are 9 in the morning
+to 6 in the evening, not 8 to 8: the empty grid was taller than a phone's screen. A block is as
+tall as its call is long, so the site's least size for a button (44 pixels) is set aside for the
+blocks; the list has full-size rows.
+
+**What the reviewers found.**
+- *Astra, on the plan (one round):* "ready with changes". Taken: the figure earned is before the
+  collection charge and can rightly differ from the earnings page, so the proof compares how one
+  charge is worked out; only what is drawn is sent to the browser; a day in the address does not
+  tell the server the week or the width, so it sends nine days either side; what is chosen is
+  kept by its id; "calls before" beside a finished call would count that call; short calls
+  close together would cover each other; two pull requests. Not taken: telling the server the
+  browser's zone and width after loading; an index on calls by time.
+- *Astra, on the code (one round so far):* "ready with changes", seven points; no leak and no
+  wrong figure found. Taken: the list left out a call that began the day before the first day
+  in view; the page still loaded every coming call, so the cap of 500 did not bound what it
+  sent; when more than 500 calls touch the days, the earliest were kept instead of the nearest
+  to the day asked for; a call that ended while the page was loading could keep its customer's
+  photo; the check for "a finished call has no details" looked only at what is drawn before the
+  calendar is laid out, and now searches everything the page hands over, with a customer whose
+  only call is over; "so far" is now in the block too. Taken as a correction of the plan's
+  words: seven or three days are chosen by the width of the window, which the calendar's own
+  width follows. Not taken: fixtures in the check script for a member's call, added time and a
+  call ended with a report; the rule for the figure has its own tests, and those payments need
+  several more tables to set up.
+
+- *CodeRabbit* had reached its review limit again (the founder: "code rabbit is at its limit so
+  you can do it instead, as usual"). The builder read the whole change line by line. Two small
+  things changed: the words shown when more than 500 calls touch the days said "the first 500"
+  although the nearest are kept now; and the clock for the blocks was made anew for every
+  block, where once is enough for a week that can hold hundreds.
+
+**How it was checked.** 708 automatic tests on the code, 27 of them new (the calendar's rules,
+the figure earned) and 4 removed with the old grouping. On this computer, against the local
+database: `scripts/home-check.ts`, 103 checks, 17 of them new (part 9, what the calendar is
+handed, and one in part 7), and `scripts/journey-check.ts` (60), both run again after Astra's
+fixes; `scripts/suggestions-check.ts` (98), before them. In a browser, as the test host,
+in a wide window and at phone size, before Astra's fixes: a past week with calls that were
+paid, refunded in part and in full, held, booked with another host, three calls of five minutes
+side by side, and one across midnight; a coming week with hosted and booked calls; the amount in
+the block; tapping a call; the arrows (the address changes, the page stays the same page);
+"Today"; the list.
+
+**What the automatic checks cannot test, and what was not tried.** How the calendar looks and
+feels. After Astra's fixes the browser try was not repeated; the check scripts were. The list
+with a call that began the day before, and "so far" in a block, were not seen in a browser.
+The week's first day in a browser whose language starts the week on Monday. A real phone.
+
+**Still open.** For the founder: three days on a phone, no month view, and the week's first day
+are the builder's choices. The second pull request: requests on the calendar, the total, "now".

@@ -1,6 +1,6 @@
 /**
- * Testing tool: the home page and "Past calls" (plans/36), and what a host sees on the home page
- * (plans/38), read from the running app the way a browser gets them, against the local database.
+ * Testing tool: the home page and "Past calls" (plans/36), what a host sees on the home page
+ * (plans/38) and what the calendar is handed (plans/43), read from the running app the way a browser gets them, against the local database.
  *
  * What is real and what is pretended:
  *   real       sign-up and the confirmation link (so each person has a real login), and every
@@ -13,8 +13,9 @@
  * request here comes from one network address.
  *
  * It reads the page as the server sends it. What only happens in the browser (the seconds moving,
- * "Today" and "Tomorrow" in the person's own time zone, asking again at zero) is covered by the
- * tests of the plain rules and by a try in a real browser.
+ * the calendar's days and blocks in the person's own time zone, asking again at zero) is covered
+ * by the tests of the plain rules and by a try in a real browser. For the calendar this script
+ * checks what the server hands to it: which calls, and which words and numbers with each.
  *
  * Usage: npx tsx scripts/home-check.ts            (the app on http://localhost:3000)
  *        npx tsx scripts/home-check.ts --app=http://localhost:3210
@@ -188,7 +189,7 @@ async function main() {
       const home = await page("/", cust.jar);
       check("a new person gets the home page, with their first name", home.status === 200 && home.words.includes("Hello, Home"), String(home.status));
       check("no call: the card says so and offers the search box", home.html.includes('data-next-call="none"') && home.words.includes("Welcome to Connect") && home.html.includes('action="/search"'));
-      check("nothing of what they do not have is shown", !home.html.includes("data-calls=") && !home.html.includes("data-followed-hosts") && !home.html.includes("data-diary-news") && !home.html.includes("data-waiting"));
+      check("nothing of what they do not have is shown, and no calendar for someone who never had a call", !home.html.includes("data-calendar") && !home.html.includes("data-followed-hosts") && !home.html.includes("data-diary-news") && !home.html.includes("data-waiting"));
       check("the top bar says Home", /<nav[\s\S]*?>\s*Home\s*<[\s\S]*?<\/nav>/.test(home.html) && !home.words.includes("Your calls"));
       check("their past calls page is empty", (await page("/calls", cust.jar)).words.includes("No past calls yet."));
       const visitor = await page("/");
@@ -337,7 +338,9 @@ async function main() {
       const secondPage = await page("/calls?page=2", other.jar);
       check("the rest on the next page, with a way back", count(secondPage.html, "data-call=") === 1 && listed(secondPage.html, many[0].id) && secondPage.html.includes('href="/calls"'));
       check("a page number that is not one is read as the first page", count((await page("/calls?page=abc", other.jar)).html, "data-call=") === HOME.pastPerPage);
-      check("none of them is on the home page", !(await page("/", other.jar)).html.includes("data-calls="));
+      const theirs = await page("/", other.jar);
+      check("someone with only past calls gets the calendar, and no row for a call that is over", theirs.html.includes("data-calendar") && count(theirs.html, "data-call=") === 0);
+      check("the calendar is handed the past calls of the days around today, and not older ones", theirs.text.includes(many[many.length - 1].id) && !theirs.text.includes(many[0].id));
     }
 
     // ----------------------------------------------------------------------
@@ -516,6 +519,71 @@ async function main() {
       await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, bri.id));
       const pending = await page("/", bri.jar);
       check("a host waiting for approval again keeps the shortcuts and the details, without the link to a page nobody can open", pending.html.includes("data-host-shortcuts") && !pending.html.includes(`href="/h/${bri.handle}"`) && detailsOf(pending.html, withRegular.id) !== "");
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n9. What the calendar is handed (plans/43)");
+    {
+      const { splitAfterRefunds } = await import("../src/lib/payments/pricing");
+      const { formatMoney } = await import("../src/lib/payments/access");
+      const cal = await asHost(await signUp("cal"), "cal", `Cal Display ${RUN}`);
+      const guest = await signUp("guest");
+      const seller = await host("calseller", `Calseller Display ${RUN}`);
+      const outsider = await signUp("outsider");
+      /** A charge that went through: 4.9% and 30 cents are Connect's, the rest the host's. */
+      const charge = async (row: { id: string; startsAt: Date; endsAt: Date }, cents: number, refundedCents = 0) => {
+        const fee = Math.round(cents * 0.049) + 30;
+        await db.insert(schema.payments).values({ callId: row.id, coversFrom: row.startsAt, coversUntil: row.endsAt, pricePer15Cents: 2000, bookedCents: cents, feePercentBps: 490, feeFixedCents: 30, feeForeignCardBps: 150, status: "charged", chargedCents: cents, chargedAt: row.endsAt, originalFeeCents: fee, originalHostShareCents: cents - fee, refundedCents });
+        return formatMoney(splitAfterRefunds({ chargeCents: cents, refundedCents, originalHostShareCents: cents - fee }).hostShareCents);
+      };
+      const paid = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -2 * 24 * 60 });
+      const earnedPaid = await charge(paid, 4137);
+      // What the customer wrote when asking for that finished call belongs to no call that is over.
+      await requestOf(paid, { words: `Words of a finished call ${RUN}` });
+      // A second customer, whose only call with her is over, with a photo she would be handed for a call that is not.
+      const pastGuest = await person("pastguest");
+      const pastOnly = await call({ hostId: cal.id, customerId: pastGuest.id, startsInMinutes: -6 * 24 * 60 });
+      await requestOf(pastOnly, { words: `Words of the past guest ${RUN}` });
+      const [pastGuestsPhoto] = await db.insert(schema.hostPhotos).values({ userId: pastGuest.id, network: "upload", width: 8, height: 8, byteLength: 1, sha256: randomUUID(), bytes: Buffer.from("x"), takenAt: now, checkedBy: "homecheck", rulesVersion: "homecheck" }).returning({ id: schema.hostPhotos.id });
+      const halfBack = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -3 * 24 * 60 });
+      const earnedHalf = await charge(halfBack, 4263, 2100);
+      const held = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -4 * 24 * 60 });
+      await db.insert(schema.payments).values({ callId: held.id, coversFrom: held.startsAt, coversUntil: held.endsAt, pricePer15Cents: 2000, bookedCents: 4391, feePercentBps: 490, feeFixedCents: 30, feeForeignCardBps: 150, status: "held" });
+      const cancelled = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -24 * 60, cancelled: true });
+      const longAgo = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -30 * 24 * 60 });
+      const coming = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: 26 * 60 });
+      await requestOf(coming, { words: `Calendar words ${RUN}` });
+      const sheBooked = await call({ hostId: seller.id, customerId: cal.id, startsInMinutes: -5 * 24 * 60 });
+      const sellersShare = await charge(sheBooked, 2519);
+
+      const hers = await page("/", cal.jar);
+      check("a host's home page has the calendar", hers.html.includes("data-calendar"));
+      check("it is handed her finished calls of the days around today, the coming one, and the call she booked", [paid, halfBack, held, coming, sheBooked].every((c) => hers.text.includes(c.id)));
+      check("never a cancelled call, and not one from a month ago", !hers.text.includes(cancelled.id) && !hers.text.includes(longAgo.id));
+      check("a finished call she hosted comes with what it earned: her share of the charge", hers.text.includes(earnedPaid) && earnedPaid === "$39.04", earnedPaid);
+      check("a refund in part lowers it", hers.text.includes(earnedHalf) && earnedHalf !== formatMoney(4263 - Math.round(4263 * 0.049) - 30), earnedHalf);
+      check("a call with nothing charged comes with no figure, only its own words", hers.text.includes("$43.91 held") && count(hers.text, "$43.91") === count(hers.text, "$43.91 held"));
+      check("a call she booked comes with what she was charged, never with what its host earned", hers.text.includes("Charged $25.19") && !hers.text.includes(sellersShare), sellersShare);
+      check("the coming call she hosts still has the customer's details", hers.text.includes(`Calendar words ${RUN}`) && count(hers.html, "data-customer-details=") === 1);
+      // Searched in everything the page hands over, not only in what is drawn before the calendar is laid out.
+      check("a finished call is handed over without what its customer wrote, and without their photo", hers.text.includes(pastOnly.id) && !hers.text.includes(`Words of a finished call ${RUN}`) && !hers.text.includes(`Words of the past guest ${RUN}`) && !hers.text.includes(pastGuestsPhoto.id));
+
+      const his = await page("/", guest.jar);
+      check("the customer of those calls is handed the same calls, and nothing a host earned", [paid, halfBack, held, coming].every((c) => his.text.includes(c.id)) && !his.text.includes(earnedPaid) && !his.text.includes(earnedHalf) && !his.text.includes("earned") && !his.text.includes(`Calendar words ${RUN}`));
+      check("and never the call their host booked with someone else", !his.text.includes(sheBooked.id));
+      const nobody = await page("/", outsider.jar);
+      check("someone else is handed none of them", ![paid, halfBack, held, coming, sheBooked, longAgo].some((c) => nobody.text.includes(c.id)) && !nobody.html.includes("data-calendar"));
+
+      const day = (daysAgo: number) => new Date(Date.now() - daysAgo * DAY).toISOString().slice(0, 10);
+      const then = await page(`/?day=${day(30)}`, cal.jar);
+      check("asked for a day a month ago, the calendar is handed the calls around that day instead", then.text.includes(longAgo.id) && !then.text.includes(paid.id) && then.status === 200);
+      check("the coming call is still on the page then, in the card of the next call", then.html.includes(`data-next-call="${coming.id}"`));
+      for (const bad of ["2026-02-31", "yesterday", "2026-11-23%27%3B--", ""]) {
+        const read = await page(`/?day=${bad}`, cal.jar);
+        if (!(read.status === 200 && read.text.includes(paid.id) && !read.text.includes(longAgo.id))) check(`a day that is not a day ("${bad}") is read as today`, false, String(read.status));
+      }
+      check("a day in the address that is not a real day is read as today", true);
+      check("someone else asking for that day is still handed none of her calls", !(await page(`/?day=${day(30)}`, outsider.jar)).text.includes(longAgo.id));
     }
   } finally {
     const ids = made.length ? made : ["-"];
