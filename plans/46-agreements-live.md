@@ -582,3 +582,32 @@ Not taken:
 - **Not built:** the phone app's last step of sign-up does not show a coming version (the email
   and the website do). The phone-apps session is told.
 
+## What building part 5 added (20 November 2026)
+
+- `src/lib/payments/statement.ts`: the sums, and five questions to the books, one for each way a
+  line leads to its host (a call's payment, a member's unused time, a contribution's or tip's
+  share, a member's month, a contribution's or tip's own payment).
+- The page is `/host/statement` (made for printing; "save as PDF" is the browser's own), the file
+  is `/host/statement/csv`. Both only for the host herself, and only for a year from the one her
+  host profile was made to this one. The page opens on last year, which is what a host comes for
+  in January.
+- **Two columns more than the plan listed:** "Your share" (what she earned, which for a member's
+  month falls when the time is used or runs out, not when it was paid) and "Collection charges".
+- "Sent to you" is read from the books' own line for a transfer that went through. A transfer
+  that was refused writes no such line, so it counts as nothing, and one that went through
+  counts once.
+
+## What Astra's review of part 5 changed (20 November 2026)
+
+Astra said to hold it for one point. Taken:
+- **The five questions to the books are asked in one read-only database step that holds its
+  first look.** A payment is written as several lines in one step; a statement made in that
+  instant could otherwise have shown what was paid without the fee and the share.
+- **A column "Of that, paid by Connect"** beside the refunds: a contribution refunded after the
+  host had collected is paid by Connect, and her share is not taken back (until part 3 says
+  otherwise). Refunds are described as counted when written into the books.
+- The file also carries what customers paid for (calls, memberships, contributions, tips).
+- The check script's refund uses the split the app really makes, compares every column of the
+  other host, and has two more cases: a collection that was refused and went through later, and
+  a contribution refunded after collection.
+
