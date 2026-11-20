@@ -171,6 +171,21 @@ before merging, with five notes. All taken:
 6. *The note box could miss a newer stored note it had once seen.* It now goes by each fresh
    reading of the page, not by comparing texts it remembered.
 
+## Astra's third look at the code (20 November 2026): "ready with changes", worked in
+
+The six changes of the second look were found to hold. One point was left:
+
+1. *An answer to Accept could put an older note back in the box.* If the host saved her note
+   while "Accept" was on its way, the answer to Accept (which had read the note before the
+   save) made the box show the older note beside "saved". The stored note was never touched.
+   Now, while a fresh reading is owed, the answer to a step changes the stage and what may be
+   done at once, and the note waits for that fresh reading.
+
+Also from the walk of part 08: the questions before accepting and before blocking stay up
+when another screen comes to the front beneath them (a link opened meanwhile). A "yes" now
+only counts while the screen the question was asked on is still the one in front (in the list
+and on a request's own page).
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *`customerDetailsFor` cannot describe a waiting request.* Decision 1.

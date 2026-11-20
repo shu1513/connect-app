@@ -30,11 +30,20 @@ export function Asker({ name, photoId, rating, ratingWords: none, idConfirmed, l
 /**
  * Asks once more before a request is accepted, in the server's own words with the time written in
  * the phone's time zone: a touch by mistake would make a commitment. Declining is not asked about.
+ *
+ * `still`: the screen's watch, taken as the question is put (`useWatch`). The question stays up
+ * even when another screen comes to the front beneath it (a link opened meanwhile), so a "yes"
+ * only counts while the screen it was asked on is still the one in front.
  */
-export function askBeforeAccepting(answer: AppAnswer, onYes: () => void): void {
+export function askBeforeAccepting(answer: AppAnswer, still: () => boolean, onYes: () => void): void {
   Alert.alert(answer.accept, plainWords(answer.sure, localTime), [
     { text: answer.no, style: "cancel" },
-    { text: answer.yes, onPress: onYes },
+    {
+      text: answer.yes,
+      onPress: () => {
+        if (still()) onYes();
+      },
+    },
   ]);
 }
 

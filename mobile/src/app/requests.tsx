@@ -5,6 +5,7 @@ import type { AppBooking, AppRequests, AppWaitingOne } from "../../../src/lib/ap
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
 import { isBooking, isRequests } from "@/lib/book-rules";
+import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 import { Asker, askBeforeAccepting } from "@/requests/asker";
@@ -22,6 +23,7 @@ import { type, useColors } from "@/ui/theme";
  */
 export default function RequestsScreen() {
   const colors = useColors();
+  const watch = useWatch();
   const { refresh: askOpening } = useOpening();
   const [list, setList] = useState<AppRequests | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -134,7 +136,7 @@ export default function RequestsScreen() {
               {answered.includes(request.id) ? null : request.answer.kind === "booked" ? (
                 <View style={styles.buttons}>
                   <View style={styles.button}>
-                    <Button label={request.answer.accept} busy={answering === `${request.id} accept`} disabled={answering !== null} onPress={() => askBeforeAccepting(request.answer, () => void answer(request, "accept"))} />
+                    <Button label={request.answer.accept} busy={answering === `${request.id} accept`} disabled={answering !== null} onPress={() => askBeforeAccepting(request.answer, watch(), () => void answer(request, "accept"))} />
                   </View>
                   <View style={styles.button}>
                     <Button label={request.answer.decline} kind="plain" busy={answering === `${request.id} decline`} disabled={answering !== null} onPress={() => void answer(request, "decline")} />

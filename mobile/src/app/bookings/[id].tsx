@@ -88,7 +88,11 @@ function OneRequest({ id }: { id: string }) {
       if (answer.ok && isBooking(answer.data) && answer.data.id === id) {
         stage.current = answer.data.stage;
         setPage(answer.data);
-        setReadings((count) => count + 1);
+        // The note box takes this as a new reading of the stored note. Not so the answer to a step while a fresh
+        // reading is owed (a note was saved while the step was under way): that answer may have read the note
+        // before the save, and would put the older one back in the box. The stage and what may be done are taken
+        // from it at once; the note waits for the reading that is owed.
+        if (!owed.current) setReadings((count) => count + 1);
         setProblem(null);
         setGone(false);
         // What a step just did ("your request was taken back") belongs to the stage it led to.
@@ -332,7 +336,7 @@ function OneRequest({ id }: { id: string }) {
           {saying ? <Notice>{saying}</Notice> : null}
           {answer?.kind === "booked" ? (
             <>
-              <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, () => void act("accept"))} />
+              <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, watch(), () => void act("accept"))} />
               <Button label={answer.decline} kind="plain" busy={busy === "decline"} disabled={busy !== null} onPress={() => void act("decline")} />
             </>
           ) : answer?.elsewhere ? (
@@ -393,13 +397,21 @@ function OneRequest({ id }: { id: string }) {
           kind="danger"
           busy={busy === "block"}
           disabled={busy !== null}
-          onPress={() =>
-            // Blocking ends what is between the two: it is asked once more, in the server's words.
+          onPress={() => {
+            // Blocking ends what is between the two: it is asked once more, in the server's words. A "yes" only
+            // counts while this request is still the page in front (see the question before taking back).
+            const still = watch();
             Alert.alert(block.label, block.sure, [
               { text: block.no, style: "cancel" },
-              { text: block.yes, style: "destructive", onPress: () => void act("block") },
-            ])
-          }
+              {
+                text: block.yes,
+                style: "destructive",
+                onPress: () => {
+                  if (still()) void act("block");
+                },
+              },
+            ]);
+          }}
         />
       ) : null}
     </Page>
