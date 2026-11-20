@@ -65,7 +65,7 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
   const profile = await hostProfileFor(switches.memberships === "off" ? null : viewer, handle);
   if (!profile) return null;
   // Never the project: projects are not in the apps, and nothing of one is read for them.
-  const page = await gatherHostPage(viewer, profile, asked, { project: false });
+  const page = await gatherHostPage(viewer, profile, asked, { project: false, membership: switches.memberships !== "off" });
   const { offer, memberView } = page;
   // "Available now" also follows the apps' own switch; memberships follow theirs.
   const now = switches.availableNow ? page.now : null;
@@ -96,6 +96,7 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
     now: now ? { lengths: now.lengths.map((minutes) => ({ minutes, words: lengthChoice(minutes, now.offer.pricePer15Cents) })), answerMinutes: NOW.answerMinutes, paid: now.offer.pricePer15Cents > 0, freshSeconds: NOW_FRESH_SECONDS } : null,
     ask: {
       title: askTitle(Boolean(member), Boolean(now)),
+      titleNotNow: askTitle(Boolean(member), false),
       closed,
       words: closed ? null : ASK_WORDS.notReserved(profile.displayName),
       lengths: !closed && offer ? offer.lengths.map((minutes) => ({ minutes, words: lengthChoice(minutes, offer.pricePer15Cents) })) : [],

@@ -237,8 +237,11 @@ export type AppHostPage = {
    * cannot. `freshSeconds`: for how long this may be shown without asking again; after that it is not known.
    */
   now: { lengths: AppLength[]; answerMinutes: number; paid: boolean; freshSeconds: number } | null;
-  /** Asking for a call at a time: the heading, why nothing can be asked (or null), the lengths, the one chosen, and its open times. */
-  ask: { title: string; closed: string | null; words: string | null; lengths: AppLength[]; chosen: number | null; starts: string[]; noTimes: string | null };
+  /**
+   * Asking for a call at a time: the heading, why nothing can be asked (or null), the lengths, the one chosen,
+   * and its open times. `titleNotNow` is the heading for when "available now" is no longer believed.
+   */
+  ask: { title: string; titleNotNow: string; closed: string | null; words: string | null; lengths: AppLength[]; chosen: number | null; starts: string[]; noTimes: string | null };
   /**
    * Everything about a membership with her, for this viewer. Null when there is nothing to show, or
    * when memberships are switched off for the apps (the page then reads as to someone who is no member).

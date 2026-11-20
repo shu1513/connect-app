@@ -31,6 +31,7 @@ function OnePhoto({ photoId, name, small }: { photoId: string | null; name: stri
     if (!photoId) return;
     let here = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let last: ReturnType<typeof setTimeout> | null = null;
     let until = 0;
     let asking = false;
     /** The last asking got no answer at all: to be tried again when the app comes back to the front. */
@@ -51,7 +52,15 @@ function OnePhoto({ photoId, name, small }: { photoId: string | null; name: stri
       until = got?.until ?? 0;
       unanswered = got === null;
       if (timer) clearTimeout(timer);
+      if (last) clearTimeout(last);
       timer = got ? setTimeout(() => void ask(), Math.max(got.until - Date.now(), 1000)) : null;
+      // The latest it may stay: its end and the moment a question may take. Past that it goes, answer or no answer.
+      const end = got?.until ?? 0;
+      last = got
+        ? setTimeout(() => {
+            if (here && until === end) setPicture(null);
+          }, Math.max(end - Date.now(), 0) + GRACE_MS)
+        : null;
     };
     void ask();
     // A phone that was asleep does not count the time: on coming back, a photo whose time has run out asks at once.
@@ -61,6 +70,7 @@ function OnePhoto({ photoId, name, small }: { photoId: string | null; name: stri
     return () => {
       here = false;
       if (timer) clearTimeout(timer);
+      if (last) clearTimeout(last);
       listener.remove();
     };
   }, [photoId]);

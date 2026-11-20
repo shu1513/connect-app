@@ -33,7 +33,7 @@ export function isHostPage(data: unknown): data is AppHostPage {
   if (data.follow !== null && data.follow !== "following" && data.follow !== "ended" && data.follow !== "none" && data.follow !== "visitor") return false;
   if (data.now !== null && !(isThing(data.now) && isLengths(data.now.lengths) && typeof data.now.answerMinutes === "number" && typeof data.now.paid === "boolean" && typeof data.now.freshSeconds === "number")) return false;
   const ask = data.ask;
-  if (!isThing(ask) || !isText(ask.title) || !isTextOrNull(ask.closed) || !isTextOrNull(ask.words) || !isLengths(ask.lengths) || !isNumberOrNull(ask.chosen) || !isTextOrNull(ask.noTimes)) return false;
+  if (!isThing(ask) || !isText(ask.title) || !isText(ask.titleNotNow) || !isTextOrNull(ask.closed) || !isTextOrNull(ask.words) || !isLengths(ask.lengths) || !isNumberOrNull(ask.chosen) || !isTextOrNull(ask.noTimes)) return false;
   if (!Array.isArray(ask.starts) || !ask.starts.every(isMoment)) return false;
   const membership = data.membership;
   if (membership === null) return true;

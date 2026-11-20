@@ -142,6 +142,15 @@ called "must", four smaller ones; all taken.
 **Still not in the check:** a member whose month can be booked from (making such a month needs
 Stripe). Part 13 builds memberships in the app and checks it there.
 
+## Astra's second look at the code (20 November 2026): "ready with changes"
+
+Nothing it calls a "must" is left: the answers no longer tell which names exist, and a page
+left open no longer says "available now" for hours. Four small points, all taken: the words
+"available now" go at the very moment they may no longer be believed (not up to a minute
+later), and the heading under them changes with them; a "not found" counts even from a reading
+that a newer one overtook; with memberships switched off for the apps, nothing of a membership
+is read at all; a photo is off the screen at the latest a quarter of a minute after its end.
+
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *"A hidden, unapproved or closed host is not found" was wrong:* members and invited people

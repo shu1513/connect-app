@@ -4,7 +4,8 @@
  * and the phone app's address (src/app/api/app/hosts/[handle]/route.ts). Every rule about who may
  * open which page, and what is left out for whom, lives here, once.
  *
- * It only reads. `project`: her running project and its diary. The website's page asks for it; the
+ * It only reads. `membership`: the viewer's own membership with her (the phone app leaves it out when
+ * memberships are switched off for the apps). `project`: her running project and its diary. The website's page asks for it; the
  * phone app never does (projects are not in the apps), and then nothing of a project is read at all.
  */
 import "server-only";
@@ -38,7 +39,9 @@ export async function hostProfileFor(viewer: { id: string } | null, handle: stri
 }
 export type HostProfileShown = NonNullable<Awaited<ReturnType<typeof hostProfileFor>>>;
 
-export async function gatherHostPage(viewer: { id: string } | null, profile: HostProfileShown, asked: { length?: unknown; mlength?: unknown }, options: { project: boolean }) {
+export async function gatherHostPage(viewer: { id: string } | null, profile: HostProfileShown, asked: { length?: unknown; mlength?: unknown }, options: { project: boolean; membership?: boolean }) {
+  // Whether anything of a membership is read at all. The phone app says no when memberships are switched off for the apps.
+  const withMembership = options.membership !== false;
   // What can be booked. Worked out fresh on every visit; nothing here says why a time is closed.
   const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
   const offer = blocked ? null : await offerOf(profile.userId);
@@ -50,9 +53,9 @@ export async function gatherHostPage(viewer: { id: string } | null, profile: Hos
   const ownFollow = viewer && viewer.id !== profile.userId && !(await hasBlocked(viewer.id, profile.userId)) ? await followingOf(viewer.id, profile.userId) : null;
   const follow = viewer?.id === profile.userId ? null : !viewer ? (profile.openToAll ? ("visitor" as const) : null) : ownFollow === "following" || profile.openToAll ? ownFollow : null;
   // A member of this host: their time left and the times they can book with it, beside the ordinary way.
-  const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
+  const memberView = withMembership && viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
   // Their own membership with this host, whatever state it is in: an invitation, the card step, a failed payment or a pause each get a line and a link.
-  const own = viewer && viewer.id !== profile.userId && !blocked ? (await membershipsOf(viewer.id)).find((membership) => membership.hostId === profile.userId && membership.status !== "ended") : undefined;
+  const own = withMembership && viewer && viewer.id !== profile.userId && !blocked ? (await membershipsOf(viewer.id)).find((membership) => membership.hostId === profile.userId && membership.status !== "ended") : undefined;
   const invitedUntil = own?.status === "invited" && own.inviteId && own.inviteExpiresAt && own.inviteExpiresAt > new Date() ? own.inviteExpiresAt : null;
   const memberChosen = !memberView || memberView.lengths.length === 0 ? null : typeof mlength === "string" && memberView.lengths.includes(Number(mlength)) ? Number(mlength) : firstLength(memberView.lengths);
   const memberTimes = memberView && memberChosen ? await memberOpenTimes(memberView, memberChosen, new Date()) : [];

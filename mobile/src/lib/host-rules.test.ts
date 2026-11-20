@@ -25,7 +25,7 @@ const page: AppHostPage = {
   verifiedOnly: false,
   confirmId: false,
   now: null,
-  ask: { title: "Ask for a call", closed: null, words: "This sends a request.", lengths: [{ minutes: 30, words: "30 minutes, $50.00" }], chosen: 30, starts: ["2026-11-21T20:00:00.000Z"], noTimes: null },
+  ask: { title: "Ask for a call", titleNotNow: "Ask for a call", closed: null, words: "This sends a request.", lengths: [{ minutes: 30, words: "30 minutes, $50.00" }], chosen: 30, starts: ["2026-11-21T20:00:00.000Z"], noTimes: null },
   membership: null,
 };
 

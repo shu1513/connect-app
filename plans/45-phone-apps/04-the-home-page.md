@@ -218,6 +218,8 @@ changes of part 05's branch, because part 05 was already being built in the same
    own bottom margin now, no more. (Still to be looked at on a real iPhone, part 20.)
 7. *"Loading other days…" could stay beside an error.* It follows the newest question only.
 
+## Astra's fifth look (20 November 2026): "ready"
+
 ## Astra's fourth look at the code (20 November 2026): "ready with changes"
 
 The eight fixes hold, and nothing it calls a "must" is left. Two small points, taken: a refusal

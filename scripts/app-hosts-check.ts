@@ -252,7 +252,7 @@ async function main() {
       check("with her photo, her price and what a call is", p?.photoId === mayaPhoto && p.price === "Free private video call" && p.callWords === "A private one-to-one video call. Free to cancel any time before the call starts.");
       check("a visitor is offered to sign in to follow", p?.follow === "visitor" && p.own === false);
       check("she can be shared, by her page's address on the web", p?.shareUrl === `${BASE}/h/${maya.handle}`);
-      check("she can be asked for a call: the lengths, the one shown first, and its open times as moments on the world's clock", p?.ask.closed === null && p.ask.title === "Or ask for a call later" && p.ask.lengths.map((l) => l.minutes).join(",") === "15,30" && p.ask.chosen === 30 && p.ask.starts.length > 0 && p.ask.starts.every((s) => /Z$/.test(s)), JSON.stringify(p?.ask).slice(0, 160));
+      check("she can be asked for a call: the lengths, the one shown first, and its open times as moments on the world's clock", p?.ask.closed === null && p.ask.title === "Or ask for a call later" && p.ask.titleNotNow === "Ask for a call" && p.ask.lengths.map((l) => l.minutes).join(",") === "15,30" && p.ask.chosen === 30 && p.ask.starts.length > 0 && p.ask.starts.every((s) => /Z$/.test(s)), JSON.stringify(p?.ask).slice(0, 160));
       check("she is available now, with the lengths for that, and for how long that may be believed", p?.now !== null && p?.now?.answerMinutes === 2 && p.now.paid === false && p.now.lengths.length > 0 && p.now.freshSeconds > 0 && p.now.freshSeconds <= 120, JSON.stringify(p?.now));
       // The apps' own switch for "available now".
       await setSwitches({ appAvailableNow: false });

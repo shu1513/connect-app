@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Linking, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import type { AppFollowDone, AppHostPage } from "../../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
@@ -47,6 +47,8 @@ function OneHostPage({ handle }: { handle: string }) {
   const [nowUntil, setNowUntil] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
   const newest = useRef(0);
+  /** The newest reading that got the page: an older reading's "not found" counts unless a newer one got it since. */
+  const gotIt = useRef(0);
   const sending = useRef(false);
 
   const load = useCallback(async () => {
@@ -58,8 +60,11 @@ function OneHostPage({ handle }: { handle: string }) {
     }
     const chosen = [length ? `length=${length}` : null, memberLength ? `mlength=${memberLength}` : null].filter(Boolean).join("&");
     const answer = await ask<AppHostPage>(`/api/app/hosts/${handle}${chosen ? `?${chosen}` : ""}`);
-    if (mine !== newest.current) return;
+    // "Not for you" counts even from a reading that a newer one has overtaken, unless a newer one got the page since.
+    const shutOut = !answer.ok && answer.code !== "unreachable" && gotIt.current <= mine;
+    if (mine !== newest.current && !shutOut) return;
     if (answer.ok && isHostPage(answer.data)) {
+      gotIt.current = mine;
       setNowUntil(answer.data.now ? Date.now() + answer.data.now.freshSeconds * 1000 : 0);
       setClock(Date.now());
       setPage(answer.data);
@@ -72,15 +77,31 @@ function OneHostPage({ handle }: { handle: string }) {
     } else if (!answer.ok && answer.code !== "unreachable") {
       // Another refusal (this copy is too old, say): the opening question says where the person belongs.
       setPage(null);
+      setGone(false);
       setProblem(answer.message);
       void askOpening();
-    } else setProblem(answer.ok ? UNREACHABLE : answer.message);
+    } else {
+      // Not reached: said beside what is on the screen; and "not found", if that was shown, gives way to it.
+      setGone(false);
+      setProblem(answer.ok ? UNREACHABLE : answer.message);
+    }
   }, [handle, length, memberLength, askOpening]);
+
+  // At the very moment "available now" may no longer be believed, the clock is looked at, and the server asked again.
+  useEffect(() => {
+    if (nowUntil <= 0) return;
+    const timer = setTimeout(() => {
+      setClock(Date.now());
+      void load();
+    }, Math.max(nowUntil - Date.now(), 0) + 50);
+    return () => clearTimeout(timer);
+  }, [nowUntil, load]);
 
   // While the page is in front: now, when a length is chosen, on coming back to the app, and every minute. So what
   // it says about "available now", an invitation, or whether the page is open at all, is never old for long.
   useFocusEffect(
     useCallback(() => {
+      setClock(Date.now());
       void load();
       const listener = AppState.addEventListener("change", (state) => {
         if (state === "active") {
@@ -134,6 +155,8 @@ function OneHostPage({ handle }: { handle: string }) {
   if (!page) return problem ? <Problem words={problem} onRetry={() => void load()} /> : <Loading />;
   const member = page.membership?.member ?? null;
   const availableNow = page.now !== null && clock < nowUntil ? page.now : null;
+  // The heading over the ordinary way of asking goes with what is shown above it.
+  const askHeading = page.now !== null && !availableNow ? page.ask.titleNotNow : page.ask.title;
   return (
       <Page refreshing={pulling} onRefresh={() => void pull()}>
         <BackLink onBack={back} />
@@ -237,7 +260,7 @@ function OneHostPage({ handle }: { handle: string }) {
         ) : null}
 
         <Card>
-          <Heading>{page.ask.title}</Heading>
+          <Heading>{askHeading}</Heading>
           {page.ask.closed ? (
             <Words soft>{page.ask.closed}</Words>
           ) : (
