@@ -50,8 +50,9 @@ export function leadsToTheWebsite(destination: unknown, own: string[]): boolean 
     if ((url.protocol !== "https:" && url.protocol !== "http:") || !own.includes(url.origin) || url.username !== "" || url.password !== "") return false;
     // The path as it was written, not as it reads once tidied: the same rule as for a path alone.
     if (!destination.startsWith(url.origin)) return false;
+    // With nothing after the site's name, or only a "?" or "#" part, the path is the front page.
     const written = destination.slice(url.origin.length);
-    return written === "" || isPlainPath(written);
+    return isPlainPath(written === "" || written.startsWith("?") || written.startsWith("#") ? `/${written}` : written);
   } catch {
     return false;
   }

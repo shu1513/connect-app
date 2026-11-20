@@ -89,6 +89,8 @@ describe("leadsToTheWebsite, for a full address", () => {
     expect(leadsToTheWebsite("https://connect.example", own)).toBe(true);
     expect(leadsToTheWebsite("https://connect.example/", own)).toBe(true);
     expect(leadsToTheWebsite("https://connect.example/welcome?next=%2Fcalls", own)).toBe(true);
+    expect(leadsToTheWebsite("https://connect.example?x=1", own)).toBe(true);
+    expect(leadsToTheWebsite("https://connect.example#top", own)).toBe(true);
     for (const odd of ["https://connect.example/a/../welcome", "https://connect.example/./welcome", "https://connect.example/%2e%2e/x", "HTTPS://CONNECT.EXAMPLE/welcome", "https://connect.example:443/welcome"]) {
       expect(leadsToTheWebsite(odd, own), odd).toBe(false);
     }

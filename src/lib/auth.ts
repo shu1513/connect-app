@@ -5,6 +5,7 @@ import { haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { randomUUID } from "node:crypto";
+import * as z from "zod";
 import { APP_ORIGIN, isSwitchedOffLoginPath, leadsToTheWebsite, outsideLoginProblem } from "./auth-rules";
 import { sendEmailInBackground } from "./email";
 import { ownOrigins } from "./same-site";
@@ -212,11 +213,13 @@ export const auth = betterAuth({
       // never confirmed its email it would even send the confirmation again. So a sign-in for a
       // closed account is handed on as a sign-in for an address nobody has: the login tool then
       // gives its ordinary "invalid email or password", after the same work as for any stranger.
-      // Only for an address written in plain characters, as every stored address is: anything else
-      // is left to the login tool, which turns it away as "not an email address" for everyone alike.
-      // (Some unusual letters become plain ones when made lower-case; looked up here, they would find
-      // a closed account and answer differently from an open one.)
-      if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string" && /^[\x21-\x7e]+$/.test(ctx.body.email)) {
+      // Only for something the login tool itself takes for an email address, judged by its own rule.
+      // Anything else is left to it, and it turns that away as "not an email address" for everyone
+      // alike. (Looked up here, an address it would refuse could still find a closed account: one
+      // with an unusual letter that becomes a plain one in lower case, or one an outside login
+      // once supplied in a form the login tool does not accept. It would then answer differently
+      // from an open one.)
+      if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string" && z.email().safeParse(ctx.body.email).success) {
         const [account] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.email, ctx.body.email.toLowerCase()));
         if (account?.closedAt) return { context: { ...ctx, body: { ...ctx.body, email: nobody() } } };
       }

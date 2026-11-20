@@ -184,13 +184,18 @@ async function main() {
   // otherwise let this script make accounts in one database and clean up in another. A switch is
   // turned here, the app is asked whether it sees it, and the switch is put back.
   {
-    await setSwitches({ appOldestVersion: "9000.0.0" });
-    const seen = (await asApp("/api/app/start")).json as AppStart | null;
-    await restoreSwitches();
-    const gone = (await asApp("/api/app/start")).json as AppStart | null;
-    if (seen?.updateNeeded !== true || gone?.updateNeeded === seen?.updateNeeded) {
-      throw new Error(`The app at ${BASE} does not see changes made in the database "${database}". It is running against another database; nothing was changed there.`);
+    let sees = false;
+    try {
+      await setSwitches({ appOldestVersion: "9000.0.0" });
+      const high = await asApp("/api/app/start");
+      await setSwitches({ appOldestVersion: "" });
+      const none = await asApp("/api/app/start");
+      // Two plain answers, saying the opposite of each other, each as the switch stood. Nothing less counts.
+      sees = high.status === 200 && none.status === 200 && (high.json as AppStart | null)?.updateNeeded === true && (none.json as AppStart | null)?.updateNeeded === false;
+    } finally {
+      await restoreSwitches();
     }
+    if (!sees) throw new Error(`The app at ${BASE} does not see changes made in the database "${database}". It is running against another database; nothing was changed there.`);
   }
 
   try {

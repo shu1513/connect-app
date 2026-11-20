@@ -16,8 +16,10 @@ const app = (more: Record<string, string> = {}) => ask({ [APP_HEADER]: "android 
 /** The refusal's code; or "let in" for a real answer of the gate (one that names the app that asked), and never for anything else. */
 const code = async (result: unknown) => {
   if (result instanceof Response) return ((await result.json()) as { error: { code: string } }).error.code;
-  const asked = result as { client?: { platform?: string }; switches?: unknown } | undefined;
-  return asked?.client?.platform === "android" && asked.switches !== undefined ? "let in" : "neither a refusal nor an answer";
+  const asked = result as { client?: { platform?: string; version?: string }; switches?: unknown; updateNeeded?: unknown; person?: unknown } | undefined;
+  const whole =
+    asked?.client?.platform === "android" && asked.client.version === "1.0.0" && typeof asked.switches === "object" && asked.switches !== null && typeof asked.updateNeeded === "boolean" && "person" in asked;
+  return whole ? "let in" : "neither a refusal nor an answer";
 };
 
 beforeEach(() => {
@@ -74,7 +76,9 @@ describe("the gate for the app's addresses", () => {
   it("lets in whom the address is for, and names what is missing for the others", async () => {
     const signed = () => app({ [SIGN_IN_HEADER]: "s=1" });
     expect(await code(await appRequest(app(), "member"))).toBe("not_signed_in");
-    expect(await code(await appRequest(app(), "anyone"))).toBe("let in");
+    const guest = await appRequest(app(), "anyone");
+    expect(await code(guest)).toBe("let in");
+    expect(!(guest instanceof Response) && guest.person).toBeNull();
 
     signedInFrom.mockResolvedValue({ ...person, welcomed: false });
     expect(await code(await appRequest(signed(), "confirmed"))).toBe("let in");
