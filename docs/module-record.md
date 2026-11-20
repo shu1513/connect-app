@@ -3605,6 +3605,14 @@ three calls and the calls of the days around today, without saying so. It stays 
 a browser never runs the page's scripts.
 
 **What was changed.** A line under that list: "These are your calls of the coming days. The
-calendar, which shows every week, appears here once the page has finished loading." It is gone
-with the list when the calendar is drawn. The founder was asked first and said "Yes, tidy up".
-Words only, so it was not sent to Astra again.
+calendar, which shows every week, appears here in a moment. If it does not, scripts
+(JavaScript) are switched off in your browser, and the calendar needs them." The first sentence
+is left out when the list is empty. The line is gone with the list when the calendar is drawn.
+The founder was asked first and said "Yes, tidy up". Words only, so it was not sent to Astra
+again.
+
+**What the reviewers found.** The builder's own reading: the line spoke of "your calls" also
+when there were none. *CodeRabbit* reviewed this pull request (74), the first of the day it did
+not answer with its limit: one point, taken. The line promised the calendar "once the page has
+finished loading", but in a browser with scripts switched off the page finishes loading and the
+calendar never comes; the line now says what it needs.
