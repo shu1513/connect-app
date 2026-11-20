@@ -1,6 +1,6 @@
 /**
  * Draws the text of a legal document as the website does (src/legal/legal-text.tsx): headings,
- * paragraphs, lists, tables, set-off blocks and lines; inside them plain words, bold, links, and
+ * paragraphs, lists, tables, set-off blocks and lines (every one of them, the document's own title too); inside them plain words, bold, links, and
  * blanks that are not filled in yet, which stand out so that nobody takes a draft for a finished
  * text. Only fixed documents of Connect are ever drawn with this, checked first
  * (lib/legal-rules.ts), never anything a person typed.
@@ -59,10 +59,9 @@ export function LegalText({ blocks }: { blocks: AppLegalBlock[] }) {
     <View style={styles.gap}>
       {blocks.map((block, index) => {
         if (block.t === "heading") {
-          // The screen draws the document's own title itself (level 1), with its version.
-          if (block.level === 1) return null;
+          // Every heading is drawn, the document's own title too: nothing of a legal text is left out here.
           return (
-            <Text key={index} accessibilityRole="header" style={[block.level === 2 ? styles.section : styles.part, { color: colors.text }]}>
+            <Text key={index} accessibilityRole="header" style={[block.level === 3 ? styles.part : styles.section, { color: colors.text }]}>
               <Inline parts={block.c} />
             </Text>
           );
@@ -90,6 +89,16 @@ export function LegalText({ blocks }: { blocks: AppLegalBlock[] }) {
           // A phone is too narrow for columns: each row is a small box, every cell under the name of its column.
           return (
             <View key={index} style={styles.list}>
+              {block.rows.length === 0 && block.head.length > 0 ? (
+                // A table with no rows still shows the names of its columns.
+                <View style={[styles.row, { borderColor: colors.line }]}>
+                  {block.head.map((cell, column) => (
+                    <Text key={column} style={[styles.words, styles.bold, { color: colors.text }]}>
+                      <Inline parts={cell} />
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
               {block.rows.map((row, at) => (
                 <View key={at} style={[styles.row, { borderColor: colors.line }]}>
                   {row.map((cell, column) => (

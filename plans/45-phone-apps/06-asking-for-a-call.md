@@ -504,9 +504,17 @@ them here and not in a later part:
 5. The table for used-up keys is `drizzle/0050_spent_request_keys.sql` (the agreements took
    0049 first, as the two sessions had agreed).
 
-**Not walked on the test phone, said plainly:** points 2 and 3 were added after the walk. They
-are covered by the check script (144 checks) and the app's own tests, and they are on the list
-for the walk of the whole journey (part 20).
+**Astra's look at this change (20 November 2026): "ready with changes", five notes, all taken.**
+Every heading of the notice is drawn (the document's own title too); a table without rows
+still shows the names of its columns; the app takes the notice only if it is the identity
+notice and its link is the address of exactly the version it names; a mail link is one mailbox
+and nothing else; the check script compares the whole text piece for piece with the website's.
+
+**Walked on the Android test phone:** the notice on "Confirm who you are" (headings, bold, lists,
+the blanks of the draft standing out, the sentence and the button under it). **Not walked:**
+pressing the button from the phone (it uses up one of three tries; the check script does it),
+and a host's "business or private person" line (no test host has said yet; the check script
+sets it and reads it back). Both are on the list for the walk of the whole journey (part 20).
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 

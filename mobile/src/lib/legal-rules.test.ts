@@ -34,6 +34,11 @@ describe("a legal text for the app", () => {
       expect(isIdentityNotice(rest)).toBe(false);
     }
     expect(isIdentityNotice({ ...notice, version: "" })).toBe(false);
+    // It is the identity notice and no other document, and its link is the address of exactly the version it names.
+    expect(isIdentityNotice({ ...notice, name: "terms-of-service" })).toBe(false);
+    expect(isIdentityNotice({ ...notice, href: "/identity-notice?version=2020-01-01" })).toBe(false);
+    expect(isIdentityNotice({ ...notice, href: "/identity-notice" })).toBe(false);
+    expect(isIdentityNotice({ ...notice, href: "/terms?version=2026-11-20" })).toBe(false);
     expect(isIdentityNotice({ ...notice, agree: "" })).toBe(false);
     expect(isIdentityNotice(null)).toBe(false);
   });
@@ -56,5 +61,8 @@ describe("a link inside a legal text", () => {
     expect(legalLink({ href: "https://user:pw@stripe.com", outside: true })).toBeNull();
     expect(legalLink({ href: "connect://identity", outside: true })).toBeNull();
     expect(legalLink({ href: "not an address", outside: true })).toBeNull();
+    expect(legalLink({ href: "mailto:?subject=help@example.org", outside: true })).toBeNull();
+    expect(legalLink({ href: "mailto:a@example.org?cc=b@example.org", outside: true })).toBeNull();
+    expect(legalLink({ href: "mailto:a@example.org,b@example.org", outside: true })).toBeNull();
   });
 });

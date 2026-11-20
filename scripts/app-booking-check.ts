@@ -677,12 +677,13 @@ async function main() {
       const before = await read(fresh.jar);
       check("someone who never did it: what it is, the button, the tries", before.body?.passed === false && before.body.pending === false && before.body.title === "Confirm who you are" && before.body.words.length === 1 && before.body.words[0].startsWith("This confirms that you are a real adult.") && before.body.button === "I agree, continue to Stripe" && before.body.tries === "3 of 3 tries left", JSON.stringify(before.body).slice(0, 200));
       // The Identity Check Notice in effect, in full, above the button (plans/46-agreements-live.md, decision 9).
-      const { currentVersion, textOf, versionHref } = await import("../src/legal/registry");
+      const { currentVersion, linkFor, textOf, versionHref } = await import("../src/legal/registry");
+      const { parse } = await import("../src/legal/parse");
       const due = currentVersion("identity-check-notice", new Date());
       const notice = before.body?.notice ?? null;
-      const said = JSON.stringify(notice?.blocks ?? []);
-      const firstWords = (textOf("identity-check-notice", due.version) ?? "").split("\n").find((line) => /^[A-Za-z]/.test(line) && line.length > 40)?.slice(0, 40) ?? "(no text)";
-      check("above the button stands the notice in effect, whole, with the address of exactly that version", notice?.name === "identity-check-notice" && notice.version === due.version && notice.href === versionHref("identity-check-notice", due.version) && notice.title.startsWith("Identity Check Notice") && notice.agree.startsWith("By pressing the button you confirm that you have read this notice") && notice.blocks.length > 5 && said.includes(firstWords.replace(/\*\*/g, "").slice(0, 20)), `${notice?.version} ${notice?.blocks.length} "${firstWords}"`);
+      // The whole text, piece for piece, as the website's own reader gives it for the version in effect.
+      const whole = parse(textOf("identity-check-notice", due.version) ?? "", linkFor);
+      check("above the button stands the notice in effect, whole (every piece of the website's text), with the address of exactly that version", notice?.name === "identity-check-notice" && notice.version === due.version && notice.href === versionHref("identity-check-notice", due.version) && notice.title.startsWith("Identity Check Notice") && notice.agree.startsWith("By pressing the button you confirm that you have read this notice") && whole.blocks.length > 5 && whole.problems.length === 0 && JSON.stringify(notice.blocks) === JSON.stringify(whole.blocks), `${notice?.version} ${notice?.blocks.length} of ${whole.blocks.length}`);
       const agreed = [{ name: "identity-check-notice", version: due.version }];
       const acceptedLines = () => db.select().from(schema.agreementAcceptances).where(and(eq(schema.agreementAcceptances.userId, fresh.id), eq(schema.agreementAcceptances.document, "identity-check-notice")));
       // Pressing the button is the agreement, and the app must say which notice it showed.
@@ -692,7 +693,7 @@ async function main() {
         ["naming another document", { agreements: [{ name: "terms-of-service", version: due.version }] }],
       ] as const) {
         const tried = await asApp("/api/app/identity/start", { jar: fresh.jar, body });
-        check(`a check is not started ${label}: nothing is written, at Connect or at Stripe`, refusal(tried) === "not_valid" && sentence(tried) === "These documents have changed since this page was opened. Please read them again." && (await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, fresh.id))).length === 0 && (await acceptedLines()).length === 0, `${tried.status} ${tried.text.slice(0, 120)}`);
+        check(`a check is not started ${label}: refused in the website's sentence, with no check of this person's and no line of agreement written down`, refusal(tried) === "not_valid" && sentence(tried) === "These documents have changed since this page was opened. Please read them again." && (await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, fresh.id))).length === 0 && (await acceptedLines()).length === 0, `${tried.status} ${tried.text.slice(0, 120)}`);
       }
       check("it has exactly the parts the app knows, and is not kept on the way", keys(before.body) === "button,notice,passed,pending,small,title,tries,words" && keys(before.body?.notice) === "agree,blocks,href,name,open,title,version" && String(before.reply.headers["cache-control"]).includes("no-store"));
       const started = await asApp("/api/app/identity/start", { jar: fresh.jar, body: { agreements: agreed } });

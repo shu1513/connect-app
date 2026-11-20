@@ -37,10 +37,18 @@ export function isLegalText(value: unknown): value is AppLegalBlock[] {
   return Array.isArray(value) && value.length > 0 && value.every(isBlock);
 }
 
-/** The notice above the button that starts an identity check: complete, with its text, or not used. */
+/** Where exactly one version of the Identity Check Notice is on the website. */
+export const identityNoticePage = (version: string): string => `/identity-notice?version=${encodeURIComponent(version)}`;
+
+/**
+ * The notice above the button that starts an identity check: complete, with its text, or not used.
+ * It is that notice and no other document, and its link leads to exactly the version it names: the
+ * page that opens is the text the person is agreeing to.
+ */
 export function isIdentityNotice(value: unknown): value is AppIdentityNotice {
   if (!isThing(value)) return false;
-  return isText(value.name) && value.name.length > 0 && isText(value.version) && value.version.length > 0 && isText(value.title) && isText(value.href) && isText(value.open) && isText(value.agree) && value.agree.length > 0 && isLegalText(value.blocks);
+  if (value.name !== "identity-check-notice" || !isText(value.version) || !/^[0-9A-Za-z-]+$/.test(value.version) || value.href !== identityNoticePage(value.version)) return false;
+  return isText(value.title) && isText(value.open) && isText(value.agree) && value.agree.length > 0 && isLegalText(value.blocks);
 }
 
 /**
@@ -49,7 +57,8 @@ export function isIdentityNotice(value: unknown): value is AppIdentityNotice {
  */
 export function legalLink(link: { href: string; outside: boolean }): { kind: "page"; path: string } | { kind: "outside"; url: string } | { kind: "mail"; url: string } | null {
   if (!link.outside) return /^\/[A-Za-z0-9/_?=&.-]*$/.test(link.href) && !link.href.startsWith("//") ? { kind: "page", path: link.href } : null;
-  if (/^mailto:[^\s@]+@[^\s@]+$/.test(link.href)) return { kind: "mail", url: link.href };
+  // One mailbox and nothing else: no subject, no second address, nothing after it.
+  if (/^mailto:[^\s@?#,;&=]+@[^\s@?#,;&=]+$/.test(link.href)) return { kind: "mail", url: link.href };
   try {
     const url = new URL(link.href);
     return url.protocol === "https:" && url.username === "" && url.password === "" ? { kind: "outside", url: link.href } : null;
