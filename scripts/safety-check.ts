@@ -393,12 +393,21 @@ async function main() {
       // (Only this person: the helper's own look goes over every account, and the test database is shared.)
       await finishPausesAndClosures(new Date(), cut.id);
       check("a pause made a moment ago is left alone: it may still be at work", (await callNow(cutCall.callId)).cancelledAt === null);
-      const markedAt = new Date(Date.now() - 5 * 60_000);
+      // Marked ten minutes ago: before the room of the call that has started was even open (a room opens five minutes early).
+      const markedAt = new Date(Date.now() - 10 * 60_000);
       await db.update(schema.user).set({ pausedAt: markedAt }).where(eq(schema.user.id, cut.id));
       await finishPausesAndClosures(new Date(), cut.id);
       check("the helper ends what an interrupted pause left behind: the call ahead is cancelled at no charge", (await callNow(cutCall.callId)).cancelledAt !== null && (await callNow(cutCall.callId)).cancelledLate === false);
       const started = await callNow(startedCall.callId);
       check("a call that reached its start in the meantime is cancelled at no charge too, as of the moment of the pause", started.cancelledAt?.getTime() === markedAt.getTime() && started.cancelledLate === false && started.cancelledBy === "admin", String(started.cancelledAt));
+      // But a call whose room was open already when the account was marked may really have been held: it is not
+      // cancelled after the fact, and its record of who was there decides the money.
+      const inRoom = await person("inroom6");
+      const inRoomHost = await person("inroomhost6");
+      const openedCall = await B.createTestCall({ hostId: inRoomHost.id, customerId: inRoom.id, startsAt: justStarted, endsAt: new Date(justStarted.getTime() + 15 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
+      await db.update(schema.user).set({ pausedAt: new Date(Date.now() - 3 * 60_000), pausedReason: "Check." }).where(eq(schema.user.id, inRoom.id));
+      await finishPausesAndClosures(new Date(), inRoom.id);
+      check("a call whose room was already open when the account was marked is not cancelled after the fact", (await callNow(openedCall.callId)).cancelledAt === null);
       await db.update(schema.user).set({ pausedAt: null, pausedReason: null }).where(eq(schema.user.id, cut.id));
       const afterLift = await aheadCall(cut.id, "cuthost6c");
       await finishPausesAndClosures(new Date(), cut.id);

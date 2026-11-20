@@ -3849,17 +3849,36 @@ agreement through the email in the script; the automatic test covers the old sen
 The helper's re-read is not a lock: between it and the ending there are a few thousandths of a
 second in which a lifted pause could still lose a request made in that same instant.
 
+**What the reviewers found, round three.** Astra looked once more, at the third commit, and
+found one fault in it. *A call cancelled after the fact could have been a call that was really
+held.* A room opens five minutes before a call's start, so both people can be in it before the
+start; if the account was marked then, and the server stopped before putting the person out,
+the helper would have cancelled the call at no charge and the host would have lost the time.
+The helper now cancels after the fact only a call whose room was **not yet open** when the
+account was marked; any other call that has started keeps its record of who was there, and that
+record decides the money. Also taken: when a started call cannot be cancelled for a reason
+other than being a member's call, the person is put out and the call is still counted as "not
+ended", so the founder hears of it. Astra found the new cut-off for passes sound for ordinary
+joins, reconnects and connection tests. Not taken: *a call whose whole time has passed before
+the helper comes by* (the server down for longer than the call) is settled by the usual rule,
+which can charge a customer for the host's waiting. The founder can give that money back; a
+rule of its own for it would reach into how every call is settled. *CodeRabbit* answered with
+its review limit, as on other pull requests of this day, so the builder read the whole change
+line by line in its place and found nothing further.
+
 **How it was checked.** 746 automatic tests on the code, 3 of them new (the tick box of every
 version of the wording). On this computer, against the local database and Stripe's test mode,
-all on the final code unless said: `scripts/safety-check.ts`, 74 checks, 14 of them new (an
+all on the final code unless said: `scripts/safety-check.ts`, 75 checks, 15 of them new (an
 under-18 result pauses and says why; the result is written with the pause, and neither is
 there when the step fails halfway; the call ahead is cancelled at no charge; the person and the
 founder are told once; one check never pauses twice, also after the founder lifted the pause;
 an account paused already keeps its reason; an admin's and a closed account; the helper leaves
 a fresh pause alone, finishes an interrupted one, cancels at no charge a call that reached its
-start meanwhile, and leaves a lifted pause's calls alone); `contribution-check --payouts`, 292;
+start meanwhile but not one whose room was open already, and leaves a lifted pause's calls
+alone); `contribution-check --payouts`, 292;
 `project-journey-check --payouts`, 94; `journey-check`, 63, which joins real calls through the
-changed join step. `membership-check`, 466, ran on the first commit only (it uses the founder's
+changed join step (these three ran before the last small change to the helper, which they do
+not use). `membership-check`, 466, ran on the first commit only (it uses the founder's
 pause, whose behaviour did not change after that). In a browser, as the test customer: the
 booking form shows the new sentence about the note, and the identity page opens.
 

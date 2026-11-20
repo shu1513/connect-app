@@ -7,6 +7,7 @@ import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
+import { roomState } from "@/lib/calls";
 import { removeFromRoom } from "@/lib/video/livekit";
 import { deletePhotoInStep, stopTriesInStep } from "./photo-steps";
 import { ProfileError } from "./profiles";
@@ -106,20 +107,25 @@ async function endCallsOf(userId: string, now: Date, since: Date): Promise<numbe
   for (const { call, payment } of open) {
     try {
       // (A call that was ended with "End call and report" before its start is over already: it cannot be cancelled, and its room is being closed.)
-      if (call.startsAt > since && !call.safetyEndedAt) {
-        // Not started when the account was closed or paused: cancelled for free. Normally that moment is now. When
-        // the helper finishes an interrupted pause it lies a few minutes back, and the call may have reached its
-        // start meanwhile, with the other person waiting for someone who may not join. It is cancelled as of that
-        // moment, so that nobody pays for the waiting.
+      // Not started yet: cancelled for free. So is a call that has reached its start since the account was closed or
+      // paused, when the helper finishes an interrupted pause a few minutes late, but only if its room was not
+      // even open at that moment: then nobody can have been in it with the person, and the other one has only been
+      // waiting for someone who may not join. It is cancelled as of that moment, so that nobody pays for the waiting.
+      // A call whose room was open already may really have been held: its record of who was there decides the money.
+      const ahead = call.startsAt > now;
+      const aheadWhenMarked = !ahead && call.startsAt > since && roomState(call, since) === "not_open_yet";
+      if ((ahead || aheadWhenMarked) && !call.safetyEndedAt) {
         try {
-          await cancelCall({ call, payment, by: "admin", now: call.startsAt > now ? now : since });
+          await cancelCall({ call, payment, by: "admin", now: ahead ? now : since });
         } catch (error) {
           const [fresh] = await db.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
           // Someone else cancelled it in the same moment (the founder's own step and the helper): it is ended.
           if (fresh?.cancelledAt) continue;
-          if (call.startsAt > now) throw error;
-          // Started meanwhile and not to be cancelled any more (a member's call): the person is at least put out.
+          if (ahead) throw error;
+          // Started meanwhile: the person is at least put out. A member's call cannot be cancelled once it has
+          // started, and that is expected; anything else that went wrong still counts as a call not ended.
           await removeFromRoom(call.roomName, userId);
+          if (payment?.kind !== "member_call") throw error;
         }
       } else await removeFromRoom(call.roomName, userId);
     } catch (error) {
