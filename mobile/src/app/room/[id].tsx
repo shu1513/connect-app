@@ -48,6 +48,11 @@ function OneRoom({ id }: { id: string }) {
   /** The entry pass while the person is in the call; null before, after, and whenever they are out of the room. */
   const [pass, setPass] = useState<AppPass | null>(null);
   const [choices, setChoices] = useState({ camera: true, microphone: true });
+  /** What is chosen on the camera check right now. The pass takes a moment to come; the person enters with what is chosen when it is there, not with what was chosen when they pressed. */
+  const wantedNow = useRef({ camera: false, microphone: false });
+  const noteChoice = useCallback((wanted: { camera: boolean; microphone: boolean }) => {
+    wantedNow.current = wanted;
+  }, []);
   const [joining, setJoining] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [left, setLeft] = useState(false);
@@ -71,6 +76,13 @@ function OneRoom({ id }: { id: string }) {
   const lastCheck = useRef<number | null>(null);
   /** The connection was lost, and the server is being asked where the call stands: nothing is offered until it has answered ("failed": it could not be asked). */
   const [checking, setChecking] = useState<"no" | "asking" | "failed">("no");
+  /** The same, to read where the screen comes back in front; and the newest way of asking, for that moment. */
+  const checkingNow = useRef<"no" | "asking" | "failed">("no");
+  const markChecking = useCallback((value: "no" | "asking" | "failed") => {
+    checkingNow.current = value;
+    setChecking(value);
+  }, []);
+  const whereItStands = useRef<() => Promise<void>>(async () => {});
   /** "End call and report" went through: the report form is opened, now or when the person is back on this screen. */
   const [toReport, setToReport] = useState(false);
   const newest = useRef(0);
@@ -144,6 +156,9 @@ function OneRoom({ id }: { id: string }) {
       front.current = true;
       visit.current++;
       void load();
+      // The question "where does the call stand?" was still open when the person left: it is put again for this
+      // visit. (Its old answer, if it still comes, is not used.) Until it is answered nothing is offered.
+      if (checkingNow.current === "asking") void whereItStands.current();
       return () => {
         setInFront(false);
         front.current = false;
@@ -219,6 +234,7 @@ function OneRoom({ id }: { id: string }) {
     if (joiningNow.current) return;
     joiningNow.current = true;
     const still = watch();
+    wantedNow.current = wanted;
     setJoining(true);
     setNotice(null);
     setLeft(false);
@@ -233,7 +249,8 @@ function OneRoom({ id }: { id: string }) {
       // The pass carries the server's clock and the call's end as they are now (time may have been added since).
       setClock(answer.data.serverNow, receivedAt, askedAt);
       followEnd(answer.data.endsAt);
-      setChoices(wanted);
+      // As chosen now: the camera or the microphone may have been switched off while "Joining…" was shown.
+      setChoices(wantedNow.current);
       setPass(answer.data);
     } else if (!answer.ok && answer.code === "not_found") {
       setGone(true);
@@ -249,19 +266,21 @@ function OneRoom({ id }: { id: string }) {
   /** After a lost connection: the server is asked where the call stands. Without its answer nothing is offered but to ask again. */
   const askWhereItStands = useCallback(async () => {
     const during = visit.current;
-    setChecking("asking");
+    markChecking("asking");
     const answer = await refresh();
-    if (!front.current || during !== visit.current) {
-      setChecking("no");
-      return;
-    }
+    // The person left this screen meanwhile: this answer decides nothing, also if they are back by now. The visit
+    // they are on asks for itself (where the screen comes in front), and until then nothing is offered.
+    if (!front.current || during !== visit.current) return;
     if (!answer) {
-      setChecking("failed");
+      markChecking("failed");
       return;
     }
-    setChecking("no");
+    markChecking("no");
     if (room) setNotice(room.words.disconnected);
-  }, [refresh, room]);
+  }, [refresh, room, markChecking]);
+  useEffect(() => {
+    whereItStands.current = askWhereItStands;
+  }, [askWhereItStands]);
 
   /** The connection ended without the person leaving. */
   const lost = useCallback(
@@ -412,7 +431,7 @@ function OneRoom({ id }: { id: string }) {
           {aboutOpen ? <Words>{room.about.text}</Words> : null}
         </Card>
       ) : null}
-      <Lobby words={words} joining={joining} onJoin={(wanted) => void join(wanted)} />
+      <Lobby words={words} joining={joining} onChoice={noteChoice} onJoin={(wanted) => void join(wanted)} />
       <Button label={words.backToCall} kind="plain" onPress={toCall} />
     </Page>
   );

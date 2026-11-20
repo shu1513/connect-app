@@ -227,6 +227,39 @@ the report links, a form of its own for each place, the clock). What was left:
 other person is put out" is proven by the walk (the host on the website was put out), not by
 the script; a failed closing of the room cannot be made to happen on purpose here.
 
+## Astra's third look at the code (20 November 2026): "not ready", now worked in
+
+1. *A sentence promised too much.* While the video service has not yet confirmed that the
+   room is closed, the report form said "Nobody can join it again". No new entry pass is
+   handed out from that moment, but one handed out just before stays good until the closing
+   is confirmed. The sentence now says only what is known: "The call is being ended for both
+   of you. The charge for it will be looked at by a person." A check holds it to that.
+2. *A block between the two people during the wait to enter.* The join check looked for a
+   block only at its start. It now looks again as the very last thing before the pass is
+   made. What stays, on purpose: a block does not put anyone out of a call that is already
+   under way (that is what "End call and report" is for, and reporting someone blocks them
+   as well), so a pass made in the instant before a block is the same as having entered just
+   before it. The two do not wait for each other with a lock: the block's own step holds
+   other locks, and making the two wait in a fixed order would touch the shared safety code
+   for no gain a person could see.
+3. *The camera could be switched off while "Joining…" was shown, and the person still entered
+   with it on.* The person now enters with what is chosen at the moment the pass arrives.
+4. *From the newer main (the legal change of 20 November), carried into the one join check:*
+   the person's own account is read again while their line is held, so an account paused or
+   closed in that very moment gets no pass; and the list of other rooms is read on the join
+   step's own connection, so many joins at once cannot wait for each other.
+5. Smaller: before anyone is taken out of another room, the call they want to enter is looked
+   at once (if it was stopped meanwhile, they stay where they are; the look that counts still
+   comes last); a call that is not there is never taken for "the room is closed"; an old
+   answer to "where does the call stand?" that arrives after the person has left the screen
+   changes nothing, and the question is put again when they are back.
+
+**Not checked by the script, said plainly:** points 2, 4 and the first half of 5 are about two
+things happening in the same instant. The script cannot make that happen on purpose (the
+door turns a paused or blocked person away before the join check is reached), so they are
+proven by reading the code, and by the website's own safety check, which pauses an account
+and tries to join.
+
 ## Astra's check (20 November 2026): "not ready", now worked in
 
 1. *Too much for one part.* Split into 09, 09b and 09c.

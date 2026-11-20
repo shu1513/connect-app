@@ -14,10 +14,12 @@ import { closeRoom } from "./livekit";
  * call that was just made longer is never closed, and a call that is being
  * closed can no longer be made longer.
  */
-export async function closeCallIfDue(callId: string, now: Date = new Date()): Promise<"closed" | "not empty" | "not over" | "already closed"> {
+export async function closeCallIfDue(callId: string, now: Date = new Date()): Promise<"closed" | "not empty" | "not over" | "already closed" | "no such call"> {
   return db.transaction(async (tx) => {
     const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, callId)).for("update");
-    if (!call || call.closedAt) return "already closed";
+    // A call that is not there (any more) is not proof of a closed room: said apart, so nobody takes it for one.
+    if (!call) return "no such call";
+    if (call.closedAt) return "already closed";
     if (!call.cancelledAt && !call.safetyEndedAt && roomClosesAt(call) > now) return "not over";
     const empty = await closeRoom(call.roomName, [call.hostId, call.customerId]);
     if (!empty) return "not empty";

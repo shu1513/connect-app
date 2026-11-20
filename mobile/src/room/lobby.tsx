@@ -26,7 +26,18 @@ let askedSinceOpened = false;
  * says how to allow it in the phone's settings and does not ask again. On an iPhone the phone
  * itself asks, with the same sentences, the first time the camera is used.
  */
-export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joining: boolean; onJoin: (wanted: { camera: boolean; microphone: boolean }) => void }) {
+export function Lobby({
+  words,
+  joining,
+  onChoice,
+  onJoin,
+}: {
+  words: AppRoom["words"];
+  joining: boolean;
+  /** Told what is chosen whenever it changes, also while "Joining…" is shown: the person enters with what is chosen at that moment. */
+  onChoice: (wanted: { camera: boolean; microphone: boolean }) => void;
+  onJoin: (wanted: { camera: boolean; microphone: boolean }) => void;
+}) {
   const colors = useColors();
   const [may, setMay] = useState<May | null>(null);
   const [camera, setCamera] = useState(true);
@@ -100,6 +111,13 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
     };
   }, [showing, looked]);
 
+  // What the person would enter with, as chosen and as the phone allows, said to the screen whenever it changes.
+  const wantsCamera = may?.camera === true && camera;
+  const wantsMicrophone = may?.microphone === true && microphone;
+  useEffect(() => {
+    onChoice({ camera: wantsCamera, microphone: wantsMicrophone });
+  }, [wantsCamera, wantsMicrophone, onChoice]);
+
   if (!may) return <Loading />;
   if (!may.asked) {
     return (
@@ -119,7 +137,7 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
       {may.camera ? <Tick label={words.cameraOn} checked={camera} onChange={setCamera} /> : <Notice>{words.cameraRefused}</Notice>}
       {may.microphone ? <Tick label={words.microphoneOn} checked={microphone} onChange={setMicrophone} /> : <Notice>{words.microphoneRefused}</Notice>}
       {!may.camera || !may.microphone ? <Button label={words.openSettings} kind="plain" onPress={() => void Linking.openSettings().catch(() => {})} /> : null}
-      <Button label={joining ? words.joining : words.join} busy={joining} onPress={() => onJoin({ camera: may.camera && camera, microphone: may.microphone && microphone })} />
+      <Button label={joining ? words.joining : words.join} busy={joining} onPress={() => onJoin({ camera: wantsCamera, microphone: wantsMicrophone })} />
     </View>
   );
 }

@@ -65,11 +65,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
   };
 
   if (step === "enter") {
-    // (A paused person was turned away at the door, in the door's own sentence.)
+    // (A paused person was turned away at the door, in the door's own sentence. The join check looks once more,
+    // holding the person's own line: an account paused or closed in this very moment gets no pass either.)
     const pass = await enterCall({ id: me.id, name: me.name, paused: false }, id);
     if ("refused" in pass) {
       const { why, message } = pass.refused;
       if (why === "not_found") return refuse("not_found");
+      if (why === "paused") return refuse("paused");
+      if (why === "signed_out") return refuse("not_signed_in");
       if (why === "switched_off") return refuse("switched_off", message);
       // The video service could not be asked: nothing was decided, so nothing is refused.
       if (why === "failed") return notKnown();

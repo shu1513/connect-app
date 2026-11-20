@@ -334,6 +334,11 @@ async function main() {
       const unproven = await newCall(host.id, cust.id, { startsIn: 2 });
       await db.update(schema.calls).set({ safetyEndedAt: new Date(), safetyEndedBy: cust.id }).where(eq(schema.calls.id, unproven.call.id));
       check("while the room's closing is not confirmed, the form says the call is being ended, not that it has been", (await form(`call=${unproven.call.id}`, cust.jar)).body?.stopped === REPORT_WORDS.stopping);
+      // An entry pass handed out just before the stop stays good until the video service has confirmed the closing,
+      // so that sentence must not say that nobody can come back in.
+      check("and that sentence does not promise that nobody can join again", !/nobody can/i.test(REPORT_WORDS.stopping) && /being ended/.test(REPORT_WORDS.stopping) && /Nobody can rejoin/.test(REPORT_WORDS.stopped));
+      const { closeCallIfDue } = await import("../src/lib/video/closing");
+      check("a call that is not there is never taken for a closed room", (await closeCallIfDue(randomUUID())) === "no such call");
       check("it says that reporting someone also blocks them", body?.words.includes("Reporting someone also blocks them") === true);
       check("the app reports from a call, a request or a host's page, and from nothing else", (await form(`profile=${handle}`, stranger.jar)).reply.status === 200 && (await form(`booking=${randomUUID()}`, cust.jar)).reply.status === 200 && refusal((await form(`post=${randomUUID()}`, cust.jar)).reply) === "not_found" && refusal((await form("", cust.jar)).reply) === "not_found" && refusal((await form(`call=${open.call.id}&profile=${handle}`, cust.jar)).reply) === "not_found" && refusal((await form("profile=..%2Fadmin", cust.jar)).reply) === "not_found");
 
