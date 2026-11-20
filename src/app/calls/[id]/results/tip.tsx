@@ -86,7 +86,7 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
                 ? "Something about this payment needs a look by Connect."
                 : !share
                   ? "It had been cancelled, so all of it goes back to your card."
-                  : payment.refundedCents === 0 && row.refundUnderWayCents === 0
+                  : payment.refundedCents === 0 && row.refundUnderWayCents === 0 && !disputed
                     ? `That is the tip and a payment fee of ${formatMoney(fee)}. ${otherName} receives the whole tip.`
                     : `That is the tip and a payment fee of ${formatMoney(fee)}.`}
               {payment.refundedCents > 0 ? ` ${formatMoney(payment.refundedCents)} of it was paid back to your card.` : ""}

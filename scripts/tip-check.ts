@@ -35,7 +35,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { and, eq, gte, inArray, like, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 import { totpCode } from "./totp";
@@ -667,6 +667,17 @@ async function main() {
     await stripe().paymentIntents.confirm((await PM(boTip.paymentId)).stripePaymentIntentId!, { payment_method: saved.payment_method as string, return_url: RETURN });
     await C.syncPayment(boTip.paymentId, new Date());
     await helper(new Date());
+    // The same when Stripe no longer shows the card as kept for the customer (a booking's card is removed there after its
+    // call): our own line of the booking still knows the card by its id. (Pretended: the id of the card this tip was
+    // paid with is written onto a booking of the customer's before the app looks.)
+    const dee = await quiet("giver");
+    const deeCall = await hadCall(host, dee);
+    const deeTip = await atCardStep(dee, deeCall);
+    const deePaid = await stripe().paymentIntents.confirm((await PM(deeTip.paymentId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: RETURN });
+    await db.update(schema.bookings).set({ stripePaymentMethodId: deePaid.payment_method as string }).where(eq(schema.bookings.callId, deeCall));
+    await C.syncPayment(deeTip.paymentId, new Date());
+    await helper(new Date());
+    check("nor on a card that our own lines know as a booking's, also when Stripe no longer shows it as kept", (await PM(deeTip.paymentId)).status === "given_up" && (await PM(deeTip.paymentId)).endedHow === "saved_card" && (await intentOf(deeTip.paymentId)).status === "canceled",`${(await PM(deeTip.paymentId)).status} ${(await PM(deeTip.paymentId)).endedHow}`);
     check("a hold placed for a tip on a card that was saved for a booking is not accepted: it is let go, and nothing is taken", (await PM(boTip.paymentId)).status === "given_up" && (await PM(boTip.paymentId)).endedHow === "saved_card" && (await intentOf(boTip.paymentId)).status === "canceled", `${(await PM(boTip.paymentId)).status} ${(await PM(boTip.paymentId)).endedHow}`);
 
     // ----------------------------------------------------------------------
@@ -788,6 +799,10 @@ async function main() {
     const piaTip = await heldTip(pia, { customer: mona });
     check("(a tip and a contribution to the same host are both held)", (await PM(kimPayment.id)).status === "held" && (await PM(piaTip.paymentId)).status === "held");
 
+    // Only when projects were on for everyone at the start: then no monthly contribution of anyone carries the mark of
+    // a switched-off host, and with the others named below none gets one, so nothing of theirs changes when the switch
+    // is put back. (With another position at the start this part would have to change what is not ours: it stops.)
+    if (atStart.projects !== "everyone") throw new Error(`The founder's projects switch is "${atStart.projects}" in this database. This script changes it and puts it back, which is only harmless when it is "everyone". Nothing of the switches was changed.`);
     // Off for our hosts. A host of someone else with a payment that is not taken stays named, so that this script
     // never gives up a payment it did not make. (With none there, the switch is simply off.)
     const ours = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, "tipcheck-%"))).map((row) => row.id);
@@ -880,21 +895,28 @@ async function main() {
       check("the founder's page has the tips switch, on, and the way to every tip", hasMark(founder, "data-tips-switch") && founder.words.includes("Save tips switch") && founder.text.includes('href="/admin/projects?tips=1"'));
       const everyTip = await page("/admin/projects?tips=1", admin);
       check("\"Every tip\" lists the tips, each as a tip for a call, with who gave it to whom", hasMark(everyTip, "data-tip-payments") && everyTip.words.includes(`from ${cara.name} to ${host.name}, a tip of $5.00 for a call`), everyTip.words.slice(0, 200));
-      check("a tip over the $1,000 line and a disputed one are in the list of what needs a look, named as tips", founder.words.includes(`from ${mona.name} to ${pia.name}, a tip of $5.00 for a call`) && founder.words.includes("Counted over the $1,000 line"));
+      // Each of the two is found by the link to its own call, and what is said of it is read inside its own row.
+      const rowOf = (callId: string) => words(founder.text.split(/<li\b/).find((part) => part.includes(`href="/calls/${callId}/results"`)) ?? "");
+      check("the tip over the $1,000 line is in the list of what needs a look, named as a tip, with the mark in its own row", rowOf(monaCall).includes(`from ${mona.name} to ${pia.name}, a tip of $5.00 for a call`) && rowOf(monaCall).includes("Counted over the $1,000 line"), rowOf(monaCall).slice(0, 200));
+      check("so is the disputed one, with the dispute in its own row, and no day on which the host could collect it", rowOf(disputed.callId).includes("a tip of $5.00 for a call") && rowOf(disputed.callId).includes("has disputed this charge") && !rowOf(disputed.callId).includes("The host can collect it from"), rowOf(disputed.callId).slice(0, 300));
       const lastTip = await heldTip(host);
       const let1 = await press(admin, "/admin/projects?tips=1", "Let it go", { note: "A check by the tip script." }, { where: (form) => form.fields.some(([name, value]) => name === "payment" && value === lastTip.paymentId) });
       await helper(new Date());
       check("the founder lets a held tip go, with a reason", let1.found && (await PM(lastTip.paymentId)).status === "given_up" && (await PM(lastTip.paymentId)).endedHow === "founder_let_go", noticeOf(let1));
-      const pressedFrom = new Date();
-      const off = await press(admin, "/admin/projects", "Save tips switch", { tips: "off" });
-      check("the founder switches tips off on the page", off.found && noticeOf(off).startsWith("Tips are off.") && (await switches()).tipsOff === true, noticeOf(off));
-      const on = await press(admin, "/admin/projects", "Save tips switch", { tips: "on" });
-      check("and on again", on.found && noticeOf(on) === "Tips are on." && (await switches()).tipsOff === false, noticeOf(on));
-      // The two lines these two presses wrote into the founder's record, by their ids: removed at the end, and nothing else of the founder's.
-      founderRecord.push(...(await db.select({ id: schema.adminActions.id }).from(schema.adminActions).innerJoin(schema.user, eq(schema.user.id, schema.adminActions.adminId)).where(and(eq(schema.adminActions.action, "tips switch set"), eq(schema.user.email, "admin@test.local"), gte(schema.adminActions.createdAt, pressedFrom)))).map((row) => row.id));
-      check("(those two presses are in the founder's record)", founderRecord.length === 2, founderRecord.length);
-      // Anything else than exactly our two is not ours to judge: nothing of the founder's record is removed then.
-      if (founderRecord.length !== 2) founderRecord.length = 0;
+      // The line each press writes into the founder's record is noted by its id right after that press, and removed
+      // at the end: exactly one new line for one press. Anything else is not ours to judge, and is left where it is.
+      const linesOfAdmin = async () => (await db.select({ id: schema.adminActions.id }).from(schema.adminActions).innerJoin(schema.user, eq(schema.user.id, schema.adminActions.adminId)).where(and(eq(schema.adminActions.action, "tips switch set"), eq(schema.user.email, "admin@test.local")))).map((row) => row.id);
+      const pressSwitch = async (tips: "on" | "off") => {
+        const before = await linesOfAdmin();
+        const reply = await press(admin, "/admin/projects", "Save tips switch", { tips });
+        const added = (await linesOfAdmin()).filter((id) => !before.includes(id));
+        if (added.length === 1) founderRecord.push(added[0]);
+        return { reply, recorded: added.length === 1 };
+      };
+      const off = await pressSwitch("off");
+      check("the founder switches tips off on the page, and it is in the founder's record", off.reply.found && noticeOf(off.reply).startsWith("Tips are off.") && (await switches()).tipsOff === true && off.recorded, noticeOf(off.reply));
+      const on = await pressSwitch("on");
+      check("and on again", on.reply.found && noticeOf(on.reply) === "Tips are on." && (await switches()).tipsOff === false && on.recorded, noticeOf(on.reply));
       await send("/api/auth/sign-out", { json: {}, jar: admin.jar });
     }
 

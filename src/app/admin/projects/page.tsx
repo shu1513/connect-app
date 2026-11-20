@@ -591,7 +591,8 @@ function ContributionRow({ row }: { row: FounderRow }) {
         ) : state === "taken" && payment.takenAt ? (
           <>
             Taken on <LocalTime iso={payment.takenAt.toISOString()} />.{" "}
-            {share?.transferDueAt && !sent && (
+            {/* (Not for a disputed charge: the line below says that nothing can be collected from it.) */}
+            {share?.transferDueAt && !sent && payment.dispute !== "open" && payment.dispute !== "lost" && (
               <>
                 The host can collect it from <LocalTime iso={share.transferDueAt.toISOString()} />.
               </>
