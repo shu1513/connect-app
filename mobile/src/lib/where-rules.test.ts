@@ -39,8 +39,12 @@ describe("the time zone on the '18 and terms' step", () => {
   });
 
   it("takes the server's answer for the step only when it has what the screen reads", () => {
-    expect(isWelcome({ done: false, returning: false, timeZone: null, timeZones: accepted })).toBe(true);
-    expect(isWelcome({ done: true, returning: true, timeZone: "UTC", timeZones: [] })).toBe(true);
+    const agreements = [{ name: "terms-of-service", title: "Terms of Service", version: "2026-11-20", href: "/terms?version=2026-11-20" }];
+    expect(isWelcome({ done: false, returning: false, agreements, timeZone: null, timeZones: accepted })).toBe(true);
+    expect(isWelcome({ done: true, returning: true, agreements: [], timeZone: "UTC", timeZones: [] })).toBe(true);
+    // Without the documents, or with one that does not say its version, the step could not say what was agreed to.
+    expect(isWelcome({ done: false, returning: false, timeZone: null, timeZones: accepted })).toBe(false);
+    expect(isWelcome({ done: false, returning: false, agreements: [{ name: "terms-of-service", title: "Terms of Service", href: "/terms" }], timeZone: null, timeZones: accepted })).toBe(false);
     for (const bad of [{}, null, [], { done: false, returning: false, timeZone: null }, { done: false, returning: false, timeZone: 3, timeZones: accepted }, { done: "no", returning: false, timeZone: null, timeZones: accepted }, { done: false, returning: false, timeZone: null, timeZones: ["UTC", 5] }]) {
       expect(isWelcome(bad)).toBe(false);
     }

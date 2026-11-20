@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AppHome, AppSuggestedHost } from "../../../src/lib/app-door/types";
@@ -98,7 +99,14 @@ export function HostsYouFollow({ followed }: { followed: AppHome["followed"] }) 
         <View key={host.handle ?? `${host.name}-${index}`} style={[styles.person, { borderTopColor: colors.line }, index === 0 ? styles.first : null]}>
           <Photo photoId={host.photoId} name={host.name} small />
           <View style={styles.personWords}>
-            <Text style={[styles.rowTitle, { color: colors.text }]}>{host.name}</Text>
+            {host.handle ? (
+              // Her page, while it is open to everyone. A host whose page is not open is a name only.
+              <Pressable accessibilityRole="link" accessibilityLabel={host.name} onPress={() => router.push({ pathname: "/h/[handle]", params: { handle: host.handle! } })} style={styles.nameLink}>
+                <Text style={[styles.rowTitle, { color: colors.text, textDecorationLine: "underline", textDecorationColor: colors.accent }]}>{host.name}</Text>
+              </Pressable>
+            ) : (
+              <Text style={[styles.rowTitle, { color: colors.text }]}>{host.name}</Text>
+            )}
             {host.available ? (
               <View style={styles.availableLine}>
                 <View style={styles.dot} />
@@ -119,7 +127,7 @@ export function HostsYouFollow({ followed }: { followed: AppHome["followed"] }) 
  * page has come to rest, it tells the list (`onSeen`): that is what "seen" means. It tells it once;
  * if the list could not pass that on to the server (`again` changes), it tells it again.
  */
-function SuggestedCard({ host, first, again, onSeen, onHide }: { host: AppSuggestedHost; first: boolean; again: number; onSeen: (place: number) => void; onHide: (host: AppSuggestedHost) => void }) {
+function SuggestedCard({ host, first, again, onSeen, onOpen, onHide }: { host: AppSuggestedHost; first: boolean; again: number; onSeen: (place: number) => void; onOpen: (host: AppSuggestedHost) => void; onHide: (host: AppSuggestedHost) => void }) {
   const colors = useColors();
   const view = usePageView();
   const box = useRef<ComponentRef<typeof View>>(null);
@@ -139,9 +147,12 @@ function SuggestedCard({ host, first, again, onSeen, onHide }: { host: AppSugges
     <View ref={box} style={[styles.person, { borderTopColor: colors.line }, first ? styles.first : null]} collapsable={false}>
       <Photo photoId={host.photoId} name={host.name} small />
       <View style={styles.personWords}>
-        <Text style={[styles.rowTitle, { color: colors.text }]}>
-          {host.name} <Text style={[styles.small, { color: colors.soft, fontWeight: "400" }]}>@{host.handle}</Text>
-        </Text>
+        {/* Opening a host's page from here is remembered: it keeps a host the person is interested in coming back (plans/41). */}
+        <Pressable accessibilityRole="link" accessibilityLabel={`${host.name}, @${host.handle}`} onPress={() => onOpen(host)} style={styles.nameLink}>
+          <Text style={[styles.rowTitle, { color: colors.text }]}>
+            <Text style={{ textDecorationLine: "underline", textDecorationColor: colors.accent }}>{host.name}</Text> <Text style={[styles.small, { color: colors.soft, fontWeight: "400" }]}>@{host.handle}</Text>
+          </Text>
+        </Pressable>
         <Text style={[styles.small, { color: colors.text }]}>
           {ratingWords(host.rating, "New on Connect")} · {host.price}
         </Text>
@@ -204,14 +215,16 @@ export function SuggestedHosts({ suggested, onChanged, refused }: { suggested: N
       if (timer.current) return;
       timer.current = setTimeout(() => {
         timer.current = null;
-        // Only the places of the day now shown: a place seen yesterday is not sent under today's date.
-        const places = waiting.current.splice(0).filter((one) => one.day === day).map((one) => one.place);
-        if (places.length === 0) return;
-        void ask("/api/app/suggestions/seen", { body: { day, places } }).then((done) => {
-          if (refused(done)) return;
-          // Not passed on: the cards still in sight say so again the next time the page comes to rest.
-          if (!done.ok) failed.current = true;
-        });
+        // Each day's places go under their own day, whichever day started the wait.
+        const all = waiting.current.splice(0);
+        for (const one of new Set(all.map((seenOne) => seenOne.day))) {
+          const places = all.filter((seenOne) => seenOne.day === one).map((seenOne) => seenOne.place);
+          void ask("/api/app/suggestions/seen", { body: { day: one, places } }).then((done) => {
+            if (refused(done)) return;
+            // Not passed on: the cards still in sight say so again the next time the page comes to rest.
+            if (!done.ok) failed.current = true;
+          });
+        }
       }, 800);
     },
     [day, refused],
@@ -230,6 +243,11 @@ export function SuggestedHosts({ suggested, onChanged, refused }: { suggested: N
     setNotice(done.ok ? "Hidden. You will not be suggested this host again. You can still find them with the search." : done.code === "unreachable" ? done.message : "Something went wrong. Nothing was changed. Please try again.");
     if (done.ok) changed.current();
   };
+  /** Her page is opened from the row: that is told to the server (it need not wait for the answer), and the page is shown. */
+  const open = (host: AppSuggestedHost) => {
+    void ask("/api/app/suggestions/opened", { body: { day, place: host.place } }).then(refused);
+    router.push({ pathname: "/h/[handle]", params: { handle: host.handle } });
+  };
   const first = suggested.hosts.slice(0, suggested.shownFirst);
   const rest = suggested.hosts.slice(suggested.shownFirst);
   return (
@@ -237,10 +255,10 @@ export function SuggestedHosts({ suggested, onChanged, refused }: { suggested: N
       <Heading>Suggested hosts</Heading>
       {notice ? <Words soft>{notice}</Words> : null}
       {first.map((host, index) => (
-        <SuggestedCard key={`${day}:${host.place}`} host={host} first={index === 0} again={again} onSeen={seen} onHide={(one) => void hide(one)} />
+        <SuggestedCard key={`${day}:${host.place}`} host={host} first={index === 0} again={again} onSeen={seen} onOpen={open} onHide={(one) => void hide(one)} />
       ))}
       {rest.length > 0 && !more ? <Button label={`Show ${rest.length} more`} kind="plain" onPress={() => setMore(true)} /> : null}
-      {more ? rest.map((host) => <SuggestedCard key={`${day}:${host.place}`} host={host} first={false} again={again} onSeen={seen} onHide={(one) => void hide(one)} />) : null}
+      {more ? rest.map((host) => <SuggestedCard key={`${day}:${host.place}`} host={host} first={false} again={again} onSeen={seen} onOpen={open} onHide={(one) => void hide(one)} />) : null}
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: why }} onPress={() => setWhy(!why)} style={styles.whyHead}>
         <Text style={[styles.small, { color: colors.soft, textDecorationLine: "underline" }]}>{why ? "▾" : "▸"} Why these hosts?</Text>
       </Pressable>
@@ -259,6 +277,7 @@ const styles = StyleSheet.create({
   person: { flexDirection: "row", gap: 12, paddingTop: 12, borderTopWidth: 1, alignItems: "flex-start" },
   first: { borderTopWidth: 0, paddingTop: 0 },
   personWords: { flex: 1, gap: 2 },
+  nameLink: { minHeight: 44, justifyContent: "center", alignSelf: "flex-start" },
   availableLine: { flexDirection: "row", alignItems: "center", gap: 8 },
   dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#16a34a" },
   hide: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },

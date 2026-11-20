@@ -12,6 +12,7 @@ import { INSTAGRAM_PHOTO, INSTAGRAM_SIGN_IN, refusedBioChecks } from "@/lib/prof
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
 import { requireAdmin } from "@/lib/session";
+import { RULES } from "@/lib/terms";
 import { closeAccountAction, decideProfileAction, decideSocialAction, lockPhotoAction, photoReportMadeAction, removePhotoAction, reopenAccountAction } from "./actions";
 import { SitePage } from "@/components/site-page";
 
@@ -26,6 +27,12 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function AdminPeoplePage(props: PageProps<"/admin/people">) {
   const admin = await requireAdmin();
+  // The rules a decision can name. The person is told the rule and the sentence typed beside it (plans/46, decision 11).
+  const ruleOptions = RULES.map((rule) => (
+    <option key={rule.key} value={rule.key}>
+      {rule.title}
+    </option>
+  ));
   const notice = readNotice("/admin/people", await props.searchParams);
 
   const [profiles, claims, closed] = await Promise.all([
@@ -158,8 +165,19 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                 {profile.pricePer15Cents === 0 ? "Free calls" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}
               </p>
               {profile.about && <p className="mt-1 whitespace-pre-line">{profile.about}</p>}
-              <form action={decideProfileAction} className="mt-3 flex gap-3">
+              <form action={decideProfileAction} className="mt-3 flex flex-wrap items-end gap-3">
                 <input type="hidden" name="userId" value={profile.userId} />
+                <label className="block text-sm">
+                  To decline: the rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
                 <input type="hidden" name="seenName" value={profile.displayName} />
                 <input type="hidden" name="seenAbout" value={profile.about} />
                 <input type="hidden" name="seenIdentity" value={identity.get(profile.userId)?.checkId ?? ""} />
@@ -245,10 +263,25 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                     {profile.hidden ? ", hidden by the host" : ""}
                   </td>
                   <td className="py-1.5">
-                    <form action={decideProfileAction}>
+                    <form action={decideProfileAction} className="space-y-1">
                       <input type="hidden" name="userId" value={profile.userId} />
                 <input type="hidden" name="seenName" value={profile.displayName} />
                 <input type="hidden" name="seenAbout" value={profile.about} />
+                      {profile.status === "approved" && (
+                        <>
+                <label className="block text-sm">
+                  To suspend: the rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
+                        </>
+                      )}
                       {profile.status === "approved" ? (
                         <button type="submit" name="decision" value="suspended" className="underline underline-offset-2">
                           Suspend
@@ -361,11 +394,28 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
         For fakes, abuse, or when a person asks. The account is logged out everywhere and cannot log in, and its calls
         that have not started are cancelled at no charge. Nothing is deleted but the host&apos;s photo, and you can open the account again below.
       </p>
-      <form action={closeAccountAction} className="mt-3 flex items-end gap-2 text-sm">
+      <p className="mt-1 text-sm opacity-70">
+        The person is emailed the reason you give. For a host in the United Kingdom or Europe, the Host Agreement (17.5) promises 30 days&apos; written
+        notice before a page is closed for good, unless the law requires it sooner, the host broke the agreement repeatedly, or the reason is illegal or
+        harmful content, fraud or a risk to someone&apos;s safety. Suspend first, and close after the notice, when none of those applies.
+      </p>
+      <form action={closeAccountAction} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
         <label>
           The account&apos;s email address
           <input name="email" type="email" required className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
         </label>
+                <label className="block text-sm">
+                  The rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    <option value="own_request">At the person&apos;s own request (no rule)</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
         <button type="submit" className={button}>
           Close this account
         </button>

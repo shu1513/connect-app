@@ -3,6 +3,10 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { shownValue } from "@/legal/accept";
+import { LegalText } from "@/legal/legal-text";
+import { parse } from "@/legal/parse";
+import { currentVersion, linkFor, textOf, versionHref } from "@/legal/registry";
 import { readNotice } from "@/lib/notice";
 import { returnPath } from "@/lib/safe-next";
 import { identityState, IDENTITY_TRIES, refreshIdentity } from "@/lib/safety/identity";
@@ -28,6 +32,9 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
   // read before). A paused person is shown why, not "Start the check".
   const [now] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, user.id));
   if (now?.pausedAt) redirect("/paused");
+  // The Identity Check Notice in effect, shown in full above the button: pressing the button agrees to it (plans/46, decision 9).
+  const notice1 = currentVersion("identity-check-notice", new Date());
+  const noticeBlocks = parse(textOf("identity-check-notice", notice1.version) ?? "", linkFor).blocks;
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
@@ -67,8 +74,22 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
           ) : (
             <form action={startIdentity} className="mt-4">
               {next && <input type="hidden" name="next" value={next} />}
-              <button type="submit" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
-                {state.pending ? "Start a new check" : "Start the check"}
+              <input type="hidden" name="shown" value={shownValue([{ name: "identity-check-notice", version: notice1.version }])} />
+              <section aria-label="Identity Check Notice" className="max-h-80 overflow-y-auto rounded border border-neutral-400 p-3" data-identity-notice={notice1.version}>
+                <p className="text-sm font-bold">
+                  Identity Check Notice{notice1.draft ? " (draft, not in force yet)" : ""}{" "}
+                  <Link href={versionHref("identity-check-notice", notice1.version)} target="_blank" className="font-normal underline underline-offset-2">
+                    open it on its own page
+                  </Link>
+                </p>
+                <LegalText blocks={noticeBlocks} />
+              </section>
+              <p className="mt-3 text-sm">
+                By pressing the button you confirm that you have read this notice, and you agree that Stripe, for Connect, compares a picture of your
+                face with your identity document as it describes.
+              </p>
+              <button type="submit" className="mt-3 rounded bg-blue-600 px-4 py-2 font-medium text-white">
+                {state.pending ? "I agree, start a new check at Stripe" : "I agree, continue to Stripe"}
               </button>
               <span className="ml-3 text-sm opacity-70">
                 {state.triesLeft} of {IDENTITY_TRIES} tries left

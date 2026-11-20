@@ -4158,3 +4158,159 @@ unchanged. On the Android test phone, with pictures, as a host and as a customer
 
 **What cannot be tried here.** The iPhone (one measure, where the page ends above the bar at
 the bottom, is to be looked at on a real iPhone in part 20).
+
+## The phone apps, part 05: search, a host's page, following (plan 45, 20 November 2026)
+
+**What this is.** A customer finds a host and reads her page: photo, name, what she says about
+herself, her confirmed social accounts, her languages, her rating, her price, her cancellation
+rule, her open times in the phone's own time zone, whether she is available now, and what a
+member or an invited person sees. They can follow her. As on the website, all of it can be
+looked at without an account. Her project box and diary are left out.
+
+**What was built.**
+- *One gathering for both.* What a host's page is made of for whoever is looking is now put
+  together in `src/lib/profiles/host-page.ts`, and the website's page and the app's address
+  both call it. The page's own sentences are in one place.
+- *The app's addresses:* the search, a host's page, follow, unfollow, and the choices about
+  emails (which never touch the choice about diary emails).
+- *The screens:* Search (also for someone not signed in, from "Look for a host first"), and a
+  host's page with Follow, "Share this page", the lengths and the open times.
+
+**What the building changed.** Eight things, listed in the plan. Choosing a time, "available
+now", a membership's screens, "Confirm your ID" and "Report" do not lead on yet: each is wired
+in by the part that builds it.
+
+**What the reviewers found.**
+- *The automatic security review of the saved code, and Astra:* unfollowing answered a little
+  differently for a name that exists than for one that does not, which would have told which
+  hidden hosts exist. Answered to the letter the same now.
+- *Astra, on the code:* "available now" could stay on a page long after the host had left (the
+  page is now read again every minute while in front, and the words are taken away when they
+  are older than a minute and a half); with memberships switched off for the apps a member
+  could still open a hidden host's page. All taken.
+
+**How it was checked.** `scripts/app-hosts-check.ts`, 73 checks. The website's `follow-check`
+(90), `suggestions-check` (110), `journey-check` (51) and `home-check` (110) pass unchanged.
+On the Android test phone, with pictures: a search, a host's page signed in and as a guest,
+Follow and Unfollow, another length, "Available now".
+
+**Not tried here:** `verified-check`, `photo-check` and `membership-journey-check` (they need
+Stripe set up for the test host, or the shared server). A member whose month can be booked from
+(part 13 checks that).
+
+## The agreements in the app, and proof of who accepted what (plan 46, part 1, 20 November 2026)
+
+**Why.** The founder: "build the 14 changes so the agreements can go live. do what you think is
+the best." The plan is `plans/46-agreements-live.md`; this is its first and largest part. It
+covers changes 1, 2, 3, 8 and 10 of the list in `docs/legal/README.md`, section 7, and settles
+4. Changes 9 and 13 went in before it (pull request 80).
+
+**What was built.**
+- *The documents live in the app.* `src/legal/documents/<name>/<version>.ts`, one file for each
+  version, listed in `src/legal/versions.ts`; the seven drafts moved there from `docs/legal/`
+  as version `2026-11-20`, marked a draft. Seven pages show them: `/terms`, `/payment-terms`,
+  `/rules`, `/host-agreement`, `/privacy`, `/copyright`, `/identity-notice`. Each says which
+  version it shows, "Draft. Not in force yet." for a draft, and lists the other versions;
+  `?version=` shows one by name. A blank that is not filled in is drawn so that it stands out.
+  Both footers link all seven. A small reader of the app's own (`src/legal/parse.ts`) turns
+  the texts into pages; no package was added.
+- *Proof of acceptance.* A new table, `agreement_acceptances`: one line for each person,
+  document and version, written once. One writer for every acceptance (`src/legal/accept.ts`).
+  A person's own line keeps a short stamp of the three general documents, which the gate of
+  every page compares with the versions in effect at that moment.
+- *The last step of sign-up.* One tick, "I am 18 or older". Beside the button: "By finishing
+  sign-up you agree to the Terms of Service, the Payment Terms and the Community Rules", each a
+  link to the exact version, and under it a line about the privacy policy, which is shown and
+  not accepted. The form carries the versions it showed, and the server refuses others.
+- *Hosts.* Applying to host needs a tick for the Host Agreement and an answer to "business or
+  private person"; both are written in the same step as the profile. A host from before sees a
+  box near the top of her Hosting page with the same two things, and is not locked out. A
+  host's page, and the two pages where a call is asked for, say how she offers calls; for a
+  host who has not said, they say nothing.
+- *A reason for a decision.* Declining or suspending a host page needs the rule and a sentence.
+  It is saved with the decision, emailed in the same step, and shown on her Hosting page; the
+  same decision given again changes nothing; sending a declined page in again clears it.
+  Closing an account from the admin pages takes a reason too and emails it. Five controls ask
+  for it: decline and suspend on the People page, suspend on the Reports page, close on both.
+- *The identity check.* The Identity Check Notice is shown in full above the button, the button
+  says "I agree, continue to Stripe", and pressing it is written down before Stripe is asked;
+  each check's own line keeps the notice's version.
+- *The short rules list* (`RULES`) keeps its nine names and gains three, to match the Community
+  Rules. One migration, `0049_agreements`.
+
+**The founder's decisions** are in the plan: acceptance by the button, as on
+ElectionsSimplified; the most protection. **The builder's own choices** (each can be changed):
+three things stay tick boxes (18 or older, the Host Agreement, repeating payments); a box and
+not a lock for hosts from before; the first version of every document is a draft, and a
+published version is frozen and has no blanks; closing an account without a reason is still
+possible in the code (only check scripts do it); the texts are code files and not files read
+from disk.
+
+**What the reviewers found.** Astra checked the plan twice before building, "not ready" both
+times; what each check changed is in the plan's last two sections. The largest: blanks read
+from settings would have rewritten archived agreements, so a published version is frozen; the
+words beside the button had to fit the moment (an account exists before the last step); the
+stamp is asked for when it is needed, not kept from when the server started.
+
+*Astra then reviewed the code of this part* and said to hold the merge. The website's own
+acceptance was sound: the stamp and its three lines are written together or not at all. Taken:
+- **The phone app's sign-up step, which the phone-apps work had merged in the meantime, could
+  have let a person in with no line of proof.** It sent a plain "yes" and no versions. The two
+  sides now use one writer (`src/lib/welcome.ts` calls `acceptGeneralAgreements`): the app's
+  address tells the app which documents and versions to show, the app sends back the ones it
+  showed, and a request that names none writes nothing and is told to show the step again. The
+  app's own screen (`mobile/src/app/(welcome)/index.tsx`) was changed with it.
+- A second press, or two requests at once, no longer rewrite the first acceptance's moment or
+  time zone: everything is judged with the person's line locked.
+- The check for blanks in a published version missed a blank wrapped over two lines and a
+  number still to be settled ("[12]"); both are found now.
+- Closing an account at its owner's own wish no longer has to name a broken rule.
+- A host page suspended by a closing shows the closing's reason, not an older one. The Reports
+  page carries the same 30-day reminder as the People page. An application to host that was
+  under way when the account was closed writes nothing.
+- An identity check can no longer be started without the notice's version, and the request to
+  Stripe is tied to it.
+- `?version=` given twice is "not found", not today's text. A link inside a coming version
+  leads to the other document as it will stand on that version's day.
+- Three statements of the documents were corrected before they were merged: who has to take the
+  identity check (also for a call that costs nothing), where the consent to the face comparison
+  is given (on Connect's own page), and what closing an account does to booked calls (cancelled
+  at no charge).
+- Two check scripts removed people without first removing their new lines; both do now.
+Not taken: *closing an account must always have a reason, also in the code.* The founder's two
+buttons always give one. About twenty calls in check scripts close an account without, and
+giving each a reason would send an email into checks that count emails.
+
+*Astra's second review*, of the fixes above and of the merge with the phone apps' sign-in and
+home page: "hold the merge", for one line in a check script. Taken, all four:
+- The phone door's check had a case named "only a yes to the terms" that sent the right
+  documents, so it finished sign-up where it meant to be refused. It sends the old "yes" now.
+- A request that waited for a person's line across the midnight a new version takes effect could
+  still have written the old stamp. The clock is now read after the line is locked.
+- On the phone, the step asked again after a refusal put the time zone back to the phone's own,
+  so a second press could have saved a zone the person had not chosen. A zone chosen by hand
+  stays.
+- The safety check named the notice's version by its date; it compares with the version in
+  effect now, so it does not fail on the next notice.
+Astra also read the locks of four paths that touch a person and her host page (closing, pausing,
+a decision on the page, joining a call) and found no way for two of them to wait on each other
+for ever; and found nothing of the phone apps' parts 03 and 04 lost in the merge.
+
+**How it was checked.** Type check, lint and the automatic tests (802) pass, and so do the phone
+app's own type check, lint and 53 tests. Seven real check scripts were run against a running copy
+of the app and the real test accounts at Stripe, all on the final code:
+`agreements-check` (new, 46 checks: the pages, the stamp, a new version taking effect, two
+requests at once, the reasons, the identity notice), `accounts-check` (218), `journey-check`
+(60; the founder's pages skipped as always, the test admin's login is not set up),
+`safety-check` (76), `membership-check` (337), `contribution-check`, and `app-door-check`, the
+phone door, against a database of its own. In a browser, as the test host: the last step of
+sign-up with its three links, the box on the Hosting page, the line about how a host offers
+calls, and the notice above the button to Stripe. The test host was put back as she was.
+
+**What cannot be tested here.** Whether these words hold up in a court: that is the lawyer's
+(`docs/for-the-lawyer.md`). The phone app's screen on a real phone: it was type-checked and its
+rules tested, not run. A real version change at midnight: the check makes up a version and moves
+the clock instead.
+
+**After this merges, every open branch needs `npm run seed` once**: the seeded test accounts hold
+the old stamp, and the app would send them to the last step of sign-up.

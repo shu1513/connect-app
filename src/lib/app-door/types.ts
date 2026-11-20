@@ -69,12 +69,23 @@ export type AppStart = {
   supportEmail: string;
 };
 
+/** One legal document as the "18 or older and terms" step shows it. */
+export type AppAgreement = { name: string; title: string; version: string; href: string };
+
 /** The answer of GET /api/app/welcome: what the "18 or older and terms" step shows. */
 export type AppWelcome = {
   /** True when this person has done the step already (the app then goes on). */
   done: boolean;
-  /** True when she accepted an earlier version of the terms: the step says "we have updated the rules". */
+  /** True when she accepted an earlier version of the terms: the step says "we have updated our terms". */
   returning: boolean;
+  /**
+   * The documents this step accepts when it is finished, each in the version in effect now, with the path of that
+   * exact version on the website (plans/46-agreements-live.md, decision 7). The app shows their names beside its
+   * button, each opening that path, and sends their names and versions back. The server writes nothing for a
+   * request that does not name them, and answers "not_valid" when they are no longer the ones in effect: the app
+   * then asks for the step again.
+   */
+  agreements: AppAgreement[];
   /** Her saved time zone, if she has one. */
   timeZone: string | null;
   /** Every time zone name the server accepts. The app offers the phone's own if it is among them. */
@@ -179,3 +190,95 @@ export type AppHome = {
   /** How often the app asks again while the page is in front. */
   refreshSeconds: number;
 };
+
+/** One host in a list of search results. Everyone listed has a page that anyone may open. */
+export type AppFoundHost = {
+  handle: string;
+  name: string;
+  about: string;
+  price: string;
+  languages: string[];
+  socials: Array<{ label: string; name: string }>;
+  rating: { average: number; count: number } | null;
+  photoId: string | null;
+};
+
+/** The answer of GET /api/app/search?q=…. */
+export type AppSearch = {
+  /** What was searched for, as the server read it. */
+  typed: string;
+  /** False when too little was typed to search: then `hint` says how much is needed. */
+  searched: boolean;
+  hint: string | null;
+  hosts: AppFoundHost[];
+  /** Set when there may be more than are shown: the line asking to type more. */
+  more: string | null;
+};
+
+/** A length a call can have, with its words for a list to choose from: "30 minutes, $40.00". */
+export type AppLength = { minutes: number; words: string };
+
+/**
+ * The answer of GET /api/app/hosts/[handle]: a host's page for the person looking at it. No
+ * project, no diary, no contribution. The host's account id is never in it.
+ */
+export type AppHostPage = {
+  handle: string;
+  name: string;
+  about: string;
+  photoId: string | null;
+  languages: string[];
+  rating: { average: number; count: number } | null;
+  /** Her confirmed social media accounts. Empty on a page that is not open to everyone. */
+  socials: Array<{ label: string; name: string; url: string }>;
+  /** This is the viewer's own page. */
+  own: boolean;
+  /** Her page's address on the web, for sharing: only for a page anyone may open. */
+  shareUrl: string | null;
+  /** The viewer's own following, "visitor" for someone not signed in, or null when no Follow button is shown. */
+  follow: "following" | "ended" | "none" | "visitor" | null;
+  price: string;
+  /** What the call is, and until when it can be cancelled for free. */
+  callWords: string;
+  /** She only takes calls from people who have confirmed their ID. `confirmId`: this viewer has not, and is offered the check. */
+  verifiedOnly: boolean;
+  confirmId: boolean;
+  /**
+   * She can take a call right away: the lengths to choose from, and how soon she answers. Null when she
+   * cannot. `freshSeconds`: for how long this may be shown without asking again; after that it is not known.
+   */
+  now: { lengths: AppLength[]; answerMinutes: number; paid: boolean; freshSeconds: number } | null;
+  /**
+   * Asking for a call at a time: the heading, why nothing can be asked (or null), the lengths, the one chosen,
+   * and its open times. `titleNotNow` is the heading for when "available now" is no longer believed.
+   */
+  ask: { title: string; titleNotNow: string; closed: string | null; words: string | null; lengths: AppLength[]; chosen: number | null; starts: string[]; noTimes: string | null };
+  /**
+   * Everything about a membership with her, for this viewer. Null when there is nothing to show, or
+   * when memberships are switched off for the apps (the page then reads as to someone who is no member).
+   */
+  membership: {
+    /** She has invited this viewer: until when the invitation is open. */
+    invitedUntil: string | null;
+    /** A membership that is not (or not yet) running, in words. */
+    state: { status: "joining" | "unpaid" | "paused"; words: string } | null;
+    /** A running membership: the time left, and the times that can be booked with it. */
+    member: {
+      left: string;
+      until: string;
+      price: string;
+      /** Set while this month's money is only held on the card. */
+      held: string | null;
+      /** The time left does not cover a call. */
+      tooLittle: boolean;
+      /** Whether times can be booked with this month from the app. False where the apps may not take the month's payment and it is only held so far. */
+      canBook: boolean;
+      lengths: AppLength[];
+      chosen: number | null;
+      times: Array<{ startsAt: string; membersOnly: boolean }>;
+    } | null;
+  } | null;
+};
+
+/** The answer of the follow and unfollow addresses: the sentence to show, and how the following stands now. */
+export type AppFollowDone = { words: string; follow: "following" | "ended" | "none" };

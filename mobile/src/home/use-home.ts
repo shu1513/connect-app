@@ -64,7 +64,7 @@ export function useHome(day: string | null) {
       let answer = await read();
       // A refusal counts even from a question that a newer one has overtaken, unless a newer one was let in since:
       // the server has said this person may not be here, whatever became of the newer question.
-      if (letIn.current < mine && refused(answer)) return;
+      if (letIn.current <= mine && refused(answer)) return;
       if (mine !== newest.current) return;
       if (!(answer.ok && isHome(answer.data))) {
         setProblem(answer.ok ? UNREACHABLE : answer.message);
@@ -78,9 +78,11 @@ export function useHome(day: string | null) {
       const suggested = answer.data.suggested;
       if (!suggested || suggested.made) return;
       const made = await ask("/api/app/suggestions/make", { body: {} });
-      if (mine !== newest.current || refused(made) || !made.ok) return;
+      if (letIn.current <= mine && refused(made)) return;
+      if (mine !== newest.current || !made.ok) return;
       answer = await read();
-      if (mine !== newest.current || refused(answer)) return;
+      if (letIn.current <= mine && refused(answer)) return;
+      if (mine !== newest.current) return;
       if (answer.ok && isHome(answer.data)) setHome(answer.data);
     } finally {
       setAsking((now) => (now === mine ? null : now));

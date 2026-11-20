@@ -1,6 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { RULES } from "@/lib/terms";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { endBookingsOfSuspendedHost } from "@/lib/booking/moderation";
@@ -33,6 +34,8 @@ export async function decideProfileAction(formData: FormData) {
       userId: String(formData.get("userId") ?? ""),
       decision,
       by: admin.id,
+      // The rule and the facts, for "declined" and "suspended": the host is told them (plans/46, decision 11).
+      reason: decision === "approved" ? undefined : { ruleKey: String(formData.get("ruleKey") ?? ""), note: String(formData.get("reasonNote") ?? "") },
       // What the founder had on screen when deciding.
       seen: { displayName: String(formData.get("seenName") ?? ""), about: String(formData.get("seenAbout") ?? ""), identityCheckId: String(formData.get("seenIdentity") ?? "") || undefined },
     });
@@ -116,6 +119,9 @@ export async function photoReportMadeAction(formData: FormData) {
   back(notice);
 }
 
+/** The choice "at the person's own request" in the two forms that close an account (beside the rules). */
+const OWN_REQUEST = "own_request";
+
 export async function closeAccountAction(formData: FormData) {
   const admin = await requireAdmin();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -123,8 +129,17 @@ export async function closeAccountAction(formData: FormData) {
   try {
     const [person] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
     if (!person) throw new ProfileError("No account has that email address.");
-    const { callsNotEnded } = await closeAccount({ userId: person.id, by: admin.id });
-    await recordAdminAction({ adminId: admin.id, action: "account closed", targetUserId: person.id });
+    // The rule and the facts: the person is told them by email (plans/46, decision 11).
+    const ruleKey = String(formData.get("ruleKey") ?? "");
+    const rule = RULES.find((r) => r.key === ruleKey);
+    const note = String(formData.get("reasonNote") ?? "").trim();
+    if (note.length > 500) throw new ProfileError("Please keep the reason under 500 characters.");
+    // Closing at the person's own wish names no rule: nobody did anything wrong.
+    const asked = ruleKey === OWN_REQUEST;
+    if (!asked && (!rule || !note)) throw new ProfileError("Choose the rule, and say in a sentence what happened. The person is told this reason.");
+    const reason = asked ? `You asked us to close your account.${note ? ` ${note}` : ""}` : `${rule!.title}. ${note}`;
+    const { callsNotEnded } = await closeAccount({ userId: person.id, by: admin.id, reason });
+    await recordAdminAction({ adminId: admin.id, action: "account closed", targetUserId: person.id, detail: reason });
     notice =
       callsNotEnded === 0
         ? "The account is closed. It is logged out everywhere and cannot log in. Its calls that had not started were cancelled at no charge."
