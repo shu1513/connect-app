@@ -52,8 +52,11 @@ cancelling. The Join button appears here and leads to part 09. And the list of p
 4. **The countdown runs on the phone's clock but the server decides.** Join is offered when
    the server says the room is open.
 5. **Every state of the page above is shown,** each with the website's sentence.
-6. **The Calls place at the bottom of the app** opens past calls, with the coming ones above
-   them from the home page's own reading, so "my calls" is one place on a phone.
+6. **The Calls place at the bottom of the app** shows the coming calls and, below them, the
+   past ones, so "my calls" is one place on a phone. The home page only reads the soonest
+   three calls and those around the day in view, which would hide a fourth call far ahead.
+   So the Calls place has its own reading of **all** coming calls, the soonest first, a page
+   at a time, through the same rules about who may see what.
 
 ## How it is tried
 
@@ -61,7 +64,7 @@ cancelling. The Join button appears here and leads to part 09. And the list of p
   same hold (one payment, never two); "already held"; paying a member's call is refused;
   cancelling free, late, as host, as member, after the start; a cancellation that turned from
   free to charged between showing and confirming; a stranger gets "not found"; past calls page
-  by page.
+  by page; coming calls page by page, with a call far ahead that the home page does not load.
 - `payments-check`, `booking-check`, `member-calls-check` unchanged and green.
 - On the Android test phone, with Stripe's test cards and pictures: a call too early to pay;
   a hold placed; a refused card; the bank's approval; the app closed during it; a free

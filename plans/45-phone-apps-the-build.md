@@ -266,3 +266,26 @@ says otherwise.
   today's rule; the email after the wipe.
 - **20:** the sweep makes things happen and reads what is written for the phones; the list
   of differences from the website; Google's 12 testers for 14 days in a row.
+
+## CodeRabbit's review of these plans (pull request 75, 20 November 2026): nine points, all taken
+
+Each was read against the code or the plans by the builder first.
+
+1. *The lawyer's file gave a 30-day rule and a 3-year rule that contradicted each other.* The
+   exceptions to the 30 days are now named.
+2. *Part 08: a coming call far ahead would not show in the Calls place,* because the home page
+   reads only the soonest three and the days around the one in view. The Calls place gets its
+   own reading of all coming calls.
+3. *Part 10b: a host giving money back without a request had no address.* Added.
+4. *Part 13: a payment could slip in while the switch was being turned.* New payments are
+   refused from the first moment, then the unfinished ones are ended.
+5. *Part 14: a photo taken from Instagram or TikTok also goes to the checking services,* so
+   the same yes is asked first.
+6. *Part 19c: an email still waiting must not go out with its text erased.* It is sent first.
+7. *Part 19c: today's yearly clean-up clears the texts of a refund request that is still
+   open* (true: `forgetOldRequests` does not look at whether it is open). It is put right
+   with that part, for the website too.
+8. *Part 20: the membership sweep expected "no charge" in every position,* which would have
+   failed the position in which charging is right. Now said per position.
+9. *Part 20: the switch check would have required cancelling to disappear too.* The two
+   things a member always keeps are named.

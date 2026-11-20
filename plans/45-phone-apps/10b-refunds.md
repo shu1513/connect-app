@@ -48,7 +48,8 @@ decides. The app does exactly what the website does, with the same words.
    call of their own answers it as any host does.)
 2. **Addresses, on the same functions:** what the refund box shows for this person; the
    connection record for a customer about to ask; ask; answer before the money is taken;
-   decline or give back after.
+   decline or give back after; **and a host giving money back on her own, with no request**
+   (the same function the website's button uses, with the same limits).
 3. **The two moments keep their own words, from the server.** Before the money is taken the
    host is asked what to charge; after, what to give back. The app never shows one with the
    other's wording, since that could turn "charge in full" into the opposite. Every state
@@ -65,7 +66,8 @@ decides. The app does exactly what the website does, with the same words.
 
 - Check script: asking inside and after `askBy`; both reasons; the record changed between
   showing and sending; answering in full, less and nothing before the money is taken;
-  declining and giving back after; a second request for the same call; a member's call; a
+  declining and giving back after; a host giving money back with no request at all, and
+  more than was charged (refused); a second request for the same call; a member's call; a
   charge still being taken; nothing charged; a host of another call, the customer, and a
   founder who is not this call's host trying to decide through the app (all refused); no
   closing address exists; the same refund sent twice; a payment of another call.

@@ -33,10 +33,14 @@ this build and a real app in the two stores, each item with who can do it.
    line, no link and no notification that comes from those things, except the two "Other
    earnings" amounts (part 16). And in each position of the membership switch it tries every
    way to a membership payment, the ones through booking, the calendar and Contacts
-   included, with a held month, and checks that no charge and no invitation came of it. It
-   runs with the other checks from then on.
+   included, with a held month, and checks the result for that position: with the switch
+   *on*, the invitation is made and the booking takes the held month, as they should; in the
+   two stricter positions, no charge and no invitation came of it. It runs with the other
+   checks from then on.
 4. **The switches, one by one,** with the app open: each is turned off on the admin page, and
-   the thing disappears from the app and is refused by the server.
+   the thing disappears from the app and is refused by the server. For memberships, "off"
+   keeps what part 13 says it must: a member still sees their own membership and can cancel
+   it; the check looks for exactly that.
 5. **An old app.** A copy of the app from before the last change is pointed at the newest
    server: it must either work or be told to update. Nothing in between.
 6. **The record.** `docs/module-record.md` gets the whole build: what was decided, what was

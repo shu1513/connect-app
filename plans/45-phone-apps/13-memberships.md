@@ -67,10 +67,11 @@ with three positions.
      No invitation and no offer is shown, and nothing says where to join. **This position is
      only used when the stores have accepted it.**
    - **Turning the switch does not reach a card sheet that is already open on someone's
-     phone:** Stripe would still take that payment. So when the switch is turned to a
-     stricter position, the server first ends every membership payment that an app has begun
-     and not finished, and settles any that was already sent, before the new position counts
-     as in force.
+     phone:** Stripe would still take that payment. So turning the switch to a stricter
+     position happens in this order: **from the first moment, the server refuses every new
+     membership payment asked for by an app** (so none can slip in while the rest is done);
+     then it ends every membership payment that an app had begun and not finished, and
+     settles any that was already sent; only then does the new position count as in force.
    - **off:** no membership address answers the app, except the two below.
 2. **A member can always cancel, and always see what they are paying for, in any position:**
    their own membership, with months that are held or not paid yet, and both ways of

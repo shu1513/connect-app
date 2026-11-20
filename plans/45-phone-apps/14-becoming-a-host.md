@@ -45,9 +45,11 @@ website.
    **Before the first photo is sent, the app says who will look at it and why** (the checking
    services the privacy page names, to keep unsuitable pictures out) and the person agrees.
    Apple asks for a plain yes before personal data goes to another company, a company that
-   checks pictures by machine included.
-   Taking it from Instagram or TikTok, updating and removing work as on the website. A locked
-   photo is shown as locked.
+   checks pictures by machine included. **The same yes is asked before a photo is taken from
+   Instagram or TikTok,** since that picture goes to the same checking services; on the
+   website there is no such step today, and the app does not copy that.
+   Taking it from Instagram or TikTok (after the yes described above), updating and removing
+   work as on the website. A locked photo is shown as locked.
 4. **"What you still need" is one list at the top, from the server.** Each line leads to its
    screen (the ID check and the payout account to part 14b's).
 5. **The project part of the Hosting page is not in the app,** and the app's answer is built

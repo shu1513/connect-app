@@ -79,10 +79,21 @@ requests after a year.
 4. **An email, "Your Connect account has been deleted",** is sent after the wipe has
    succeeded. For that one message the address is held apart, used once, and then removed
    too. Both stores ask that the person is told when it is done.
-5. **Outside companies** that hold copies are asked to remove theirs where they offer a way:
+5. **Emails still waiting to be sent are dealt with before their text is erased.** An email
+   to another person that names the deleted one (a call was cancelled, a request ended) is a
+   notice that person needs. So the wipe waits until each such email has been sent, or has
+   been given up on by the sender's own rules, and only then erases its text. No email ever
+   goes out with its text already removed. Emails waiting for the deleted person themselves
+   are cancelled, except the last one of decision 4.
+6. **The yearly clean-up of refund texts is put right on the way.** Today it clears the texts
+   of every refund request older than a year, one that is still open included, and a check
+   script expects that. An open request, or one whose bank dispute is open, must keep its
+   texts until it is closed, on the website as well; the clean-up and its check are changed
+   to say so.
+7. **Outside companies** that hold copies are asked to remove theirs where they offer a way:
    Stripe (the ID check, the customer record), and the email and video services as far as
    their terms allow. What they keep under their own duties is named on the privacy page.
-6. **The wipe is done by the helper, group by group, each written down when done,** and can
+8. **The wipe is done by the helper, group by group, each written down when done,** and can
    be run again safely. A check counts, after a wipe, every place in the database where the
    person's name, email address or account number can still be found, and each one must be
    on the "keep" lines above.
@@ -91,7 +102,10 @@ requests after a year.
 
 - `scripts/delete-account-check.ts` grows: an account with something in **every** group above
   (the script makes it), deleted and wiped; then, group by group, what is gone and what is
-  left; the search of decision 6 finds nothing outside the "keep" lines; the old email
+  left; the search of decision 8 finds nothing outside the "keep" lines; an email to another
+  person that was still waiting is sent whole before its text is erased, and none is sent
+  with its text removed; a refund request older than a year that is still open keeps its
+  texts, and loses them when it is closed; the old email
   address can sign up again as a new, empty account; two deletions get two different made-up
   addresses; the other person's view of old calls; after a rater is deleted nobody can work
   out what they gave, and the average follows today's rule for a closed account; an open

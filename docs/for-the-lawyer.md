@@ -108,11 +108,11 @@ company yet.
 - **The list of what deleting wipes and keeps** (new, plan 45, part 19c; not built). The
   builder wrote a first version, group by group: erased, kept without anything that says who,
   or kept for a reason and a time. It needs a lawyer's decision line by line. The builder's
-  own first values: everything not tied to an open case is wiped within 30 days of the
-  request; reports about the person, pauses and blocks against them are kept 3 years; the
-  records of paid calls and money are kept for as long as tax and dispute rules need (to be
-  named); texts and evidence of an open refund request or bank dispute are kept until it is
-  closed. Also: there is no way back once a deletion is confirmed; and outside companies
+  own first values: everything is wiped within 30 days of the request, **with three kinds of
+  exception**: (1) reports about the person, whether still open or long closed, and pauses
+  and blocks against them, kept 3 years; (2) the records of paid calls and money, kept for as
+  long as tax and dispute rules need (to be named); (3) the texts and evidence of a refund
+  request or bank dispute that is still open, kept until it is closed and then wiped. Also: there is no way back once a deletion is confirmed; and outside companies
   that hold copies (Stripe for ID checks and cards, the email and video services) are asked
   to remove theirs where they offer a way. Are these right?
 - **The phone apps** (new, plan 39; not built). The privacy page must also cover what an app
