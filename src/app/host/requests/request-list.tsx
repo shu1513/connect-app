@@ -3,6 +3,7 @@ import { HostPhoto } from "@/components/host-photo";
 import { LocalTime } from "@/components/local-time";
 import { Rating } from "@/components/rating";
 import { aboutWaiting, byTime, type Waiting } from "@/lib/booking/waiting-list";
+import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { formatMoney } from "@/lib/payments/access";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
 
@@ -42,7 +43,7 @@ export async function RequestList({ hostId, waiting, from, times }: { hostId: st
         <li key={start} className="rounded border border-neutral-400 p-4">
           <p className="font-medium">
             <LocalTime iso={start} />
-            {rows.length > 1 && <span className="ml-2 text-sm font-normal opacity-70">{rows.length} people asked for this time. Choose one.</span>}
+            {rows.length > 1 && <span className="ml-2 text-sm font-normal opacity-70">{WAITING_WORDS.many(rows.length)}</span>}
           </p>
           <ul className="mt-3 space-y-4">
             {rows.map(({ booking, customerName }) => {
@@ -56,10 +57,10 @@ export async function RequestList({ hostId, waiting, from, times }: { hostId: st
                     {them.known && (
                       <>
                         {" "}
-                        · <Rating shown={them.rating} newText="New: not enough ratings yet" />
+                        · <Rating shown={them.rating} newText={WAITING_WORDS.newCustomer} />
                       </>
                     )}
-                    {them.idConfirmed && <span className="text-green-700"> · ID confirmed</span>}
+                    {them.idConfirmed && <span className="text-green-700"> · {WAITING_WORDS.idConfirmed}</span>}
                   </p>
                 </div>
                 {them.words && <p className="mt-1 opacity-80">&ldquo;{them.words}&rdquo;</p>}
@@ -74,14 +75,14 @@ export async function RequestList({ hostId, waiting, from, times }: { hostId: st
                     <input type="hidden" name="id" value={booking.id} />
                     <input type="hidden" name="from" value={from} />
                     <button type="submit" className="min-h-11 rounded bg-blue-600 px-4 py-1.5 font-medium text-white">
-                      Accept
+                      {WAITING_WORDS.accept}
                     </button>
                   </form>
                   <form action={declineAction}>
                     <input type="hidden" name="id" value={booking.id} />
                     <input type="hidden" name="from" value={from} />
                     <button type="submit" className="min-h-11 rounded border border-neutral-500 px-4 py-1.5">
-                      Decline
+                      {WAITING_WORDS.decline}
                     </button>
                   </form>
                 </div>

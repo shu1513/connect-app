@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SitePage } from "@/components/site-page";
 import { waitingForHost } from "@/lib/booking/bookings";
-import { NOW } from "@/lib/booking/now-rules";
+import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { RequestList } from "./request-list";
@@ -22,17 +22,14 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
           ← Hosting
         </Link>
       </p>
-      <h1 className="mt-4 text-2xl font-semibold">Requests for calls ({waiting.length})</h1>
+      <h1 className="mt-4 text-2xl font-semibold">{WAITING_WORDS.title(waiting.length)}</h1>
+      <p className="mt-2 text-sm opacity-70">{WAITING_WORDS.intro}</p>
       <p className="mt-2 text-sm opacity-70">
-        Several people may ask for the same time. Accepting one books the call and tells everyone else whose request it gets in
-        the way of. A request you do not answer in time ends by itself.
-      </p>
-      <p className="mt-2 text-sm opacity-70">
-        A request for a call right now is listed here too, but it needs your answer within {NOW.answerMinutes} minutes. Your{" "}
+        {WAITING_WORDS.nowBefore}
         <Link href="/host/now" className="underline underline-offset-2">
-          Available now
-        </Link>{" "}
-        page shows those the moment they arrive.
+          {WAITING_WORDS.nowPage}
+        </Link>
+        {WAITING_WORDS.nowAfter}
       </p>
 
       {notice && (
@@ -42,7 +39,7 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
       )}
 
       {waiting.length === 0 ? (
-        <p className="mt-6 text-sm opacity-70">Nothing is waiting for your answer.</p>
+        <p className="mt-6 text-sm opacity-70">{WAITING_WORDS.empty}</p>
       ) : (
         <div className="mt-6">
           <RequestList hostId={user.id} waiting={waiting} from="requests" />

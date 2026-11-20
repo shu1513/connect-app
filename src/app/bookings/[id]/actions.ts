@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { accept, bookingFor, BookingError, decline, takeBack } from "@/lib/booking/bookings";
 import { REQUEST_WORDS } from "@/lib/booking/request-words";
+import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { bookAsMember } from "@/lib/membership/book";
 import { withNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
@@ -38,7 +39,7 @@ export async function acceptAction(formData: FormData) {
   let notice: string;
   try {
     await accept({ bookingId: id, hostId: user.id, now: new Date() });
-    notice = "Accepted. The call is booked, and anyone else who asked for that time has been told.";
+    notice = WAITING_WORDS.accepted;
   } catch (error) {
     notice = problem(error);
   }
@@ -51,7 +52,7 @@ export async function declineAction(formData: FormData) {
   let notice: string;
   try {
     await decline({ bookingId: id, hostId: user.id, now: new Date() });
-    notice = "Declined. The customer has been told.";
+    notice = WAITING_WORDS.declined;
   } catch (error) {
     notice = problem(error);
   }
