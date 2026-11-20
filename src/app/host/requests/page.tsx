@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AboutCustomer } from "@/components/about-customer";
 import { LocalTime } from "@/components/local-time";
 import { waitingForHost } from "@/lib/booking/bookings";
+import { hostNotesAbout } from "@/lib/people/contacts";
 import { Rating } from "@/components/rating";
 import { readNotice } from "@/lib/notice";
 import { averagesFor } from "@/lib/ratings/ratings";
@@ -23,6 +25,8 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   const customers = [...new Set(waiting.map((row) => row.booking.customerId))];
   const ratings = await averagesFor(customers, "customer", new Date());
   const idConfirmed = await verifiedAmong(customers);
+  // The host's own notes about these customers (plans/32). The lookup asks every rule itself for each of them.
+  const notes = await hostNotesAbout(user.id, customers);
 
   // Group by start time, so the host can compare people who asked for the same time.
   const groups = new Map<string, typeof waiting>();
@@ -76,6 +80,7 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
                       {idConfirmed.has(booking.customerId) && <span className="text-green-700"> · ID confirmed</span>}
                     </p>
                     {booking.note && <p className="mt-1 opacity-80">&ldquo;{booking.note}&rdquo;</p>}
+                    {notes.has(booking.customerId) && <AboutCustomer name={customerName} text={notes.get(booking.customerId)!} />}
                     {booking.respondBy && (
                       <p className="mt-1 opacity-70">
                         Answer by <LocalTime iso={booking.respondBy.toISOString()} />

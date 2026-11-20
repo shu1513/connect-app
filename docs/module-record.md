@@ -2345,6 +2345,90 @@ watching it appear within a minute. Whether the home page's new order reads well
 customer. Part two (emails), then "tell me when a time opens" and suggestions as plans of their
 own.
 
+## A later change: a host's notes, after and before each call (plan 32, 19 November 2026)
+
+**Why.** The founder asked whether a host, after rating a customer, gets a notepad to write down
+what they want to remember, whether it is one continuous notepad from call to call, and whether
+the host sees it again as a review before the next call. The notepad existed (plan 8, one note
+per host and customer) but only on the page of a single request and on "People you have talked
+to". It was not where the founder expected it.
+
+**What it is.**
+- **After a call:** on the results page, under the rating, the host has "About {name}" to write
+  in. It does not depend on the rating: it is there after a cancelled or missed call too.
+- **Before a call:** on the call page the host sees "About {name}" to read while waiting, before
+  the room opens and in the camera check. It shows only when the notepad has something in it,
+  which covers "not before the first call" and "not when empty" with one rule.
+- **Never while in the room.** The call screen has a "Share screen" button, so the note is off
+  the page for as long as the host is in the call. It is back while they wait to join again.
+- **With a request:** the note is shown, to read, in the list of waiting requests (plan 8 said it
+  would be; it never was) and on the "Available now" panel.
+- **One name everywhere:** "About {name}", "Your private notes. Only you can see them."
+- **5,000 characters** instead of 1,000. The box says how much room is left near the end.
+- **A save never silently wipes newer text.** The same notepad can be open in several places. A
+  save goes through only if the stored note is still what that page was showing; the comparison
+  is part of the write itself. A page that is out of date is refused, and it keeps what was
+  typed.
+- **The box answers in place,** saved or refused, and what was typed is never lost over a
+  refusal, also when the login ran out while typing.
+- **Who may see and write is unchanged** (plan 8): only that host; not across a block either way;
+  not for a closed account. The note is fetched only for the host; nothing of it is in what any
+  other person's browser gets. A founder looking at someone else's call sees none of it.
+- **Database:** no change.
+
+**Decided by the builder.** The size (5,000). That the note is off the call screen altogether
+rather than folded. That a note changed elsewhere is told apart by comparing its text, not a
+time: nothing about clocks can go wrong, and a note changed and changed back is rightly no
+conflict. That writing during a call is not built now.
+
+**What the reviewers found.** Astra checked the plan twice, then the code.
+- *Plan, first check ("build with changes", ten findings).* Taken: the out-of-date check must be
+  part of the write; every place a note is written must take part; folding the note during the
+  call does not protect a note the host opens again; the lists do not leave out blocked or
+  closed customers by themselves, so the lookup for several customers asks every rule itself;
+  notes must not depend on whether a call can be rated; a long note must not push Accept and
+  Decline away. Not taken: comparing the time of the last save (the text is compared instead); a
+  screen-share warning beside every note.
+- *Plan, second check ("build with changes", four clarifications, all taken).* What exactly the
+  box remembers after a save and after a refusal; the two empty cases; that the box must stay
+  put when a save goes through; that the note shows again while waiting to rejoin.
+- *Code ("ship with changes", four findings).* Taken: a database error was logged whole, and
+  such an error carries the statement's values, here the typed note and the stored one; now only
+  the kind of error is logged. A login that ran out sent the browser to the login page and lost
+  the draft; now the box says so and keeps it. After a refusal the room-left count was off by
+  one for each line break; fixed. Not taken: keeping the typed text for a browser with
+  JavaScript switched off when, while the host was typing, the customer blocked them or closed
+  their account. That is three rare things at once, and the note could not be saved anyway.
+  Astra found no way for a note to reach anyone but its host.
+- *The builder's own check, in place of CodeRabbit.* CodeRabbit was asked for a full review on
+  the pull request; the founder then said not to wait for it and to have the builder check the
+  code instead. Three things came of that: the privacy page said nothing about a host's notes,
+  and now says in plain words that a host can keep them, who can read them, and when the host no
+  longer can; "Saved." is now announced to someone using a screen reader; and "About {name}"
+  above a note that is only read is no longer a heading, because it sits inside lists and under
+  headings of different levels. Nothing else was found.
+
+**How it was checked:** 583 automatic tests on the code with following (plan 30) merged in (4 of
+them new here, for how a note is stored); `scripts/ratings-check.ts`, 90 checks, 17 of them new
+(the limit at 5,000 and 5,001, every kind of
+out-of-date save, two saves at the same moment, the lookup for several customers with blocked
+and closed ones among them); `scripts/now-check.ts`. In a browser, with the test accounts on
+this computer: the host wrote and saved the note on the results page; saw it on the call page
+before the room opened and in the camera check; joined the call and saw it gone, with "Share
+screen" on the screen, and back after leaving; saw it in the waiting list and on the "Available
+now" panel; a second tab changed the note and the first tab's save was refused with its text
+kept; a note typed but not saved survived sending a rating; on the contacts page saving one box
+left another box's unsaved text alone. Logged in as the customer, and as the founder looking at
+the call as admin, each page and the data behind it were searched for the note's words: nothing.
+After Astra's code check the save was tried again in the browser, and so was a save after
+logging out. No outside service is touched by this change.
+
+**Still open.** For the lawyer's list: a host's note is information about a customer, and in the
+UK and the EU a customer can ask what a company holds about them; whether these notes are
+covered, and what hosts should be told about writing them. The built-in browser has no camera,
+so the host joined the test call without one; a call with camera and sound on two real devices
+was not part of this try. Not built: writing or reading notes during the call.
+
 ## A later change: a host's photo from TikTok (plan 33, part two of plan 29, 19 November 2026)
 
 **Why.** Plan 29 promised two sources for a host's photo. Instagram came first; this is TikTok.

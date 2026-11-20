@@ -9,11 +9,19 @@
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { NOTE_MAX, tidyNote } from "./note-rules";
 
 /** A problem the person can understand. Its message is safe to show them. */
 export class NoteError extends Error {}
 
-export const NOTE_MAX = 1000;
+/** The stored note is no longer what the page that wants to save was showing. */
+export class NoteChangedError extends NoteError {
+  constructor() {
+    super("This note was changed somewhere else. Copy what you typed, then reload the page to see the newer note.");
+  }
+}
+
+export { NOTE_MAX };
 
 type Reader = Pick<typeof db, "select">;
 
@@ -136,22 +144,60 @@ export async function hostNoteAbout(hostId: string, customerId: string): Promise
   return { allowed: true, text: note?.text ?? null };
 }
 
-/** Saves the host's note about a customer. An empty note removes it. */
-export async function saveHostNote(input: { hostId: string; customerId: string; text: string; now: Date }): Promise<void> {
-  // Plain text: no control or invisible characters; line breaks are kept.
-  const text = input.text
-    .replace(/\r\n?/g, "\n")
-    .replace(/[^\P{Cc}\n]/gu, " ")
-    .replace(/[\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
-    .trim();
-  if (text.length > NOTE_MAX) throw new NoteError(`A note can be at most ${NOTE_MAX} characters.`);
+/**
+ * The host's notes about several people at once, for a list: only the people there is a note
+ * about are in the answer. Every rule of the single check holds for each of them; being on the
+ * list (a waiting request, say) is never taken as proof of anything.
+ */
+export async function hostNotesAbout(hostId: string, customerIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(customerIds)];
+  if (ids.length === 0) return new Map();
+  const notes = await db
+    .select({ customerId: schema.hostNotes.customerId, text: schema.hostNotes.text })
+    .from(schema.hostNotes)
+    .where(and(eq(schema.hostNotes.hostId, hostId), inArray(schema.hostNotes.customerId, ids)));
+  const allowed = await Promise.all(notes.map((note) => mayNote(hostId, note.customerId)));
+  return new Map(notes.filter((_, index) => allowed[index]).map((note) => [note.customerId, note.text]));
+}
+
+/**
+ * Saves the host's note about a customer, and answers with the note as it is now stored (null:
+ * there is none). An empty note removes it.
+ *
+ * `shown` is the note as the page that saves was showing it (null: it showed none). The same
+ * note can be open in several places, so a save goes through only if the stored note is still
+ * exactly that. The comparison is part of the write itself, one statement each time: of two
+ * saves from the same starting point, the database lets one through and the other finds nothing
+ * to change. A save that finds nothing to change is refused (NoteChangedError); it never falls
+ * back to writing anyway.
+ */
+export async function saveHostNote(input: { hostId: string; customerId: string; text: string; shown: string | null; now: Date }): Promise<string | null> {
+  const text = tidyNote(input.text);
+  // Tidied like a stored note, so a note nobody changed always compares equal, whatever a browser did to its line breaks.
+  const shown = tidyNote(input.shown ?? "") || null;
+  if (text.length > NOTE_MAX) throw new NoteError(`A note can be at most ${NOTE_MAX.toLocaleString("en-US")} characters.`);
   if (!(await mayNote(input.hostId, input.customerId))) throw new NoteError("You can keep a note only about someone who has asked you for a call.");
-  if (text === "") {
-    await db.delete(schema.hostNotes).where(and(eq(schema.hostNotes.hostId, input.hostId), eq(schema.hostNotes.customerId, input.customerId)));
-    return;
+  const theirs = and(eq(schema.hostNotes.hostId, input.hostId), eq(schema.hostNotes.customerId, input.customerId));
+  const one = { hostId: schema.hostNotes.hostId };
+
+  if (shown === null) {
+    if (text === "") {
+      // Nothing shown, nothing to save. A note that exists now was written elsewhere and is never deleted from here.
+      const [there] = await db.select(one).from(schema.hostNotes).where(theirs);
+      if (there) throw new NoteChangedError();
+      return null;
+    }
+    // A first note: only if there is still none.
+    const written = await db.insert(schema.hostNotes).values({ hostId: input.hostId, customerId: input.customerId, text, updatedAt: input.now }).onConflictDoNothing().returning(one);
+    if (written.length === 0) throw new NoteChangedError();
+    return text;
   }
-  await db
-    .insert(schema.hostNotes)
-    .values({ hostId: input.hostId, customerId: input.customerId, text, updatedAt: input.now })
-    .onConflictDoUpdate({ target: [schema.hostNotes.hostId, schema.hostNotes.customerId], set: { text, updatedAt: input.now } });
+
+  const unchanged = and(theirs, eq(schema.hostNotes.text, shown));
+  const done =
+    text === ""
+      ? await db.delete(schema.hostNotes).where(unchanged).returning(one)
+      : await db.update(schema.hostNotes).set({ text, updatedAt: input.now }).where(unchanged).returning(one);
+  if (done.length === 0) throw new NoteChangedError();
+  return text === "" ? null : text;
 }

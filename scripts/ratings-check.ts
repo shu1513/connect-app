@@ -314,29 +314,74 @@ async function main() {
       check("nothing about a contact gives away their email", !JSON.stringify(theirs).includes("@example.test"));
 
       const noteRefused = async (work: Promise<unknown>) => (await work.then(() => null).catch((e) => e)) instanceof NoteError;
-      await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "  Likes to talk about sailing.\r\nSecond line.\u0000  ", now });
+      // Every save says what the page was showing (`shown`; null: no note). It goes through only if that is still what is stored.
+      const changedElsewhere = async (work: Promise<unknown>) => (await work.then(() => null).catch((e) => e)) instanceof P.NoteChangedError;
+      const textOf = async (hostId: string, customerId: string) => (await P.hostNoteAbout(hostId, customerId)).text;
+      const stored = await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "  Likes to talk about sailing.\r\nSecond line.\u0000  ", shown: null, now });
       const note = await P.hostNoteAbout(hostA.id, cust.id);
-      check("a host can keep a note about their customer, saved as plain text", note.allowed && note.text === "Likes to talk about sailing.\nSecond line.");
+      check("a host can keep a note about their customer, saved as plain text, and the save answers with what was stored", note.allowed && note.text === "Likes to talk about sailing.\nSecond line." && stored === note.text);
       check("it shows on the host's contacts", (await P.contactsOf(hostA.id, now))[0].note === note.text);
       check("the customer cannot read it, nor another host, and the customer has none about the host", (await P.contactsOf(cust.id, now)).every((c) => c.note === null) && (await P.hostNoteAbout(hostB.id, cust.id)).text === null && !(await P.hostNoteAbout(cust.id, hostA.id)).allowed);
-      check("a customer cannot write a note about their host", await noteRefused(P.saveHostNote({ hostId: cust.id, customerId: hostA.id, text: "x", now })));
+      check("a customer cannot write a note about their host", await noteRefused(P.saveHostNote({ hostId: cust.id, customerId: hostA.id, text: "x", shown: null, now })));
       const testOnly = await person("testonly");
       await call({ hostId: hostA.id, customerId: testOnly.id, source: "admin" });
-      check("nor can a host about someone who never asked them for a call, or whose only call with them was a test call", (await noteRefused(P.saveHostNote({ hostId: hostB.id, customerId: other.id, text: "x", now }))) && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: testOnly.id, text: "x", now }))));
-      check("but a host can about someone who asked and then never joined", (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: never.id, text: "x", now }))) === false);
-      check("a note longer than 1,000 characters is refused", await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "a".repeat(1001), now })));
-      await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "Changed.", now });
-      check("a note can be changed; there is one per customer", (await P.hostNoteAbout(hostA.id, cust.id)).text === "Changed." && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, hostA.id))).length === 2);
+      check("nor can a host about someone who never asked them for a call, or whose only call with them was a test call", (await noteRefused(P.saveHostNote({ hostId: hostB.id, customerId: other.id, text: "x", shown: null, now }))) && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: testOnly.id, text: "x", shown: null, now }))));
+      check("but a host can about someone who asked and then never joined", (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: never.id, text: "x", shown: null, now }))) === false);
+      // Exactly 5,000 characters, with line breaks and an emoji (which counts as two), sent the way a browser sends a form: with CRLF.
+      const full = `${"a".repeat(2498)}\n😀\n${"b".repeat(2498)}`;
+      const asSent = (text: string) => text.replace(/\n/g, "\r\n");
+      check("a note of exactly 5,000 characters is saved, line breaks and emoji and all", full.length === 5000 && (await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: asSent(full), shown: note.text, now })) === full);
+      check("one of 5,001 is refused, not as a change made elsewhere, and the old text is still there", (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: `${full}c`, shown: full, now }))) && !(await changedElsewhere(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: `${full}c`, shown: full, now }))) && (await textOf(hostA.id, cust.id)) === full);
+      await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "Changed.", shown: asSent(full), now });
+      check("a note can be changed, also when the page sends what it showed with a browser's line breaks; there is one per customer", (await textOf(hostA.id, cust.id)) === "Changed." && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, hostA.id))).length === 2);
+
+      // The same notepad open in several places (plans/32, decision 9).
+      check("a save from a page that still shows the old note is refused, and the newer text is still there", (await changedElsewhere(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "From an old page.", shown: full, now }))) && (await textOf(hostA.id, cust.id)) === "Changed.");
+      check("so is clearing from such a page", (await changedElsewhere(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "", shown: full, now }))) && (await textOf(hostA.id, cust.id)) === "Changed.");
+      check("and an empty save from a page that showed no note never deletes one that exists now", (await changedElsewhere(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "", shown: null, now }))) && (await textOf(hostA.id, cust.id)) === "Changed.");
+      const twice = await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "Changed twice.", shown: "Changed.", now });
+      check("a box's own next save goes through with what its last save answered", twice === "Changed twice." && (await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "Changed.", shown: twice, now })) === "Changed.");
+      check("saving a note that was not changed goes through", (await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "Changed.", shown: "Changed.", now })) === "Changed.");
+
+      const first = await person("first");
+      await call({ hostId: hostA.id, customerId: first.id, endedMinutesAgo: 30 });
+      const save = (text: string, shown: string | null) => P.saveHostNote({ hostId: hostA.id, customerId: first.id, text, shown, now });
+      const oneWon = (results: PromiseSettledResult<unknown>[]) => results.filter((r) => r.status === "fulfilled").length === 1 && results.filter((r) => r.status === "rejected" && r.reason instanceof P.NoteChangedError).length === 1;
+      check("an empty save where there is no note does nothing", (await save("  ", null)) === null && (await textOf(hostA.id, first.id)) === null);
+      const firsts = await Promise.allSettled([save("First, from the laptop.", null), save("First, from the phone.", null)]);
+      const afterFirsts = await textOf(hostA.id, first.id);
+      check("of two first notes written at the same moment, one is saved and the other refused", oneWon(firsts) && (afterFirsts === "First, from the laptop." || afterFirsts === "First, from the phone."), afterFirsts ?? "none");
+      const changes = await Promise.allSettled([save("Second, from the laptop.", afterFirsts), save("Second, from the phone.", afterFirsts)]);
+      const afterChanges = await textOf(hostA.id, first.id);
+      check("of two changes at the same moment from the same note, one is saved and the other refused", oneWon(changes) && (afterChanges === "Second, from the laptop." || afterChanges === "Second, from the phone."), afterChanges ?? "none");
+      const mixed = await Promise.allSettled([save("Third.", afterChanges), save("", afterChanges)]);
+      const afterMixed = await textOf(hostA.id, first.id);
+      check("of a change and a clearing at the same moment, one goes through and the other is refused", oneWon(mixed) && (afterMixed === "Third." || afterMixed === null), afterMixed ?? "none");
+      if (afterMixed !== null) await save("", afterMixed);
+      check("clearing a note that is already gone is refused like any other change made elsewhere", (await changedElsewhere(save("", "Third."))) && (await textOf(hostA.id, first.id)) === null);
+      check("and a change from a page that still shows a note that is gone never writes it back", (await changedElsewhere(save("Back again.", "Third."))) && (await textOf(hostA.id, first.id)) === null);
+      await save("About the first.", null);
+
+      // The notes for a list of customers (waiting requests, instant requests): every rule again, for each of them.
+      const several = [cust.id, never.id, other.id, first.id, cust.id];
+      const forList = async (hostId: string) => [...(await P.hostNotesAbout(hostId, several)).entries()].map(([id, text]) => `${id === cust.id ? "cust" : id === never.id ? "never" : id === first.id ? "first" : "?"}:${text}`).sort().join(" | ");
+      check("for a list of customers a host gets their own notes, only for those there is one about", (await forList(hostA.id)) === "cust:Changed. | first:About the first. | never:x", await forList(hostA.id));
+      check("another host gets none of them, nor does a customer asking about their host", (await forList(hostB.id)) === "" && (await P.hostNotesAbout(cust.id, [hostA.id])).size === 0 && (await P.hostNotesAbout(hostA.id, [])).size === 0);
+      await db.insert(schema.blocks).values({ blockerId: hostA.id, blockedId: first.id });
+      check("a customer the host has blocked is left out of the list's notes", (await forList(hostA.id)) === "cust:Changed. | never:x", await forList(hostA.id));
+      await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, hostA.id));
 
       await db.insert(schema.blocks).values({ blockerId: cust.id, blockedId: hostA.id });
-      check("after a block either way, the contact disappears on both sides", (await P.contactsOf(hostA.id, now)).length === 0 && !(await P.contactsOf(cust.id, now)).some((c) => c.name === "Host Alpha"));
-      check("and the note is kept but can be neither read nor changed", !(await P.hostNoteAbout(hostA.id, cust.id)).allowed && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "y", now }))) && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.customerId, cust.id))).length === 1);
+      check("after a block either way, the contact disappears on both sides", !(await P.contactsOf(hostA.id, now)).some((c) => c.userId === cust.id) &&!(await P.contactsOf(cust.id, now)).some((c) => c.name === "Host Alpha"));
+      check("and the note is kept but can be neither read nor changed", !(await P.hostNoteAbout(hostA.id, cust.id)).allowed && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "y", shown: "Changed.", now }))) && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.customerId, cust.id))).length === 1);
+      check("nor is it among the notes for a list, though the others still are", (await forList(hostA.id)) === "first:About the first. | never:x", await forList(hostA.id));
       await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, cust.id));
       check("unblocked, it is back as it was", (await P.hostNoteAbout(hostA.id, cust.id)).text === "Changed.");
       await db.update(schema.user).set({ closedAt: now }).where(eq(schema.user.id, cust.id));
-      check("a closed account is not listed, and its note cannot be read", (await P.contactsOf(hostA.id, now)).length === 0 && !(await P.hostNoteAbout(hostA.id, cust.id)).allowed);
+      check("a closed account is not listed, and its note cannot be read", !(await P.contactsOf(hostA.id, now)).some((c) => c.userId === cust.id) &&!(await P.hostNoteAbout(hostA.id, cust.id)).allowed);
+      check("nor is it among the notes for a list, and it cannot be saved", (await forList(hostA.id)) === "first:About the first. | never:x" && (await noteRefused(P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "z", shown: "Changed.", now }))), await forList(hostA.id));
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, cust.id));
-      await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "   ", now });
+      await P.saveHostNote({ hostId: hostA.id, customerId: cust.id, text: "   ", shown: "Changed.", now });
       check("saving an empty note removes it", (await P.hostNoteAbout(hostA.id, cust.id)).text === null && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.customerId, cust.id))).length === 0);
     }
   } finally {
