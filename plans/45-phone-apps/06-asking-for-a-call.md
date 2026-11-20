@@ -479,6 +479,35 @@ Astra found the gap closed for an honest app. Three small points, all taken:
 file is made when this part's pull request is opened, so its number comes after whatever has
 been merged by then.
 
+## What the newer main brought (20 November 2026), taken into this part
+
+Two changes of the legal work were merged while this part waited (#78 and #80, then the
+agreements, #85). They changed pages this part had moved into shared files, so the app follows
+them here and not in a later part:
+
+1. *New sentences.* The note to the host, the box about the card (with the 14-day sentence),
+   and what the ID check tells us are now the shared files' wording, so the website and the app
+   say the same.
+2. *The Identity Check Notice (plan 46, decision 9).* The app's "Confirm who you are" screen
+   shows the notice in full above its button, as the website does, with a link to that exact
+   version on the website. The button reads "I agree, continue to Stripe". The app sends back
+   which version it showed; the server writes the agreement down first (the website's own
+   function) and only then asks Stripe for a check. A request that names no notice, an older
+   version, or another document starts nothing and writes nothing; the app then shows the
+   notice again. The app draws the text from the same pieces the website's reader gives, and
+   draws nothing if one piece is not known to it, so no part of a legal text can go missing
+   silently.
+3. *Business or private person (plan 46, decision 10).* A host's own statement is shown in the
+   app where the website shows it: on her page and before asking. Nothing until she has said.
+4. *An account paused by an "under 18" result (#78)* is told that it is paused at the app's
+   two ID-check addresses, and starts no check.
+5. The table for used-up keys is `drizzle/0050_spent_request_keys.sql` (the agreements took
+   0049 first, as the two sessions had agreed).
+
+**Not walked on the test phone, said plainly:** points 2 and 3 were added after the walk. They
+are covered by the check script (144 checks) and the app's own tests, and they are on the list
+for the walk of the whole journey (part 20).
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *The consent was put too late and the card's lifetime was wrong.* The box is ticked before

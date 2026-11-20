@@ -13,7 +13,7 @@ import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST, whatIsAskedFo
 import { gatherRequest } from "@/lib/booking/request-page";
 import { cardDeadlineWords, endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
 import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS, newRequestKey } from "@/lib/booking/rules";
-import { publicProfile } from "@/lib/profiles/profiles";
+import { publicProfile, sellerLine } from "@/lib/profiles/profiles";
 import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
 
 /** How often the app asks again about a request that waits for the host's answer, or for a month's payment. */
@@ -43,6 +43,7 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
     price: BOOK_WORDS.price(page.totalCents, offer.pricePer15Cents),
     what: whatIsAskedFor(page.paid, offer.freeCancelMinutes),
     pointsTitle: BOOK_WORDS.pointsTitle(name),
+    seller: await sellerLine(profile.userId, name),
     points: bookPoints({ hostName: name, totalCents: page.totalCents, freeCancelMinutes: offer.freeCancelMinutes, answerBy: page.answerBy, payBy: page.payBy, hostToo: page.hostToo }),
     note: { label: BOOK_WORDS.note(name), max: LIMITS.noteMax },
     cardTerms: page.paid ? cardTermsWords(page.totalCents) : null,

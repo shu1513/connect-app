@@ -234,6 +234,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
         </Card>
         <Card>
           <Heading>{was.pointsTitle}</Heading>
+          {was.seller ? <Words soft>{was.seller}</Words> : null}
           {was.points.map((point, index) => (
             <Sentence key={index} parts={point} lead="• " />
           ))}
@@ -315,6 +316,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
 
       <Card>
         <Heading>{summary.pointsTitle}</Heading>
+        {summary.seller ? <Words soft>{summary.seller}</Words> : null}
         {summary.points.map((point, index) => (
           <Sentence key={index} parts={point} lead="• " />
         ))}

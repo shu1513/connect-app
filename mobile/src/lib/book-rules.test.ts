@@ -10,6 +10,7 @@ const summary = {
   price: "$40.00 at most ($20.00 per 15 minutes)",
   what: "A private one-to-one video call.",
   pointsTitle: "Request this time, subject to Maya's approval",
+  seller: null,
   points: [[{ bold: "This is a request, not a reservation." }, " Others may ask too."], ["You will have an answer by ", { time: "2026-11-21T14:18:00.913Z" }, "."]],
   note: { label: "What would you like to talk about?", max: 300 },
   cardTerms: "I allow Connect to save my card…",
@@ -120,7 +121,13 @@ describe("what the card sheet is given", () => {
 
 describe("where an identity check stands", () => {
   it("takes the answer, and refuses one with a part missing", () => {
-    const identity = { passed: false, pending: true, title: "Confirm who you are", words: ["…"], button: "Start a new check", tries: "2 of 3 tries left", small: "…" };
+    const notice = { name: "identity-check-notice", version: "2026-11-20", title: "Identity Check Notice", href: "/identity-notice?version=2026-11-20", open: "open it on its own page", blocks: [{ t: "paragraph", c: [{ t: "text", v: "…" }] }], agree: "By pressing the button you agree." };
+    const identity = { passed: false, pending: true, title: "Confirm who you are", words: ["…"], button: "I agree, start a new check at Stripe", tries: "2 of 3 tries left", notice, small: "…" };
+    // The button is the agreement to the notice: one without the other is no answer.
+    expect(isIdentity({ ...identity, notice: null })).toBe(false);
+    expect(isIdentity({ ...identity, notice: { ...notice, blocks: [] } })).toBe(false);
+    expect(isIdentity({ ...identity, button: null, tries: null, notice: null })).toBe(true);
+    expect(isIdentity({ ...identity, button: null, tries: null, notice: "…" })).toBe(false);
     expect(isIdentity(identity)).toBe(true);
     expect(isIdentity({ ...identity, button: null, tries: null })).toBe(true);
     expect(isIdentity({ ...identity, passed: "yes" })).toBe(false);

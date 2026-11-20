@@ -8,7 +8,9 @@ import { UNREACHABLE } from "@/lib/api-rules";
 import { isIdentity, isStripeCheckPage } from "@/lib/book-rules";
 import { useWatch } from "@/lib/here";
 import { useOpening } from "@/lib/opening";
-import { BackLink, Button, Loading, Notice, Page, Problem, Title, Words } from "@/ui/pieces";
+import { openWebsite } from "@/lib/website";
+import { LegalText } from "@/ui/legal-text";
+import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Title, Words } from "@/ui/pieces";
 
 /** How long the app waits, after one answer has come, before it asks again while Stripe is still looking at a check. */
 const PENDING_SECONDS = 5;
@@ -19,6 +21,11 @@ const PENDING_SECONDS = 5;
  * the app; the app opens that page and nothing else there. Nothing of the app's sign-in goes into
  * the sheet, and nothing the sheet shows is believed: where the check stands is asked of the
  * server, for the person signed in to the app, and the server asks Stripe.
+ *
+ * Above the button stands the Identity Check Notice, in full, as on the website
+ * (plans/46-agreements-live.md, decision 9). Pressing the button is the person's agreement to it:
+ * the app says which version it showed, and the server writes that down before Stripe is asked for
+ * anything. If the notice has changed meanwhile, nothing is started and the new one is shown.
  */
 export default function IdentityScreen() {
   const { refresh: askOpening } = useOpening();
@@ -98,12 +105,14 @@ export default function IdentityScreen() {
 
   /** Asks the server to start a check, and opens Stripe's page for it in the browser sheet. */
   async function start() {
-    if (busy.current) return;
+    // The notice on the screen at this press is the one agreed to. Without one there is nothing to press.
+    const notice = state?.notice;
+    if (busy.current || !notice) return;
     busy.current = true;
     const still = watch();
     setStarting(true);
     setSaid(null);
-    const answer = await ask<AppIdentityStart>("/api/app/identity/start", { body: {} });
+    const answer = await ask<AppIdentityStart>("/api/app/identity/start", { body: { agreements: [{ name: notice.name, version: notice.version }] } });
     if (answer.ok && isStripeCheckPage(answer.data.url)) {
       // Only Stripe's own page is ever opened here, whatever the answer says. And only on the screen it was asked
       // from, for the person who asked: an answer that comes after they have left this screen, or after somebody
@@ -132,8 +141,16 @@ export default function IdentityScreen() {
       {state.words.map((words, index) => (
         <Words key={index}>{words}</Words>
       ))}
+      {state.button && state.notice ? (
+        <Card>
+          <Heading>{state.notice.title}</Heading>
+          <TextLink label={state.notice.open} onPress={() => void openWebsite(state.notice!.href)} />
+          <LegalText blocks={state.notice.blocks} />
+        </Card>
+      ) : null}
+      {state.button && state.notice ? <Words>{state.notice.agree}</Words> : null}
       {said ? <Notice>{said}</Notice> : null}
-      {state.button ? <Button label={state.button} busy={starting} onPress={() => void start()} /> : null}
+      {state.button && state.notice ? <Button label={state.button} busy={starting} onPress={() => void start()} /> : null}
       {state.tries ? <Words soft>{state.tries}</Words> : null}
       {state.passed ? <Button label="Continue" onPress={back} /> : null}
       <Words soft>{state.small}</Words>

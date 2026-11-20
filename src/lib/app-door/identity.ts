@@ -7,6 +7,9 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { acceptIdentityNotice, type Shown } from "@/legal/accept";
+import { parse } from "@/legal/parse";
+import { currentVersion, linkFor, textOf, versionHref } from "@/legal/registry";
 import { publicAppUrl } from "@/lib/payments/hosts";
 import { identityState, refreshIdentity, startIdentityCheck } from "@/lib/safety/identity";
 import { IDENTITY_TRIES } from "@/lib/safety/identity-rules";
@@ -31,6 +34,9 @@ export async function identityFor(person: { id: string }): Promise<AppIdentity |
   const [now] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, person.id));
   if (now?.pausedAt) return null;
   const canStart = !state.passed && state.triesLeft > 0;
+  // The Identity Check Notice in effect, in full, as the website's page shows it above its button
+  // (plans/46-agreements-live.md, decision 9). Only where a check can be started: that button is the agreement.
+  const current = canStart ? currentVersion("identity-check-notice", new Date()) : null;
   return {
     passed: state.passed,
     pending: state.pending,
@@ -38,11 +44,28 @@ export async function identityFor(person: { id: string }): Promise<AppIdentity |
     words: state.passed ? [IDENTITY_WORDS.passed] : [IDENTITY_WORDS.what, ...(state.pending ? [IDENTITY_WORDS.pending] : []), ...(state.triesLeft === 0 ? [IDENTITY_WORDS.noTries] : [])],
     button: canStart ? IDENTITY_WORDS.button(state.pending) : null,
     tries: canStart ? IDENTITY_WORDS.tries(state.triesLeft) : null,
+    notice: current
+      ? {
+          name: "identity-check-notice",
+          version: current.version,
+          title: IDENTITY_WORDS.noticeTitle(current.draft),
+          href: versionHref("identity-check-notice", current.version),
+          open: IDENTITY_WORDS.noticeOpen,
+          blocks: parse(textOf("identity-check-notice", current.version) ?? "", linkFor).blocks,
+          agree: IDENTITY_WORDS.agree,
+        }
+      : null,
     small: IDENTITY_WORDS.small,
   };
 }
 
-/** Starts a check at Stripe for this person and gives back Stripe's page. Throws IdentityError with the sentence to show. */
-export async function startIdentityFor(person: { id: string; email: string }): Promise<string> {
-  return startIdentityCheck(person, `${publicAppUrl()}${IDENTITY_DONE_PATH}`);
+/**
+ * Starts a check at Stripe for this person and gives back Stripe's page. As on the website: the person's
+ * agreement to the Identity Check Notice is written down first, in the version the app showed, and only then is
+ * Stripe asked for a check. Throws AgreementError when the notice shown is not the one in effect (nothing is
+ * written, nothing is started), and IdentityError with the sentence to show.
+ */
+export async function startIdentityFor(person: { id: string; email: string }, shown: Shown): Promise<string> {
+  const noticeVersion = await acceptIdentityNotice({ userId: person.id, shown, now: new Date() });
+  return startIdentityCheck(person, `${publicAppUrl()}${IDENTITY_DONE_PATH}`, noticeVersion);
 }

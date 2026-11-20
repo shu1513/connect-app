@@ -243,7 +243,24 @@ async function main() {
       const free = await summary(maya.handle, slot, cust.jar);
       const f = free.body?.kind === "ok" ? free.body : null;
       check("with a confirmed ID, the summary of a free call", free.reply.status === 200 && f !== null && f.title === `Ask ${maya.displayName} for a call` && f.price === "Free" && f.startsAt === slot && f.minutes === 30, JSON.stringify(free.body).slice(0, 200));
-      check("it has exactly the parts the app knows, and no account id", keys(f) === "button,cardTerms,cardTermsVersion,hostTime,idLine,kind,minutes,note,points,pointsTitle,price,requestKey,seen,startsAt,title,what" && !free.reply.text.includes(maya.id), keys(f));
+      check("it has exactly the parts the app knows, and no account id", keys(f) === "button,cardTerms,cardTermsVersion,hostTime,idLine,kind,minutes,note,points,pointsTitle,price,requestKey,seen,seller,startsAt,title,what" && !free.reply.text.includes(maya.id), keys(f));
+      // Whether she offers calls as a business or as a private person: her own statement, and nothing until she has made it (plans/46, decision 10).
+      const sellerOf = async () => {
+        const again = await summary(maya.handle, slot, cust.jar);
+        const page = await asApp(`/api/app/hosts/${maya.handle}`, { jar: cust.jar });
+        return [again.body?.kind === "ok" ? again.body.seller : "(no summary)", (page.json as AppHostPage | null)?.seller];
+      };
+      const notSaid = f?.seller;
+      await db.update(schema.hostProfiles).set({ sellerKind: "private" }).where(eq(schema.hostProfiles.userId, maya.id));
+      const asPrivate = await sellerOf();
+      await db.update(schema.hostProfiles).set({ sellerKind: "business" }).where(eq(schema.hostProfiles.userId, maya.id));
+      const asBusiness = await sellerOf();
+      await db.update(schema.hostProfiles).set({ sellerKind: null }).where(eq(schema.hostProfiles.userId, maya.id));
+      check(
+        "business or private person: nothing until the host has said, then the website's own line, before asking and on her page",
+        notSaid === null && asPrivate[0] === `${maya.displayName} offers calls as a private person, not as a business. Consumer law about buying from a business may then not apply between you and ${maya.displayName}; Connect's own terms do.` && asPrivate[1] === asPrivate[0] && asBusiness[0] === `${maya.displayName} offers calls as a business.` && asBusiness[1] === asBusiness[0],
+        JSON.stringify([notSaid, asPrivate, asBusiness]).slice(0, 300),
+      );
       check("a free call has no box about a card, and its button sends the request", f?.cardTerms === null && f.cardTermsVersion === null && f.button === "Send request" && f.seen.price === 0 && f.seen.freeCancel === 1440);
       check("it says what is asked for: a live one-to-one call that is not recorded, and a free call's own cancelling rule", f?.what === "A live, private one-to-one video call. It is not recorded. You can cancel for free any time before the call starts." && !JSON.stringify(f).includes("24 hours"), f?.what);
       check("the host's own time is written in her time zone", f?.hostTime.startsWith(`For ${maya.displayName}: `) === true && /C[SD]T$/.test(f?.hostTime ?? ""), f?.hostTime);
@@ -658,16 +675,36 @@ async function main() {
       };
       check("nobody signed in, and a browser, get nothing", refusal((await read()).reply) === "not_signed_in" && refusal(await asBrowser("/api/app/identity", { jar: fresh.jar })) === "not_the_app" && refusal(await asBrowser("/api/app/identity/start", { jar: fresh.jar, body: {} })) === "not_the_app");
       const before = await read(fresh.jar);
-      check("someone who never did it: what it is, the button, the tries", before.body?.passed === false && before.body.pending === false && before.body.title === "Confirm who you are" && before.body.words.length === 1 && before.body.words[0].startsWith("This confirms that you are a real adult.") && before.body.button === "Start the check" && before.body.tries === "3 of 3 tries left", JSON.stringify(before.body).slice(0, 200));
-      check("it has exactly the parts the app knows, and is not kept on the way", keys(before.body) === "button,passed,pending,small,title,tries,words" && String(before.reply.headers["cache-control"]).includes("no-store"));
-      const started = await asApp("/api/app/identity/start", { jar: fresh.jar, body: {} });
+      check("someone who never did it: what it is, the button, the tries", before.body?.passed === false && before.body.pending === false && before.body.title === "Confirm who you are" && before.body.words.length === 1 && before.body.words[0].startsWith("This confirms that you are a real adult.") && before.body.button === "I agree, continue to Stripe" && before.body.tries === "3 of 3 tries left", JSON.stringify(before.body).slice(0, 200));
+      // The Identity Check Notice in effect, in full, above the button (plans/46-agreements-live.md, decision 9).
+      const { currentVersion, textOf, versionHref } = await import("../src/legal/registry");
+      const due = currentVersion("identity-check-notice", new Date());
+      const notice = before.body?.notice ?? null;
+      const said = JSON.stringify(notice?.blocks ?? []);
+      const firstWords = (textOf("identity-check-notice", due.version) ?? "").split("\n").find((line) => /^[A-Za-z]/.test(line) && line.length > 40)?.slice(0, 40) ?? "(no text)";
+      check("above the button stands the notice in effect, whole, with the address of exactly that version", notice?.name === "identity-check-notice" && notice.version === due.version && notice.href === versionHref("identity-check-notice", due.version) && notice.title.startsWith("Identity Check Notice") && notice.agree.startsWith("By pressing the button you confirm that you have read this notice") && notice.blocks.length > 5 && said.includes(firstWords.replace(/\*\*/g, "").slice(0, 20)), `${notice?.version} ${notice?.blocks.length} "${firstWords}"`);
+      const agreed = [{ name: "identity-check-notice", version: due.version }];
+      const acceptedLines = () => db.select().from(schema.agreementAcceptances).where(and(eq(schema.agreementAcceptances.userId, fresh.id), eq(schema.agreementAcceptances.document, "identity-check-notice")));
+      // Pressing the button is the agreement, and the app must say which notice it showed.
+      for (const [label, body] of [
+        ["without saying which notice it showed", {}],
+        ["naming an older version of the notice", { agreements: [{ name: "identity-check-notice", version: "2020-01-01" }] }],
+        ["naming another document", { agreements: [{ name: "terms-of-service", version: due.version }] }],
+      ] as const) {
+        const tried = await asApp("/api/app/identity/start", { jar: fresh.jar, body });
+        check(`a check is not started ${label}: nothing is written, at Connect or at Stripe`, refusal(tried) === "not_valid" && sentence(tried) === "These documents have changed since this page was opened. Please read them again." && (await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, fresh.id))).length === 0 && (await acceptedLines()).length === 0, `${tried.status} ${tried.text.slice(0, 120)}`);
+      }
+      check("it has exactly the parts the app knows, and is not kept on the way", keys(before.body) === "button,notice,passed,pending,small,title,tries,words" && keys(before.body?.notice) === "agree,blocks,href,name,open,title,version" && String(before.reply.headers["cache-control"]).includes("no-store"));
+      const started = await asApp("/api/app/identity/start", { jar: fresh.jar, body: { agreements: agreed } });
       const url = (started.json as AppIdentityStart | null)?.url ?? "";
       const checks = await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, fresh.id));
       check("starting it answers with Stripe's own page, and the check is this person's", started.status === 200 && keys(started.json) === "url" && new URL(url).protocol === "https:" && new URL(url).hostname.endsWith(".stripe.com") && checks.length === 1 && checks[0].status === "started", `${started.status} ${keys(started.json)}`);
+      const lines = await acceptedLines();
+      check("the agreement to the notice is written down, once, and the check's own line keeps the notice's version", lines.length === 1 && lines[0].version === due.version && lines[0].occasion === "identity_check" && checks[0]?.noticeVersion === due.version, JSON.stringify(lines.map((l) => [l.version, l.occasion])));
       const session = await stripe().identity.verificationSessions.retrieve(checks[0].stripeSessionId);
       check("at Stripe it names this person, and nobody else", session.metadata?.userId === fresh.id);
       const during = await read(fresh.jar);
-      check("while it is open, the page says so and offers a new one", during.body?.passed === false && during.body.pending === true && during.body.words.includes("Your last check is still being looked at. This usually takes a minute or two.") && during.body.button === "Start a new check" && during.body.tries === "2 of 3 tries left");
+      check("while it is open, the page says so and offers a new one", during.body?.passed === false && during.body.pending === true && during.body.words.includes("Your last check is still being looked at. This usually takes a minute or two.") && during.body.button === "I agree, start a new check at Stripe" && during.body.tries === "2 of 3 tries left" && during.body.notice?.version === due.version);
       check("somebody else's page knows nothing of it", (await read(cust.jar)).body?.passed === true && (await read(second.jar)).body?.pending === false);
 
       // The page Stripe sends the person to: for anyone, saying nothing about anyone.
@@ -683,8 +720,8 @@ async function main() {
       // The outcomes (pretended: this tool cannot hold an ID up to a camera).
       await db.update(schema.identityChecks).set({ status: "verified", adult: true }).where(eq(schema.identityChecks.userId, fresh.id));
       const passed = await read(fresh.jar);
-      check("passed: it says so, and offers nothing more", passed.body?.passed === true && passed.body.words.length === 1 && passed.body.words[0] === "Done. Your identity is confirmed." && passed.body.button === null && passed.body.tries === null);
-      check("a check cannot be started again after passing", sentence(await asApp("/api/app/identity/start", { jar: fresh.jar, body: {} })) === "You have already passed the identity check.");
+      check("passed: it says so, and offers nothing more", passed.body?.passed === true && passed.body.words.length === 1 && passed.body.words[0] === "Done. Your identity is confirmed." && passed.body.button === null && passed.body.tries === null && passed.body.notice === null);
+      check("a check cannot be started again after passing", sentence(await asApp("/api/app/identity/start", { jar: fresh.jar, body: { agreements: agreed } })) === "You have already passed the identity check.");
       const s = await summary(maya.handle, nextFree(), fresh.jar);
       check("and the summary of a free call now opens for them", s.body?.kind === "ok");
       // Out of tries.
@@ -692,12 +729,12 @@ async function main() {
       await db.insert(schema.identityChecks).values([1, 2, 3].map((n) => ({ userId: spent.id, stripeSessionId: `vs_check_${RUN}_spent${n}`, status: "failed", checkedAt: now })));
       // (Their checks are not at Stripe, so asking Stripe about them fails, and what is known stays.)
       const out = await read(spent.jar);
-      check("out of tries: it says to write to us, and offers no button", out.body?.passed === false && out.body.button === null && out.body.tries === null && out.body.words.includes("You have used all 3 tries. Please write to us."), JSON.stringify(out.body).slice(0, 200));
-      check("and none can be started", sentence(await asApp("/api/app/identity/start", { jar: spent.jar, body: {} })) === "You have used all your tries. Please write to us.");
+      check("out of tries: it says to write to us, and offers no button", out.body?.passed === false && out.body.button === null && out.body.tries === null && out.body.notice === null && out.body.words.includes("You have used all 3 tries. Please write to us."), JSON.stringify(out.body).slice(0, 200));
+      check("and none can be started", sentence(await asApp("/api/app/identity/start", { jar: spent.jar, body: { agreements: agreed } })) === "You have used all your tries. Please write to us.");
       // A paused account (an "under 18" result pauses it) is told so, and is offered no check.
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, spent.id));
       check("a paused account is told that it is paused, not where the check stands", refusal((await read(spent.jar)).reply) === "paused");
-      check("and a paused account starts no check", refusal(await asApp("/api/app/identity/start", { jar: spent.jar, body: {} })) === "paused");
+      check("and a paused account starts no check", refusal(await asApp("/api/app/identity/start", { jar: spent.jar, body: { agreements: agreed } })) === "paused");
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, spent.id));
       // Cancel the open check at Stripe, so nothing of this run stays open there.
       await stripe().identity.verificationSessions.cancel(checks[0].stripeSessionId).catch(() => undefined);
@@ -713,6 +750,7 @@ async function main() {
     await db.delete(schema.bookingCards).where(inArray(schema.bookingCards.bookingId, bookingIds));
     await db.delete(schema.bookings).where(inArray(schema.bookings.id, bookingIds));
     await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, ids));
+    await db.delete(schema.agreementAcceptances).where(inArray(schema.agreementAcceptances.userId, ids));
     // The test customers this run made at Stripe go too (their saved cards with them).
     // One that could not be removed there is said, and counts as a failed check: its id is the way to remove it by hand.
     for (const one of await db.select().from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {

@@ -115,6 +115,10 @@ once a real person has the app. Each is looked at again here, before anything is
   reach Stripe's kit (`useCardReturns` in `mobile/src/lib/card.ts`): written, never run. And
   Stripe's own ID page inside the phone's browser sheet was not walked on Android either (the
   test phone's browser first shows Google's terms screen): walk it on both.
+- **From part 06 (after the agreements were merged):** the Identity Check Notice above the
+  button of "Confirm who you are" (its text, its link to the website, the sentence, the button
+  "I agree, continue to Stripe"), and a host's "business or private person" line on her page
+  and before asking, were added after the walk on the test phone: look at both on a phone.
 
 ## Keeping the 4.9%
 

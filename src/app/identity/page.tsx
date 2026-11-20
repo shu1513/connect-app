@@ -73,9 +73,9 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
               <input type="hidden" name="shown" value={shownValue([{ name: "identity-check-notice", version: notice1.version }])} />
               <section aria-label="Identity Check Notice" className="max-h-80 overflow-y-auto rounded border border-neutral-400 p-3" data-identity-notice={notice1.version}>
                 <p className="text-sm font-bold">
-                  Identity Check Notice{notice1.draft ? " (draft, not in force yet)" : ""}{" "}
+                  {IDENTITY_WORDS.noticeTitle(notice1.draft)}{" "}
                   <Link href={versionHref("identity-check-notice", notice1.version)} target="_blank" className="font-normal underline underline-offset-2">
-                    open it on its own page
+                    {IDENTITY_WORDS.noticeOpen}
                   </Link>
                 </p>
                 <LegalText blocks={noticeBlocks} />

@@ -238,6 +238,8 @@ export type AppHostPage = {
   /** The viewer's own following, "visitor" for someone not signed in, or null when no Follow button is shown. */
   follow: "following" | "ended" | "none" | "visitor" | null;
   price: string;
+  /** Whether she offers calls as a business or as a private person, by her own statement; null when she has not said (plans/46-agreements-live.md, decision 10). */
+  seller: string | null;
   /** What the call is, and until when it can be cancelled for free. */
   callWords: string;
   /** She only takes calls from people who have confirmed their ID. `confirmId`: this viewer has not, and is offered the check. */
@@ -305,6 +307,8 @@ export type AppBookSummary =
       /** What is being asked for: a private one-to-one video call, and until when it can be cancelled for free. */
       what: string;
       pointsTitle: string;
+      /** Whether the host offers calls as a business or as a private person, by her own statement; null when she has not said. */
+      seller: string | null;
       points: AppPart[][];
       /** The note to the host: its label, and the most it can hold. */
       note: { label: string; max: number };
@@ -366,6 +370,31 @@ export type AppBooking = {
 export type AppCardStep = { clientSecret: string; publishableKey: string; merchant: string };
 
 /** The answer of GET /api/app/identity: where the signed-in person's identity check stands. */
+/**
+ * A legal document's text in pieces, exactly as the website's own reader gives them
+ * (src/legal/parse.ts; written out here because this file imports nothing). The app draws them
+ * as the website does: headings, paragraphs, lists, tables, set-off blocks and lines; inside
+ * them plain words, bold, links (`outside`: an address outside Connect; otherwise a path of the
+ * website) and blanks that are not filled in yet.
+ */
+export type AppLegalInline = { t: "text"; v: string } | { t: "bold"; c: AppLegalInline[] } | { t: "link"; href: string; outside: boolean; c: AppLegalInline[] } | { t: "blank"; v: string };
+export type AppLegalBlock =
+  | { t: "heading"; level: 1 | 2 | 3; c: AppLegalInline[]; plain: string }
+  | { t: "paragraph"; c: AppLegalInline[] }
+  | { t: "list"; ordered: boolean; start: number; items: AppLegalInline[][] }
+  | { t: "table"; head: AppLegalInline[][]; rows: AppLegalInline[][][] }
+  | { t: "quote"; lines: AppLegalInline[][] }
+  | { t: "line" };
+
+/**
+ * The Identity Check Notice in effect, shown in full above the button that starts a check
+ * (plans/46-agreements-live.md, decision 9): pressing the button is the person's agreement to it.
+ * `href`: the path of exactly this version on the website; `agree`: the sentence above the
+ * button. The app sends `name` and `version` back when it starts a check; the server writes the
+ * agreement down first and starts nothing for a version that is no longer the one in effect.
+ */
+export type AppIdentityNotice = { name: string; version: string; title: string; href: string; open: string; blocks: AppLegalBlock[]; agree: string };
+
 export type AppIdentity = {
   passed: boolean;
   /** A check is still being looked at by Stripe. */
@@ -377,6 +406,8 @@ export type AppIdentity = {
   button: string | null;
   /** "2 of 3 tries left"; null when it does not matter. */
   tries: string | null;
+  /** The notice the button agrees to; null when no check can be started. */
+  notice: AppIdentityNotice | null;
   small: string;
 };
 

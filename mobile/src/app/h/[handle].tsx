@@ -225,6 +225,7 @@ function OneHostPage({ handle }: { handle: string }) {
 
         <Card>
           <Heading>{page.price}</Heading>
+          {page.seller ? <Words soft>{page.seller}</Words> : null}
           <Words soft>{page.callWords}</Words>
           {page.verifiedOnly ? <Words>{page.name} only takes calls from people who have confirmed their ID.</Words> : null}
           {page.confirmId && signedIn ? <Button label="Confirm who I am" kind="plain" onPress={() => router.push("/identity")} /> : null}

@@ -4375,5 +4375,11 @@ database's clock; the website's form takes no key of the app's kind. The legal c
 the card box with the 14-day sentence, what the ID check tells us): the shared files carry the
 new wording, so the website and the app say the same. A paused account is told that it is
 paused at the app's two ID-check addresses (an "under 18" result pauses the account). The new
-table comes with `drizzle/0049_spent_request_keys.sql`. `scripts/app-booking-check.ts` now has
-138 checks.
+table comes with `drizzle/0050_spent_request_keys.sql`.
+
+**Added after the agreements change (#85) merged first.** The ID check in the app now shows the
+Identity Check Notice in full above its button, as the website does; the button reads "I agree,
+continue to Stripe", the app says which version it showed, and the server writes the agreement
+down before Stripe is asked for anything (one shared function with the website). A host's
+"business or private person" line is shown in the app too: on her page and before asking.
+`scripts/app-booking-check.ts` now has 144 checks.

@@ -5,6 +5,7 @@
  * with no phone in it, so it can be tested on its own.
  */
 import type { AppBooking, AppBookSummary, AppCardStep, AppIdentity, AppPart } from "../../../src/lib/app-door/types";
+import { isIdentityNotice } from "./legal-rules";
 
 const isThing = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const isText = (value: unknown): value is string => typeof value === "string";
@@ -47,7 +48,7 @@ export function isBookSummary(data: unknown): data is AppBookSummary {
   if (data.kind === "own") return isText(data.words);
   if (data.kind === "confirm_id") return isText(data.words) && isText(data.small) && isText(data.button);
   if (data.kind !== "ok") return false;
-  if (!isMoment(data.startsAt) || !isWhole(data.minutes) || !isText(data.hostTime) || !isText(data.price) || !isText(data.what) || !isText(data.pointsTitle)) return false;
+  if (!isMoment(data.startsAt) || !isWhole(data.minutes) || !isText(data.hostTime) || !isText(data.price) || !isText(data.what) || !isText(data.pointsTitle) || !isTextOrNull(data.seller)) return false;
   if (!Array.isArray(data.points) || !data.points.every(isSentence)) return false;
   if (!isThing(data.note) || !isText(data.note.label) || !isWhole(data.note.max)) return false;
   if (!isTextOrNull(data.cardTerms) || !isTextOrNull(data.cardTermsVersion) || !isTextOrNull(data.idLine) || !isText(data.button) || !isId(data.requestKey)) return false;
@@ -83,7 +84,10 @@ export function isCardStep(data: unknown): data is AppCardStep {
 /** Whether an answer really is where an identity check stands, with the parts the screen reads. */
 export function isIdentity(data: unknown): data is AppIdentity {
   if (!isThing(data) || typeof data.passed !== "boolean" || typeof data.pending !== "boolean" || !isText(data.title) || !isText(data.small)) return false;
-  return Array.isArray(data.words) && data.words.every(isText) && isTextOrNull(data.button) && isTextOrNull(data.tries);
+  if (!Array.isArray(data.words) || !data.words.every(isText) || !isTextOrNull(data.button) || !isTextOrNull(data.tries)) return false;
+  // The button that starts a check is the agreement to the notice: a button without its notice, whole, is no answer.
+  if (data.button !== null) return isIdentityNotice(data.notice);
+  return data.notice === null || isIdentityNotice(data.notice);
 }
 
 /**
