@@ -194,6 +194,13 @@ note back in the box. Now only a plain reading of the page gives the box a new n
 answer to a step never does (it still changes the stage and what may be done at once).
 "Show the note as it is stored now" goes by that same plain reading.
 
+## Astra's fifth look at the code (20 November 2026): "ready with changes", worked in
+
+Both orders of the two answers were found fixed. One more: if the host tapped Decline while
+the page was still being read again after a refused save, that reading was overtaken and not
+made again, so "Show the note as it is stored now" had nothing new to show. A step that
+begins while such a reading is on its way now makes it again when the step is through.
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *`customerDetailsFor` cannot describe a waiting request.* Decision 1.
