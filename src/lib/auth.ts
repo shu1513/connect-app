@@ -4,11 +4,20 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { outsideLoginProblem, UNUSED_LOGIN_PATHS } from "./auth-rules";
+import { randomUUID } from "node:crypto";
+import * as z from "zod";
+import { APP_ORIGIN, isSwitchedOffLoginPath, leadsToTheWebsite, outsideLoginProblem } from "./auth-rules";
 import { sendEmailInBackground } from "./email";
+import { ownOrigins } from "./same-site";
 
 const APP_NAME = "Connect";
 const ONE_HOUR = 3600;
+/**
+ * An email address that no account has: a new one made up each time, which nobody can guess and
+ * so nobody can sign up with beforehand (and ".invalid" can never receive mail). See the sign-in
+ * of a closed account, below.
+ */
+const nobody = () => `${randomUUID()}@closed-account.invalid`;
 
 /** Google sign-in is offered only when its keys are set in .env.local. */
 export const googleSignInConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -22,6 +31,29 @@ function developmentOrigins(): string[] {
     return [];
   }
 }
+
+/**
+ * The phone app's requests (plans/45-phone-apps/01-the-door.md). An app has no web address, so its
+ * requests carry no "where from" of their own; the login tool's kit for phones sends the app's
+ * name in a header of its own instead. When a request has no "where from" and names exactly our
+ * app there, that name is taken as where it comes from, and the login tool then checks it against
+ * what it trusts like any other. A browser's own "where from" is never replaced: a browser always
+ * sends one with the requests that matter, and a page cannot change it.
+ *
+ * These few lines stand in for the server half of that kit (@better-auth/expo). The kit lists a
+ * phone's libraries as things it needs, and it also adds an address and a way of handing a login
+ * to an app link, for outside logins the app does not use. None of that belongs on the website.
+ */
+const phoneApp = {
+  id: "connect-phone-app",
+  async onRequest(request: Request) {
+    // Any "where from" that is there at all is left alone, an empty one too.
+    if (request.headers.has("origin") || request.headers.get("expo-origin") !== APP_ORIGIN) return;
+    const headers = new Headers(request.headers);
+    headers.set("origin", APP_ORIGIN);
+    return { request: new Request(request, { headers }) };
+  },
+};
 
 /**
  * Login setup.
@@ -45,7 +77,8 @@ export const auth = betterAuth({
       twoFactor: schema.twoFactor,
     },
   }),
-  trustedOrigins: developmentOrigins(),
+  // The phone app is trusted under its own name, beside the website's own addresses.
+  trustedOrigins: [...developmentOrigins(), APP_ORIGIN],
 
   emailAndPassword: {
     enabled: true,
@@ -164,7 +197,32 @@ export const auth = betterAuth({
     // Changing the password always logs out every other device, whatever the browser sends.
     before: createAuthMiddleware(async (ctx) => {
       // Parts of the login tool this app does not use are switched off.
-      if (UNUSED_LOGIN_PATHS.some((path) => ctx.path === path || ctx.path.startsWith(`${path}/`))) throw new APIError("NOT_FOUND");
+      if (isSwitchedOffLoginPath(ctx.path)) throw new APIError("NOT_FOUND");
+      // Wherever the login tool is asked to send someone on to, it must be the website: when an email
+      // is asked for, and again when its link is opened. (See leadsToTheWebsite: trusting the phone
+      // app's name must not let a confirmation or reset link lead into an app.)
+      // (One that is left out, or empty, is the login tool's own default: the website's front page.)
+      const destinations = [ctx.body?.callbackURL, ctx.body?.redirectTo, ctx.body?.errorCallbackURL, ctx.body?.newUserCallbackURL, ctx.query?.callbackURL];
+      const own = ownOrigins();
+      if (destinations.some((destination) => destination !== undefined && destination !== null && destination !== "" && !leadsToTheWebsite(destination, own))) {
+        throw new APIError("FORBIDDEN", { message: "Invalid callbackURL" });
+      }
+      // A closed account must not be told apart from a wrong password, by anything in the answer.
+      // Left to itself the login tool checks the password first and only then fails to make the
+      // login, with an answer of its own ("failed to create session"), and for an account that
+      // never confirmed its email it would even send the confirmation again. So a sign-in for a
+      // closed account is handed on as a sign-in for an address nobody has: the login tool then
+      // gives its ordinary "invalid email or password", after the same work as for any stranger.
+      // Only for something the login tool itself takes for an email address, judged by its own rule.
+      // Anything else is left to it, and it turns that away as "not an email address" for everyone
+      // alike. (Looked up here, an address it would refuse could still find a closed account: one
+      // with an unusual letter that becomes a plain one in lower case, or one an outside login
+      // once supplied in a form the login tool does not accept. It would then answer differently
+      // from an open one.)
+      if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string" && z.email().safeParse(ctx.body.email).success) {
+        const [account] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.email, ctx.body.email.toLowerCase()));
+        if (account?.closedAt) return { context: { ...ctx, body: { ...ctx.body, email: nobody() } } };
+      }
       if (ctx.path === "/change-password") {
         return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };
       }
@@ -179,6 +237,7 @@ export const auth = betterAuth({
     // The second login step: a 6-digit code from an authenticator app. "Trust this device" is off,
     // so the code is asked for at every login.
     twoFactor({ issuer: "Connect", trustDeviceMaxAge: 0 }),
+    phoneApp,
   ],
 
   // Problems during Google sign-in come back to the login page, which explains them.
