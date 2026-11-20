@@ -7,7 +7,7 @@ answered that day. It is a small change, so the plan and the code are in one pul
 ## For the founder: what this is
 
 Every host can charge at most $1,000 per 15 minutes. That stays. New: on the admin page "Hosts
-and accounts" you can let **one host at a time** charge more, up to **$2,500 per 15 minutes**,
+and accounts" you can let **a host you pick** charge more, up to **$2,500 per 15 minutes**,
 and take that away again. No host can do this for themselves.
 
 ## What the founder said (20 November 2026)
@@ -81,8 +81,8 @@ pick and the reason.
 
 ## The changes
 
-- `src/db/schema.ts`, `drizzle/0052_top_price.sql`: the field and the database's own check.
-  (Numbers 0050 and 0051 are left for the two other branches that were open that day.)
+- `src/db/schema.ts`, `drizzle/0051_top_price.sql`: the field and the database's own check.
+  (Made again as 0051 after main took 0050.)
 - `src/lib/payments/pricing.ts`: the two limits, `topPriceOf`, `topPriceProblem`, and
   `hostPriceProblem` now also refuses a price above the host's top price.
 - `src/lib/profiles/profiles.ts`: the two checks use it; `setTopPrice`, the founder's step.

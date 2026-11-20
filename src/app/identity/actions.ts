@@ -6,6 +6,7 @@ import { withNotice } from "@/lib/notice";
 import { publicAppUrl } from "@/lib/payments/hosts";
 import { returnPath } from "@/lib/safe-next";
 import { IdentityError, startIdentityCheck } from "@/lib/safety/identity";
+import { IDENTITY_WORDS } from "@/lib/safety/identity-words";
 import { requireUser } from "@/lib/session";
 
 /**
@@ -25,7 +26,7 @@ export async function startIdentity(formData: FormData) {
     url = await startIdentityCheck(user, `${publicAppUrl()}/identity/return${carry}`, noticeVersion);
   } catch (error) {
     const known = error instanceof IdentityError || error instanceof AgreementError;
-    const message = known ? error.message : "The check could not be started. Please try again.";
+    const message = known ? error.message : IDENTITY_WORDS.notStarted;
     if (!known) console.error("[identity] could not start", error);
     redirect(withNotice(`/identity${carry}`, message));
   }

@@ -4315,6 +4315,115 @@ the clock instead.
 **After this merges, every open branch needs `npm run seed` once**: the seeded test accounts hold
 the old stamp, and the app would send them to the last step of sign-up.
 
+## Phone apps, part 06: asking for a call, saving a card, the ID check (plan 45)
+
+**What was built.**
+- *One gathering and one set of sentences, for the website and the app.* The booking page, a
+  request's page and the ID check now take what they show, and their sentences, from shared
+  files. The website's three pages were moved onto them, word for word as before.
+- *The app's addresses:* the summary before sending; send; the request's page; the card step
+  (what Stripe's sheet needs); "the card is saved" (the server asks Stripe); take back; where
+  the ID check stands; start it.
+- *The screens:* what is read before asking (with the box about the card for a paid call), the
+  request with Stripe's own card sheet, taking it back, and "Confirm who you are". Choosing a
+  time on a host's page now leads on. A visitor who picks a time signs in and is taken back to
+  that host. "Your requests" on the home page open the request.
+- *One new page on the website:* `/identity/done`, where Stripe sends someone who did the ID
+  check from the app. It needs no sign-in, shows nothing about anyone, and changes nothing.
+
+**What the building changed.** Nine things, listed in the plan. The main ones: the once-only
+key is made by the server (as the website's page makes it); Stripe's key for the sheet comes
+from the server; only the customer's side of a request is answered (the host's side is part 07).
+
+**How it was checked.** `scripts/app-booking-check.ts`, 116 checks, with test cards saved at
+Stripe (test mode). The earlier checks of the app's addresses pass unchanged (119, 75, 73), and
+the website's unit tests (753). On the Android test phone, with pictures: a paid request with a
+refused card, a card needing the bank's approval, the app closed in the middle of that approval
+and opened again, taking a request back, the ID check's start and return, a free request.
+
+The website's own `booking-check` (144), `verified-check` (30), `payments-check` (77) and `safety-check` (60) pass on the scratch database.
+
+**What the reviewers found.** *Astra, on the code ("not ready", thirteen points, all taken):* a tick of the card box could outlive a change of price; an answer arriving late could act for someone who had left the screen; paid requests at the card step were not counted by any limit (now 5 at a time, 20 a day, on the website too); an older reading could put back what a step had changed; the 30 minutes for the card were not enforced until the helper came by (now they are, on the website too); and smaller ones, listed in the plan.
+
+**Not tried here:** Stripe's own ID page inside the phone's browser sheet (the test phone's
+browser first shows Google's terms screen, which is the founder's to press); a real pass of the
+ID check (needs `STRIPE_IDENTITY_KEY`, not set on this Mac); the iPhone.
+
+**For the founder.** Every start of an ID check uses one of the three tries, also when the
+person closes Stripe's page without finishing (the website's rule too). Two new limits with
+the builder's numbers, on the website too: at most 5 paid requests standing at the card step
+at one time, and 20 paid requests started in 24 hours (`src/lib/booking/rules.ts`).
+
+**Added after Astra's eighth look.** A "no" for good uses the request's once-only key up
+(new table `spent_request_keys`), so a first sending held up on its way can never make a
+request after the app was told none was made. The wait limit for a key is for the app only;
+the website waits as before, and opens a request that was written down before a failure
+instead of saying nothing was sent. `scripts/app-booking-check.ts` now has 136 checks.
+
+**Added after Astra's ninth look.** The website no longer says "nothing was sent" when it
+cannot tell; a paid request without its card step gets one when its page is opened; used-up
+keys are kept for a day and limited to 200 a person.
+
+**Added after Astra's tenth look.** A key for the app carries the moment it was made and
+makes a request for half a day; a used-up key is remembered for a day, so a forgotten "no"
+can never come back to life.
+
+**Added after Astra's eleventh look ("ready with changes") and the move onto the newer main.**
+A used-up key is kept for as long as it could still make a request; the day is counted by the
+database's clock; the website's form takes no key of the app's kind. The legal change of
+20 November (#78, #80) changed three sentences this part had moved into shared files (the note,
+the card box with the 14-day sentence, what the ID check tells us): the shared files carry the
+new wording, so the website and the app say the same. A paused account is told that it is
+paused at the app's two ID-check addresses (an "under 18" result pauses the account). The new
+table comes with `drizzle/0050_spent_request_keys.sql`.
+
+**Added after the agreements change (#85) merged first.** The ID check in the app now shows the
+Identity Check Notice in full above its button, as the website does; the button reads "I agree,
+continue to Stripe", the app says which version it showed, and the server writes the agreement
+down before Stripe is asked for anything (one shared function with the website). A host's
+"business or private person" line is shown in the app too: on her page and before asking.
+`scripts/app-booking-check.ts` now has 144 checks.
+
+## A yearly statement for hosts (plan 46, part 5, 20 November 2026)
+
+**Why.** The founder, after the research on tax forms (`docs/research/tax-forms-for-hosts.md`):
+"we can build an automated system according to these laws to give these 1099 as a downloadable
+form, like uber/lyft/airbnb right?" The official form comes from Stripe's own tool on the
+company's account, and needs no code. What a host can use from Connect today is a clear summary
+of her year, and that is this part.
+
+**What was built.** On her Hosting page every host has a link, "Your yearly statement". The page
+(`/host/statement`) shows one calendar year month by month and in total: paid by customers,
+given back, Connect's fees, payment fees on tips, her share, sent to her, collection charges;
+then what customers paid for (calls, membership months, contributions, tips) and what each
+column means. A refund Connect paid itself, because she had already collected, is shown beside
+the refunds. It is made for printing, and the same numbers come as a file for a spreadsheet
+(`/host/statement/csv`). It says at the top that it is a summary for her own records and not a
+tax form, that amounts are in US dollars, and that each is counted in the month it was written
+into the books, in UTC. Made from the books the app already keeps; no new table, no migration.
+
+**The builder's own choices:** UTC and the day of the books (the plan says why); disputes are
+left out and the page says so; two columns more than the plan listed (her share, collection
+charges); the page opens on last year.
+
+**What the reviewer found.** Astra said to hold it for one point: the five questions to the
+books could each see a different moment. They are now asked in one read-only step that holds its
+first look. Also taken: a column for the part of a refund Connect paid itself, the breakdown in
+the file, and stronger checks. The list is in the plan.
+
+**How it was checked.** 10 tests of the sums (a refund in the next year, midnight at New Year, a
+tip with its fee, a member's month and its unused time, a refund Connect paid, the months add up
+to the year, the file, the year asked for). A new real check, `scripts/statement-check.ts`, 15
+checks: it writes a call paid by card and collected, one whose first collection was refused, a
+payment a second before New Year refunded at midnight, a member's month with one call and unused
+time, a tip, a contribution refunded after collection, and another host's call, and reads the
+statement and the file back to the cent. In a browser as the test host: the page with her real test numbers
+(paid less given back was exactly fees plus her share), the file, and "not found" for a year
+before her profile and for two years at once. The test host was put back as she was.
+
+**What cannot be tested here.** A host with real bank disputes, and a host paid in another
+currency, who sees US dollars here and her own money at her bank.
+
 ## A later change: a higher top price for one host (plan 48, 20 November 2026)
 
 **What the founder decided.** Asked whether $1,000 per 15 minutes is too low for a very big
@@ -4353,8 +4462,25 @@ amount. The Host Agreement names only a lowest price; whether it must name a hig
 Connect's right to lower a price, is a point for the lawyer (`docs/for-the-lawyer.md`, section
 17).
 
-**How it was checked.** Type check, lint and the automatic tests (813, 11 of them new) pass. A
-new check script, `scripts/top-price-check.ts` (39 checks), goes through the app's own
+**What the reviewer found.** *Astra* (gpt-6.2-astra, the code and the plan together, one
+round): "ready with changes". It found no way for a host to get a price above her limit, to
+give herself a top price, or to make a month above $400,000, and no unsafe sum. Taken: the
+founder's step now locks the person before the profile (it could have waited for ever against a
+host answering the Host Agreement box at the same moment); the founder is told when no email
+went out because the account is closed; the typed amount is read by the app's one strict reader
+of dollars and cents, in a plain text field ("$2,000" is read, "20,00" is refused); the refusal
+speaks of "a member price" and not of "members"; the host's email no longer promises "any
+price up to"; the migration was made again on top of main as number 0051. Not taken: the check
+script removes every "topprice-" account, not only its own run's, as the other check scripts
+do; two runs at once on one database are already ruled out. Astra also asked whether "one
+host" means one at a time across Connect: it does not, several hosts can each have a top price
+of their own.
+
+**How it was checked.** Type check, lint and the automatic tests (826 after merging main, 11
+of them new) pass. The browser try below was made before Astra's changes; after them the check
+script was run again (42 checks, on a fresh database built from all migrations), but the
+founder's form was not tried in a browser again, because the session ran out of time. A
+new check script, `scripts/top-price-check.ts` (42 checks), goes through the app's own
 functions on a real database: the limit for everyone, a raise for one host, the other host
 still refused, the founder's record, the lowering with its email, the member price that stops
 a lowering, taking it away, and the database refusing a wrong value. It ran on a test database

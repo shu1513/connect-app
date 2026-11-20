@@ -1,7 +1,6 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
+import { shownFrom } from "@/lib/app-door/shown";
 import type { AppWelcome, AppWelcomeDone } from "@/lib/app-door/types";
-import { type Shown } from "@/legal/accept";
-import { isDocumentName } from "@/legal/versions";
 import { timeZones } from "@/lib/time-zones";
 import { acceptedBefore, finishSigningUp, WELCOME_PROBLEMS, welcomeAgreements } from "@/lib/welcome";
 
@@ -21,18 +20,6 @@ export async function GET(request: Request) {
   const agreements = welcomeAgreements(new Date()).map(({ name, title, version, href }) => ({ name, title, version, href }));
   const body: AppWelcome = { done: person.welcomed, returning: await acceptedBefore(person.id), agreements, timeZone: person.timeZone, timeZones: timeZones() };
   return answer(body);
-}
-
-/** What the app says it showed: `agreements: [{ name, version }, ...]`, as GET gave them. Anything else is read as nothing shown. */
-function shownFrom(sent: unknown): Shown {
-  const shown: Shown = {};
-  if (!Array.isArray(sent)) return shown;
-  for (const one of sent) {
-    if (one === null || typeof one !== "object") continue;
-    const { name, version } = one as { name?: unknown; version?: unknown };
-    if (typeof name === "string" && typeof version === "string" && isDocumentName(name)) shown[name] = version;
-  }
-  return shown;
 }
 
 /**

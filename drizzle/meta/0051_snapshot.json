@@ -1,6 +1,6 @@
 {
-  "id": "5ad15724-0acd-4b3c-a8f4-5259754cba92",
-  "prevId": "3a8f7fcc-6b56-4781-b027-0957ac4a095d",
+  "id": "50c01e20-8038-43d4-9120-60997f7f37a8",
+  "prevId": "7154a738-6527-42e9-a6a9-e0f77bc6dae3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8385,6 +8385,60 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.spent_request_keys": {
+      "name": "spent_request_keys",
+      "schema": "",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_key": {
+          "name": "request_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "spent_request_keys_customer_id_user_id_fk": {
+          "name": "spent_request_keys_customer_id_user_id_fk",
+          "tableFrom": "spent_request_keys",
+          "tableTo": "user",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "spent_request_keys_customer_id_request_key_pk": {
+          "name": "spent_request_keys_customer_id_request_key_pk",
+          "columns": [
+            "customer_id",
+            "request_key"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

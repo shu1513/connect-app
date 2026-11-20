@@ -29,7 +29,7 @@ export function isSearch(data: unknown): data is AppSearch {
 export function isHostPage(data: unknown): data is AppHostPage {
   if (!isThing(data) || !isText(data.handle) || !isText(data.name) || !isText(data.about) || !isTextOrNull(data.photoId) || !isRating(data.rating)) return false;
   if (!Array.isArray(data.languages) || !data.languages.every(isText) || !isListOf(data.socials, (social) => isText(social.label) && isText(social.name) && isText(social.url))) return false;
-  if (typeof data.own !== "boolean" || !isTextOrNull(data.shareUrl) || !isText(data.price) || !isText(data.callWords) || typeof data.verifiedOnly !== "boolean" || typeof data.confirmId !== "boolean") return false;
+  if (typeof data.own !== "boolean" || !isTextOrNull(data.shareUrl) || !isText(data.price) || !isTextOrNull(data.seller) || !isText(data.callWords) || typeof data.verifiedOnly !== "boolean" || typeof data.confirmId !== "boolean") return false;
   if (data.follow !== null && data.follow !== "following" && data.follow !== "ended" && data.follow !== "none" && data.follow !== "visitor") return false;
   if (data.now !== null && !(isThing(data.now) && isLengths(data.now.lengths) && typeof data.now.answerMinutes === "number" && typeof data.now.paid === "boolean" && typeof data.now.freshSeconds === "number")) return false;
   const ask = data.ask;

@@ -21,6 +21,7 @@ const page: AppHostPage = {
   shareUrl: "https://connect.example/h/maya",
   follow: "none",
   price: "$25.00 per 15 minutes",
+  seller: null,
   callWords: "A private one-to-one video call. Free to cancel any time before the call starts.",
   verifiedOnly: false,
   confirmId: false,

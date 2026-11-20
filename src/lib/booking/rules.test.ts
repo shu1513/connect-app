@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AFTER_CALL_MINUTES, BREAK_CHOICES_MINUTES, takenUntil, answerDeadline, canMoveBooking, cardReminderDue, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
+import { isUuid, newRequestKey, REQUEST_KEY_LIFE_MS, requestKeyLives, requestKeyMadeAt, AFTER_CALL_MINUTES, BREAK_CHOICES_MINUTES, takenUntil, answerDeadline, canMoveBooking, cardReminderDue, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
 
 const S = new Date("2026-11-10T20:00:00Z");
 const hoursBefore = (date: Date, hours: number) => new Date(date.getTime() - hours * 3_600_000);
@@ -181,5 +181,27 @@ describe("the time kept free after every call (plans/42)", () => {
   it("is the shortest break a host can choose: 1 minute is no longer offered", () => {
     expect([...BREAK_CHOICES_MINUTES]).toEqual([2, 5, 10, 15, 30]);
     expect(Math.min(...BREAK_CHOICES_MINUTES)).toBe(AFTER_CALL_MINUTES);
+  });
+});
+
+describe("a once-only key for the phone app", () => {
+  const made = new Date("2026-11-20T12:34:56.789Z");
+  it("is an id like any other, carries the moment it was made, and is never the same twice", () => {
+    const key = newRequestKey(made);
+    expect(isUuid(key)).toBe(true);
+    expect(requestKeyMadeAt(key)).toEqual(made);
+    expect(newRequestKey(made)).not.toBe(key);
+  });
+  it("makes a request for half a day and no longer", () => {
+    const key = newRequestKey(made);
+    expect(requestKeyLives(key, made)).toBe(true);
+    expect(requestKeyLives(key, new Date(made.getTime() + REQUEST_KEY_LIFE_MS))).toBe(true);
+    expect(requestKeyLives(key, new Date(made.getTime() + REQUEST_KEY_LIFE_MS + 1))).toBe(false);
+  });
+  it("a key from the future, a key of another kind, and something that is no key do not", () => {
+    expect(requestKeyLives(newRequestKey(new Date(made.getTime() + 3_600_000)), made)).toBe(false);
+    expect(requestKeyMadeAt("3f2c1b7a-9d4e-4f6a-8b1c-2d3e4f5a6b7c")).toBeNull();
+    expect(requestKeyLives("3f2c1b7a-9d4e-4f6a-8b1c-2d3e4f5a6b7c", made)).toBe(false);
+    expect(requestKeyLives("again", made)).toBe(false);
   });
 });
