@@ -17,6 +17,20 @@ export const WAITING_WORDS = {
   idConfirmed: "ID confirmed",
   accept: "Accept",
   decline: "Decline",
+  /** The phone app asks once more before it accepts: a touch by mistake would make a commitment. The moment stands between the two. */
+  acceptSureBefore: (minutes: number) => `Accept a ${minutes}-minute call on `,
+  acceptSureAfter: (price: string) => (price === "free" ? ", for free?" : ` for ${price}?`),
+  acceptYes: "Accept",
+  acceptNo: "Not now",
+  /** A call asked for right away is answered where such calls arrive. */
+  nowElsewhere: "A request for a call right now is answered on your Available now page.",
+  theirNote: "Their note",
+  /** The host's own notepad about a customer. */
+  noteTitle: (name: string) => `About ${name}`,
+  noteHint: "Your private notes. Only you can see them.",
+  noteSave: "Save",
+  noteSaved: "Saved.",
+  noteNotSaved: "Nothing was saved. What you typed is still in the box.",
   accepted: "Accepted. The call is booked, and anyone else who asked for that time has been told.",
   declined: "Declined. The customer has been told.",
 } as const;

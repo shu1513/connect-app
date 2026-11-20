@@ -329,11 +329,13 @@ export type AppBookSummary =
 export type AppBookSent = { id: string };
 
 /**
- * The answer of GET /api/app/bookings/[id]: one request for a call, for the customer who made it.
- * (The host's side of a request comes with the screens for answering one.)
+ * The answer of GET /api/app/bookings/[id]: one request for a call, for the customer who made it
+ * or the host it was sent to. What only one of the two may see is filled only for that one.
  */
 export type AppBooking = {
   id: string;
+  /** Which of the request's two people is reading it. */
+  role: "customer" | "host";
   title: string;
   /** The host's page, to look for another time. */
   hostHandle: string | null;
@@ -344,8 +346,8 @@ export type AppBooking = {
   startsAt: string;
   minutes: number;
   price: { label: string; words: string };
-  /** While it waits for the host: by when the answer comes. */
-  hearBy: string | null;
+  /** While it waits for the host: by when the answer comes, with its label ("You will hear by", "Answer by"). */
+  hearBy: { label: string; at: string } | null;
   /**
    * At the card step: the words about the card and by when it must be entered, and what to say when the
    * card sheet was closed and the request is still not sent (closed without a card, a card that was not
@@ -360,11 +362,36 @@ export type AppBooking = {
   takeBackSure: { words: string; yes: string; no: string } | null;
   /** The call, once there is one. */
   call: { id: string } | null;
+  /**
+   * Only for the host: what she may know about the person asking, her own note, and how she answers.
+   * For a customer whose account is closed, or across a block, only the name is filled.
+   */
+  host: {
+    customerName: string;
+    photoId: string | null;
+    known: boolean;
+    rating: { average: number; count: number } | null;
+    /** What to say when there is no rating to show; null when nothing may be said about them. */
+    ratingWords: string | null;
+    /** Only a yes or no. */
+    idConfirmed: boolean;
+    /** What they wrote when asking, with its label; null when they wrote nothing, or it may not be shown. */
+    words: { label: string; text: string } | null;
+    /** Her private notepad about this customer; null when she may not keep one about them. */
+    note: { title: string; hint: string; text: string | null; max: number; save: string; notSaved: string } | null;
+    /** Accepting and declining; null once the request no longer waits. "now": answered where such calls arrive, not here. */
+    answer: { kind: "booked" | "now"; accept: string; decline: string; sure: AppPart[]; yes: string; no: string; elsewhere: string | null } | null;
+  } | null;
+  /** Blocking the other person, for either of the two, once the request was sent: the button, and the question to ask first. */
+  block: { label: string; sure: string; yes: string; no: string } | null;
   /** While the request can still change by itself: how often the app asks again. */
   refreshSeconds: number | null;
   /** What was just done, in the answer to a step ("Your request was taken back…"); null otherwise. */
   notice: string | null;
 };
+
+/** The answer of POST /api/app/bookings/[id]/note: the host's note as it is now stored (null: there is none), and "Saved." */
+export type AppNoteSaved = { text: string | null; words: string };
 
 /** The answer of POST /api/app/bookings/[id]/card: what Stripe's card sheet needs. Nothing is held or charged by it. */
 export type AppCardStep = { clientSecret: string; publishableKey: string; merchant: string };

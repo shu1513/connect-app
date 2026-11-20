@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { withNotice } from "@/lib/notice";
 import { safeNext } from "@/lib/safe-next";
+import { BLOCK_WORDS } from "@/lib/safety/block-words";
 import { block, BlockError, unblock } from "@/lib/safety/blocks";
 import { createReport, ReportError } from "@/lib/safety/reports";
 import { requireUser } from "@/lib/session";
@@ -38,12 +39,12 @@ export async function blockAction(formData: FormData) {
   const user = await requireUser();
   const blockedId = String(formData.get("userId") ?? "");
   const back = String(formData.get("back") ?? "/account");
-  let notice = "Blocked. They cannot ask you for calls any more, and any requests or future calls between you have ended.";
+  let notice: string = BLOCK_WORDS.done;
   try {
     const { callsNotCancelled } = await block({ blockerId: user.id, blockedId, now: new Date() });
-    if (callsNotCancelled > 0) notice = `Blocked. ${callsNotCancelled} future ${callsNotCancelled === 1 ? "call" : "calls"} between you could not be cancelled just now; please cancel ${callsNotCancelled === 1 ? "it" : "them"} from your calls page, or try again in a minute.`;
+    if (callsNotCancelled > 0) notice = BLOCK_WORDS.notCancelled(callsNotCancelled);
   } catch (error) {
-    notice = error instanceof BlockError ? error.message : "Something went wrong. Please try again.";
+    notice = error instanceof BlockError ? error.message : BLOCK_WORDS.wrong;
   }
   redirect(withNotice(back === "/" ? "/account" : safeNext(back), notice));
 }
