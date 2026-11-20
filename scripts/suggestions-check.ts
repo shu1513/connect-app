@@ -49,7 +49,8 @@ async function main() {
 
   async function person(name: string, extra: Partial<typeof schema.user.$inferInsert> = {}) {
     const id = `sg-${RUN}-${name}`;
-    await db.insert(schema.user).values({ id, name: `Person ${name} ${RUN}`, email: `suggestcheck-${RUN}-${name}@example.test`, emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: TERMS_VERSION, timeZone: "America/New_York", ...extra });
+    // Everyone here has had their account for a month, unless a check says otherwise: an account counts as a person behind a host only once it is at least three days old.
+    await db.insert(schema.user).values({ id, name: `Person ${name} ${RUN}`, email: `suggestcheck-${RUN}-${name}@example.test`, emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: TERMS_VERSION, timeZone: "America/New_York", createdAt: new Date(now.getTime() - 30 * DAY), ...extra });
     made.push(id);
     return { id, name: `Person ${name} ${RUN}` };
   }
@@ -118,7 +119,7 @@ async function main() {
     await follow(ben.id, emma.id);
     const trio = [david, emma, frank];
     {
-      const people = await S.peopleBehind(viewer.id, trio.map((h) => h.id));
+      const people = await S.peopleBehind(viewer.id, trio.map((h) => h.id), new Date());
       check("two people pointing at a host are counted as two, which is below the bar", people.get(david.id) === 2 && people.get(emma.id) === 1 && !people.has(frank.id), JSON.stringify([...people]));
       // Someone for whom Emma comes before David whenever the two have equal points.
       const tied = await personPreferring("tie", emma, david);
@@ -126,7 +127,7 @@ async function main() {
       let result = await suggest(tied.id, trio);
       check("with two people behind David he gets nothing from them: he and Emma have equal points, so the day's own order decides, and it puts Emma first", result.hosts.join() === [frank.id, emma.id, david.id].join(), result.hosts.join());
       await follow(dan.id, david.id);
-      check("a third person brings the number to three", (await S.peopleBehind(viewer.id, trio.map((h) => h.id))).get(david.id) === 3);
+      check("a third person brings the number to three", (await S.peopleBehind(viewer.id, trio.map((h) => h.id), new Date())).get(david.id) === 3);
       result = await suggest(tied.id, trio);
       check("now the points decide, for the same person on the same day: David comes before Emma", result.hosts.join() === [frank.id, david.id, emma.id].join(), result.hosts.join());
       result = await suggest(viewer.id, trio);
@@ -140,7 +141,7 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log("\n2. Who counts as a person behind a host");
     {
-      const count = async () => (await S.peopleBehind(viewer.id, [david.id])).get(david.id) ?? 0;
+      const count = async () => (await S.peopleBehind(viewer.id, [david.id], new Date())).get(david.id) ?? 0;
       const zed = await host("zed");
       await follow(viewer.id, zed.id);
       await follow(ben.id, zed.id);
@@ -175,10 +176,27 @@ async function main() {
       check("a followed host whose page is hidden is not one of 'your hosts': only Ben, through the other shared host, is left", (await count()) === 1);
       await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, anna.id));
       await follow(viewer.id, emma.id);
-      check("the viewer themselves is never one of the people behind a host", (await S.peopleBehind(viewer.id, [emma.id])).get(emma.id) === 1);
+      check("the viewer themselves is never one of the people behind a host", (await S.peopleBehind(viewer.id, [emma.id], new Date())).get(emma.id) === 1);
       await db.delete(schema.follows).where(and(eq(schema.follows.followerId, viewer.id), eq(schema.follows.hostId, emma.id)));
+      // An account made to supply one of the three people oneself counts for nothing at first.
+      const fresh = await person("fresh", { createdAt: new Date() });
+      await follow(fresh.id, anna.id);
+      await follow(fresh.id, david.id);
+      const aged = (ms: number) => db.update(schema.user).set({ createdAt: new Date(Date.now() - ms) }).where(eq(schema.user.id, fresh.id));
+      check("a person whose account was made today does not count", (await count()) === 4);
+      await aged(SUGGEST.minAccountDays * DAY - 5 * MINUTE);
+      check(`nor one whose account is a little under ${SUGGEST.minAccountDays} days old`, (await count()) === 4);
+      await aged(SUGGEST.minAccountDays * DAY + 5 * MINUTE);
+      check(`from ${SUGGEST.minAccountDays} days on they count like anyone else`, (await count()) === 5);
+      // To the moment: asked with a fixed clock, exactly so many days after the account was made, and one millisecond before.
+      const madeAt = new Date(Date.now() - 10 * DAY);
+      await db.update(schema.user).set({ createdAt: madeAt }).where(eq(schema.user.id, fresh.id));
+      const at = async (moment: number) => (await S.peopleBehind(viewer.id, [david.id], new Date(moment))).get(david.id) ?? 0;
+      const turns = madeAt.getTime() + SUGGEST.minAccountDays * DAY;
+      check(`exactly ${SUGGEST.minAccountDays} days after the account was made it counts, a moment before it does not`, (await at(turns)) === 5 && (await at(turns - 1)) === 4, `${await at(turns - 1)} then ${await at(turns)}`);
+      await db.update(schema.follows).set({ unfollowedAt: now }).where(and(eq(schema.follows.followerId, fresh.id), eq(schema.follows.hostId, david.id)));
       const loner = await person("loner");
-      check("someone who follows nobody has nobody behind any host", (await S.peopleBehind(loner.id, [david.id, emma.id])).size === 0);
+      check("someone who follows nobody has nobody behind any host", (await S.peopleBehind(loner.id, [david.id, emma.id], new Date())).size === 0);
     }
 
     // ----------------------------------------------------------------------

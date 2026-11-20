@@ -58,6 +58,8 @@ with you. I would build this idea from day one."
    - Each person counts once for a host, however often they called.
    - A person only counts while their account is open and not paused, and a follow only counts
      while there is no block between that person and that host.
+   - A person only counts once their account is at least three days old (added on 19 November 2026, on
+     the founder's word, against the trick with made-up accounts under "Limits to know about").
    - **Changed after Astra's check:** the first draft gave 4 points for a person who had also
      had a call with the host and 2 for one who only follows. That is dropped. Telling "a call
      that really took place" from a booking nobody came to needs the full attendance record of
@@ -289,14 +291,19 @@ That needs real hosts and customers, and then a look at what was shown and what 
   there, and the other parts of the score and the daily order blur it, but it is not proof
   against a determined guess. Astra advised ten. The founder chose the first day; the bar is one
   number and can be raised.
-- **Made-up accounts lower the bar, and this risk is accepted for now.** Someone who makes two
+- **Made-up accounts lower the bar; tightened a little, and the rest is accepted for now.**
+  Someone who makes two
   accounts of their own, lets both follow one of their hosts and a second host, and then watches
   whether that second host moves up in their own suggestions, can learn that at least one more
   person follows both hosts. Not who it is. They would have to look day after day (suggestions
   are made once a day), and open times, ratings and the daily order move the row too. An
-  automatic security review of the code raised this on 19 November 2026. It stays as it is with
-  the bar of three, which is the founder's decision. Two ways to tighten it later, each a small
-  change to the rule: count only people whose account is some days old, or raise the bar.
+  automatic security review of the code raised this on 19 November 2026. The founder then said:
+  "we can tighten it a bit now if it has no harm". So an account counts as one of the people
+  only once it is at least three days old: accounts made for the purpose are worth nothing at first, and the
+  trick takes days of waiting on top of the looking. It is not closed: someone patient can still
+  do it. The cost of the rule is small: a new person's follows start to count three days after
+  they joined, so in the first three days after the app opens this part gives no points at all.
+  The bar stays at three, the founder's decision; raising it is the other way to tighten this.
 - **On the first look of a day the row appears a moment after the rest of the page.**
 
 ## Not built

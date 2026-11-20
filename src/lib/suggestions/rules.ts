@@ -9,7 +9,8 @@ import type { ShownAverage } from "@/lib/ratings/rules";
 
 export const SUGGEST = {
   /** Written with each day's suggestions, so a later look can tell which rule made them. Count it up when the rule changes. */
-  ruleVersion: 1,
+  // 2: a person counts toward the bar only once their account is `minAccountDays` old (19 November 2026).
+  ruleVersion: 2,
   /** How many hosts are suggested at most. */
   places: 6,
   /** The places kept for the hosts whose suggestion was seen by the fewest different people. */
@@ -20,6 +21,11 @@ export const SUGGEST = {
   minPeople: 3,
   /** The most points that can come from people. */
   maxPeoplePoints: 20,
+  /**
+   * A person counts toward the bar only once their account is at least this many days old. So accounts made today, to
+   * supply some of the three people oneself and see what the order gives away, count for nothing for a while.
+   */
+  minAccountDays: 3,
   /** Points for a host who is available now, and for one whose next open time is within `soonDays`. */
   availableNow: 20,
   openSoon: 10,
