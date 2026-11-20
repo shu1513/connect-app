@@ -1,6 +1,6 @@
 /**
  * Testing tool: the legal documents in the app and the proof of who accepted what
- * (plans/46-agreements-live.md, part 1), against the local database. It makes its own people,
+ * (plans/46-agreements-live.md, parts 1 and 2), against the local database. It makes its own people,
  * touches no other account, needs neither Stripe nor the video service, and removes what it made.
  *
  * Usage: npx tsx scripts/agreements-check.ts
@@ -180,8 +180,91 @@ async function main() {
       check("a host page suspended by a closing shows the closing's reason, not an older one", fayPage.status === "suspended" && fayPage.decidedReason === "Your account was closed. You asked us to close your account.", String(fayPage.decidedReason));
     }
 
+    console.log("\n7. Thirty days' notice of a coming version (part 2)");
+    {
+      const N = await import("../src/legal/notices");
+      const delivery = await import("../src/lib/notifications/delivery");
+      const mine = { emailLike: `agreecheck-${RUN}-n-%` };
+      const now = new Date();
+      const day = (offsetDays: number) => new Date(now.getTime() + offsetDays * DAY).toISOString().slice(0, 10);
+      const long = new Date(now.getTime() - 60 * DAY);
+      const early = await person("n-early", { adultConfirmedAt: long, termsAcceptedAt: long });
+      const closed = await person("n-closed", { adultConfirmedAt: long, termsAcceptedAt: long, closedAt: now });
+      const unfinished = await person("n-unfinished");
+      const host = await person("n-host", { adultConfirmedAt: long, termsAcceptedAt: long });
+      await db.insert(schema.hostProfiles).values({ userId: host.id, handle: `ag${RUN}nhost`, handleKey: `ag${RUN}nhost`, displayName: "Notice Host", pricePer15Cents: 2000, usConfirmedAt: long, createdAt: long });
+      const noticesTo = async (who: { email: string }) => db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, who.email), like(schema.emailOutbox.dedupeKey, "agreement-notice:%"))).orderBy(schema.emailOutbox.createdAt);
+      const send = (fails: string[] = []) =>
+        delivery.deliverEmails(new Date(), async (email) => (fails.includes(email.to) ? { ok: false, permanent: true, error: "422 made up for this check" } : { ok: true, providerId: `agreecheck-${randomUUID()}` }), { toLike: mine.emailLike });
+
+      // Made up, only inside this run: the Payment Terms have a published version in effect and another one coming
+      // (so 30 days are owed); the Host Agreement has its first published version coming after the draft (none owed).
+      const payments = R.DOCUMENTS["payment-terms"].versions;
+      const hosting = R.DOCUMENTS["host-agreement"].versions;
+      // In effect from today: the real first version's own day is the day the documents were written, so an earlier day would sort before it.
+      const inForce = { version: "2098-01-01", effectiveFrom: day(0), addedOn: day(0), draft: false, summary: "Made up for this check." };
+      const coming = { version: "2099-01-01", effectiveFrom: day(40), addedOn: day(0), draft: false, summary: "Refunds are explained in section 4. Made up for this check." };
+      const comingHost = { version: "2099-01-01", effectiveFrom: day(40), addedOn: day(0), draft: false, summary: "Made up for this check." };
+      payments.push(inForce, coming);
+      hosting.push(comingHost);
+      for (const [name, version] of [["payment-terms", inForce], ["payment-terms", coming], ["host-agreement", comingHost]] as const) R.TEXTS[name][version.version] = "# Made up\n\nA version made up for this check.";
+      try {
+        check("two versions are coming: one that 30 days are owed for, and a first published one that they are not", JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.audience, c.owed])) === JSON.stringify([["payment-terms", "everyone", true], ["host-agreement", "hosts", false]]), JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.owed])));
+        const first = await N.announceComingVersions(now, mine);
+        check("everyone it concerns is written to once: two people for the Payment Terms, and the host for the Host Agreement too", first === 3 && (await noticesTo(early)).length === 1 && (await noticesTo(host)).length === 2, String(first));
+        check("nobody with a closed account, and nobody who has not finished signing up", (await noticesTo(closed)).length === 0 && (await noticesTo(unfinished)).length === 0);
+        check("asked again, nobody is written to twice", (await N.announceComingVersions(now, mine)) === 0 && (await noticesTo(host)).length === 2);
+        const [mail] = await noticesTo(early);
+        check("the email says the day, what changes, and where the new version can be read; it is not sent after that day", mail.subject === `Our Payment Terms will change on ${N.dayInWords(day(40))}` && mail.body.includes("Refunds are explained in section 4.") && mail.body.includes("/payment-terms?version=2099-01-01") && mail.expiresAt?.toISOString().slice(0, 10) === day(40), mail.subject);
+
+        // Someone who finishes signing up meanwhile accepts the version in effect and is told about the coming one.
+        const finished = await A.acceptGeneralAgreements({ userId: unfinished.id, shown: shownNow("sign_up"), timeZone: "UTC" });
+        const held = (await linesOf(unfinished.id)).find((line) => line.document === "payment-terms")?.version;
+        check("someone who finishes signing up meanwhile accepts the version in effect, not the coming one", finished === "done" && held === "2098-01-01", `${finished} ${held}`);
+        check("and gets the email about the coming one on the helper's next round", (await N.announceComingVersions(new Date(), mine)) === 1 && (await noticesTo(unfinished)).length === 1);
+
+        check("with more than 30 days to go and nothing gone wrong, the health report says nothing", (await N.noticeHealthProblems(new Date(), mine)).length === 0, (await N.noticeHealthProblems(new Date(), mine)).join("; "));
+        // An account closed after its email was written: the email is not sent, and that is not a fault of ours.
+        const leaving = await person("n-leaving", { adultConfirmedAt: long, termsAcceptedAt: long });
+        await N.announceComingVersions(new Date(), mine);
+        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, leaving.id));
+        await send([early.email]);
+        const sent = await noticesTo(host);
+        const [left] = await noticesTo(leaving);
+        check("the emails go out; one to an account closed since is not sent", sent.every((row) => row.status === "sent") && left.status === "failed" && left.lastError === "no longer wanted: the account is closed", `${sent.map((row) => row.status)} ${left.status} ${left.lastError}`);
+        const failed = await N.noticeHealthProblems(new Date(), mine);
+        check("an email that could not be sent for a reason of our own is said in the health report; the closed account is not", failed.length === 1 && failed[0].includes("could not be sent") && failed[0].includes("Payment Terms"), failed.join("; "));
+
+        // The founder moves the day. Every key holds the day, so everyone is written to again by itself.
+        const oldKey = (await noticesTo(unfinished))[0].dedupeKey!;
+        coming.effectiveFrom = day(20);
+        check("an email for the day that was given up is no longer true", (await N.noticeEmailProblem(oldKey, new Date())) === "that version is not coming on that day any more" && (await N.noticeEmailProblem("reminder:1:2:3", new Date())) === undefined);
+        const again = await N.announceComingVersions(new Date(), mine);
+        check("a moved day is announced again to everyone it concerns", again === 3 && (await noticesTo(early)).length === 2 && (await noticesTo(unfinished)).length === 2, String(again));
+        // Now the day is 20 days off: fewer than 30 are left.
+        const late = await N.noticeHealthProblems(new Date(), mine);
+        check("fewer than 30 days before the day, an email that is still not out is said", late.length === 1 && late[0].includes("still not out") && late[0].includes("move its day"), late.join("; "));
+        check("someone who only finished signing up today is not counted: a shorter time is in the nature of it", (await N.noticeHealthProblems(new Date(), { emailLike: unfinished.email })).length === 0);
+        await send();
+        const gone = await N.noticeHealthProblems(new Date(), mine);
+        check("and one that went out with fewer than 30 days left is said too, until the day is moved", gone.length === 1 && gone[0].includes("went out to somebody with fewer than 30 days left"), gone.join("; "));
+        check("the Host Agreement's first published version never counts: no 30 days are owed after a draft", !gone.concat(late, failed).some((line) => line.includes("Host Agreement")));
+        coming.effectiveFrom = day(45);
+        await N.announceComingVersions(new Date(), mine);
+        await send();
+        check("after the day is moved far enough and the emails are out, the health report says nothing again", (await N.noticeHealthProblems(new Date(), mine)).length === 0, (await N.noticeHealthProblems(new Date(), mine)).join("; "));
+        check("the whole health answer carries these lines", typeof (await import("../src/lib/health")).healthProblems === "function");
+      } finally {
+        payments.splice(payments.indexOf(inForce), 1);
+        payments.splice(payments.indexOf(coming), 1);
+        hosting.splice(hosting.indexOf(comingHost), 1);
+        for (const [name, version] of [["payment-terms", inForce], ["payment-terms", coming], ["host-agreement", comingHost]] as const) delete R.TEXTS[name][version.version];
+      }
+      check("(afterwards the list of documents is as it was, and nothing is coming)", R.registryProblems().length === 0 && N.comingVersions(new Date()).length === 0);
+    }
+
     if (APP) {
-      console.log("\n7. The pages");
+      console.log("\n8. The pages");
       const get = async (path: string) => {
         const response = await fetch(`${APP}${path}`, { redirect: "manual" });
         return { status: response.status, text: response.status === 200 ? await response.text() : "" };

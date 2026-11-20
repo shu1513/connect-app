@@ -20,6 +20,7 @@ import { errorSummary } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { membershipReminderProblem } from "./membership-reminders";
 import { followEmailProblem } from "@/lib/follows/emails";
+import { noticeEmailProblem } from "@/legal/notices";
 import { ownPaymentOn } from "@/lib/payments/own";
 
 /** How many emails one call of deliverEmails sends at most. */
@@ -165,6 +166,9 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
   // An email to a follower (plans/31) is asked about in full, as things stand at this moment.
   const follower = await followEmailProblem(key, new Date(), email.to);
   if (follower !== undefined) return follower;
+  // The notice of a coming version of a legal document (plans/46, part 2): not to a closed account, and not once its day was moved.
+  const notice = await noticeEmailProblem(key, new Date());
+  if (notice !== undefined) return notice;
   // Without its key such an email cannot be judged, so it is not sent.
   if (email.kind === "follow") return "an email to a follower without its key";
   const reminder = key.match(/^reminder:([^:]+):([^:]+):/);

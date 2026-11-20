@@ -108,6 +108,16 @@ export async function holdsHostAgreement(userId: string, now: Date, reader: Pick
   return Boolean(line);
 }
 
+/** Whether this host has accepted any version of the Host Agreement: then a version she does not hold is "a new version" to her. */
+export async function acceptedHostAgreementBefore(userId: string, reader: Pick<typeof db, "select"> = db): Promise<boolean> {
+  const [line] = await reader
+    .select({ id: schema.agreementAcceptances.id })
+    .from(schema.agreementAcceptances)
+    .where(and(eq(schema.agreementAcceptances.userId, userId), eq(schema.agreementAcceptances.document, "host-agreement")))
+    .limit(1);
+  return Boolean(line);
+}
+
 /**
  * Agreeing to the Identity Check Notice, before an identity check is asked of Stripe. Returns the
  * version agreed to, which the check's own line keeps. Throws when the notice shown is not the

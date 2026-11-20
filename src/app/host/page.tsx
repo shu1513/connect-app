@@ -14,8 +14,9 @@ import { ownPhotoState } from "@/lib/profiles/photo";
 import { languageNames } from "@/lib/profiles/languages";
 import { PHOTO } from "@/lib/profiles/photo-rules";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN, sellerKindOf } from "@/lib/profiles/profiles";
-import { holdsHostAgreement, shownValue } from "@/legal/accept";
-import { agreementsToAccept } from "@/legal/versions";
+import { acceptedHostAgreementBefore, holdsHostAgreement, shownValue } from "@/legal/accept";
+import { dayInWords } from "@/legal/notices";
+import { agreementsToAccept, comingVersion, versionHref } from "@/legal/versions";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { instagramSignInOn } from "@/lib/profiles/instagram";
 import { tiktokSignInOn } from "@/lib/profiles/tiktok";
@@ -63,7 +64,12 @@ export default async function HostPage(props: PageProps<"/host">) {
   const hostAgreements = agreementsToAccept("hosting", new Date());
   const sellerKind = profile ? sellerKindOf(profile) : null;
   // A host from before the Host Agreement existed, or one who has not said business or private, is asked in a box at the top.
-  const boxNeeded = Boolean(profile) && (!(await holdsHostAgreement(user.id, new Date())) || sellerKind === null);
+  const holdsAgreement = profile ? await holdsHostAgreement(user.id, new Date()) : true;
+  const boxNeeded = Boolean(profile) && (!holdsAgreement || sellerKind === null);
+  // A host who accepted an earlier version and has said business or private is only asked for the new version (part 2).
+  const newVersionOnly = Boolean(profile) && !holdsAgreement && sellerKind !== null && (await acceptedHostAgreementBefore(user.id));
+  // A version of the Host Agreement whose day has not come: said here 30 days ahead, as the email says it.
+  const comingAgreement = profile ? comingVersion("host-agreement", new Date()) : null;
   const sellerChoice = (chosen: string | null) => (
     <fieldset className="text-sm">
       <legend>Do you offer calls as a business, or as a private person?</legend>
@@ -242,10 +248,24 @@ export default async function HostPage(props: PageProps<"/host">) {
         )}
       </section>
 
+      {comingAgreement && (
+        <p role="note" className="mt-8 rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`host-agreement@${comingAgreement.version}`}>
+          <strong>A new version of the Host Agreement takes effect on {dayInWords(comingAgreement.effectiveFrom)}.</strong> {comingAgreement.summary}{" "}
+          <Link href={versionHref("host-agreement", comingAgreement.version)} target="_blank" className="underline underline-offset-2">
+            Read the new version
+          </Link>
+          . From that day this page asks you to accept it.
+        </p>
+      )}
+
       {boxNeeded && (
         <section className="mt-8 rounded border border-neutral-500 p-4" data-host-box>
-          <h2 className="text-lg font-semibold">Two things we need from you</h2>
-          <p className="mt-2 text-sm">Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below.</p>
+          <h2 className="text-lg font-semibold">{newVersionOnly ? "The Host Agreement has a new version" : "Two things we need from you"}</h2>
+          <p className="mt-2 text-sm">
+            {newVersionOnly
+              ? "Please read the new version and accept it below. Your answer about how you offer calls is kept; you can change it here."
+              : "Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below."}
+          </p>
           <form action={answerHostBoxAction} className="mt-3 max-w-md space-y-3">
             {sellerChoice(sellerKind)}
             {hostAgreementTick}
