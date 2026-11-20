@@ -53,6 +53,13 @@ the rules every later address follows:
    server accepts only Connect's own website as their destination, both when the email is
    asked for and when the link is opened. All of this is checked by the script below, not
    assumed.
+   **One thing found after the checks, to settle first when building:** the kit names the
+   phone libraries (Expo's own) as things it needs, although only its phone half uses them.
+   If installing it on the server would pull those into the website's install, the server
+   does not take the kit: it gets a few lines of its own that do the one thing the kit's
+   server half is needed for (take the app's "where from" when a request has none), and the
+   check script proves the behaviour is the same. Either way the website's install must not
+   grow by a phone's worth of libraries.
 
 2. **The phone keeps the sign-in in its secure store** and sends it only to Connect's own
    server, never to any other address. A sign-in from the app is one more session in the same
