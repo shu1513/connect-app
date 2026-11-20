@@ -11,7 +11,7 @@ import { stripe } from "@/lib/payments/stripe";
 import { photosForHost } from "@/lib/profiles/photo";
 import { averageFor } from "@/lib/ratings/ratings";
 import { identityState } from "@/lib/safety/identity";
-import { bookingFor } from "./bookings";
+import { bookingFor, cardStepOf } from "./bookings";
 
 type Found = NonNullable<Awaited<ReturnType<typeof bookingFor>>>;
 
@@ -77,8 +77,17 @@ export async function gatherRequest(userId: string, bookingId: string, now: Date
  * What Stripe's card form needs for a paid request that is still at its card step; null when it
  * could not be read just now (nothing was sent, and nothing is held).
  */
-export async function cardFormSecret(booking: { id: string; stripeSetupIntentId: string | null }): Promise<string | null> {
-  if (!booking.stripeSetupIntentId) return null;
+export async function cardFormSecret(booking: { id: string; stripeSetupIntentId: string | null }, customer: { id: string; name: string; email: string }, now: Date): Promise<string | null> {
+  if (!booking.stripeSetupIntentId) {
+    // The request was written down, but its card step could not be made at Stripe then. It is made now (once: the
+    // same step however often the page is opened), so the page is not stuck saying "reload".
+    return cardStepOf({ bookingId: booking.id, customer, now })
+      .then((step) => step?.clientSecret ?? null)
+      .catch((error) => {
+        console.error(`[bookings] could not make the card step for booking ${booking.id}`, error);
+        return null;
+      });
+  }
   return stripe()
     .setupIntents.retrieve(booking.stripeSetupIntentId)
     .then((setup) => setup.client_secret)

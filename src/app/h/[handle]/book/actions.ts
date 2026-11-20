@@ -33,14 +33,15 @@ export async function sendRequest(formData: FormData) {
     });
     bookingId = booking.id;
   } catch (error) {
-    const message = error instanceof BookingError ? error.message : "Something went wrong. Nothing was sent. Please try again.";
-    if (!(error instanceof BookingError)) {
-      console.error("[bookings] request failed", error);
-      // The request may have been written down before the failure (a paid one's card step is made after it): then
-      // it is opened, not denied.
-      const made = await requestWithKey(user.id, requestKey).catch(() => null);
-      if (made) redirect(`/bookings/${made.id}`);
-    }
+    if (!(error instanceof BookingError)) console.error("[bookings] request failed", error);
+    // The request may have been written down before the failure (a paid one's card step is made at Stripe after
+    // it, and that can fail with a sentence of its own): then it is opened, not denied.
+    const made = await requestWithKey(user.id, requestKey).catch(() => null);
+    if (made) redirect(`/bookings/${made.id}`);
+    // One of the booking's own refusals says why nothing was sent. After anything else it cannot be told from here
+    // whether the request was written down (another sending of this same form may be finishing at this moment),
+    // so the page does not say that it was not.
+    const message = error instanceof BookingError ? error.message : "Something went wrong, and we could not tell whether your request was sent. Please look at your home page for it before you try again.";
     redirect(withNotice(`/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(start)}`, message));
   }
   redirect(`/bookings/${bookingId}`);

@@ -8,7 +8,7 @@
  * "busy entries" rule), whatever this code does.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
 import { bookingCardSeen } from "@/lib/membership/cards";
@@ -1072,6 +1072,26 @@ export async function requestWithKey(customerId: string, requestKey: string): Pr
  * moment is waited for (a few seconds at most) and then seen. This is what is asked before a
  * customer is told "nothing was sent". One short step on one connection.
  */
+/** A used-up key only matters while a sending with it could still be on its way. A day is far longer than that. */
+const SPENT_KEYS_KEPT_MS = DAY;
+/** How many used-up keys one person can have at a time. Nobody refused in good faith comes near it. */
+export const SPENT_KEYS_MAX = 200;
+
+/**
+ * Writes down that this key is used up, with the key's place in the queue held. This person's old ones are tidied
+ * away first, so the list cannot grow without end. If it is full all the same (somebody sending refusals by the
+ * hundred), this throws: the caller then cannot say "no request was made" for good, and says "it cannot be told".
+ */
+async function spendKey(tx: Tx, customerId: string, requestKey: string): Promise<void> {
+  const mine = eq(schema.spentRequestKeys.customerId, customerId);
+  const [known] = await tx.select({ at: schema.spentRequestKeys.at }).from(schema.spentRequestKeys).where(and(mine, eq(schema.spentRequestKeys.requestKey, requestKey)));
+  if (known) return;
+  await tx.delete(schema.spentRequestKeys).where(and(mine, lt(schema.spentRequestKeys.at, new Date(Date.now() - SPENT_KEYS_KEPT_MS))));
+  const [{ kept }] = await tx.select({ kept: sql<number>`count(*)::int` }).from(schema.spentRequestKeys).where(mine);
+  if (kept >= SPENT_KEYS_MAX) throw new Error(`too many used-up request keys for one person (${kept}): this refusal cannot be written down`);
+  await tx.insert(schema.spentRequestKeys).values({ customerId, requestKey }).onConflictDoNothing();
+}
+
 export async function requestWithKeySettled(customerId: string, requestKey: string, options: { spend?: boolean } = {}): Promise<Booking | null> {
   if (!isUuid(requestKey)) return null;
   return db.transaction(async (tx) => {
@@ -1079,7 +1099,7 @@ export async function requestWithKeySettled(customerId: string, requestKey: stri
     const [booking] = await tx.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
     // `spend`: the caller is about to say "no request was made" for good. That is written down here, in the key's
     // own place in the queue, so that no sending with this key can make one afterwards (see `askForCall`).
-    if (!booking && options.spend) await tx.insert(schema.spentRequestKeys).values({ customerId, requestKey }).onConflictDoNothing();
+    if (!booking && options.spend) await spendKey(tx, customerId, requestKey);
     return booking ?? null;
   });
 }

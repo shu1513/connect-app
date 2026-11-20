@@ -428,6 +428,24 @@ Also from the walk of part 08: the question before a request is taken back stays
 another screen comes to the front beneath it (a link opened meanwhile). A "yes" now only
 counts while that request is still the page in front.
 
+## Astra's ninth look at the code (20 November 2026): the app's gap is closed; four website and tidying points, worked in
+
+Astra found the app's retry gap closed in every ordering. What was left:
+
+1. *The website could still say "Nothing was sent" when it could not tell* (a form sent twice
+   while the database had a wait limit of its own). After a failure that is not one of the
+   booking's own refusals, the website now says that it could not tell whether the request
+   was sent, and to look at the home page before trying again. And after any failure, a
+   request that was written down is opened instead of denied.
+2. *(Note.)* A paid request written down without its card step (Stripe could not be reached
+   at that moment) showed "reload this page" for ever. Its page now makes the card step when
+   it is opened.
+3. *(Note.)* Used-up keys could pile up without end. They are kept for a day (far longer than
+   any sending can be on its way) and limited to 200 for one person. With the list full, a
+   "no" cannot be written down, so it is not said for good: the answer is "it cannot be told".
+4. *(Note.)* The check of the wait limit depended on timing. It now holds both places until
+   the app's sending has given up, then lets go.
+
 **The database gets one small new table with this part** (`spent_request_keys`). Its change
 file is made when this part's pull request is opened, so its number comes after whatever has
 been merged by then.

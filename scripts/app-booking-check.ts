@@ -366,25 +366,49 @@ async function main() {
       const waitApp = await okSummary(maya.handle, nextFree(), cust.jar);
       const webKey = randomUUID();
       const webTime = nextFree();
-      const hold = (userId: string, key: string) =>
-        db.transaction(async (tx) => {
+      // Each place in the queue is held until it is let go, and the sendings only start once both are held: nothing
+      // here depends on how fast anything is.
+      const hold = (userId: string, key: string) => {
+        let got = () => {};
+        let letGo = () => {};
+        const held = new Promise<void>((done) => (got = done));
+        const until = new Promise<void>((done) => (letGo = done));
+        const through = db.transaction(async (tx) => {
           await B.queueForKey(tx, userId, key, { bounded: false });
-          await pause(9_500);
+          got();
+          await until;
         });
-      const holding = Promise.all([hold(cust.id, waitApp.requestKey), hold(second.id, webKey)]);
-      await pause(400);
+        return { held, letGo, through };
+      };
+      const appPlace = hold(cust.id, waitApp.requestKey);
+      const webPlace = hold(second.id, webKey);
+      await Promise.all([appPlace.held, webPlace.held]);
       const began = Date.now();
-      const [gaveUp, web] = await Promise.all([
-        send(maya.handle, waitApp, cust.jar),
-        B.askForCall({ customer: { id: second.id, name: second.name, email: second.email }, hostId: maya.id, startsAt: new Date(webTime), lengthMinutes: 30, note: "", requestKey: webKey, agreedToCardTerms: false, seen: { pricePer15Cents: 0, freeCancelMinutes: 1440 }, now: new Date() }).then(
-          (made) => ({ id: made.booking.id, after: Date.now() - began }),
-          (error: Error) => ({ id: null, after: Date.now() - began, error: error.message }),
-        ),
-      ]);
-      await holding;
-      check("the app's sending gives up after its limit and is told nothing certain", gaveUp.status === 503 && gaveUp.text === "" && (await withKey(waitApp.requestKey)) === 0, `${gaveUp.status} ${gaveUp.text.slice(0, 80)}`);
+      const webCall = B.askForCall({ customer: { id: second.id, name: second.name, email: second.email }, hostId: maya.id, startsAt: new Date(webTime), lengthMinutes: 30, note: "", requestKey: webKey, agreedToCardTerms: false, seen: { pricePer15Cents: 0, freeCancelMinutes: 1440 }, now: new Date() }).then(
+        (made) => ({ id: made.booking.id as string | null, after: Date.now() - began, error: "" }),
+        (error: Error) => ({ id: null, after: Date.now() - began, error: error.message }),
+      );
+      // The app's sending comes back by itself, after its waits have run out, while both places are still held.
+      const gaveUp = await send(maya.handle, waitApp, cust.jar);
+      const gaveUpAfter = Date.now() - began;
+      const webStillWaits = await Promise.race([webCall.then(() => false), pause(300).then(() => true)]);
+      appPlace.letGo();
+      webPlace.letGo();
+      await Promise.all([appPlace.through, webPlace.through]);
+      const web = await webCall;
+      check("the app's sending gives up after its limit and is told nothing certain", gaveUp.status === 503 && gaveUp.text === "" && gaveUpAfter >= 8_000 && (await withKey(waitApp.requestKey)) === 0, `${gaveUp.status} after ${gaveUpAfter} ms ${gaveUp.text.slice(0, 80)}`);
       check("its key is not used up: sent again, it goes through", (await spentKeys(cust.id, waitApp.requestKey)) === 0 && (await send(maya.handle, waitApp, cust.jar)).status === 200 && (await withKey(waitApp.requestKey)) === 1);
-      check("the website's function waits past that limit and then makes its request", web.id !== null && web.after > 8_500, JSON.stringify(web));
+      check("the website's function is still waiting when the app has given up, and makes its request once the place is free", webStillWaits && web.id !== null && web.after >= gaveUpAfter, JSON.stringify(web));
+      // Used-up keys are limited for each person and kept for a day. With the list full, a "no" cannot be written
+      // down, so it is not said for good either: the answer is "it cannot be told".
+      const full = await okSummary(maya.handle, s.startsAt, second.jar);
+      await db.insert(schema.spentRequestKeys).values(Array.from({ length: B.SPENT_KEYS_MAX }, () => ({ customerId: second.id, requestKey: randomUUID() })));
+      const notSaid = await send(maya.handle, full, second.jar, { seen: { price: 500, freeCancel: 1440 } });
+      check("with a person's list of used-up keys full, a refusal is not said for good", notSaid.status === 503 && notSaid.text === "" && (await spentKeys(second.id, full.requestKey)) === 0, `${notSaid.status}`);
+      await db.update(schema.spentRequestKeys).set({ at: new Date(Date.now() - 25 * 3_600_000) }).where(eq(schema.spentRequestKeys.customerId, second.id));
+      const saidNow = await send(maya.handle, full, second.jar, { seen: { price: 500, freeCancel: 1440 } });
+      const leftOver = (await db.select().from(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id))).length;
+      check("used-up keys older than a day are tidied away, and the refusal is then said", sentence(saidNow) === sentence(old) && leftOver === 1 && (await spentKeys(second.id, full.requestKey)) === 1, `${saidNow.status} ${leftOver}`);
       // The limit is for the wait for the key only: what was in force before is put back.
       const limits = await db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('lock_timeout', '5s', true)`);

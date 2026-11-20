@@ -36,7 +36,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   // The card form, for a paid request that has not been sent yet.
   // Past the card step's time the request is over, also in the moments before the helper has ended it: no card form then.
   const cardTooLate = role === "customer" && booking.stage === "card" && !cardStepOpen(booking.createdAt, new Date());
-  const clientSecret = role === "customer" && booking.stage === "card" && !cardTooLate ? await cardFormSecret(booking) : null;
+  const clientSecret = role === "customer" && booking.stage === "card" && !cardTooLate ? await cardFormSecret(booking, user, new Date()) : null;
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
