@@ -255,7 +255,7 @@ export async function connectInstagram() {
 }
 
 /**
- * "Use my TikTok photo" and "Update" for a photo that came from TikTok (plans/32). Connect keeps no
+ * "Use my TikTok photo" and "Update" for a photo that came from TikTok (plans/33). Connect keeps no
  * key from TikTok, so this sends the host to TikTok's sign-in; the picture comes back with it. The
  * try is written down first, and every refusal a press can meet is told here, before the host is
  * sent anywhere. The host is the logged-in person, never taken from the form.

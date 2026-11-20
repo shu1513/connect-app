@@ -1,5 +1,5 @@
 /**
- * "Use my TikTok photo" (plans/32): starting the sign-in and finishing it. Connect keeps no key
+ * "Use my TikTok photo" (plans/33): starting the sign-in and finishing it. Connect keeps no key
  * from TikTok, so a host's profile picture can only be had when the host signs in there. The try
  * is written down at the press and carried through the sign-in inside the signed note; what
  * comes back continues that try and no other.

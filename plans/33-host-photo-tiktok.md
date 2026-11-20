@@ -1,7 +1,8 @@
-# Plan 32: A host's photo from TikTok (part two of plan 29)
+# Plan 33: A host's photo from TikTok (part two of plan 29)
 
-(This plan was first written as number 30. Another piece of work, following hosts, took the
-numbers 30 and 31 on `main` the same day, so this one became 32.)
+(This plan was first written as number 30. Two other pieces of work, built at the same time in
+other sessions, took the numbers 30, 31 and 32 (following hosts; a host's notes around a call),
+so this one is 33.)
 
 **Status:** built, and tried for real on 19 November 2026 (see "The real try" at the end). Not
 merged yet. Earlier: a plan; the first small step is built (TikTok can be asked for the picture's

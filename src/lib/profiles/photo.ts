@@ -14,7 +14,7 @@
  *              if the try is still running and the account it was taken from is still the host's
  *              confirmed account, exactly as it was at the start.
  *
- * For TikTok the three steps are the same, only spread over a sign-in (plans/32): Connect keeps no
+ * For TikTok the three steps are the same, only spread over a sign-in (plans/33): Connect keeps no
  * key from TikTok, so the picture can only be had when the host signs in there. The start is the
  * press (startPhotoTry), then the host is away at TikTok, and what comes back is taken up by one
  * return (takeUpTry) and goes through the outside work and the finish (finishTikTokTry).
@@ -177,7 +177,7 @@ async function afterFailure(error: unknown, userId: string, tryId: string, known
 }
 
 // ---------------------------------------------------------------------------
-// TikTok: the same try, spread over a sign-in (plans/32)
+// TikTok: the same try, spread over a sign-in (plans/33)
 // ---------------------------------------------------------------------------
 
 /**

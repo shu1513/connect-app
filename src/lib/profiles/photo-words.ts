@@ -1,6 +1,6 @@
 /**
  * The one sentence a host is told after "Use my Instagram photo", "Use my TikTok photo" or
- * "Update" (plans/29, plans/32). Plain words in one place, for the button's action and for the
+ * "Update" (plans/29, plans/33). Plain words in one place, for the button's action and for the
  * return from TikTok.
  */
 import type { PhotoOutcome, PhotoResult } from "./photo";

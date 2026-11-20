@@ -55,7 +55,7 @@ export function readNote(label: OrdinaryLabel, note: string | undefined, secret:
 }
 
 /**
- * The note of a sign-in at TikTok that a host started to take their photo (plans/32). It carries
+ * The note of a sign-in at TikTok that a host started to take their photo (plans/33). It carries
  * one more signed part: the id of the try that was written down at the press, so that what comes
  * back continues that try and no other.
  */

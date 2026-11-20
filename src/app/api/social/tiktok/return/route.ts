@@ -1,6 +1,6 @@
 /**
  * Where TikTok sends a host back after "Connect your TikTok", and after "Use my TikTok photo"
- * (plans/32). This one address is registered with TikTok. Which of the two it is, is read from the
+ * (plans/33). This one address is registered with TikTok. Which of the two it is, is read from the
  * signed note the host's browser kept, never from the address. Whatever happens, the host ends on
  * the Hosting page with a message.
  */

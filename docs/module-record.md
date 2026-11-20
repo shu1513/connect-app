@@ -2345,7 +2345,7 @@ watching it appear within a minute. Whether the home page's new order reads well
 customer. Part two (emails), then "tell me when a time opens" and suggestions as plans of their
 own.
 
-## A later change: a host's photo from TikTok (plan 32, part two of plan 29, 19 November 2026)
+## A later change: a host's photo from TikTok (plan 33, part two of plan 29, 19 November 2026)
 
 **Why.** Plan 29 promised two sources for a host's photo. Instagram came first; this is TikTok.
 
@@ -2378,7 +2378,7 @@ own.
 the local test host: "Connect your TikTok", then "Use my TikTok photo". TikTok showed the same
 screen both times. The photo was saved 2.6 seconds after the host came back, fetched after the
 key had been handed back to TikTok. On the way the five-a-day limit was met for real (the test
-host had used its five on Instagram) and answered as it should. Details at the end of plan 32.
+host had used its five on Instagram) and answered as it should. Details at the end of plan 33.
 
 **What the reviewers found.** Astra checked the plan once and the code once, "ready with
 changes" both times, and asked for nothing to be removed.
