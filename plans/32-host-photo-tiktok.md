@@ -3,7 +3,8 @@
 (This plan was first written as number 30. Another piece of work, following hosts, took the
 numbers 30 and 31 on `main` the same day, so this one became 32.)
 
-**Status:** a plan; the first small step is built (TikTok can be asked for the picture's
+**Status:** built, and tried for real on 19 November 2026 (see "The real try" at the end). Not
+merged yet. Earlier: a plan; the first small step is built (TikTok can be asked for the picture's
 address). Written 19 November 2026 by the builder alone (no helper agents), from the code as it
 is on `main` after pull request 50 (the host photo from Instagram), and from TikTok's own page
 "Get User Info" as it read that day. Astra checked it ("ready with changes"); what it found is
@@ -221,4 +222,58 @@ must not be another host's; what the real try has to record; the wording about T
 Not taken: keeping a newer note when an older return's value does not fit (the return address
 has always removed the cookie first, for both kinds of sign-in; a host who overlaps two
 sign-ins presses the button again).
+
+## Astra's review of the code (19 November 2026): "ready with changes"
+
+It found the plan's two corrections built as planned, the taking-up of a try a real one-owner
+claim, and nothing over-built. Two things had to change, both taken:
+
+1. *Something of ours breaking after a return had taken its try up* (the database, say) left
+   the try taken up and running, and the host with an error page. Everything such a return does
+   is now inside one boundary: the try is ended if it still can be, and the host is told.
+2. *The account becoming another host's while the picture was being checked.* The look "is this
+   number another host's confirmed account" is now made again in the finish, for both networks.
+   (Not taken: a lock that would also rule out the same instant. It needs two hosts signing in
+   to one and the same TikTok account within the same moment.)
+
+Also taken: a press whose note could not be put in the browser ends its try; the sentence for a
+try under way fits both networks; the Hosting page names the one case in which a photo is taken
+down; in the check script the doubled return is now a real overlap, and the taking-up of a try,
+an immediate second press after a refusal, and a failure after the taking-up are tried directly.
+
+## The real try (19 November 2026)
+
+In TikTok's test mode ("sandbox"), with the founder's own TikTok account, as the local test host,
+through a temporary https address. The founder logged in to Connect and allowed each click at
+TikTok; the builder pressed the buttons.
+
+- **TikTok's developer page:** the return address of the sandbox app was set to the temporary
+  address. (It must be set to the live site's address before TikTok reviews the app.)
+- **"Connect your TikTok"** first, since the test host had no TikTok account on its page: TikTok
+  showed its screen with the two switches, and the host landed back with "TikTok @… is
+  confirmed." (The ordinary sign-in, unchanged.)
+- **The limit, seen for real:** the test host had used its five tries of the day on Instagram.
+  "Use my TikTok photo" answered "You have tried 5 times in the last 24 hours" and did not send
+  the host to TikTok. (Two of the test host's old tries were then removed from the test
+  database to go on.)
+- **"Use my TikTok photo":** TikTok showed the very same screen, with the same two switches and
+  nothing new asked. After "Continue" the host landed back on "Your photo" with "Your photo
+  passed the check and is saved." The photo's line reads "From TikTok @…", the button of TikTok
+  now reads "Update", and Instagram's reads "Use my Instagram photo".
+- **What was stored:** a copy of 300 by 300 points, 2.5 KB (the account has TikTok's plain
+  letter picture), passed by OpenAI. The photo remembers TikTok's number for the account, and it
+  is the number on the host's entry.
+- **How long:** the host was at TikTok for 15 seconds; everything after the return (TikTok's two
+  questions, handing the key back, fetching the picture, the copy, the check, the saving) took
+  2.6 seconds.
+- **The picture was fetched after the key had been handed back,** which is the order the code
+  works in. It worked.
+- **The picture's server** was one of the two families on the list (the fetch went through).
+  Which of the two is not written down anywhere, on purpose; so the list stays as it is.
+- The host's page and the "Find a host" results show the TikTok photo.
+
+Not seen for real: an account that is not the confirmed one, "Cancel" at TikTok during a
+photo's sign-in, a picture a service refuses, and a custom TikTok picture (larger, and maybe
+another kind of file). The script plays the first three; the fourth goes through the same copy
+step as every picture.
 
