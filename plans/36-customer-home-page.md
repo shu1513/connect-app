@@ -73,10 +73,11 @@ with all your hosts, soonest first. not sure if it should look like a calendar i
      over" means, here and everywhere on this page: the person is its host or its customer, it
      is not cancelled, it was not ended with a report, and its booked end has not passed.
    - A room opens 5 minutes before the booked start (that rule exists and does not change). The
-     countdown runs to that moment, and a line says so: "You can enter 5 minutes before the
+     countdown runs to that moment, and a line says so: "The room opens 5 minutes before the
      start."
-   - More than a day away it says "in 3 days"; under a day "in 5 hours 12 minutes"; in the last
-     hour it shows minutes and seconds and moves every second.
+   - Two days or more away it says "in 3 days"; between one and two days "in 1 day 4 hours";
+     under a day "in 5 hours 12 minutes"; in the last hour it shows minutes and seconds and
+     moves every second.
    - When it reaches zero the card says "Checking…" and the page asks the server again. Only
      when the server says the room is open does the card show "The room is open" and the button
      "Enter the room". While the room is open the card also says how long until the booked
@@ -99,8 +100,9 @@ with all your hosts, soonest first. not sure if it should look like a calendar i
    Days are named in the person's own time zone, as their browser knows it. Each line shows the
    time, the other person's photo and name, the length, the money line exactly as today ("$20.00
    held"), and a link to the call. A call the person hosts carries a small label, "You host this
-   call". The person's own requests that are not calls yet stay a short list of their own under
-   it, as today.
+   call". With a single call coming the list is left out: that call is already in the card
+   above. The person's own requests that are not calls yet stay a short list of their own
+   under it, as today.
 5. **Hosts you follow.** At most eight on the home page, in the order the "Following" page
    already uses (available now first), with "See all" leading to that page. A host who is
    available shows a green dot and "Call now". The page asks the server again every minute while
@@ -125,7 +127,7 @@ with all your hosts, soonest first. not sure if it should look like a calendar i
 9. **Someone new**, with no calls and nobody followed, sees a welcome line, the search box and
    the suggested hosts.
 10. **The look** is the site's warm look (the cards of the search page), one column, built for a
-    phone first.
+    phone first. The page greets the person by their first name.
 11. **A paused account** sees the page as today, with the red line that says why.
 
 ## What it relies on (each read in the code by the builder)
@@ -178,8 +180,10 @@ with all your hosts, soonest first. not sure if it should look like a calendar i
 - `src/app/page.tsx`: the home page in the new order. The front page for visitors is untouched.
   The query for calls asks only for calls that are not over, the soonest first. `RefreshEvery`
   is there for everyone who is logged in.
-- `src/app/calls/page.tsx` (new): "Past calls", with the table and the money line moved from the
-  home page as they are.
+- `src/app/calls/page.tsx` (new): "Past calls", with the table moved from the home page as it
+  is.
+- `src/lib/home/payment-line.ts` (new): the money line of a call, moved out of the home page
+  as it is, because both pages now show it.
 - `src/lib/follows/follows.ts`: `diaryNews` gives ten posts from 30 days, and with each the
   host's id (for the photo). The two numbers go into `FOLLOW` in `rules.ts`.
 - `src/components/site-page.tsx`: "Your calls" becomes "Home".
@@ -245,3 +249,12 @@ most" writes eleven posts.
 Astra also confirmed, with nothing to change: grouping by day in the browser; one page for
 someone who is both host and customer; and that a public diary post stays readable for a follower
 the host has blocked, which is how it is today.
+
+## The review of the pull request (19 November 2026)
+
+CodeRabbit answered that its review limit was reached, so, by the founder's rule for that case,
+the builder reviewed the pull request line by line himself. Found and corrected in this plan: the
+sentence under the countdown ("The room opens 5 minutes before the start"), the words for one
+to two days ("in 1 day 4 hours"), that the list is left out when a single call is coming, the
+greeting by first name, and the file the money line moves to. Nothing was found in plan 37 or in
+the lawyer's file.
