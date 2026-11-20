@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readInstagramPhoto, readInstagramPhotoAnswer } from "./bio-check";
 import { fetchPicture } from "./photo-fetch";
 import { PHOTO, PICTURE_SERVERS, pictureAddress, sameAccount, serverFamily } from "./photo-rules";
+import { photoNotice } from "./photo-words";
 
 const PICTURE = "https://scontent-lax7-1.xx.fbcdn.net/v/t51.2885-15/1234_n.jpg?_nc_cat=1&oe=6920A1B2";
 
@@ -79,8 +80,29 @@ describe("pictureAddress", () => {
     }
   });
 
-  it("a network with no servers listed gives no address at all", () => {
-    expect(pictureAddress(PICTURE, PICTURE_SERVERS.tiktok)).toBeNull();
+  it("with no servers listed, no address is taken at all", () => {
+    expect(pictureAddress(PICTURE, [])).toBeNull();
+  });
+
+  it("TikTok's picture servers, and not their look-alikes or Meta's", () => {
+    const tiktok = PICTURE_SERVERS.tiktok;
+    // The server in TikTok's own example of an answer.
+    expect(pictureAddress("https://p19-sign.tiktokcdn-us.com/tos-avt-0068-tx/b17f~c5_1080x1080.jpeg?x-expires=1", tiktok)?.hostname).toBe("p19-sign.tiktokcdn-us.com");
+    expect(pictureAddress("https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a.jpeg", tiktok)?.hostname).toBe("p16-sign-va.tiktokcdn.com");
+    for (const address of [
+      "https://tiktokcdn.com/a.jpeg",
+      "https://eviltiktokcdn.com/a.jpeg",
+      "https://p16.tiktokcdn.com.example.com/a.jpeg",
+      "https://p16.tiktokcdn-us.com.example.com/a.jpeg",
+      "https://p16.tiktokcdn-eu.com/a.jpeg",
+      "https://www.tiktok.com/a.jpeg",
+      "http://p16-sign-va.tiktokcdn.com/a.jpeg",
+      PICTURE,
+    ]) {
+      expect(pictureAddress(address, tiktok), address).toBeNull();
+    }
+    // And a TikTok address is not one of Instagram's.
+    expect(pictureAddress("https://p16-sign-va.tiktokcdn.com/a.jpeg", servers)).toBeNull();
   });
 
   it("only the last two parts of a server's name are ever written down", () => {
@@ -259,3 +281,27 @@ describe("readInstagramPhoto: how Meta's answer is read", () => {
     expect(asked).toBe(0);
   });
 });
+
+describe("photoNotice: the sentence a host is told", () => {
+  const outcomes = ["shown", "not_accepted", "refused_before", "no_picture", "not_fetched", "unusable", "not_checked", "stopped", "cannot", "locked", "no_account", "running", "limit", "busy", "no_checker", "place_taken", "failed", "other_account", "taken_account", "already_returned"] as const;
+
+  it("has a sentence for every outcome, for both networks, and never names the wrong network", () => {
+    for (const outcome of outcomes) {
+      const instagram = photoNotice({ outcome }, "instagram");
+      const tiktok = photoNotice({ outcome }, "tiktok");
+      expect(instagram.length, outcome).toBeGreaterThan(20);
+      expect(tiktok.length, outcome).toBeGreaterThan(20);
+      expect(tiktok, outcome).not.toContain("Instagram");
+      // (The one sentence about a try under way is the same for both, and tells a host what to do if they were sent to TikTok.)
+      if (outcome !== "running") expect(instagram, outcome).not.toContain("TikTok");
+    }
+  });
+
+  it("says so when a refusal took down the photo the host had, and gives the reason a picture cannot be used", () => {
+    expect(photoNotice({ outcome: "not_accepted" }, "tiktok")).toContain("Nothing was changed");
+    expect(photoNotice({ outcome: "not_accepted", tookDown: true }, "tiktok")).toContain("that photo was taken down");
+    expect(photoNotice({ outcome: "unusable", detail: "That picture is too small." }, "instagram")).toBe("Your profile picture cannot be used. That picture is too small.");
+    expect(photoNotice({ outcome: "limit" }, "instagram")).toContain(String(PHOTO.triesPerDay));
+  });
+});
+

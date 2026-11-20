@@ -1,0 +1,1 @@
+ALTER TABLE "host_photo_tries" ADD COLUMN "returned_at" timestamp with time zone;

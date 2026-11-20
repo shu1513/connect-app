@@ -141,22 +141,29 @@ export function readTokenAnswer(body: string): TokenAnswer {
   return { kind: "key", accessToken: answer.access_token, openId: answer.open_id };
 }
 
-export type AccountAnswer = { kind: "account"; openId: string; username: string } | { kind: "failed"; reason: TikTokProblem };
+/** `pictureAddress`: where the account's large profile picture is, when TikTok was asked for it and sent one (plans/33). */
+export type AccountAnswer = { kind: "account"; openId: string; username: string; pictureAddress?: string } | { kind: "failed"; reason: TikTokProblem };
 
 /**
  * Reads TikTok's answer to "which account is this key for". `openId` is the account's number from
  * the token answer: the two must be the same text. The display name is never used as the name.
+ *
+ * A picture's address is handed on when TikTok sent one as text. A missing one, or one that is not
+ * text, is no reason to fail: the account is what was asked about. Whether the address may be
+ * fetched is decided in photo-rules.ts.
  */
 export function readAccountAnswer(body: string, openId: string): AccountAnswer {
   const answer = parsed(body);
   const error = answer?.error as { code?: unknown } | undefined;
   if (!answer || !error || typeof error !== "object" || error.code !== "ok") return { kind: "failed", reason: "an answer that could not be read" };
-  const user = (answer.data as { user?: { open_id?: unknown; username?: unknown } } | undefined)?.user;
+  const user = (answer.data as { user?: { open_id?: unknown; username?: unknown; avatar_large_url?: unknown } } | undefined)?.user;
   if (!user || typeof user !== "object") return { kind: "failed", reason: "an answer that could not be read" };
   if (typeof user.open_id !== "string" || user.open_id.length === 0) return { kind: "failed", reason: "no account number" };
   if (user.open_id !== openId) return { kind: "failed", reason: "account numbers differ" };
   if (typeof user.username !== "string" || !/^[A-Za-z0-9._]{2,24}$/.test(user.username)) return { kind: "failed", reason: "no account name" };
-  return { kind: "account", openId: user.open_id, username: user.username };
+  const picture = user.avatar_large_url;
+  const account = { kind: "account" as const, openId: user.open_id, username: user.username };
+  return typeof picture === "string" && picture.length > 0 && picture.length <= 2000 ? { ...account, pictureAddress: picture } : account;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +173,8 @@ export function readAccountAnswer(body: string, openId: string): AccountAnswer {
 
 const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 const ACCOUNT_URL = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,username";
+/** The same question, also asking where the account's large profile picture is. Only for a host's photo (plans/33); it needs no further permission. */
+const ACCOUNT_WITH_PICTURE_URL = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,username,avatar_large_url";
 const REVOKE_URL = "https://open.tiktokapis.com/v2/oauth/revoke/";
 /** How long a request may take, waiting for the answer and reading it. */
 const TIME_LIMIT_MS = 8_000;
@@ -194,7 +203,7 @@ const send: TikTokSend = async (url, request) => {
 };
 
 export type TikTokAccount =
-  | { kind: "account"; openId: string; username: string }
+  | { kind: "account"; openId: string; username: string; pictureAddress?: string }
   | { kind: "refused"; reason: TikTokRefusal }
   | { kind: "failed"; reason: TikTokProblem };
 
@@ -204,8 +213,12 @@ export type TikTokLookup = (code: string, settings: TikTokSettings) => Promise<T
  * Swaps the one-time code for a short-lived key, asks once which account it belongs to, and then
  * tries to hand the key back to TikTok, whatever happened in between. The key stays inside this
  * function.
+ *
+ * `withPicture`: the one question also asks where the account's profile picture is. Only a
+ * sign-in a host started to take their photo asks that; an ordinary "Connect your TikTok" reads
+ * the number and the name and nothing else.
  */
-export async function tiktokAccountFor(code: string, settings: TikTokSettings, transport: TikTokSend = send): Promise<TikTokAccount> {
+export async function tiktokAccountFor(code: string, settings: TikTokSettings, transport: TikTokSend = send, options: { withPicture?: boolean } = {}): Promise<TikTokAccount> {
   const swapped = await transport(TOKEN_URL, {
     method: "POST",
     ...form({
@@ -222,7 +235,7 @@ export async function tiktokAccountFor(code: string, settings: TikTokSettings, t
   try {
     const token = readTokenAnswer(swapped);
     if (token.kind !== "key") return token;
-    const asked = await transport(ACCOUNT_URL, { method: "GET", headers: { authorization: `Bearer ${token.accessToken}` } });
+    const asked = await transport(options.withPicture ? ACCOUNT_WITH_PICTURE_URL : ACCOUNT_URL, { method: "GET", headers: { authorization: `Bearer ${token.accessToken}` } });
     return asked === null ? { kind: "failed", reason: "no answer" } : readAccountAnswer(asked, token.openId);
   } finally {
     // Tried, not promised: if TikTok cannot be reached now, the key simply runs out by itself.
