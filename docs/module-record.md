@@ -2793,10 +2793,12 @@ the founder's page with an uploaded photo (the check script covers all three).
   for its payment, which part two must not reuse unchanged.
 - *Astra, on the code:* "ready", nothing that had to change. Two of its three suggestions were
   taken, both tests: a request that stalls is given up on and let go of; and the diary picture
-  in the check now really goes through the diary's own upload step. Not taken: recognising a
-  picture refused through Instagram when the same file is uploaded (or the other way round).
-  A file from a person's device is never byte for byte what a network's picture server sends,
-  so a fingerprint would not match in practice.
+  in the check now really goes through the diary's own upload step. The third was first left
+  out and then taken in one direction, when the automatic security review of the commit raised
+  it too: a picture refused as a photo from Instagram or TikTok is now also refused when the
+  very same file is uploaded (a host can save their own profile picture and upload it). Not
+  taken: the other direction, a picture refused as an upload and then set as the Instagram
+  picture. Instagram makes its own file of what it is given, so the two would not match.
 
 - *CodeRabbit did not review this one.* It answered that its review limit was reached for the
   next 50 minutes, and the founder's rule for that case is not to wait. The builder read the
@@ -2804,7 +2806,7 @@ the founder's page with an uploaded photo (the check script covers all three).
   host's photo comes from a social media account alone; they now name uploads too.
 
 **How it was checked:** 628 automatic tests on the code (new: the square copy, and the
-sentences after an upload); three new journeys of 70 checks in `scripts/photo-check.ts` (254 in
+sentences after an upload); three new journeys of 71 checks in `scripts/photo-check.ts` (255 in
 all): each way an upload can end, a start that says "no" never reading the file, a refused
 picture staying refused (also one refused in the diary, sent through the diary's own upload
 step), an upload while the photo is removed, the account closed or paused, or a confirmed

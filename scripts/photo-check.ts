@@ -1450,6 +1450,18 @@ async function main() {
     forget();
     check("also three days later; another picture is taken", (await upload(again, { file: refusedFile })) === "refused_before" && asked.length === 0 && (await upload(again)) === "shown");
 
+    // The very file a service refused as her Instagram picture, saved and uploaded: known by the whole copy's fingerprint.
+    const crossing = await newHost();
+    // (Not a square: of a small square picture, the whole copy and the square are the same file.)
+    crossing.picture = await wideFile();
+    says.openai = "flagged";
+    const fromNetwork = await press(crossing);
+    const wholePrint = tried?.sha256;
+    says.openai = "clean";
+    forget();
+    const sameAsUpload = await upload(crossing, { file: crossing.picture });
+    check("a picture refused as a photo from Instagram is refused again when the very same file is uploaded, without a service being asked", fromNetwork === "not_accepted" && sameAsUpload === "refused_before" && asked.length === 0 && Boolean(wholePrint) && tried?.sha256 !== wholePrint && !(await photoOf(crossing)), { fromNetwork, sameAsUpload, asked });
+
     // The same real file, first in the diary, then as a photo. A diary keeps the whole picture and a photo keeps a
     // square, so their fingerprints differ: the upload makes the diary's kind of copy too, only to compare.
     await fresh();

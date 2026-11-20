@@ -467,7 +467,7 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
       .select({
         result: tries.result,
         owed: sql<boolean>`${exists(db.select({ one: sql`1` }).from(schema.projectPictures).where(owedDiaryPicture(options.diaryHosts)))}`,
-        refused: sql<boolean>`${exists(db.select({ one: sql`1` }).from(earlier).where(and(eq(earlier.userId, candidate.userId), eq(earlier.sha256, sha256), eq(earlier.result, "not_accepted"))))}`,
+        refused: sql<boolean>`${exists(db.select({ one: sql`1` }).from(earlier).where(and(eq(earlier.userId, candidate.userId), inArray(earlier.sha256, printsOf(sha256, diarySha256)), eq(earlier.result, "not_accepted"))))}`,
       })
       .from(tries)
       .where(eq(tries.id, candidate.tryId));
@@ -503,12 +503,17 @@ async function confirmedElsewhere(reader: Pick<typeof db, "select">, network: Ph
   return Boolean(elsewhere);
 }
 
+/** The fingerprints a file can have been refused under as a photo: its own copy's, and the whole copy's when that is another. */
+const printsOf = (sha256: string, diarySha256: string | null): string[] => (diarySha256 && diarySha256 !== sha256 ? [sha256, diarySha256] : [sha256]);
+
 /**
  * Whether this host's picture was refused before, as a photo or as a diary picture, or is locked in
- * her diary. `sha256` is the fingerprint of the photo's own copy, compared with her earlier tries.
- * `diarySha256` is the fingerprint the same file has as a diary picture, compared with her diary:
- * the same as `sha256` for a photo from a network, another for an upload, and null when the diary
- * could not have copied the file at all.
+ * her diary. `sha256` is the fingerprint of the photo's own copy. `diarySha256` is the fingerprint
+ * the same file has as a diary picture, compared with her diary: the same as `sha256` for a photo
+ * from a network, another for an upload, and null when the diary could not have copied the file at
+ * all. Her earlier tries are compared with both: a photo from a network is kept as the whole copy,
+ * so a picture refused that way and then uploaded as the very same file is known by the whole
+ * copy's fingerprint, not by the square's.
  */
 async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, sha256: string, diarySha256: string | null): Promise<"refused" | "locked" | null> {
   const pictures = schema.projectPictures;
@@ -520,7 +525,7 @@ async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, 
     : [];
   if (inDiary.some((picture) => picture.state === "locked")) return "locked";
   if (inDiary.length > 0) return "refused";
-  const [asPhoto] = await reader.select({ id: tries.id }).from(tries).where(and(eq(tries.userId, userId), eq(tries.sha256, sha256), eq(tries.result, "not_accepted"))).limit(1);
+  const [asPhoto] = await reader.select({ id: tries.id }).from(tries).where(and(eq(tries.userId, userId), inArray(tries.sha256, printsOf(sha256, diarySha256)), eq(tries.result, "not_accepted"))).limit(1);
   return asPhoto ? "refused" : null;
 }
 
