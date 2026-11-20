@@ -2650,3 +2650,69 @@ and Spanish. No outside service is touched by this change.
 field stays required. A host who sends a profile form with no language ticked is refused and has
 to fill the form in again, as for every refusal on that form; a small script could stop the
 form before it is sent, if that proves a nuisance. Not built: finding hosts by language.
+
+## A later change: a failed card, a full day's deadline and one reminder (19 November 2026)
+
+**Why.** The founder asked what happens when the customer's card has a problem at the moment
+the money is held, 2 days before a call, and proposed: tell the customer at once, and cancel
+the call if it is not fixed 24 hours before. The app already did nearly that (plan 4, decision
+3): one try on the saved card 2 days before, an email at once when it fails, the customer fixes
+it on the call's page, and an unpaid call is cancelled for free at a cut-off. Two things were
+different or missing, and the founder said yes to both.
+
+**What changed.**
+- **The cut-off is 24 hours before the call for every host.** It was 12 hours, or 24 for a host
+  whose free cancelling ends 24 hours before. A host whose call falls through now always has a
+  full day to fill that time. The rule that a failed card can never get a customer out of the
+  host's cancelling rule is kept: the cut-off is still never later than the end of the free
+  cancelling.
+- **One reminder email to the customer** ("Reminder: your call with … still needs your card"),
+  12 hours before the cut-off, with the deadline and a link to the call's page. If the card
+  failed late (a call booked less than 2 days ahead), the reminder waits until 6 hours after the
+  first email, and is left out if the cut-off comes first. It is never sent once the money is
+  held or the call is cancelled, never for an instant call, and never twice.
+- **A paid time can be asked for until 32 hours before it starts** (it was 20 hours for hosts
+  with a shorter cancelling rule). This follows from the first point: the 8 hours kept for the
+  host's answer and for fixing a card are counted back from the cut-off. The host's answer is
+  due at least 30 hours before the call.
+- **Bookings made before the change keep their own cut-off,** the one their customer was shown.
+- Not changed: one automatic try on the card; the first email; instant calls (2 minutes to pay);
+  memberships. The host is still only told when the call is actually cancelled.
+
+**What was built.** `payCutoff` and `earliestStartFor` in `src/lib/booking/rules.ts` (one number
+for both), `cardReminderDue` beside them, the job `remindAboutCards` in `src/lib/booking/jobs.ts`
+(it asks Stripe first, so nobody is reminded about a hold that is in place; the email's own key
+keeps it to one), the email in `src/lib/booking/emails.ts`. No change to the database. The page
+where a customer asks for a call already showed the cut-off as a date, so it shows the new one
+by itself; the wording the customer agrees to did not change.
+
+**What the reviewers found.**
+- *Astra, on the code (two rounds).* Three points in the first round, two taken. Taken: a
+  reminder could still reach a customer who paid, or whose call was cancelled, in the moments
+  between writing the email and sending it, so the payment is read again as the email is
+  written, and the email is stopped at sending time when the booking is no longer open or the
+  money is held. Taken: with the cut-off now a day before the call, the "Tomorrow: your call"
+  reminder fell on the very moment an unpaid call is cancelled, so no call reminder is written
+  for an unpaid call that is past its cut-off (`src/lib/notifications/reminders.ts`). Not taken:
+  counting the 6 hours from when the first email was actually sent instead of from when the card
+  failed; emails leave within seconds, and the only cost in an email outage is two emails close
+  together. Astra found nothing else that still assumed 12 hours, and nothing over-engineered.
+  The second round, on the fixes, had no findings.
+
+**How it was checked.** 621 automatic tests on the code, 5 of them new (the reminder's moment)
+and 3 changed (the cut-off and what follows from it). On this computer, against the local
+database and Stripe's test mode, after Astra's fixes: `scripts/booking-check.ts`, 123 checks, 8
+of them new (the cut-off is 24 hours before for a host whose free cancelling runs until 1 hour
+before; no reminder more than 12 hours before the cut-off; one reminder, also with two helpers
+at once, with the link and the deadline; none for a customer who fixed the card; a reminder
+written just before paying, or still waiting when the call is cancelled, is not sent);
+`scripts/notifications-check.ts`, 35 checks, 2 of them new (no call reminder for an unpaid call
+past its cut-off; one for an unpaid call whose own, older cut-off has not come). Before Astra's
+fixes, which touch none of their code: `scripts/verified-check.ts` (30), `scripts/now-check.ts`
+(74), `scripts/extend-check.ts` (114). In a browser, as the test customer: the test host's page
+offers paid times from 32 hours ahead, and the page for asking shows "you can fix it until" a
+day before the call. Not tried by hand: receiving the reminder as a real email.
+
+**Still open.** For the founder: whether a host should also be told when a customer's card
+fails (today the host hears only if the call is cancelled, now a day before). The wording of
+the reminder is the builder's.

@@ -48,6 +48,8 @@ export type BookingEvent =
   | "passed_over"
   | "ran_out"
   | "card_problem"
+  // Once, some hours before the payment cut-off, when the card is still not fixed (a booked call only).
+  | "card_reminder"
   | "cancelled_unpaid"
   | "cancelled_by_host"
   | "cancelled_by_customer"
@@ -232,6 +234,18 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
         `We could not place the hold for your call with ${hostShown} on ${whenC}. Your bank may have refused it, or may want you to approve it.`,
         `Please open the call's page and pay there before ${whenFor(customer, booking.payBy ?? booking.startsAt)}. If the money is not held by then, the call is cancelled at no cost to you.`,
       ]);
+      break;
+    case "card_reminder":
+      await toCustomer(
+        `Reminder: your call with ${hostShown} still needs your card`,
+        [
+          `The hold for your call with ${hostShown} on ${whenC} is still not in place.`,
+          `Please open the call's page and pay there before ${whenFor(customer, booking.payBy ?? booking.startsAt)}. If the money is not held by then, the call is cancelled at no cost to you.`,
+        ],
+        booking.callId ? `${appUrl()}/calls/${booking.callId}` : page,
+        // Dropped by itself if it is not out before that deadline.
+        booking.payBy ?? undefined,
+      );
       break;
     case "cancelled_unpaid":
       await toCustomer(`Your call with ${hostShown} was cancelled`, [

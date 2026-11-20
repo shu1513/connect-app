@@ -40,6 +40,8 @@ async function main() {
   const B = await import("../src/lib/booking/bookings");
   const { BookingError } = B;
   const { runBookingJobs } = await import("../src/lib/booking/jobs");
+  const { queueBookingEmails } = await import("../src/lib/booking/emails");
+  const { deliverEmails } = await import("../src/lib/notifications/delivery");
   const { endBookingsOfSuspendedHost } = await import("../src/lib/booking/moderation");
   const { answerDeadline, payCutoff, LIMITS } = await import("../src/lib/booking/rules");
   const { startHold, syncHold } = await import("../src/lib/payments/hold");
@@ -379,6 +381,13 @@ async function main() {
       await syncHold((await payment()).id, fixAt);
       const fixed = await payment();
       check("the money is now held, on that one hold", fixed.status === "held" && fixed.stripePaymentIntentId === firstIntent);
+      await runBookingJobs(new Date(after.payBy!.getTime() - 11 * HOUR));
+      check("a customer who fixed the card is not reminded", !(await eventEmail(`card_reminder:${booking.id}:customer`)));
+      // A reminder written a moment before they paid (written by hand here) is stopped when its turn to be sent comes.
+      await queueBookingEmails(db, await reload(booking.id), "card_reminder");
+      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "booking-check" }), { toLike: yan.email });
+      const [stopped] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
+      check("and a reminder written just before they paid is not sent", stopped?.status === "failed" && Boolean(stopped.lastError?.includes("the money is held")), `${stopped?.status} ${stopped?.lastError}`);
       await runBookingJobs(new Date(after.payBy!.getTime() + MINUTE));
       check("so the booking is not cancelled at the cut-off", (await reload(booking.id)).stage === "accepted");
       await cancelCall({ call, payment: fixed, by: "host", now: fixAt });
@@ -391,13 +400,25 @@ async function main() {
     {
       const xia = await customer("xia");
       const slot = await nextPaidSlot();
+      // For this request the host lets people cancel for free until 1 hour before: the cut-off is still a day before.
+      await db.update(schema.hostSettings).set({ freeCancelMinutes: 60 }).where(eq(schema.hostSettings.userId, hana.id));
       const { booking } = await ask(xia, hana.id, slot);
+      await db.update(schema.hostSettings).set({ freeCancelMinutes: 1440 }).where(eq(schema.hostSettings.userId, hana.id));
       await cardFor(booking.id, "pm_card_chargeCustomerFail");
       await B.finishCardStep({ bookingId: booking.id, customerId: xia.id, now });
       const { callId } = await B.accept({ bookingId: booking.id, hostId: hana.id, now });
       const payment = async () => (await db.select().from(schema.payments).where(eq(schema.payments.callId, callId)))[0];
       await runBookingJobs(new Date(slot.getTime() - 47 * HOUR));
       const cutoff = (await reload(booking.id)).payBy!;
+      check("the cut-off is 24 hours before the call, also for a host whose free cancelling runs until 1 hour before", booking.freeCancelMinutes === 60 && cutoff.getTime() === slot.getTime() - 24 * HOUR);
+      await runBookingJobs(new Date(cutoff.getTime() - 12 * HOUR - MINUTE));
+      check("more than 12 hours before the cut-off, there is no reminder yet", !(await eventEmail(`card_reminder:${booking.id}:customer`)));
+      const remindAt = new Date(cutoff.getTime() - 12 * HOUR + MINUTE);
+      await Promise.all([runBookingJobs(remindAt), runBookingJobs(remindAt)]); // two helpers at once
+      await runBookingJobs(new Date(cutoff.getTime() - 6 * HOUR));
+      const [reminder] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
+      check("12 hours before the cut-off the customer is reminded, once", (await emailsTo(xia.email, "still needs your card")) === 1 && (await emailsTo(xia.email, "needs your attention")) === 1);
+      check("the reminder links to the call's page and is not sent after the cut-off", Boolean(reminder?.body.includes(`/calls/${callId}`)) && reminder?.expiresAt?.getTime() === cutoff.getTime());
       await runBookingJobs(new Date(cutoff.getTime() - MINUTE));
       check("before the cut-off the booking stands", (await reload(booking.id)).stage === "accepted");
       await runBookingJobs(new Date(cutoff.getTime() + MINUTE));
@@ -407,6 +428,9 @@ async function main() {
       const p = await payment();
       check("at the cut-off the call is cancelled, as a free cancellation", call.cancelledAt !== null && call.cancelledLate === false && (await reload(booking.id)).stage === "cancelled");
       check("nothing was charged", p.status === "closed_uncharged" && p.chargedCents === null, p.status);
+      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "booking-check" }), { toLike: xia.email });
+      const [late] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
+      check("a reminder still waiting when the call is cancelled is not sent", late?.status === "failed" && Boolean(late.lastError?.includes("no longer open")), `${late?.status} ${late?.lastError}`);
       check("both people are told, and the time is open again", (await eventEmail(`cancelled_unpaid:${booking.id}:customer`)) && (await eventEmail(`cancelled_unpaid:${booking.id}:host`)) && (await times(hana.id, 30, 96)).some((t) => t.getTime() === slot.getTime()));
     }
 
