@@ -78,7 +78,7 @@ export default async function ContributionPage(props: PageProps<"/contributions/
           ) : (
             `your call with ${hostName}`
           )}
-          , and a payment fee of {formatMoney(contribution.amountCents - tipCents)}. {hostName} receives the whole tip. It is a thank-you; it does not buy a call or any promised reward.
+          , and a payment fee of {formatMoney(contribution.amountCents - tipCents)}. All of a tip is meant for the host; Connect keeps nothing of it. It is a thank-you; it does not buy a call or any promised reward.
         </p>
       ) : (
       <p className="mt-1 text-sm">
@@ -236,7 +236,8 @@ function PaymentLine({ row, contributionId, monthly, hostName }: { row: PaymentR
           </p>
           {payment.refundedCents > 0 && <p className="mt-1">{formatMoney(payment.refundedCents)} of it was paid back to your card.</p>}
           {row.refundUnderWayCents > 0 && <p className="mt-1">{formatMoney(row.refundUnderWayCents)} is on its way back to your card.</p>}
-          {payment.refundedCents === 0 && row.refundUnderWayCents === 0 && <p className="mt-1 opacity-70">Giving it back is {hostName}&apos;s decision.</p>}
+          {/* (Not while its charge is disputed at the bank: nothing can be given back from it then.) */}
+          {payment.refundedCents === 0 && row.refundUnderWayCents === 0 && payment.dispute !== "open" && payment.dispute !== "lost" && <p className="mt-1 opacity-70">Giving it back is {hostName}&apos;s decision.</p>}
         </>
       )}
     </li>

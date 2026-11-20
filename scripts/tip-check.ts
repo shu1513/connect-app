@@ -371,6 +371,21 @@ async function main() {
 
   const atStart = await switches();
   console.log(`(The founder's switches at the start: tips ${atStart.tipsOff ? "off" : "on"}, projects "${atStart.projects}". They are put back at the end.)`);
+  // Asked before anything is changed. This script saves both switches for real and puts them back; that is only
+  // harmless for what is not ours in two cases, and it stops otherwise:
+  //   - projects were on for everyone: then no monthly contribution of anyone carries the mark of a switched-off
+  //     host, and with the other hosts kept named (below) none gets one;
+  //   - no tip of anyone else is waiting or held: switching tips off gives up every tip that is not taken, and
+  //     putting the switch back cannot bring a hold back.
+  if (atStart.projects !== "everyone") throw new Error(`The founder's projects switch is "${atStart.projects}" in this database. This script changes it and puts it back, which is only harmless when it is "everyone". Nothing was changed.`);
+  const [foreignTip] = await db
+    .select({ id: pays.id })
+    .from(pays)
+    .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
+    .innerJoin(schema.user, eq(schema.user.id, schema.contributions.contributorId))
+    .where(and(eq(schema.contributions.kind, "tip"), inArray(pays.status, ["to_pay", "held"]), sql`${pays.endedHow} is null`, sql`${schema.user.email} not like 'tipcheck-%'`))
+    .limit(1);
+  if (foreignTip) throw new Error("A tip that this script did not make is waiting for its card or held in this database. Switching tips off would give it up, so nothing was changed. Cancel it first, or let its three days pass.");
   /** Whoever saves a switch for this script: its line in the founder's record is removed at the end. */
   let switchSaver: Person | null = null;
   /** The ids of the lines the test admin's own presses on the tips switch wrote into the founder's record. */
@@ -799,14 +814,13 @@ async function main() {
     const piaTip = await heldTip(pia, { customer: mona });
     check("(a tip and a contribution to the same host are both held)", (await PM(kimPayment.id)).status === "held" && (await PM(piaTip.paymentId)).status === "held");
 
-    // Only when projects were on for everyone at the start: then no monthly contribution of anyone carries the mark of
-    // a switched-off host, and with the others named below none gets one, so nothing of theirs changes when the switch
-    // is put back. (With another position at the start this part would have to change what is not ours: it stops.)
-    if (atStart.projects !== "everyone") throw new Error(`The founder's projects switch is "${atStart.projects}" in this database. This script changes it and puts it back, which is only harmless when it is "everyone". Nothing of the switches was changed.`);
     // Off for our hosts. A host of someone else with a payment that is not taken stays named, so that this script
     // never gives up a payment it did not make. (With none there, the switch is simply off.)
     const ours = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, "tipcheck-%"))).map((row) => row.id);
-    const others = [...new Set((await db.select({ hostId: schema.contributions.hostId }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(inArray(pays.status, ["to_pay", "held"]))).map((row) => row.hostId))].filter((id) => !ours.includes(id));
+    const withOpenPayment = (await db.select({ hostId: schema.contributions.hostId }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(inArray(pays.status, ["to_pay", "held"]))).map((row) => row.hostId);
+    // And every host with a monthly contribution that runs: between two months it has no payment that is not taken, and it must not be marked either.
+    const withMonthly = (await db.select({ hostId: schema.contributions.hostId }).from(schema.contributions).where(and(eq(schema.contributions.kind, "monthly"), sql`${schema.contributions.status} <> 'ended'`))).map((row) => row.hostId);
+    const others = [...new Set([...withOpenPayment, ...withMonthly])].filter((id) => !ours.includes(id));
     await saveProjectsSwitch({ adminId: switchSaver.id, values: others.length > 0 ? { projects: "named", projectsHosts: others } : { projects: "off" }, detail: "off for the tip check's hosts" });
     await helper(new Date());
     check("switching PROJECTS off gives up the held contribution and does not touch a held tip", (await PM(kimPayment.id)).status === "given_up" && (await PM(piaTip.paymentId)).status === "held" && (await PM(piaTip.paymentId)).endedHow === null && (await PM(t1.paymentId)).status === "held");
