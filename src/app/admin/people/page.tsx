@@ -268,7 +268,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
 
       <h2 id="photos" className="mt-10 text-lg font-semibold">Hosts&apos; photos ({shownPhotos.length})</h2>
       <p className="mt-1 text-sm opacity-70">
-        A host&apos;s photo is the profile picture of their confirmed Instagram account, checked by an outside service before it was shown. &quot;Remove&quot; deletes
+        A host&apos;s photo is a picture they uploaded, or the profile picture of their confirmed Instagram or TikTok account, checked by an outside service before it was shown. &quot;Remove&quot; deletes
         it; the host can choose one again. &quot;Remove and report&quot; is for a photo you suspect of showing child abuse: nobody sees it again, it is kept exactly as
         it is, and the host can choose no other.
       </p>
@@ -285,7 +285,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                   {hostOf(photo.userId)?.displayName} <span className="opacity-70">@{hostOf(photo.userId)?.handle}</span>
                 </p>
                 <p className="mt-1">
-                  From {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @{photo.sourceNameKey}, taken <LocalTime iso={photo.takenAt.toISOString()} />.
+                  {photo.network === "upload" ? "Uploaded" : <>From {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @{photo.sourceNameKey}, taken</>}{" "}
+                  <LocalTime iso={photo.takenAt.toISOString()} />.
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-4">
                   <form action={removePhotoAction}>
@@ -320,8 +321,9 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
             {lockedPhotos.map((photo) => (
               <li key={photo.id} className="rounded border border-red-600 p-3 text-sm">
                 <p>
-                  The photo of {hostOf(photo.userId)?.displayName} (@{hostOf(photo.userId)?.handle}), from {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @
-                  {photo.sourceNameKey}. Removed and kept <LocalTime iso={photo.lockedAt!.toISOString()} />.
+                  The photo of {hostOf(photo.userId)?.displayName} (@{hostOf(photo.userId)?.handle}),{" "}
+                  {photo.network === "upload" ? "uploaded" : <>from {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @{photo.sourceNameKey}</>}. Removed and kept{" "}
+                  <LocalTime iso={photo.lockedAt!.toISOString()} />.
                 </p>
                 {photo.reportMadeAt ? (
                   <p className="mt-1">

@@ -1501,7 +1501,7 @@ async function main() {
 
     // Pictures.
     const uploadRoute = readFileSync("src/app/host/project/posts/[id]/pictures/route.ts", "utf8");
-    const steps = ["if (!fromThisSite(request.headers))", "const user = await getUser();", "if (user.paused)", "await postForHost(user.id, id)", "request.headers.get(\"content-length\")", "if (!takePlace())", "await readWithin(request, REQUEST_MAX)", "await acceptUpload({ hostId: user.id"].map((step) => uploadRoute.indexOf(step));
+    const steps = ["if (!fromThisSite(request.headers))", "const user = await getUser();", "if (user.paused)", "await postForHost(user.id, id)", "request.headers.get(\"content-length\")", "if (!takePlace())", "await readOnePicture(request, kind)", "await acceptUpload({ hostId: user.id"].map((step) => uploadRoute.indexOf(step));
     check("the upload address checks, in this order: our own page, the login, the pause, her own post, the stated size, the one place; only then does it read, and the host comes from the login", steps.every((at, i) => at > 0 && (i === 0 || at > steps[i - 1])) && /\} finally \{\n    givePlace\(\);/.test(uploadRoute), steps);
     const pictureRoute = readFileSync("src/app/pictures/[id]/route.ts", "utf8");
     check("the picture's address hands out nothing but what pictureFor gives it", /const found = await pictureFor\(/.test(pictureRoute) && !/projectPictureFiles/.test(pictureRoute));

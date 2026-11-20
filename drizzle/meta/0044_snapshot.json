@@ -1,5 +1,5 @@
 {
-  "id": "17154b7e-dba2-4b44-86de-20dcf2b98bad",
+  "id": "f932ee8a-8a0f-4a2f-8ab8-977e5e29a0cc",
   "prevId": "aa85d3ce-1f01-4605-8c44-3f7ccaaca5a6",
   "version": "7",
   "dialect": "postgresql",
@@ -3269,7 +3269,7 @@
           "name": "entry_name_key",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "entry_account_id": {
           "name": "entry_account_id",
@@ -3400,7 +3400,11 @@
       "checkConstraints": {
         "host_photo_tries_network": {
           "name": "host_photo_tries_network",
-          "value": "\"host_photo_tries\".\"network\" in ('instagram', 'tiktok')"
+          "value": "\"host_photo_tries\".\"network\" in ('instagram', 'tiktok', 'upload')"
+        },
+        "host_photo_tries_entry": {
+          "name": "host_photo_tries_entry",
+          "value": "(\"host_photo_tries\".\"network\" = 'upload' and \"host_photo_tries\".\"entry_name_key\" is null and \"host_photo_tries\".\"entry_account_id\" is null) or (\"host_photo_tries\".\"network\" <> 'upload' and \"host_photo_tries\".\"entry_name_key\" is not null)"
         },
         "host_photo_tries_result": {
           "name": "host_photo_tries_result",
@@ -3436,13 +3440,13 @@
           "name": "source_name_key",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "source_account_id": {
           "name": "source_account_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "width": {
           "name": "width",
@@ -3597,7 +3601,11 @@
       "checkConstraints": {
         "host_photos_network": {
           "name": "host_photos_network",
-          "value": "\"host_photos\".\"network\" in ('instagram', 'tiktok')"
+          "value": "\"host_photos\".\"network\" in ('instagram', 'tiktok', 'upload')"
+        },
+        "host_photos_source": {
+          "name": "host_photos_source",
+          "value": "(\"host_photos\".\"network\" = 'upload' and \"host_photos\".\"source_name_key\" is null and \"host_photos\".\"source_account_id\" is null) or (\"host_photos\".\"network\" <> 'upload' and \"host_photos\".\"source_name_key\" is not null and \"host_photos\".\"source_account_id\" is not null)"
         }
       },
       "isRLSEnabled": false
@@ -8257,285 +8265,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.suggestion_days": {
-      "name": "suggestion_days",
-      "schema": "",
-      "columns": {
-        "viewer_id": {
-          "name": "viewer_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "day": {
-          "name": "day",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rule_version": {
-          "name": "rule_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "made_at": {
-          "name": "made_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "suggestion_days_viewer_id_user_id_fk": {
-          "name": "suggestion_days_viewer_id_user_id_fk",
-          "tableFrom": "suggestion_days",
-          "tableTo": "user",
-          "columnsFrom": [
-            "viewer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "suggestion_days_viewer_id_day_pk": {
-          "name": "suggestion_days_viewer_id_day_pk",
-          "columns": [
-            "viewer_id",
-            "day"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "suggestion_days_day": {
-          "name": "suggestion_days_day",
-          "value": "\"suggestion_days\".\"day\" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.suggestion_hides": {
-      "name": "suggestion_hides",
-      "schema": "",
-      "columns": {
-        "viewer_id": {
-          "name": "viewer_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "host_id": {
-          "name": "host_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "suggestion_hides_viewer_id_user_id_fk": {
-          "name": "suggestion_hides_viewer_id_user_id_fk",
-          "tableFrom": "suggestion_hides",
-          "tableTo": "user",
-          "columnsFrom": [
-            "viewer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "suggestion_hides_host_id_user_id_fk": {
-          "name": "suggestion_hides_host_id_user_id_fk",
-          "tableFrom": "suggestion_hides",
-          "tableTo": "user",
-          "columnsFrom": [
-            "host_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "suggestion_hides_viewer_id_host_id_pk": {
-          "name": "suggestion_hides_viewer_id_host_id_pk",
-          "columns": [
-            "viewer_id",
-            "host_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "suggestion_hides_not_self": {
-          "name": "suggestion_hides_not_self",
-          "value": "\"suggestion_hides\".\"viewer_id\" <> \"suggestion_hides\".\"host_id\""
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.suggestion_shows": {
-      "name": "suggestion_shows",
-      "schema": "",
-      "columns": {
-        "viewer_id": {
-          "name": "viewer_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "day": {
-          "name": "day",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "place": {
-          "name": "place",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "host_id": {
-          "name": "host_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kept": {
-          "name": "kept",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "seen_at": {
-          "name": "seen_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "suggestion_shows_host_uq": {
-          "name": "suggestion_shows_host_uq",
-          "columns": [
-            {
-              "expression": "viewer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "day",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "host_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "suggestion_shows_seen_idx": {
-          "name": "suggestion_shows_seen_idx",
-          "columns": [
-            {
-              "expression": "host_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seen_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"suggestion_shows\".\"seen_at\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "suggestion_shows_host_id_user_id_fk": {
-          "name": "suggestion_shows_host_id_user_id_fk",
-          "tableFrom": "suggestion_shows",
-          "tableTo": "user",
-          "columnsFrom": [
-            "host_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "suggestion_shows_day_fk": {
-          "name": "suggestion_shows_day_fk",
-          "tableFrom": "suggestion_shows",
-          "tableTo": "suggestion_days",
-          "columnsFrom": [
-            "viewer_id",
-            "day"
-          ],
-          "columnsTo": [
-            "viewer_id",
-            "day"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "suggestion_shows_viewer_id_day_place_pk": {
-          "name": "suggestion_shows_viewer_id_day_place_pk",
-          "columns": [
-            "viewer_id",
-            "day",
-            "place"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "suggestion_shows_place": {
-          "name": "suggestion_shows_place",
-          "value": "\"suggestion_shows\".\"place\" between 1 and 6"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.time_off": {

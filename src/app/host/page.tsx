@@ -438,17 +438,23 @@ export default async function HostPage(props: PageProps<"/host">) {
           ) : (
             <>
               <p className="mt-2 text-sm opacity-70">
-                Your page and the search results can show the profile picture of your confirmed Instagram{tiktokOn ? " or TikTok" : ""} account in
-                place of the first letter of your name. When you press a button, we fetch your public profile picture, make our own copy,
-                and have it checked automatically before anyone sees it. For the check, our copy is sent to a checking service, without
-                your name. We keep our copy until you remove it (the privacy page says when we must keep one longer). You have one photo
-                at a time, and {PHOTO.triesPerDay} tries in 24 hours. On Instagram it works for Creator and Business accounts.
+                Your page and the search results can show a photo in place of the first letter of your name. You can upload a picture
+                {checkSettings.instagram || tiktokOn ? `, or use the profile picture of your confirmed ${checkSettings.instagram ? "Instagram" : "TikTok"}${checkSettings.instagram && tiktokOn ? " or TikTok" : ""} account` : ""}
+                . We make our own copy and have it checked automatically before anyone sees it. For the check, our copy is sent to a
+                checking service, without your name. We keep our copy until you remove it (the privacy page says when we must keep one
+                longer). You have one photo at a time, and {PHOTO.triesPerDay} tries in 24 hours. Of a picture you upload, the middle is
+                shown, in a circle.
+                {Boolean(checkSettings.instagram) && " On Instagram it works for Creator and Business accounts."}
                 {tiktokOn && " For TikTok you log in at TikTok once more: that is how we get the picture. Your account on this page is not changed by it."}
               </p>
               <div className="mt-3 flex items-center gap-4">
                 <HostPhoto photoId={photoState.photo?.id ?? null} name={profile.displayName} />
                 <p className="text-sm">
-                  {photoState.photo ? (
+                  {photoState.photo?.network === "upload" ? (
+                    <>
+                      Uploaded <LocalTime iso={photoState.photo.takenAt.toISOString()} />.
+                    </>
+                  ) : photoState.photo ? (
                     <>
                       From {isNetwork(photoState.photo.network) ? NETWORKS[photoState.photo.network].label : photoState.photo.network} @{photoState.photo.sourceNameKey}, taken{" "}
                       <LocalTime iso={photoState.photo.takenAt.toISOString()} />.
@@ -475,13 +481,6 @@ export default async function HostPage(props: PageProps<"/host">) {
                     </button>
                   </form>
                 )}
-                {!photoFromInstagram && !photoFromTikTok && (
-                  <p className="text-sm">
-                    {checkSettings.instagram || tiktokOn
-                      ? `Confirm ${checkSettings.instagram ? "an Instagram" : "a TikTok"}${checkSettings.instagram && tiktokOn ? " or TikTok" : ""} account above first. Then you can use its profile picture here.`
-                      : "Photos are not switched on yet."}
-                  </p>
-                )}
                 {photoState.photo && (
                   <form action={removeOwnPhoto}>
                     <button type="submit" className="text-sm underline underline-offset-2">
@@ -490,10 +489,21 @@ export default async function HostPage(props: PageProps<"/host">) {
                   </form>
                 )}
               </div>
+              {/* A plain form to an address of its own: a picture does not fit into the app's ordinary forms (plans/35). */}
+              <form method="post" action="/photo" encType="multipart/form-data" className="mt-4 text-sm" data-photo-upload>
+                <label className="block">
+                  {photoState.photo ? "Upload another picture" : "Upload a picture"} (JPEG, PNG or WebP, up to 10 MB)
+                  <input name="picture" type="file" accept="image/jpeg,image/png,image/webp" required className="mt-1 block w-full" />
+                </label>
+                <button type="submit" className={`mt-2 ${!photoState.photo && !photoFromInstagram && !photoFromTikTok ? primaryButton : smallButton}`}>
+                  Upload a photo
+                </button>
+              </form>
               {photoState.photo && (
                 <p className="mt-2 text-sm opacity-70">
-                  &quot;Update&quot; fetches your profile picture again, for when you have changed it. Your photo stays as it is until the new one has passed the
-                  check. (One exception: if the check refuses the very picture you already have, that photo is taken down.)
+                  {photoState.photo.network !== "upload" && <>&quot;Update&quot; fetches your profile picture again, for when you have changed it. </>}
+                  Your photo stays as it is until a new one has passed the check. (One exception: if the check refuses the very picture you already have,
+                  that photo is taken down.)
                 </p>
               )}
             </>

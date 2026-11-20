@@ -172,11 +172,11 @@ least this week.
 - **The always-on helper** (`worker/closer.ts`) runs the cleaning jobs (for example
   `removeOldNotes`, every 720th pass).
 - **The newest database change** on `main` is `drizzle/0043_host_languages.sql`; this plan's is
-  0044, unless another session takes that number first.
+  0045 (it was first made as 0044; the photo uploads of plan 35 were merged first and took that number).
 
 ## The changes
 
-**The database** (`drizzle/0044_suggestions.sql`, `src/db/schema.ts`), three small tables. Each
+**The database** (`drizzle/0045_suggestions.sql`, `src/db/schema.ts`), three small tables. Each
 is removed with the account it belongs to (the person's, or the host's).
 
 - `suggestion_days`: one line per person and day (UTC): that suggestions were made, with which

@@ -2810,6 +2810,107 @@ time), and a real phone.
 are the builder's choices and easy to change now that the page can be looked at. The suggested
 hosts are plan 37, the next change.
 
+## A later change: uploading a photo, part one: hosts (plan 35, 19 November 2026)
+
+**Why.** A host's photo could only be the profile picture of a confirmed Instagram or TikTok
+account (plans 29 and 33). A host with a personal Instagram account gets nothing from Meta, and
+TikTok's sign-in is not open to real hosts yet, so those hosts kept the circle with a letter.
+The founder asked on 19 November 2026 whether hosts, and customers too, should be able to
+upload a photo, and said "Yes, plan both", then "Yes, build it". This turns round one line of
+plan 29, which had left uploading out on purpose.
+
+**What it is (part one, hosts).**
+- **"Upload a photo"** in the part "Your photo" of the Hosting page: a file field and a button,
+  for every host with a profile, whether or not they have a confirmed account. The buttons for
+  Instagram and TikTok stay beside it.
+- **The same rules as a photo from a network:** checked by an outside service before anyone
+  sees it, never shown after only Connect's own checker; a refused picture stays refused; the
+  old photo stays until the new one has passed; one photo at a time; five tries in any 24
+  hours, counted together with tries from Instagram and TikTok; diary pictures first.
+- **What is kept:** only Connect's own copy, a square cut from the middle of the picture, at
+  most 512 points on each side, never enlarged. A JPEG, PNG or WebP of up to 10 MB can be sent.
+- **An uploaded photo belongs to no social account.** Removing or changing a confirmed account
+  leaves it alone; a photo taken from an account still goes with its account.
+- **A picture refused or locked in the host's diary is refused as a photo too.** A diary keeps
+  the whole picture and a photo keeps a square, so their fingerprints differ; an upload makes
+  the diary's kind of copy as well, only to compare, and throws it away.
+
+**The builder's decisions** (the founder can change any; all ten are in plan 35): one photo for
+each account; no mark on the public page for where a photo came from; no cropping tool; the
+tables keep their names (`host_photos`, `host_photo_tries`) although they will hold customers'
+photos in part two.
+
+**What was built.**
+- **Database:** migration `0044_photo_uploads`. Both tables take `upload` as a source; the
+  account's name and number may be empty, and the database allows that only for an upload.
+- **`src/lib/profiles/photo.ts`:** `uploadPhoto`, the same three steps as a network's try. The
+  start asks for no confirmed account. "Fetch the picture" became "get the original", which for
+  an upload reads the file out of the request, only after the start has said yes, and while the
+  server's one place for pictures is held. The finish compares no account.
+- **`src/lib/projects/copy.ts`:** `makeCopy` takes one option, a square.
+- **`src/app/photo/route.ts` (new):** the address a photo is uploaded to, built like the
+  diary's: only from Connect's own page, a logged-in person who is not paused, a file form that
+  does not say it is too large. Where the browser is sent afterwards is decided on the server.
+- **`src/lib/projects/upload-body.ts` (new):** reading one file out of a request, moved out of
+  the diary's address so both use the same code. The diary's address behaves as before.
+- **The pages:** the Hosting page's form and words; "Uploaded" in place of the network and
+  account on the Hosting page and the founder's page; one paragraph on the privacy page; one
+  sentence on the rules page.
+
+**Said plainly: what this does not protect against.** Nothing compares an uploaded face with
+anyone: a host could upload someone else's picture. The founder approves every host's page,
+sees every photo on the admin page and can remove one. And the child-safety tool is still not
+set up (plan 23): an uploaded photo comes straight from a person's device, as a diary picture
+already does, and no picture is compared with the list of known pictures of child abuse.
+
+**Tried for real (19 November 2026),** on this computer, as the local test host, in the
+built-in browser on a test server of its own:
+- A real JPEG of 4,032 by 3,024 points and 1.9 MB was uploaded through the form. OpenAI's real
+  check passed it in 1.5 seconds. What was kept is a square of 512 points, 16 KB. The host was
+  sent back to "Your photo" with "Your photo passed the check and is saved", and it replaced
+  the photo the host had from TikTok.
+- The host's page and "Find a host" showed it in place of the letter; phone-sized (375 points
+  wide) the form fits the screen.
+- A second upload at the five-a-day limit was refused with its sentence, and the browser
+  followed the answer although the 1.9 MB it was sending were never read.
+- The test host's own photo and tries were put back afterwards.
+
+Not seen for real: a picture a service refuses, a file over 10 MB sent from a real phone, and
+the founder's page with an uploaded photo (the check script covers all three).
+
+**What the reviewers found.**
+- *Astra, on the plan:* "ready with changes", five points, all taken. The two that mattered: a
+  square photo and a whole diary picture never share a fingerprint, so the rule "refused in the
+  diary, refused as a photo" would have stopped working for uploads without anyone noticing;
+  and the rule plan 32 uses for a host's notes lets in a member's booking that is still waiting
+  for its payment, which part two must not reuse unchanged.
+- *Astra, on the code:* "ready", nothing that had to change. Two of its three suggestions were
+  taken, both tests: a request that stalls is given up on and let go of; and the diary picture
+  in the check now really goes through the diary's own upload step. The third was first left
+  out and then taken in one direction, when the automatic security review of the commit raised
+  it too: a picture refused as a photo from Instagram or TikTok is now also refused when the
+  very same file is uploaded (a host can save their own profile picture and upload it). Not
+  taken: the other direction, a picture refused as an upload and then set as the Instagram
+  picture. Instagram makes its own file of what it is given, so the two would not match.
+
+- *CodeRabbit did not review this one.* It answered that its review limit was reached for the
+  next 50 minutes, and the founder's rule for that case is not to wait. The builder read the
+  whole change once more, line by line, and found only comments in the code that still said a
+  host's photo comes from a social media account alone; they now name uploads too.
+
+**How it was checked:** 628 automatic tests on the code (new: the square copy, and the
+sentences after an upload); three new journeys of 71 checks in `scripts/photo-check.ts` (255 in
+all): each way an upload can end, a start that says "no" never reading the file, a refused
+picture staying refused (also one refused in the diary, sent through the diary's own upload
+step), an upload while the photo is removed, the account closed or paused, or a confirmed
+account changed, and the upload's address through the running app; `scripts/project-check.ts`
+passing (311), with the diary's address now on the shared reader; all 22 check scripts once
+more, taking turns with another session on the shared test database; the real try above.
+
+**Still open.** Part two (customers). The founder's ten decisions in plan 35. The lawyer: the
+privacy page's new words. Before the child-safety tool is switched on, uploaded photos have to
+be brought under it with the others (plan 29's list).
+
 ## A later change: suggested hosts (plan 37, 19 November 2026)
 
 **What the founder asked for.** "Also possibly some hosts suggestions - the suggestions should
@@ -2832,7 +2933,7 @@ and Facebook do it; the builder and Astra each did that separately before the pl
   record, and one person's call would have moved a host up or down.
 
 **What was built.** Three small tables (`suggestion_days`, `suggestion_shows`,
-`suggestion_hides`; database change 0044). The plain rule in `src/lib/suggestions/rules.ts`.
+`suggestion_hides`; database change 0045). The plain rule in `src/lib/suggestions/rules.ts`.
 Reading and writing in `src/lib/suggestions/suggestions.ts`. The row
 (`src/components/suggested-hosts.tsx`) on the home page. A small part that runs in the browser
 (`src/components/suggestions-watch.tsx`) asks for the day's suggestions to be made a moment after
