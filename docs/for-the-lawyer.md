@@ -46,6 +46,11 @@ company yet.
   deletes their account with a call booked would be treated as cancelling it themselves, so a
   late cancellation would be charged as usual. A host who deletes theirs would still be paid
   what they have earned. Is that allowed, and what must the person be told before they confirm?
+  Plan 45 (parts 19 and 19b; not built) adds: the cost of each cancelled call is fixed at the
+  moment the person confirms; a deleted host's earnings are sent to her payout account by
+  Connect, without the usual 25-cent charge; money that cannot be sent (no working payout
+  account, an open dispute) stays owed, with a reference she can claim it by. How long may
+  such money be kept, and what must she be told?
 
 ## 3. Safety and children
 
@@ -100,10 +105,28 @@ company yet.
   calls and money, refund requests, reports, identity-check results, blocks)? Which must be
   wiped, and how soon? May Connect keep enough about someone it removed for breaking the
   rules to stop them signing up again?
+- **The list of what deleting wipes and keeps** (new, plan 45, part 19c; not built). The
+  builder wrote a first version, group by group: erased, kept without anything that says who,
+  or kept for a reason and a time. It needs a lawyer's decision line by line. The builder's
+  own first values: everything is wiped within 30 days of the request, **with three kinds of
+  exception**: (1) reports about the person, whether still open or long closed, and pauses
+  and blocks against them, kept 3 years; (2) the records of paid calls and money, kept for as
+  long as tax and dispute rules need (to be named); (3) the texts and evidence of a refund
+  request or bank dispute that is still open, kept until it is closed and then wiped. Also: there is no way back once a deletion is confirmed; and outside companies
+  that hold copies (Stripe for ID checks and cards, the email and video services) are asked
+  to remove theirs where they offer a way. Are these right?
 - **The phone apps** (new, plan 39; not built). The privacy page must also cover what an app
   adds: the phone's address for notifications, what a notification shows on a locked screen,
   and the camera and microphone on the phone. Both stores ask for a form saying what the app
   collects; it has to match the privacy page.
+- **Two versions of the privacy and rules pages from one source** (new, plan 45, part 18;
+  not built). The apps do not have projects, so the apps' version would leave out the parts
+  that are only about projects and add what an app collects. The terms a person accepts stay
+  the same everywhere. Is that acceptable, and what must the apps' version say?
+- **Photos sent to checking companies from an app** (new, plan 45, part 14; not built). Apple
+  asks for a person's plain yes before personal data goes to another company, a company that
+  checks pictures by machine included. The app would ask before the first photo is sent.
+  Does the website need the same, and what should the sentence say?
 - **How long records are kept, in general.** (Plan 5.)
 
 ## 5. Emails
