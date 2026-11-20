@@ -37,7 +37,7 @@ export default function AccountPlace() {
         <Button label="Ask again" kind="plain" onPress={askAgain} />
       </Card>
       <Button label="Sign out" kind="plain" busy={leaving} onPress={() => void leave()} />
-      {notOut ? <Notice>Signing out did not work on this phone. You are still signed in. Please try again.</Notice> : null}
+      {notOut ? <Notice>Signing out did not work on this phone. Please try again.</Notice> : null}
       {TEST_SCREENS ? (
         <Card>
           <Heading>Test screens</Heading>

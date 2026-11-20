@@ -63,9 +63,11 @@ export function OpeningProvider({ children }: { children: ReactNode }) {
     // An answer still on its way was asked as the person who is leaving: it no longer counts.
     newest.current++;
     // From here on the app asks as nobody, and the phone remembers that a sign-out is under way: first, before the screen changes.
-    if (!(await startLeaving())) return false;
+    const begun = await startLeaving();
+    if (!begun) return false;
     setOpening(signedOut);
-    await signOut();
+    // "finished": the phone could not note the sign-out, so all of it was done before the screen changed.
+    if (begun === "noted") await signOut();
     await put();
     return true;
   }, [put]);

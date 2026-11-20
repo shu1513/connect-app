@@ -352,14 +352,15 @@ export async function forgetStep(): Promise<void> {
 
 /**
  * The first half of signing out, done at once, before the screen changes: from now on the app
- * asks as nobody, and the phone remembers that a sign-out is under way. False when the phone could
- * neither note it nor be wiped: then nobody was signed out, and the screen must say so.
+ * asks as nobody, and the phone remembers that a sign-out is under way ("noted"). If the phone
+ * could not note it, the whole sign-out is done here instead ("finished": nothing is left to do).
+ * False when neither could be done: the screen must then say that signing out did not work.
  */
-export async function startLeaving(): Promise<boolean> {
+export async function startLeaving(): Promise<"noted" | "finished" | false> {
   leaving = "yes";
   try {
     await SecureStore.setItemAsync(LEAVING_KEY, "1");
-    return true;
+    return "noted";
   } catch {
     // The phone could not note it. Then the sign-out is finished here and now, in its turn, before the screen
     // changes: the server is told, the phone's side is wiped and looked at. Only if that worked is the person
@@ -367,7 +368,7 @@ export async function startLeaving(): Promise<boolean> {
     // sign-out that closing the app could undo.
     const clean = await inTurn(finishLeaving).catch(() => false);
     if (!clean) leaving = "no";
-    return clean;
+    return clean ? "finished" : false;
   }
 }
 

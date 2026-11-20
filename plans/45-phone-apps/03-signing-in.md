@@ -2,7 +2,8 @@
 
 **Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
 builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
-the end) and the code (the list is before it); every point was worked in. What the building changed or added is under "What the building changed"; where that
+the end) and the code five times (the lists are before it); every point was worked in, but
+for one that lies inside a library and is left, by name, for part 20. What the building changed or added is under "What the building changed"; where that
 list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
@@ -240,6 +241,20 @@ The five fixes were found sound. Four further points, all taken:
    after a second try is emptied, and the person signs in again.
 4. *An answer cut short by a dropped connection could still be taken for whole.* Every answer
    of the login tool must read as a whole answer, or nothing of it is taken.
+
+## Astra's fifth look at the code (20 November 2026): "ready with changes"
+
+The four fixes were found sound, and no working way of signing in broken. Nothing it called a
+"must". Two small points, taken: the sentence shown when signing out did not work no longer
+claims the person is still signed in (it cannot always know); and the clean-up is not done twice.
+
+**One point is left for part 20 (getting ready for the stores), because it lies inside the
+library that keeps things in the phone's secure store, not in Connect's code:** on Android that
+library does not report when the phone failed to write to its storage. So in the rare case that
+the phone's storage fails at the very moment someone presses "Sign out", and the app is closed
+in the same second, the person could be signed in again when the app is next opened. The server
+is told about the sign-out all the same, as soon as the request has its turn. Part 20 decides
+whether to mend the library or to wait for its makers.
 
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
