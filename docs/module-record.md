@@ -3425,7 +3425,11 @@ waited and after it was accepted, with "booked again from" five minutes after he
 page offering nothing between her call and the end of her break; the passed-over request as she
 sees it ("A call you booked yourself took this time.") and as its customer sees it, on the
 request's page and on the home page ("no longer free at that time"); the break choices.
-Not tried in a browser: the sentence for a host who books as a member (read in the code only).
+Tried in a browser after the merge, on the founder's word (20 November): the sentence for a host
+who books as a member. As the test customer, with the demo membership of
+`scripts/member-calls-check.ts --demo` and a hidden host page of his own for the moment, the
+booking page said "You are a host too: nobody can book you during this call, and requests to you
+for that time end." Without the host page the sentence was gone. Both were taken away again.
 
 **A mistake during the try.** A throwaway helper for the browser try removed, by a rule that was
 too wide, the booking records of five finished free test calls of 13 November between the two
