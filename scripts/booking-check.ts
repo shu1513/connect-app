@@ -313,6 +313,17 @@ async function main() {
       await db.update(schema.hostCalendars).set({ breakMinutes: 15 }).where(eq(schema.hostCalendars.userId, dual.id));
       const fifteen = await offered();
       check("with a break of 15 minutes her page offers nothing before 15 minutes after her own call", !has(fifteen, 35) && !has(fifteen, 40) && has(fifteen, 45), `${has(fifteen, 35)} ${has(fifteen, 40)} ${has(fifteen, 45)}`);
+      // After her own call is over, the break still counts: the stored entry ends 2 minutes after the call, her break 15 minutes after it.
+      const during = plus(T2, 33);
+      const afterIt = plus(T2, 46);
+      const stillTaken = await B.takenAsHost(db, dual.id, during);
+      const listed = await B.ownBookingsTakingTime(dual.id, during);
+      check(
+        "3 minutes after her own call, with the stored 2 minutes over, she still counts as taken until her break ends, and her calendar list still shows it",
+        stillTaken.length === 1 && stillTaken[0].end.getTime() === plus(T2, 45).getTime() && listed.length === 1 && listed[0].bookingId === own.booking.id && listed[0].freeAgainAt.getTime() === plus(T2, 45).getTime(),
+        `${stillTaken.length} ${listed.length}`,
+      );
+      check("once the break is over she is free and the list is empty", (await B.takenAsHost(db, dual.id, afterIt)).length === 0 && (await B.ownBookingsTakingTime(dual.id, afterIt)).length === 0);
       const longBreak = await failure(askDual(p4, 35));
       check("and a request for a time inside the longer break is refused", longBreak instanceof BookingError && /no longer open/.test(longBreak.message), longBreak?.message);
       await db.update(schema.hostCalendars).set({ breakMinutes: 5 }).where(eq(schema.hostCalendars.userId, dual.id));

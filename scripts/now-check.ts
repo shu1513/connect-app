@@ -183,6 +183,14 @@ async function main() {
         .values({ hostId: ann.id, customerId: asker.id, startsAt: new Date(now.getTime() + 10 * MINUTE), endsAt: new Date(now.getTime() + 25 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(now.getTime() + 5 * MINUTE) })
         .returning();
       await db.insert(schema.busyEntries).values({ bookingId: toTheCustomer.id, userId: asker.id, startsAt: toTheCustomer.startsAt, endsAt: toTheCustomer.endsAt });
+      // And one for 34 minutes from now. While her request waits she is taken until minute 35 (the latest the call could end, and
+      // 2 minutes). Accepted after 40 seconds, the real call ends at 31:40 and she is taken until 33:40: this request must stay.
+      const laterAsker = await person("asker3");
+      const [later] = await db
+        .insert(schema.bookings)
+        .values({ hostId: ann.id, customerId: laterAsker.id, startsAt: new Date(now.getTime() + 34 * MINUTE), endsAt: new Date(now.getTime() + 49 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(now.getTime() + 5 * MINUTE) })
+        .returning();
+      await db.insert(schema.busyEntries).values({ bookingId: later.id, userId: laterAsker.id, startsAt: later.startsAt, endsAt: later.endsAt });
 
       const acceptedAt = new Date(now.getTime() + 40 * 1000);
       await keptOpen(host.id, acceptedAt); // the host's page has been open all along
@@ -190,6 +198,7 @@ async function main() {
       const call = await callOf(callId);
       const ownEnded = await reload(toTheCustomer.id);
       check("a request to the customer herself, as a host, for those minutes ends when her call now is accepted", ownEnded.stage === "passed_over" && ownEnded.endedReason === "the host is no longer free at that time" && (await busyOf(asker.id)).length === 0, `${ownEnded.stage} ${ownEnded.endedReason}`);
+      check("a request to her for after the real call and its 2 minutes stays: the times of the accepted call count, not the ones kept while it waited", (await reload(later.id)).stage === "waiting", (await reload(later.id)).stage);
       check("accepting times the call 60 seconds from that moment", call.startsAt.getTime() === acceptedAt.getTime() + 60 * 1000 && call.endsAt.getTime() === call.startsAt.getTime() + 30 * MINUTE);
       check("an instant call charges the time together, and can be cancelled free until it starts", call.billing === "together" && call.freeCancelMinutes === 0);
       const after = await reload(booking.id);

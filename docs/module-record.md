@@ -3285,15 +3285,23 @@ plan 4 gave for a 1-minute least break (a room takes a minute to close) is out o
 room closes at the booked end. The builder had repeated that reason to the founder twice and
 corrected it.
 
+**What Astra found in the code.** "Ready with changes", no defect in the code itself. Two
+points about the checks, both taken: nothing looked at the minutes after her own call is over,
+when the stored 2 minutes have passed and her longer break still runs (now checked for what she
+is taken for and for her calendar list); and the call-now journey could not tell the times of
+the accepted call from the ones kept while the request waited (a second request, for after the
+real call, must now stay).
+
 **How it was checked.** 688 automatic tests, 7 of them new (the break after her own call, the
 2 minutes not counted twice, a request for a call right now, the times offered around her own
 call, more time, the break choices). On this computer against the local database:
-`scripts/booking-check.ts` (142 checks; 19 new: a customer and the 2 minutes on both sides of a
+`scripts/booking-check.ts` (144 checks; 21 new: a customer and the 2 minutes on both sides of a
 call; a host with three requests waiting who books a call herself, before and after it is
-fixed; her page with a break of 5 and of 15 minutes; a break of 1 refused; a host stored at 1),
-`scripts/now-check.ts` (75), `scripts/extend-check.ts` (115) and
-`scripts/member-calls-check.ts` (244), each with one new journey for a request to the customer
-as a host. In a browser, as the test host who books a temporary second host: the two sentences
+fixed; her page with a break of 5 and of 15 minutes, also in the minutes after her call is
+over; a break of 1 refused; a host stored at 1), `scripts/now-check.ts` (76),
+`scripts/extend-check.ts` (115) and `scripts/member-calls-check.ts` (244), each with a new
+journey for a request to the customer as a host. The booking and call-now scripts were run again
+after Astra's points. In a browser, as the test host who books a temporary second host: the two sentences
 on the request page and on the call-now page; the list on her calendar page while her request
 waited and after it was accepted, with "booked again from" five minutes after her call; her own
 page offering nothing between her call and the end of her break; the passed-over request as she
