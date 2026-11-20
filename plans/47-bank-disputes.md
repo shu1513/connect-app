@@ -5,7 +5,9 @@ the code as it is on `main` after pull request 83 and from Stripe's own pages re
 (listed under "What Stripe says"). Astra (gpt-6.2-astra) checked the first draft against the
 code: "not ready", eight points that had to be fixed. Its second look, at the second draft: "not
 ready" again, seven new points, most of them about the same two places (who answered the bank,
-and the take-back). This is the third draft; what was taken and what was not is at the end.
+and the take-back). Its third look, at the third draft: "ready with changes", five points to
+settle before the part they belong to is merged. They are worked in here; what was taken and
+what was not is at the end.
 
 (Number 46 is taken by another session's plan, "agreements live", which is not merged yet.)
 
@@ -47,8 +49,8 @@ Stripe. After this plan:
 the app has little to show: the Terms page is a placeholder, and the app records only when a
 person last accepted the terms, not what they said. So until the real agreements are live
 (another session's plan 46), the letter to the bank cites what the app itself showed the
-customer (the price, the cancelling rule, the 24 hours to ask for a refund) and nothing it
-cannot prove.
+customer (the price, the cancelling rule) and what the customer did (whether they asked for a
+refund in the app), and nothing it cannot prove.
 
 ## What the founder said (20 November 2026)
 
@@ -241,6 +243,14 @@ The founder's are marked. All others are the builder's own.
    does nothing more at the bank: it does not give in early either, because that cannot be
    undone and the outcome is the same. When the deadline passes the dispute is lost, and it is
    recorded as "not answered". The founder can change this rule (see the top).
+   **Asked by the founder the same day:** "that should depend on the amount of dispute right?
+   if the dispute is large enough, then we fight right? what's the right amount? (given we get
+   only a 2% fee)". The builder's answer: on Connect's own 2% it never pays; counting the host's
+   money too it pays from about 2,000 dollars at one chance in five of winning. So part 2 builds
+   the rule with an amount: a setting, "fight compliance disputes from this amount", empty to
+   begin with (never). At or above it, a compliance dispute is handled like any other (the host
+   is asked, the app answers) and the request acknowledges the 500 dollars. The founder had not
+   yet said which amount when this was written; nothing is fought until they do.
    (A charge the app has flagged because the call's record changed after the money was taken,
    `flaggedAfterCharge`, is handled like any other: the proof gives the record as it stands
    now, beside what was charged. Decision 8.)
@@ -379,9 +389,12 @@ The words people read are true after each part, not only after the last.
   read. (The two hourly looks that exist go by "the month is open": a month already marked
   lost by one dispute is skipped although a second dispute on it is still open. Going by
   dispute closes that gap. The old looks stay as they are.) It also asks Stripe for the
-  disputes of the last 7 days every hour, and for those of the last 130 days once a day, and
-  records any it does not have. So a lost message, or a dispute that began before this part
-  existed, cannot stay unknown.
+  disputes of the last 7 days every hour, and for those of the last 130 days once a day. Any
+  it does not have is recorded, and any it has under another status than Stripe now shows is
+  read again (an appeal on a dispute that had ended, for example). So a lost message, or a
+  dispute that began before this part existed, cannot stay unknown or out of date. (Stripe's
+  list goes by the day a dispute was opened; a change later than 130 days after that needs its
+  message to arrive.)
 - `charge.dispute.updated` and `charge.dispute.funds_reinstated` are added to the list in
   `scripts/stripe-webhook-setup.ts`.
 
@@ -448,26 +461,44 @@ again" (when, by whom), and a short history line for each stage that is over.
   3. With the dispute locked: if the request written down is still the one of the stage the
      dispute is in, record Stripe's reply as the app's own answer, with the evidence the reply
      shows. A reply for a stage that is over is noted in the history and changes nothing.
-  A request written down and left without a reply is sent again, the same request under the
-  same label, for 23 hours. A clear "no" from Stripe: if it says the dispute is not waiting any
-  more, record "not answered by the app"; any other "no" is noted and a new request (a new
-  number at the end of the label) is made an hour later. After the 23 hours an unanswered
-  request is closed as "not known who answered". One day before the bank's deadline a dispute
-  that is still waiting and has no answer is a fault: the founder is told, and the health
-  address says so.
+  Before every sending, the first and each repeat, Stripe is read once more. If the dispute
+  has moved to another stage meanwhile (a question that became a chargeback), the request
+  written down is retired unsent and the new stage takes its own course; a question's shorter
+  answer is never sent as a chargeback's. The stage is checked again in the dispute Stripe's
+  reply returns.
+  A request written down and left without a reply stays the helper's work until it is settled,
+  however long the helper was away:
+  - inside 23 hours, and the stage still waiting: the same request again under the same label;
+  - after 23 hours, or after a "no" that says the dispute is not waiting any more: Stripe is
+    read. Still waiting in this stage: the old request is closed as "not sent" and a new one is
+    made, with the next number at the end of its label. Not waiting any more: the stage is
+    recorded with what Stripe shows and "not known who answered" (Stripe's own mark for its
+    automatic answer, `submission_method`, is noted when it says so). If Stripe cannot be read,
+    nothing is concluded and it is looked at again next pass.
+  - any other clear "no": noted, and a new request an hour later.
+  So "not answered by the app" is said only when no request of the app was ever written down
+  for that stage; with one written down and no reply to it, the record says "not known who
+  answered". The customer's lasting stop follows neither. One day before the bank's deadline a
+  dispute that is still waiting and has no answer is a fault: the founder is told, and the
+  health address says so.
+- **When this part goes live**, disputes that part 1 recorded and that are still waiting get
+  their stage fields on the next look, and their hosts get the message with the choice once,
+  where time is left.
 - `paying.ts`: `payingStopped(reader, userId)`, as decision 9 defines it. Asked in exactly the
   steps that write a new agreement to pay, at the point where the new row is written, never in
   a shared check that later steps reuse (`checkMayAsk` in `src/lib/booking/bookings.ts` is one
   such, used again by `finishCardStep`): `askForCall` and `askNow` when the call has a price;
   `askForMoreTime` when it means a new card charge (`src/lib/extend/extend.ts`); joining a
-  membership and `resume` (`src/lib/membership/join.ts`); `undoStop`
-  (`src/lib/membership/ending.ts`); starting a contribution (`src/lib/contributions/start.ts`)
+  membership and `resume` (`src/lib/membership/join.ts`); `acceptLessTime`, which writes a new
+  agreement; `undoStop` (`src/lib/membership/ending.ts`), where it is the member who is looked
+  at, also when the host presses; starting a contribution (`src/lib/contributions/start.ts`)
   and `startTip` (`src/lib/contributions/tip-start.ts`). Not asked anywhere else. In
   particular not in `startHold`, `finishCardStep`, the two `payNow` and the two `secretToPay`
   (`src/lib/membership/charge.ts`, `src/lib/contributions/start.ts`: they act on a month or a
   payment that is already written, also when they make its payment at Stripe for the first
   time), `bookAsMember` (also when the first booking takes a held month's money), and the
-  helper's jobs. Each place is read before it is changed; the check script walks every one,
+  helper's jobs, nor in `takeBackLessTime` (the host withdraws an offer and the agreement that
+  was there goes on). Each place is read before it is changed; the check script walks every one,
   both lists.
 
 **Pages:** the two buttons on `/disputes/[id]` with what each means and costs, then what was
@@ -523,10 +554,14 @@ a dispute and a share.
   share's payment locked, together with the message to the host (decision 10). The amount is
   worked out in that step, with the share locked, from what Stripe says is left of the
   transfer and from the other rows on the same share that are not cancelled and not taken; a
-  result of zero writes no row and no message. It runs when a loss is recorded and on every
-  pass after. So a transfer that was under way when the loss arrived, and finished later, is
+  result of zero writes no row and no message. While another row on the same share is "being
+  taken", the look leaves that share for the next pass: the amount is only worked out when
+  nothing on that transfer is under way, so one reversal is never counted twice. It runs when
+  a loss is recorded and on every pass after. So a transfer that was under way when the loss arrived, and finished later, is
   found too.
-- **Taking it**, once a row is due: a money action of a new kind, "take back", on the share's
+- **Taking it**, once a row is due: first Stripe is asked whether the dispute is still lost
+  (if not, the row waits and the record is brought up to date). Then a money action of a new
+  kind, "take back", on the share's
   payment, with the label `takeback:<debt id>`, through the steps every money action takes
   (`runMoneyOperation`). Its first step, with the payment locked, moves the row from "told" to
   "being taken"; a cancelled row is refused there. Stripe is asked to reverse that amount of
@@ -536,9 +571,12 @@ a dispute and a share.
   searched for the row's id. Whatever it finds, the action and the row are finished together,
   in one step: done (the action "succeeded", the row "taken", the money record's line), or not
   done (the action "failed", the row back to "told" with the reason). The existing branch that
-  marks a refused action as failed (`failOperation`) does not know the row; the new kind uses
-  `failOwnedOperation` with its "when refused" step, so a row can never stay "being taken"
-  with no action behind it.
+  marks a refused action as failed (`failOperation`) does not know the row; for the new kind
+  all three ways an action can end as "not done" (Stripe's refusal when it is first asked, its
+  refusal when the helper repeats the request, and a search of the reversals that finds
+  nothing) go through the one "when refused" step that puts the row back. A search that could
+  not be made concludes nothing. So a row can never stay "being taken" with no action behind
+  it.
 - **A refusal** therefore puts the row back to "told" with the refusal noted; it is tried again
   a day later. After 30 days of refusals the founder is told, and it keeps being tried.
 - **Cancelling** (the founder, from the dispute's page) is possible while the row says "told".
@@ -677,7 +715,27 @@ seven. All checked against the code and Stripe's installed library by the builde
   than these rare cases are worth before the app is live. They are named at the top for the
   founder.
 
-## What was kept against Astra's advice (both looks)
+## What Astra found in the third draft, and what was done
+
+"Ready with changes." Of the seven it called two fixed and five partly fixed, and named five
+points to settle before the part they belong to is merged. All five are taken:
+
+1. *A request written down, never sent, and a helper away for a day* was closed as "unknown"
+   while the bank still waited. Now it stays the helper's work until settled (part 2).
+2. *A question's answer replayed after the question became a chargeback.* Stripe is read
+   before every sending, and the stage is checked in its reply (part 2).
+3. *Two more places where a membership's next charge is switched on* (`acceptLessTime`, and
+   `undoStop` pressed by the host). Taken; `takeBackLessTime` is named as "carried on", with
+   the reason (part 2).
+4. *A second take-back sized while the first is under way.* The look waits (part 3).
+5. *A known dispute whose status changes after it ended, with the message lost.* The daily
+   look compares, and a take-back asks Stripe first (parts 1 and 3).
+
+Also taken: one wording for who answered, used the same in decision 6 and in the steps; the
+three ways a take-back's action can end as "not done"; the hosts of disputes already waiting
+when part 2 goes live; the founder's summary no longer speaks of "24 hours".
+
+## What was kept against Astra's advice (all looks)
 
 Kept, with the reason: the unread number in the top bar (without it
 nobody notices a message), the short "Bank disputes" list for the founder (their only view of
