@@ -281,13 +281,6 @@
       "when": 1795113135156,
       "tag": "0039_host_photos",
       "breakpoints": true
-    },
-    {
-      "idx": 40,
-      "version": "7",
-      "when": 1795130970353,
-      "tag": "0040_host_photo_try_return",
-      "breakpoints": true
     }
   ]
 }
