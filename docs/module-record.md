@@ -3242,3 +3242,108 @@ card of an older day (both are covered by the script or by reading the code, not
 accounts can push a host further than before (seventy accounts about 36 points, where the
 ceiling was 20); the bar of three and the three-day rule slow it. For the lawyer: openings are
 now recorded (`docs/for-the-lawyer.md`, section 4).
+
+## A later change: the home page, as a host sees it (plan 38, 19 and 20 November 2026)
+
+**What the founder asked for.** "the host's home page would see all her upcoming schedules and
+customers' information yes? what's the best homepage for hosts in your opinion? also see what
+astra thinks". Until now the answer was no: a host saw her calls with the customer's name and
+nothing else about them, and answered requests on another page. Later: "I think hosts should
+have different home pages than the customers don't you think?", and then: "of course after a
+host logs in, she should see something different, the host's home page, not the customer's home
+page. but my question is that since a host can also be a customer, so the home page should
+probably have a combination of both?"
+
+**What was decided** (`plans/38-host-home-page.md`). The plan went through three shapes: the
+details on the shared home page; a page of the host's own with its own address; and, after the
+founder's last words, one home page on which a host sees more. The founder's: a host sees
+something different, and a combination of both. The builder's: which details (the customer's
+photo, what they wrote when asking, "ID confirmed", "Your member", the calls before, her own
+note); the note folded wherever it is in a list, also in the list of requests, where plan 32
+showed it open; no star rating beside a booked call (Astra's point); the requests answered on the
+home page; a line of shortcuts; nothing at all across a block or for a closed account.
+
+**What was built.** No change to the database.
+- `src/lib/home/customer-details.ts`: for the calls a person hosts, and for no others, what she
+  is shown about the customer. Nothing for a test call, nothing across a block or for a closed
+  account. It is asked on the server with the logged-in person as the host; a call the person is
+  the customer of never gets details, whatever its row looks like.
+- `src/lib/people/contacts.ts`: the rule for "a call that counts" is written once (`talked`) and
+  used by "People you have talked to" and by the new count (`talkedBefore`). The check behind a
+  note and a customer's photo answers for several people in three questions (`haveAskedHost`);
+  the single check is that same code. `openAndUnblocked` says whose account is open and
+  unblocked. `photosForHost` and `hostNotesAbout` use them, so the requests page and "Available
+  now" ask less than before.
+- `src/components/customer-details.tsx`, and a row of `src/components/calls-by-day.tsx` that can
+  carry the details; the card of the next call shows them too. `AboutCustomer` can be drawn
+  folded. `LocalTime` can show a day without a time.
+- `src/app/host/requests/request-list.tsx`: the list of requests, moved out of the requests page
+  and used by it and by the home page (the first five times asked for). Accept and Decline come
+  back to the page they were pressed on (`src/app/bookings/[id]/back-to.ts`, a fixed list of
+  three pages).
+- `src/app/page.tsx`: the shortcuts (Available now, Your calendar, Earnings, Settings, her
+  page), for anyone with an approved profile, a hosted call that is not over, or a request
+  waiting.
+- Left out, on purpose: a page of the host's own; landing somewhere else after logging in; the
+  sums of her earnings on the home page (too many questions for a page that refreshes every
+  minute; the shortcut leads to them).
+
+**What the reviewers found.**
+- *Astra, before any plan,* asked the founder's question without the builder's view: no page
+  gives a host her calls with anything useful about the customer; start on the page people land
+  on; show the calls before; keep the rating for the moment of deciding; never the email or the
+  ID name. All taken.
+- *Astra, on the plan (two rounds, the first two shapes).* "Ready with changes" both times.
+  Taken: the label "You host this call" must never decide who gets details; a block or a closed
+  account does not always cancel the call, so say what is shown then; an exact meaning for "Your
+  member" (a month held or running); do not promise a number of questions the note's check
+  cannot keep; no words for calls right now and member calls; an approved profile is not the
+  same as having hosting to do; the sums of the earnings are not cheap. The third shape was not
+  sent as a plan: it is the first shape with these points worked in.
+- *Astra, on the code (two rounds).* "Ready with changes", four points. Taken: a request that
+  was still waiting from a closed account or across a block showed the rating, "ID confirmed"
+  and the customer's words, so the list now shows nothing about such a customer but the name,
+  on both pages. (The second round asked whether the name should go too. It stays, as it does
+  for a call across a block: the host has to know whose request she is declining. The plan said
+  "time, length and price only" in one place; that was corrected.)
+  Taken: the check script compared the new check for several people with the single check,
+  which is now the same code; it now compares both with the old single check written out in the
+  script, and covers a test call of a real customer, a customer's photo, an empty list, a
+  duplicate, and an unfinished transaction. Taken in part: the script said it tested the
+  minute's refresh; it tests what the first page hands to the browser, and says so; the refresh
+  itself was tried by hand. Not taken as proposed: avoiding one question to the database for
+  someone who hosts nothing. The page asks for the person's own host profile by its key, because
+  an approved host with nothing booked must get the shortcuts too; the plan now says so plainly.
+
+- *CodeRabbit* answered "Review limit reached" on pull request 69. By the founder's rule for
+  that case, the builder did not wait and read the whole change line by line instead. One
+  thing found and changed: the details of the next call, with the folded note, were on the
+  page twice (in the card, and again in that call's row of the list). The row now goes without
+  them.
+
+**How it was checked.** 685 automatic tests on the code, 4 of them new (the words for the calls
+before; where Accept and Decline go back to, also for a made-up page). On this computer, against
+the local database, after Astra's fixes: `scripts/home-check.ts`, 86 checks, 42 of them new (part
+8), run again after the builder's own review. Before those fixes, which touch none of their code: `scripts/ratings-check.ts`,
+`scripts/journey-check.ts` and `scripts/photo-check.ts` (293 checks), all passing. In a browser,
+on a phone-sized window, as the test host: the shortcuts; a hosted call with the customer's
+words, "ID confirmed", "4 calls before, the last on Nov 17, 2026" and the folded note; a note
+opened and still open after the page had refreshed itself; a request with Accept and Decline;
+Accept pressed, back on the home page with "Accepted. The call is booked…", the request gone.
+As the test customer: the home page as before, nothing about himself.
+
+**What the automatic checks cannot test, and what was not tried.** How the page reads on a real
+phone. A refusal on Accept, and Decline, pressed from the home page (the same code decides where
+they return, and its rule has tests). The number of questions to the database is read in the
+code, not counted by a check.
+
+**A slip while checking.** The builder started `home-check` while another session's `now-check`
+was running on the shared test database. `home-check` stopped early on an error of its own and
+removed what it had made. If that session saw an odd failure at that time, this is the likely
+cause.
+
+**Still open.** For the founder: the details, the folded note in the list of requests, and no
+rating on booked calls are the builder's choices. Next, asked for by the founder on 20 November:
+a calendar on the home page that looks like a real calendar (a week across, the hours down the
+side, "‹ Today ›"), with the calls she hosts, the calls she booked, and the finished calls with
+what she earned. It gets a plan of its own.

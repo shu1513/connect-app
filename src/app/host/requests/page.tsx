@@ -1,20 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AboutCustomer } from "@/components/about-customer";
-import { LocalTime } from "@/components/local-time";
-import { waitingForHost } from "@/lib/booking/bookings";
-import { hostNotesAbout } from "@/lib/people/contacts";
-import { Rating } from "@/components/rating";
-import { readNotice } from "@/lib/notice";
-import { averagesFor } from "@/lib/ratings/ratings";
-import { formatMoney } from "@/lib/payments/access";
-import { verifiedAmong } from "@/lib/safety/identity";
-import { requireUser } from "@/lib/session";
-import { acceptAction, declineAction } from "../../bookings/[id]/actions";
 import { SitePage } from "@/components/site-page";
-import { HostPhoto } from "@/components/host-photo";
-import { photosForHost } from "@/lib/profiles/photo";
+import { waitingForHost } from "@/lib/booking/bookings";
 import { NOW } from "@/lib/booking/now-rules";
+import { readNotice } from "@/lib/notice";
+import { requireUser } from "@/lib/session";
+import { RequestList } from "./request-list";
 
 export const metadata: Metadata = { title: "Requests for calls" };
 
@@ -23,21 +14,6 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   const user = await requireUser("/host/requests");
   const notice = readNotice("/host/requests", await props.searchParams);
   const waiting = await waitingForHost(user.id);
-  // How other hosts have rated each of these customers: one question to the database for all of them.
-  const customers = [...new Set(waiting.map((row) => row.booking.customerId))];
-  const ratings = await averagesFor(customers, "customer", new Date());
-  const idConfirmed = await verifiedAmong(customers);
-  // The host's own notes about these customers (plans/32). The lookup asks every rule itself for each of them.
-  const notes = await hostNotesAbout(user.id, customers);
-  // Their photos (plans/35): the ids only, and only of those this host is handed a photo of. The lookup asks the rule for each of them.
-  const photoIds = await photosForHost(user.id, customers);
-
-  // Group by start time, so the host can compare people who asked for the same time.
-  const groups = new Map<string, typeof waiting>();
-  for (const row of waiting) {
-    const key = row.booking.startsAt.toISOString();
-    groups.set(key, [...(groups.get(key) ?? []), row]);
-  }
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -68,53 +44,9 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
       {waiting.length === 0 ? (
         <p className="mt-6 text-sm opacity-70">Nothing is waiting for your answer.</p>
       ) : (
-        <ul className="mt-6 space-y-6">
-          {[...groups].map(([start, rows]) => (
-            <li key={start} className="rounded border border-neutral-400 p-4">
-              <p className="font-medium">
-                <LocalTime iso={start} />
-                {rows.length > 1 && <span className="ml-2 text-sm font-normal opacity-70">{rows.length} people asked for this time. Choose one.</span>}
-              </p>
-              <ul className="mt-3 space-y-4">
-                {rows.map(({ booking, customerName }) => (
-                  <li key={booking.id} className="text-sm">
-                    <div className="flex items-center gap-3">
-                      <HostPhoto photoId={photoIds.get(booking.customerId) ?? null} name={customerName} small />
-                      <p>
-                        <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"} ·{" "}
-                        <Rating shown={ratings.get(booking.customerId) ?? null} newText="New: not enough ratings yet" />
-                        {idConfirmed.has(booking.customerId) && <span className="text-green-700"> · ID confirmed</span>}
-                      </p>
-                    </div>
-                    {booking.note && <p className="mt-1 opacity-80">&ldquo;{booking.note}&rdquo;</p>}
-                    {notes.has(booking.customerId) && <AboutCustomer name={customerName} text={notes.get(booking.customerId)!} />}
-                    {booking.respondBy && (
-                      <p className="mt-1 opacity-70">
-                        Answer by <LocalTime iso={booking.respondBy.toISOString()} />
-                      </p>
-                    )}
-                    <div className="mt-2 flex gap-3">
-                      <form action={acceptAction}>
-                        <input type="hidden" name="id" value={booking.id} />
-                        <input type="hidden" name="from" value="requests" />
-                        <button type="submit" className="rounded bg-blue-600 px-3 py-1.5 font-medium text-white">
-                          Accept
-                        </button>
-                      </form>
-                      <form action={declineAction}>
-                        <input type="hidden" name="id" value={booking.id} />
-                        <input type="hidden" name="from" value="requests" />
-                        <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5">
-                          Decline
-                        </button>
-                      </form>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-6">
+          <RequestList hostId={user.id} waiting={waiting} from="requests" />
+        </div>
       )}
     </SitePage>
   );
