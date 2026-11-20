@@ -2717,6 +2717,99 @@ day before the call. Not tried by hand: receiving the reminder as a real email.
 fails (today the host hears only if the call is cancelled, now a day before). The wording of
 the reminder is the builder's.
 
+## A later change: the home page (plan 36, 19 November 2026)
+
+**What the founder asked for.** "What should the customer see? probably all the upcoming bookings
+that he has with different hosts. maybe the status of his followed hosts if they are online, the
+countdown of the room that he can enter for the next call with the host, also probably the new
+things the hosts have done in their projects as the newsfeed like on facebook. also possibly some
+hosts suggestions." And about the order: the countdown first, then the next calls. The suggested
+hosts are plan 37 and are not part of this change.
+
+**What was decided** (the builder's; all of it in `plans/36-customer-home-page.md`).
+- One home page for everyone who is logged in, designed for the customer first. From top to
+  bottom: the next call with its countdown, "Waiting for you", the next calls grouped by day, the
+  hosts the person follows, news from those hosts.
+- The countdown runs to the moment the room opens, five minutes before the start. At zero it
+  says "Checking…" and asks the server; "Enter the room" is shown only on the server's answer,
+  and it is only a link: the call's own page decides who may enter. A call that is not paid yet
+  gets "Open the call".
+- A list grouped by day ("Today", "Tomorrow", the date), not a week calendar.
+- News: ten posts from the last 30 days (it was five from seven days), each with the host's
+  photo and the post's first picture that everyone may see.
+- Calls that are over are on a page of their own, `/calls` ("Past calls"), 50 to a page.
+- The page asks the server again every minute for everyone who is logged in.
+- The link in the top bar is "Home".
+
+**What was built.** The plain rules in `src/lib/home/rules.ts` (which calls are not over, the
+next call, the countdown's words, the days). Two parts that run in the browser:
+`src/components/countdown.tsx` and `src/components/calls-by-day.tsx`. The logged-in half of
+`src/app/page.tsx`, written anew; the visitor's front page in the same file is untouched, letter
+for letter. `src/app/calls/page.tsx`. The money line of a call moved, as it was, to
+`src/lib/home/payment-line.ts`. `diaryNews` gives ten posts from 30 days and the host's id. No
+change to the database, and drawing the page writes nothing.
+
+Different from the plan as first written, and said in the plan since: with a single call coming,
+the list is left out (the call is in the card above); between one and two days the countdown
+says "in 1 day 4 hours"; the page greets the person by first name.
+
+**What the reviewers found.**
+- *Astra, on the plan (two rounds, "ready with changes" both times).* Taken: "not over" is
+  defined in one place and `/calls` holds exactly the rest; an unpaid call does not promise the
+  room; the page refreshes for everyone, because a page that no longer loads past calls cannot
+  tell who has just finished one; the countdown counts with the browser's steady counter and the
+  server confirms at zero; two check scripts looked for more than the plan had listed. Not taken:
+  a request of its own only to ask the server's time.
+- *CodeRabbit, on the plans' pull request (59).* It answered that its review limit was reached.
+  By the founder's rule for that case the builder reviewed the pull request himself and corrected
+  five places where the plan's words and the page's words differed.
+- *Astra, on the code (two rounds).* First round, "ready with changes", five points. Taken: a
+  call that began late yesterday and is still running was listed under "Today" with last
+  night's time; it now stands under the day it really began. Taken: the list of followed hosts
+  asked about each available host one after another; it now asks five at a time. Taken: the
+  check script's labels promised more than they tested (the order of the news, the age limit,
+  the length of the excerpt); they now test it, and both scripts have a 20-day-old post that
+  must be shown. Taken: the countdown's moments that only happen in a browser were tried there
+  (below). Not taken: reworking how calls waiting for a rating are found, which this change did
+  not touch. Astra confirmed that the front page is unchanged letter for letter, that the home
+  page and "Past calls" never show the same call or miss one, and found no leak of a name, photo
+  or picture.
+  Second round, on the fixes: nothing that must be fixed; one more check made exact (the news
+  excerpt is compared letter for letter).
+
+- *CodeRabbit, on the code's pull request (61).* Two points, both taken. Past calls showed their
+  date without the year, so two calls a year apart could look alike: the year is shown there
+  now. And the countdown counted from a time taken before the page had read its data, so it ran
+  behind by however long the reading took: the time is now taken after the reading. After these
+  two fixes `scripts/home-check.ts` (44) and `scripts/journey-check.ts` were run again; both pass.
+
+**How it was checked.** 642 automatic tests on the code, 21 of them new (which call is next, the
+countdown's words, how long ago a start was, days on both sides of midnight and on the day the
+clocks change). On this computer, against the local database, after Astra's fixes:
+`scripts/home-check.ts` (new), 44 checks against the running app, with people it signs up itself
+(someone new; the next call among cancelled, reported and finished ones; an open room; a call
+that is not paid; someone who hosts; followed hosts, also for a follower the host has blocked;
+the news with its limits and pictures; nobody else's calls; 51 past calls over two pages);
+`scripts/follow-emails-check.ts`, 99 checks, 2 of them changed and 1 new (ten at most, 30 days,
+a 20-day-old post); `scripts/follow-check.ts`, 90 checks; `scripts/journey-check.ts`, all passed,
+with the founder's pages skipped because the test admin's login is not set up here. Before
+Astra's fixes, which touch none of its code: `scripts/accounts-check.ts`, all passed.
+
+One run of `follow-emails-check` had one failed check (about sending an email) while another
+session's check script was running on the same test database. Run again alone, all 99 pass.
+
+In a browser, as two test people, at phone size and desktop size: the page with several calls,
+grouped as "Today", "Tomorrow" and a date; a countdown watched from 1:00 down to zero,
+"Checking…", then "The room is open" and "Enter the room" after the server's answer; a call
+whose booked end passed, the card moving on to the next call by itself, with two requests to the
+server in 80 seconds; "Past calls" with the call that had just ended. Not tried: a device whose
+clock is wrong (the countdown does not read the device's clock, it counts from the server's
+time), and a real phone.
+
+**Still open.** For the founder: the order of the page and the list instead of a week calendar
+are the builder's choices and easy to change now that the page can be looked at. The suggested
+hosts are plan 37, the next change.
+
 ## A later change: uploading a photo, part one: hosts (plan 35, 19 November 2026)
 
 **Why.** A host's photo could only be the profile picture of a confirmed Instagram or TikTok

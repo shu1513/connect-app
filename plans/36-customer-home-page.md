@@ -1,7 +1,8 @@
 # Plan 36: The home page
 
-**Status:** plan, not built. Written 19 November 2026 by the builder alone (no helper agents),
-from the code as it is on `main` after pull request 58, and from what the founder said that day.
+**Status:** built, 19 November 2026 (pull request 61; see `docs/module-record.md`). Written
+19 November 2026 by the builder alone (no helper agents), from the code as it is on `main` after
+pull request 58, and from what the founder said that day.
 Part two, the suggested hosts, is `plans/37-suggested-hosts.md`. Astra checked both plans once
 ("ready with changes"); every point was read against the code by the builder and is worked in
 below (the list is at the end).

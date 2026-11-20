@@ -52,7 +52,7 @@ async function SiteHeader({ bare }: { bare: boolean }) {
           <nav aria-label="Main" className={warm.nav}>
             {user && (
               <Link href="/" className={warm.navLink}>
-                Your calls
+                Home
               </Link>
             )}
             <Link href="/search" className={warm.navLink}>
