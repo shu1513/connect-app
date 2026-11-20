@@ -95,6 +95,20 @@ async function main() {
       await writeCallReminders(now);
       check("no reminders for a cancelled call, or for someone who switched them off", (await rows(cust.email, "Tomorrow")).length === 1 && (await rows(quiet.email, "")).length === 0);
       void forQuiet;
+
+      // A booked, paid call whose money is not held. Its cut-off is a day before the call: the moment of "Tomorrow".
+      const unpaid = async (name: string, payBy: Date) => {
+        const who = await person(name);
+        const u = await call(host.id, who.id, new Date(now.getTime() + 23.8 * HOUR), true);
+        await db.insert(schema.payments).values({ callId: u.id, coversFrom: u.startsAt, coversUntil: u.endsAt, pricePer15Cents: 2000, bookedCents: 4000, feePercentBps: 490, feeFixedCents: 30, feeForeignCardBps: 150 });
+        await db.insert(schema.bookings).values({ hostId: host.id, customerId: who.id, startsAt: u.startsAt, endsAt: u.endsAt, lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 2000, totalCents: 4000, freeCancelMinutes: 0, stage: "accepted", requestKey: randomUUID(), callId: u.id, payBy });
+        return who;
+      };
+      const pastCutoff = await unpaid("unpaid1", new Date(now.getTime() - MINUTE));
+      const beforeCutoff = await unpaid("unpaid2", new Date(now.getTime() + 11 * HOUR)); // a booking from before the change: 12 hours before
+      await writeCallReminders(now);
+      check("no reminder for an unpaid call that is past its payment cut-off (it is being cancelled)", (await rows(pastCutoff.email, "")).length === 0);
+      check("an unpaid call whose own, older cut-off has not come is still reminded", (await rows(beforeCutoff.email, "Tomorrow")).length === 1);
     }
 
     // ----------------------------------------------------------------------
@@ -258,12 +272,13 @@ async function main() {
     }
   } finally {
     const ids = made.length ? made : ["-"];
+    // Bookings first: one of them points at its call.
+    await db.delete(schema.bookings).where(or(inArray(schema.bookings.hostId, ids), inArray(schema.bookings.customerId, ids)));
     const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)));
     for (const c of calls) {
       await db.delete(schema.payments).where(eq(schema.payments.callId, c.id));
       await db.delete(schema.calls).where(eq(schema.calls.id, c.id));
     }
-    await db.delete(schema.bookings).where(or(inArray(schema.bookings.hostId, ids), inArray(schema.bookings.customerId, ids)));
     await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `notifycheck-${RUN}-%`));
     await db.delete(schema.emailSuppressions).where(like(schema.emailSuppressions.address, `notifycheck-${RUN}-%`));

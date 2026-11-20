@@ -20,6 +20,7 @@ import { errorSummary } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { membershipReminderProblem } from "./membership-reminders";
 import { followEmailProblem } from "@/lib/follows/emails";
+import { ownPaymentOn } from "@/lib/payments/own";
 
 /** How many emails one call of deliverEmails sends at most. */
 const BATCH = 20;
@@ -178,6 +179,17 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
   // reminder emails, but not when it is no longer true (the renewal was stopped, or the membership paused or ended).
   const monthReminder = key.match(/^month-reminder:(.+)$/);
   if (monthReminder) return membershipReminderProblem(monthReminder[1], email.subject, email.body);
+  // The reminder about a card that did not work says "pay before the cut-off": wrong once the money is held or the call is cancelled.
+  const cardReminder = key.match(/^card_reminder:([^:]+):customer$/);
+  if (cardReminder) {
+    const [found] = await db
+      .select({ stage: schema.bookings.stage, payment: schema.payments.status })
+      .from(schema.bookings)
+      .leftJoin(schema.payments, ownPaymentOn(schema.bookings.callId))
+      .where(eq(schema.bookings.id, cardReminder[1]));
+    if (!found || found.stage !== "accepted") return "the booking is no longer open";
+    return found.payment !== "awaiting_payment" ? "the money is held by now" : null;
+  }
   if (!reminder && !expiring) return null;
   let userId: string;
   if (reminder) {

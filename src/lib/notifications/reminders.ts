@@ -29,13 +29,16 @@ async function existingKeys(keys: string[]): Promise<Set<string>> {
 
 export async function writeCallReminders(now: Date): Promise<number> {
   const soon = await db
-    .select({ call: schema.calls, payment: schema.payments, source: schema.bookings.source })
+    .select({ call: schema.calls, payment: schema.payments, source: schema.bookings.source, payBy: schema.bookings.payBy })
     .from(schema.calls)
     .leftJoin(schema.payments, ownPaymentOn(schema.calls.id))
     .leftJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
     .where(and(gt(schema.calls.startsAt, now), lte(schema.calls.startsAt, new Date(now.getTime() + 24 * HOUR)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
   // Test calls made by an admin are not real appointments; an instant call starts within a minute of being accepted.
-  const due = soon.filter(({ source }) => source !== "admin" && source !== "now").map((row) => ({ ...row, kinds: dueReminders(row.call.startsAt, now) })).filter(({ kinds }) => kinds.length > 0);
+  // Nor is a call whose money was not held by its payment cut-off: it is being cancelled as unpaid (the cut-off
+  // is a day before the call, the very moment of the "Tomorrow" reminder).
+  const unpaidPastCutoff = (row: (typeof soon)[number]) => row.payment?.status === "awaiting_payment" && row.payBy !== null && row.payBy <= now;
+  const due = soon.filter((row) => row.source !== "admin" && row.source !== "now" && !unpaidPastCutoff(row)).map((row) => ({ ...row, kinds: dueReminders(row.call.startsAt, now) })).filter(({ kinds }) => kinds.length > 0);
   const keyFor = (callId: string, userId: string, kind: string) => `reminder:${callId}:${userId}:${kind}`;
   // Most passes find every due reminder already written. One read says which, instead of a
   // conflicting insert (and the reads before it) for each one, on every pass of the helper.

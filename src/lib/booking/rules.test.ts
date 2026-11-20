@@ -1,15 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { answerDeadline, canMoveBooking, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
+import { answerDeadline, canMoveBooking, cardReminderDue, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
 
 const S = new Date("2026-11-10T20:00:00Z");
 const hoursBefore = (date: Date, hours: number) => new Date(date.getTime() - hours * 3_600_000);
 
 describe("payCutoff", () => {
-  it("is 12 hours before the start, or the end of the free-cancelling period if that is earlier", () => {
-    expect(payCutoff(S, 0)).toEqual(hoursBefore(S, 12));
-    expect(payCutoff(S, 60)).toEqual(hoursBefore(S, 12));
-    expect(payCutoff(S, 720)).toEqual(hoursBefore(S, 12));
+  it("is 24 hours before the start, whatever free-cancelling period the host chose", () => {
+    expect(payCutoff(S, 0)).toEqual(hoursBefore(S, 24));
+    expect(payCutoff(S, 60)).toEqual(hoursBefore(S, 24));
+    expect(payCutoff(S, 720)).toEqual(hoursBefore(S, 24));
     expect(payCutoff(S, 1440)).toEqual(hoursBefore(S, 24));
+  });
+
+  it("would follow a free-cancelling period longer than 24 hours, so a failed card never dodges the host's rule", () => {
+    expect(payCutoff(S, 2880)).toEqual(hoursBefore(S, 48));
+  });
+});
+
+describe("cardReminderDue", () => {
+  const payBy = hoursBefore(S, 24);
+  const due = (nowHoursBeforeCutoff: number, failedHoursBeforeCutoff: number) =>
+    cardReminderDue({ now: hoursBefore(payBy, nowHoursBeforeCutoff), payBy, holdFailedAt: hoursBefore(payBy, failedHoursBeforeCutoff) });
+
+  it("is due from 12 hours before the cut-off, for a card that failed 2 days before the call", () => {
+    expect(due(12.01, 24)).toBe(false);
+    expect(due(12, 24)).toBe(true);
+    expect(due(1, 24)).toBe(true);
+  });
+
+  it("is never due at or after the cut-off", () => {
+    expect(due(0, 24)).toBe(false);
+    expect(due(-1, 24)).toBe(false);
+  });
+
+  it("waits 6 hours after the first email when the card failed late", () => {
+    expect(due(12, 14)).toBe(false);
+    expect(due(8.01, 14)).toBe(false);
+    expect(due(8, 14)).toBe(true);
+  });
+
+  it("is never due for a card that failed in the last 6 hours before the cut-off", () => {
+    for (const hours of [5.5, 3, 0.5]) expect(due(hours, 6)).toBe(false);
+    expect(due(0.01, 6)).toBe(false);
   });
 });
 
@@ -19,7 +51,7 @@ describe("latestRequestAt", () => {
   });
 
   it("for a paid call also leaves 8 hours before the payment cut-off", () => {
-    expect(latestRequestAt({ startsAt: S, paid: true, freeCancelMinutes: 0, noticeHours: 24 })).toEqual(hoursBefore(S, 24));
+    expect(latestRequestAt({ startsAt: S, paid: true, freeCancelMinutes: 0, noticeHours: 24 })).toEqual(hoursBefore(S, 32));
     expect(latestRequestAt({ startsAt: S, paid: true, freeCancelMinutes: 1440, noticeHours: 24 })).toEqual(hoursBefore(S, 32));
     expect(latestRequestAt({ startsAt: S, paid: true, freeCancelMinutes: 1440, noticeHours: 72 })).toEqual(hoursBefore(S, 72));
   });
@@ -44,7 +76,7 @@ describe("answerDeadline", () => {
   });
 
   it("for a paid call is never later than 6 hours before the payment cut-off", () => {
-    expect(answerDeadline({ startsAt: S, paid: true, freeCancelMinutes: 0, requestedAt: hoursBefore(S, 24) })).toEqual(hoursBefore(S, 18));
+    expect(answerDeadline({ startsAt: S, paid: true, freeCancelMinutes: 0, requestedAt: hoursBefore(S, 32) })).toEqual(hoursBefore(S, 30));
     expect(answerDeadline({ startsAt: S, paid: true, freeCancelMinutes: 1440, requestedAt: hoursBefore(S, 32) })).toEqual(hoursBefore(S, 30));
   });
 

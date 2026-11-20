@@ -4,13 +4,13 @@
  *   - end requests the host did not answer in time,
  *   - tell hosts about new requests (at most one email an hour each),
  *   - place the hold on the saved card when its time comes (one try),
- *   - tell the customer when that try did not work,
+ *   - tell the customer when that try did not work, and remind them once before the cut-off,
  *   - cancel, for free, bookings whose money is not held by the cut-off,
  *   - remove saved cards from Stripe once they are no longer needed.
  *
  * Each job is safe to run again and again, and on two helpers at once.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, like, lte, ne, notInArray, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, like, lte, ne, notExists, notInArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking, Call, Payment } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
@@ -24,7 +24,7 @@ import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
 import { endUnanswered, endUnfinishedCardSteps, lockCalendars, endInstantRequestsOfAbsentHosts } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
-import { CARD_KEPT_FOR_THE_CALL, CARD_REMOVED_AFTER_END_MS } from "./rules";
+import { CARD_KEPT_FOR_THE_CALL, CARD_REMINDER, CARD_REMOVED_AFTER_END_MS, cardReminderDue } from "./rules";
 
 const HOUR = 3_600_000;
 
@@ -212,6 +212,54 @@ async function noteUnsettledTries(now: Date): Promise<void> {
   }
 }
 
+/**
+ * One reminder for a booked call whose card is still not fixed: 12 hours before the cut-off, or 6
+ * hours after the first email if that is later (see cardReminderDue). Never for an instant call,
+ * whose whole time to pay is two minutes.
+ */
+async function remindAboutCards(now: Date): Promise<void> {
+  const reminderKey = sql<string>`'card_reminder:' || ${schema.bookings.id} || ':customer'`;
+  const waiting = await unpaidBookings().where(
+    and(
+      eq(schema.bookings.stage, "accepted"),
+      eq(schema.bookings.source, "customer"),
+      eq(schema.payments.status, "awaiting_payment"),
+      isNull(schema.calls.cancelledAt),
+      isNull(schema.calls.safetyEndedAt),
+      gt(schema.bookings.payBy, now),
+      lte(schema.bookings.payBy, new Date(now.getTime() + CARD_REMINDER.beforeCutoffMs)),
+      lte(schema.bookings.holdFailedAt, new Date(now.getTime() - CARD_REMINDER.afterFirstEmailMs)),
+      // Not written yet. (The email's own key also keeps it to one, if two helpers get here together.)
+      notExists(db.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, reminderKey))),
+    ),
+  );
+  for (const { booking, payment } of waiting) {
+    if (!booking.payBy || !booking.holdFailedAt || !cardReminderDue({ now, payBy: booking.payBy, holdFailedAt: booking.holdFailedAt })) continue;
+    try {
+      if (await actionInFlight(payment.id)) continue;
+      // Ask Stripe first, so nobody is reminded about a hold that is in place by now.
+      const synced = payment.stripePaymentIntentId ? await syncHold(payment.id, now) : payment;
+      if (synced.status !== "awaiting_payment") continue;
+      const written = await db.transaction(async (tx) => {
+        // Under the booking's lock, and only if it still stands: never a reminder beside a cancellation.
+        const [current] = await tx.select().from(schema.bookings).where(eq(schema.bookings.id, booking.id)).for("update");
+        if (!current || current.stage !== "accepted") return false;
+        // The customer may have paid in the moment since Stripe was asked.
+        const [paying] = await tx.select({ status: schema.payments.status }).from(schema.payments).where(eq(schema.payments.id, payment.id));
+        if (paying?.status !== "awaiting_payment") return false;
+        // Another helper may have written it while this one was asking Stripe.
+        const [there] = await tx.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`)).limit(1);
+        if (there) return false;
+        await queueBookingEmails(tx, current, "card_reminder");
+        return true;
+      });
+      if (written) log(`the customer of booking ${booking.id} was reminded that the card still needs fixing`);
+    } catch (error) {
+      log(`could not remind the customer of booking ${booking.id}; will retry`, error);
+    }
+  }
+}
+
 /** Money not held by the cut-off: the booking is cancelled for free and both people are told. */
 async function cancelUnpaidAtCutoff(now: Date): Promise<void> {
   const late = await unpaidBookings().where(
@@ -307,6 +355,7 @@ export async function runBookingJobs(now: Date): Promise<void> {
     jobs.push(
       ["placing holds", () => placeHolds(now)],
       ["checking tries", () => noteUnsettledTries(now)],
+      ["reminding about cards", () => remindAboutCards(now)],
       ["unpaid at the cut-off", () => cancelUnpaidAtCutoff(now)],
       ["removing saved cards", () => removeSavedCards(now)],
     );

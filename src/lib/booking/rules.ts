@@ -62,11 +62,30 @@ export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
 type Terms = { startsAt: Date; paid: boolean; freeCancelMinutes: number };
 
 /**
- * The payment cut-off, D = S − max(F, 12 hours). The money must be held before
+ * How long before the start the money must be held at the latest: a full day, so a host whose
+ * call is cancelled as unpaid still has a day to fill that time. (12 hours until 19 November
+ * 2026. A booking keeps the cut-off it was given when it was asked for.)
+ */
+const PAY_LEAD_MS = 24 * HOUR;
+
+/**
+ * The payment cut-off, D = S − max(F, 24 hours). The money must be held before
  * this, so a card that fails can never be used to dodge the host's cancelling rule.
  */
 export function payCutoff(startsAt: Date, freeCancelMinutes: number): Date {
-  return new Date(startsAt.getTime() - Math.max(freeCancelMinutes * MINUTE, 12 * HOUR));
+  return new Date(startsAt.getTime() - Math.max(freeCancelMinutes * MINUTE, PAY_LEAD_MS));
+}
+
+/**
+ * A customer whose card did not work is told at once, and reminded once: 12 hours before the
+ * payment cut-off, but never sooner than 6 hours after the first email, and never once the
+ * cut-off has passed. (A card that fails less than 6 hours before the cut-off gets no reminder.)
+ */
+export const CARD_REMINDER = { beforeCutoffMs: 12 * HOUR, afterFirstEmailMs: 6 * HOUR } as const;
+
+export function cardReminderDue(input: { now: Date; payBy: Date; holdFailedAt: Date }): boolean {
+  const now = input.now.getTime();
+  return now < input.payBy.getTime() && now >= input.payBy.getTime() - CARD_REMINDER.beforeCutoffMs && now >= input.holdFailedAt.getTime() + CARD_REMINDER.afterFirstEmailMs;
 }
 
 /**
@@ -83,7 +102,7 @@ export function latestRequestAt(input: Terms & { noticeHours: number }): Date {
 /** The earliest start that can be asked for right now. The same rule as latestRequestAt, turned around. */
 export function earliestStartFor(input: { now: Date; paid: boolean; freeCancelMinutes: number; noticeHours: number }): Date {
   const notice = input.noticeHours * HOUR;
-  const paidLead = Math.max(input.freeCancelMinutes * MINUTE, 12 * HOUR) + 8 * HOUR;
+  const paidLead = Math.max(input.freeCancelMinutes * MINUTE, PAY_LEAD_MS) + 8 * HOUR;
   return new Date(input.now.getTime() + (input.paid ? Math.max(notice, paidLead) : notice));
 }
 
