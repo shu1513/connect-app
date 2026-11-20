@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { withNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
-import { hideSuggestion, makeSuggestions, markSeen } from "@/lib/suggestions/suggestions";
+import { hideSuggestion, makeSuggestions, markOpened, markSeen } from "@/lib/suggestions/suggestions";
 
 /**
  * Makes the logged-in person's suggestions for today, if they have not been made yet (plans/37).
@@ -25,6 +25,16 @@ export async function markSeenAction(day: string, places: number[]): Promise<voi
   const user = await requireUser();
   if (typeof day !== "string" || !Array.isArray(places)) return;
   await markSeen(user.id, day.slice(0, 10), places.slice(0, 12).filter((place): place is number => typeof place === "number"), new Date());
+}
+
+/**
+ * Marks that the person opened a host's page from the row: their own card of the day the page
+ * showed, in this place (plans/41). What the browser sends is only read as a day and one number.
+ */
+export async function markOpenedAction(day: string, place: number): Promise<void> {
+  const user = await requireUser();
+  if (typeof day !== "string" || typeof place !== "number") return;
+  await markOpened(user.id, day.slice(0, 10), place, new Date());
 }
 
 /** The X on a suggestion: hides that host from this person's suggestions for good. A paused person can do this too. */

@@ -3185,3 +3185,60 @@ own check script too, not only the scripts that open the page.
 CodeRabbit reviewed the correction and made two points about the new check, both taken: it now
 reads every import from that code whichever quotes it is written with, and it refuses the word
 `forHost` anywhere on the home page instead of trying to read the call. Journey 18 passes again.
+
+## A later change: suggested hosts, fewer at once, rotating, and no ceiling (plan 41, 19 November 2026)
+
+**What the founder asked for.** After seeing how the row works: ten people behind a host should
+come before three; "maybe not too many suggestions, this way the home page is not noisy and
+overwhelming"; and "we periodically rotate the suggestions", because a customer who has seen a
+suggestion probably does not want to see it again, unless they opened it. Told that the points
+stopped at seven people: "why? why even a ceiling". About interest: "this happens each time if
+someone shows interest". Then: "Yes, build them".
+
+**What was decided** (`plans/41-suggestions-fewer-and-rotating.md`). The founder's: fewer at
+once, resting what was seen, interest brings a host back every time, no ceiling. The builder's
+numbers: three shown and "Show more" for the other three; a host rests when the person saw the
+card on two different days without opening it, for as long as those days are no more than
+fourteen back; nine points at three people and six more for each doubling.
+
+**What was built.** The row shows places 1 to 3 and keeps 4 to 6 in a closed "Show 3 more"; a
+card in the closed part is not counted as seen. Pressing a host's name on a card is written on
+that card's line (`suggestion_shows.opened_at`, database change 0046). When a day's suggestions
+are made, the person's own lines of the last two weeks say who rests; resting hosts are left out
+and fill the row only when fewer than three fresh hosts fit. `peoplePoints` has no ceiling. The
+rule's version is 3. The explanation under the row has two more sentences.
+
+**A correction to what the founder was told.** The builder had said that a host with a hundred
+people behind them "cannot bury" a host who is available now. Too strong: a hundred people are
+worth about 39 points, "available now" 20. True is: being available now is worth as much as ten
+times the people, and two of the six places are kept for hosts shown less. The founder was told.
+
+**What the reviewers found.** *Astra* (plan and code together), "ready with changes", six
+points, all taken. An opening was counted on the day of the card and not on the day of the
+press, so an older card pressed later did not answer the sightings in between: the day of the
+press counts now. When resting hosts filled a row, the third could be the one seen the least
+instead of the one with the most points: fillers are the most points first now. A press of the
+right mouse button counted as an opening: no longer. Checks that proved less than their labels;
+the limits of the look-ups and softer words in the plan; and rounding that made 894 and 895
+people worth the same. Astra found the day arithmetic sound and nothing that lets one person
+learn about another. Its first run was cut short because the builder switched the working folder
+to another branch to resolve a merge conflict; it was run again from the start.
+
+**How it was checked.** 681 automatic tests, 13 of them new or changed for this (the points at
+3, 6, 12, 24 people and that they always grow; resting after two sightings, not from cards that
+never came into view, free again after an opening every time, the fourteen days to the day, an
+older card pressed later; fillers by points). On this computer, against the local database and
+the running app, after Astra's fixes and after merging `main`: `scripts/suggestions-check.ts`,
+110 checks, 23 of them new (resting, interest on successive days, the two weeks, a thin row
+filled, a row of only resting hosts, a late press, openings and what made-up arguments can do,
+"Show more" closed with three cards behind it); `scripts/home-check.ts` (44); journey 18 of
+`scripts/project-check.ts`. In a browser at phone size, before Astra's fixes: three cards and
+"Show 3 more"; with it closed, only the first three cards marked as seen; after opening it, the
+other three marked too; pressing a host's name opened the page and was written on that card.
+Not tried in a browser after the fixes: the middle and right mouse buttons, and a press on a
+card of an older day (both are covered by the script or by reading the code, not by hand).
+
+**Still open.** For the founder: the numbers are starting values. Without a ceiling, made-up
+accounts can push a host further than before (seventy accounts about 36 points, where the
+ceiling was 20); the bar of three and the three-day rule slow it. For the lawyer: openings are
+now recorded (`docs/for-the-lawyer.md`, section 4).

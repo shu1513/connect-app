@@ -54,7 +54,8 @@ with you. I would build this idea from day one."
    - **Nothing counts until three different people** point at the same host. Below three the
      host gets no points from this part. So the idea is built in from the first day and starts to
      work by itself as the app fills.
-   - At most 20 points come from this part.
+   - At most 20 points come from this part. (**Changed by `plans/41`:** there is no ceiling any
+     more; the points keep growing with the number of people, by a little less each time.)
    - Each person counts once for a host, however often they called.
    - A person only counts while their account is open and not paused, and a follow only counts
      while there is no block between that person and that host.
@@ -107,7 +108,10 @@ with you. I would build this idea from day one."
     app already keeps, this is enough to see later whether a call followed a suggestion, without
     recording clicks. (It can show that a call came after a suggestion, not that the suggestion
     caused it.) The lines about what was suggested are deleted after 90 days. An X is kept as
-    long as the account, because it is the person's choice.
+    long as the account, because it is the person's choice. (**Changed by `plans/41`:** one kind
+    of press is now written down: that the person opened a suggested host's page from the row.
+    The row also shows three of the six at first, and a host seen twice without being opened
+    rests for two weeks.)
 15. **A paused account** gets no suggestions.
 
 ## An example

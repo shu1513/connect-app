@@ -1,0 +1,1 @@
+ALTER TABLE "suggestion_shows" ADD COLUMN "opened_at" timestamp with time zone;
