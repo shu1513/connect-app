@@ -314,5 +314,13 @@ describe("photoNotice: the sentence a host is told", () => {
     expect(photoNotice({ outcome: "unusable", detail: "A picture can be up to 10 MB." }, "upload")).toBe("That picture cannot be used. A picture can be up to 10 MB.");
     expect(photoNotice({ outcome: "not_accepted", tookDown: true }, "upload")).toContain("that photo was taken down");
   });
+
+  it("tells a person who is not a host who sees their photo, and never speaks of a page or the search (plans/35)", () => {
+    const said = photoNotice({ outcome: "shown" }, "upload", true);
+    expect(said).toContain("Hosts you ask for a call see it");
+    expect(said).not.toContain("your page");
+    expect(said).not.toContain("search");
+    expect(photoNotice({ outcome: "shown" }, "upload")).toContain("your page");
+  });
 });
 

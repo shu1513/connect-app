@@ -9,7 +9,8 @@ import { PHOTO, type PhotoSource } from "./photo-rules";
 /** An upload has no network to name: the sentences that name one are never said after an upload. */
 const LABEL: Record<PhotoSource, string> = { instagram: "Instagram", tiktok: "TikTok", upload: "social media" };
 
-export function photoNotice(result: PhotoResult, network: PhotoSource): string {
+/** `asCustomer`: the person has no host profile, so their photo is only for hosts they ask (plans/35). */
+export function photoNotice(result: PhotoResult, network: PhotoSource, asCustomer = false): string {
   const label = LABEL[network];
   const upload = network === "upload";
   const later = "Please try again in a few minutes.";
@@ -18,7 +19,9 @@ export function photoNotice(result: PhotoResult, network: PhotoSource): string {
     return "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. It is the same picture as the photo you had, so that photo was taken down.";
   }
   const said: Record<PhotoOutcome, string> = {
-    shown: "Your photo passed the check and is saved. It is shown on your page whenever your page is open to everyone, and beside you wherever you appear in the search results.",
+    shown: asCustomer
+      ? "Your photo passed the check and is saved. Hosts you ask for a call see it beside your name."
+      : "Your photo passed the check and is saved. It is shown on your page whenever your page is open to everyone, and beside you wherever you appear in the search results.",
     not_accepted: "That photo was not accepted. It looks like it breaks the rules on nudity, violence or self-harm. Nothing was changed.",
     refused_before: "That photo was not accepted before, so it was not taken again. Nothing was changed.",
     no_picture: upload

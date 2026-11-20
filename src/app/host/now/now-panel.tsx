@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AboutCustomer } from "@/components/about-customer";
+import { HostPhoto } from "@/components/host-photo";
 
-type Request = { id: string; customerName: string; customerRating: string; idConfirmed: boolean; about: string | null; lengthMinutes: number; totalCents: number; respondBy: string };
+type Request = { id: string; customerName: string; customerRating: string; idConfirmed: boolean; about: string | null; photoId: string | null; lengthMinutes: number; totalCents: number; respondBy: string };
 type Live = { on: boolean; availableUntil: string | null; requests: Request[] };
 
 const POLL_MS = 3_000;
@@ -246,9 +247,12 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
               const seconds = now === null ? null : secondsLeft(request.respondBy, now);
               return (
                 <li key={request.id} className="rounded border-2 border-green-700 p-4">
-                  <p className="text-lg font-semibold">
-                    {request.customerName} — {request.lengthMinutes} minutes{request.totalCents > 0 ? `, ${money(request.totalCents)}` : ", free"}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <HostPhoto photoId={request.photoId} name={request.customerName} small />
+                    <p className="text-lg font-semibold">
+                      {request.customerName} — {request.lengthMinutes} minutes{request.totalCents > 0 ? `, ${money(request.totalCents)}` : ", free"}
+                    </p>
+                  </div>
                   <p className="mt-1 text-sm">
                     As a customer: {request.customerRating === "New" ? "New: not enough ratings yet" : `★ ${request.customerRating}`}
                     {request.idConfirmed && <span className="text-green-700"> · ID confirmed</span>}
