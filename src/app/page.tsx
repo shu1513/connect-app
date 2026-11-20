@@ -396,7 +396,8 @@ export default async function HomePage(props: PageProps<"/">) {
       )}
 
       {/* The calendar (plans/43): the calls of the days in view, also the ones that are over. Not for someone who never had a call. */}
-      {hasCalls && (
+      {/* Also for a host whose first requests wait before she has had any call: they are on the calendar too. */}
+      {(hasCalls || toAnswer.length > 0) && (
         <section className={`${warm.card} mt-6`} data-calendar>
           <h2 className={sectionTitle}>Your calendar</h2>
           <div className="mt-2">

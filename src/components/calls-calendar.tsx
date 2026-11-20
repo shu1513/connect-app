@@ -99,7 +99,7 @@ export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { ca
   const height = (hours.to - hours.from) * CALENDAR.hourPixels;
   // Where "now" is in today's column, when today and this hour are in view.
   const nowMinute = minuteOfDay(new Date(serverNow), zone);
-  const nowTop = days.includes(today) && nowMinute >= hours.from * 60 && nowMinute <= hours.to * 60 ? ((nowMinute - hours.from * 60) / 60) * CALENDAR.hourPixels : null;
+  const nowTop = days.includes(today) && nowMinute >= hours.from * 60 && nowMinute < hours.to * 60 ? ((nowMinute - hours.from * 60) / 60) * CALENDAR.hourPixels : null;
   // The first of the days in view that each call has a part in: where the list puts it.
   const firstDayOf = new Map<string, string>();
   for (const segment of [...segments].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))) if (!firstDayOf.has(segment.call.call.id)) firstDayOf.set(segment.call.call.id, segment.day);
@@ -153,6 +153,8 @@ export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { ca
         <p className="mt-1 text-sm text-[#57534e]" data-calendar-total={total.cents}>
           {total.calls} {total.calls === 1 ? "call" : "calls"} hosted in these days · earned <strong>{dollars(total.cents)}</strong>
           {total.soFar && " so far"}
+          {/* When not every call around these days could be loaded, the sum is of the ones that were. */}
+          {cut && " from the calls shown"}
         </p>
       )}
       <div className="mt-3 flex gap-2" role="group" aria-label="How to show your calls">
@@ -199,7 +201,8 @@ export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { ca
                       <Link
                         key={`ask-${segment.ask.startsAt}-${one}`}
                         href="/host/requests"
-                        aria-label={`${dayName(one, true)}, ${new Date(segment.ask.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}, ${words} waiting for your answer`}
+                        // The day it starts on, also for the part of it that is drawn in the day after.
+                        aria-label={`${dayName(dayOf(new Date(segment.ask.startsAt), zone), true)}, ${new Date(segment.ask.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}, ${words} waiting for your answer`}
                         data-calendar-ask={segment.ask.count}
                         className="absolute overflow-hidden rounded-md border border-dashed border-[#57534e] bg-white px-1 text-left text-[11px] leading-[12px] whitespace-nowrap text-[#44403c] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1c1917]"
                         style={place}

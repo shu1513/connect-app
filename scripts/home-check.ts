@@ -575,14 +575,34 @@ async function main() {
       await ask(guest.id, 30, `Ask words one ${RUN}`);
       await ask(outsider.id, 15, `Ask words two ${RUN}`);
       // What is handed to the calendar travels inside the page, with its quotation marks written as \" there.
-      const handed = (text: string, key: string, value: string | number) => new RegExp(`${key}\\\\?":\\\\?"?${String(value).replace(/[.$]/g, "\\$&")}`).test(text);
+      /** The times asked for, exactly as the calendar is handed them: read back from the page's own data. */
+      const asksOf = (text: string) => {
+        const found = text.match(/asks\\?":(\[.*?\])/);
+        return found ? JSON.stringify(JSON.parse(found[1].replace(/\\"/g, '"'))) : "not handed over";
+      };
+      /** What is handed over with one call: from its id to the next call's. */
+      const handedWith = (text: string, id: string) => {
+        const from = text.search(new RegExp(`id\\\\?":\\\\?"${id}`));
+        if (from < 0) return "";
+        const rest = text.slice(from + 10);
+        const next = rest.search(/id\\?":\\?"[0-9a-f]{8}-/);
+        return rest.slice(0, next < 0 ? 900 : next);
+      };
       const withAsks = await page("/", cal.jar);
-      const askFor = (text: string) => new RegExp(`${askedAt.toISOString().replace(/[.]/g, "\\.")}[^}]{0,160}count\\\\?":2`).test(text);
-      check("a time two people asked her for is handed to the calendar once, with the number 2 and nothing else about them", askFor(withAsks.text), withAsks.text.match(/count\\?":\d+/g)?.join(" ") ?? "no count");
-      check("the calendar is handed what each finished call earned as a number too, and that one call's money is not settled, for the total", handed(withAsks.text, "cents", 3904) && withAsks.text.includes("moneyOpen"));
+      const expected = JSON.stringify([{ startsAt: askedAt.toISOString(), endsAt: new Date(askedAt.getTime() + 30 * MINUTE).toISOString(), count: 2 }]);
+      check("a time two people asked her for is handed to the calendar as one block: its start, the end of the longer call, the number 2, and nothing else", asksOf(withAsks.text) === expected, asksOf(withAsks.text));
+      check("a finished call she hosted is handed over with what it earned as a number, and its money is settled", /cents\\?":3904[,}]/.test(handedWith(withAsks.text, paid.id)) && !handedWith(withAsks.text, paid.id).includes("moneyOpen"), handedWith(withAsks.text, paid.id).slice(0, 200));
+      check("a finished call whose money is still held comes with no figure, and marked as not settled", /moneyOpen\\?":true/.test(handedWith(withAsks.text, held.id)) && !handedWith(withAsks.text, held.id).includes("cents"), handedWith(withAsks.text, held.id).slice(0, 200));
+      check("the call she booked with another host comes with neither", handedWith(withAsks.text, sheBooked.id) !== "" && !/cents|moneyOpen|earned/.test(handedWith(withAsks.text, sheBooked.id)));
+
+      // A host whose first requests wait before she has had any call still gets the calendar, with them on it.
+      const firstTimer = await asHost(await signUp("firsttimer"), "firsttimer", `Firsttimer Display ${RUN}`);
+      await db.insert(schema.bookings).values({ hostId: firstTimer.id, customerId: guest.id, startsAt: askedAt, endsAt: new Date(askedAt.getTime() + 15 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + DAY) });
+      const firstTimers = await page("/", firstTimer.jar);
+      check("a host with a request and no call yet has the calendar, with that time on it", firstTimers.html.includes("data-calendar") && asksOf(firstTimers.text) === JSON.stringify([{ startsAt: askedAt.toISOString(), endsAt: new Date(askedAt.getTime() + 15 * MINUTE).toISOString(), count: 1 }]), asksOf(firstTimers.text));
 
       const his = await page("/", guest.jar);
-      check("the person who asked is handed no such block, and no figures", !askFor(his.text) && !handed(his.text, "cents", 3904) && !his.text.includes("moneyOpen"));
+      check("the person who asked is handed an empty list of times, and no figures with the calls", asksOf(his.text) === "[]" && [paid, halfBack, held].every((c) => handedWith(his.text, c.id) !== "" && !/cents|moneyOpen|earned/.test(handedWith(his.text, c.id))), asksOf(his.text));
       check("the customer of those calls is handed the same calls, and nothing a host earned", [paid, halfBack, held, coming].every((c) => his.text.includes(c.id)) && !his.text.includes(earnedPaid) && !his.text.includes(earnedHalf) && !his.text.includes("earned") && !his.text.includes(`Calendar words ${RUN}`));
       check("and never the call their host booked with someone else", !his.text.includes(sheBooked.id));
       const nobody = await page("/", outsider.jar);

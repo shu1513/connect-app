@@ -3554,11 +3554,27 @@ before). Each finished call she hosted is also handed with what it earned as a n
 whether its money is still open, so the browser can add up the days it shows; the server cannot,
 because it does not know which days those are.
 
+**What the reviewers found.**
+- *Astra, on the code (one round):* "ready with changes", five points; nothing reaches the wrong
+  person. All taken. A host whose first requests arrive before she has had any call got no
+  calendar, so they could not be on it: the calendar is now also shown when a request waits.
+  When more than 500 calls touch the days, the total could leave earnings out without saying
+  so: it then says "from the calls shown". The three new checks would have passed with wrong
+  data (a wrong number, extra fields, a figure on the wrong call): they now read the list of
+  times back from the page and compare it exactly, and look at what is handed over call by
+  call. The line for "now" could sit just under the grid at the last hour drawn. And the spoken
+  name of a request that runs past midnight named the wrong day on its second part, which the
+  builder's own review had found too.
+- *CodeRabbit* was at its limit; the builder read the change line by line. One thing found, the
+  spoken name above.
+
 **How it was checked.** 725 automatic tests on the code, 10 of them new (the times asked for,
 the total, money written as elsewhere, money that is not settled). On this computer, against the
-local database: `scripts/home-check.ts`, 106 checks, three of them new in part 9 (a time two people asked
-for is handed over once with the number 2; the figures for the total; the person who asked is
-handed neither). In a browser, as the test host, in a wide window: two people asking for one
+local database, after Astra's fixes: `scripts/home-check.ts`, 109 checks, six of them new in
+part 9 (a time two people asked for is handed over as exactly one block with the number 2; a
+finished call with its figure, one with its money still held, and a call she booked, each with
+exactly what belongs to it; a host with a request and no call yet; the person who asked is
+handed an empty list and no figures). In a browser, as the test host, in a wide window: two people asking for one
 time ("2 requests") and one asking for a time beside a booked call (side by side); the line
 "4 calls hosted in these days · earned $94.20 so far" for a week with three paid calls and one
 held; the red line at the right height in today's column.
