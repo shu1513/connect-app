@@ -186,6 +186,14 @@ when another screen comes to the front beneath them (a link opened meanwhile). A
 only counts while the screen the question was asked on is still the one in front (in the list
 and on a request's own page).
 
+## Astra's fourth look at the code (20 November 2026): "ready with changes", worked in
+
+The save-first order was found fixed. The opposite order (the answer to Accept arriving a
+moment before the save's) could still, by chance of how the screen redraws, put the older
+note back in the box. Now only a plain reading of the page gives the box a new note; the
+answer to a step never does (it still changes the stage and what may be done at once).
+"Show the note as it is stored now" goes by that same plain reading.
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *`customerDetailsFor` cannot describe a waiting request.* Decision 1.

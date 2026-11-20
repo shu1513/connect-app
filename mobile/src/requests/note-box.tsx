@@ -21,8 +21,9 @@ type Note = NonNullable<NonNullable<AppBooking["host"]>["note"]>;
  * open in several places: a save goes through only if the stored note is still the one this box
  * was showing, so the box sends that along.
  *
- * `reading` counts the readings of the page around the box, and `note.text` is the stored note
- * as the latest of them found it. Each new reading is looked at once: if it shows another note
+ * `reading` counts the plain readings of the page around the box, and `note.text` is the stored
+ * note as the latest of them found it (the answer to a step such as Accept is not one: it may
+ * have read the note before a save that crossed it). Each new reading is looked at once: if it shows another note
  * than the box goes by, the box takes it in when nothing has been typed, and otherwise says that
  * the note was changed elsewhere and offers to take it in; what was typed stays until then.
  */

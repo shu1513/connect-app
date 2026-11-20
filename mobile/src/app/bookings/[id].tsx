@@ -68,8 +68,15 @@ function OneRequest({ id }: { id: string }) {
   const acting = useRef(false);
   /** A reading that must not be skipped was asked for while a step was under way: it is made when the step is through. */
   const owed = useRef(false);
-  /** How many readings of the page have come in: the note box goes by it to tell a fresh reading from an old one. */
-  const [readings, setReadings] = useState(0);
+  /**
+   * The host's stored note as the latest plain reading of the page found it, and how many such readings have come
+   * in: what the note box goes by. Only a plain reading counts. The answer to a step (Accept, say) may have read
+   * the note before a save that crossed it, and would put the older note back in the box; from such an answer the
+   * stage and what may be done are taken at once, and the note waits for the next plain reading.
+   */
+  const [noteRead, setNoteRead] = useState<{ count: number; text: string | null }>({ count: 0, text: null });
+  /** Whether the page on the screen has a note box. An answer that first brings one is its first reading, whatever kind of answer it is. */
+  const hasNote = useRef(false);
   /** How many readings that also ask about the card are under way: the timer's plain reading does not cut in on them. */
   const checking = useRef(0);
   /** The stage the screen shows, for words that belong to it. */
@@ -83,16 +90,14 @@ function OneRequest({ id }: { id: string }) {
    * that this answer no longer says anything.
    */
   const settle = useCallback(
-    (answer: Answer<AppBooking>, mine: number): AppBooking | null | undefined => {
+    (answer: Answer<AppBooking>, mine: number, plain: boolean): AppBooking | null | undefined => {
       if (mine !== newest.current) return undefined;
       if (answer.ok && isBooking(answer.data) && answer.data.id === id) {
         stage.current = answer.data.stage;
         setPage(answer.data);
-        // The note box takes this as a new reading of the stored note. Not so the answer to a step while a fresh
-        // reading is owed (a note was saved while the step was under way): that answer may have read the note
-        // before the save, and would put the older one back in the box. The stage and what may be done are taken
-        // from it at once; the note waits for the reading that is owed.
-        if (!owed.current) setReadings((count) => count + 1);
+        const stored = answer.data.host?.note ?? null;
+        if (stored && (plain || !hasNote.current)) setNoteRead((was) => ({ count: was.count + 1, text: stored.text }));
+        hasNote.current = stored !== null;
         setProblem(null);
         setGone(false);
         // What a step just did ("your request was taken back") belongs to the stage it led to.
@@ -127,7 +132,7 @@ function OneRequest({ id }: { id: string }) {
     async (step: "" | "/card-saved" | "/take-back" | "/accept" | "/decline" | "/block"): Promise<AppBooking | null | undefined> => {
       const mine = ++newest.current;
       const answer = await ask<AppBooking>(`${path}${step}`, step === "" ? {} : { body: {} });
-      return settle(answer, mine);
+      return settle(answer, mine, step === "");
     },
     [path, settle],
   );
@@ -344,7 +349,7 @@ function OneRequest({ id }: { id: string }) {
           ) : null}
         </Card>
       ) : null}
-      {host?.note ? <NoteBox path={path} note={host.note} reading={readings} onSettled={() => void look(false, true)} /> : null}
+      {host?.note ? <NoteBox path={path} note={{ ...host.note, text: noteRead.text }} reading={noteRead.count} onSettled={() => void look(false, true)} /> : null}
 
       {host ? null : page.card ? (
         <Card>
