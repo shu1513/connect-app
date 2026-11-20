@@ -56,6 +56,11 @@ export default function PrivacyPage() {
         can show you when they are available. Only you see who you follow. The host is not told who follows them, or how many
         people do. You can unfollow at any time, and a host you unfollowed is not followed again for you after a later call.
       </p>
+      <p className="mt-4 text-sm">
+        A host you have asked for a call can keep private notes about you, to remember what you talked about. Only that host can
+        read them: no other host can, and they are not shown on any page of yours. If you block the host, or the host blocks
+        you, or your account is closed, the host can no longer read or change their notes about you.
+      </p>
     </SitePage>
   );
 }

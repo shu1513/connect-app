@@ -2400,6 +2400,13 @@ conflict. That writing during a call is not built now.
   JavaScript switched off when, while the host was typing, the customer blocked them or closed
   their account. That is three rare things at once, and the note could not be saved anyway.
   Astra found no way for a note to reach anyone but its host.
+- *The builder's own check, in place of CodeRabbit.* CodeRabbit was asked for a full review on
+  the pull request; the founder then said not to wait for it and to have the builder check the
+  code instead. Three things came of that: the privacy page said nothing about a host's notes,
+  and now says in plain words that a host can keep them, who can read them, and when the host no
+  longer can; "Saved." is now announced to someone using a screen reader; and "About {name}"
+  above a note that is only read is no longer a heading, because it sits inside lists and under
+  headings of different levels. Nothing else was found.
 
 **How it was checked:** 583 automatic tests on the code with following (plan 30) merged in (4 of
 them new here, for how a note is stored); `scripts/ratings-check.ts`, 90 checks, 17 of them new

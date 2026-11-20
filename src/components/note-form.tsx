@@ -55,7 +55,8 @@ export function NoteForm({ customerId, name, text, max }: { customerId: string; 
         <button type="submit" disabled={pending} className="rounded border border-neutral-500 px-3 py-1.5">
           {pending ? "Saving…" : "Save"}
         </button>
-        {state.saved && !touched && !pending && <span role="status">Saved.</span>}
+        {/* Always on the page, filled when there is something to say: a screen reader announces a change inside it. */}
+        <span role="status">{state.saved && !touched && !pending ? "Saved." : ""}</span>
       </p>
     </form>
   );

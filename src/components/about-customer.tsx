@@ -9,7 +9,8 @@
 export function AboutCustomer({ name, text }: { name: string; text: string }) {
   return (
     <section className="mt-3 rounded border border-neutral-400 p-3 text-sm" aria-label={`About ${name}`} data-host-note>
-      <h2 className="font-semibold">About {name}</h2>
+      {/* Not a heading: this sits inside list items and under headings of different levels. The section is named above. */}
+      <p className="font-semibold">About {name}</p>
       <p className="opacity-70">Your private notes. Only you can see them.</p>
       {/* Reachable by keyboard, so it can be scrolled without a mouse. */}
       <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words" tabIndex={0}>
