@@ -169,10 +169,14 @@ keeps nothing of a tip.
 - **The 25-cent charge of a collection** (Stripe's charge for a payout) is not changed. It is for
   a whole collection, not for a tip: a tip collected together with other earnings adds nothing to
   it. A host who collects one $5 tip and nothing else gets $4.75.
-- **A refund after the money was taken costs Connect Stripe's fee.** A refund gives the customer
-  back what they paid, in proportion, as every refund on Connect does; Stripe keeps its fee on a
-  refunded payment, and Connect has no share of a tip to cover it (46 cents on a $5 tip).
-  Cancelling during the three days costs nobody anything, which is what the hold is for.
+- **A refund after the money was taken costs Connect something.** A refund gives the customer
+  back what they paid, in proportion, as every refund on Connect does, and the host's share gets
+  smaller in the same proportion (half of a $5.46 payment back is $2.73, and leaves her $2.50).
+  Stripe keeps its fee on a refunded payment, and Connect has no share of a tip to cover it: a
+  full refund by the host, before she has collected, costs Connect the 46 cents. After she has
+  collected, only the founder can refund, and then all of it is Connect's own money ($5.46), as
+  for a contribution today. Cancelling during the three days costs nobody anything, which is what
+  the hold is for.
 
 The other two ways, for the record. *Connect pays the card fee* (what Uber and Lyft do, who keep a
 large part of every ride): cleanest, but about 45 cents on every $5 tip, and Connect's fee on calls
@@ -230,9 +234,12 @@ it is. While it is off: the box is not shown; no tip can be started; a card step
 no longer be paid; and every tip that is not taken, held or still at its card step, is given up
 and its hold let go, in the step that saves the switch, with the helper as the net behind it (as
 the projects switch does for contributions, so that nothing is taken while a feature is off).
-Letting go, refunds, disputes and recovery keep working while it is off. If Stripe had already
-been asked to take a tip's money at that very moment and does, it is recorded and paid back in
-full, by the code that already does this for a contribution. Tips that were taken before stay. A
+Letting go, refunds, disputes and recovery keep working while it is off. A card form that was
+already open in a browser can still reach Stripe for the moment it takes to cancel the payment
+there: a hold that lands in that moment is let go, and nothing of it is kept. If Stripe had
+already been asked to take a tip's money at that very moment and does, it is recorded and paid
+back in full, once, by the code that already does this for a contribution. Switching on again
+brings none of these back. Tips that were taken before stay. A
 host cannot switch tips off for herself in the first version.
 
 **13. The $1,000 rule counts tips and contributions together.** It is counted for one person
@@ -322,16 +329,19 @@ Lyft's own post on its fee and tips
    tip that is certainly gone a new one works. After a second call a second tip works.
 6. The customer cancels a held tip; the host lets one go; the founder lets one go. "Nothing was
    charged" is said only once the hold is certainly gone.
-7. A card step that runs out undoes the tip; a hold placed in time and heard of late still counts.
+7. A card step that runs out undoes the tip; a hold placed in time and heard of late still counts;
+   and while Stripe's answer about a payment is not final, the card step is not ended and no
+   second tip for the call can start.
 8. The host refunds part and then the rest before collecting; after collecting only the founder
    can.
 9. A block, a pause, a closed account and a suspended host page each let a held tip go and leave a
-   taken one alone. A taken tip is still shown to both afterwards.
+   taken one alone. A taken tip is still shown afterwards to whoever of the two can still sign in.
 10. Ending the host's project and switching *projects* off do not touch a held tip. Switching
-    *tips* off gives up held tips and open card steps, stops new ones, refuses a card form that
-    was open before, and does not touch a held contribution. Switched on again, nothing old comes
-    back.
-11. Tips and contributions of one person to one host are counted together for the $1,000 rule.
+    *tips* off gives up held tips and open card steps, stops new ones, hands no card form out,
+    lets go of a hold that a form opened earlier still placed, and does not touch a held
+    contribution. Switched on again, nothing old comes back.
+11. Tips and contributions of one person to one host are counted together for the $1,000 rule, on
+    what the customer pays: with $995 counted already, a $5 tip ($5.46) crosses the line.
 12. A tip changes nothing about ratings; a low rating given after a tip leaves the tip alone; and
     the host is shown nothing of a tip that never got a hold.
 13. A disputed tip can be neither collected nor refunded, and a monthly contribution of the same
@@ -351,9 +361,9 @@ Lyft's own post on its fee and tips
   two (a rule in the database). The smallest amount stays $5 for a contribution; a tip is at
   least $2. One more rule in the database, as the last net behind the code's own check: for each
   call at most one tip that has not ended or that ended as "paid".
-- `contribution_payments`: the smallest amount becomes $2.30 or more for a tip's payment in
-  practice; the rule in the database is lowered to $2, and the rule on `contributions` keeps
-  contributions at $5.
+- `contribution_payments`: its rule for the smallest amount is lowered to $2 (the smallest real
+  payment of a tip is $2.37); the rule on `contributions` keeps a contribution at $5 or more and
+  a tip's own amount at $2 or more. The ceiling of $100,000 and the rules for refunds stay.
 - `site_switches`: `tips_off`, false at the start.
 
 The host's share stays a line of kind `contribution` in `payments`, with no call on it, exactly as
@@ -380,11 +390,15 @@ reader, as `loadAttendance` already has. Without one they read as today.
 - `startTip(...)`. The call is looked up first, without a lock; the two people come from the call
   and the login, never from the form. Then, in the app's one order of locks: the switch (shared,
   the lock a contribution takes too), the two people's lines, the host page's line, the pair, and
-  the call's line last. Under them it asks `mayTip` again with everything read through this step,
-  refuses unless every earlier tip for the call is certainly gone (decision 5), and writes the
-  tip, what was agreed to, and its first payment with the 30 minutes of the card step and the
-  tip's own fee terms. A press that is sent twice gets the first tip back, but only if the
-  customer, the kind and the call are the same.
+  the call's line last. Under them it asks `mayTip` again with everything read through this step
+  (the stars, the record, reports, blocks, the refund request, and whether the project box would
+  be shown; what it needs of the host's page comes from the line it has locked). It refuses a
+  summary whose wording has changed since the page was drawn; refuses unless every earlier
+  *payment* of a tip for the call is certainly gone (decision 5: a tip that was marked cancelled
+  but whose money was taken after all still counts); works out what the customer pays from the
+  tip they sent, on the server; and writes the tip, what was agreed to, and its first payment
+  with the 30 minutes of the card step and the tip's own fee terms. A press that is sent twice
+  gets the first tip back, but only if the customer, the kind and the call are the same.
 - `saveTipsSwitch(...)`: saves the switch with its line in the record of the founder's actions,
   under the lock that starting a tip waits for. Switched off, it gives up every tip payment that
   is not taken, held or waiting for a card, in the same step, and lets the holds go afterwards.
@@ -405,6 +419,11 @@ reader, as `loadAttendance` already has. Without one they read as today.
 - A tip ends when it is paid, and when its only payment is given up, as a contribution made once
   does (`applyTaken`, `giveUpInStep`: "not monthly" in place of "once").
 - "Stop contributing" (`stopContribution`) refuses anything that is not monthly.
+- The helper's job that ends a card step whose 30 minutes are over (`jobs.ts`, job 3) waits when
+  Stripe's answer is not final yet ("processing", or an answer that could not be recorded),
+  instead of giving the payment up: a hold placed in time must not be cancelled before its
+  outcome is known. This is the rule a missed month already follows, and it is right for a
+  contribution's card step too. Until the outcome is known, no new tip for that call can start.
 - `emails.ts`: a tip's words in the four emails; no project is looked up for a tip; the host's
   email is named by the call, so it is sent once for a call; the founder's $1,000 email says
   "contributions and tips".
@@ -509,3 +528,26 @@ a call; a tip's own amount reader, so the smallest contribution stays $5; saying
 founder as a customer; and that "on from the start" means in the code, with the list of what must
 be settled before going live. Noted and left as they are: the project box after a low rating, and
 the host's rating of a customer after a tip (both under "Not built now").
+
+## Astra's second check (20 November 2026): "ready with changes"
+
+Astra checked the plan again after the founder's decision about the fee. It confirmed the sums:
+for every tip from $2.00 up to the largest ($97,099.70) there is a payment that leaves the host
+exactly the tip, the smallest such payment is well defined, the three examples are right, and no
+code further down falls back to the usual fee (the share's line keeps the payment's own terms).
+Its four points, all taken:
+
+1. *A card step that runs out while Stripe's answer is not final* was left out of the first
+   round as "the contribution's own code". Astra is right that the plan promises "a hold placed in
+   time still counts", so it is in: the helper waits (see "The contribution code, widened").
+2. *What switching off means for a card form that is already open in a browser.* Now said in
+   decision 12 and proved in point 10.
+3. *The check of the summary's wording had dropped out of the rewrite,* and the reads inside the
+   start must all go through its own step. Both are back under "Starting a tip".
+4. *What a refund costs Connect was only right before the host has collected.* Decision 6 now
+   says both cases.
+
+Its smaller points, taken: both amount rules in the database are replaced, not only one; the rule
+for a second tip looks at every earlier payment, not at the tip's own state; the $1,000 test at
+the line; and that a closed account cannot sign in, so what is kept after a closing is checked
+through the other person.
