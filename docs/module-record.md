@@ -3064,3 +3064,124 @@ sentence was reworded after the scripts ran; they do not read it.
 **Still open.** Before launch: test hosts and their requests must never be copied into the live
 database. For the founder: whether a $5 call should later carry a small video charge, once real
 calls show what the video costs.
+
+## A later change: uploading a photo, part two: customers (plan 35, 19 November 2026)
+
+**Why.** The second half of plan 35. The founder: "Customers also can upload photos yes? I
+think that would be good."
+
+**What it is.**
+- **For a customer:** a new part "Your photo" on the Account page, with a file field, "Upload a
+  photo" and "Remove". It is optional. The rules are part one's: checked by an outside service
+  before anyone sees it, a refused picture stays refused, one photo at a time, five tries in 24
+  hours, a square from the middle of at most 512 points.
+- **Who sees a customer's photo:** only hosts that customer has really asked for a call (a
+  request that was sent, or a member's booking whose call was made), the customer, and the
+  founder. It stops for a host when either of the two blocks the other, and when the
+  customer's account is closed. No browser may keep such a photo.
+- **Where a host sees it:** a small circle beside the customer's name on the list of requests,
+  on the "Available now" page, and on the page of one request or booking. The first letter of
+  the name when the customer has no photo.
+- **One photo for each account.** A host's photo is on the Hosting page as before, and the
+  Account page of a host points there. A host who asks another host for a call is shown there
+  with their host photo; the Hosting page says so. A customer who becomes a host keeps their
+  photo, and it is shown to everyone once their page is open to everyone.
+- **For the founder:** the list of photos on the page for people now has everyone's, with "(not
+  a host)" beside a customer. "Remove", "Remove and report" and "I have made the report" work
+  for a customer's photo as for a host's. A report made from a call or a request keeps the id
+  of the photo the reported person had.
+
+**The founder asked, while it was being built,** whether hosts a customer follows see the photo
+too. They do not: hosts never see who follows them (plan 30), so there is no place for it, and
+following is a light step that should not show a person's face to anyone. The founder was told
+so and that showing hosts their followers would be a feature of its own.
+
+**What was built.**
+- **`hasAskedHost` in `src/lib/people/contacts.ts`:** the rule a host's notes already went by
+  (plan 32), now under a name of its own and used for photos too. **Made stricter for both:** a
+  member's booking counts only once its call exists. Such a booking is written down before the
+  month's payment has gone through, and the host cannot see it until then.
+- **`src/lib/profiles/photo.ts`:** an upload no longer needs a host profile (a photo from a
+  network still does). `photoFor` hands a photo that is not open to everyone to its owner, the
+  founder, and a host the owner has asked. `photosForHost` gives a host's pages the ids of the
+  photos that host is handed, and of no others. `photosForAdmin` can list everyone's.
+- **`src/app/photo/route.ts`:** sends a person without a host profile back to the Account
+  page. Which page is decided from the login.
+- **The pages:** the Account page and its "Remove"; the requests list, "Available now" (its
+  list gains `photoId`) and the booking page; the Hosting page's one new sentence; the
+  founder's pages for people and for reports; the privacy page.
+- **No change to the database.**
+
+**What the reviewers found.**
+- *Astra, on the code:* "ready with changes". One point had to change: the page of one booking
+  asked for the customer's photo id without asking the rule, so a host the customer had
+  blocked, or a host in a founder's test call, could have seen whether the customer has a
+  photo and when they change it. All three host pages now go through `photosForHost`. Also
+  taken: the Account page and the privacy page said "nobody else" sees a customer's photo,
+  which left out Connect's own staff; they now say so. And two checks were made real: what the
+  "Available now" page asks for is now read through the running app, and a customer's report
+  of a host is checked against a host who has a photo. Not taken: logging in as the founder
+  through the running app to fetch a photo; the script already reads that the photo's address
+  counts a founder only with the second login step.
+
+- *CodeRabbit did not review this one either.* It answered "review rate limited", with the next
+  review 56 minutes away, and the founder's rule for that case is not to wait. The builder read
+  the whole change once more, line by line, and changed one name in the upload's address.
+
+**Tried for real (19 November 2026),** on this computer, in the built-in browser on a test
+server of its own, with OpenAI's real check:
+- As the local test customer: "Your photo" on the Account page, a real photograph uploaded
+  through the form, passed by the check in about a second, kept as a square of 512 points, and
+  the customer was sent back with "Your photo passed the check and is saved. Hosts you ask for
+  a call see it beside your name."
+- Not logged in, the photo's address answered "not found". Logged in as its owner it answered
+  with the picture and "do not keep".
+- As the local test host, whom that customer had asked before: the page of that request showed
+  the customer's photo beside "Request from Cory Customer", also phone-sized (375 points wide,
+  nothing wider than the screen), and the photo's address answered the host with "do not keep".
+- The Account page of the host said "Your photo is on your Hosting page", and the Hosting page
+  carried the new sentence.
+- The test customer's photo and try were removed afterwards.
+
+Not seen for real: the list of requests and "Available now" with a waiting request (the script
+reads both through the running app), a block, and the founder's page with a customer's photo.
+
+**How it was checked:** 650 automatic tests on the code; a new journey of 29 checks in
+`scripts/photo-check.ts` on who is and is not handed a customer's photo, and 10 more through
+the running app (293 in all); `scripts/ratings-check.ts` and `scripts/member-calls-check.ts`
+passing with the stricter rule for notes; `scripts/verified-check.ts` with the new field; all
+23 check scripts once more, taking turns with another session on the shared test database.
+One check of `scripts/project-check.ts` fails on main since the home page (pull request 61)
+and has nothing to do with photos; the session that built the home page corrected it in pull
+request 66.
+
+**Said plainly.** A customer's photo proves nothing about who they are; "ID confirmed" stays
+the only sign of that. Nothing compares an uploaded face with anyone. The child-safety tool is
+still not set up. A host who was asked can keep seeing the photo until the customer removes
+it, blocks the host, or closes the account.
+
+**Still open.** The founder's choices in plan 35, above all "one photo for each account" and
+"no mark for where a photo came from". The lawyer: the privacy page's new words, and keeping
+customers' photos at all. Before the child-safety tool is switched on, every photo has to be
+brought under it. Left out on purpose: the photo on the home page's list of calls, the
+contacts page, the list of members, the call screen and in emails; the host's photo on the
+customer's own pages.
+
+## A correction after the home page: one check of the project script (19 November 2026)
+
+`scripts/project-check.ts` keeps a list of the pages that may use the code of projects, posts and
+pictures, and fails when any other page does. The home page (plan 36) shows the first picture of
+a diary post and so uses `picturesOf`; the list did not name it, and that one check failed on
+`main` from pull request 61 on. The builder had run the scripts that read the home page, not this
+one; the session building photo uploads found it in its own full round and said so.
+
+Corrected: the home page is on the list of the reader's pages, with the reason, and a new check
+beside it: the home page takes exactly one thing from that code, the reader's question about
+pictures, and never asks it as the host. The page itself did not change. Checked: journey 18 of
+`scripts/project-check.ts`, all pass; the other journeys of that script passed in the other
+session's round. Learned: after a page starts to use code of another feature, run that feature's
+own check script too, not only the scripts that open the page.
+
+CodeRabbit reviewed the correction and made two points about the new check, both taken: it now
+reads every import from that code whichever quotes it is written with, and it refuses the word
+`forHost` anywhere on the home page instead of trying to read the call. Journey 18 passes again.

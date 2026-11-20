@@ -119,23 +119,38 @@ export async function contactsOf(userId: string, now: Date): Promise<Contact[]> 
 }
 
 /**
- * Whether this host may keep (and read) a note about this person right now:
- * the person really sent them a request (which every call of theirs came
- * from; not one abandoned at the card step, not a test call), neither has
- * blocked the other, and the person's account is not closed.
+ * Whether this person has really asked this host for a call, as things stand right now: the
+ * person sent them a request (which every call of theirs came from; not one abandoned at the card
+ * step, not a test call), neither has blocked the other, and the person's account is not closed.
+ *
+ * A member's booking counts only once its call exists (plans/35). It is written down, with its
+ * time, before the month's payment has gone through, and the host cannot see it until the call
+ * is made: a booking the host cannot see gives them nothing about the person.
+ *
+ * Two things hang on this one rule: whether the host may keep (and read) a note about the person
+ * (plans/32), and whether the host is handed the person's photo (plans/35).
  */
-async function mayNote(hostId: string, customerId: string, reader: Reader = db): Promise<boolean> {
+export async function hasAskedHost(hostId: string, customerId: string, reader: Reader = db): Promise<boolean> {
   if (hostId === customerId) return false;
   const [asked] = await reader
     .select({ id: schema.bookings.id })
     .from(schema.bookings)
-    .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.customerId, customerId), ne(schema.bookings.source, "admin"), isNotNull(schema.bookings.requestedAt)))
+    .where(
+      and(
+        eq(schema.bookings.hostId, hostId),
+        eq(schema.bookings.customerId, customerId),
+        ne(schema.bookings.source, "admin"),
+        isNotNull(schema.bookings.requestedAt),
+        or(ne(schema.bookings.source, "member"), isNotNull(schema.bookings.callId)),
+      ),
+    )
     .limit(1);
   if (!asked) return false;
   const [customer] = await reader.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, customerId));
   if (!customer || customer.closedAt) return false;
   return !(await isBlockedEitherWay(hostId, customerId, reader));
 }
+const mayNote = hasAskedHost;
 
 /** The host's note about this person, or null: also null when it may not be read right now. */
 export async function hostNoteAbout(hostId: string, customerId: string): Promise<{ allowed: boolean; text: string | null }> {

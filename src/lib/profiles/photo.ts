@@ -31,6 +31,7 @@ import { createHash } from "node:crypto";
 import { and, eq, exists, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
+import { hasAskedHost } from "@/lib/people/contacts";
 import { askInOrder } from "@/lib/projects/checks/order";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
 import type { Checker } from "@/lib/projects/checks/types";
@@ -317,7 +318,8 @@ async function startTry(userId: string, network: PhotoSource, hasChecker: boolea
     if (network === "instagram") await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
     // Read with the locks held, never before waiting for them.
     const now = clock();
-    if (closed || paused || !profile) return "cannot";
+    // A photo from a network is a host's: it needs a host profile. Anyone may upload one (plans/35).
+    if (closed || paused || (network !== "upload" && !profile)) return "cannot";
     const [locked] = await tx.select({ id: photos.id }).from(photos).where(and(eq(photos.userId, userId), isNotNull(photos.lockedAt))).limit(1);
     if (locked) return "locked";
     // A photo from a network starts from the host's confirmed account there. An upload starts from none.
@@ -548,7 +550,7 @@ async function finish(candidate: Candidate, copy: Copy, prints: { sha256: string
       await tx.update(tries).set({ result: "stopped", detail: why, sha256, endedAt: now }).where(eq(tries.id, attempt.id));
       return "stopped";
     };
-    if (closed || paused || !profile) return stop("the account could no longer do this");
+    if (closed || paused || (candidate.network !== "upload" && !profile)) return stop("the account could no longer do this");
     const [locked] = await tx.select({ id: photos.id }).from(photos).where(and(eq(photos.userId, candidate.userId), isNotNull(photos.lockedAt))).limit(1);
     if (locked) return stop("a photo was removed and reported meanwhile");
     // A photo from a network: its account must still be the host's confirmed one. An upload came from no account.
@@ -681,12 +683,19 @@ export async function recordPhotoReportMade(input: { adminId: string; photoId: s
 export type Viewer = { id: string; admin: boolean } | null;
 
 /**
- * A photo's bytes for this viewer, or null. The whole rule (plans/29, "Who sees it"):
+ * A photo's bytes for this viewer, or null. The whole rule (plans/29, "Who sees it"; plans/35):
  *
- *   the host's page                                    visitor   the host   the founder
- *   open to everyone (approved, not hidden, not closed)  yes       yes        yes
- *   hidden, waiting, declined or suspended               no        yes        yes
- *   a locked photo, whatever the page                    no        no         no
+ *   the photo's owner                                  visitor   a host the owner   the owner   the founder
+ *                                                                has asked
+ *   has a host page open to everyone                     yes       yes                yes         yes
+ *   anyone else: a customer, or a host whose page is
+ *   hidden, waiting, declined or suspended               no        yes                yes         yes
+ *   a locked photo, whoever's                            no        no                 no          no
+ *
+ * "A host the owner has asked" is the rule a host's notes go by (hasAskedHost): the owner really
+ * sent this viewer a request, neither has blocked the other, and the owner's account is not
+ * closed. It is asked afresh each time, after the read that brought the bytes: a "yes" that
+ * became a "no" in between is at most a moment old.
  *
  * `open` says whether the answer went to someone who could see the photo without being logged
  * in; only such an answer may be kept by a browser. A photo that was replaced or removed has no
@@ -704,8 +713,9 @@ export async function photoFor(viewer: Viewer, photoId: string): Promise<{ bytes
     .where(and(eq(photos.id, photoId), isNull(photos.lockedAt)));
   if (!row) return null;
   const open = row.status === "approved" && row.hidden === false && !row.closedAt;
-  if (!open && viewer?.id !== row.userId && !viewer?.admin) return null;
-  return { bytes: row.bytes, open };
+  if (open || viewer?.id === row.userId || viewer?.admin) return { bytes: row.bytes, open };
+  if (viewer && !row.closedAt && (await hasAskedHost(viewer.id, row.userId))) return { bytes: row.bytes, open: false };
+  return null;
 }
 
 /** The ids of these hosts' photos, for a page that has already decided that each host's page is open to this viewer. Never the bytes. */
@@ -715,6 +725,19 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
   const rows = await db.select({ id: photos.id, userId: photos.userId }).from(photos).where(and(inArray(photos.userId, hostIds), isNull(photos.lockedAt)));
   for (const row of rows) byHost.set(row.userId, row.id);
   return byHost;
+}
+
+/**
+ * The ids of these people's photos, for a host's own pages (the requests, "Available now", one
+ * booking): only of the people this host is handed a photo of, by the very rule the photo's
+ * address goes by (hasAskedHost). Being on the host's list is never taken as proof: a host who
+ * was blocked, or whose booking was a test call, learns nothing here, not even whether the person
+ * has a photo or has changed it. Never the bytes.
+ */
+export async function photosForHost(hostId: string, customerIds: string[]): Promise<Map<string, string>> {
+  const all = [...(await photosOf([...new Set(customerIds)]))];
+  const handed = await Promise.all(all.map(([customerId]) => hasAskedHost(hostId, customerId)));
+  return new Map(all.filter((_, index) => handed[index]));
 }
 
 /**
@@ -741,14 +764,16 @@ export async function ownPhotoState(userId: string): Promise<{ photo: OwnPhoto |
   return { photo: current ? { id: current.id, network: current.network, sourceNameKey: current.sourceNameKey, takenAt: current.takenAt } : null, locked: rows.some((row) => row.lockedAt) };
 }
 
-export type AdminPhoto = { id: string; userId: string; network: string; sourceNameKey: string | null; takenAt: Date; lockedAt: Date | null; reportMadeAt: Date | null };
+/** `name` is the person's own name on their account: what the founder's page shows for someone without a host profile. */
+export type AdminPhoto = { id: string; userId: string; name: string; network: string; sourceNameKey: string | null; takenAt: Date; lockedAt: Date | null; reportMadeAt: Date | null };
 
-/** Every photo of these hosts, the locked ones too, for the founder's page. Never the bytes. */
-export async function photosForAdmin(userIds: string[]): Promise<AdminPhoto[]> {
-  if (userIds.length === 0) return [];
+/** Every photo, the locked ones too, for the founder's page: everyone's, or only these people's. Never the bytes. */
+export async function photosForAdmin(userIds?: string[]): Promise<AdminPhoto[]> {
+  if (userIds && userIds.length === 0) return [];
   return db
-    .select({ id: photos.id, userId: photos.userId, network: photos.network, sourceNameKey: photos.sourceNameKey, takenAt: photos.takenAt, lockedAt: photos.lockedAt, reportMadeAt: photos.reportMadeAt })
+    .select({ id: photos.id, userId: photos.userId, name: schema.user.name, network: photos.network, sourceNameKey: photos.sourceNameKey, takenAt: photos.takenAt, lockedAt: photos.lockedAt, reportMadeAt: photos.reportMadeAt })
     .from(photos)
-    .where(inArray(photos.userId, userIds))
+    .innerJoin(schema.user, eq(schema.user.id, photos.userId))
+    .where(userIds ? inArray(photos.userId, userIds) : undefined)
     .orderBy(photos.takenAt);
 }
