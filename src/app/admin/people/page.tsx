@@ -66,8 +66,9 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
         .where(and(inArray(schema.socialAccounts.userId, waiting.map((p) => p.profile.userId)), isNotNull(schema.socialAccounts.confirmedAt)))
         .orderBy(schema.socialAccounts.network)
     : [];
-  // Every host's photo, the removed-and-reported ones too (plans/29). The facts only; a photo itself comes from its own address.
-  const photos = await photosForAdmin(profiles.map((p) => p.profile.userId));
+  // Everyone's photo, a customer's as a host's, the removed-and-reported ones too (plans/29, plans/35). The facts only; a
+  // photo itself comes from its own address.
+  const photos = await photosForAdmin();
   const hostOf = (userId: string) => profiles.find((p) => p.profile.userId === userId)?.profile;
   const shownPhotos = photos.filter((photo) => !photo.lockedAt);
   const lockedPhotos = photos.filter((photo) => photo.lockedAt);
@@ -266,14 +267,14 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
         </div>
       )}
 
-      <h2 id="photos" className="mt-10 text-lg font-semibold">Hosts&apos; photos ({shownPhotos.length})</h2>
+      <h2 id="photos" className="mt-10 text-lg font-semibold">Photos ({shownPhotos.length})</h2>
       <p className="mt-1 text-sm opacity-70">
-        A host&apos;s photo is a picture they uploaded, or the profile picture of their confirmed Instagram or TikTok account, checked by an outside service before it was shown. &quot;Remove&quot; deletes
-        it; the host can choose one again. &quot;Remove and report&quot; is for a photo you suspect of showing child abuse: nobody sees it again, it is kept exactly as
-        it is, and the host can choose no other.
+        A photo is a picture the person uploaded, or for a host the profile picture of their confirmed Instagram or TikTok account, checked by an outside service before it was shown.
+        A customer&apos;s photo is seen only by hosts they have asked for a call. &quot;Remove&quot; deletes it; the person can choose one again. &quot;Remove and report&quot; is for a photo
+        you suspect of showing child abuse: nobody sees it again, it is kept exactly as it is, and the person can choose no other.
       </p>
       {shownPhotos.length === 0 ? (
-        <p className="mt-2 text-sm opacity-70">No host has a photo.</p>
+        <p className="mt-2 text-sm opacity-70">Nobody has a photo.</p>
       ) : (
         <ul className="mt-3 space-y-3" data-host-photos>
           {shownPhotos.map((photo) => (
@@ -282,7 +283,15 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
               <img src={`/host-photos/${photo.id}`} width={96} height={96} alt="" className="size-24 rounded object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">
-                  {hostOf(photo.userId)?.displayName} <span className="opacity-70">@{hostOf(photo.userId)?.handle}</span>
+                  {hostOf(photo.userId) ? (
+                    <>
+                      {hostOf(photo.userId)?.displayName} <span className="opacity-70">@{hostOf(photo.userId)?.handle}</span>
+                    </>
+                  ) : (
+                    <>
+                      {photo.name} <span className="opacity-70">(not a host)</span>
+                    </>
+                  )}
                 </p>
                 <p className="mt-1">
                   {photo.network === "upload" ? "Uploaded" : <>From {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @{photo.sourceNameKey}, taken</>}{" "}
@@ -321,7 +330,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
             {lockedPhotos.map((photo) => (
               <li key={photo.id} className="rounded border border-red-600 p-3 text-sm">
                 <p>
-                  The photo of {hostOf(photo.userId)?.displayName} (@{hostOf(photo.userId)?.handle}),{" "}
+                  The photo of {hostOf(photo.userId) ? `${hostOf(photo.userId)?.displayName} (@${hostOf(photo.userId)?.handle})` : `${photo.name} (not a host)`},{" "}
                   {photo.network === "upload" ? "uploaded" : <>from {isNetwork(photo.network) ? NETWORKS[photo.network].label : photo.network} @{photo.sourceNameKey}</>}. Removed and kept{" "}
                   <LocalTime iso={photo.lockedAt!.toISOString()} />.
                 </p>

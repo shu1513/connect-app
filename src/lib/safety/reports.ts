@@ -44,20 +44,28 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
     const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, contextId));
     if (!call || (call.hostId !== reporterId && call.customerId !== reporterId)) throw new ReportError("Call not found.");
     const [booking] = await db.select({ note: schema.bookings.note, id: schema.bookings.id }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
+    const reportedId = call.hostId === reporterId ? call.customerId : call.hostId;
     return {
-      reportedId: call.hostId === reporterId ? call.customerId : call.hostId,
+      reportedId,
       snapshot: {
         call: { id: call.id, startsAt: call.startsAt, endsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt, safetyEndedBy: call.safetyEndedBy },
         booking: booking ? { id: booking.id, note: booking.note } : null,
+        // The id of the photo the reported person had (plans/35). The photo itself is not copied: one they remove or replace afterwards is gone.
+        photoId: (await photosOf([reportedId])).get(reportedId) ?? null,
       },
     };
   }
   if (context === "booking") {
     const [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, contextId));
     if (!booking || (booking.hostId !== reporterId && booking.customerId !== reporterId)) throw new ReportError("Request not found.");
+    const reportedId = booking.hostId === reporterId ? booking.customerId : booking.hostId;
     return {
-      reportedId: booking.hostId === reporterId ? booking.customerId : booking.hostId,
-      snapshot: { booking: { id: booking.id, startsAt: booking.startsAt, lengthMinutes: booking.lengthMinutes, note: booking.note, stage: booking.stage } },
+      reportedId,
+      snapshot: {
+        booking: { id: booking.id, startsAt: booking.startsAt, lengthMinutes: booking.lengthMinutes, note: booking.note, stage: booking.stage },
+        // As for a call: the id of the photo the reported person had.
+        photoId: (await photosOf([reportedId])).get(reportedId) ?? null,
+      },
     };
   }
   if (context === "profile") {

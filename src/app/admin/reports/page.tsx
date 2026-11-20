@@ -130,7 +130,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               call?: { id?: string; safetyEndedAt?: string | null } | null;
               profile?: { displayName: string; handle: string; about: string } | null;
               post?: { id: string; projectName: string; text: string; links: string[]; pictures?: string[] } | null;
-              /** The host's photo that was showing on their page when it was reported (plans/29). */
+              /** The photo the reported person had: on their page when the page was reported (plans/29), or theirs when they were reported from a call or a request (plans/35). */
               photoId?: string | null;
             };
             return (
@@ -158,7 +158,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                 )}
                 {snapshot.photoId && (
                   <p className="mt-1 opacity-70" data-reported-photo>
-                    Their page showed a photo when it was reported.{" "}
+                    {report.context === "profile" ? "Their page showed a photo when it was reported." : "They had a photo when they were reported."}{" "}
                     {photosNow.get(snapshot.photoId) === "current" ? (
                       <>
                         It is still their photo. It is listed, with &quot;Remove&quot; and &quot;Remove and report&quot;, on{" "}

@@ -163,7 +163,7 @@ async function main() {
       check("a confirmed customer's request reaches the host's live page with the mark", sent.stage === "waiting" && shown?.idConfirmed === true);
       check(
         "the live page is sent a yes or no and nothing else about the ID",
-        shown !== undefined && Object.keys(shown).sort().join() === "about,customerName,customerRating,id,idConfirmed,lengthMinutes,respondBy,totalCents" && !JSON.stringify(live).includes("Legal"),
+        shown !== undefined && Object.keys(shown).sort().join() === "about,customerName,customerRating,id,idConfirmed,lengthMinutes,photoId,respondBy,totalCents" && !JSON.stringify(live).includes("Legal"),
       );
       await B.takeBack({ bookingId: booking.id, customerId: ann.id, now });
       await N.setAvailableNow({ hostId: hana.id, minutes: null, now });

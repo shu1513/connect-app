@@ -1,9 +1,9 @@
 # Plan 35: Uploading a photo, for hosts and for customers
 
-**Status:** part one (hosts) is built and was tried for real on 19 November 2026 (see
-`docs/module-record.md`). Part two (customers) is not built. Written 19 November 2026 by the
-builder alone (no helper agents), from the code as it is on `main` after pull request 58, and
-from what the founder said that day. Astra checked it once ("ready with changes"); every point was read against the code by
+**Status:** both parts are built: part one (hosts, pull request 62) and part two (customers).
+Each was tried for real on 19 November 2026 (see `docs/module-record.md`). Written 19 November
+2026 by the builder alone (no helper agents), from the code as it is on `main` after pull
+request 58, and from what the founder said that day. Astra checked it once ("ready with changes"); every point was read against the code by
 the builder and is worked in below (the list is at the end).
 
 ## For the founder: what this is
@@ -254,7 +254,10 @@ cannot be fetched):
   `scripts/verified-check.ts`, which compares that list's exact fields, is brought up to date.
 - `bookings/[id]`, for the host.
 
-Each page looks the ids up with `photosOf`; the photo's own address decides who gets it.
+Each page looks the ids up with `photosForHost`, which asks the rule for each customer, so a
+page is never told the id of a photo its host is not handed (Astra's point on the code: with a
+plain lookup, a host who was blocked could have seen when the customer changed their photo).
+The photo's own address decides again when the picture is fetched.
 
 **The founder's page for people:** the list "Photos" shows every photo, with the person's name;
 "(not a host)" for a person without a host profile. "Remove", "Remove and report" and "I have

@@ -1415,9 +1415,6 @@ async function main() {
     const whilePaused = await upload(limited);
     await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, limited.id));
     check("a paused account cannot upload", whilePaused === "cannot" && reads === 0 && tried === undefined, whilePaused);
-    const noProfile = await person("customer");
-    const asCustomer = await upload(noProfile);
-    check("part one: a person without a host profile cannot upload a photo yet", asCustomer === "cannot" && reads === 0 && tried === undefined, asCustomer);
     const closedHost = await newHost({ instagram: false });
     await closing.closeAccount({ userId: closedHost.id, by: admin.id });
     const whenClosed = await upload(closedHost);
@@ -1676,15 +1673,20 @@ async function main() {
       }
       return response.status;
     };
-    // Someone who signs up through the app itself, with a password made here, and is then let past the confirmation and welcome steps.
-    const who = { name: "Photo check on the web", email: `photocheck-${RUN}-web@example.test`, password: randomUUID(), jar: new Map() as Jar };
-    await auth("/sign-up/email", { name: who.name, email: who.email, password: who.password, callbackURL: "/welcome" }, new Map());
-    const [row] = await db.select().from(schema.user).where(eq(schema.user.email, who.email));
-    if (!row) throw new Error("Signing up through the app did not make an account.");
-    people.push(row.id);
-    const stamp = new Date();
-    await db.update(schema.user).set({ emailVerified: true, adultConfirmedAt: stamp, termsAcceptedAt: stamp, termsVersion: TERMS_VERSION, timeZone: "America/New_York" }).where(eq(schema.user.id, row.id));
-    if ((await auth("/sign-in/email", { email: who.email, password: who.password }, who.jar)) !== 200) throw new Error("Logging in through the app did not work.");
+    /** Someone who signs up through the app itself, with a password made here, and is then let past the confirmation and welcome steps. */
+    const signUp = async (kind: string) => {
+      const one = { name: `Photo check ${kind} on the web`, email: `photocheck-${RUN}-web-${kind}@example.test`, password: randomUUID(), jar: new Map() as Jar };
+      await auth("/sign-up/email", { name: one.name, email: one.email, password: one.password, callbackURL: "/welcome" }, new Map());
+      const [made] = await db.select().from(schema.user).where(eq(schema.user.email, one.email));
+      if (!made) throw new Error("Signing up through the app did not make an account.");
+      people.push(made.id);
+      const stamp = new Date();
+      await db.update(schema.user).set({ emailVerified: true, adultConfirmedAt: stamp, termsAcceptedAt: stamp, termsVersion: TERMS_VERSION, timeZone: "America/New_York" }).where(eq(schema.user.id, made.id));
+      if ((await auth("/sign-in/email", { email: one.email, password: one.password }, one.jar)) !== 200) throw new Error("Logging in through the app did not work.");
+      return { ...one, id: made.id };
+    };
+    const who = await signUp("host");
+    const row = { id: who.id };
     const handle = `hp${RUN}web`;
     await db.insert(schema.hostProfiles).values({ userId: row.id, handle, handleKey: handle, displayName: "Photo host on the web", pricePer15Cents: 1000, status: "approved", usConfirmedAt: new Date() });
 
@@ -1726,6 +1728,185 @@ async function main() {
       const good = await send(await form());
       check("a picture sent through the address, with no checking service set up here: the host is told photos cannot be checked, and nothing is written", good.status === 303 && good.to === "/host" && good.mark === "#photo" && /cannot be checked right now/.test(good.says) && (await linesOf()) === 0 && (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, row.id))).length === 0, good);
     }
+
+    // Part two: a person who is not a host, and what a host's pages show of a customer.
+    const visitor = await signUp("customer");
+    const page2 = async (path: string, jar: Jar | null) => {
+      const response = await fetch(`${BASE}${path}`, { headers: jar ? { cookie: cookieOf(jar) } : {}, redirect: "manual" });
+      return { status: response.status, keep: response.headers.get("cache-control"), kind: response.headers.get("content-type"), html: response.headers.get("content-type")?.startsWith("image/") ? "" : await response.text() };
+    };
+    const account = await page2("/account", visitor.jar);
+    const photoPart = account.html.slice(account.html.indexOf("data-account-photo"));
+    check("the Account page of a person who is not a host has \"Your photo\", with the upload form and who will see the photo", account.status === 200 && account.html.includes("data-account-photo") && photoPart.includes("data-photo-upload") && photoPart.includes('action="/photo"') && photoPart.includes("Hosts you ask for a call see it"), account.status);
+    const hostAccount = await page2("/account", who.jar);
+    check("the Account page of a host points to the Hosting page, and has no second upload form", hostAccount.status === 200 && hostAccount.html.includes("Your photo is on your") && hostAccount.html.includes('href="/host#photo"') && !hostAccount.html.includes("data-photo-upload"), hostAccount.status);
+    const plainCustomer = await send("just words", { jar: visitor.jar, headers: { "content-type": "text/plain" } });
+    check("a person who is not a host is sent back to the photo part of the Account page", plainCustomer.status === 303 && plainCustomer.to === "/account" && plainCustomer.mark === "#photo" && /choose a picture/.test(plainCustomer.says), plainCustomer);
+    const hostPageNow = await page2("/host", who.jar);
+    check("the Hosting page says that a host they ask for a call sees this photo", hostPageNow.html.includes("When you ask another host for a call, they see this photo beside your name."));
+    // A customer with a photo asks the host on the web for a call.
+    const asker = await person("customer");
+    await upload(asker);
+    const askerPhoto = await fullPhoto(asker);
+    const request = await asks(asker.id, who.id);
+    const requests = await page2("/host/requests", who.jar);
+    check("the host's list of requests shows the customer's photo beside their name", requests.status === 200 && requests.html.includes(`/host-photos/${askerPhoto.id}`) && requests.html.includes(asker.name), requests.status);
+    const booking = await page2(`/bookings/${request.id}`, who.jar);
+    check("so does the page of that one request", booking.status === 200 && booking.html.includes(`/host-photos/${askerPhoto.id}`), booking.status);
+    const forHost = await page2(`/host-photos/${askerPhoto.id}`, who.jar);
+    const forOther = await page2(`/host-photos/${askerPhoto.id}`, visitor.jar);
+    const forNobody = await page2(`/host-photos/${askerPhoto.id}`, null);
+    check("the photo's address hands it to the host who was asked, as a JPEG no browser may keep; another logged-in person and a visitor get \"not found\"", forHost.status === 200 && forHost.kind === "image/jpeg" && forHost.keep === "no-store" && forOther.status === 404 && forNobody.status === 404 && forOther.keep === "no-store", { host: forHost.status, keep: forHost.keep, other: forOther.status, nobody: forNobody.status });
+    const rightNow = await asks(asker.id, who.id, { source: "now", respondBy: new Date(Date.now() + 2 * MIN) });
+    const liveAnswer = await fetch(`${BASE}/api/host/now`, { headers: { cookie: cookieOf(who.jar) } });
+    const liveJson = (await liveAnswer.json()) as { requests?: Array<{ id: string; photoId: string | null }> };
+    check("what the \"Available now\" page asks for every few seconds carries the photo's id for that request, and is kept by nobody", liveAnswer.status === 200 && liveJson.requests?.find((one) => one.id === rightNow.id)?.photoId === askerPhoto.id && liveAnswer.headers.get("cache-control") === "no-store", liveJson.requests);
+    await db.insert(schema.blocks).values({ blockerId: asker.id, blockedId: who.id });
+    const afterBlock = await page2(`/bookings/${request.id}`, who.jar);
+    const addressAfterBlock = await page2(`/host-photos/${askerPhoto.id}`, who.jar);
+    const liveAfterBlock = (await (await fetch(`${BASE}/api/host/now`, { headers: { cookie: cookieOf(who.jar) } })).json()) as { requests?: Array<{ id: string; photoId: string | null }> };
+    check("the customer blocks the host: the page of the old request no longer names the photo, its address says \"not found\", and the live list has no id", !afterBlock.html.includes("/host-photos/") && addressAfterBlock.status === 404 && (liveAfterBlock.requests ?? []).every((one) => one.photoId === null), { page: afterBlock.status, address: addressAfterBlock.status });
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, asker.id));
+    const noPhoto = await person("customer");
+    await asks(noPhoto.id, who.id);
+    const withLetter = await page2("/host/requests", who.jar);
+    check("a customer without a photo is shown with the first letter of their name", withLetter.html.includes("data-host-letter") && withLetter.html.includes(noPhoto.name));
+  });
+
+  // ========================================================================
+  /** A request (or a member's booking) from this person to this host, written straight in, in the state a journey needs. */
+  const asks = async (customerId: string, hostId: string, over: { source?: string; stage?: string; requested?: boolean; withCall?: boolean; respondBy?: Date } = {}) => {
+    const startsAt = new Date(Date.now() + 3 * 24 * 60 * MIN);
+    const endsAt = new Date(startsAt.getTime() + 30 * MIN);
+    let callId: string | null = null;
+    if (over.withCall) {
+      const [call] = await db.insert(schema.calls).values({ hostId, customerId, startsAt, endsAt, roomName: `hp-${RUN}-${randomUUID()}` }).returning();
+      callId = call.id;
+    }
+    const [row] = await db
+      .insert(schema.bookings)
+      .values({ hostId, customerId, startsAt, endsAt, lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: over.stage ?? "waiting", source: over.source ?? "customer", requestKey: `hp-${RUN}-${randomUUID()}`, requestedAt: over.requested === false ? null : new Date(), respondBy: over.respondBy ?? null, callId })
+      .returning();
+    return row;
+  };
+
+  journey("A customer's photo, and who is handed it (plans/35, part two)", async () => {
+    await settleDiary();
+    await fresh();
+    const contacts = await import("../src/lib/people/contacts");
+    const { liveForHost } = await import("../src/lib/booking/now");
+    const admin = await theAdmin();
+    const founder = { id: admin.id, admin: true };
+    const as = (who: { id: string }) => ({ id: who.id, admin: false });
+    const handed = async (viewer: { id: string; admin: boolean } | null, id: string) => {
+      const found = await Photo.photoFor(viewer, id);
+      return found ? (found.open ? "yes, may be kept" : "yes") : "no";
+    };
+
+    const customer = await person("customer");
+    reads = 0;
+    const first = await upload(customer);
+    const photo = await fullPhoto(customer);
+    check("a person without a host profile uploads a photo: checked like any other, kept as a square, belonging to no account", first === "shown" && reads === 1 && asked.join() === "openai" && photo?.network === "upload" && photo.sourceNameKey === null && photo.width === 512 && tried?.result === "shown", { first, asked });
+    check("their Account page's facts have it", (await Photo.ownPhotoState(customer.id)).photo?.id === photo.id);
+    const noNetwork = await Photo.takePhoto({ userId: customer.id, network: "instagram" }, { services: standIns(), clock: now, diaryHosts: people });
+    check("a photo from a network stays a host's: a person without a host profile cannot take one", noNetwork.outcome === "cannot");
+
+    const host = await newHost();
+    await press(host);
+    const otherHost = await newHost();
+    const otherCustomer = await person("customer");
+    const idFor = async (viewer: { id: string }, of: { id: string }) => (await Photo.photosForHost(viewer.id, [of.id])).get(of.id) ?? null;
+    check("before the customer has asked anyone: only the customer and the founder are handed it, and no browser may keep it", (await handed(null, photo.id)) === "no" && (await handed(as(otherCustomer), photo.id)) === "no" && (await handed(as(host), photo.id)) === "no" && (await handed(as(customer), photo.id)) === "yes" && (await handed(founder, photo.id)) === "yes");
+
+    const abandoned = await asks(customer.id, host.id, { stage: "card", requested: false });
+    check("a request left at the card step, never sent: the host is not handed it, and the host's pages are not even told its id", (await handed(as(host), photo.id)) === "no" && (await idFor(host, customer)) === null);
+    await db.delete(schema.bookings).where(eq(schema.bookings.id, abandoned.id));
+    const testCall = await asks(customer.id, host.id, { source: "admin", stage: "accepted", withCall: true });
+    check("a test call set up by the founder: not either", (await handed(as(host), photo.id)) === "no" && (await idFor(host, customer)) === null);
+    await db.delete(schema.bookings).where(eq(schema.bookings.id, testCall.id));
+
+    const request = await asks(customer.id, host.id);
+    check("the customer has sent this host a request: this host is handed it, not kept by a browser; another host, another customer and a visitor are not", (await handed(as(host), photo.id)) === "yes" && (await handed(as(otherHost), photo.id)) === "no" && (await handed(as(otherCustomer), photo.id)) === "no" && (await handed(null, photo.id)) === "no");
+    check("the host's pages are told the photo's id; another host's pages are not", (await idFor(host, customer)) === photo.id && (await idFor(otherHost, customer)) === null);
+    await db.insert(schema.blocks).values({ blockerId: customer.id, blockedId: host.id });
+    check("the customer blocks the host: the host is no longer handed it, and the host's page of the old request is not told its id any more", (await handed(as(host), photo.id)) === "no" && (await idFor(host, customer)) === null);
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, customer.id));
+    await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: customer.id });
+    check("the host blocks the customer: the same", (await handed(as(host), photo.id)) === "no");
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, host.id));
+    check("unblocked, the host is handed it again", (await handed(as(host), photo.id)) === "yes");
+
+    // A member's booking counts only once its call exists.
+    const member = await person("member");
+    await upload(member);
+    const memberPhoto = await fullPhoto(member);
+    const paying = await asks(member.id, host.id, { source: "member", stage: "paying" });
+    check("a member's booking that still waits for its payment: the host is handed nothing, and can keep no note either", (await handed(as(host), memberPhoto.id)) === "no" && (await contacts.hostNoteAbout(host.id, member.id)).allowed === false);
+    await db.update(schema.bookings).set({ stage: "ended" }).where(eq(schema.bookings.id, paying.id));
+    check("the same booking after its payment failed", (await handed(as(host), memberPhoto.id)) === "no");
+    const booked = await asks(member.id, host.id, { source: "member", stage: "accepted", withCall: true });
+    check("a member's booking whose call was made: the host is handed the photo, and may keep a note", (await handed(as(host), memberPhoto.id)) === "yes" && (await contacts.hostNoteAbout(host.id, member.id)).allowed === true);
+    await db.update(schema.calls).set({ cancelledAt: new Date() }).where(eq(schema.calls.id, booked.callId!));
+    check("and still after that call was cancelled: the host has seen the booking", (await handed(as(host), memberPhoto.id)) === "yes");
+
+    // What the host's pages read.
+    const nowRequest = await asks(customer.id, otherHost.id, { source: "now", respondBy: new Date(Date.now() + 2 * MIN) });
+    const live = await liveForHost(otherHost.id, new Date());
+    check("the \"Available now\" page's list carries the photo's id beside the request, never the picture", live.requests.find((one) => one.id === nowRequest.id)?.photoId === photo.id && !JSON.stringify(live).includes("bytes"), live.requests.map((one) => one.photoId));
+    const several = await Photo.photosForHost(host.id, [customer.id, member.id, otherCustomer.id, customer.id]);
+    check("the lookup for a host's pages answers for several people at once: those the host is handed a photo of, and nobody else", several.get(customer.id) === photo.id && several.get(member.id) === memberPhoto.id && several.size === 2, [...several.keys()]);
+
+    // A person who is also a host: one photo.
+    const hiddenHost = await newHost({ instagram: false });
+    await upload(hiddenHost);
+    const hiddenPhoto = await fullPhoto(hiddenHost);
+    await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, hiddenHost.id));
+    await asks(hiddenHost.id, host.id);
+    check("a host whose page is hidden asks another host for a call: that host is handed the photo, a visitor is not", (await handed(as(host), hiddenPhoto.id)) === "yes" && (await handed(null, hiddenPhoto.id)) === "no" && (await handed(as(otherHost), hiddenPhoto.id)) === "no");
+    await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, hiddenHost.id));
+    check("with the page open to everyone, it is the public photo: everyone, and a browser may keep it", (await handed(null, hiddenPhoto.id)) === "yes, may be kept" && (await handed(as(host), hiddenPhoto.id)) === "yes, may be kept");
+    // The customer becomes a host.
+    const handle = `hp${RUN}c${made}`;
+    await db.insert(schema.hostProfiles).values({ userId: customer.id, handle, handleKey: handle, displayName: "Once a customer", pricePer15Cents: 1000, status: "pending", usConfirmedAt: new Date() });
+    check("the customer applies as a host: the photo is theirs still, a visitor is not handed it while the page waits, and the asked host still is", (await Photo.ownPhotoState(customer.id)).photo?.id === photo.id && (await handed(null, photo.id)) === "no" && (await handed(as(host), photo.id)) === "yes");
+    await db.update(schema.hostProfiles).set({ status: "approved" }).where(eq(schema.hostProfiles.userId, customer.id));
+    check("once the page is approved and open, the photo is shown to everyone", (await handed(null, photo.id)) === "yes, may be kept" && (await Photo.photosOf([customer.id])).get(customer.id) === photo.id);
+    await db.delete(schema.hostProfiles).where(eq(schema.hostProfiles.userId, customer.id));
+
+    // A report from a request and from a call says which photo the reported person had.
+    const reason = REPORT_REASONS.find((one) => !one.urgent)!.key;
+    const fromRequest = await createReport({ reporterId: otherHost.id, context: "booking", contextId: nowRequest.id, reason, text: "", now: new Date() });
+    const [requestReport] = await db.select().from(schema.reports).where(eq(schema.reports.reference, fromRequest.reference));
+    const fromCall = await createReport({ reporterId: host.id, context: "call", contextId: booked.callId!, reason, text: "", now: new Date() });
+    const [callReport] = await db.select().from(schema.reports).where(eq(schema.reports.reference, fromCall.reference));
+    check("a host's report of a customer, from a request and from a call, keeps the id of that customer's photo", requestReport.reportedId === customer.id && (JSON.parse(requestReport.snapshot) as { photoId?: string }).photoId === photo.id && callReport.reportedId === member.id && (JSON.parse(callReport.snapshot) as { photoId?: string }).photoId === memberPhoto.id);
+    check("and reporting blocks: the reporting host is no longer handed the photo", (await handed(as(host), memberPhoto.id)) === "no" && (await handed(as(otherHost), photo.id)) === "no");
+    const fromCustomer = await createReport({ reporterId: customer.id, context: "booking", contextId: request.id, reason, text: "", now: new Date() });
+    const [customerReport] = await db.select().from(schema.reports).where(eq(schema.reports.reference, fromCustomer.reference));
+    const hostsOwn = (await photoOf(host))?.id;
+    check("a customer's report of a host keeps the id of the host's photo", customerReport.reportedId === host.id && Boolean(hostsOwn) && (JSON.parse(customerReport.snapshot) as { photoId?: string | null }).photoId === hostsOwn);
+
+    // The founder.
+    const everyone = await Photo.photosForAdmin();
+    const listed = everyone.find((row) => row.id === photo.id);
+    check("the founder's page lists a customer's photo, with the person's own name", listed?.name === customer.name && listed.network === "upload" && everyone.some((row) => row.id === memberPhoto.id) && !JSON.stringify(everyone).includes("bytes"));
+    await Photo.lockPhotoAsFounder({ adminId: admin.id, photoId: memberPhoto.id, now: now() });
+    const [lockedRow] = await db.select().from(photos).where(eq(photos.id, memberPhoto.id));
+    const context = JSON.parse(lockedRow.lockedContext ?? "{}") as { account?: { name?: string }; profile?: unknown };
+    reads = 0;
+    const whileLocked = await upload(member);
+    check("\"Remove and report\" for a customer's photo: kept with the person's account (they have no host profile), handed to nobody, and they can upload no other", lockedRow.lockedAt !== null && context.account?.name === member.name && context.profile === null && (await handed(founder, memberPhoto.id)) === "no" && (await handed(as(member), memberPhoto.id)) === "no" && whileLocked === "locked" && reads === 0, { whileLocked, context });
+    await Photo.removePhotoAsFounder({ adminId: admin.id, photoId: photo.id, now: now() });
+    check("\"Remove\" for a customer's photo: gone, and the customer can upload again", !(await fullPhoto(customer)) && (await upload(customer)) === "shown");
+    const again = await fullPhoto(customer);
+    check("the customer's own \"Remove\"", (await Photo.removePhoto({ userId: customer.id, now: now() })) === true && !(await fullPhoto(customer)) && (await handed(as(customer), again.id)) === "no");
+    const leaving = await person("customer");
+    await upload(leaving);
+    const leavingPhoto = await fullPhoto(leaving);
+    await asks(leaving.id, host.id);
+    await closing.closeAccount({ userId: leaving.id, by: admin.id });
+    check("a customer's account is closed: the photo is deleted, and the host they asked is handed nothing", (await db.select({ id: photos.id }).from(photos).where(eq(photos.userId, leaving.id))).length === 0 && (await handed(as(host), leavingPhoto.id)) === "no");
   });
 
   // ------------------------------------------------------------------------
@@ -1740,6 +1921,8 @@ async function main() {
     await db.delete(schema.emailOutbox).where(and(gte(schema.emailOutbox.createdAt, startedAt), or(like(schema.emailOutbox.dedupeKey, "picture-%"), like(schema.emailOutbox.dedupeKey, "pictures-nudity-only:%"), like(schema.emailOutbox.dedupeKey, "host-photo-%"), like(schema.emailOutbox.to, `photocheck-${RUN}-%`))));
     if (ids.length === 0) return;
     await db.delete(schema.reports).where(or(inArray(schema.reports.reporterId, ids), inArray(schema.reports.reportedId, ids)));
+    await db.delete(schema.bookings).where(or(inArray(schema.bookings.hostId, ids), inArray(schema.bookings.customerId, ids)));
+    await db.delete(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)));
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
     await db.delete(schema.adminActions).where(or(inArray(schema.adminActions.adminId, ids), inArray(schema.adminActions.targetUserId, ids)));
     await db.delete(photos).where(inArray(photos.userId, ids));
