@@ -156,12 +156,12 @@ export function readAccountAnswer(body: string, openId: string): AccountAnswer {
   const answer = parsed(body);
   const error = answer?.error as { code?: unknown } | undefined;
   if (!answer || !error || typeof error !== "object" || error.code !== "ok") return { kind: "failed", reason: "an answer that could not be read" };
-  const user = (answer.data as { user?: { open_id?: unknown; username?: unknown } } | undefined)?.user;
+  const user = (answer.data as { user?: { open_id?: unknown; username?: unknown; avatar_large_url?: unknown } } | undefined)?.user;
   if (!user || typeof user !== "object") return { kind: "failed", reason: "an answer that could not be read" };
   if (typeof user.open_id !== "string" || user.open_id.length === 0) return { kind: "failed", reason: "no account number" };
   if (user.open_id !== openId) return { kind: "failed", reason: "account numbers differ" };
   if (typeof user.username !== "string" || !/^[A-Za-z0-9._]{2,24}$/.test(user.username)) return { kind: "failed", reason: "no account name" };
-  const picture = (user as { avatar_large_url?: unknown }).avatar_large_url;
+  const picture = user.avatar_large_url;
   const account = { kind: "account" as const, openId: user.open_id, username: user.username };
   return typeof picture === "string" && picture.length > 0 && picture.length <= 2000 ? { ...account, pictureAddress: picture } : account;
 }

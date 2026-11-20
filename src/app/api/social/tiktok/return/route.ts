@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
   const settings = tiktokSettings();
   const now = new Date();
   const back = { settings, code: query.get("code"), state: query.get("state"), scopes: query.get("scopes"), refused: query.has("error"), note, userId: user.id, now };
-  // A sign-in for the host's photo carries its own kind of note. Everything else is handled as an ordinary sign-in,
-  // which checks an ordinary note by itself: a photo's note is never read as one.
-  if (isPhotoReturn(note, settings, now)) redirect(`${withNotice("/host", await finishTikTokPhoto(back))}#photo`);
+  // A sign-in for the host's photo carries its own kind of note, told here by its shape. Each of the two functions
+  // checks its own kind of note by itself, so a note of one kind is never accepted as the other.
+  if (isPhotoReturn(note)) redirect(`${withNotice("/host", await finishTikTokPhoto(back))}#photo`);
   redirect(`${withNotice("/host", await finishTikTokLogin(back))}#social`);
 }

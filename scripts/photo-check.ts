@@ -938,7 +938,7 @@ async function main() {
     const sentTo = new URL(started.url);
     const line = await tryOf(started);
     check("the press writes the try down (a TikTok try, still running, not yet taken up, with the entry it started from) and sends the host to TikTok's sign-in, asking for no more than \"Connect your TikTok\" does", line?.network === "tiktok" && line.result === null && line.returnedAt === null && line.entryNameKey === host.ttName && line.entryAccountId === host.ttNumber && sentTo.origin + sentTo.pathname === "https://www.tiktok.com/v2/auth/authorize/" && sentTo.searchParams.get("scope") === BOTH && sentTo.searchParams.get("redirect_uri") === ON.returnUrl, started.url);
-    check("the note the browser keeps is a photo's note and never an ordinary sign-in's; an ordinary note is not a photo's", Tik.isPhotoReturn(started.note, ON, now()) && readNote("tiktok-login", started.note, ON.signingSecret, now()) === null && !Tik.isPhotoReturn(writeNote("tiktok-login", { state: "s", userId: host.id, expiresAt: new Date(clock + 600_000) }, ON.signingSecret), ON, now()) && !Tik.isPhotoReturn(started.note, null, now()));
+    check("the note the browser keeps is a photo's note and never an ordinary sign-in's; an ordinary note is not a photo's", Tik.isPhotoReturn(started.note) && readNote("tiktok-login", started.note, ON.signingSecret, now()) === null && !Tik.isPhotoReturn(writeNote("tiktok-login", { state: "s", userId: host.id, expiresAt: new Date(clock + 600_000) }, ON.signingSecret)) && !Tik.isPhotoReturn(undefined) && !Tik.isPhotoReturn(""));
 
     // The return.
     const back = await tikReturn(host, started);
@@ -1108,7 +1108,7 @@ async function main() {
     // The photo's tab returns: the browser now holds the ordinary note, the address carries the photo's value.
     const photoState = new URL(photoFirst.url).searchParams.get("state");
     const asOrdinary = await TikLogin.finishTikTokLogin({ settings: ON, code: "one-time-code", state: photoState, scopes: BOTH, refused: false, note: ordinaryLater.note, userId: tabs.id, now: now(), accountFor: async () => ({ kind: "account", openId: "tt-changed", username: "changed.name" }) });
-    check("the other way round: the photo tab's return, read as the ordinary kind the browser's note says it is, confirms nothing and leaves the photo's try alone", !Tik.isPhotoReturn(ordinaryLater.note, ON, now()) && asOrdinary.includes("was not connected") && (await proofOf(tabs)) === tabsBefore && (await tryOf(photoFirst)).result === null, asOrdinary);
+    check("the other way round: the photo tab's return, read as the ordinary kind the browser's note says it is, confirms nothing and leaves the photo's try alone", !Tik.isPhotoReturn(ordinaryLater.note) && asOrdinary.includes("was not connected") && (await proofOf(tabs)) === tabsBefore && (await tryOf(photoFirst)).result === null, asOrdinary);
 
     // Time: two minutes, three, eleven, never.
     const slow = await tikHost();
@@ -1127,7 +1127,7 @@ async function main() {
     later(11);
     tikAsked = 0;
     const tooLate = await tikReturn(slow, newer);
-    check("coming back after eleven minutes: the note has run out, nothing is asked of TikTok, and the try is left as it is", !tooLate.startsWith(SAVED) && tikAsked === 0 && (await tryOf(newer)).result === null, tooLate);
+    check("coming back after eleven minutes: the note has run out, nothing is asked of TikTok, the try is left as it is, and the host is told about their photo (the return address still knows which kind of return it is)", tooLate.includes("photo was not taken from TikTok") && Tik.isPhotoReturn(newer.note) && tikAsked === 0 && (await tryOf(newer)).result === null, tooLate);
     check("a try that never comes back does not lock the host out: the next press marks it as stopped and starts afresh", !("refused" in (await tikPress(slow))) && (await tryOf(newer)).result === "stopped");
 
     // While the host is away at TikTok.

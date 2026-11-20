@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readInstagramPhoto, readInstagramPhotoAnswer } from "./bio-check";
 import { fetchPicture } from "./photo-fetch";
 import { PHOTO, PICTURE_SERVERS, pictureAddress, sameAccount, serverFamily } from "./photo-rules";
+import { photoNotice } from "./photo-words";
 
 const PICTURE = "https://scontent-lax7-1.xx.fbcdn.net/v/t51.2885-15/1234_n.jpg?_nc_cat=1&oe=6920A1B2";
 
@@ -280,3 +281,27 @@ describe("readInstagramPhoto: how Meta's answer is read", () => {
     expect(asked).toBe(0);
   });
 });
+
+describe("photoNotice: the sentence a host is told", () => {
+  const outcomes = ["shown", "not_accepted", "refused_before", "no_picture", "not_fetched", "unusable", "not_checked", "stopped", "cannot", "locked", "no_account", "running", "limit", "busy", "no_checker", "place_taken", "failed", "other_account", "taken_account", "already_returned"] as const;
+
+  it("has a sentence for every outcome, for both networks, and never names the wrong network", () => {
+    for (const outcome of outcomes) {
+      const instagram = photoNotice({ outcome }, "instagram");
+      const tiktok = photoNotice({ outcome }, "tiktok");
+      expect(instagram.length, outcome).toBeGreaterThan(20);
+      expect(tiktok.length, outcome).toBeGreaterThan(20);
+      expect(tiktok, outcome).not.toContain("Instagram");
+      // (The one sentence about a try under way is the same for both, and tells a host what to do if they were sent to TikTok.)
+      if (outcome !== "running") expect(instagram, outcome).not.toContain("TikTok");
+    }
+  });
+
+  it("says so when a refusal took down the photo the host had, and gives the reason a picture cannot be used", () => {
+    expect(photoNotice({ outcome: "not_accepted" }, "tiktok")).toContain("Nothing was changed");
+    expect(photoNotice({ outcome: "not_accepted", tookDown: true }, "tiktok")).toContain("that photo was taken down");
+    expect(photoNotice({ outcome: "unusable", detail: "That picture is too small." }, "instagram")).toBe("Your profile picture cannot be used. That picture is too small.");
+    expect(photoNotice({ outcome: "limit" }, "instagram")).toContain(String(PHOTO.triesPerDay));
+  });
+});
+

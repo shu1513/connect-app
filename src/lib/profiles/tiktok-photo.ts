@@ -42,9 +42,15 @@ export async function giveUpTikTokPhoto(input: { userId: string; tryId: string; 
   await abandonTry({ userId: input.userId, tryId: input.tryId }, input.now);
 }
 
-/** Whether the cookie holds the note of a sign-in for a photo. The return address asks this to know which of the two kinds of return it has. */
-export function isPhotoReturn(note: string | undefined, settings: TikTokSettings | null, now: Date): boolean {
-  return settings !== null && readPhotoNote(note, settings.signingSecret, now) !== null;
+/**
+ * Whether the cookie holds the note of a sign-in for a photo, told by its shape alone: a photo's
+ * note has one part more than an ordinary one. The return address asks this only to know which
+ * of the two kinds of return answers. Whether the note is genuine and in date is checked by the
+ * function that then handles it (finishTikTokPhoto here, finishTikTokLogin for the other kind).
+ * So a host who took too long at TikTok is told about their photo, and not about connecting.
+ */
+export function isPhotoReturn(note: string | undefined): boolean {
+  return typeof note === "string" && note.split(".").length === 5;
 }
 
 /**

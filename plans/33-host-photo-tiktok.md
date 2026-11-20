@@ -278,3 +278,21 @@ photo's sign-in, a picture a service refuses, and a custom TikTok picture (large
 another kind of file). The script plays the first three; the fourth goes through the same copy
 step as every picture.
 
+## The last review (19 November 2026): the builder's own, in place of CodeRabbit's
+
+CodeRabbit answered pull request 56 with "review limit reached" (other pull requests of the same
+day had used it up). The founder said not to wait and to check the code instead. The builder read
+the whole change once more, line by line. Three small things, all changed:
+
+1. *A host who took longer than ten minutes at TikTok was told "TikTok was not connected".* The
+   return address chose between its two kinds of return by whether the photo's note was still
+   good, so a note that had run out was answered as an ordinary sign-in. It now tells the kind by
+   the note's shape (a photo's note has one part more), and each kind still checks its own note
+   by itself. That host is now told "Your photo was not taken from TikTok."
+2. *A needless type cast* where TikTok's answer is read.
+3. *No test of the sentences themselves.* Added: every outcome has a sentence for both
+   networks, and none names the wrong network.
+
+Looked at and left as it is: the look "is this account another host's" now also runs for an
+Instagram photo at the finish (it is the same guarantee, and the Instagram checks pass with it).
+

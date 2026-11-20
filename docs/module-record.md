@@ -2392,8 +2392,13 @@ changes" both times, and asked for nothing to be removed.
 - *Not taken:* keeping a newer note when an older tab's return does not fit (a host who
   overlaps two sign-ins presses the button again); a lock against two hosts signing in to the
   very same TikTok account in the same instant.
+- *CodeRabbit did not review this one.* It answered "review limit reached", and the founder
+  said not to wait and to check the code instead. The builder read the whole change once more,
+  line by line, and changed three small things: a host who took more than ten minutes at TikTok
+  was told "TikTok was not connected" instead of being told about their photo; a needless type
+  cast; and the sentences a host is told had no test.
 
-**How it was checked:** 589 automatic tests on the code with following merged in; a new journey
+**How it was checked:** 591 automatic tests on the code with following merged in; a new journey
 of 50 checks in `scripts/photo-check.ts` with TikTok pretended (184 in all);
 `scripts/accounts-check.ts` unchanged and passing (the ordinary sign-in is as it was); the real
 try above.
