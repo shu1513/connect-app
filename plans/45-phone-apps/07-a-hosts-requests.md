@@ -151,6 +151,26 @@ wanted before merging, both about the host's private note, and eight notes. All 
 10. *A throwaway demo script had got into one of this part's commits.* The branch was rebuilt
     without it (nothing had been pushed).
 
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+It found all ten points of its first look fixed for the cases it had named, and one more
+before merging, with five notes. All taken:
+
+1. *(Before merging.) A host's note could be saved a blink after her own account was closed*
+   (the check looked only at the customer's account). Both accounts must be open now, asked
+   in the same locked step as the writing.
+2. *After accepting a call asked for "now", the card was tried with the clock from before the
+   accepting.* The clock of the moment now (the website's address for those calls).
+3. *A member's booking whose month's payment failed offered Block to the customer.* A member's
+   booking counts only once it has become a call.
+4. *"Try again in a minute" after a block that could not cancel a call, and the button gone
+   after the next reading.* Whether a call between the two still stands is now asked on every
+   reading; the button stays for as long as one does.
+5. *A reading asked for while a step was under way was dropped.* It is kept and made when the
+   step is through.
+6. *The note box could miss a newer stored note it had once seen.* It now goes by each fresh
+   reading of the page, not by comparing texts it remembered.
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *`customerDetailsFor` cannot describe a waiting request.* Decision 1.
