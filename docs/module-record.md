@@ -2809,3 +2809,56 @@ time), and a real phone.
 **Still open.** For the founder: the order of the page and the list instead of a week calendar
 are the builder's choices and easy to change now that the page can be looked at. The suggested
 hosts are plan 37, the next change.
+
+## A later change: suggested hosts (plan 37, 19 November 2026)
+
+**What the founder asked for.** "Also possibly some hosts suggestions - the suggestions should
+have an algorithm, not sure what's the best algorithm for that, maybe if other people who also
+talk with the hosts existing user talked to, some other hosts these other users talk to, we can
+use those as a suggestion?" The founder asked for research into how TikTok, Instagram, YouTube
+and Facebook do it; the builder and Astra each did that separately before the plan was written.
+
+**What was decided** (in `plans/37-suggested-hosts.md`).
+- *The founder's:* the "people who follow the same hosts" idea is built in from the first day,
+  with a bar of three different people. Astra had advised ten and switched off at the start.
+- *The builder's:* up to six hosts the person does not know yet, who have open times. The order
+  comes from three kinds of points: being free sooner (20 now, 10 within a week), people behind
+  the host (3 each from three people on, 20 at most), and ratings (1 to 5, a new host counts as
+  4). Places 3 and 6 are kept for the hosts whose card was seen by the fewest different people
+  that week. A person's suggestions are made once a day and stay the same that day. An X hides a
+  host for good. The row never says why a host is there.
+- Changed on the way, and told to the founder: a call does not count for more than a follow.
+  Telling a call that took place from a booking nobody came to needs the whole attendance
+  record, and one person's call would have moved a host up or down.
+
+**What was built.** Three small tables (`suggestion_days`, `suggestion_shows`,
+`suggestion_hides`; database change 0044). The plain rule in `src/lib/suggestions/rules.ts`.
+Reading and writing in `src/lib/suggestions/suggestions.ts`. The row
+(`src/components/suggested-hosts.tsx`) on the home page. A small part that runs in the browser
+(`src/components/suggestions-watch.tsx`) asks for the day's suggestions to be made a moment after
+the page is there, and reports each card that is at least half on the screen; drawing the page
+never writes. The helper deletes what was suggested after 90 days; an X is kept.
+
+Different from the plan as first written, and said in the plan since: only a host who was
+really suggested to a person can be hidden by them; a host for whom the person once hosted a
+call is left out too; the check script can limit which hosts are looked at and whose old lines
+are deleted, because the test database is shared.
+
+**What the reviewers found.**
+- *Astra, on the plan (two rounds, "ready with changes" both times).* Taken: equal points for
+  every person instead of more for a call; a day's suggestions are made by a request from the
+  browser and written in one step under a lock, never while a page is drawn; "seen" is kept per
+  card; closed and paused accounts and blocked follows do not count; the working out happens
+  before the locked step, so it cannot wait for a database connection that other locked steps
+  hold. Not taken: checking each customer's own limits for every suggested host.
+- *Astra, on the code, first round ("ready with changes", six points), all taken.* A host who
+  had blocked the viewer still counted as one of "your hosts", because a block leaves the follow
+  standing: left out now. The check script deleted old lines of everybody and said it touched
+  nobody else's data: it now deletes only its own. The X accepted any handle, so made-up
+  requests could pile up lines: only a suggested host can be hidden now. The part that asks for
+  the day's suggestions could get stuck after midnight or after a failure: it starts afresh
+  each day and tries three times. A card that only touched the edge of the screen counted as
+  seen: half of it must be there now. Three checks proved less than their labels said: they
+  now use a person for whom the day's own order would give the opposite result on equal points.
+  Also taken: "available now" is only asked of a host who says so, which saves about a third of
+  the reads for a row. Astra found no leak of names or counts and no half-written day.

@@ -6,6 +6,7 @@ import {
   boolean,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -2063,6 +2064,75 @@ export const contributionRefunds = pgTable(
     check("contribution_refunds_amount", sql`${t.amountCents} > 0`),
     check("contribution_refunds_decided_by", sql`${t.decidedBy} in ('host', 'founder', 'app')`),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Suggested hosts (plans/37-suggested-hosts.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * One line per person and day: that day's suggestions were made. It is written also when no host
+ * fitted, so the work is done once a day and not on every look. Deleted after 90 days, and with
+ * the person's account.
+ */
+export const suggestionDays = pgTable(
+  "suggestion_days",
+  {
+    viewerId: text("viewer_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** The calendar day in UTC, as "2026-11-27". */
+    day: text("day").notNull(),
+    /** Which rule made them (SUGGEST.ruleVersion). */
+    ruleVersion: integer("rule_version").notNull(),
+    madeAt: timestamp("made_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.day] }), check("suggestion_days_day", sql`${t.day} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`)],
+);
+
+/**
+ * The hosts suggested to a person on a day, each in its place. A host at most once a day per
+ * person. `seenAt` is set when that card first really came into view on the person's screen.
+ * Only the person themselves ever reads their own lines; nothing here is shown to a host.
+ */
+export const suggestionShows = pgTable(
+  "suggestion_shows",
+  {
+    viewerId: text("viewer_id").notNull(),
+    day: text("day").notNull(),
+    /** 1 to 6. */
+    place: integer("place").notNull(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** One of the places kept for the hosts seen by the fewest people. */
+    kept: boolean("kept").notNull().default(false),
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.viewerId, t.day, t.place] }),
+    // A day's hosts go when the day's line goes: after 90 days, or with the person's account.
+    foreignKey({ name: "suggestion_shows_day_fk", columns: [t.viewerId, t.day], foreignColumns: [suggestionDays.viewerId, suggestionDays.day] }).onDelete("cascade"),
+    uniqueIndex("suggestion_shows_host_uq").on(t.viewerId, t.day, t.hostId),
+    // "Seen by the fewest different people in the last seven days" reads the seen lines of a host.
+    index("suggestion_shows_seen_idx").on(t.hostId, t.seenAt).where(sql`${t.seenAt} is not null`),
+    check("suggestion_shows_place", sql`${t.place} between 1 and 6`),
+  ],
+);
+
+/** A person hid this host from their suggestions with the X. Kept as long as the account: it is their choice. The host is never told. */
+export const suggestionHides = pgTable(
+  "suggestion_hides",
+  {
+    viewerId: text("viewer_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.hostId] }), check("suggestion_hides_not_self", sql`${t.viewerId} <> ${t.hostId}`)],
 );
 
 export type Call = typeof calls.$inferSelect;

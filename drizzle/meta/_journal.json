@@ -309,6 +309,13 @@
       "when": 1795139779194,
       "tag": "0043_host_languages",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795154678394,
+      "tag": "0044_suggestions",
+      "breakpoints": true
     }
   ]
 }

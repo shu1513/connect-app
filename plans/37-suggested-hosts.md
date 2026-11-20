@@ -83,8 +83,9 @@ with you. I would build this idea from day one."
    each time. An empty place is not filled again that day.
 9. **Fewer than six** fitting hosts: fewer are shown. None: the row is not shown.
 10. **The X** hides that host from this person's suggestions for good. The host is not told and
-    nothing else changes: they can still be found by search and followed. (Bringing a hidden
-    suggestion back is not built.)
+    nothing else changes: they can still be found by search and followed. Only a host who was
+    really suggested to the person can be hidden by them. (Bringing a hidden suggestion back is
+    not built.)
 11. **Never shown or said:** who else follows or called anyone, how many people point at a host,
     follower numbers (your earlier rule), or why one host was suggested. The row says only
     "Suggested hosts".
@@ -211,15 +212,22 @@ for people, open times and ratings; the six places; the order for equal scores.
   score and the places.
 - `markSeen(viewerId, day, places)`: sets "seen" on those of the person's own lines of that day
   that are not marked yet. It can touch nothing else.
-- `hide(viewerId, handle, now)`: writes the X.
+- `hideSuggestion(viewerId, handle, now)`: writes the X, for a host who was suggested to that
+  person.
 - `removeOldSuggestions(now)`: deletes day and show lines older than 90 days; called by the
   helper with its other cleaning jobs.
+- Two openings for the check script only, because the test database is shared with other work:
+  `makeSuggestions` can be told which hosts to look at, and `removeOldSuggestions` whose lines to
+  delete. The two counts the order is made from (`peopleBehind`, `seenBy`) can be read by it;
+  no page reads them.
 
 **The page:** `src/app/page.tsx` reads `todaysSuggestions` and draws the row with
 `src/components/suggested-hosts.tsx` (the cards and the "Why these hosts?" text). A small part
-that runs in the browser does two things through actions on the server: when today's line does
-not exist yet, it asks for it to be made and then for the page again; and it reports each card
-that has really come into view. The X is a form with an action, as the follow button is.
+that runs in the browser (`src/components/suggestions-watch.tsx`) does two things through the
+actions in `src/app/suggestions/actions.ts`: when today's line does not exist yet, it asks for it
+to be made and then for the page again (if that fails, again a minute later, three tries in
+all); and it reports each card of which at least half has really come into view. The X is a form
+with an action, as the follow button is.
 
 **The lawyer's file** (`docs/for-the-lawyer.md`, sections 4 and 7) holds the points this plan
 raises. `docs/module-record.md` gets what was built.
