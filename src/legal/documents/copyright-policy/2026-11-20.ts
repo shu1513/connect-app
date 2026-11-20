@@ -1,9 +1,6 @@
-# Connect Copyright and Content Complaints Policy
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Copyright and Content Complaints Policy
 
 Hosts and customers put photos, pictures, text and links on Connect. They promise us that these
 are theirs to post. If you believe something on Connect copies your work, shows you without
@@ -99,3 +96,6 @@ authority, the officer, the legal basis and exactly what is asked for. We answer
 process. We tell the user concerned unless the law or a risk to someone's safety prevents it.
 In an emergency involving danger of death or serious injury, write "EMERGENCY" in the subject
 line. We hold no recordings of calls: none are made.
+`;
+
+export default text;

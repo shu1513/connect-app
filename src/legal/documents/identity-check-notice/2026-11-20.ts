@@ -1,9 +1,6 @@
-# Connect Identity Check Notice
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Identity Check Notice
 
 This notice is shown to you right before an identity check, on the page with the button that
 takes you to Stripe. Please read it before you go on. It is also our written policy on face
@@ -79,3 +76,6 @@ with hosts who do not ask for it; you cannot host.
   have to keep the result.
 
 Please do not email us your document or a picture of yourself.
+`;
+
+export default text;

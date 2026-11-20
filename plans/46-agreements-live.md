@@ -1,8 +1,9 @@
 # Plan 46: The agreements go live
 
 **Status:** a plan. Written 20 November 2026 by the builder alone (no helper agents), from the
-code as it is on `main` after pull requests 80 and 81. Astra (gpt-6.2-astra) checked the first
-draft against the code: "not ready", with the points listed at the end. All are worked in.
+code as it is on `main` after pull requests 80 and 81. Astra (gpt-6.2-astra) checked it twice
+against the code, "not ready" both times; the second list was short and exact. Every point of
+both is worked in, or answered, in the two sections at the end.
 
 **Its size, said plainly:** five parts. Part 1 is a module of its own (the documents in the app,
 and proof of who accepted what). Part 2 is small. Part 3 is money and gets a detailed plan of its
@@ -85,8 +86,10 @@ Not in force yet." until the founder publishes a reviewed version with no blanks
    text itself, marked as published, and everyone is asked to accept it. So filling in a company
    name later can never change what an earlier acceptance was an acceptance of, and accepting a
    draft is never mistaken for accepting terms in force. A test refuses a published version that
-   still holds a blank. (The first draft of this plan read the blanks from settings; Astra's
-   check showed that would rewrite archived agreements.)
+   still holds a blank. **No version is edited once it is merged, a draft included**: a
+   correction is a new version. (The first draft of this plan read the blanks from settings;
+   Astra's check showed that would rewrite archived agreements.) A link from one document to
+   another leads, in an earlier version, to the other document as it stood then.
 4. **Acceptance of the general terms is implicit; three things stay tick boxes.** Sign-up ends,
    as today, on the welcome step, after the email address is confirmed (an account already
    exists by then, also with Google). That step keeps one tick, "I am 18 or older". Beside its
@@ -112,16 +115,19 @@ Not in force yet." until the founder publishes a reviewed version with no blanks
    **one function writes an acceptance** for both. `TERMS_VERSION`, which the app's door
    already sends (`src/lib/app-door/start.ts`) and two dozen check scripts write onto their test
    people, stays as a name and becomes the stamp, so neither breaks.
-8. **Existing hosts are asked on their Hosting page**, which shows the Host Agreement, the
-   business-or-private question and, if there is one, the reason their page was declined or
-   suspended, and nothing else until they accept. This is a gate on that one page: the requests
-   page, the calendar and the app are not closed by it. It is enough before launch, when there
-   are no real hosts. It is **not** proof that a host who never opened that page accepted a
-   later version; part 3 (taking money back from a host) says what it relies on.
+8. **Existing hosts are asked on their Hosting page, in a box at its top, and are not locked
+   out.** The box shows the Host Agreement's link, the tick, and the business-or-private
+   question, until both are answered. A new host cannot apply without them. Why a box and not a
+   lock: the Host Agreement itself says a new version applies to a host who keeps hosting after
+   being told and asked (19.2), a lock on one page would not close the other host pages or the
+   app anyway, and every check script makes its hosts directly. What part 3 relies on before it
+   takes money back from a host is said there.
 9. **The identity page shows the Identity Check Notice above the button**, and the button
    becomes "I agree, continue to Stripe". The consent is written down **before** Stripe is
-   asked for a check, and the version of the notice is kept on each check's own line, so every
-   attempt has its evidence.
+   asked for a check (the line in the acceptance table: the first time this person agreed to
+   this version). Every check, also a second or third one, gets the notice's version written
+   on its own line before the person is sent to Stripe's pages. Asking Stripe for a check
+   collects nothing; the pictures are taken on Stripe's pages, after that line exists.
 10. **A host says "business" or "private person"** when applying, and can change it later. A
     host from before this change has said nothing, and the app does not make it up: her page
     shows neither until she answers on the Hosting page. The host's page and the booking pages
@@ -130,19 +136,26 @@ Not in force yet." until the founder publishes a reviewed version with no blanks
 11. **Declining or suspending a host page needs a reason**: the rule, and the facts in a
     sentence. It is saved and emailed in the same database step as the decision, shown on her
     Hosting page, and cleared when the page is approved or sent in again. Giving the same
-    decision twice changes nothing. **Closing an account by the founder also takes a reason and
-    emails it**; today a closed person is told nothing. For a host in the United Kingdom or
+    decision twice changes nothing: the first reason and its moment stay. There are five places
+    that take one: decline and suspend on the admin's People page, suspend on the Reports page,
+    and close on both. **Closing an account by the founder also takes a reason and
+    emails it**, in the closing's own database step, straight to the person's address; today a
+    closed person is told nothing. For a host in the United Kingdom or
     Europe the Host Agreement promises 30 days' notice before a page is closed for good, with
     exceptions; the admin page says so beside the button, and the founder keeps to it by hand.
 12. **A new version of a document must be in the code at least 30 days before its day**, and a
-    test refuses less unless the version carries a written reason for urgency. A version whose
+    test refuses less unless the version carries a written reason for urgency. **The one
+    exception is the first published version after a draft:** the 30 days are owed to people who
+    hold terms in force, and a draft is not in force. It is the version the site opens with. A version whose
     day has not come is "coming": its text can be read at its own address, and the page of the
     current version says "A new version takes effect on (day)" with a link and a short summary
     of what changes. The helper emails every person it concerns, once, as soon as it sees a
-    coming version. **If such an email is written less than 30 days before the day, the helper
-    says so in the health report**, and the founder moves the day. A person who signs up while
+    coming version. **If such an email went out less than 30 days before the day, or is still
+    not sent, or failed, the helper says so in the health report**, and the founder moves the
+    day; the email's key holds the day, so a moved day is announced again by itself. A person who signs up while
     a version is coming accepts the current one, is shown the coming change on the same step,
-    and gets the email at once. On the day, each person is asked at their next visit. (Part 2.)
+    and gets the email at once; so does a new host for a coming Host Agreement. Their shorter
+    time does not move the day for everyone. On the day, each person is asked at their next visit. (Part 2.)
 13. **When Connect gives a refund after the host has collected, the host owes her share of it,
     and it is taken from her next earnings** after she has been told in writing and had 14 days
     to object. The same for a bank dispute lost after collection, and for a contribution or tip
@@ -155,11 +168,13 @@ Not in force yet." until the founder publishes a reviewed version with no blanks
     ready: the Host Agreement's own rule (7.7). Closed accounts are plan 45's. (Part 3.)
 15. **Two years after an email was sent, only the fact that it was sent is kept**: its text, its
     subject and the address it went to are removed; its kind, its key and its times stay. An
-    email that was never sent is treated the same two years after it was written. **A login
+    Also removed: the extra headers (they can hold a link that still works), the note of an
+    error, and the sending service's own number. Whether it was sent or failed stays. An email
+    that was never sent is treated the same two years after it was written. **A login
     record still there 12 months after it ran out is deleted** (most are gone much sooner: the
     login library removes them on logging out). These are the two periods of the draft privacy
     policy that do not depend on an account being closed. The others (records of money, of
-    acceptances, of reports, and backups) are **not built**, for open accounts as for closed
+    acceptances, of reports, of identity-check results, and backups) are **not built**, for open accounts as for closed
     ones; the draft policy marks them as proposals, and plan 45, parts 19 to 19c, builds what
     happens on closing. (Part 4.)
 
@@ -206,12 +221,11 @@ today. A person who accepted under the old tick is asked again: the app has no r
 
 **Hosts.** The application form gets the Host Agreement tick and the business-or-private choice
 (`host_profiles.seller_kind`, empty for a host who has not said). `createHostProfile` refuses
-without the tick and writes the acceptance line in the same step as the profile. `/host` shows
-only the step of decision 8 to a host who has not accepted the current version or has not said
-business or private. `publicProfile` and `hostForMemberByHandle` both carry the answer.
+without the tick and writes the acceptance line in the same step as the profile.
+`publicProfile` and `hostForMemberByHandle` both carry the answer.
 `decideProfile` takes the reason (`host_profiles.decided_reason`), both admin forms ask for it,
 the email wrapper sends it in the same step. `closeAccount` takes a reason and writes the email
-in its own step.
+in its own step. `/host` shows the box of decision 8.
 
 **Identity.** The notice above the button; the action that starts a check checks the notice's
 version, writes the acceptance line and only then asks Stripe; `identity_checks.notice_version`
@@ -221,12 +235,13 @@ on each new check.
 columns `seller_kind`, `decided_reason`, `notice_version`, and a reason on a closed account.
 
 **What the check scripts need.** `scripts/seed.ts` and about two dozen scripts stamp their test
-people with `TERMS_VERSION`; that keeps working (decision 7). Scripts that apply to host through
+people with `TERMS_VERSION`; that keeps working (decision 7): the gate reads the stamp, and a
+test person needs no proof. The seed goes on stamping its four people, the admin among them. Scripts that apply to host through
 `createHostProfile` (`abroad-check`, `journey-check`, and others) pass the tick, also the ones
 that test another refusal, so that a missing tick cannot make them pass for the wrong reason.
 Scripts that decline or suspend (`accounts-check`, `membership-check`, `contribution-check`,
-`safety-check`) pass a reason. `app-door-check` expects the stamp. The admin test account goes
-through the same welcome step as everyone.
+`safety-check`) pass a reason, and so do the ones that close an account. `app-door-check`
+expects the stamp.
 
 **Checked by:** tests for the reader (written), for the registry (every version has a text; a
 published version has no blank; the seven documents as they are read without a single problem;
@@ -270,9 +285,16 @@ Astra before this part is built.** The rules it must keep:
   refunds a contribution or a tip after collection (today Connect simply carries both).
 - A host who never earns again still owes it; nothing is taken from her bank, and nothing is
   collected by the app in any other way.
-- Earnings ready for 12 months and not collected: the helper makes a collection for her, with
-  the usual charge, when her payout account is ready; otherwise it tries again later. An email
-  tells her.
+- **What the taking relies on:** the host accepted a published Host Agreement, with its section
+  9, before the call or payment the debt comes from (her line in `agreement_acceptances`). For
+  a debt from before that, the app writes the debt down and takes nothing by itself; the
+  founder settles it.
+- A host who has not collected for 12 months (decision 14: since her last collection that went
+  through, or since her first earning became ready) is sent **everything** that is ready, with
+  the usual charge, when her payout account is ready; otherwise it is tried again later. A try
+  that was refused does not start the year again. An email tells her what went through.
+- The sentence before joining a membership says time "booked or used" in the first 14 days is
+  paid for; the Payment Terms say time used. The sentence is corrected with this part.
 - Every step uses the existing money operations (one at a time for each payment, safe to run
   twice), and is checked against Stripe's test mode by a script of its own.
 - **A new membership cancelled within 14 days** (the rest of change 9; Payment Terms 12.3): a
@@ -308,27 +330,40 @@ Not one of the 14 changes. The founder asked on 20 November 2026, after the rese
 forms (`docs/research/tax-forms-for-hosts.md`): "we can build an automated system according to
 these laws to give these 1099 as a downloadable form, like uber/lyft/airbnb right?"
 
-**What is built:** on her earnings page a host chooses a calendar year and gets a statement of
-it, as a page made for printing and as a file for a spreadsheet: for each month and for the
-year, what customers paid for her calls, memberships, contributions and tips; what was given
-back; Connect's fees; the collection charges; and what was sent to her. It is made from the
-books the app already keeps (`ledger_entries`, `payments`, `collection_items`), in US dollars,
-by the dates the money was taken and sent. It says at the top that it is a summary for her own
-records and not a tax form. It is there for every host, in every country, whatever she earned.
+**What is built:** on her Hosting page a host chooses a calendar year and gets a statement of
+it, as a page made for printing and as a file for a spreadsheet, month by month and for the
+year. It is made from the books the app already keeps, with no new table, in US dollars, and
+by the day each line was written into the books, counted in UTC; the page says so, because the
+app writes a charge down when it learns of it, which can be a little after the bank moved the
+money, and because the day a bank pays a host is not known to the app at all. It says at the
+top that it is a summary for her own records and not a tax form. Every host has the link,
+whatever she earned and whether or not her payout account is set up. What it adds up:
+
+- **Paid by customers:** every "charged to the customer" line of the books, once, found through
+  the call, the membership month or the contribution it belongs to. (The lines for a member's
+  calls and for expired time share out money already counted; they are not added again.)
+- **Given back (recorded refunds):** every refund line, in the month the refund went through. A
+  payment of December given back in January is in two different years.
+- **Connect's fees:** the fee lines, with their signs, so a fee returned with a refund is taken
+  off again. A tip's payment fee is shown apart, as paid by the customer on top of the tip.
+- **Sent to you:** the transfers that went through, and the collection charges really taken. A
+  transfer that was refused, or tried twice, counts once, as what really went.
+- **Not in it:** money a bank took back in a dispute. The books do not hold a dated amount for
+  that until part 3 writes one; until then the page says that disputes are not included.
 
 **What is not built:** the official yearly form (1099-K) and its filing. Uber, Lyft and Airbnb
 collect each person's tax number, add up the year, and in January offer the form for download
 and file it. Stripe does exactly that for platforms: it asks hosts for their tax details, makes
 the forms, files them with the tax office and the states, and gives each host her form as a
 download on Stripe's own page. Doing it without Stripe would mean keeping hosts' social
-security numbers and filing with every tax office ourselves. So: when the company's Stripe
-account has that tool switched on, the earnings page gets a link "Your tax forms" to Stripe's
-page; until then the link is not shown. The founder's switch for it is a setting.
+security numbers and filing with every tax office ourselves. So the official form comes from Stripe's tool, switched on in the company's Stripe account. A
+link to it from the Hosting page is added when that page of Stripe's exists for Connect and can
+be checked; nothing is built for it now.
 
-**Checked by:** tests of the sums (a year with a refund, a partly refunded payment, a dispute, a
-tip, an expired membership month, a collection with its charge; the months add up to the year,
-and the year to the books); the check script reads the page and the file for a host with known
-payments.
+**Checked by:** tests of the sums (a refund in the next year; a partly refunded payment; an
+open dispute, which moves nothing; a tip with its fee; an expired membership month; a
+collection that went through in part and its second try; midnight at New Year; the months add
+up to the year); the check script reads the page and the file for a host with known payments.
 
 ## Not built here, and why
 
@@ -340,7 +375,9 @@ payments.
   for hosts above $20,000 and 200 payments, filed by the platform, which Stripe's tool can do
   from the company's own Stripe account; in the European Union a yearly report on every host
   from the first euro, for which the company has to register in one EU country.
-- **Real addresses (change 4):** they are settings (decision 3). Someone has to read the inbox.
+- **Real addresses (change 4):** the support address is a setting that exists
+  (`SUPPORT_EMAIL`); the others are written into the first published version of each document.
+  Someone has to read the inbox.
 - **A way for people without an account to send a notice:** the Copyright Policy gives an email
   address. A public form is not built.
 - **Closing every host path to a host who has not accepted the Host Agreement** (decision 8),
@@ -355,7 +392,12 @@ Agreed with that session on 20 November 2026 (it builds plan 45):
 - Its part 03 moves the welcome step into `src/lib/welcome.ts`, shared by the website and the
   app. Whoever merges second adapts: if that file exists when part 1 is built, part 1's change
   is made inside it.
-- The app must ask for the same documents and versions: decision 7 is for that.
+- The app must ask for the same documents and versions: decision 7 is for that. What its
+  welcome step has to do once part 1 is merged: ask the server which documents and versions to
+  show (`agreementsToAccept("sign_up", now)`, with the address of each exact version); show the
+  one tick for 18 or older and the sentence with those links; send back the versions it showed;
+  and show the step again when the server answers that they are no longer the current ones.
+  The server writes nothing for a request that names no versions.
 - Parts 19 to 19c stay with it.
 - It is told when each part of this plan merges: what changed, which files, and what the app
   must show and send.
@@ -396,3 +438,41 @@ stamp on the person's line, documents as code files, the separate money plan. Ch
 
 Not taken: nothing was refused. One thing is deliberately left small, as Astra agreed: the
 Hosting-page gate stays a gate on one page.
+
+## What Astra's second check changed (20 November 2026)
+
+"Not ready", for three ways an acceptance could be written down without proof of what the
+person saw, and for sums in part 5. Worked in:
+
+- **No version is edited once merged, drafts included** (decision 3), and a link inside an
+  earlier version leads to the other document as it stood then.
+- **The stamp is asked for at the moment it is needed** (`generalStamp(now)`: the gate, the
+  welcome step, the app's door), never kept from the moment the server started; the old name
+  stays only for check scripts.
+- **The phone app's welcome step** is said exactly (in "Working beside the phone-apps
+  session"); a request that names no versions writes nothing.
+- **Identity consent for every attempt** (decision 9): the notice's version on each check's own
+  line, before the person reaches Stripe's pages.
+- **Five places take a reason**, the first reason stays when a decision is repeated, and the
+  email of a closing is written in the closing's own step (decision 11).
+- **The first published version is the one exception to the 30 days**, said plainly; lateness is
+  judged by emails really sent; a moved day is announced again; new hosts are covered
+  (decision 12).
+- **Part 3:** the 12 months as decision 14 has them; what the taking of a debt relies on; the
+  membership sentence about "booked or used".
+- **Part 4:** headers, error notes and the sending service's number are removed too.
+- **Part 5:** what each sum is made of, the days it goes by, and that disputes are not in it.
+- The draft agreements' own words about when acceptance happens are corrected as they move
+  (Terms 1.4, Host Agreement 1.2, the map).
+
+Answered differently from what was suggested, on purpose:
+
+- *A lock on the Hosting page for existing hosts* became a box that does not lock (decision 8),
+  for the reasons given there.
+- *Proof lines for every test person in every check script*: not done. The gate reads the stamp;
+  a test person needs no proof, and two dozen scripts stay as they are.
+- *Reserving a check's line before asking Stripe*: not done. Asking Stripe for a check collects
+  nothing, and the line with the notice's version exists before the person is sent to Stripe's
+  pages, where the pictures are taken.
+
+The plan was not sent a third time. Each part's code goes to Astra, as always.

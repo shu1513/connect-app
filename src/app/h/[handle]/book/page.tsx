@@ -12,6 +12,7 @@ import { memberBookingView, memberCallCents, memberOpenTimes } from "@/lib/membe
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { SellerLine } from "@/components/seller-line";
 import { ConfirmIdFirst } from "@/components/confirm-id-first";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
@@ -118,6 +119,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
 
       <section className="mt-6 rounded border border-neutral-400 p-4 text-sm">
         <h2 className="font-semibold">Request this time, subject to {profile.displayName}&apos;s approval</h2>
+        <SellerLine hostId={profile.userId} name={profile.displayName} />
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>
             <strong>This is a request, not a reservation.</strong> Other people may ask for the same time, and {profile.displayName} chooses.
@@ -259,6 +261,7 @@ async function MemberBook(props: { profile: { userId: string; handle: string; di
 
       <section className="mt-6 rounded border border-neutral-400 p-4 text-sm">
         <h2 className="font-semibold">What happens when you press &quot;Book&quot;</h2>
+        <SellerLine hostId={profile.userId} name={profile.displayName} />
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>
             <strong>The call is booked at once.</strong> {profile.displayName} does not need to accept it.

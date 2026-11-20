@@ -3,6 +3,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
+import { shownValue } from "@/legal/accept";
+import { dayWords } from "@/legal/document-page";
+import { agreementsToAccept, comingVersion, DOCUMENTS, GENERAL_DOCUMENTS, versionHref } from "@/legal/versions";
 import { safeNext } from "@/lib/safe-next";
 import { db, schema } from "@/db";
 import { getSignedIn } from "@/lib/session";
@@ -15,8 +18,13 @@ import { warm } from "@/components/warm-ui";
 export const metadata: Metadata = { title: "One last step" };
 
 /**
- * The last step of signing up, shown once: 18 or older, the terms, and the
- * time zone. The link in the confirmation email lands here too.
+ * The last step of signing up: 18 or older, the time zone, and, by pressing the button, the three
+ * general documents (plans/46-agreements-live.md, decision 4). The link in the confirmation email
+ * lands here too. A person sees it again when one of those documents has a new version in effect.
+ *
+ * The sentence that names the documents sits right beside the button, and each name leads to the
+ * exact version the button accepts. That is what makes pressing it an acceptance; it must never
+ * move away from the button or lose a link.
  */
 export default async function WelcomePage(props: PageProps<"/welcome">) {
   const { error, problem, next: nextParam } = await props.searchParams;
@@ -32,17 +40,37 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   // Someone who accepted an older version of the terms is asked again.
   const [row] = await db.select({ termsAcceptedAt: schema.user.termsAcceptedAt }).from(schema.user).where(eq(schema.user.id, person.id));
   const returning = Boolean(row?.termsAcceptedAt);
+  const now = new Date();
+  const agreements = agreementsToAccept("sign_up", now);
+  // A version that is announced and not yet in effect: said here too, so that someone signing up today knows of it.
+  const coming = GENERAL_DOCUMENTS.flatMap((name) => {
+    const version = comingVersion(name, now);
+    return version ? [{ name, version }] : [];
+  });
+  const documentLinks = agreements.map((agreement, index) => (
+    <span key={agreement.name}>
+      {index > 0 && (index === agreements.length - 1 ? " and the " : ", the ")}
+      <Link href={agreement.href} target="_blank" className="underline underline-offset-2" data-agreement={`${agreement.name}@${agreement.version}`}>
+        {agreement.title}
+      </Link>
+    </span>
+  ));
 
   return (
     <SitePage bare className={warm.auth}>
-      <h1 className={warm.title}>{returning ? "We have updated the rules" : "One last step"}</h1>
+      <h1 className={warm.title}>{returning ? "We have updated our terms" : "One last step"}</h1>
       <p className="mt-2 text-sm opacity-70">
-        {returning ? `${person.name}, please read and accept the current rules to carry on.` : `Welcome, ${person.name}. Your email address is confirmed.`}
+        {returning ? `${person.name}, please read the current terms and accept them to carry on.` : `Welcome, ${person.name}. Your email address is confirmed.`}
       </p>
 
       {problem === "boxes" && (
         <p role="alert" className="mt-4 text-sm text-red-600">
-          Please tick both boxes to continue.
+          Please tick the box to continue.
+        </p>
+      )}
+      {problem === "changed" && (
+        <p role="alert" className="mt-4 text-sm text-red-600">
+          The documents below changed while this page was open. Please read them again.
         </p>
       )}
       {problem === "zone" && (
@@ -53,35 +81,39 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
 
       <form action={finishSignUp} className="mt-6 space-y-4">
         <input type="hidden" name="next" value={next} />
+        {/* What this page showed. The server refuses the step when these are no longer the versions in effect. */}
+        <input type="hidden" name="shown" value={shownValue(agreements)} />
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" name="adult" required className="mt-1" />
           <span>I am 18 or older.</span>
-        </label>
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" name="terms" required className="mt-1" />
-          <span>
-            I accept the{" "}
-            <Link href="/rules" target="_blank" className="underline underline-offset-2">
-              rules
-            </Link>
-            , the{" "}
-            <Link href="/terms" target="_blank" className="underline underline-offset-2">
-              terms
-            </Link>{" "}
-            and the{" "}
-            <Link href="/privacy" target="_blank" className="underline underline-offset-2">
-              privacy policy
-            </Link>
-            .
-          </span>
         </label>
         <label className="block text-sm">
           Your time zone (used for the times in your emails)
           <TimeZoneSelect zones={timeZones()} saved={person.timeZone} />
         </label>
+        <p className="text-sm" data-agreement-sentence>
+          {returning ? "By pressing the button you agree to the updated " : "By finishing sign-up you agree to the "}
+          {documentLinks}.
+        </p>
         <button type="submit" className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white">
-          Continue
+          {returning ? "Accept the updated terms" : "Finish sign-up"}
         </button>
+        <p className="text-sm opacity-70">
+          Our{" "}
+          <Link href="/privacy" target="_blank" className="underline underline-offset-2">
+            Privacy Policy
+          </Link>{" "}
+          explains what we do with your information.
+        </p>
+        {coming.map(({ name, version }) => (
+          <p key={name} className="rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`${name}@${version.version}`}>
+            From {dayWords(version.effectiveFrom)} a new version of the {DOCUMENTS[name].title} applies. {version.summary}{" "}
+            <Link href={versionHref(name, version.version)} target="_blank" className="underline underline-offset-2">
+              Read it
+            </Link>
+            . You will be asked to accept it then.
+          </p>
+        ))}
       </form>
 
       <p className="mt-6 text-sm">

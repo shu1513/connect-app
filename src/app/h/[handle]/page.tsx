@@ -19,7 +19,7 @@ import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
 import { languageNames } from "@/lib/profiles/languages";
 import { photosOf } from "@/lib/profiles/photo";
-import { publicProfile } from "@/lib/profiles/profiles";
+import { publicProfile, sellerLine } from "@/lib/profiles/profiles";
 import { contributionOf } from "@/lib/projects/ask";
 import { postsOf } from "@/lib/projects/posts";
 import { diaryFor } from "@/lib/projects/projects";
@@ -98,6 +98,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const now = offer ? await instantOffer(profile.userId, new Date()) : null;
   const rating = await averageFor(profile.userId, "host", new Date());
   const languages = languageNames(profile.languages);
+  // Whether she offers calls as a business or as a private person, by her own statement (plans/46, decision 10).
+  const seller = await sellerLine(profile.userId, profile.displayName);
   // Her running project, with the newest post of its diary. Asked of the diary's own rule, which is "her page is
   // open to everyone": a member or an invited person who can open a hidden page does not see the project here.
   const diary = await diaryFor(profile.handle);
@@ -140,6 +142,11 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       )}
 
       {profile.about && <p className="mt-6 whitespace-pre-line text-[#57534e]">{profile.about}</p>}
+      {seller && (
+        <p className="mt-3 text-sm text-[#78716c]" data-seller-kind>
+          {seller}
+        </p>
+      )}
 
       {viewer && viewer.id !== profile.userId && (
         <p className="mt-4 text-sm">

@@ -13,7 +13,9 @@ import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
 import { ownPhotoState } from "@/lib/profiles/photo";
 import { languageNames } from "@/lib/profiles/languages";
 import { PHOTO } from "@/lib/profiles/photo-rules";
-import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
+import { ABOUT_MAX, NAME_MAX, NAME_MIN, sellerKindOf } from "@/lib/profiles/profiles";
+import { holdsHostAgreement, shownValue } from "@/legal/accept";
+import { agreementsToAccept } from "@/legal/versions";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { instagramSignInOn } from "@/lib/profiles/instagram";
 import { tiktokSignInOn } from "@/lib/profiles/tiktok";
@@ -21,6 +23,7 @@ import { runningProjectOf, startProblem } from "@/lib/projects/projects";
 import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import {
+  answerHostBoxAction,
   addSocial,
   connectInstagram,
   connectTikTok,
@@ -56,6 +59,42 @@ export default async function HostPage(props: PageProps<"/host">) {
   const notice = readNotice("/host", await props.searchParams);
   const identity = await identityState(user.id);
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
+  // The Host Agreement in effect, as the forms below show and send it (plans/46, part 1).
+  const hostAgreements = agreementsToAccept("hosting", new Date());
+  const sellerKind = profile ? sellerKindOf(profile) : null;
+  // A host from before the Host Agreement existed, or one who has not said business or private, is asked in a box at the top.
+  const boxNeeded = Boolean(profile) && (!(await holdsHostAgreement(user.id, new Date())) || sellerKind === null);
+  const sellerChoice = (chosen: string | null) => (
+    <fieldset className="text-sm">
+      <legend>Do you offer calls as a business, or as a private person?</legend>
+      <label className="mt-1 flex items-start gap-2">
+        <input type="radio" name="sellerKind" value="private" required defaultChecked={chosen === "private"} className="mt-1" />
+        <span>As a private person</span>
+      </label>
+      <label className="mt-1 flex items-start gap-2">
+        <input type="radio" name="sellerKind" value="business" required defaultChecked={chosen === "business"} className="mt-1" />
+        <span>As a business (it is part of your work or trade, or you do it regularly to earn money)</span>
+      </label>
+      <span className="mt-1 block opacity-70">Your page shows this. In some countries a customer has more rights when buying from a business.</span>
+    </fieldset>
+  );
+  const hostAgreementTick = (
+    <>
+      <input type="hidden" name="shown" value={shownValue(hostAgreements)} />
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="hostAgreement" required className="mt-1" />
+        <span>
+          I have read and accept the{" "}
+          {hostAgreements.map((agreement) => (
+            <Link key={agreement.name} href={agreement.href} target="_blank" className="underline underline-offset-2" data-agreement={`${agreement.name}@${agreement.version}`}>
+              {agreement.title}
+            </Link>
+          ))}
+          .
+        </span>
+      </label>
+    </>
+  );
   const socials = profile
     ? await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.userId, user.id)).orderBy(schema.socialAccounts.network)
     : [];
@@ -203,6 +242,20 @@ export default async function HostPage(props: PageProps<"/host">) {
         )}
       </section>
 
+      {boxNeeded && (
+        <section className="mt-8 rounded border border-neutral-500 p-4" data-host-box>
+          <h2 className="text-lg font-semibold">Two things we need from you</h2>
+          <p className="mt-2 text-sm">Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below.</p>
+          <form action={answerHostBoxAction} className="mt-3 max-w-md space-y-3">
+            {sellerChoice(sellerKind)}
+            {hostAgreementTick}
+            <button type="submit" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
+              Save
+            </button>
+          </form>
+        </section>
+      )}
+
       <section id="profile" className="mt-8 scroll-mt-4">
         <h2 className="text-lg font-semibold">Your host profile</h2>
         {!profile ? (
@@ -249,6 +302,8 @@ export default async function HostPage(props: PageProps<"/host">) {
                   own money at its exchange rate of that moment.
                 </span>
               </label>
+              {sellerChoice(null)}
+              {hostAgreementTick}
               <button type="submit" className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
                 Send for approval
               </button>
@@ -260,6 +315,11 @@ export default async function HostPage(props: PageProps<"/host">) {
               {profile.status === "pending" && "Waiting for approval. Your page is not public yet."}
               {profile.status === "declined" && "Your profile was not approved. You can change it below and it will be looked at again."}
               {profile.status === "suspended" && "Your profile has been suspended and is not public. Contact support if you think this is a mistake."}
+              {(profile.status === "declined" || profile.status === "suspended") && profile.decidedReason && (
+                <span className="mt-1 block" data-decided-reason>
+                  The reason: {profile.decidedReason}
+                </span>
+              )}
               {profile.status === "approved" && profile.hidden && "Your profile is approved, but hidden by you. Nobody can find it."}
               {profile.status === "approved" && !profile.hidden && (
                 <>
@@ -292,6 +352,7 @@ export default async function HostPage(props: PageProps<"/host">) {
                 )}
               </p>
               <LanguagePicker chosen={profile.languages} />
+              {sellerChoice(sellerKind)}
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5)
                 {/* A host from before free calls were taken away is shown the lowest price, and must save one. */}

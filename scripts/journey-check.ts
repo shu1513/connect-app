@@ -109,6 +109,8 @@ async function main() {
   const B = await import("../src/lib/booking/bookings");
   const calendar = await import("../src/lib/booking/calendar");
   const profiles = await import("../src/lib/profiles/profiles");
+  // What a person applying to host sends besides the profile (plans/46): business or private, and the Host Agreement as the form showed it.
+  const consent = { sellerKind: "private", agreements: (await import("../src/legal/accept")).hostAgreementShown(new Date()) };
   const { rateCall } = await import("../src/lib/ratings/ratings");
   const { contactsOf } = await import("../src/lib/people/contacts");
 
@@ -192,7 +194,7 @@ async function main() {
     {
       const start = await page("/host", host.jar);
       check("the Hosting page opens with a \"Getting started\" list", start.status === 200 && start.words.includes("Getting started") && start.words.includes("1. Fill in your profile and send it for approval."), String(start.status));
-      await profiles.createHostProfile(host.id, { handle, displayName: `Jo Journey ${RUN}`, about: "Here to talk.", pricePer15Cents: 500, country: "US", languages: ["en"] });
+      await profiles.createHostProfile(host.id, { handle, displayName: `Jo Journey ${RUN}`, about: "Here to talk.", pricePer15Cents: 500, country: "US", languages: ["en"], ...consent });
       // Pretended: a host from before 19 November 2026, when a host could still set a price of zero. The first half of this journey is a call without payment.
       await db.update(schema.hostProfiles).set({ pricePer15Cents: 0 }).where(eq(schema.hostProfiles.userId, host.id));
       const sent = await page("/host", host.jar);

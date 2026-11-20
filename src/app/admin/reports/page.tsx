@@ -246,17 +246,39 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                     </button>
                   </form>
                   {profile && profile.status === "approved" && (
-                    <form action={decideProfileAction}>
+                    <form action={decideProfileAction} className="space-y-1">
                       <input type="hidden" name="userId" value={report.reportedId} />
                       <input type="hidden" name="decision" value="suspended" />
+                <label className="block text-sm">
+                  To suspend: the rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
                       <button type="submit" className={button}>
                         Suspend their host profile
                       </button>
                     </form>
                   )}
                   {reported && !reported.closedAt && (
-                    <form action={closeAccountAction}>
+                    <form action={closeAccountAction} className="space-y-1">
                       <input type="hidden" name="email" value={reported.email} />
+                <label className="block text-sm">
+                  To close: the rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
                       <button type="submit" className={`${button} border-red-600 text-red-600`}>
                         Close their account
                       </button>

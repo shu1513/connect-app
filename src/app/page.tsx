@@ -8,7 +8,7 @@ import { DiaryPicture } from "@/components/diary-picture";
 import { HostPhoto } from "@/components/host-photo";
 import { LocalTime } from "@/components/local-time";
 import { RefreshEvery } from "@/components/refresh-every";
-import { SitePage } from "@/components/site-page";
+import { LEGAL_LINKS, SitePage } from "@/components/site-page";
 import { SuggestedHosts } from "@/components/suggested-hosts";
 import { MakeSuggestions } from "@/components/suggestions-watch";
 import { warm, warmFont } from "@/components/warm-ui";
@@ -105,9 +105,9 @@ function FrontPage() {
 
       <footer className="mx-auto flex max-w-[1040px] flex-wrap justify-center gap-x-5 px-6 pt-6 pb-12 text-sm text-[#57534e]">
         <Link href="/host" className={`${footerLink} font-semibold text-[#9a3412]`}>Become a host</Link>
-        <Link href="/rules" className={footerLink}>Rules</Link>
-        <Link href="/terms" className={footerLink}>Terms</Link>
-        <Link href="/privacy" className={footerLink}>Privacy</Link>
+        {LEGAL_LINKS.map((link) => (
+          <Link key={link.href} href={link.href} className={footerLink}>{link.words}</Link>
+        ))}
       </footer>
     </div>
   );

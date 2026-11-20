@@ -6,7 +6,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Switches } from "@/lib/safety/switches";
-import { TERMS_VERSION } from "@/lib/terms";
+import { generalStamp } from "@/legal/versions";
 import type { AppRequest } from "./gate";
 import type { AppStart, AppSwitches } from "./types";
 
@@ -32,7 +32,7 @@ export function switchesForApps(all: Switches): AppSwitches {
 /** The answer of GET /api/app/start, for whoever the gate let in. */
 export async function startFor(asked: AppRequest): Promise<AppStart> {
   const { person } = asked;
-  const base = { updateNeeded: asked.updateNeeded, switches: switchesForApps(asked.switches), termsVersion: TERMS_VERSION };
+  const base = { updateNeeded: asked.updateNeeded, switches: switchesForApps(asked.switches), termsVersion: generalStamp(new Date()) };
   if (!person) return { ...base, me: null };
   const [profile] = await db
     .select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden })

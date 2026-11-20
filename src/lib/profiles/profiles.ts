@@ -10,6 +10,8 @@ import { memberPriceFloor } from "@/lib/membership/room";
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { hostPriceProblem } from "@/lib/payments/pricing";
 import { identityState } from "@/lib/safety/identity";
+import { acceptHostAgreementIn, AgreementError, type Shown } from "@/legal/accept";
+import { RULES } from "@/lib/terms";
 import { HOME_COUNTRY, isHostCountry } from "./countries";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
 import { queueProfileDecisionEmail } from "./emails";
@@ -103,8 +105,42 @@ function checkedLanguages(sent: readonly string[]): string[] {
   return chosen.codes;
 }
 
+/** How a host offers calls, by her own statement (plans/46, decision 10). */
+export const SELLER_KINDS = ["business", "private"] as const;
+export type SellerKind = (typeof SELLER_KINDS)[number];
+export const SELLER_KIND_WORDS: Record<SellerKind, string> = { business: "as a business", private: "as a private person, not as a business" };
+const NO_SELLER_KIND = "Please say whether you offer calls as a business or as a private person.";
+
+function checkedSellerKind(sent: unknown): SellerKind {
+  if (sent !== "business" && sent !== "private") throw new ProfileError(NO_SELLER_KIND);
+  return sent;
+}
+
+/** What a host's page says about that, or null for a host who has not said. */
+export function sellerKindOf(profile: { sellerKind: string | null }): SellerKind | null {
+  return profile.sellerKind === "business" || profile.sellerKind === "private" ? profile.sellerKind : null;
+}
+
+/**
+ * What a host's page, and the pages where a call with her is asked for, say about how she offers calls: her own
+ * statement, which Connect does not check. Null for a host who has not said; then the pages say nothing.
+ * Asked by the host's id, so it is the same on her public page and on a hidden page a member can reach.
+ */
+export async function sellerLine(hostId: string, displayName: string): Promise<string | null> {
+  const [row] = await db.select({ sellerKind: schema.hostProfiles.sellerKind }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hostId));
+  const kind = row ? sellerKindOf(row) : null;
+  if (!kind) return null;
+  return kind === "business"
+    ? `${displayName} offers calls as a business.`
+    : `${displayName} offers calls as a private person, not as a business. Consumer law about buying from a business may then not apply between you and ${displayName}; Connect's own terms do.`;
+}
+
 /**
  * A person applies to host. The profile waits for the founder's approval before anyone can see it.
+ *
+ * They accept the Host Agreement by a tick on the form: `agreements` names the version the form
+ * showed, and the acceptance is written in the same database step as the profile, or neither is
+ * (plans/46, part 1). They also say whether they host as a business or as a private person.
  *
  * `country` is where they say they are based: it must be given, and be one of the countries a
  * host can be paid in (countries.ts). It is never guessed, and the host cannot change it later:
@@ -114,9 +150,12 @@ function checkedLanguages(sent: readonly string[]): string[] {
  */
 export async function createHostProfile(
   userId: string,
-  input: { handle: string; displayName: string; about: string; pricePer15Cents: number; country: string; languages: readonly string[] },
+  input: { handle: string; displayName: string; about: string; pricePer15Cents: number; country: string; languages: readonly string[]; sellerKind: string; /** The Host Agreement as the form showed it, or null when its box was not ticked. */ agreements: Shown | null },
 ): Promise<void> {
   const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages) };
+  if (!input.agreements) throw new ProfileError("Please tick the box to accept the Host Agreement.");
+  const sellerKind = checkedSellerKind(input.sellerKind);
+  const agreements = input.agreements;
   const handle = tidyHandle(input.handle);
   const problem = handleProblem(handle);
   if (problem) throw new ProfileError(problem);
@@ -128,9 +167,14 @@ export async function createHostProfile(
   if (started?.accountId && country !== HOME_COUNTRY) {
     throw new ProfileError("You started setting up a payout account for the United States, so you cannot apply from another country here. Please write to support.");
   }
+  const now = new Date();
   try {
-    await db.insert(schema.hostProfiles).values({ userId, handle, handleKey: handleKey(handle), ...details, country, usConfirmedAt: new Date() });
+    await db.transaction(async (tx) => {
+      await acceptHostAgreementIn(tx, { userId, shown: agreements, occasion: "host_application", now });
+      await tx.insert(schema.hostProfiles).values({ userId, handle, handleKey: handleKey(handle), ...details, country, sellerKind, usConfirmedAt: now });
+    });
   } catch (error) {
+    if (error instanceof AgreementError) throw new ProfileError(error.message);
     if (!isTaken(error)) throw error;
     const [mine] = await db.select({ id: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId));
     // Taken, blocked and look-alike handles all get the same answer.
@@ -144,9 +188,9 @@ export async function createHostProfile(
  */
 export async function updateHostProfile(
   userId: string,
-  input: { displayName: string; about: string; pricePer15Cents: number; languages: readonly string[] },
+  input: { displayName: string; about: string; pricePer15Cents: number; languages: readonly string[]; /** Business or private, when the form asks it. Left as it is when not given. */ sellerKind?: string },
 ): Promise<void> {
-  const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages) };
+  const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages), ...(input.sellerKind === undefined ? {} : { sellerKind: checkedSellerKind(input.sellerKind) }) };
   await db.transaction(async (tx) => {
     // The host's calendar lock first: a membership month is written down under the same lock while it
     // reads this price, so a month can never start at a price above the regular one.
@@ -166,9 +210,32 @@ export async function updateHostProfile(
       profile.status === "declined" || (profile.status === "approved" && renamed) ? "pending" : profile.status;
     await tx
       .update(schema.hostProfiles)
-      .set({ ...details, status, updatedAt: new Date() })
+      // A declined page that is sent in again is no longer declined, so the reason it was declined for goes with it.
+      .set({ ...details, status, ...(status === "pending" ? { decidedReason: null } : {}), updatedAt: new Date() })
       .where(eq(schema.hostProfiles.userId, userId));
   });
+}
+
+/**
+ * A host from before the Host Agreement existed, or one asked to accept a new version, answers the box at
+ * the top of her Hosting page (plans/46, decision 8): the tick, and business or private.
+ */
+export async function answerHostBox(userId: string, input: { sellerKind: string; agreements: Shown | null }): Promise<void> {
+  if (!input.agreements) throw new ProfileError("Please tick the box to accept the Host Agreement.");
+  const sellerKind = checkedSellerKind(input.sellerKind);
+  const agreements = input.agreements;
+  const now = new Date();
+  try {
+    await db.transaction(async (tx) => {
+      const [profile] = await tx.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
+      if (!profile) throw new ProfileError("You do not have a host profile yet.");
+      await acceptHostAgreementIn(tx, { userId, shown: agreements, occasion: "host_new_version", now });
+      await tx.update(schema.hostProfiles).set({ sellerKind, updatedAt: now }).where(eq(schema.hostProfiles.userId, userId));
+    });
+  } catch (error) {
+    if (error instanceof AgreementError) throw new ProfileError(error.message);
+    throw error;
+  }
 }
 
 /** The host's own switch. Hiding stops people finding the profile; calls already booked still happen. */
@@ -186,6 +253,11 @@ export async function decideProfile(input: {
   decision: Exclude<ProfileStatus, "pending">;
   by: string;
   seen?: { displayName: string; about: string; identityCheckId?: string };
+  /**
+   * Why, for "declined" and "suspended": the rule, and the facts in a sentence (plans/46, decision 11). The host
+   * is told it by email, in the same database step, and her Hosting page shows it.
+   */
+  reason?: { ruleKey: string; note: string };
 }): Promise<void> {
   if (!["approved", "declined", "suspended"].includes(input.decision)) throw new ProfileError("Unknown decision.");
   if (input.decision === "approved" && !input.seen) throw new ProfileError("Open the profile again before approving it.");
@@ -195,6 +267,14 @@ export async function decideProfile(input: {
     if (input.seen?.identityCheckId && identity.checkId !== input.seen.identityCheckId) {
       throw new ProfileError("The identity result changed while you were looking at it. Check it again.");
     }
+  }
+  let reason: string | null = null;
+  if (input.decision !== "approved") {
+    const rule = RULES.find((r) => r.key === input.reason?.ruleKey);
+    const note = (input.reason?.note ?? "").trim();
+    if (!rule || !note) throw new ProfileError("Choose the rule, and say in a sentence what happened. The host is told this reason.");
+    if (note.length > 500) throw new ProfileError("Please keep the reason under 500 characters.");
+    reason = `${rule.title}. ${note}`;
   }
   const stillAsSeen =
     input.decision === "approved"
@@ -212,9 +292,11 @@ export async function decideProfile(input: {
     if (input.decision === "approved" && closed) throw new ProfileError("This account is closed. Open it again before approving its profile.");
     if (!before) throw new ProfileError("Profile not found.");
     if (input.decision === "approved" && (await confirmedAccounts(tx, input.userId)) === 0) throw new ProfileError(NO_CONFIRMED_ACCOUNT);
+    // The same decision given again changes nothing: the reason the host was told, and its moment, stay as they are.
+    const again = before.status === input.decision;
     const changed = await tx
       .update(schema.hostProfiles)
-      .set({ status: input.decision, decidedBy: input.by, decidedAt, updatedAt: decidedAt })
+      .set(again ? { updatedAt: decidedAt } : { status: input.decision, decidedBy: input.by, decidedAt, decidedReason: reason, updatedAt: decidedAt })
       .where(and(eq(schema.hostProfiles.userId, input.userId), stillAsSeen))
       .returning({ userId: schema.hostProfiles.userId });
     if (changed.length === 0) {
@@ -223,7 +305,7 @@ export async function decideProfile(input: {
       );
     }
     // The host is told when the answer changes, not when the same answer is given again.
-    if (before.status !== input.decision) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision });
+    if (!again) await queueProfileDecisionEmail(tx, { userId: input.userId, decision: input.decision, reason });
     // A suspended host's memberships end at once and for good, in this same step. (Her own memberships with other hosts go on.)
     if (input.decision === "suspended") endedMemberships = await endMembershipsOf(tx, input.userId, { by: "connect", reason: "the host can no longer be booked", asHostOnly: true }, decidedAt);
     // So do the contributions to her project. (What she contributes to other hosts goes on.) Loaded here, not at

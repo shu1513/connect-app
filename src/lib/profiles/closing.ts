@@ -5,6 +5,8 @@ import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/stat
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
 import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { queueEmail } from "@/lib/email";
+import { SUPPORT_EMAIL } from "@/lib/terms";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
 import { roomState } from "@/lib/calls";
@@ -23,7 +25,15 @@ import { ownPaymentOn } from "@/lib/payments/own";
  * Returns how many of its calls could not be ended (-1 when its requests or
  * calls could not be dealt with at all), so the founder can be told to check them.
  */
-export async function closeAccount(input: { userId: string; by: string }): Promise<{ callsNotEnded: number }> {
+export async function closeAccount(input: {
+  userId: string;
+  by: string;
+  /**
+   * Why, as the person is told by email in this same database step (plans/46, decision 11). The founder's two
+   * "close" buttons always give one. Without it nothing is sent, as before: only check scripts close that way.
+   */
+  reason?: string;
+}): Promise<{ callsNotEnded: number }> {
   const now = new Date();
   let endedMemberships: string[] = [];
   let givenUpPayments: string[] = [];
@@ -32,10 +42,19 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
     if (admin) throw new ProfileError("An admin account cannot be closed here.");
     const closed = await tx
       .update(schema.user)
-      .set({ closedAt: now, updatedAt: now })
+      .set({ closedAt: now, closedReason: input.reason ?? null, updatedAt: now })
       .where(and(eq(schema.user.id, input.userId), isNull(schema.user.closedAt)))
-      .returning({ id: schema.user.id });
+      .returning({ id: schema.user.id, name: schema.user.name, email: schema.user.email });
     if (closed.length === 0) throw new ProfileError("That account was not found, or is already closed.");
+    // Written straight to the person's address: the usual wrappers do not write to a closed account, and this is the one email about the closing.
+    if (input.reason) {
+      await queueEmail(tx, {
+        to: closed[0].email,
+        subject: "Your Connect account has been closed",
+        text: `Hi ${closed[0].name},\n\nYour Connect account has been closed. You can no longer log in. Requests that were waiting are ended, and calls that had not started are cancelled at no charge to anyone. Memberships and monthly contributions you were part of have ended.\n\nThe reason:\n\n${input.reason}\n\nIf you think this is a mistake, write to ${SUPPORT_EMAIL} and say what you want looked at again. A person reads it.\n\n—\nConnect · questions: ${SUPPORT_EMAIL}`,
+        key: `account-closed:${input.userId}:${now.getTime()}`,
+      });
+    }
     await tx.delete(schema.session).where(eq(schema.session.userId, input.userId));
     await tx
       .update(schema.hostProfiles)

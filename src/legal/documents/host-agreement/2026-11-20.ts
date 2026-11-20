@@ -1,9 +1,6 @@
-# Connect Host Agreement
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Host Agreement
 
 ## The short version
 
@@ -28,8 +25,8 @@ This box is a summary to help you. It is not the agreement; the numbered section
 1.1 This Host Agreement is between you and [COMPANY NAME] ("Connect", "we", "us"). It applies
 from the moment you apply to host, and for as long as you have a host page.
 
-1.2 It adds to the [Terms of Service](terms-of-service.md), which you accepted when you made
-your account and which still apply to you, including when you book calls yourself as a
+1.2 It adds to the [Terms of Service](terms-of-service.md), which you accepted when you finished
+signing up and which still apply to you, including when you book calls yourself as a
 customer. The [Payment Terms](payment-terms.md), the [Community Rules](community-rules.md) and
 the [Copyright Policy](copyright-policy.md) apply to you too. On anything about hosting, this
 agreement comes first.
@@ -577,3 +574,6 @@ too.
 - Help: [SUPPORT EMAIL]
 - Complaints about a decision: [HOST COMPLAINTS EMAIL]
 - Legal notices: [LEGAL EMAIL] and [COMPANY NAME], [ADDRESS]
+`;
+
+export default text;

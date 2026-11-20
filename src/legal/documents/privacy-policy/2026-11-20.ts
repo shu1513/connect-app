@@ -1,9 +1,6 @@
-# Connect Privacy Policy
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Privacy Policy
 
 This policy tells you what information Connect has about you, where it comes from, what we do
 with it, who else sees it, how long we keep it, and what you can ask of us. It is a notice. You
@@ -88,7 +85,11 @@ call and in their own notes (section 6).
   account's number and name. To confirm an account by a code, we read its public profile text
   once and look for the code; we do not keep the text. When a host chooses to use the account's
   profile picture as their photo, we fetch that public picture. We keep no key to any social
-  account.
+  account. When a host connects Instagram by signing in at Meta, Meta lists Connect among the
+  apps connected to the host's business portfolio until the host removes it there (in Meta's
+  Business Settings, under Integrations, Connected apps). The two are separate: removing it at
+  Meta does not take the account off the host's Connect page, and removing the account from the
+  Connect page does not remove the connection at Meta.
 - **From other users:** what a host or a customer writes about you in a report or a refund
   request; the stars they give you; and a host's private notes (section 6).
 
@@ -131,6 +132,11 @@ An account is paused automatically in one case only: an identity check that give
 - **Anyone, logged in or not, can see a host's page:** display name, handle, photo,
   description, languages, confirmed social accounts, prices, open times, star average and
   diary.
+- **Your photo, if you are not a host,** is shown only to hosts you have asked for a call,
+  beside your name. It stops being shown to a host when either of you blocks the other. A
+  host's photo is shown to everyone while the host's page is open to everyone, and a host who
+  asks another host for a call is shown there with the same photo. If someone reports a person,
+  we note which photo that person had at the time.
 - **A host you ask for a call sees:** your name; your photo, if you have one; the note you
   wrote; whether your ID is confirmed (never your ID or the name on it); whether you are their
   member; and how often you two have talked.
@@ -296,3 +302,6 @@ you, we email you before it takes effect.
 ## 14. How to reach us
 
 [COMPANY NAME], [ADDRESS] · [PRIVACY EMAIL]
+`;
+
+export default text;

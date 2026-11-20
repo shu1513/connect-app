@@ -84,6 +84,8 @@ async function main() {
   const { ensurePayoutAccount, refreshPayoutsReady, getHostSettings, PayoutSetupError } = await import("../src/lib/payments/hosts");
   const { payoutAccountRequest } = await import("../src/lib/payments/host-account");
   const { createHostProfile, ProfileError } = await import("../src/lib/profiles/profiles");
+  // What a person applying to host sends besides the profile (plans/46): business or private, and the Host Agreement as the form showed it.
+  const consent = { sellerKind: "private", agreements: (await import("../src/legal/accept")).hostAgreementShown(new Date()) };
   const { HOST_COUNTRIES } = await import("../src/lib/profiles/countries");
   const { startProject, runningProjectOf } = await import("../src/lib/projects/projects");
   const { projectsOnFor } = await import("../src/lib/safety/switches");
@@ -108,7 +110,7 @@ async function main() {
   }
   /** Applies as a host through the app's own function. Pretended: the founder's approval. */
   async function applyFrom(who: Person, country: string): Promise<void> {
-    await createHostProfile(who.id, { handle: `ab${RUN}${made}`, displayName: `Host ${made}`, about: "", pricePer15Cents: 2000, country, languages: ["en"] });
+    await createHostProfile(who.id, { handle: `ab${RUN}${made}`, displayName: `Host ${made}`, about: "", pricePer15Cents: 2000, country, languages: ["en"], ...consent });
     await db.update(schema.hostProfiles).set({ status: "approved" }).where(eq(schema.hostProfiles.userId, who.id));
   }
   const refusal = async (work: Promise<unknown>): Promise<string | null> => {

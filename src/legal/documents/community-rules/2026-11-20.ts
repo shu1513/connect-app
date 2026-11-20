@@ -1,9 +1,6 @@
-# Connect Community Rules
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Community Rules
 
 Connect is for conversation: a chat with someone you follow, some coaching, an exchange of
 experience, on a private one-to-one video call. These rules keep it safe. They are part of the
@@ -88,3 +85,6 @@ account, close it, cancel calls at no charge to the other person, hold or return
 tell the authorities. We do not have to go through these steps in order: a serious breach can
 end an account at once. We tell the person which rule it is about, unless the law or someone's
 safety prevents it. If you think we got it wrong, write to [SUPPORT EMAIL].
+`;
+
+export default text;

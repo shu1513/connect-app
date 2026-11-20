@@ -18,7 +18,7 @@ function appUrl(): string {
  * Queues the email for one decision. The caller only calls this when the answer really changed
  * (under a lock), so each call is one event and gets a name of its own.
  */
-export async function queueProfileDecisionEmail(tx: Writer, input: { userId: string; decision: "approved" | "declined" | "suspended" }): Promise<void> {
+export async function queueProfileDecisionEmail(tx: Writer, input: { userId: string; decision: "approved" | "declined" | "suspended"; /** For "declined" and "suspended": why, as saved with the decision. */ reason?: string | null }): Promise<void> {
   const [host] = await tx
     .select({ name: schema.user.name, email: schema.user.email, closedAt: schema.user.closedAt, handle: schema.hostProfiles.handle, hidden: schema.hostProfiles.hidden })
     .from(schema.hostProfiles)
@@ -26,6 +26,6 @@ export async function queueProfileDecisionEmail(tx: Writer, input: { userId: str
     .where(eq(schema.hostProfiles.userId, input.userId));
   // A closed account is not written to.
   if (!host || host.closedAt) return;
-  const { subject, text } = profileDecisionEmail(input.decision, host, appUrl());
+  const { subject, text } = profileDecisionEmail(input.decision, host, appUrl(), input.reason ?? null);
   await queueEmail(tx, { to: host.email, subject, text, key: `profile_${input.decision}:${input.userId}:${randomUUID()}` });
 }

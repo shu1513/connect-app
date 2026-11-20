@@ -2,9 +2,15 @@
 
 Written on 20 November 2026 by the builder, at the founder's request ("you will write the legal
 agreement... this is just for me to see what's the best you can come up with"). **Nothing here
-is in force, and none of it was written or checked by a lawyer.** The app's own pages (`/terms`,
-`/privacy`, `/rules`) still show their placeholders. The open legal questions behind these
-drafts are in `docs/for-the-lawyer.md`.
+is in force, and none of it was written or checked by a lawyer.** The open legal questions
+behind these drafts are in `docs/for-the-lawyer.md`.
+
+**Where the texts are now.** Since plan 46, part 1, the seven documents live in the app:
+`src/legal/documents/<name>/<version>.ts`, one file for each version, listed in
+`src/legal/versions.ts`. The site shows them at `/terms`, `/payment-terms`, `/rules`,
+`/host-agreement`, `/privacy`, `/copyright` and `/identity-notice`, each marked "Draft. Not in
+force yet." A version that has been merged is never edited: a change is a new version. This
+folder keeps the map (this file) and Astra's own drafts.
 
 ## 1. The documents
 
@@ -14,13 +20,13 @@ never clash.
 
 | Document | Who | When | Accepted or shown | File |
 |---|---|---|---|---|
-| Terms of Service | Everyone | At sign-up; again for each new version | **Accepted** (by creating the account; see section 4) | `terms-of-service.md` |
-| Payment Terms | Everyone | At sign-up, as part of the Terms; the key rules shown again at each payment | **Accepted** (the same act) | `payment-terms.md` |
-| Community Rules | Everyone | At sign-up, as part of the Terms; linked from every call | **Accepted** (the same act) | `community-rules.md` |
-| Host Agreement | Hosts only | When applying to host; again for each new version | **Accepted** (its own tick box) | `host-agreement.md` |
-| Privacy Policy | Everyone | Linked at sign-up and in the footer | **Shown**, not accepted | `privacy-policy.md` |
-| Copyright and Content Complaints Policy | Everyone, also people with no account | Footer | **Shown** (and part of the Terms) | `copyright-policy.md` |
-| Identity Check Notice | Anyone about to take the ID check | On the page with the button that leads to Stripe | **Shown, and consented to** by pressing that button | `identity-check-notice.md` |
+| Terms of Service | Everyone | At sign-up; again for each new version | **Accepted** (by creating the account; see section 4) | `src/legal/documents/terms-of-service/` |
+| Payment Terms | Everyone | At sign-up, as part of the Terms; the key rules shown again at each payment | **Accepted** (the same act) | `src/legal/documents/payment-terms/` |
+| Community Rules | Everyone | At sign-up, as part of the Terms; linked from every call | **Accepted** (the same act) | `src/legal/documents/community-rules/` |
+| Host Agreement | Hosts only | When applying to host; again for each new version | **Accepted** (its own tick box) | `src/legal/documents/host-agreement/` |
+| Privacy Policy | Everyone | Linked at sign-up and in the footer | **Shown**, not accepted | `src/legal/documents/privacy-policy/` |
+| Copyright and Content Complaints Policy | Everyone, also people with no account | Footer | **Shown** (and part of the Terms) | `src/legal/documents/copyright-policy/` |
+| Identity Check Notice | Anyone about to take the ID check | On the page with the button that leads to Stripe | **Shown, and consented to** by pressing that button | `src/legal/documents/identity-check-notice/` |
 
 Why split this way:
 
@@ -86,8 +92,9 @@ Where it stops, said plainly:
 ## 4. How people accept, and the short sentences at each moment
 
 **The founder's choice (20 November 2026): acceptance of the general terms is implicit, as on
-ElectionsSimplified.** One sentence sits right beside the "Create an account" button, naming
-and linking each document, and pressing the button is the yes. The version accepted is saved.
+ElectionsSimplified.** One sentence sits right beside the button of the last step of sign-up
+(an account already exists before that step, so the words are "By finishing sign-up..."),
+naming and linking each document, and pressing the button is the yes. The version accepted is saved.
 What makes this hold is that the sentence is at the button and the documents are linked there:
 it may never move to the footer or shrink to a bare "Terms" link. As settled on that site, the
 sentence names no single clause (no "arbitration" beside the button); the Terms carry their own
@@ -105,14 +112,14 @@ Sentences marked "today" are already in the app.
 | Moment | Sentence |
 |---|---|
 | Sign-up, the box (today) | "I am 18 or older." |
-| Sign-up, beside the button (to change: today it is a second tick box) | "By creating an account you agree to the Terms of Service, the Payment Terms and the Community Rules." Each name is a link. Under it: "Our Privacy Policy explains what we do with your information." |
-| Applying to host, a box (new) | "I have read and accept the Host Agreement." |
+| The last step of sign-up, beside the button (built, plan 46) | "By finishing sign-up you agree to the Terms of Service, the Payment Terms and the Community Rules." Each name is a link to that exact version. Under it: "Our Privacy Policy explains what we do with your information." A person asked again after a change reads "By pressing the button you agree to the updated..." |
+| Applying to host, a box (built, plan 46) | "I have read and accept the Host Agreement." |
 | Saving a card for a call (today) | "I agree that Connect keeps my card for this call, holds up to $X on it when the host accepts, and charges it after the call... The card is removed once the call is over." |
 | Booking a call inside 14 days, UK and Europe (new) | "I ask for this call to take place within 14 days of today. I understand that once it has taken place I can no longer cancel it under the 14-day rule." |
 | Joining a membership (today, with one addition) | "I agree to this, and to my card being kept for the monthly payment and for extra time during a call with [host] that my membership time does not cover." Add: "It renews every month until I cancel." |
 | A monthly contribution (today) | "I agree that Connect holds $X on my card today and every month, and takes it three days later each time, or sooner if my bank shortens the hold, until I cancel." |
 | A tip (today, shown, no box) | The six sentences of `tipSentences` in `src/lib/contributions/tip-rules.ts`. |
-| The identity check (to change) | The Identity Check Notice, shown above the button, and on the button: "I agree, continue to Stripe". |
+| The identity check (built, plan 46) | The Identity Check Notice, shown in full above the button, and on the button: "I agree, continue to Stripe". |
 | Uploading a photo (today, in other words) | "Before anyone sees your photo, our copy is checked by a checking service, without your name." |
 
 ## 5. The blanks
@@ -148,43 +155,26 @@ Sentences marked "today" are already in the app.
    (Terms 22.7). European law asks marketplaces for this. The app does not ask it today.
 6. **How long records are kept** (Privacy Policy, section 7).
 
-## 7. Where the app would have to change for these texts to be true
+## 7. Where the app had to change for these texts to be true
 
-Most important first.
+The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 
-1. **The pages themselves.** `/terms`, `/privacy` and `/rules` show placeholders
-   (`src/app/terms/page.tsx`, `src/app/privacy/page.tsx`, `src/lib/terms.ts`). New pages are
-   needed for the Payment Terms, the Host Agreement and the Copyright Policy.
-2. **Proof of acceptance.** Today one tick covers rules, terms and privacy, only the latest
-   version is kept, and the form does not say which version was shown
-   (`src/app/welcome/actions.ts`). Needed: a history of every acceptance (person, document,
-   version, moment), the Privacy Policy taken out of the tick, and the text of every version
-   kept.
-3. **A tick box for the Host Agreement** when applying to host. Nothing a host accepts today is
-   about hosting.
-4. **Real addresses.** The support address falls back to `support@connect.example`
-   (`src/lib/terms.ts`). The policies promise an answer within 14 days, a way to opt out of
-   arbitration, and a way for people with no account to send a notice.
-5. **Thirty days' notice of new terms by email** before people are asked to accept them
-   (Terms 23.2). Today a new version is simply shown at the next login.
-6. **Closing your own account and deleting your details** (Terms 24.1, Privacy Policy 9.2).
-   Today only the founder can close an account, and nothing is deleted. Planned in plans 39 and
-   45.
-7. **The periods in the Privacy Policy, section 7.** The code deletes connection grades (60
-   days), suggestion history (90 days), refund texts (1 year) and login emails. Nothing else has
-   an end date.
-8. **Business or private host** (decision 5), asked when applying and shown on the page.
-9. **The 14-day box** for customers in the United Kingdom and Europe, and a way for support to
-   pay back a call or a membership cancelled under that rule (Payment Terms 12).
-10. **Reasons in the email that suspends a host's page** (Host Agreement 17.4). Today it gives
-    none (`src/lib/profiles/decision-email.ts`).
-11. **Tax details from hosts and the yearly reports** (Host Agreement 16.2). The code has
-    nothing about tax.
-12. **Refunds by Connect in the host's place** for the cases in Payment Terms 9.5, also after
-    the host has collected. Today that case is "write to support" with no tool behind it.
-13. **"It renews every month until I cancel"** added to the membership tick box
-    (`src/lib/membership/wording.ts`), with a new wording version.
-14. **Sending uncollected earnings after 12 months** (Host Agreement 7.7), if that is wanted.
+| | Change | Where it stands |
+|---|---|---|
+| 1 | The pages themselves | **Built** (plan 46, part 1): seven pages, every version kept. |
+| 2 | Proof of acceptance | **Built** (part 1): one line for each person, document and version, never changed; the privacy policy is shown, not accepted. |
+| 3 | A tick box for the Host Agreement | **Built** (part 1), with a box on the Hosting page for hosts from before. |
+| 4 | Real addresses | The support address is a setting (`SUPPORT_EMAIL`); the others are written into the first published version. Someone has to read the inbox. |
+| 5 | Thirty days' notice of new terms by email | Plan 46, part 2. |
+| 6 | Closing your own account and deleting your details | Plan 45, parts 19 to 19c (the phone-apps work). Until then: "write to us", and the founder closes the account. |
+| 7 | End dates for records | Plan 46, part 4, for emails and login records. The other periods of the privacy policy are proposals and are **not built**. |
+| 8 | Business or private host | **Built** (part 1): asked when applying, shown on the host's page and where a call is asked for. |
+| 9 | The 14-day sentence | **Built** (pull request 80). The founder's tool for a new membership cancelled within 14 days is plan 46, part 3. |
+| 10 | Reasons when a host's page is declined or suspended | **Built** (part 1): saved, emailed and shown; closing an account takes a reason too. |
+| 11 | Tax details from hosts and the yearly reports | No code: Stripe's tools on the company's own Stripe account. See `docs/research/tax-forms-for-hosts.md`. A yearly statement a host can download is plan 46, part 5. |
+| 12 | Refunds by Connect in the host's place, also after she collected | Plan 46, part 3. |
+| 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
+| 14 | Sending earnings not collected for 12 months | Plan 46, part 3. |
 
 ## 8. Astra's drafts, and where they differ from these
 
@@ -225,7 +215,7 @@ Policy, section 12) and requests from authorities (Copyright Policy, section 7).
 Each rule about money, time and data in these drafts was taken from the code or from the pages
 that show it to customers today (the booking pages, `src/lib/payments/rules.ts`,
 `src/lib/payments/pricing.ts`, the membership, contribution and tip wording, the privacy page).
-Three statements describe the app as it would have to be, not as it is: they are items 5, 6 and
-8 of the list above. The law itself was written from the builder's knowledge and not looked up
+Two statements still describe the app as it would have to be, not as it is: thirty days' notice
+of new terms (point 5) and the periods for keeping records (point 7). The law itself was written from the builder's knowledge and not looked up
 again for this draft: the statute names, the 48-hour rule for intimate pictures, the 14-day
 rule and its exception, and the notice periods all need a lawyer's eye.
