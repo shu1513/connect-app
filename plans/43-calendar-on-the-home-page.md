@@ -50,6 +50,9 @@ Nothing new is stored, the database does not change, and no rule about money or 
 
 ## What the founder said (20 November 2026)
 
+- After seeing a picture of the plan: "maybe on the calendar itself we show how much money
+  earned from completed calls. as in each completed call square inside of the calendar shows
+  the dollar earned for that call." (Decision 8.)
 - "so the homepage calendar shows the week's schedule (also maybe there is a monthly view or
   next button for next week) where you see your calls that you booked, the calls someone booked
   to call you (you as a host) and the complete calls (and how much you earned in those calls).
@@ -89,7 +92,12 @@ Nothing new is stored, the database does not change, and no rule about money or 
    call's id only; what is shown comes fresh from the server each time, so details that may no
    longer be shown disappear at the next refresh.
 
-8. **What a finished call says about money.** A call she hosted: "You earned $38.00". That is
+8. **What a finished call says about money (the amount in the block is the founder's).** The
+   block of a finished call she hosted shows what it earned, right on the calendar: "10:30 Ben ·
+   $38.00". Where a block is too small for both, the amount stays and the name is shortened;
+   tapping shows everything. A call she booked shows no amount in its block; what she paid is
+   there when she taps it. In words, under the calendar, a call she hosted says: "You earned
+   $38.00". That is
    her share of what was charged for that call, added time included, after Connect's fee and
    before the 25 cents taken when she collects. A refund that has gone through lowers it; a
    call refunded in full says $0.00. While part of the call's money is not settled yet (held,
