@@ -75,3 +75,59 @@ export function inListOrder<T extends { name: string; available: boolean; nextCa
     return a.name.localeCompare(b.name, "en", { sensitivity: "base" });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Emails to followers (plans/31)
+// ---------------------------------------------------------------------------
+
+export const EMAILS = {
+  /** A host who switches "Available now" on is announced this long after. Switched off again before that: nothing is sent. */
+  announceAfterSeconds: 60,
+  /** One follower gets at most one email of each kind about one host in this many hours. */
+  perHostHours: 20,
+  /** One follower gets at most this many of these emails in 24 hours, whatever the host and the kind. */
+  perDay: 5,
+  /** A diary post is announced this long after it was written, if it is still there. */
+  postAfterMinutes: 30,
+  /** A post that could not be announced within this long is not announced at all. */
+  postTooOldHours: 24,
+  /** A diary email that has not been sent this long after it was written is dropped. */
+  postExpiresHours: 12,
+} as const;
+
+/**
+ * The switch for the whole of plans/31: the postal address for the last line of these emails.
+ * While there is none, the choices are not shown and nothing is written or sent. Read each time,
+ * so the one setting is the one truth.
+ */
+export function followEmailsAddress(): string | null {
+  const address = (process.env.FOLLOW_EMAILS_ADDRESS ?? "").replace(/\s+/g, " ").trim();
+  return address === "" ? null : address;
+}
+export const followEmailsOn = (): boolean => followEmailsAddress() !== null;
+
+/** Minutes of the day at this moment in that time zone. Someone who never chose a zone is treated as New York, as their other emails are. */
+export function minuteOfDay(moment: Date, timeZone: string | null): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timeZone ?? "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(moment);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return part("hour") * 60 + part("minute");
+}
+
+/**
+ * Whether the moment is inside the follower's hours. No hours: any time. The stretch runs from
+ * `from` up to, not including, `to`, and may run past midnight (22:00 to 02:00).
+ */
+export function insideHours(moment: Date, timeZone: string | null, from: number | null, to: number | null): boolean {
+  if (from === null || to === null) return true;
+  const minute = minuteOfDay(moment, timeZone);
+  return from < to ? minute >= from && minute < to : minute >= from || minute < to;
+}
+
+/** The hours a follower may choose: whole hours, different from each other. Null for "any time"; false for something that cannot be saved. */
+export function readHours(from: string, to: string): { from: number; to: number } | null | false {
+  if (from === "" && to === "") return null;
+  const [a, b] = [Number(from), Number(to)];
+  const whole = (n: number) => Number.isInteger(n) && n >= 0 && n < 24;
+  if (from === "" || to === "" || !whole(a) || !whole(b) || a === b) return false;
+  return { from: a * 60, to: b * 60 };
+}

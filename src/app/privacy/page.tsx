@@ -57,6 +57,11 @@ export default function PrivacyPage() {
         people do. You can unfollow at any time, and a host you unfollowed is not followed again for you after a later call.
       </p>
       <p className="mt-4 text-sm">
+        We email you about a host you follow only if you ticked it for that host, under &quot;Hosts you follow&quot;: when they are
+        available now, or when they write in their diary. Every such email has a link that stops all of them with one press,
+        and you can stop them on your account page. The emails never contain anything a host wrote.
+      </p>
+      <p className="mt-4 text-sm">
         A host you have asked for a call can keep private notes about you, to remember what you talked about. Only that host can
         read them: no other host can, and they are not shown on any page of yours. If you block the host, or the host blocks
         you, or your account is closed, the host can no longer read or change their notes about you.

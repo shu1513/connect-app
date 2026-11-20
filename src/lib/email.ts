@@ -90,23 +90,26 @@ type Writer = Pick<typeof db, "insert">;
  * cancelled) as part of the same database step as the event itself, so the
  * email exists exactly when the event happened: never lost, never twice.
  * `key` names the event, for example "accepted:<booking id>:customer".
+ * Returns whether the email was written now: false when one with this key was there already.
  */
 export async function queueEmail(
   tx: Writer,
-  message: { to: string; subject: string; text: string; key: string; expiresAt?: Date; headers?: Record<string, string> },
-): Promise<void> {
+  message: { to: string; subject: string; text: string; key: string; expiresAt?: Date; headers?: Record<string, string>; /** "follow" for an email to a follower (plans/31), so that those can be counted on their own. */ kind?: "booking" | "follow" },
+): Promise<boolean> {
   // These emails carry deadlines and instructions but no login links, so their text is kept:
   // it is what the sending service delivers.
-  await tx
+  const written = await tx
     .insert(schema.emailOutbox)
     .values({
       to: message.to.trim().toLowerCase(),
-      kind: "booking",
+      kind: message.kind ?? "booking",
       subject: message.subject,
       body: message.text,
       dedupeKey: message.key,
       expiresAt: message.expiresAt ?? null,
       headers: message.headers ? JSON.stringify(message.headers) : null,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: schema.emailOutbox.id });
+  return written.length > 0;
 }
