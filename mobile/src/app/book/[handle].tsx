@@ -148,6 +148,9 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
       frozen.current = false;
       setUnsure(null);
       setSaid(answer.message);
+      // The server has used this key up with its "no": whatever is sent next is a new request, with a new key
+      // (the next summary brings one).
+      key.current = null;
       if (answer.code === "not_found") {
         // The page is gone: nothing of it stays on the screen to be sent again.
         newest.current++;
@@ -335,6 +338,8 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
         onPress={() => {
           const what = fromForm(summary);
           if (what) void send(what, false);
+          // No key at hand (the last one was used up, and the summary could not be read since): read it now.
+          else void load();
         }}
       />
     </Page>

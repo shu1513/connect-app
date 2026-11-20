@@ -342,6 +342,57 @@ async function main() {
       check("a key that is no key", sentence(await send(maya.handle, s, cust.jar, { requestKey: "again" })) === "This form is out of date. Please reload the page.");
       check("a note that is too long", sentence(await send(maya.handle, s, cust.jar, { ...fresh(), note: "x".repeat(LIMITS.noteMax + 1) })) === `The note can be at most ${LIMITS.noteMax} characters.`);
       check("a host that does not exist", refusal(await send(`nobody${RUN}`, s, cust.jar, fresh())) === "not_found");
+
+      // A "no" for good uses its key up. A sending with the same key that was held up on its way, and only arrives
+      // after everything is in order again, makes nothing: what the app was told stays true.
+      const spentKeys = async (userId: string, key: string) => (await db.select().from(schema.spentRequestKeys).where(and(eq(schema.spentRequestKeys.customerId, userId), eq(schema.spentRequestKeys.requestKey, key)))).length;
+      const withKey = async (key: string) => (await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, key))).length;
+      const refused = await send(maya.handle, s, cust.jar, { seen: { price: 500, freeCancel: 1440 } });
+      const heldUp = await send(maya.handle, s, cust.jar);
+      check("a key that was refused for good makes nothing afterwards, though all is in order now", sentence(refused) === sentence(old) && refusal(heldUp) === "not_valid" && sentence(heldUp) === B.KEY_SPENT && (await withKey(s.requestKey)) === 0 && (await spentKeys(cust.id, s.requestKey)) === 1, sentence(heldUp));
+      // The same after "not found": her page was hidden when the second try came, and is back when the first arrives.
+      const hid = await okSummary(maya.handle, s.startsAt, cust.jar);
+      await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, maya.id));
+      const notThere = await send(maya.handle, hid, cust.jar);
+      await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, maya.id));
+      const backAgain = await send(maya.handle, hid, cust.jar);
+      check("the same after 'not found': the key is used up", refusal(notThere) === "not_found" && sentence(backAgain) === B.KEY_SPENT && (await withKey(hid.requestKey)) === 0);
+      check("somebody else's sending is not touched by it: a key is used up for its own person only", (await spentKeys(second.id, s.requestKey)) === 0 && (await spentKeys(second.id, hid.requestKey)) === 0);
+
+      // A sending that has to give up waiting for another with its key (here the place in the queue is held for
+      // longer than the app's limit) is told nothing certain: no answer of the door's at all. Its key is not used
+      // up, and sent again it goes through. The website's own function has no such limit: it waits, as it always did.
+      const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+      const waitApp = await okSummary(maya.handle, nextFree(), cust.jar);
+      const webKey = randomUUID();
+      const webTime = nextFree();
+      const hold = (userId: string, key: string) =>
+        db.transaction(async (tx) => {
+          await B.queueForKey(tx, userId, key, { bounded: false });
+          await pause(9_500);
+        });
+      const holding = Promise.all([hold(cust.id, waitApp.requestKey), hold(second.id, webKey)]);
+      await pause(400);
+      const began = Date.now();
+      const [gaveUp, web] = await Promise.all([
+        send(maya.handle, waitApp, cust.jar),
+        B.askForCall({ customer: { id: second.id, name: second.name, email: second.email }, hostId: maya.id, startsAt: new Date(webTime), lengthMinutes: 30, note: "", requestKey: webKey, agreedToCardTerms: false, seen: { pricePer15Cents: 0, freeCancelMinutes: 1440 }, now: new Date() }).then(
+          (made) => ({ id: made.booking.id, after: Date.now() - began }),
+          (error: Error) => ({ id: null, after: Date.now() - began, error: error.message }),
+        ),
+      ]);
+      await holding;
+      check("the app's sending gives up after its limit and is told nothing certain", gaveUp.status === 503 && gaveUp.text === "" && (await withKey(waitApp.requestKey)) === 0, `${gaveUp.status} ${gaveUp.text.slice(0, 80)}`);
+      check("its key is not used up: sent again, it goes through", (await spentKeys(cust.id, waitApp.requestKey)) === 0 && (await send(maya.handle, waitApp, cust.jar)).status === 200 && (await withKey(waitApp.requestKey)) === 1);
+      check("the website's function waits past that limit and then makes its request", web.id !== null && web.after > 8_500, JSON.stringify(web));
+      // The limit is for the wait for the key only: what was in force before is put back.
+      const limits = await db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('lock_timeout', '5s', true)`);
+        await B.queueForKey(tx, cust.id, randomUUID(), { bounded: true });
+        const [after] = await tx.execute(sql`select current_setting('lock_timeout') as now`);
+        return String((after as { now?: unknown }).now);
+      });
+      check("the wait limit that was in force before is put back after the key is taken", limits === "5s", limits);
       const self = (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, second.id)))[0];
       const own = await asApp(`/api/app/hosts/${self.handle}/book`, { jar: second.jar, body: { start: s.startsAt, length: 30, requestKey: randomUUID(), seen: { price: 0, freeCancel: 0 } } });
       check("booking oneself", sentence(own) === "You cannot book a call with yourself.");
@@ -371,7 +422,8 @@ async function main() {
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
       check("a paused person", refusal(await send(maya.handle, s, cust.jar, fresh())) === "paused");
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
-      check("none of those made a request", (await db.select().from(schema.bookings).where(inArray(schema.bookings.customerId, [cust.id, third.id]))).length === 1 && (await db.select().from(schema.bookings).where(eq(schema.bookings.hostId, second.id))).length === 0);
+      // (One request was made on purpose above: the sending that gave up waiting, sent again.)
+      check("none of those made a request", (await db.select().from(schema.bookings).where(and(inArray(schema.bookings.customerId, [cust.id, third.id]), sql`${schema.bookings.requestKey} <> ${waitApp.requestKey}`))).length === 1 && (await db.select().from(schema.bookings).where(eq(schema.bookings.hostId, second.id))).length === 0);
       // The limit on requests waiting with one host.
       const more = [await okSummary(maya.handle, nextFree(), cust.jar), await okSummary(maya.handle, nextFree(), cust.jar)];
       for (const one of more) await send(maya.handle, one, cust.jar);

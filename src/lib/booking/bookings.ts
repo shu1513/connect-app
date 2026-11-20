@@ -44,17 +44,42 @@ export function isOverlap(error: unknown): boolean {
  * Takes each person's calendar lock, always in the same order, so two steps
  * that involve the same people wait for each other instead of getting stuck.
  */
+/** Said to a sending whose once-only key was already answered "no request was made": it makes nothing, however late it arrives. */
+export const KEY_SPENT = "This request can no longer be sent as it is. Please go back and start again.";
+
+/** How long a sending from the app waits for another one with the same key. */
+const KEY_WAIT = "8s";
+/**
+ * The queue for once-only keys has a number space of its own (the database's two-number kind of lock). The
+ * calendars use the one-number kind, so a key and a calendar can never turn out to be the same lock.
+ */
+const KEY_SPACE = 4506;
+
 /**
  * Takes this customer's place in the queue for one once-only key, for the rest of this step of the
- * database: no other step holds the same place meanwhile. Waits a few seconds at most for a step
- * that holds it; if that is still not through, this one fails (the database's "lock not available"),
- * and nothing is decided. The key is the customer's own: nobody else's sending waits on it.
+ * database: no other step holds the same place meanwhile. The key is the customer's own: nobody
+ * else's sending waits on it.
+ *
+ * `bounded` (the phone app): waits a few seconds at most for a step that holds the place; if that is
+ * still not through, this one fails (the database's "lock not available") and nothing is decided. The
+ * app is then told "it cannot be told", keeps what it sent, and sends the same again. Not bounded (the
+ * website's form): waits until the other is through and then finds what it made, as it always did; a
+ * form has no way to be told "it cannot be told" and keep its key.
+ *
+ * (Exported for the check script, which holds a place to see both.)
  */
-async function queueForKey(tx: Tx, customerId: string, requestKey: string): Promise<void> {
-  await tx.execute(sql`select set_config('lock_timeout', '8s', true)`);
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`request-key:${customerId}:${requestKey}`}))`);
-  // Only the wait for the key has a limit: what follows in this step waits as it always did.
-  await tx.execute(sql`select set_config('lock_timeout', '0', true)`);
+export async function queueForKey(tx: Tx, customerId: string, requestKey: string, options: { bounded: boolean }): Promise<void> {
+  const place = sql`select pg_advisory_xact_lock(${KEY_SPACE}::int, hashtext(${`request-key:${customerId}:${requestKey}`}))`;
+  if (!options.bounded) {
+    await tx.execute(place);
+    return;
+  }
+  // The limit is for this one wait. What was in force before is remembered and put back, so what follows in this
+  // step waits exactly as it would have.
+  await tx.execute(sql`select set_config('connect.wait_before', current_setting('lock_timeout'), true)`);
+  await tx.execute(sql`select set_config('lock_timeout', ${KEY_WAIT}, true)`);
+  await tx.execute(place);
+  await tx.execute(sql`select set_config('lock_timeout', current_setting('connect.wait_before'), true)`);
 }
 
 export async function lockCalendars(tx: Tx, userIds: string[]): Promise<void> {
@@ -439,6 +464,8 @@ export async function askForCall(input: {
    * request. Only code that leaves the field out altogether (the check scripts) is not asked.
    */
   seen: { pricePer15Cents: number; freeCancelMinutes: number; cardTermsVersion?: string | null };
+  /** The phone app: the wait for another sending with the same key has a limit (see `queueForKey`). */
+  boundedKeyWait?: boolean;
   now: Date;
 }): Promise<{ booking: Booking; clientSecret: string | null }> {
   const { customer, now } = input;
@@ -454,12 +481,20 @@ export async function askForCall(input: {
       // again because the first answer was lost on the way, waits here until the first is through, and then finds
       // what it made. So the second can never be refused (the host has changed something meanwhile, say) while the
       // first goes on to be made.
-      await queueForKey(tx, customer.id, input.requestKey);
+      await queueForKey(tx, customer.id, input.requestKey, { bounded: input.boundedKeyWait === true });
       const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
       if (again) {
         if (again.customerId !== customer.id) throw new BookingError("This form is out of date. Please reload the page.");
         return again;
       }
+      // A key the app was already told "no request was made" for makes nothing now, even if everything else would
+      // be in order: this sending may be an early one that was held up on its way, arriving after a later try with
+      // the same key was refused for good.
+      const [spent] = await tx
+        .select({ at: schema.spentRequestKeys.at })
+        .from(schema.spentRequestKeys)
+        .where(and(eq(schema.spentRequestKeys.customerId, customer.id), eq(schema.spentRequestKeys.requestKey, input.requestKey)));
+      if (spent) throw new BookingError(KEY_SPENT);
       await lockCalendars(tx, [input.hostId, customer.id]);
       // What the host offers, read with the calendars locked: nothing about it can change under this request now.
       const current = await offerOf(input.hostId, tx);
@@ -1037,11 +1072,14 @@ export async function requestWithKey(customerId: string, requestKey: string): Pr
  * moment is waited for (a few seconds at most) and then seen. This is what is asked before a
  * customer is told "nothing was sent". One short step on one connection.
  */
-export async function requestWithKeySettled(customerId: string, requestKey: string): Promise<Booking | null> {
+export async function requestWithKeySettled(customerId: string, requestKey: string, options: { spend?: boolean } = {}): Promise<Booking | null> {
   if (!isUuid(requestKey)) return null;
   return db.transaction(async (tx) => {
-    await queueForKey(tx, customerId, requestKey);
+    await queueForKey(tx, customerId, requestKey, { bounded: true });
     const [booking] = await tx.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
+    // `spend`: the caller is about to say "no request was made" for good. That is written down here, in the key's
+    // own place in the queue, so that no sending with this key can make one afterwards (see `askForCall`).
+    if (!booking && options.spend) await tx.insert(schema.spentRequestKeys).values({ customerId, requestKey }).onConflictDoNothing();
     return booking ?? null;
   });
 }

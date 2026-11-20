@@ -315,13 +315,22 @@ function OneRequest({ id }: { id: string }) {
           label={takeBackLabel}
           kind="plain"
           busy={busy === "back"}
-          onPress={() =>
-            // A tap by accident must not take a request back: it is asked once more, in the server's words.
+          onPress={() => {
+            // A tap by accident must not take a request back: it is asked once more, in the server's words. The
+            // question stays up even when another screen comes to the front beneath it (a link opened meanwhile), so
+            // a "yes" only counts while this request is still the page in front.
+            const still = watch();
             Alert.alert(takeBackLabel, sure.words, [
               { text: sure.no, style: "cancel" },
-              { text: sure.yes, style: "destructive", onPress: () => void takeBack() },
-            ])
-          }
+              {
+                text: sure.yes,
+                style: "destructive",
+                onPress: () => {
+                  if (still()) void takeBack();
+                },
+              },
+            ]);
+          }}
         />
       ) : null}
 

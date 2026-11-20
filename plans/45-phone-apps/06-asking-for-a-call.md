@@ -395,11 +395,42 @@ refused while the first went on to be made.
    sendings could have used up. The queue is now taken inside the one step that makes the
    request: one connection for each sending.
 
-One thing no queue can close, said plainly: a first sending that has not yet reached the
-server at all (stuck on the way) cannot be waited for. If its second try is refused for good
-and the first then arrives after the host has changed things back, a request is made that
-the app said was not. The request is then on the home page under "Your requests", where it
-can be taken back.
+(The one thing a queue alone cannot close, a first sending still stuck on its way while its
+second try is refused, is closed by the eighth look below.)
+
+## Astra's eighth look at the code (20 November 2026): two gaps left, now worked in
+
+1. *A first sending held up before it had taken its place in the queue.* Its second try could
+   be refused for good ("that time has passed", say), and the first could still go on to make
+   the request afterwards: the app would have said "nothing was sent" about a request that
+   then exists. **A "no" for good now uses the key up.** It is written down in the key's own
+   place in the queue (a small new table, `spent_request_keys`: the person, the key, when),
+   and a sending with a used-up key makes nothing, however late it arrives and whatever has
+   changed back. The app takes a new key for whatever the person sends next. A failure that
+   is not a "no" (the database, Stripe, the wait running out) uses nothing up: the app keeps
+   its key and tries again, as before. Checks: refused, then sent again with all in order:
+   nothing is made; the same after "not found"; another person's key is not touched.
+2. *The website said "Nothing was sent" when it had only given up waiting.* The 8-second limit
+   on the wait for a key is now for the app alone, which can be told "it cannot be told" and
+   keep its key. The website's form waits until the other sending is through and then finds
+   what it made, as it always did. And when something else fails after the request was
+   written down (the card step at Stripe, say), the website now opens that request instead of
+   saying nothing was sent. A check holds a key for longer than the limit: the app's sending
+   gives up and is told nothing certain, its key still good; the website's waits and goes
+   through.
+3. *(Note.)* The queue for keys and the calendars' locks shared one space of numbers, so by
+   rare chance a key could have been the same lock as somebody's calendar. The keys now have a
+   space of their own.
+4. *(Note.)* After the wait for a key, the database's wait limit was set to "none" instead of
+   to what it had been. It is now put back as it was. A check does it.
+
+Also from the walk of part 08: the question before a request is taken back stays up when
+another screen comes to the front beneath it (a link opened meanwhile). A "yes" now only
+counts while that request is still the page in front.
+
+**The database gets one small new table with this part** (`spent_request_keys`). Its change
+file is made when this part's pull request is opened, so its number comes after whatever has
+been merged by then.
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { askForCall, BookingError } from "@/lib/booking/bookings";
+import { askForCall, BookingError, requestWithKey } from "@/lib/booking/bookings";
 import { hostForMemberByHandle } from "@/lib/membership/access";
 import { bookAsMember } from "@/lib/membership/book";
 import { withNotice } from "@/lib/notice";
@@ -17,6 +17,7 @@ export async function sendRequest(formData: FormData) {
   const profile = await publicProfile(handle);
   if (!profile) redirect("/");
 
+  const requestKey = String(formData.get("requestKey") ?? "");
   let bookingId: string;
   try {
     const { booking } = await askForCall({
@@ -25,7 +26,7 @@ export async function sendRequest(formData: FormData) {
       startsAt: new Date(start),
       lengthMinutes: length,
       note: String(formData.get("note") ?? ""),
-      requestKey: String(formData.get("requestKey") ?? ""),
+      requestKey,
       agreedToCardTerms: formData.get("cardTerms") === "on",
       seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")), cardTermsVersion: typeof formData.get("cardTermsVersion") === "string" ? String(formData.get("cardTermsVersion")) : null },
       now: new Date(),
@@ -33,7 +34,13 @@ export async function sendRequest(formData: FormData) {
     bookingId = booking.id;
   } catch (error) {
     const message = error instanceof BookingError ? error.message : "Something went wrong. Nothing was sent. Please try again.";
-    if (!(error instanceof BookingError)) console.error("[bookings] request failed", error);
+    if (!(error instanceof BookingError)) {
+      console.error("[bookings] request failed", error);
+      // The request may have been written down before the failure (a paid one's card step is made after it): then
+      // it is opened, not denied.
+      const made = await requestWithKey(user.id, requestKey).catch(() => null);
+      if (made) redirect(`/bookings/${made.id}`);
+    }
     redirect(withNotice(`/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(start)}`, message));
   }
   redirect(`/bookings/${bookingId}`);

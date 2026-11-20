@@ -59,6 +59,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
  * the key's place in the queue before it looks at anything (`askForCall`), and before a refusal is answered
  * here the request is looked for once every such step is through (`requestWithKeySettled`). So a sending that
  * is tried again is never told "nothing was sent" while the first is still being written down.
+ *
+ * And a "no" for good uses the key up, written down in that same place in the queue: a sending with the same key
+ * that was held up on its way and only arrives afterwards makes nothing. What the app was told stays true. The
+ * app takes a new key for whatever the person sends next.
  */
 async function send(
   me: { id: string; name: string; email: string },
@@ -80,7 +84,7 @@ async function send(
   if (!profile) {
     // Her page is not there now. It may have been a moment ago, when an earlier sending with this key was let in:
     // that one is waited for before "not found" is said.
-    const settled = await requestWithKeySettled(me.id, given.requestKey).catch((lookup) => {
+    const settled = await requestWithKeySettled(me.id, given.requestKey, { spend: true }).catch((lookup) => {
       console.error("[bookings] could not look for a request with its key", lookup);
       return "unknown" as const;
     });
@@ -97,6 +101,7 @@ async function send(
       // Only the box itself, ticked: nothing else counts as a yes.
       agreedToCardTerms: given.cardTerms,
       seen: { pricePer15Cents: given.seen.price, freeCancelMinutes: given.seen.freeCancel, cardTermsVersion: given.cardTermsVersion },
+      boundedKeyWait: true,
       now: new Date(),
     });
     return answer<AppBookSent>({ id: booking.id });
@@ -107,7 +112,9 @@ async function send(
     // when it is asked for), never as "nothing was sent".
     let made: Awaited<ReturnType<typeof requestWithKeySettled>>;
     try {
-      made = await requestWithKeySettled(me.id, given.requestKey);
+      // After one of the booking's own refusals the answer will be "no request was made", for good: the key is used
+      // up in the same look. After anything else nothing is certain, and the key stays good for the next try.
+      made = await requestWithKeySettled(me.id, given.requestKey, { spend: error instanceof BookingError });
     } catch (lookup) {
       console.error("[bookings] could not look for a request after a failed sending", lookup);
       return notKnown();
