@@ -12,6 +12,7 @@ import { averagesFor } from "@/lib/ratings/ratings";
 import { averageText } from "@/lib/ratings/rules";
 import { verifiedAmong } from "@/lib/safety/identity";
 import { isAvailableNow, NOW } from "./now-rules";
+import { EMAILS, followEmailsOn } from "@/lib/follows/rules";
 
 export type AvailabilityState = { availableUntil: string | null; on: boolean };
 
@@ -35,13 +36,21 @@ export async function setAvailableNow(input: { hostId: string; minutes: number |
     if (!offer.canTakePaid) throw new BookingError("Finish your payout setup before you can be available now.");
   }
   const until = input.minutes === null ? null : new Date(now.getTime() + input.minutes * 60_000);
+  // The followers who asked are told a minute after a host who was off switches on (plans/31). A host who is
+  // already on and only extends keeps what they have: a wait that is still running, or nothing once it was told.
+  // Switching off empties it, and so does switching on while those emails are off.
+  const announce = until && followEmailsOn() ? new Date(now.getTime() + EMAILS.announceAfterSeconds * 1000) : null;
+  const seenSince = new Date(now.getTime() - NOW.presenceSeconds * 1000);
+  const announceAt = announce
+    ? sql`case when ${schema.hostCalendars.availableUntil} > ${now.toISOString()}::timestamptz and ${schema.hostCalendars.availableSeenAt} > ${seenSince.toISOString()}::timestamptz then ${schema.hostCalendars.announceAt} else ${announce.toISOString()}::timestamptz end`
+    : null;
   // Every change to a host's availability is made under their calendar lock, one after the other,
   // so a late sign of life can never undo a switch-on, and the clean-up below sees a settled state.
   const calendar = await db.transaction(async (tx) => {
     await lockCalendars(tx, [hostId]);
     const [row] = await tx
       .update(schema.hostCalendars)
-      .set({ availableUntil: until, availableSeenAt: until ? now : null, updatedAt: now })
+      .set({ availableUntil: until, availableSeenAt: until ? now : null, announceAt, updatedAt: now })
       .where(and(eq(schema.hostCalendars.userId, hostId), !until && input.onlyPeriodUntil ? eq(schema.hostCalendars.availableUntil, input.onlyPeriodUntil) : undefined))
       .returning();
     return row;
@@ -75,7 +84,7 @@ export async function stillHere(hostId: string, now: Date): Promise<Availability
       .returning();
     if (renewed) return { calendar: renewed, lapsed: false };
     // Lapsed or over: make the switch-off explicit, so nothing later can revive it.
-    const [cleared] = await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null }).where(eq(schema.hostCalendars.userId, hostId)).returning();
+    const [cleared] = await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, announceAt: null }).where(eq(schema.hostCalendars.userId, hostId)).returning();
     return { calendar: cleared, lapsed: true };
   });
   if (lapsed) await endInstantRequestsOfAbsentHosts(now, hostId);

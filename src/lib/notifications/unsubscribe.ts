@@ -1,8 +1,10 @@
 /**
- * Switching reminder emails off from a link in an email, without logging in.
- * The link carries a secret that can do one thing only: switch reminders off
- * for that one person. Opening the link does nothing by itself (link scanners
- * open links); a button on the page, or the one-click header, does.
+ * Switching emails off from a link in an email, without logging in. The link
+ * carries a secret that can only ever switch something off for that one
+ * person: reminders, or (with `what=follows`) the emails about hosts they
+ * follow (plans/31; that switch itself is in follows/emails.ts). Opening the
+ * link does nothing by itself (link scanners open links); a button on the
+ * page, or the one-click header, does.
  */
 import { randomBytes } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
@@ -26,14 +28,19 @@ export async function unsubscribeTokenFor(userId: string): Promise<string> {
   return row?.token ?? fresh;
 }
 
+/** Which emails a link stops. */
+export type Stops = "reminders" | "follows";
+export const readStops = (value: unknown): Stops => (value === "follows" ? "follows" : "reminders");
+const whatPart = (what: Stops) => (what === "follows" ? "&what=follows" : "");
+
 /** The page with the button (for the email's text). */
-export function unsubscribeUrl(person: Person): string {
-  return `${appUrl()}/unsubscribe?token=${person.unsubscribeToken ?? ""}`;
+export function unsubscribeUrl(person: Person, what: Stops = "reminders"): string {
+  return `${appUrl()}/unsubscribe?token=${person.unsubscribeToken ?? ""}${whatPart(what)}`;
 }
 
 /** The address mail programs POST to for one-click unsubscribe. */
-function oneClickUrl(person: Person): string {
-  return `${appUrl()}/api/unsubscribe?token=${person.unsubscribeToken ?? ""}`;
+function oneClickUrl(person: Person, what: Stops): string {
+  return `${appUrl()}/api/unsubscribe?token=${person.unsubscribeToken ?? ""}${whatPart(what)}`;
 }
 
 /** The last lines of every reminder email. */
@@ -42,13 +49,16 @@ export function reminderFooter(person: Person): string {
 }
 
 /** The headers that let a mail program offer "unsubscribe" with one click (RFC 8058). */
-export function unsubscribeHeaders(person: Person): Record<string, string> {
-  return { "List-Unsubscribe": `<${oneClickUrl(person)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
+export function unsubscribeHeaders(person: Person, what: Stops = "reminders"): Record<string, string> {
+  return { "List-Unsubscribe": `<${oneClickUrl(person, what)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
 }
+
+/** Whether this looks like one of our secrets at all. */
+export const isUnsubscribeToken = (token: string): boolean => /^[A-Za-z0-9_-]{20,}$/.test(token);
 
 /** Switches reminders off for the person the token belongs to. Returns false for an unknown token. */
 export async function unsubscribeWithToken(token: string): Promise<boolean> {
-  if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return false;
+  if (!isUnsubscribeToken(token)) return false;
   const changed = await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.unsubscribeToken, token)).returning({ id: schema.user.id });
   return changed.length > 0;
 }

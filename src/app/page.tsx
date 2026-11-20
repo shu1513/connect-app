@@ -6,7 +6,8 @@ import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
-import { followedHosts } from "@/lib/follows/follows";
+import { diaryNews, followedHosts } from "@/lib/follows/follows";
+import { firstLines } from "@/lib/projects/rules";
 import { FOLLOW } from "@/lib/follows/rules";
 import { readNotice } from "@/lib/notice";
 import { callsToRate } from "@/lib/ratings/ratings";
@@ -159,6 +160,28 @@ export default async function HomePage(props: PageProps<"/">) {
   }
   const now = new Date();
   const [requests, toAnswer, toRate, followed] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now), followedHosts(user.id, now)]);
+  // "New in diaries" (plans/31): the latest posts of the hosts this person follows, as anyone could read them.
+  const news = followed.length > 0 ? await diaryNews(user.id, now) : [];
+  const newsSection = news.length > 0 && (
+    <section className="mt-8" data-diary-news>
+      <h2 className="text-lg font-semibold">New in diaries</h2>
+      <ul className="mt-2 space-y-3 text-sm">
+        {news.map((post) => (
+          <li key={post.postId}>
+            <p>
+              <span className="font-semibold">{post.hostName}</span> in {post.projectName} <span className="opacity-70">(<LocalTime iso={post.writtenAt.toISOString()} />)</span>
+            </p>
+            <p className="mt-1 opacity-80">{firstLines(post.text, 160)}</p>
+            <p>
+              <Link href={`/h/${post.handle}/project/${post.projectId}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                Read the diary
+              </Link>
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
   // "Coming up": calls that are not over, the soonest first. Everything else is "Earlier calls", the newest first (as loaded).
   const stillOn = (call: (typeof calls)[number]) => !call.cancelledAt && !call.safetyEndedAt && roomState(call, now) !== "closed";
   const comingUp = calls.filter(stillOn).reverse();
@@ -323,13 +346,16 @@ export default async function HomePage(props: PageProps<"/">) {
       )}
 
       {calls.length === 0 ? (
-        <p className="mt-8 opacity-70">
+        <>
+          <p className="mt-8 opacity-70">
           No calls yet. To ask for one, find a host with the search box above. To take calls yourself, open{" "}
           <Link href="/host" className="underline underline-offset-2">
             Hosting
           </Link>
           .
         </p>
+          {newsSection}
+        </>
       ) : (
         <>
           {comingUp.length > 0 && (
@@ -338,6 +364,7 @@ export default async function HomePage(props: PageProps<"/">) {
               {callsTable(comingUp)}
             </section>
           )}
+          {newsSection}
           {earlier.length > 0 && (
             <section className="mt-8" data-calls="earlier">
               <h2 className="text-lg font-semibold">Earlier calls</h2>

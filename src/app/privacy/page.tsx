@@ -56,6 +56,11 @@ export default function PrivacyPage() {
         can show you when they are available. Only you see who you follow. The host is not told who follows them, or how many
         people do. You can unfollow at any time, and a host you unfollowed is not followed again for you after a later call.
       </p>
+      <p className="mt-4 text-sm">
+        We email you about a host you follow only if you ticked it for that host, under &quot;Hosts you follow&quot;: when they are
+        available now, or when they write in their diary. Every such email has a link that stops all of them with one press,
+        and you can stop them on your account page. The emails never contain anything a host wrote.
+      </p>
     </SitePage>
   );
 }

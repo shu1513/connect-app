@@ -16,6 +16,7 @@ import { projectsOnFor } from "@/lib/safety/switches";
 import { hasLockedPicture, removeInStep } from "./picture-steps";
 import { isId, NOT_RUNNING, PROJECTS_OFF } from "./projects";
 import { linksToText, PROJECT, ProjectError, readPost } from "./rules";
+import { followEmailsOn } from "@/lib/follows/rules";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -54,7 +55,12 @@ export async function writePost(input: { hostId: string; projectId: string; text
       .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.hostId, input.hostId), eq(schema.projects.status, "running")))
       .for("update");
     if (!project) throw new ProjectError(NOT_RUNNING);
-    const [post] = await tx.insert(schema.projectPosts).values({ projectId: project.id, text, links: linksToText(links), createdAt: input.now, updatedAt: input.now }).returning();
+    // While the emails to followers are switched off, a post is marked as dealt with as it is written: switching
+    // them on later never announces anything from before (plans/31).
+    const [post] = await tx
+      .insert(schema.projectPosts)
+      .values({ projectId: project.id, text, links: linksToText(links), createdAt: input.now, updatedAt: input.now, announcedAt: followEmailsOn() ? null : input.now })
+      .returning();
     return post;
   });
 }

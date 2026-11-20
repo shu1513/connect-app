@@ -19,6 +19,7 @@ import { db, schema } from "@/db";
 import { errorSummary } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { membershipReminderProblem } from "./membership-reminders";
+import { followEmailProblem } from "@/lib/follows/emails";
 
 /** How many emails one call of deliverEmails sends at most. */
 const BATCH = 20;
@@ -155,10 +156,16 @@ async function fail(email: typeof schema.emailOutbox.$inferSelect, reason: strin
 /**
  * A reminder written earlier may no longer be wanted when its turn comes:
  * the person switched reminders off, was paused or closed, the call was
- * cancelled, or the request was answered. Returns why not, or null.
+ * cancelled, or the request was answered. So may an email to a follower
+ * (see followEmailProblem). Returns why not, or null.
  */
 async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Promise<string | null> {
   const key = email.dedupeKey ?? "";
+  // An email to a follower (plans/31) is asked about in full, as things stand at this moment.
+  const follower = await followEmailProblem(key, new Date());
+  if (follower !== undefined) return follower;
+  // Without its key such an email cannot be judged, so it is not sent.
+  if (email.kind === "follow") return "an email to a follower without its key";
   const reminder = key.match(/^reminder:([^:]+):([^:]+):/);
   const expiring = key.match(/^expiring:(.+)$/);
   const refundReminder = key.match(/^refund-request:([^:]+):reminder$/);

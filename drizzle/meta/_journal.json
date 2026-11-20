@@ -288,6 +288,13 @@
       "when": 1795131523536,
       "tag": "0040_follows",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795133910614,
+      "tag": "0041_follow_emails",
+      "breakpoints": true
     }
   ]
 }

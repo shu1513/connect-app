@@ -16,7 +16,9 @@ import { identityState } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { unblockAction } from "../report/actions";
 import { timeZones } from "@/lib/time-zones";
-import { saveAccount, saveReminders } from "./actions";
+import { followEmailsOf } from "@/lib/follows/emails";
+import { followEmailsOn } from "@/lib/follows/rules";
+import { saveAccount, saveFollowEmails, saveReminders } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Your account" };
@@ -48,6 +50,8 @@ export default async function AccountPage(props: PageProps<"/account">) {
     .where(and(eq(schema.account.userId, user.id), eq(schema.account.providerId, "credential")));
   const blocked = await blockedBy(user.id);
   const [{ reminders }] = await db.select({ reminders: schema.user.reminderEmails }).from(schema.user).where(eq(schema.user.id, user.id));
+  // The switch for emails about hosts they follow, only while those emails exist at all (plans/31).
+  const followEmails = followEmailsOn() ? await followEmailsOf(user.id) : null;
   const [asHost, asCustomer] = await Promise.all([averageFor(user.id, "host", new Date()), averageFor(user.id, "customer", new Date())]);
   const idConfirmed = (await identityState(user.id)).passed;
   // The person's own memberships as a member (also paused and ended ones, for their receipts).
@@ -205,6 +209,23 @@ export default async function AccountPage(props: PageProps<"/account">) {
             Save
           </button>
         </form>
+        {followEmails !== null && (
+          <form action={saveFollowEmails} className="mt-4 text-sm" data-follow-emails>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="follows" defaultChecked={followEmails} /> Email me about hosts I follow, where I asked for it
+            </label>
+            <p className="mt-1 opacity-70">
+              Which emails, for which host, is chosen under{" "}
+              <Link href="/following" className="underline underline-offset-2">
+                Hosts you follow
+              </Link>
+              . Nothing is sent about a host you have not ticked there.
+            </p>
+            <button type="submit" className="mt-2 rounded border border-neutral-500 px-3 py-1.5">
+              Save
+            </button>
+          </form>
+        )}
       </section>
 
       <section className="mt-10">

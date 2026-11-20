@@ -93,7 +93,7 @@ type Writer = Pick<typeof db, "insert">;
  */
 export async function queueEmail(
   tx: Writer,
-  message: { to: string; subject: string; text: string; key: string; expiresAt?: Date; headers?: Record<string, string> },
+  message: { to: string; subject: string; text: string; key: string; expiresAt?: Date; headers?: Record<string, string>; /** "follow" for an email to a follower (plans/31), so that those can be counted on their own. */ kind?: "booking" | "follow" },
 ): Promise<void> {
   // These emails carry deadlines and instructions but no login links, so their text is kept:
   // it is what the sending service delivers.
@@ -101,7 +101,7 @@ export async function queueEmail(
     .insert(schema.emailOutbox)
     .values({
       to: message.to.trim().toLowerCase(),
-      kind: "booking",
+      kind: message.kind ?? "booking",
       subject: message.subject,
       body: message.text,
       dedupeKey: message.key,

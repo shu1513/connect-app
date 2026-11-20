@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { saveChoices } from "@/lib/follows/emails";
 import { follow, FollowError, unfollow } from "@/lib/follows/follows";
+import { readHours } from "@/lib/follows/rules";
 import { withNotice } from "@/lib/notice";
 import { safeNext } from "@/lib/safe-next";
 import { requireActiveUser, requireUser } from "@/lib/session";
@@ -38,6 +40,44 @@ export async function unfollowAction(formData: FormData) {
   } catch (error) {
     console.error("[follows] could not unfollow", error);
     notice = "Something went wrong. Nothing was changed. Please try again.";
+  }
+  redirect(withNotice(backTo(formData), notice));
+}
+
+function problem(error: unknown): string {
+  if (error instanceof FollowError) return error.message;
+  console.error("[follows] could not save the choice of emails", error);
+  return "Something went wrong. Nothing was changed. Please try again.";
+}
+
+/**
+ * Saves the person's choice of emails about one host they follow (plans/31): the two ticks and
+ * the hours. Whose choices they are comes from the login. A paused person can switch off, not on;
+ * that is decided in `saveChoices`.
+ */
+export async function saveChoicesAction(formData: FormData) {
+  const user = await requireUser();
+  const hours = readHours(String(formData.get("from") ?? ""), String(formData.get("to") ?? ""));
+  let notice = "Your choice of emails was saved.";
+  if (hours === false) notice = "Choose both hours, and two different ones, or leave both on \"any time\". Nothing was changed.";
+  else {
+    try {
+      await saveChoices({ followerId: user.id, hostId: String(formData.get("hostId") ?? ""), tellOnline: formData.get("online") === "on", tellPosts: formData.get("posts") === "on", hours, now: new Date() });
+    } catch (error) {
+      notice = problem(error);
+    }
+  }
+  redirect(withNotice("/following", notice));
+}
+
+/** The one question on the results of a call: "Email you when Anna is available now?" Only that tick is set; the rest stays. */
+export async function askOnlineAction(formData: FormData) {
+  const user = await requireActiveUser();
+  let notice = "Done. You get an email when they are available now, at most once a day. You can choose hours, or switch it off, under \"Hosts you follow\".";
+  try {
+    await saveChoices({ followerId: user.id, hostId: String(formData.get("hostId") ?? ""), tellOnline: true, now: new Date() });
+  } catch (error) {
+    notice = problem(error);
   }
   redirect(withNotice(backTo(formData), notice));
 }

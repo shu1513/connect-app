@@ -4,11 +4,14 @@ import { LocalTime } from "@/components/local-time";
 import { RefreshEvery } from "@/components/refresh-every";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
+import { followEmailsOf } from "@/lib/follows/emails";
 import { followedHosts } from "@/lib/follows/follows";
-import { FOLLOW } from "@/lib/follows/rules";
+import { EMAILS, FOLLOW, followEmailsOn } from "@/lib/follows/rules";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
-import { unfollowAction } from "./actions";
+import { saveChoicesAction, unfollowAction } from "./actions";
+
+const HOURS = Array.from({ length: 24 }, (_, hour) => ({ hour, label: `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? "am" : "pm"}` }));
 
 export const metadata: Metadata = { title: "Hosts you follow" };
 
@@ -20,6 +23,8 @@ export default async function FollowingPage(props: PageProps<"/following">) {
   const user = await requireUser("/following");
   const notice = readNotice("/following", await props.searchParams);
   const hosts = await followedHosts(user.id, new Date());
+  // The emails of plans/31, only while they are switched on for the whole site (there is a postal address for them).
+  const emails = followEmailsOn() ? { accountOn: await followEmailsOf(user.id) } : null;
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
@@ -32,6 +37,22 @@ export default async function FollowingPage(props: PageProps<"/following">) {
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
+        </p>
+      )}
+
+      {emails && hosts.length > 0 && (
+        <p className="mt-4 text-sm opacity-70" data-email-note>
+          You can get an email about a host, if you tick it below: at most one of each kind per host in {EMAILS.perHostHours} hours, and {EMAILS.perDay} a day in all. The hours are in
+          your own time zone{user.timeZone ? ` (${user.timeZone.replace(/_/g, " ")})` : ""}.
+          {!emails.accountOn && (
+            <>
+              {" "}
+              <strong>Emails about hosts are switched off for your account</strong>, so none are sent whatever is ticked.{" "}
+              <Link href="/account" className="underline underline-offset-2">
+                Switch them on
+              </Link>
+            </>
+          )}
         </p>
       )}
 
@@ -75,6 +96,47 @@ export default async function FollowingPage(props: PageProps<"/following">) {
                     Go to the call
                   </Link>
                 </p>
+              )}
+              {emails && (
+                <form action={saveChoicesAction} className="mt-4 border-t border-neutral-300/60 pt-3" data-email-choices>
+                  <input type="hidden" name="hostId" value={host.hostId} />
+                  <fieldset>
+                    <legend className="font-semibold">Emails about {host.name}</legend>
+                    <label className="mt-2 flex min-h-11 items-center gap-2">
+                      <input type="checkbox" name="online" defaultChecked={host.tellOnline} /> When they are available now
+                    </label>
+                    <p className="flex flex-wrap items-center gap-2 pl-6">
+                      <label className="flex items-center gap-2">
+                        <span>only between</span>
+                        <select name="from" defaultValue={host.hoursFrom === null ? "" : String(host.hoursFrom / 60)} className={warm.input}>
+                          <option value="">any time</option>
+                          {HOURS.map(({ hour, label }) => (
+                            <option key={hour} value={hour}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <span>and</span>
+                        <select name="to" defaultValue={host.hoursTo === null ? "" : String(host.hoursTo / 60)} className={warm.input}>
+                          <option value="">any time</option>
+                          {HOURS.map(({ hour, label }) => (
+                            <option key={hour} value={hour}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </p>
+                    <label className="mt-1 flex min-h-11 items-center gap-2">
+                      <input type="checkbox" name="posts" defaultChecked={host.tellPosts} /> When they write in their diary
+                    </label>
+                  </fieldset>
+                  <button type="submit" className={`${warm.secondary} mt-2`}>
+                    Save
+                  </button>
+                </form>
               )}
               <form action={unfollowAction} className="mt-3">
                 <input type="hidden" name="hostId" value={host.hostId} />
