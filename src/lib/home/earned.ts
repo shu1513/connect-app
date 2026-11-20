@@ -24,8 +24,10 @@ export type MoneyPart = {
 export function earnedFrom(parts: MoneyPart[]): { cents: number; soFar: boolean } | null {
   const charged = parts.filter((part) => part.status === "charged");
   if (charged.length === 0) return null;
-  return {
-    cents: charged.reduce((sum, part) => sum + part.shareCents, 0),
-    soFar: parts.some((part) => part.status === "awaiting_payment" || part.status === "held" || part.needsReview),
-  };
+  return { cents: charged.reduce((sum, part) => sum + part.shareCents, 0), soFar: unsettled(parts) };
+}
+
+/** Part of the call's money is not settled yet: held, not paid, or waiting for a decision. What it earned can still grow. */
+export function unsettled(parts: MoneyPart[]): boolean {
+  return parts.some((part) => part.status === "awaiting_payment" || part.status === "held" || part.needsReview);
 }
