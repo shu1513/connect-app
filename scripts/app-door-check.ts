@@ -57,6 +57,8 @@ const asCookie = (jar: Jar) => [...jar].map(([name, kept]) => `${name}=${kept.va
  */
 function plain(path: string, options: { method?: string; body?: unknown; headers?: Record<string, string>; jar?: Jar } = {}): Promise<Reply> {
   const url = new URL(path.startsWith("http") ? path : `${BASE}${path}`);
+  // Only ever the app under test: a link from an email that led anywhere else would carry its key there.
+  if (url.origin !== new URL(BASE).origin) return Promise.reject(new Error(`This tool only talks to ${BASE}; it will not open ${url.origin}.`));
   const payload = options.body !== undefined ? JSON.stringify(options.body) : undefined;
   const headers: Record<string, string> = { ...options.headers };
   if (payload !== undefined) {
@@ -67,6 +69,8 @@ function plain(path: string, options: { method?: string; body?: unknown; headers
     const request = http.request(url, { method: options.method ?? (payload !== undefined ? "POST" : "GET"), headers }, (response) => {
       const chunks: Buffer[] = [];
       response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      // An answer that breaks off half way is a failure, not a wait without end.
+      response.on("error", reject);
       response.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         const setCookies = response.headers["set-cookie"] ?? [];
@@ -81,6 +85,8 @@ function plain(path: string, options: { method?: string; body?: unknown; headers
       });
     });
     request.on("error", reject);
+    // No answer in half a minute: the request is given up, so whatever this tool changed can still be put back.
+    request.setTimeout(30_000, () => request.destroy(new Error(`No answer within 30 seconds from ${url.pathname}.`)));
     if (payload !== undefined) request.write(payload);
     request.end();
   });
@@ -460,7 +466,10 @@ async function main() {
       const rightPassword = await asApp("/api/auth/sign-in/email", { body: { email: four.email, password: four.password }, jar: new Map() });
       check("signing in to it with the right password is answered exactly as a wrong password is", same(rightPassword), `${rightPassword.status} ${rightPassword.text.slice(0, 80)}`);
       const fromBrowser = await asBrowser("/api/auth/sign-in/email", { body: { email: four.email, password: four.password, callbackURL: "/" }, jar: new Map() });
-      check("in a browser too", fromBrowser.status === wrong.status && fromBrowser.text === wrong.text, `${fromBrowser.status} ${fromBrowser.text.slice(0, 80)}`);
+      const wrongInBrowser = await asBrowser("/api/auth/sign-in/email", { body: { email: four.email, password: `not-${four.password}`, callbackURL: "/" }, jar: new Map() });
+      // Answered alike is not enough: neither answer may hand out a login.
+      const noLogin = (reply: Reply) => !reply.setCookies.some((cookie) => /session_token=[^;]+/.test(cookie) && !/max-age=0/i.test(cookie));
+      check("in a browser too, exactly as a wrong password there, and no login is handed out", fromBrowser.status === wrong.status && fromBrowser.text === wrong.text && fromBrowser.status === wrongInBrowser.status && fromBrowser.text === wrongInBrowser.text && noLogin(fromBrowser) && noLogin(wrongInBrowser) && noLogin(rightPassword), `${fromBrowser.status} ${fromBrowser.text.slice(0, 80)}`);
       const otherCase = await asApp("/api/auth/sign-in/email", { body: { email: four.email.toUpperCase(), password: four.password }, jar: new Map() });
       check("and written in capital letters", same(otherCase), `${otherCase.status} ${otherCase.text.slice(0, 80)}`);
       // An address that is not an email address, but that turns into this one when made lower-case
@@ -482,17 +491,28 @@ async function main() {
       check("and is not sent the confirmation again", (await emails(five.email, "Confirm your email")).length === 1);
     }
   } finally {
-    await restoreSwitches();
-    const mine = await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, `check-${RUN}-%`));
-    const ids = mine.map((person) => person.id);
+    // Each thing is put back or removed by itself: one that fails does not stop the others, and is named.
+    const tidy = async (what: string, work: () => Promise<unknown>) => {
+      try {
+        await work();
+      } catch (error) {
+        failures++;
+        console.log(` FAIL  cleaning up: ${what}  (${error instanceof Error ? error.message.slice(0, 160) : "unknown error"})`);
+      }
+    };
+    await tidy("the founder's switches as they were", restoreSwitches);
+    let ids: string[] = [];
+    await tidy("finding this run's people", async () => {
+      ids = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, `check-${RUN}-%`))).map((person) => person.id);
+    });
     if (ids.length > 0) {
       // Reset keys that were asked for and never used point at the person by their value.
-      await db.delete(schema.verification).where(inArray(schema.verification.value, ids));
-      await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
-      await db.delete(schema.user).where(inArray(schema.user.id, ids));
+      await tidy("this run's reset keys", () => db.delete(schema.verification).where(inArray(schema.verification.value, ids)));
+      await tidy("this run's host pages", () => db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids)));
+      await tidy("this run's people", () => db.delete(schema.user).where(inArray(schema.user.id, ids)));
     }
-    await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `check-${RUN}-%`));
-    await db.delete(schema.rateLimit);
+    await tidy("this run's emails", () => db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `check-${RUN}-%`)));
+    await tidy("the attempt limits", () => db.delete(schema.rateLimit));
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
