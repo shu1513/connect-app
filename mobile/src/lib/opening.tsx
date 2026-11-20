@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AppState } from "react-native";
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { ask } from "./api";
-import { openingFrom, type Opening } from "./opening-rules";
+import { openingAfter, type Opening } from "./opening-rules";
 
 type Value = { opening: Opening; askAgain: () => void };
 const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {} });
@@ -20,7 +20,7 @@ export function OpeningProvider({ children }: { children: ReactNode }) {
   const put = useCallback(() => {
     const mine = ++newest.current;
     void ask<AppStart>("/api/app/start").then((answer) => {
-      if (mine === newest.current) setOpening(openingFrom(answer));
+      if (mine === newest.current) setOpening((now) => openingAfter(now, answer));
     });
   }, []);
 

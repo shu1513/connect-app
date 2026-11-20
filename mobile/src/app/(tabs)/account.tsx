@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { APP_VERSION, SERVER } from "@/lib/config";
+import { APP_VERSION, SERVER, TEST_SCREENS } from "@/lib/config";
 import { useOpening } from "@/lib/opening";
 import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
 
@@ -25,7 +25,7 @@ export default function AccountPlace() {
         </Words>
         <Button label="Ask again" kind="plain" onPress={askAgain} />
       </Card>
-      {__DEV__ ? (
+      {TEST_SCREENS ? (
         <Card>
           <Heading>Test screens</Heading>
           <Words soft>Only in a test build.</Words>

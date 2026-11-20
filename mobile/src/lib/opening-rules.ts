@@ -27,3 +27,14 @@ export function openingFrom(answer: Answer<AppStart>): Opening {
   if (answer.code === "update_needed") return { kind: "update", message: answer.message };
   return { kind: "unreachable", message: answer.message };
 }
+
+/**
+ * What the app shows after an answer, given what it shows now. Once the app is open and in use, a
+ * question asked quietly (on coming back to the front) that does not get through changes nothing:
+ * the person keeps the screen they were on, and whatever they do next says for itself if Connect
+ * cannot be reached. A real answer always counts, and so does "this copy is too old".
+ */
+export function openingAfter(now: Opening, answer: Answer<AppStart>): Opening {
+  const next = openingFrom(answer);
+  return now.kind === "ready" && next.kind === "unreachable" ? now : next;
+}

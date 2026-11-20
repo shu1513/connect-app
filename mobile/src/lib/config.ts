@@ -15,3 +15,11 @@ export const SERVER = (process.env.EXPO_PUBLIC_SERVER_URL ?? "").trim().replace(
 export const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 
 export const PLATFORM: "android" | "ios" = Platform.OS === "ios" ? "ios" : "android";
+
+/**
+ * Whether this copy has the test screens (the kit check and "the look"). Always in the everyday
+ * test build; in a build made the way a store build is made, only when it was built with
+ * EXPO_PUBLIC_TEST_SCREENS=1 to try the kits there (see mobile/README.md). A build for a store is
+ * made without it, and the test screens then cannot be opened at all, by a button or by a link.
+ */
+export const TEST_SCREENS = __DEV__ || process.env.EXPO_PUBLIC_TEST_SCREENS === "1";
