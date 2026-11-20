@@ -538,6 +538,13 @@ async function main() {
       };
       const paid = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -2 * 24 * 60 });
       const earnedPaid = await charge(paid, 4137);
+      // What the customer wrote when asking for that finished call belongs to no call that is over.
+      await requestOf(paid, { words: `Words of a finished call ${RUN}` });
+      // A second customer, whose only call with her is over, with a photo she would be handed for a call that is not.
+      const pastGuest = await person("pastguest");
+      const pastOnly = await call({ hostId: cal.id, customerId: pastGuest.id, startsInMinutes: -6 * 24 * 60 });
+      await requestOf(pastOnly, { words: `Words of the past guest ${RUN}` });
+      const [pastGuestsPhoto] = await db.insert(schema.hostPhotos).values({ userId: pastGuest.id, network: "upload", width: 8, height: 8, byteLength: 1, sha256: randomUUID(), bytes: Buffer.from("x"), takenAt: now, checkedBy: "homecheck", rulesVersion: "homecheck" }).returning({ id: schema.hostPhotos.id });
       const halfBack = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -3 * 24 * 60 });
       const earnedHalf = await charge(halfBack, 4263, 2100);
       const held = await call({ hostId: cal.id, customerId: guest.id, startsInMinutes: -4 * 24 * 60 });
@@ -557,7 +564,9 @@ async function main() {
       check("a refund in part lowers it", hers.text.includes(earnedHalf) && earnedHalf !== formatMoney(4263 - Math.round(4263 * 0.049) - 30), earnedHalf);
       check("a call with nothing charged comes with no figure, only its own words", hers.text.includes("$43.91 held") && count(hers.text, "$43.91") === count(hers.text, "$43.91 held"));
       check("a call she booked comes with what she was charged, never with what its host earned", hers.text.includes("Charged $25.19") && !hers.text.includes(sellersShare), sellersShare);
-      check("the coming call she hosts still has the customer's details; a finished one has none", hers.text.includes(`Calendar words ${RUN}`) && count(hers.html, "data-customer-details=") === 1);
+      check("the coming call she hosts still has the customer's details", hers.text.includes(`Calendar words ${RUN}`) && count(hers.html, "data-customer-details=") === 1);
+      // Searched in everything the page hands over, not only in what is drawn before the calendar is laid out.
+      check("a finished call is handed over without what its customer wrote, and without their photo", hers.text.includes(pastOnly.id) && !hers.text.includes(`Words of a finished call ${RUN}`) && !hers.text.includes(`Words of the past guest ${RUN}`) && !hers.text.includes(pastGuestsPhoto.id));
 
       const his = await page("/", guest.jar);
       check("the customer of those calls is handed the same calls, and nothing a host earned", [paid, halfBack, held, coming].every((c) => his.text.includes(c.id)) && !his.text.includes(earnedPaid) && !his.text.includes(earnedHalf) && !his.text.includes("earned") && !his.text.includes(`Calendar words ${RUN}`));

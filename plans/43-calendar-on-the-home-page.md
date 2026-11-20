@@ -3,7 +3,8 @@
 **Status:** a plan, not built. Written 20 November 2026 by the builder alone, from the code as it
 is on `main` after pull request 69 (plan 38, the home page as a host sees it), and from what the
 founder said that day. Astra checked it once ("ready with changes"); what was taken is at the
-end. The founder has seen a picture of it and has not yet said "build it".
+end. The founder saw a picture of it and said "Yes, build it". The first pull request is built;
+the second is not.
 
 **Two pull requests.** First the calendar itself: the grid, the arrows, tapping a call, what a
 finished call earned, and the list of the same days. Second: requests on the calendar, the
@@ -73,7 +74,7 @@ Nothing new is stored, the database does not change, and no rule about money or 
 
 3. **Three days at a time on a narrow screen.** Today and the two days after it; the arrows move
    three days. On a screen wide enough for seven readable columns, the whole week. The calendar
-   decides by its own width, not by the kind of device.
+   decides by the width of the window, not by the kind of device.
 
 4. **No month view now.** On a phone a month can only show dots, and "›" already gets to any
    week. Easy to add later.

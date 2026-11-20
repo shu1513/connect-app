@@ -35,7 +35,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
  * booked, and the calls that are over (with what a hosted one earned) each have their look, named
  * in words under the calendar. Tapping a call shows its row underneath.
  *
- * Seven days on a wide screen, three on a narrow one. The arrows are links: the day is in the
+ * Seven days in a wide window, three in a narrow one (the calendar's own width follows the window's). The arrows are links: the day is in the
  * page's address, so the back button works and the page's own refresh stays where it is.
  *
  * The server cannot know the viewer's time zone, the first day of their week or the width of
@@ -84,7 +84,10 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
   );
   const hours = hoursToDraw(segments);
   const height = (hours.to - hours.from) * CALENDAR.hourPixels;
-  const inView = calls.filter((call) => segments.some((segment) => segment.call.call.id === call.id));
+  // The first of the days in view that each call has a part in: where the list puts it.
+  const firstDayOf = new Map<string, string>();
+  for (const segment of [...segments].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))) if (!firstDayOf.has(segment.call.call.id)) firstDayOf.set(segment.call.call.id, segment.day);
+  const inView = calls.filter((call) => firstDayOf.has(call.id));
   const chosenCall = inView.find((call) => call.id === chosen) ?? null;
   const dayName = (one: string, long = false) => plain(one).toLocaleDateString(undefined, { weekday: long ? "long" : "short", day: "numeric", ...(long ? { month: "long" } : {}), timeZone: "UTC" });
   const clock = (iso: string) =>
@@ -180,7 +183,8 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
                         {/* A finished call she hosted says what it earned, first, so it is what stays when the block is narrow. */}
                         {call.earned ? (
                           <>
-                            <strong>{call.earned.text}</strong> {firstName(call.name)}
+                            <strong>{call.earned.text}</strong>
+                            {call.earned.soFar && " so far"} {firstName(call.name)}
                           </>
                         ) : (
                           <>
@@ -213,14 +217,15 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
         <div className="mt-3" data-calendar-list>
           {inView.length === 0 && <p className="text-sm text-[#57534e]">No calls in these days.</p>}
           {days.map((one) => {
-            const starting = inView.filter((call) => dayOf(new Date(call.startsAt), zone) === one);
+            // A call that began the day before the first day in view is listed under that first day, with its own date.
+            const starting = inView.filter((call) => firstDayOf.get(call.id) === one);
             if (starting.length === 0) return null;
             return (
               <section key={one} className="mt-4 first:mt-0">
                 <h3 className="text-sm font-bold text-[#9a3412]">{one === today ? "Today" : one === dayAfter(today) ? "Tomorrow" : dayName(one, true)}</h3>
                 <ul>
                   {starting.map((call) => (
-                    <CallRow key={call.id} call={call} timeOnly />
+                    <CallRow key={call.id} call={call} timeOnly={dayOf(new Date(call.startsAt), zone) === one} />
                   ))}
                 </ul>
               </section>
