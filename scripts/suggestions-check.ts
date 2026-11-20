@@ -49,7 +49,7 @@ async function main() {
 
   async function person(name: string, extra: Partial<typeof schema.user.$inferInsert> = {}) {
     const id = `sg-${RUN}-${name}`;
-    // Everyone here has had their account for a month, unless a check says otherwise: an account counts as a person behind a host only from its third day.
+    // Everyone here has had their account for a month, unless a check says otherwise: an account counts as a person behind a host only once it is at least three days old.
     await db.insert(schema.user).values({ id, name: `Person ${name} ${RUN}`, email: `suggestcheck-${RUN}-${name}@example.test`, emailVerified: true, adultConfirmedAt: now, termsAcceptedAt: now, termsVersion: TERMS_VERSION, timeZone: "America/New_York", createdAt: new Date(now.getTime() - 30 * DAY), ...extra });
     made.push(id);
     return { id, name: `Person ${name} ${RUN}` };
