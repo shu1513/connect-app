@@ -1049,7 +1049,8 @@ async function main() {
     const price = (cents: number) => updateHostProfile(host.id, { displayName: profile.displayName, about: profile.about, pricePer15Cents: cents, languages: ["en"] }).then(() => null, (error: unknown) => error as Error);
     const below = await price(700);
     check("the regular price cannot go below the member price", below instanceof ProfileError && /member price/.test(below.message), below?.message);
-    check("and a host who offers a membership cannot make her calls free", (await price(0)) instanceof ProfileError);
+    const zero = await price(0);
+    check("and no host can set a price of zero", zero instanceof ProfileError && /at least \$5\.00/.test(zero.message), zero?.message);
     check("a regular price at or above the member price is saved", (await price(750)) === null && (await price(1200)) === null);
     await db.update(schema.membershipOffers).set({ on: false }).where(eq(schema.membershipOffers.hostId, host.id));
     check("with the membership switched off, a month that is still held keeps the floor", (await price(700)) instanceof ProfileError);

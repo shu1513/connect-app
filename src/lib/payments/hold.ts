@@ -10,18 +10,9 @@ import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import type Stripe from "stripe";
 import { lockPayment, MoneyError, runMoneyOperation, type Tx } from "./operations";
 import { cardPayment } from "./own";
-import { bookedTotalCents, DEFAULT_FEE_TERMS, MIN_PRICE_PER_15_CENTS } from "./pricing";
+import { bookedTotalCents, DEFAULT_FEE_TERMS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
 import { stripe } from "./stripe";
-
-/** Checks a price for a new call. Zero is a free call; anything else must meet the minimum. */
-export function priceProblem(pricePer15Cents: number): string | null {
-  if (!Number.isInteger(pricePer15Cents) || pricePer15Cents < 0) return "The price must be a whole number of cents.";
-  if (pricePer15Cents > 0 && pricePer15Cents < MIN_PRICE_PER_15_CENTS) {
-    return `A paid call must cost at least $${(MIN_PRICE_PER_15_CENTS / 100).toFixed(2)} per 15 minutes.`;
-  }
-  return null;
-}
 
 /** Creates the payment record for a paid call (the call's own payment, for the whole booked time), fixing its terms at this moment. */
 export async function createPaymentForCall(tx: Tx, call: Pick<Call, "id" | "startsAt" | "endsAt" | "pricePer15Cents">): Promise<void> {

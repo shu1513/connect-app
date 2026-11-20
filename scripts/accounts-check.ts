@@ -299,6 +299,8 @@ async function main() {
     // Approval also needs one confirmed social media account; this writes one as the founder's "confirm" would leave it.
     const prove = (userId: string, network: string, nameKey: string) =>
       db.insert(schema.socialAccounts).values({ userId, network, nameTyped: nameKey, nameKey, url: `https://example.test/${network}/${nameKey}`, code: `connect-${randomUUID().slice(0, 10)}`, codeExpiresAt: new Date(Date.now() + 86_400_000), claimedAt: new Date(), confirmedAt: new Date() });
+    /** Pretended: a host from before 19 November 2026, when a host could still set a price of zero. Their calls skip payment, which keeps these checks away from Stripe. */
+    const freeFromBefore = (userId: string) => db.update(schema.hostProfiles).set({ pricePer15Cents: 0 }).where(eq(schema.hostProfiles.userId, userId));
     const refusedWith = async (work: Promise<unknown>, words: string) => {
       const problem = await work.then(() => null).catch((e) => e);
       return problem instanceof ProfileError && problem.message.includes(words);
@@ -309,6 +311,7 @@ async function main() {
       check("a blocked handle with underscores is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "sup_port" })));
       check("a handle with other alphabets is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "jаne_doe" })));
       check("a price under $5 is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle, pricePer15Cents: 300 })));
+      check("so is a price of zero: a host cannot offer free calls", await refusedWith(profiles.createHostProfile(host.id, { ...details, handle, pricePer15Cents: 0 }), "at least $5.00"));
       // Where a host can be based: only the countries Connect can pay in (plans/27-hosts-abroad.md). Never guessed.
       check("a host in a country that cannot be paid (Australia) is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "AU" })));
       check("so is a host who gives no country, or one that is not written as its two capital letters", (await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "" }))) && (await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "gb" }))) && (await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "United Kingdom" }))));
@@ -424,7 +427,8 @@ async function main() {
 
       // A second host claims the same name before anyone is confirmed.
       const rival = await newPerson("rival");
-      await profiles.createHostProfile(rival.id, { handle: `rival_${RUN}`, displayName: "Check Rival", about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
+      await profiles.createHostProfile(rival.id, { handle: `rival_${RUN}`, displayName: "Check Rival", about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+      await freeFromBefore(rival.id);
       await profiles.addSocialName(rival.id, "instagram", name);
       const second = await claim(rival.id);
       await profiles.markSocialNameReady(rival.id, second.id);
@@ -460,7 +464,8 @@ async function main() {
       const confirmedOf = async (userId: string) => (await accounts(userId)).filter((a) => a.confirmedAt !== null);
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await freeFromBefore(person.id);
         return person;
       };
 
@@ -555,7 +560,8 @@ async function main() {
       const checksOf = (userId: string) => db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId)).orderBy(schema.bioChecks.startedAt);
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await freeFromBefore(person.id);
         return person;
       };
       /** An answer that is held back until the script lets it go, to do something while a check is under way. */
@@ -768,7 +774,8 @@ async function main() {
       const refusedRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === "tiktok" && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await freeFromBefore(person.id);
         return person;
       };
 
@@ -954,7 +961,8 @@ async function main() {
       const signInRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === profiles.INSTAGRAM_SIGN_IN && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await freeFromBefore(person.id);
         return person;
       };
       /** The code way, with Meta's bio service pretended: the code is in the bio. */

@@ -3020,3 +3020,47 @@ of three is the founder's to raise. With few people the row is mostly open times
 the kept places. For the lawyer (`docs/for-the-lawyer.md`, sections 4 and 7): the two EU rules
 about explaining suggestions and ranking, and using follows for suggestions. Not built:
 bringing a hidden suggestion back, a switch to turn personal suggestions off, and filters.
+
+## A later change: hosts cannot set free calls (plan 40, 19 November 2026)
+
+**What the founder decided.** Asked whether hosts could be free, and told that a host could set a
+price of zero: "no. hosts must charge something, and that something should cover our expenses
+with livekit." Then, with the numbers below: "we keep $5 per 15 minutes as the minimum for now,
+hosts can't set free calls." This changes decision 9 of `plans/02-payments.md`.
+
+**The numbers the founder was given** (LiveKit's own pricing page on that day; Stripe's standard
+US fees as in plan 2). A 15-minute call at $5: Connect's fee about 55 cents (4.9% and 30 cents),
+Stripe's card fee about 45 cents, Stripe's share of the payout about 1 cent, the video about 6 to
+9 cents once LiveKit's monthly allowance is used up (the $50 plan includes 150,000 minutes and
+250 GB a month; then $0.0005 a minute for each person and $0.12 a GB). About 0 to 3 cents are
+left. The video figure is the builder's estimate of the data a call uses, not a measurement.
+Nothing is left for the monthly costs: LiveKit's plan, hosting, and Stripe's $2 in a month in
+which a host is paid (an inactive host costs nothing). Two ways to make every call cover its
+video were offered, a small video charge in the fee or a higher minimum; the founder chose
+neither for now.
+
+**What was built.** The two places where a host's price is set (applying, and saving the
+profile) refuse a price under $5, zero included (`hostPriceProblem` in
+`src/lib/payments/pricing.ts`). The Hosting form says "at least $5" and its field takes no less.
+Two sentences for customers no longer speak of "booking a free call". No change to the database.
+The rules for a call without a price stay in the code: a call keeps the price it was made with,
+and the check scripts use them to try calls without Stripe; no new host can reach them.
+
+**What the reviewers found.** *Astra* (plan and code together, one round): "ready", nothing that
+must be fixed. It went through every way a price is set or copied and found each closed for a
+new host, found no check script that was missed, and judged it sound to leave the rules for
+calls without a price in place while the live database starts empty. One point taken: the
+sentence for a host at zero says more clearly what changes.
+
+**How it was checked.** 671 automatic tests, 3 of them new (the lowest price, zero, not a whole
+number of cents). On this computer, against the local database: `scripts/accounts-check.ts`, 218
+checks, one of them new (a price of zero is refused, with its sentence); `scripts/journey-check.ts`,
+60 checks (the founder's pages skipped here, as before); journey 17 of
+`scripts/membership-check.ts` (a host with a membership cannot go to zero either). In a browser,
+as the test host: the form says "at least $5" and refuses 0. Not seen in a browser: the sentence
+for a host who is at zero, because no test host that can be logged in as is at zero. That
+sentence was reworded after the scripts ran; they do not read it.
+
+**Still open.** Before launch: test hosts and their requests must never be copied into the live
+database. For the founder: whether a $5 call should later carry a small video charge, once real
+calls show what the video costs.
