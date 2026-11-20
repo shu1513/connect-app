@@ -73,6 +73,14 @@ install from the App Store and Google Play.
      Projects show up today inside pages the app will have: a host's page, the page after a
      call, the account page, the diary posts on the home page, and the "diary emails" choice
      under Following. The app's versions of those pages leave those pieces out.
+   - **Tips after a call** (added 20 November 2026, with plan 44). Until it is settled whether
+     the stores let a tip for a one-to-one call be paid outside their own payment, the app treats
+     tips like contributions: it does not show, link to or mention them. Plan 44, decision 18,
+     has what Apple's and Google's pages say. This is to be checked again before the app is built.
+   - **The founder's switches reach the app** (the founder, 20 November 2026). Tips and projects
+     each have a switch on the founder's page, kept on the server. Whatever the app shows of
+     either, it asks the server each time whether that feature is on and never carries the
+     answer inside the app: so switching one off works in the app at once, with no new version.
    - A host's first set-up: applying, the ID check, the payout account at Stripe, proving social
      accounts, the photo. The app sends a new host to the website for it. A host can use the
      app once that is done and they are approved, as on the website.

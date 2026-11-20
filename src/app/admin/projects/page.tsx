@@ -8,7 +8,7 @@ import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import type { ProjectPicture } from "@/db/schema";
-import { ATTENTION, forFounder, projectPaymentsForFounder, stateOf, type FounderRow } from "@/lib/contributions/views";
+import { ATTENTION, forFounder, projectPaymentsForFounder, stateOf, tipPaymentsForFounder, type FounderRow } from "@/lib/contributions/views";
 import { formatMoney } from "@/lib/payments/access";
 import { holdBackAction, letGoAsFounderAction, refundAsFounderAction, releaseAction } from "./contribution-actions";
 import { mayBeFetched } from "@/lib/projects/child-safety";
@@ -18,7 +18,7 @@ import { allProjects } from "@/lib/projects/projects";
 import { firstLines, linksOf } from "@/lib/projects/rules";
 import { switches } from "@/lib/safety/switches";
 import { requireAdmin } from "@/lib/session";
-import { hidePostAction, holdPictureAction, liftPictureAction, lockPictureAction, projectsSwitchAction, removePictureAction, reportMadeAction, showPostAction } from "./actions";
+import { hidePostAction, holdPictureAction, liftPictureAction, lockPictureAction, projectsSwitchAction, removePictureAction, reportMadeAction, showPostAction, tipsSwitchAction } from "./actions";
 
 export const metadata: Metadata = { title: "Admin: projects" };
 
@@ -63,6 +63,9 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
   const paymentsOf = typeof query.payments === "string" ? projects.find(({ project }) => project.id === query.payments) : undefined;
   const paymentsPage = typeof query.pp === "string" && /^[1-9]\d{0,3}$/.test(query.pp) ? Number(query.pp) : 1;
   const projectPayments = paymentsOf ? await projectPaymentsForFounder(paymentsOf.project.id, paymentsPage) : null;
+  // Every tip, page by page, when the address asks for them (`?tips=1`): the way to an ordinary tip (plans/44, decision 17).
+  const tipsPage = typeof query.tp === "string" && /^[1-9]\d{0,3}$/.test(query.tp) ? Number(query.tp) : 1;
+  const tipPayments = query.tips === "1" ? await tipPaymentsForFounder(tipsPage) : null;
 
   return (
     <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
@@ -160,6 +163,56 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
           Save projects switch
         </button>
       </form>
+
+      <h2 className="mt-10 text-lg font-semibold">Tips</h2>
+      <p className="mt-1 text-sm opacity-70">
+        A customer can give a host a tip after a call. Off: nobody is asked, no tip can be started or paid, and tips that are only held are let go.
+        Tips whose money was taken stay as they are.
+      </p>
+      <form action={tipsSwitchAction} className="mt-2 space-y-2 text-sm" data-tips-switch>
+        <label className="block">
+          Tips are
+          <select name="tips" defaultValue={current.tipsOff ? "off" : "on"} className={`${field} ml-2`}>
+            <option value="on">on</option>
+            <option value="off">off</option>
+          </select>
+        </label>
+        <button type="submit" className={button}>
+          Save tips switch
+        </button>
+      </form>
+      <p className="mt-2 text-sm">
+        <Link href="/admin/projects?tips=1" className="underline underline-offset-2">
+          Every tip
+        </Link>
+      </p>
+      {tipPayments && (
+        <section className="mt-4" data-tip-payments>
+          <h3 className="font-medium">Every tip</h3>
+          <p className="mt-1 text-sm opacity-70">The newest first. Each thing you do here needs a reason, which is kept.</p>
+          {tipPayments.rows.length === 0 ? (
+            <p className="mt-2 text-sm opacity-70">{tipsPage > 1 ? "There are no older tips." : "Nobody has given a tip."}</p>
+          ) : (
+            <ul className="mt-3 space-y-3 text-sm">
+              {tipPayments.rows.map((row) => (
+                <ContributionRow key={row.payment.id} row={row} />
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 flex gap-4 text-sm">
+            {tipsPage > 1 && (
+              <Link href={`/admin/projects?tips=1&tp=${tipsPage - 1}`} className="underline underline-offset-2">
+                Newer tips
+              </Link>
+            )}
+            {tipPayments.older && (
+              <Link href={`/admin/projects?tips=1&tp=${tipsPage + 1}`} className="underline underline-offset-2">
+                Older tips
+              </Link>
+            )}
+          </p>
+        </section>
+      )}
 
       <h2 className="mt-10 text-lg font-semibold">Picture checking</h2>
       <p className="mt-1 text-sm opacity-70">
@@ -298,10 +351,10 @@ export default async function AdminProjectsPage(props: PageProps<"/admin/project
         </section>
       )}
 
-      <h2 className="mt-10 text-lg font-semibold">Contributions that need a look ({money.rows.length})</h2>
+      <h2 className="mt-10 text-lg font-semibold">Contributions and tips that need a look ({money.rows.length})</h2>
       <p className="mt-1 text-sm opacity-70">
         Payments with a problem, payments of one person who has given a host more than $1,000 in 30 days, single payments over $1,000, payments you hold back or released, and payments whose charge is disputed. Each thing you do here needs a reason, which is kept. {money.rows.length >= ATTENTION ? `Only the newest ${ATTENTION} are listed here. ` : ""}Every other payment is reached through its project, under
-        &ldquo;Every project&rdquo; below.
+        &ldquo;Every project&rdquo; below, or under &ldquo;Every tip&rdquo; above.
       </p>
       {money.rows.length === 0 ? (
         <p className="mt-2 text-sm opacity-70">Nothing needs a look.</p>
@@ -512,8 +565,25 @@ function ContributionRow({ row }: { row: FounderRow }) {
   return (
     <li className="rounded border border-neutral-400 p-3" data-payment={state}>
       <p>
-        <strong>{formatMoney(payment.amountCents)}</strong> from {row.contributorName} to {row.hostName}, &ldquo;{row.projectName}&rdquo;
-        {contribution.kind === "monthly" ? `, month ${payment.number} of a monthly contribution` : ", once"}.{" "}
+        <strong>{formatMoney(payment.amountCents)}</strong> from {row.contributorName} to {row.hostName},{" "}
+        {contribution.kind === "tip" ? (
+          <>
+            a tip of {formatMoney(contribution.tipCents ?? payment.amountCents)} for{" "}
+            {contribution.callId ? (
+              <Link href={`/calls/${contribution.callId}/results`} className="underline underline-offset-2">
+                a call
+              </Link>
+            ) : (
+              "a call"
+            )}
+          </>
+        ) : (
+          <>
+            &ldquo;{row.projectName}&rdquo;
+            {contribution.kind === "monthly" ? `, month ${payment.number} of a monthly contribution` : ", once"}
+          </>
+        )}
+        .{" "}
         {state === "held" && payment.takeAt ? (
           <>
             Held; taken on <LocalTime iso={payment.takeAt.toISOString()} />.
@@ -521,7 +591,8 @@ function ContributionRow({ row }: { row: FounderRow }) {
         ) : state === "taken" && payment.takenAt ? (
           <>
             Taken on <LocalTime iso={payment.takenAt.toISOString()} />.{" "}
-            {share?.transferDueAt && !sent && (
+            {/* (Not for a disputed charge: the line below says that nothing can be collected from it.) */}
+            {share?.transferDueAt && !sent && payment.dispute !== "open" && payment.dispute !== "lost" && (
               <>
                 The host can collect it from <LocalTime iso={share.transferDueAt.toISOString()} />.
               </>

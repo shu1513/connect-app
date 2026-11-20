@@ -15,7 +15,7 @@ import { CARD_STEP_MS } from "@/lib/membership/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { isId } from "@/lib/projects/projects";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
-import { projectsOnFor } from "@/lib/safety/switches";
+import { projectsOnFor, takingOnFor } from "@/lib/safety/switches";
 import { everTried, intentFor, paymentById, syncPayment, writeDownPayment } from "./charge";
 import { lockPair, lockSwitchForWriting } from "./locks";
 import { ContributionError, kindsOffered, monthMissed, readAmount } from "./rules";
@@ -130,13 +130,13 @@ export async function startContribution(input: { contributorId: string; projectI
   }
 }
 
-/** A contribution with its payments and its project, for its contributor only. Null for anyone else and for an id that does not exist: the two look the same. */
-export async function contributionFor(contributorId: string, contributionId: string): Promise<{ contribution: Contribution; payments: ContributionPayment[]; project: Project } | null> {
+/** A contribution with its payments and its project (a tip has none), for its contributor only. Null for anyone else and for an id that does not exist: the two look the same. */
+export async function contributionFor(contributorId: string, contributionId: string): Promise<{ contribution: Contribution; payments: ContributionPayment[]; project: Project | null } | null> {
   if (!isId(contributionId)) return null;
   const [found] = await db
     .select({ contribution: schema.contributions, project: schema.projects })
     .from(schema.contributions)
-    .innerJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
+    .leftJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
     .where(and(eq(schema.contributions.id, contributionId.toLowerCase()), eq(schema.contributions.contributorId, contributorId)));
   if (!found) return null;
   const payments = await db.select().from(schema.contributionPayments).where(eq(schema.contributionPayments.contributionId, found.contribution.id)).orderBy(asc(schema.contributionPayments.number));
@@ -193,6 +193,8 @@ export async function payNow(input: { paymentId: string; contributorId: string; 
   if (!own || !canPay(own.payment, at)) return null;
   if (await tooLateForItsMonth(own, new Date(Math.max(at.getTime(), Date.now())))) return null;
   if (!(await stillOpenBetween(own.hostId, input.contributorId))) return null;
+  // No way to pay is handed out while the founder's switch does not cover it (the projects switch, or the tips switch).
+  if (!(await takingOnFor(own))) return null;
   const intent = await intentFor(input.paymentId, at);
   if (!intent?.clientSecret) return null;
   if (!WAITING.includes(intent.status)) {
@@ -217,6 +219,7 @@ export async function secretToPay(input: { paymentId: string; contributorId: str
   if (!own?.payment.stripePaymentIntentId || !canPay(own.payment, at)) return null;
   if (await tooLateForItsMonth(own, new Date(Math.max(at.getTime(), Date.now())))) return null;
   if (!(await stillOpenBetween(own.hostId, input.contributorId))) return null;
+  if (!(await takingOnFor(own))) return null;
   const intent = await stripe().paymentIntents.retrieve(own.payment.stripePaymentIntentId);
   // Only a payment that waits for the contributor; for a monthly one, with the card set to be kept for the months that follow.
   if (!intent.client_secret || !WAITING.includes(intent.status) || (own.kind === "monthly" && intent.setup_future_usage !== "off_session")) return null;

@@ -15,13 +15,16 @@ import type { AppStart, AppSwitches } from "./types";
  * the founder has switched off for everyone is off in the apps whatever the apps' switch says.
  * (Memberships named for certain hosts only are decided host by host, where a host is shown.)
  *
- * Tips: there are no tips on `main` yet (plans/44). Until there are, and until the website's own
- * tip switch is read here beside the apps', tips are off for the apps whatever is saved.
+ * Tips reach the apps only when two switches are on: the website's own tip switch (plans/44,
+ * decision 12: off there is off everywhere) and the apps' own, which is born off and stays off
+ * until a store has said that a tip after a one-to-one call may be paid outside its own payment
+ * (plans/44, decision 18). The app is told afresh each time it opens: nothing about tips is
+ * built into the app, so either switch works without a new version of it.
  */
 export function switchesForApps(all: Switches): AppSwitches {
   return {
     memberships: all.memberships === "off" ? "off" : all.appMemberships,
-    tips: false,
+    tips: !all.tipsOff && all.appTips,
     availableNow: all.appAvailableNow && !all.requestsOff,
   };
 }

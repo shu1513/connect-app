@@ -346,6 +346,8 @@ export const siteSwitches = pgTable("site_switches", {
   projects: text("projects").notNull().default("everyone"),
   /** The account IDs of the hosts the founder named for projects, separated by commas. Only read when projects is "named". */
   projectsHosts: text("projects_hosts").notNull().default(""),
+  /** Tips after a call (plans/44): on for every host unless the founder switches them off. */
+  tipsOff: boolean("tips_off").notNull().default(false),
   /**
    * The moment the tool against known pictures of child abuse first answered correctly. From then on it
    * counts as switched on, whether or not its settings are still there (plans/24, child-safety.ts).
@@ -1880,23 +1882,30 @@ export const pictureCheckers = pgTable("picture_checkers", {
 /**
  * One person's contribution to one project: made once, or every month. The money itself is in
  * contribution_payments, one line for the payment made once and one for each month.
+ *
+ * A tip after a call (plans/44) is kept here too, as kind "tip": it has a call and no project,
+ * and its money moves exactly as a contribution made once does.
  */
 export const contributions = pgTable(
   "contributions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id),
+    /** The project it supports. Empty for a tip. */
+    projectId: uuid("project_id").references(() => projects.id),
+    /** For a tip: the call it says thank you for. Empty for a contribution. */
+    callId: uuid("call_id").references(() => calls.id),
     hostId: text("host_id")
       .notNull()
       .references(() => user.id),
     contributorId: text("contributor_id")
       .notNull()
       .references(() => user.id),
-    /** once or monthly. */
+    /** once, monthly or tip. */
     kind: text("kind").notNull(),
+    /** What the person pays. For a tip that is the tip and the payment fee on top of it. */
     amountCents: integer("amount_cents").notNull(),
+    /** For a tip: the tip itself, which the host gets whole (plans/44, decision 6). Empty for a contribution. */
+    tipCents: integer("tip_cents"),
     /** card_step, running or ended. */
     status: text("status").notNull().default("card_step"),
     /** Made when the form was shown: the same press, sent twice, is one contribution. */
@@ -1921,9 +1930,15 @@ export const contributions = pgTable(
     index("contributions_contributor_idx").on(t.contributorId),
     // One monthly contribution that is not ended for each person and project.
     uniqueIndex("contributions_one_monthly_uq").on(t.contributorId, t.projectId).where(sql`${t.kind} = 'monthly' and ${t.status} <> 'ended'`),
-    check("contributions_kind", sql`${t.kind} in ('once', 'monthly')`),
+    index("contributions_call_idx").on(t.callId),
+    // The last net behind the code's own check (tip-start.ts): for each call at most one tip that has not ended, or that was paid.
+    uniqueIndex("contributions_one_tip_uq").on(t.callId).where(sql`${t.kind} = 'tip' and (${t.status} <> 'ended' or ${t.endedHow} = 'paid')`),
+    check("contributions_kind", sql`${t.kind} in ('once', 'monthly', 'tip')`),
     check("contributions_status", sql`${t.status} in ('card_step', 'running', 'ended')`),
-    check("contributions_amount", sql`${t.amountCents} between 500 and 10000000`),
+    // A contribution is $5 or more. A tip is $2 or more, and what is paid for it is more than the tip (the payment fee on top).
+    check("contributions_amount", sql`${t.amountCents} <= 10000000 and ((${t.kind} = 'tip' and ${t.tipCents} >= 200 and ${t.amountCents} > ${t.tipCents}) or (${t.kind} <> 'tip' and ${t.amountCents} >= 500))`),
+    // A tip has a call and a tip amount and no project; a contribution has a project and neither of the two.
+    check("contributions_tip_shape", sql`(${t.kind} = 'tip') = (${t.callId} is not null) and (${t.kind} = 'tip') = (${t.tipCents} is not null) and (${t.kind} = 'tip') = (${t.projectId} is null)`),
     check("contributions_ended_shape", sql`(${t.status} = 'ended') = (${t.endedAt} is not null)`),
     check("contributions_not_own", sql`${t.hostId} <> ${t.contributorId}`),
   ],
@@ -2047,7 +2062,8 @@ export const contributionPayments = pgTable(
     check("contribution_payments_founder_hold", sql`${t.founderHold} in ('none', 'held', 'released')`),
     check("contribution_payments_given_up_why", sql`${t.status} <> 'given_up' or ${t.endedHow} is not null`),
     check("contribution_payments_taken_shape", sql`(${t.status} = 'taken') = (${t.takenAt} is not null) and (${t.takenAt} is null) = (${t.takenCents} is null)`),
-    check("contribution_payments_amounts", sql`${t.amountCents} between 500 and 10000000 and ${t.refundedCents} >= 0 and ${t.refundedCents} <= coalesce(${t.takenCents}, 0)`),
+    // (From $2: a tip's payment can be smaller than a contribution's. The rule on `contributions` keeps a contribution at $5 or more.)
+    check("contribution_payments_amounts", sql`${t.amountCents} between 200 and 10000000 and ${t.refundedCents} >= 0 and ${t.refundedCents} <= coalesce(${t.takenCents}, 0)`),
   ],
 );
 

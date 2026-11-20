@@ -407,8 +407,17 @@ async function main() {
       check("saving one switch leaves every other as it was", kept.appMemberships === "use_only" && kept.appAvailableNow === false && kept.appOldestVersion === "0.9.0" && kept.joiningOff === true && kept.memberships === "everyone", JSON.stringify(kept));
       const told = (await start()).body!;
       check("the app is told the middle position of memberships and that 'available now' is off", told.switches.memberships === "use_only" && told.switches.availableNow === false);
-      check("tips stay off for the apps even with their switch on, while the website has no tips", told.switches.tips === false);
-      await setSwitches({ joiningOff: false, appTips: false, appAvailableNow: true });
+      // Tips reach the apps only with both switches on: the website's own (plan 44) and the apps'.
+      const tipsTold = async (website: boolean, apps: boolean) => {
+        await setSwitches({ tipsOff: !website, appTips: apps });
+        return (await start()).body!.switches.tips;
+      };
+      const both = await tipsTold(true, true);
+      const onlyWebsite = await tipsTold(true, false);
+      const onlyApps = await tipsTold(false, true);
+      const neither = await tipsTold(false, false);
+      check("tips reach the apps only when the website's own tip switch and the apps' switch are both on", both === true && onlyWebsite === false && onlyApps === false && neither === false, JSON.stringify([both, onlyWebsite, onlyApps, neither]));
+      await setSwitches({ tipsOff: false, joiningOff: false, appTips: false, appAvailableNow: true });
 
       await setSwitches({ appMemberships: "off" });
       check("memberships off for the apps alone are off in the apps", (await start()).body!.switches.memberships === "off" && (await switches()).memberships === "everyone");

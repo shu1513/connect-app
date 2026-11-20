@@ -354,8 +354,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
           monthly payment. A member can always see and cancel their own membership, in every position.
         </p>
         <label className="flex items-center gap-2">
-          <input type="checkbox" name="appTips" defaultChecked={current.appTips} /> Tips in the apps (keep this off until
-          Apple&apos;s rule about a tip after a call is clear)
+          <input type="checkbox" name="appTips" defaultChecked={current.appTips} /> Tips in the apps (they also need tips to
+          be on for the website; keep this off until Apple&apos;s rule about a tip after a call is clear)
         </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" name="appAvailableNow" defaultChecked={current.appAvailableNow} /> &quot;Available now&quot; in the

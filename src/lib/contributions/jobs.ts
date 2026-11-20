@@ -13,12 +13,12 @@
  * reconcileOperations, which hands them to recover.ts. Writing down the monthly payments that are
  * due comes with part 2b.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { MoneyError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, type OperationKind } from "@/lib/payments/operations";
-import { projectsOnFor, switches } from "@/lib/safety/switches";
+import { projectsOnFor, switches, tipsOn } from "@/lib/safety/switches";
 import { removeRetiredCards } from "./cards";
-import { giveUp, intentFor, letGo, syncPayment, takePayment, tryHold } from "./charge";
+import { giveUp, giveUpIfWaiting, intentFor, letGo, lookAndRecord, syncPayment, takePayment, tryHold } from "./charge";
 import { runDisputeLooks } from "./dispute";
 import { endContribution } from "./ending";
 import { writeDuePayments } from "./monthly";
@@ -71,11 +71,23 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
     const uncovered = current.projects === "named" && current.projectsHosts.length > 0 ? notInArray(schema.contributions.hostId, current.projectsHosts) : undefined;
     await each(
       "give up a held payment of a host the switch does not cover",
-      await db.select({ id: pays.id }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(and(eq(pays.status, "held"), open, uncovered)).limit(BATCH),
+      // (Not a tip: tips follow their own switch, below.)
+      await db.select({ id: pays.id }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(and(eq(pays.status, "held"), open, ne(schema.contributions.kind, "tip"), uncovered)).limit(BATCH),
       async (id) => {
         // Asked once more for this host, by the one function that knows, right before acting.
         const [owner] = await db.select({ hostId: schema.contributions.hostId }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(eq(pays.id, id));
         if (owner && !(await projectsOnFor(owner.hostId))) await giveUp(id, "switch", now);
+      },
+    );
+  }
+  //    The same for tips while the founder has switched them off (plans/44, decision 12): every tip payment that is
+  //    not taken, held or still at its card step, is given up. Chosen in the search itself, so nothing else fills the batch.
+  if (current.tipsOff) {
+    await each(
+      "give up a tip while tips are switched off",
+      await db.select({ id: pays.id }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(and(inArray(pays.status, ["to_pay", "held"]), open, eq(schema.contributions.kind, "tip"))).limit(BATCH),
+      async (id) => {
+        if (!(await tipsOn())) await giveUp(id, "switch", now);
       },
     );
   }
@@ -94,10 +106,26 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
   // 3. Card steps that ran out without a hold. Stripe is asked first: a hold that arrived in time counts.
   await each(
     "end the card step",
-    await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "to_pay"), open, lte(pays.cardStepExpiresAt, now))).limit(BATCH),
+    // (The one that was looked at longest ago first, so payments that are still waiting for an outcome never keep the others out of the batch.)
+    await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "to_pay"), open, lte(pays.cardStepExpiresAt, now))).orderBy(pays.updatedAt).limit(BATCH),
     async (id) => {
-      const payment = await syncPayment(id, now);
-      if (payment.status === "to_pay" && !payment.endedHow && !payment.problem) await giveUp(id, "card_step", now);
+      /** Marked as looked at, so it goes to the end of the line. Only while it still waits for a card: the time of a payment that is being given up is the watch's to read. */
+      const looked = () => db.update(pays).set({ updatedAt: new Date() }).where(and(eq(pays.id, id), eq(pays.status, "to_pay"), open));
+      // A look that fails (Stripe cannot be reached) is marked too, before the failure is passed on: fifty such payments must not keep the others out of every round.
+      const { payment, shown } = await lookAndRecord(id, now).catch(async (error) => {
+        await looked().catch(() => undefined);
+        throw error;
+      });
+      // Stripe is still working on the payment, or its answer could not be recorded: a hold placed in time may be
+      // about to appear, and giving the payment up now would cancel it. Nothing is decided until there is an outcome;
+      // the next round looks again. (The rule a missed month follows too: charge.ts, missMonth.) It is marked as
+      // looked at, so it goes to the end of the line; if it waits like this for more than a day, the watch says so (health.ts).
+      if (shown === "processing" || shown === "unrecorded") {
+        await looked();
+        return;
+      }
+      // Given up only if it still waits for a card when it is locked: a hold recorded in this very moment stays.
+      if (payment.status === "to_pay" && !payment.endedHow && !payment.problem) await giveUpIfWaiting(id, "card_step", now);
     },
   );
 
