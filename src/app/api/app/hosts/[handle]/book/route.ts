@@ -1,7 +1,7 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { bookSummaryFor } from "@/lib/app-door/booking";
 import type { AppBookSent } from "@/lib/app-door/types";
-import { askForCall, BookingError, oneSendingAtATime, requestWithKey } from "@/lib/booking/bookings";
+import { askForCall, BookingError, requestWithKey, requestWithKeySettled } from "@/lib/booking/bookings";
 import { publicProfile } from "@/lib/profiles/profiles";
 
 /**
@@ -51,20 +51,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
   // A tick always says which words it was given for: a tick without them is no tick.
   if (given.cardTerms === true && typeof given.cardTermsVersion !== "string") return refuse("not_valid");
 
-  // Two sendings with the same key never run side by side: one that is tried again waits for the first to be
-  // through, and then finds what the first made. So what is answered below is always about the whole of it.
-  let outcome: Response | "busy";
-  try {
-    outcome = await oneSendingAtATime(given.requestKey, () => send(me, handle, { start: given.start as string, length: given.length as number, note: typeof given.note === "string" ? given.note : "", requestKey: given.requestKey as string, cardTerms: given.cardTerms === true, cardTermsVersion: typeof given.cardTermsVersion === "string" ? given.cardTermsVersion : null, seen: { price: seen.price as number, freeCancel: seen.freeCancel as number } }));
-  } catch (error) {
-    console.error("[bookings] a sending from the app could not be carried out", error);
-    return notKnown();
-  }
-  // The first sending is still not through: what became of it cannot be told yet.
-  return outcome === "busy" ? notKnown() : outcome;
+  return send(me, handle, { start: given.start, length: given.length, note: typeof given.note === "string" ? given.note : "", requestKey: given.requestKey, cardTerms: given.cardTerms === true, cardTermsVersion: typeof given.cardTermsVersion === "string" ? given.cardTermsVersion : null, seen: { price: seen.price, freeCancel: seen.freeCancel } });
 }
 
-/** One sending, with no other for the same key under way. */
+/**
+ * One sending. Two sendings with the same key never decide side by side: the step that makes a request takes
+ * the key's place in the queue before it looks at anything (`askForCall`), and before a refusal is answered
+ * here the request is looked for once every such step is through (`requestWithKeySettled`). So a sending that
+ * is tried again is never told "nothing was sent" while the first is still being written down.
+ */
 async function send(
   me: { id: string; name: string; email: string },
   handle: string,
@@ -82,7 +77,15 @@ async function send(
   }
   if (again) return answer<AppBookSent>({ id: again.id });
   const profile = await publicProfile(handle);
-  if (!profile) return refuse("not_found");
+  if (!profile) {
+    // Her page is not there now. It may have been a moment ago, when an earlier sending with this key was let in:
+    // that one is waited for before "not found" is said.
+    const settled = await requestWithKeySettled(me.id, given.requestKey).catch((lookup) => {
+      console.error("[bookings] could not look for a request with its key", lookup);
+      return "unknown" as const;
+    });
+    return settled === "unknown" ? notKnown() : settled ? answer<AppBookSent>({ id: settled.id }) : refuse("not_found");
+  }
   try {
     const { booking } = await askForCall({
       customer: me,
@@ -102,9 +105,9 @@ async function send(
     // A paid request is written down first, and its card step is made at Stripe after. If only the second failed
     // (whatever the kind of failure), the request exists: it is answered as made (its own screen makes the card step
     // when it is asked for), never as "nothing was sent".
-    let made: Awaited<ReturnType<typeof requestWithKey>>;
+    let made: Awaited<ReturnType<typeof requestWithKeySettled>>;
     try {
-      made = await requestWithKey(me.id, given.requestKey);
+      made = await requestWithKeySettled(me.id, given.requestKey);
     } catch (lookup) {
       console.error("[bookings] could not look for a request after a failed sending", lookup);
       return notKnown();

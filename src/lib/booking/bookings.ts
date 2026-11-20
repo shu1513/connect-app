@@ -44,6 +44,19 @@ export function isOverlap(error: unknown): boolean {
  * Takes each person's calendar lock, always in the same order, so two steps
  * that involve the same people wait for each other instead of getting stuck.
  */
+/**
+ * Takes this customer's place in the queue for one once-only key, for the rest of this step of the
+ * database: no other step holds the same place meanwhile. Waits a few seconds at most for a step
+ * that holds it; if that is still not through, this one fails (the database's "lock not available"),
+ * and nothing is decided. The key is the customer's own: nobody else's sending waits on it.
+ */
+async function queueForKey(tx: Tx, customerId: string, requestKey: string): Promise<void> {
+  await tx.execute(sql`select set_config('lock_timeout', '8s', true)`);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`request-key:${customerId}:${requestKey}`}))`);
+  // Only the wait for the key has a limit: what follows in this step waits as it always did.
+  await tx.execute(sql`select set_config('lock_timeout', '0', true)`);
+}
+
 export async function lockCalendars(tx: Tx, userIds: string[]): Promise<void> {
   for (const id of [...new Set(userIds)].sort()) {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`calendar:${id}`}))`);
@@ -434,27 +447,28 @@ export async function askForCall(input: {
   if (customer.id === input.hostId) throw new BookingError("You cannot book a call with yourself.");
   const note = input.note.replace(/\s+/g, " ").trim();
   if (note.length > LIMITS.noteMax) throw new BookingError(`The note can be at most ${LIMITS.noteMax} characters.`);
-  const offer = await offerOf(input.hostId);
-  if (!offer || !offer.lengths.includes(input.lengthMinutes) || !offer.canTakePaid) throw new BookingError("This host cannot be booked right now.");
-  const totalCents = bookedTotalCents(offer.pricePer15Cents, input.lengthMinutes * 60);
-  const paid = totalCents > 0;
-  if (paid && totalCents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be charged for.");
-  if (paid && !input.agreedToCardTerms) throw new BookingError("Please tick the box about your card to continue.");
-
   let booking: Booking;
   try {
     booking = await db.transaction(async (tx) => {
-      await lockCalendars(tx, [input.hostId, customer.id]);
+      // Before anything is looked at as it stands now: one sending at a time for one key. A form sent twice, or sent
+      // again because the first answer was lost on the way, waits here until the first is through, and then finds
+      // what it made. So the second can never be refused (the host has changed something meanwhile, say) while the
+      // first goes on to be made.
+      await queueForKey(tx, customer.id, input.requestKey);
       const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
       if (again) {
         if (again.customerId !== customer.id) throw new BookingError("This form is out of date. Please reload the page.");
         return again;
       }
-      // Read what the host offers again now that the calendars are locked.
+      await lockCalendars(tx, [input.hostId, customer.id]);
+      // What the host offers, read with the calendars locked: nothing about it can change under this request now.
       const current = await offerOf(input.hostId, tx);
-      // (The length too: she may have stopped offering it while this request waited for the calendars.)
-      if (!current || !current.canTakePaid || !current.lengths.includes(input.lengthMinutes)) throw new BookingError("This host cannot be booked right now.");
-      if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.freeCancelMinutes !== input.seen.freeCancelMinutes || current.pricePer15Cents !== offer.pricePer15Cents) {
+      if (!current || !current.lengths.includes(input.lengthMinutes) || !current.canTakePaid) throw new BookingError("This host cannot be booked right now.");
+      const totalCents = bookedTotalCents(current.pricePer15Cents, input.lengthMinutes * 60);
+      const paid = totalCents > 0;
+      if (paid && totalCents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be charged for.");
+      if (paid && !input.agreedToCardTerms) throw new BookingError("Please tick the box about your card to continue.");
+      if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.freeCancelMinutes !== input.seen.freeCancelMinutes) {
         throw new BookingError("This host's price or cancelling rule changed while you were looking. Please check the details again.");
       }
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt: input.startsAt, lengthMinutes: input.lengthMinutes, totalCents }, now);
@@ -1018,28 +1032,18 @@ export async function requestWithKey(customerId: string, requestKey: string): Pr
 }
 
 /**
- * Runs one sending of a request while no other sending with the same once-only key runs: a second
- * one waits until the first is through, whatever became of it, and then sees what the first left
- * behind. So a sending that is tried again (the answer to the first was lost on the way) can never
- * overtake the first and be told "nothing was sent" while the first is still being written down.
- *
- * The wait is short. If the first is still not through by then, the answer is "busy": it cannot
- * be told yet what became of it. Nothing of Connect's own is written in this step; it only holds
- * the place in the queue.
+ * The same question, asked once every sending with this key is through: it takes the key's place
+ * in the queue first (see `askForCall`), so a sending that is being written down at this very
+ * moment is waited for (a few seconds at most) and then seen. This is what is asked before a
+ * customer is told "nothing was sent". One short step on one connection.
  */
-export async function oneSendingAtATime<T>(requestKey: string, work: () => Promise<T>): Promise<T | "busy"> {
-  try {
-    return await db.transaction(async (tx) => {
-      await tx.execute(sql`select set_config('lock_timeout', '8s', true)`);
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`request-key:${requestKey}`}))`);
-      return work();
-    });
-  } catch (error) {
-    // The database's own word for "the lock was not free in time".
-    const code = (error as { code?: unknown; cause?: { code?: unknown } } | null)?.cause?.code ?? (error as { code?: unknown } | null)?.code;
-    if (code === "55P03") return "busy";
-    throw error;
-  }
+export async function requestWithKeySettled(customerId: string, requestKey: string): Promise<Booking | null> {
+  if (!isUuid(requestKey)) return null;
+  return db.transaction(async (tx) => {
+    await queueForKey(tx, customerId, requestKey);
+    const [booking] = await tx.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
+    return booking ?? null;
+  });
 }
 
 /** The requests a host has to answer, soonest call first, so requests for the same time sit together. */

@@ -379,14 +379,27 @@ It found the sixth look's race fixed, and one more of its kind: a sending tried 
 still get ahead of a first one that was waiting its turn for the host's calendar, and be
 refused while the first went on to be made.
 
-1. *Closed as a whole, not case by case:* **two sendings with the same key never run side by
-   side.** The second waits (a few seconds at most) until the first is through, whatever became
-   of it, and then finds what the first made. If the first is still not through, the answer is
-   "it cannot be told", and the app keeps what was sent. A check sends the same request twice at
-   the very same moment: one request, both told so.
-2. The length asked for is now looked at again with the calendars locked, like the price (the
-   host may have stopped offering it while the request waited).
+1. *Closed as a whole, not case by case:* **two sendings with the same key never decide side
+   by side.** The step that makes a request first takes that key's place in a queue, before it
+   looks at anything as it stands now; a second sending with the same key waits there (a few
+   seconds at most) until the first is through, and then finds what the first made. Before a
+   refusal is answered, the request is looked for through the same queue. If the first is
+   still not through, the answer is "it cannot be told", and the app keeps what was sent. A
+   check sends the same request twice at the very same moment: one request, both told so.
+   This is in the website's own function, so a form sent twice there is covered too.
+2. Everything about what the host offers (the length, whether she can be paid, the price, the
+   cancelling rule) is now read once, with the calendars locked, and judged there.
 3. *The wait had no limit of its own.* It has one now (8 seconds).
+4. *(Found by the automatic security review of the saved code.)* A first version of this held
+   one database connection open while the work inside took a second one, which a burst of
+   sendings could have used up. The queue is now taken inside the one step that makes the
+   request: one connection for each sending.
+
+One thing no queue can close, said plainly: a first sending that has not yet reached the
+server at all (stuck on the way) cannot be waited for. If its second try is refused for good
+and the first then arrives after the host has changed things back, a request is made that
+the app said was not. The request is then on the home page under "Your requests", where it
+can be taken back.
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
