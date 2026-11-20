@@ -3079,3 +3079,7 @@ pictures, and never asks it as the host. The page itself did not change. Checked
 `scripts/project-check.ts`, all pass; the other journeys of that script passed in the other
 session's round. Learned: after a page starts to use code of another feature, run that feature's
 own check script too, not only the scripts that open the page.
+
+CodeRabbit reviewed the correction and made two points about the new check, both taken: it now
+reads every import from that code whichever quotes it is written with, and it refuses the word
+`forHost` anywhere on the home page instead of trying to read the call. Journey 18 passes again.

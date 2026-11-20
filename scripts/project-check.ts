@@ -1463,7 +1463,9 @@ async function main() {
     // (With the home page, plans/36: its "News from your hosts" shows the first picture of a post through `picturesOf`, the reader's own question, which gives only the pictures everyone may see.)
     const readersOwn = ["src/app/contributions/new/page.tsx", "src/app/h/[handle]/page.tsx", "src/app/h/[handle]/project/diary.tsx", "src/app/page.tsx", "src/app/pictures/[id]/route.ts"];
     const home = uses.find((file) => file.path === "src/app/page.tsx");
-    check("the home page takes one thing from that code: the reader's question about pictures, never the host's or the founder's", Boolean(home) && [...home!.text.matchAll(/import \{([^}]+)\} from "@\/lib\/projects\/(?:projects|posts|pictures|moderation|picture-steps|queue|child-safety|checks\/[\w-]+)"/g)].map((m) => m[1].trim()).join() === "picturesOf" && !/picturesOf\([^)]*forHost/.test(home!.text), home ? "" : "the home page does not use it");
+    // Every import from that code, whichever quotes it is written with and however it is laid out; and the word "forHost" nowhere on the page at all, which is simpler and stricter than reading the call.
+    const taken = home ? [...home.text.matchAll(/import\s+(?:type\s+)?([^;]*?)\s+from\s+["']@\/lib\/projects\/(?:projects|posts|pictures|moderation|picture-steps|queue|child-safety|checks\/[\w-]+)["']/g)].map((m) => m[1].replace(/\s+/g, " ").trim()) : [];
+    check("the home page takes one thing from that code: the reader's question about pictures, never the host's or the founder's", taken.join(" | ") === "{ picturesOf }" && !/forHost/.test(home!.text), home ? taken.join(" | ") : "the home page does not use it");
     const foundersOwn = ["src/app/admin/projects/actions.ts", "src/app/admin/projects/page.tsx"];
     const expected = [...hostsOwn, ...readersOwn, ...foundersOwn];
     const elsewhere = uses.filter((file) => !expected.includes(file.path)).map((file) => file.path);
