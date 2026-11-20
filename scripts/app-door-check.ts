@@ -290,7 +290,7 @@ async function main() {
       // What a person was shown has to be said. A "yes" alone, as an older copy of the app sent it, is not proof of that.
       for (const [label, body] of [
         ["without the documents it showed", { adult: true, timeZone: "America/New_York" }],
-        ["with only a yes to the terms, as an older copy of the app sent it", { adult: true, agreements: agreed, timeZone: "America/New_York" }],
+        ["with only a yes to the terms, as an older copy of the app sent it", { adult: true, terms: true, timeZone: "America/New_York" }],
         ["with an older version of one document", { adult: true, agreements: agreed.map((a, index) => (index === 0 ? { ...a, version: "2020-01-01" } : a)), timeZone: "America/New_York" }],
         ["with only two of the three documents", { adult: true, agreements: agreed.slice(0, 2), timeZone: "America/New_York" }],
       ] as const) {

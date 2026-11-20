@@ -4242,3 +4242,37 @@ Not taken: *closing an account must always have a reason, also in the code.* The
 buttons always give one. About twenty calls in check scripts close an account without, and
 giving each a reason would send an email into checks that count emails.
 
+*Astra's second review*, of the fixes above and of the merge with the phone apps' sign-in and
+home page: "hold the merge", for one line in a check script. Taken, all four:
+- The phone door's check had a case named "only a yes to the terms" that sent the right
+  documents, so it finished sign-up where it meant to be refused. It sends the old "yes" now.
+- A request that waited for a person's line across the midnight a new version takes effect could
+  still have written the old stamp. The clock is now read after the line is locked.
+- On the phone, the step asked again after a refusal put the time zone back to the phone's own,
+  so a second press could have saved a zone the person had not chosen. A zone chosen by hand
+  stays.
+- The safety check named the notice's version by its date; it compares with the version in
+  effect now, so it does not fail on the next notice.
+Astra also read the locks of four paths that touch a person and her host page (closing, pausing,
+a decision on the page, joining a call) and found no way for two of them to wait on each other
+for ever; and found nothing of the phone apps' parts 03 and 04 lost in the merge.
+
+**How it was checked.** Type check, lint and the automatic tests (802) pass, and so do the phone
+app's own type check, lint and 53 tests. Seven real check scripts were run against a running copy
+of the app and the real test accounts at Stripe, all on the final code:
+`agreements-check` (new, 46 checks: the pages, the stamp, a new version taking effect, two
+requests at once, the reasons, the identity notice), `accounts-check` (218), `journey-check`
+(60; the founder's pages skipped as always, the test admin's login is not set up),
+`safety-check` (76), `membership-check` (337), `contribution-check`, and `app-door-check`, the
+phone door, against a database of its own. In a browser, as the test host: the last step of
+sign-up with its three links, the box on the Hosting page, the line about how a host offers
+calls, and the notice above the button to Stripe. The test host was put back as she was.
+
+**What cannot be tested here.** Whether these words hold up in a court: that is the lawyer's
+(`docs/for-the-lawyer.md`). The phone app's screen on a real phone: it was type-checked and its
+rules tested, not run. A real version change at midnight: the check makes up a version and moves
+the clock instead.
+
+**After this merges, every open branch needs `npm run seed` once**: the seeded test accounts hold
+the old stamp, and the app would send them to the last step of sign-up.
+

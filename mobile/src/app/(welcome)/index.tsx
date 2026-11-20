@@ -79,8 +79,11 @@ export default function Welcome() {
       return;
     }
     const first = firstTimeZone(answer.data.timeZone, phoneTimeZone(), answer.data.timeZones);
-    setZone(first);
-    setChoosing(first === null);
+    // A zone she chose by hand stays when the step is asked for again (after a refusal), as long as it is still on
+    // the list: the second press must not save a different zone from the one on the screen.
+    const zones = answer.data.timeZones;
+    setZone((chosen) => (chosen && zones.includes(chosen) ? chosen : first));
+    setChoosing((open) => (first === null ? true : open));
     setFailed(null);
     setStep(answer.data);
   }, [sortOut]);

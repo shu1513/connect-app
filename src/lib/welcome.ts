@@ -56,7 +56,7 @@ export async function finishSigningUp(person: { id: string; welcomed: boolean },
   if (person.welcomed) return "already";
   if (!given.adult) return "boxes";
   if (!isTimeZone(given.timeZone)) return "zone";
-  return acceptGeneralAgreements({ userId: person.id, shown: given.shown, timeZone: given.timeZone, now: new Date() });
+  return acceptGeneralAgreements({ userId: person.id, shown: given.shown, timeZone: given.timeZone });
 }
 
 /** Whether this person accepted an earlier version of the terms: the step then says "we have updated our terms". */

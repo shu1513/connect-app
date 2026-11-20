@@ -313,7 +313,7 @@ async function main() {
       const noticeVersion = await legal.acceptIdentityNotice({ userId: newHost.id, shown: { "identity-check-notice": (await import("../src/legal/versions")).currentVersion("identity-check-notice", new Date()).version }, now: new Date() });
       const url = await startIdentityCheck(newHost, "https://example.com/return", noticeVersion);
       const [startedCheck] = await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.userId, newHost.id));
-      check("the check's own line keeps the version of the notice it was started under", startedCheck?.noticeVersion === noticeVersion && noticeVersion === "2026-11-20", String(startedCheck?.noticeVersion));
+      check("the check's own line keeps the version of the notice it was started under", Boolean(noticeVersion) && startedCheck?.noticeVersion === noticeVersion, String(startedCheck?.noticeVersion));
       check("a check can be started at Stripe and gives a page to go to", url.startsWith("https://"));
       const state = await refreshIdentity(newHost.id);
       check("until Stripe has an answer, nothing counts as passed", state.passed === false && state.triesLeft === 2, JSON.stringify(state));

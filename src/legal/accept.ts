@@ -65,10 +65,13 @@ async function writeLines(tx: Tx, userId: string, documents: { name: DocumentNam
  *   "changed"  the versions shown are not the ones in effect, or none were named: nothing is written;
  *   "done"     the lines and the stamp are written, together.
  */
-export async function acceptGeneralAgreements(input: { userId: string; shown: Shown; timeZone: string; now: Date }): Promise<"done" | "already" | "changed" | "gone"> {
-  const { userId, now } = input;
+export async function acceptGeneralAgreements(input: { userId: string; shown: Shown; timeZone: string; now?: Date }): Promise<"done" | "already" | "changed" | "gone"> {
+  const { userId } = input;
   return db.transaction(async (tx) => {
     const [person] = await tx.select().from(schema.user).where(eq(schema.user.id, userId)).for("update");
+    // The clock is read after the lock is held, not before: a request that waited for the lock across the midnight a
+    // new version takes effect is judged, and stamped, by the moment it writes. (A check script gives its own moment.)
+    const now = input.now ?? new Date();
     if (!person || person.closedAt || !person.emailVerified) return "gone";
     if (person.adultConfirmedAt && person.termsAcceptedAt && person.termsVersion === generalStamp(now)) return "already";
     if (!shownIsCurrent("sign_up", input.shown, now)) return "changed";
