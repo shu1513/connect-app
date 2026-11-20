@@ -2625,3 +2625,28 @@ searching or filtering by language, which needs a decision about browsing hosts 
   does not list what a host's page shows, so it needs no new sentence; no rule in the database
   for "at most five", as planned. One thing noticed and written under "Still open": a host who
   sends the form with no language ticked gets the refusal and has to fill the form in again.
+
+**How it was checked:** 616 automatic tests on the code with the emails to followers (plan 31)
+and the photo from TikTok (plan 33) merged in, 11 of them new here (the list, and what a host
+ticked). On this computer, against the local database: `scripts/accounts-check.ts`, 217 checks,
+11 of them new (applying with none, six, or a made-up language is refused in its own words and
+writes nothing; the languages are saved once each in the list's order; changing them keeps an
+approved page public; a refused save changes nothing; the public reader and the search give
+them; a host written without languages is still found and shown, with no line);
+`scripts/journey-check.ts`, 60 checks; `scripts/photo-check.ts`, 184 checks. On the code one
+merge earlier (before the photo from TikTok came in, which touches neither): `scripts/abroad-check.ts`,
+45 checks, against Stripe's test mode, and `scripts/membership-check.ts`, 466 checks, one of
+them new (a member who opens a hidden page is given the host's languages, a stranger nothing).
+That every host from before the change has an empty list was read in the local database after
+the migration ran (3,173 hosts, none missing). In a browser, wide and phone-sized, with the
+test accounts: a person applied as a host with two languages and the list folded shut; the
+host saw them named on the Hosting page; sending with nothing ticked gave the refusal; changing
+them showed on the host's page and in the search at once; the founder's page showed them for
+the waiting profile and "no languages chosen" for the others. After the last merge the Hosting
+page was opened once more. The trial profile was removed; the local test host keeps English
+and Spanish. No outside service is touched by this change.
+
+**Still open.** For the founder: the list of languages, the two sign languages, and whether the
+field stays required. A host who sends a profile form with no language ticked is refused and has
+to fill the form in again, as for every refusal on that form; a small script could stop the
+form before it is sent, if that proves a nuisance. Not built: finding hosts by language.
