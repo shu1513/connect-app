@@ -30,11 +30,17 @@ export type SignedIn = CurrentUser & {
 };
 
 /**
- * Whoever is logged in, with where they stand. Only the welcome and login
- * pages use this directly. Everything else uses getUser() or requireUser().
+ * The reading itself, from the headers of any request: who is logged in, with where they stand.
+ * The website's pages reach it through getSignedIn(); an address for the phone app is handed the
+ * request and calls it directly (plans/45-phone-apps/01-the-door.md).
+ *
+ * `renew: false` reads the login without extending it. The app's own addresses read this way:
+ * when the login tool extends a login it hands back a renewed cookie, and only the phone's direct
+ * request to the login tool can receive that. An extension made here would never reach the phone,
+ * and would then not be offered again.
  */
-export const getSignedIn = cache(async (): Promise<SignedIn | null> => {
-  const session = await auth.api.getSession({ headers: await headers() });
+export async function signedInFrom(requestHeaders: Headers, options: { renew?: boolean } = {}): Promise<SignedIn | null> {
+  const session = await auth.api.getSession({ headers: requestHeaders, ...(options.renew === false ? { query: { disableRefresh: true } } : {}) });
   if (!session) return null;
   // Read our own fields straight from the database, so they can never come from the browser.
   const [row] = await db.select().from(schema.user).where(eq(schema.user.id, session.user.id));
@@ -52,7 +58,13 @@ export const getSignedIn = cache(async (): Promise<SignedIn | null> => {
     twoFactorEnabled: row.twoFactorEnabled,
     sessionCreatedAt: session.session.createdAt,
   };
-});
+}
+
+/**
+ * Whoever is logged in, with where they stand, for the page being made. Only the welcome and
+ * login pages use this directly. Everything else uses getUser() or requireUser().
+ */
+export const getSignedIn = cache(async (): Promise<SignedIn | null> => signedInFrom(await headers()));
 
 /** The gate: logged in, email confirmed, 18-and-terms ticked, account not closed. */
 function mayUseTheApp(person: SignedIn): boolean {

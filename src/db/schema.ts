@@ -351,6 +351,21 @@ export const siteSwitches = pgTable("site_switches", {
    * counts as switched on, whether or not its settings are still there (plans/24, child-safety.ts).
    */
   childCheckOnAt: timestamp("child_check_on_at", { withTimezone: true }),
+  /**
+   * The phone apps (plans/45-phone-apps/01-the-door.md). Each is read by the server for every request
+   * of an app, so a thing that is off is refused there and not only hidden; the website does not read them.
+   *
+   * Memberships in the apps: "on"; "use_only" (members may spend time already paid for, and nothing in the
+   * app can take a monthly payment); or "off" (only seeing and cancelling one's own). The website's own
+   * memberships switch still rules first.
+   */
+  appMemberships: text("app_memberships").notNull().default("on"),
+  /** Tips in the apps. Off until the stores' rules about a tip after a call are clear. The website's own tip switch must allow them too. */
+  appTips: boolean("app_tips").notNull().default(false),
+  /** "Available now" in the apps: the host's switch and the customer's button together. */
+  appAvailableNow: boolean("app_available_now").notNull().default(true),
+  /** The oldest version of the app still allowed to run, such as "1.2.0". Empty: every version is allowed. */
+  appOldestVersion: text("app_oldest_version").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
