@@ -76,6 +76,9 @@ export const CALL_WORDS = {
   payBusy: "Placing the hold…",
   payNotHeld: "Your card could not be held. Please try another card.",
   payNotConfirmed: "The hold could not be confirmed yet.",
+  /** For the phone app, whose card form is a sheet that can be closed. */
+  payGivenUp: "You closed the card form before the hold was placed. Nothing is held.",
+  payCheckAgain: "Check again",
   payNotStarted: "Payment could not be started. Please try again.",
   payNotChecked: "Could not check the payment. Please try again.",
   payOnlyCustomer: "Only the customer can pay for this call.",
@@ -85,6 +88,15 @@ export const CALL_WORDS = {
   /** The phone app asks once more before it cancels, with the outcome's own sentence. */
   cancelYes: "Cancel the call",
   cancelNo: "Keep it",
+  /** The phone app's Calls place. */
+  comingTitle: "Coming calls",
+  noComing: "You have no call coming up.",
+  pastTitle: "Past calls",
+  noPast: "No past calls yet.",
+  noMore: "No more calls.",
+  statusCancelled: "Cancelled",
+  statusEnded: "Ended",
+  aboutTitle: (customerName: string) => `About ${customerName}`,
   /** What cancelling means changed between the page being shown and the button being pressed. */
   cancelChanged: "Cancelling this call is no longer free: its free period has just ended. Nothing was cancelled. Please read what cancelling means now.",
 } as const;

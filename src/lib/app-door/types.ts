@@ -140,6 +140,66 @@ export type AppCall = {
   about?: AppAbout;
 };
 
+/**
+ * The answer of GET /api/app/calls?kind=coming|past&page=1: a person's calls a page at a time.
+ * "coming": every call that is not over, the soonest first (also the ones far ahead, which the
+ * home page does not load). "past": the calls that are over, cancelled, or ended with a report,
+ * the newest first.
+ */
+export type AppCalls = {
+  kind: "coming" | "past";
+  serverNow: string;
+  title: string;
+  /** `status`: "Cancelled" or "Ended" for a past call; null for a coming one. */
+  calls: Array<AppCall & { status: string | null }>;
+  page: number;
+  /** There is a further page (later calls, or older ones). */
+  more: boolean;
+  /** What to say when the page holds no call. */
+  empty: string | null;
+};
+
+/**
+ * The answer of GET /api/app/calls/[id]: one call's page before the call, for one of its two
+ * people. Reading it only reads: where a hold at Stripe stands is asked with the step "pay-check".
+ */
+export type AppCallPage = {
+  id: string;
+  role: "customer" | "host";
+  title: string;
+  /** "(you are the host)" */
+  roleWords: string;
+  startsAt: string;
+  endsAt: string;
+  /** How the call is paid for: "Free call", "$20.00 per 15 minutes, up to $40.00", "paid from your membership, up to $40.00". */
+  paidHow: string;
+  /** The server's clock when this was put together: what the countdown counts from. */
+  serverNow: string;
+  state: "cancelled" | "ended" | "too_early" | "pay" | "host_waits" | "blocked" | "room";
+  /** The state's own sentence and a smaller one under it; null where the state has its own part below ("pay", "room"). */
+  words: AppPart[] | null;
+  small: string | null;
+  /** The customer's confirm-and-pay step: the money is held, never taken, by it. */
+  pay: { title: string; points: AppPart[][]; button: string; givenUp: string; notHeld: string; notConfirmed: string; checkAgain: string } | null;
+  /** Nothing stands in the way: when the room opens, and whether it is open now. Join goes by the server's word. */
+  room: { opensAt: string; open: boolean } | null;
+  /** For the host: her own private note about the customer, to read while she waits. */
+  about: { title: string; text: string } | null;
+  /**
+   * Cancelling: what it would mean right now, and the question the app asks first. `shown` goes back with the
+   * press: if cancelling has turned from free to charged meanwhile, nothing is cancelled. Null when the call
+   * can no longer be cancelled.
+   */
+  cancel: { words: string; button: string; shown: "free" | "late_charge"; yes: string; no: string } | null;
+  /** While the page can change by itself: how often the app asks again. */
+  refreshSeconds: number | null;
+  /** What was just done, in the answer to a step; null otherwise. */
+  notice: string | null;
+};
+
+/** The answer of POST /api/app/calls/[id]/pay when a card is needed: what Stripe's sheet needs to place the hold. */
+export type AppPayStep = { clientSecret: string; publishableKey: string; merchant: string };
+
 /** A time people have asked a host for and she has not answered: when, and how many asked. Never who. */
 export type AppAsk = { startsAt: string; endsAt: string; count: number };
 
