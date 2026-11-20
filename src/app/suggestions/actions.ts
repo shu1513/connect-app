@@ -12,6 +12,8 @@ import { hideSuggestion, makeSuggestions, markSeen } from "@/lib/suggestions/sug
  */
 export async function makeSuggestionsAction(): Promise<void> {
   const user = await requireUser();
+  // A paused person gets no suggestions; nothing is written for them, so they get theirs on the day the pause ends.
+  if (user.paused) return;
   await makeSuggestions(user.id, new Date());
 }
 

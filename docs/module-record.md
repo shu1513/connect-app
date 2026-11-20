@@ -2866,6 +2866,12 @@ are deleted, because the test database is shared.
   tidy-up taken: the part that asks for the day's suggestions now notes whether it is still on
   the page when the answer comes, and clears its one timer when it leaves.
 
+- *CodeRabbit, on the pull request (63).* Its review limit was reached, so the builder reviewed
+  the pull request line by line himself, by the founder's rule for that case. Two things found
+  and changed: a paused person no longer gets an empty day written (they would have had no
+  suggestions on the day their pause ended), and the plan now says what the row costs in
+  questions to the database.
+
 **How it was checked.** 661 automatic tests on the code, 19 of them new (the points from people
 below and above the bar and at the cap, the rating pulled toward 4, the three steps of open
 time, the six places with few, exactly six and many hosts, the same order for the same person

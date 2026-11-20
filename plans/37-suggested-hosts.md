@@ -279,6 +279,11 @@ That needs real hosts and customers, and then a look at what was shown and what 
   one is missed that day. When there are regularly more fitting hosts than that, each host's
   next open time should be kept in the database and refreshed by the helper. Not needed at the
   start.
+- **What the row costs.** Once a day's suggestions exist, a look at the home page asks the
+  database about 35 to 65 more questions for the row (the open time of up to six hosts, worked
+  out fresh), and the page looks again every minute while it is open. Making a day asks 250 to
+  300. That is fine with few people. It is the first thing to lighten when there are many, by
+  keeping each host's next open time in the database, as said above.
 - **Three people is a low bar.** In a very small community, a person who knows exactly who else
   follows their host could guess something from a suggestion. The row never says why a host is
   there, and the other parts of the score and the daily order blur it, but it is not proof
@@ -335,3 +340,11 @@ before the locked database step, not inside it (Astra proposed handing the step'
 to every helper; doing the reads first needs no change to the booking code and keeps the locked
 step short). Taken: the check of what the page must never show is worded to mean the people
 behind a suggestion, not hosts' names or rating counts.
+
+## The review of the pull request (19 November 2026)
+
+CodeRabbit answered that its review limit was reached, so, by the founder's rule for that case,
+the builder reviewed the pull request line by line himself. Found and changed: the request that
+makes a day's suggestions wrote an empty day for a paused person, who would then have had none
+on the day their pause ended; it now writes nothing for them. And this plan did not say what the
+row costs in questions to the database; it does now, under "Limits to know about".
