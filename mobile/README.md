@@ -57,6 +57,42 @@ Nothing here needs a store account. It needs Android Studio (installed) and the 
 In a test build, the Account place has two test screens: "Check the kits" (each kit the app stands
 on proves it is alive on this phone) and "The look" (every shared piece of the look on one page).
 
+## Trying it as a store build would be made
+
+The everyday test build above loads its code from this Mac as it runs. A store build carries its
+code inside, made smaller and checked harder, and some faults only show there. To try one on the
+test phone:
+
+1. Make the Android project fresh (this also applies `plugins/stripe-store-build.js`; without it
+   the store build stops on a Google library that Stripe's kit names and Google does not publish
+   openly, which Connect does not use):
+
+   ```bash
+   npx expo prebuild --platform android --no-install
+   ```
+
+2. Only for this trial, on this Mac: a store build refuses plain `http`, and the website on this
+   Mac is plain `http`. In the fresh file `android/app/src/main/AndroidManifest.xml`, add
+   `android:usesCleartextTraffic="true"` to the `<application` line. The folder `android/` is
+   never kept, so this cannot reach a real build.
+
+3. Build it with the test screens in, and put it on the phone:
+
+   ```bash
+   (cd android && EXPO_PUBLIC_TEST_SCREENS=1 ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a)
+   ```
+
+   ```bash
+   ~/Library/Android/sdk/platform-tools/adb install -r android/app/build/outputs/apk/release/app-release.apk
+   ```
+
+A build for a store is made **without** `EXPO_PUBLIC_TEST_SCREENS`: the two test screens then
+cannot be opened at all, by a button or by a link.
+
+After changing a file, the everyday test build shows the change by itself, as long as the code
+server was started plainly (`npx expo start --dev-client`). Started with `CI=1` it does not watch
+the files, and the phone keeps showing the old code.
+
 ## The iPhone
 
 Building the iPhone app needs Xcode 26.4 or later. Until this Mac has it, only the Android app is
