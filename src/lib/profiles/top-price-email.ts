@@ -18,7 +18,7 @@ export function topPriceEmail(host: { name: string }, change: { topPricePer15Cen
       "",
       `Your price was ${dollars(change.priceWas)} per 15 minutes, which is more than that, so we have set it to ${top}. New requests are at the new price. Requests and calls already made keep the price they were made at.`,
       "",
-      `You can set any price up to ${top} on your Hosting page:`,
+      `You can change your price on your Hosting page. The highest it can be is ${top} per 15 minutes:`,
       `${url}/host`,
       "",
       `If you have a question about this, write to ${SUPPORT_EMAIL}. A person reads it.`,

@@ -243,7 +243,7 @@ const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
  * The change, the note in the founder's record and the email are one database step, or none of
  * them happens. The locks are the ones a host's own save takes, in the same order.
  */
-export async function setTopPrice(input: { userId: string; topPricePer15Cents: number | null; by: string }): Promise<{ displayName: string; topPricePer15Cents: number; priceLoweredFrom: number | null }> {
+export async function setTopPrice(input: { userId: string; topPricePer15Cents: number | null; by: string }): Promise<{ displayName: string; topPricePer15Cents: number; priceLoweredFrom: number | null; /** Whether the email about a lowered price was written. */ told: boolean }> {
   if (input.topPricePer15Cents !== null) {
     const problem = topPriceProblem(input.topPricePer15Cents);
     if (problem) throw new ProfileError(problem);
@@ -251,8 +251,12 @@ export async function setTopPrice(input: { userId: string; topPricePer15Cents: n
   const top = input.topPricePer15Cents ?? MAX_PRICE_PER_15_CENTS;
   return db.transaction(async (tx) => {
     await lockCalendar(tx, input.userId);
+    // The person's line before the profile, as everywhere (see lockedProfile): the note in the founder's record
+    // points at the person, and writing it with only the profile held could wait for ever on a step that holds the
+    // person and waits for the profile (a host answering the Host Agreement box).
+    const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("no key update");
     const [profile] = await tx.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.userId)).for("update");
-    if (!profile) throw new ProfileError("That host was not found. Nothing was changed.");
+    if (!person || !profile) throw new ProfileError("That host was not found. Nothing was changed.");
     const was = topPriceOf(profile);
     if (was === top) throw new ProfileError(`${profile.displayName}'s top price is already ${dollars(top)} per 15 minutes. Nothing was changed.`);
     const lowered = profile.pricePer15Cents > top;
@@ -260,7 +264,7 @@ export async function setTopPrice(input: { userId: string; topPricePer15Cents: n
       const floor = await memberPriceFloor(tx, input.userId);
       if (floor > top) {
         throw new ProfileError(
-          `${profile.displayName} has members at ${dollars(floor)} per 15 minutes, and a regular price can never be below a member's price. Nothing was changed. You can lower the top price to ${dollars(floor)} now; it can go lower once the host has lowered the member price and the months at the old price have ended.`,
+          `${profile.displayName} has a member price of ${dollars(floor)} per 15 minutes (offered now, or in a member's month that is still open), and a regular price can never be below a member price. Nothing was changed. You can lower the top price to ${dollars(floor)} now; it can go lower once the host has lowered the member price and the months at the old price have ended.`,
         );
       }
     }
@@ -277,8 +281,9 @@ export async function setTopPrice(input: { userId: string; topPricePer15Cents: n
       },
       tx,
     );
-    if (lowered) await queueTopPriceEmail(tx, { userId: input.userId, topPricePer15Cents: top, priceWas: profile.pricePer15Cents });
-    return { displayName: profile.displayName, topPricePer15Cents: top, priceLoweredFrom: lowered ? profile.pricePer15Cents : null };
+    // A closed account is not written to; the founder is told that no email went out.
+    const told = lowered && !person.closedAt ? await queueTopPriceEmail(tx, { userId: input.userId, topPricePer15Cents: top, priceWas: profile.pricePer15Cents }) : false;
+    return { displayName: profile.displayName, topPricePer15Cents: top, priceLoweredFrom: lowered ? profile.pricePer15Cents : null, told };
   });
 }
 

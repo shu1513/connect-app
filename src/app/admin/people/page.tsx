@@ -333,10 +333,9 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
             Top price per 15 minutes, in US dollars
             <input
               name="topPrice"
-              type="number"
-              min={MAX_PRICE_PER_15_CENTS / 100 + 0.01}
-              max={HIGHEST_TOP_PRICE_PER_15_CENTS / 100}
-              step="0.01"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
               placeholder="for example 2000"
               className="mt-1 block w-48 rounded border border-neutral-400 bg-transparent px-2 py-1"
             />

@@ -9,6 +9,7 @@ import { momentIn } from "@/lib/booking/calendar";
 import { withNotice } from "@/lib/notice";
 import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
 import { lockPhotoAsFounder, recordPhotoReportMade, removePhotoAsFounder } from "@/lib/profiles/photo";
+import { ContributionError, readSum } from "@/lib/contributions/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { MAX_PRICE_PER_15_CENTS } from "@/lib/payments/pricing";
 import { confirmSocialName, decideProfile, ProfileError, rejectSocialName, setTopPrice } from "@/lib/profiles/profiles";
@@ -69,17 +70,24 @@ export async function decideProfileAction(formData: FormData) {
  */
 export async function setTopPriceAction(formData: FormData) {
   const admin = await requireAdmin();
-  const typed = String(formData.get("topPrice") ?? "").trim().replace(/^\$/, "").replace(/,/g, "");
+  const typed = String(formData.get("topPrice") ?? "").trim();
   let notice: string;
   try {
     const userId = String(formData.get("userId") ?? "");
     if (!userId) throw new ProfileError("Choose a host first. Nothing was changed.");
     const takeAway = formData.get("takeAway") === "1";
     if (!takeAway && typed === "") throw new ProfileError(`Type the top price first. To take a host's higher top price away, press "Put back to ${formatMoney(MAX_PRICE_PER_15_CENTS)}". Nothing was changed.`);
-    const typedDollars = Number(typed);
-    const cents = Math.round(typedDollars * 100);
-    // Anything that is not an amount in dollars and whole cents is passed on as "not a number", which the rule refuses in words.
-    const topPricePer15Cents = takeAway ? null : Number.isFinite(typedDollars) && Math.abs(typedDollars * 100 - cents) < 1e-6 ? cents : Number.NaN;
+    // "Put back" uses nothing of what stands in the field. Otherwise the amount is read by the app's one strict reader of
+    // dollars and cents ("2000", "$2,000", "1500.50"); anything else ("20,00", "2e3", "abc") is refused, never guessed.
+    let topPricePer15Cents: number | null = null;
+    if (!takeAway) {
+      try {
+        topPricePer15Cents = readSum(typed);
+      } catch (error) {
+        if (!(error instanceof ContributionError)) throw error;
+        throw new ProfileError("Type the top price in dollars, for example 2000 or 1500.50. Nothing was changed.");
+      }
+    }
     const done = await setTopPrice({ userId, topPricePer15Cents, by: admin.id });
     notice =
       (done.topPricePer15Cents === MAX_PRICE_PER_15_CENTS
@@ -87,7 +95,7 @@ export async function setTopPriceAction(formData: FormData) {
         : `${done.displayName} can now charge up to ${formatMoney(done.topPricePer15Cents)} per 15 minutes.`) +
       (done.priceLoweredFrom === null
         ? ""
-        : ` Their price was ${formatMoney(done.priceLoweredFrom)}, so it came down to ${formatMoney(done.topPricePer15Cents)}, and they were told by email. Requests and calls already made keep their price.`);
+        : ` Their price was ${formatMoney(done.priceLoweredFrom)}, so it came down to ${formatMoney(done.topPricePer15Cents)}${done.told ? ", and they were told by email" : ". No email was sent, because their account is closed"}. Requests and calls already made keep their price.`);
   } catch (error) {
     notice = problem(error);
   }

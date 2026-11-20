@@ -114,7 +114,7 @@ async function main() {
 
     console.log("\nThe founder lowers it: the host's price comes down at once");
     const lowered = await setTop(ids.hana, 150_000);
-    check("lowered to $1,500: her price of $2,000 came down", typeof lowered !== "string" && lowered.topPricePer15Cents === 150_000 && lowered.priceLoweredFrom === 200_000, lowered);
+    check("lowered to $1,500: her price of $2,000 came down", typeof lowered !== "string" && lowered.topPricePer15Cents === 150_000 && lowered.priceLoweredFrom === 200_000 && lowered.told, lowered);
     check("her price is $1,500 now", (await profileOf(ids.hana)).pricePer15Cents === 150_000 && (await profileOf(ids.hana)).topPricePer15Cents === 150_000);
     const mail = await emailsTo("hana");
     check("she is told by one email", mail.length === 1 && mail[0].subject === "Your price on Connect is now $1500.00 per 15 minutes" && mail[0].body.includes("Your price was $2000.00 per 15 minutes"), mail);
@@ -127,9 +127,9 @@ async function main() {
     check("she saves $2,400", (await save(ids.hana, "hana", 240_000)) === null);
     await db.insert(schema.membershipOffers).values({ hostId: ids.hana, on: true, pricePer15Cents: 220_000, includedMinutes: 60 });
     const stopped = String(await setTop(ids.hana, 200_000));
-    check("lowering below her member price is refused, in words", /has members at \$2200\.00/.test(stopped) && /You can lower the top price to \$2200\.00 now/.test(stopped), stopped);
+    check("lowering below her member price is refused, in words", /has a member price of \$2200\.00/.test(stopped) && /You can lower the top price to \$2200\.00 now/.test(stopped), stopped);
     check("nothing was changed by it", (await profileOf(ids.hana)).pricePer15Cents === 240_000 && (await profileOf(ids.hana)).topPricePer15Cents === 250_000 && (await recordOf(ids.hana)).length === 3);
-    check("taking the top price away is refused for the same reason", /has members at \$2200\.00/.test(String(await setTop(ids.hana, null))));
+    check("taking the top price away is refused for the same reason", /has a member price of \$2200\.00/.test(String(await setTop(ids.hana, null))));
     const toFloor = await setTop(ids.hana, 220_000);
     check("lowering to the member price itself works", typeof toFloor !== "string" && toFloor.priceLoweredFrom === 240_000 && (await profileOf(ids.hana)).pricePer15Cents === 220_000);
 
@@ -156,6 +156,14 @@ async function main() {
       check(`a top price ${label} is refused by the database itself`, refused);
     }
     check("the other host was never touched", (await profileOf(ids.ben)).pricePer15Cents === 2_000 && (await profileOf(ids.ben)).topPricePer15Cents === null && (await emailsTo("ben")).length === 0);
+
+    console.log("\nA host whose account is closed");
+    await setTop(ids.ben, 200_000);
+    check("the other host, raised to $2,000, saves $2,000", (await save(ids.ben, "ben", 200_000)) === null);
+    await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, ids.ben));
+    const closed = await setTop(ids.ben, null);
+    check("taking it away still lowers the price, and says that no email was written", typeof closed !== "string" && closed.priceLoweredFrom === 200_000 && closed.told === false, closed);
+    check("and none was written", (await emailsTo("ben")).length === 0 && (await profileOf(ids.ben)).pricePer15Cents === 100_000);
   } finally {
     await cleanUp();
   }

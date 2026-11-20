@@ -35,10 +35,10 @@ export async function queueProfileDecisionEmail(tx: Writer, input: { userId: str
  * Queues the email to a host whose price came down because the founder lowered her top price
  * (plans/48). Written in the same database step as the change, and each change is one event.
  */
-export async function queueTopPriceEmail(tx: Writer, input: { userId: string; topPricePer15Cents: number; priceWas: number }): Promise<void> {
+export async function queueTopPriceEmail(tx: Writer, input: { userId: string; topPricePer15Cents: number; priceWas: number }): Promise<boolean> {
   const [host] = await tx.select({ name: schema.user.name, email: schema.user.email, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId));
-  // A closed account is not written to.
-  if (!host || host.closedAt) return;
+  // A closed account is not written to. The answer says whether an email was written, so the founder is not told one went out when none did.
+  if (!host || host.closedAt) return false;
   const { subject, text } = topPriceEmail(host, { topPricePer15Cents: input.topPricePer15Cents, priceWas: input.priceWas }, appUrl());
-  await queueEmail(tx, { to: host.email, subject, text, key: `top_price:${input.userId}:${randomUUID()}` });
+  return queueEmail(tx, { to: host.email, subject, text, key: `top_price:${input.userId}:${randomUUID()}` });
 }
