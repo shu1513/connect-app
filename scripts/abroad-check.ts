@@ -335,6 +335,8 @@ async function main() {
       if (projectIds.length > 0) await tx.delete(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds));
       await tx.delete(schema.projects).where(inArray(schema.projects.hostId, ids));
       await tx.delete(schema.hostSettings).where(inArray(schema.hostSettings.userId, ids));
+      // The Host Agreement's line that applying to host writes (plans/46).
+      await tx.delete(schema.agreementAcceptances).where(inArray(schema.agreementAcceptances.userId, ids));
       await tx.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
       await tx.delete(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids));
       await tx.delete(schema.emailOutbox).where(ownEmailRows);

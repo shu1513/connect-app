@@ -1275,6 +1275,8 @@ async function main() {
     if (ids.length > 0) {
       await db.delete(schema.bioChecks).where(inArray(schema.bioChecks.userId, ids));
       await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
+      // The Host Agreement's line that applying to host writes (plans/46).
+      await db.delete(schema.agreementAcceptances).where(inArray(schema.agreementAcceptances.userId, ids));
       await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
     }
     for (const id of ids) {

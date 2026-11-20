@@ -89,7 +89,8 @@ async function main() {
       texts[next.version] = "# Terms of Service\n\nA version made up for this check.";
       try {
         check("a version whose day has not come changes nothing yet: the stamp stays, and it is named as coming", R.generalStamp(now) === before && R.comingVersion("terms-of-service", now)?.version === "2099-01-01" && R.currentVersion("terms-of-service", now).version === "2026-11-20");
-        next.effectiveFrom = day(-1);
+        // Its day is today. (The first version's own day is the day these documents were written, so a day before that would not do.)
+        next.effectiveFrom = day(0);
         check("from its day the stamp is another one, so the person is asked again", R.generalStamp(now) !== before && (await userNow(bob.id)).termsVersion === before);
         check("the versions the old page showed are refused now", (await refusal(A.acceptGeneralAgreements({ userId: bob.id, shown: { "terms-of-service": "2026-11-20", "payment-terms": "2026-11-20", "community-rules": "2026-11-20" }, timeZone: "UTC", now }))) === A.STALE_AGREEMENTS);
         const later = new Date(now.getTime() + 60_000);

@@ -4077,3 +4077,58 @@ without (no test screens; with a plain address in its settings it sends nothing)
 **What cannot be tried here.** The iPhone build (this Mac's Xcode is too old). A real phone.
 
 **Left for part 20:** two small things seen on the test phone, noted in that part's plan.
+
+## The agreements in the app, and proof of who accepted what (plan 46, part 1, 20 November 2026)
+
+**Why.** The founder: "build the 14 changes so the agreements can go live. do what you think is
+the best." The plan is `plans/46-agreements-live.md`; this is its first and largest part. It
+covers changes 1, 2, 3, 8 and 10 of the list in `docs/legal/README.md`, section 7, and settles
+4. Changes 9 and 13 went in before it (pull request 80).
+
+**What was built.**
+- *The documents live in the app.* `src/legal/documents/<name>/<version>.ts`, one file for each
+  version, listed in `src/legal/versions.ts`; the seven drafts moved there from `docs/legal/`
+  as version `2026-11-20`, marked a draft. Seven pages show them: `/terms`, `/payment-terms`,
+  `/rules`, `/host-agreement`, `/privacy`, `/copyright`, `/identity-notice`. Each says which
+  version it shows, "Draft. Not in force yet." for a draft, and lists the other versions;
+  `?version=` shows one by name. A blank that is not filled in is drawn so that it stands out.
+  Both footers link all seven. A small reader of the app's own (`src/legal/parse.ts`) turns
+  the texts into pages; no package was added.
+- *Proof of acceptance.* A new table, `agreement_acceptances`: one line for each person,
+  document and version, written once. One writer for every acceptance (`src/legal/accept.ts`).
+  A person's own line keeps a short stamp of the three general documents, which the gate of
+  every page compares with the versions in effect at that moment.
+- *The last step of sign-up.* One tick, "I am 18 or older". Beside the button: "By finishing
+  sign-up you agree to the Terms of Service, the Payment Terms and the Community Rules", each a
+  link to the exact version, and under it a line about the privacy policy, which is shown and
+  not accepted. The form carries the versions it showed, and the server refuses others.
+- *Hosts.* Applying to host needs a tick for the Host Agreement and an answer to "business or
+  private person"; both are written in the same step as the profile. A host from before sees a
+  box near the top of her Hosting page with the same two things, and is not locked out. A
+  host's page, and the two pages where a call is asked for, say how she offers calls; for a
+  host who has not said, they say nothing.
+- *A reason for a decision.* Declining or suspending a host page needs the rule and a sentence.
+  It is saved with the decision, emailed in the same step, and shown on her Hosting page; the
+  same decision given again changes nothing; sending a declined page in again clears it.
+  Closing an account from the admin pages takes a reason too and emails it. Five controls ask
+  for it: decline and suspend on the People page, suspend on the Reports page, close on both.
+- *The identity check.* The Identity Check Notice is shown in full above the button, the button
+  says "I agree, continue to Stripe", and pressing it is written down before Stripe is asked;
+  each check's own line keeps the notice's version.
+- *The short rules list* (`RULES`) keeps its nine names and gains three, to match the Community
+  Rules. One migration, `0049_agreements`.
+
+**The founder's decisions** are in the plan: acceptance by the button, as on
+ElectionsSimplified; the most protection. **The builder's own choices** (each can be changed):
+three things stay tick boxes (18 or older, the Host Agreement, repeating payments); a box and
+not a lock for hosts from before; the first version of every document is a draft, and a
+published version is frozen and has no blanks; closing an account without a reason is still
+possible in the code (only check scripts do it); the texts are code files and not files read
+from disk.
+
+**What the reviewers found.** Astra checked the plan twice before building, "not ready" both
+times; what each check changed is in the plan's last two sections. The largest: blanks read
+from settings would have rewritten archived agreements, so a published version is frozen; the
+words beside the button had to fit the moment (an account exists before the last step); the
+stamp is asked for when it is needed, not kept from when the server started.
+
