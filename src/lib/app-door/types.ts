@@ -286,6 +286,13 @@ export type AppHostPage = {
 export type AppPart = string | { bold: string } | { time: string };
 
 /**
+ * How a host answers a request that waits for her: the two buttons, and the question the app asks
+ * before it accepts (a touch by mistake would make a commitment). "now": a call asked for right
+ * away, which is answered where such calls arrive, not with these buttons; `elsewhere` says where.
+ */
+export type AppAnswer = { kind: "booked" | "now"; accept: string; decline: string; sure: AppPart[]; yes: string; no: string; elsewhere: string | null };
+
+/**
  * The answer of GET /api/app/hosts/[handle]/book: what a customer reads before asking a host for
  * a call at a time. Every word and number is the server's; the app adds nothing up.
  */
@@ -379,8 +386,8 @@ export type AppBooking = {
     words: { label: string; text: string } | null;
     /** Her private notepad about this customer; null when she may not keep one about them. */
     note: { title: string; hint: string; text: string | null; max: number; save: string; notSaved: string } | null;
-    /** Accepting and declining; null once the request no longer waits. "now": answered where such calls arrive, not here. */
-    answer: { kind: "booked" | "now"; accept: string; decline: string; sure: AppPart[]; yes: string; no: string; elsewhere: string | null } | null;
+    /** Accepting and declining; null once the request no longer waits. */
+    answer: AppAnswer | null;
   } | null;
   /** Blocking the other person, for either of the two, once the request was sent: the button, and the question to ask first. */
   block: { label: string; sure: string; yes: string; no: string } | null;
@@ -470,6 +477,8 @@ export type AppWaitingOne = {
   /** The host's own private note about them, or null. */
   note: string | null;
   photoId: string | null;
+  /** How she answers it. */
+  answer: AppAnswer;
 };
 
 /** The answer of GET /api/app/requests: the requests a host has to answer, grouped by the time asked for, the soonest first. */

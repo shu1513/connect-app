@@ -28,6 +28,8 @@ export type Colors = {
   noticeLine: string;
   /** Something went wrong, and buttons that cannot be undone. */
   danger: string;
+  /** A good sign beside a person or a thing ("ID confirmed"). */
+  good: string;
 };
 
 const light: Colors = {
@@ -44,6 +46,7 @@ const light: Colors = {
   notice: "#fff7ed",
   noticeLine: "#fed7aa",
   danger: "#b91c1c",
+  good: "#15803d",
 };
 
 /** The website has no dark look of its own (only the call screen is dark). These keep its warmth and its contrast. */
@@ -60,6 +63,7 @@ const dark: Colors = {
   notice: "#431407",
   noticeLine: "#9a3412",
   danger: "#fca5a5",
+  good: "#86efac",
 };
 
 export function useColors(): Colors {

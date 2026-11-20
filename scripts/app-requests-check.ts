@@ -203,7 +203,7 @@ async function main() {
       const one = everyRequest(body).find((request) => request.id === annAsk.id);
       check("one request: who, how long, the price, by when", one?.name === ann.name && one.minutes === 30 && one.price === "free" && one.kind === "booked" && one.respondBy === annAsk.respondBy?.toISOString());
       check("and what the host may know: no rating yet (said in words), ID confirmed, what they wrote", one?.known === true && one.rating === null && one.ratingWords === "New: not enough ratings yet" && one.idConfirmed === true && one.words === "About my garden." && one.note === null && one.photoId === null);
-      check("each request has exactly the parts the app knows", keys(one) === "id,idConfirmed,kind,known,minutes,name,note,photoId,price,rating,ratingWords,respondBy,words", keys(one));
+      check("each request has exactly the parts the app knows", keys(one) === "answer,id,idConfirmed,kind,known,minutes,name,note,photoId,price,rating,ratingWords,respondBy,words" && one?.answer.kind === "booked" && one.answer.accept === "Accept" && one.answer.sure.length === 3, keys(one));
       check("no account id and no email address travels", !reply.text.includes(ann.id) && !reply.text.includes(hana.id) && !reply.text.includes("@example.test"));
       const web = await asBrowser("/host/requests", { jar: hana.jar });
       check("the website's page says the same sentences, from the same place", web.status === 200 && web.text.includes("2 people asked for this time. Choose one.") && web.text.includes("New: not enough ratings yet") && web.text.includes("Requests for calls (") && web.text.includes(ann.name), `${web.status}`);
@@ -311,7 +311,7 @@ async function main() {
       const [instant] = await db.insert(schema.bookings).values({ hostId: hana.id, customerId: eve.id, startsAt: new Date(Date.now() + 3 * MINUTE), endsAt: new Date(Date.now() + 33 * MINUTE), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, note: "", stage: "waiting", source: "now", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + 2 * MINUTE) }).returning();
       const onList = everyRequest((await list(hana.jar)).body).find((request) => request.id === instant.id);
       const instantPage = (await requestPage(instant.id, hana.jar)).body;
-      check("a call asked for right now is on the list as that kind, and its page says where it is answered", onList?.kind === "now" && instantPage?.host?.answer?.kind === "now" && instantPage.host.answer.elsewhere === "A request for a call right now is answered on your Available now page.");
+      check("a call asked for right now is on the list as that kind, and its page says where it is answered", onList?.kind === "now" && onList.answer.elsewhere === "A request for a call right now is answered on your Available now page." && instantPage?.host?.answer?.kind === "now" && instantPage.host.answer.elsewhere === "A request for a call right now is answered on your Available now page.");
       check("and neither answer is taken for it here", sentence(await step(instant.id, "accept", hana.jar)) === "A request for a call right now is answered on your Available now page." && sentence(await step(instant.id, "decline", hana.jar)) === sentence(await step(instant.id, "accept", hana.jar)) && (await row(instant.id)).stage === "waiting");
       await db.delete(schema.bookings).where(inArray(schema.bookings.id, [paid.id, instant.id]));
     }

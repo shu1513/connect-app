@@ -15,9 +15,9 @@ import { cardDeadlineWords, endedWords, REQUEST_WORDS, requestPrice, requestTitl
 import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS, newRequestKey } from "@/lib/booking/rules";
 import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { NOTE_MAX, openAndUnblocked } from "@/lib/people/contacts";
-import { formatMoney } from "@/lib/payments/access";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 import { publicProfile, sellerLine } from "@/lib/profiles/profiles";
+import { answerFor } from "./requests";
 import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
 
 /** How often the app asks again about a request that waits for the host's answer, or for a month's payment. */
@@ -79,8 +79,6 @@ async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["hos
   const name = found.otherName ?? "";
   const known = !found.testCall && (await openAndUnblocked(booking.hostId, [booking.customerId])).has(booking.customerId);
   const rating = known && found.customerRating ? { average: found.customerRating.average, count: found.customerRating.count } : null;
-  const price = booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free";
-  const instant = booking.source === "now";
   return {
     customerName: name,
     photoId: known ? found.customerPhotoId : null,
@@ -91,18 +89,7 @@ async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["hos
     words: known && booking.note ? { label: WAITING_WORDS.theirNote, text: booking.note } : null,
     // Whether she may keep a note about this person is decided where notes are kept; here it is only shown.
     note: found.note?.allowed ? { title: WAITING_WORDS.noteTitle(name), hint: WAITING_WORDS.noteHint, text: found.note.text, max: NOTE_MAX, save: WAITING_WORDS.noteSave, notSaved: WAITING_WORDS.noteNotSaved } : null,
-    answer:
-      booking.stage === "waiting"
-        ? {
-            kind: instant ? "now" : "booked",
-            accept: WAITING_WORDS.accept,
-            decline: WAITING_WORDS.decline,
-            sure: [WAITING_WORDS.acceptSureBefore(booking.lengthMinutes), { time: booking.startsAt.toISOString() }, WAITING_WORDS.acceptSureAfter(price)],
-            yes: WAITING_WORDS.acceptYes,
-            no: WAITING_WORDS.acceptNo,
-            elsewhere: instant ? WAITING_WORDS.nowElsewhere : null,
-          }
-        : null,
+    answer: booking.stage === "waiting" ? answerFor(booking) : null,
   };
 }
 

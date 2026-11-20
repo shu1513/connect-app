@@ -10,10 +10,25 @@ import { waitingForHost } from "@/lib/booking/bookings";
 import { aboutWaiting, byTime, type Waiting, type WaitingAbout } from "@/lib/booking/waiting-list";
 import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { formatMoney } from "@/lib/payments/access";
-import type { AppRequests, AppWaitingOne } from "./types";
+import type { AppAnswer, AppRequests, AppWaitingOne } from "./types";
 
 /** How often the app asks again while the list is in front: a request for a call right now needs its answer within minutes. */
 const LIST_REFRESH_SECONDS = 15;
+
+/** How a host answers a waiting request: the buttons, and the question the app asks before it accepts. */
+export function answerFor(booking: { source: string; lengthMinutes: number; startsAt: Date; totalCents: number }): AppAnswer {
+  const instant = booking.source === "now";
+  const price = booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free";
+  return {
+    kind: instant ? "now" : "booked",
+    accept: WAITING_WORDS.accept,
+    decline: WAITING_WORDS.decline,
+    sure: [WAITING_WORDS.acceptSureBefore(booking.lengthMinutes), { time: booking.startsAt.toISOString() }, WAITING_WORDS.acceptSureAfter(price)],
+    yes: WAITING_WORDS.acceptYes,
+    no: WAITING_WORDS.acceptNo,
+    elsewhere: instant ? WAITING_WORDS.nowElsewhere : null,
+  };
+}
 
 /** One waiting request as the host's list shows it. */
 export function waitingOne(row: Waiting[number], about: WaitingAbout): AppWaitingOne {
@@ -32,6 +47,7 @@ export function waitingOne(row: Waiting[number], about: WaitingAbout): AppWaitin
     words: about.words,
     note: about.note,
     photoId: about.photoId,
+    answer: answerFor(booking),
   };
 }
 

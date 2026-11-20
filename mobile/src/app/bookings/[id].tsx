@@ -9,6 +9,8 @@ import { enterCard, type CardOutcome } from "@/lib/card";
 import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
+import { Asker, askBeforeAccepting } from "@/requests/asker";
+import { NoteBox } from "@/requests/note-box";
 import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Words } from "@/ui/pieces";
 import { Sentence } from "@/ui/sentence";
 import { type, useColors } from "@/ui/theme";
@@ -16,7 +18,11 @@ import { type, useColors } from "@/ui/theme";
 /**
  * One request for a call, for the customer who made it
  * (plans/45-phone-apps/06-asking-for-a-call.md): where it stands, the card step of a paid one, and
- * taking it back. The page asks the server again by itself while the request waits.
+ * taking it back; and for the host it was sent to (07-a-hosts-requests.md): who is asking, as far
+ * as she may know, Accept and Decline, and her private note. Either of them can block the other.
+ * Which of the two is reading, and what they are shown, is decided on the server. The page asks
+ * the server again by itself while the request waits, and after any answer it shows what really
+ * happened, whichever answer won.
  *
  * The card goes into Stripe's own sheet. Whatever the sheet reports, the app then asks the
  * server, which asks Stripe; only the server's answer moves the request on. The same question is
@@ -44,7 +50,7 @@ function OneRequest({ id }: { id: string }) {
    * confirmed yet" never stands under a request that has since been sent.
    */
   const [said, setSaid] = useState<{ words: string; stage: string | null } | null>(null);
-  const [busy, setBusy] = useState<"card" | "check" | "back" | null>(null);
+  const [busy, setBusy] = useState<"card" | "check" | "back" | "accept" | "decline" | "block" | null>(null);
   /**
    * Stripe's sheet finished, and the server has not yet said that the card is saved (it could not be asked, or
    * could not tell yet). The card may well be saved: the screen then offers to ask the server again, without the
@@ -109,7 +115,7 @@ function OneRequest({ id }: { id: string }) {
 
   /** One question that is answered with the request's page. The number is taken before it is sent. */
   const asked = useCallback(
-    async (step: "" | "/card-saved" | "/take-back"): Promise<AppBooking | null | undefined> => {
+    async (step: "" | "/card-saved" | "/take-back" | "/accept" | "/decline" | "/block"): Promise<AppBooking | null | undefined> => {
       const mine = ++newest.current;
       const answer = await ask<AppBooking>(`${path}${step}`, step === "" ? {} : { body: {} });
       return settle(answer, mine);
@@ -228,13 +234,14 @@ function OneRequest({ id }: { id: string }) {
     if (!after) void look(false);
   }
 
-  async function takeBack() {
+  /** A step that is answered with the page as it stands afterwards: taking back, accepting, declining, blocking. */
+  async function act(step: "back" | "accept" | "decline" | "block") {
     if (acting.current) return;
     acting.current = true;
     newest.current++;
-    setBusy("back");
+    setBusy(step);
     setSaid(null);
-    const done = await asked("/take-back");
+    const done = await asked(step === "back" ? "/take-back" : `/${step}`);
     acting.current = false;
     setBusy(null);
     // Refused (it was answered meanwhile, say): the page is read again, so it shows where the request stands now.
@@ -256,6 +263,9 @@ function OneRequest({ id }: { id: string }) {
   const takeBackLabel = page.takeBack;
   const sure = page.takeBackSure;
   const hostHandle = page.hostHandle;
+  const host = page.host;
+  const answer = host?.answer ?? null;
+  const block = page.block;
   // Only what belongs to the stage on the screen is said.
   const saying = said && said.stage === page.stage ? said.words : null;
   return (
@@ -288,15 +298,37 @@ function OneRequest({ id }: { id: string }) {
         </View>
         {page.hearBy ? (
           <View>
-            <Text style={[styles.label, { color: colors.soft }]}>You will hear by</Text>
+            <Text style={[styles.label, { color: colors.soft }]}>{page.hearBy.label}</Text>
             <Words>
-              <Text style={styles.bold}>{localTime(page.hearBy)}</Text>
+              <Text style={styles.bold}>{localTime(page.hearBy.at)}</Text>
             </Words>
           </View>
         ) : null}
       </Card>
 
-      {page.card ? (
+      {host ? (
+        <Card>
+          <Asker name={host.customerName} photoId={host.photoId} rating={host.rating} ratingWords={host.ratingWords} idConfirmed={host.idConfirmed} />
+          {host.words ? (
+            <View>
+              <Text style={[styles.label, { color: colors.soft }]}>{host.words.label}</Text>
+              <Words>“{host.words.text}”</Words>
+            </View>
+          ) : null}
+          {saying ? <Notice>{saying}</Notice> : null}
+          {answer?.kind === "booked" ? (
+            <>
+              <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, () => void act("accept"))} />
+              <Button label={answer.decline} kind="plain" busy={busy === "decline"} disabled={busy !== null} onPress={() => void act("decline")} />
+            </>
+          ) : answer?.elsewhere ? (
+            <Words>{answer.elsewhere}</Words>
+          ) : null}
+        </Card>
+      ) : null}
+      {host?.note ? <NoteBox path={path} note={host.note} /> : null}
+
+      {host ? null : page.card ? (
         <Card>
           <Heading>{page.card.title}</Heading>
           <Words soft>{page.card.words}</Words>
@@ -326,7 +358,7 @@ function OneRequest({ id }: { id: string }) {
                 text: sure.yes,
                 style: "destructive",
                 onPress: () => {
-                  if (still()) void takeBack();
+                  if (still()) void act("back");
                 },
               },
             ]);
@@ -340,7 +372,22 @@ function OneRequest({ id }: { id: string }) {
           <Button label="Open your calls" kind="plain" onPress={() => router.push("/calls")} />
         </Card>
       ) : null}
-      {hostHandle ? <TextLink label="Open the host's page" onPress={() => router.push(`/h/${hostHandle}`)} /> : null}
+      {hostHandle && page.role === "customer" ? <TextLink label="Open the host's page" onPress={() => router.push(`/h/${hostHandle}`)} /> : null}
+      {block ? (
+        <Button
+          label={block.label}
+          kind="danger"
+          busy={busy === "block"}
+          disabled={busy !== null}
+          onPress={() =>
+            // Blocking ends what is between the two: it is asked once more, in the server's words.
+            Alert.alert(block.label, block.sure, [
+              { text: block.no, style: "cancel" },
+              { text: block.yes, style: "destructive", onPress: () => void act("block") },
+            ])
+          }
+        />
+      ) : null}
     </Page>
   );
 }
