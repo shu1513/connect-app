@@ -3001,6 +3001,14 @@ suggestions that at least one more person follows the same two hosts (not who). 
 code was changed for it: the bar of three is the founder's decision. It is written into the plan
 as an accepted risk, with two small ways to tighten it later, and into the lawyer's file.
 
+**Tightened the same day.** Told of that point in plain words, the founder said: "we can tighten
+it a bit now if it has no harm". An account now counts as one of the people behind a host only
+from its third day (`SUGGEST.minAccountDays`), so accounts made for the purpose are worth nothing
+at first. The cost: a new person's follows start to count three days after they joined, and in
+the first three days after the app opens this part gives no points. The trick is slower, not
+impossible; the bar of three is unchanged. `scripts/suggestions-check.ts` has three more checks
+for it (90 in all).
+
 **Still open.** For the founder: every number of the rule is a starting value in
 `src/lib/suggestions/rules.ts`, to be adjusted when there is something to learn from; the bar
 of three is the founder's to raise. With few people the row is mostly open times, ratings and

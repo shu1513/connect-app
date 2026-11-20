@@ -61,13 +61,14 @@ async function candidates(viewerId: string, only?: string[]): Promise<Candidate[
 
 /**
  * For each of these hosts: how many different people follow them AND follow one of the hosts the
- * viewer follows (decision 3). A person counts only while their account is open and not paused;
+ * viewer follows (decision 3). A person counts only while their account is open, not paused, and
+ * at least `SUGGEST.minAccountDays` old (so accounts made for the purpose do not count at once);
  * the viewer's host only while its page is open; and a follow, the viewer's own among them, only
  * while there is no block between that person and that host (a host who blocks a follower leaves
  * the follow standing, so it has to be left out here). The bar of three is applied to this number by `peoplePoints`.
  * The number is used for the order only: it is never shown to anyone. (Exported for the check script.)
  */
-export async function peopleBehind(viewerId: string, hostIds: string[]): Promise<Map<string, number>> {
+export async function peopleBehind(viewerId: string, hostIds: string[], now: Date): Promise<Map<string, number>> {
   if (hostIds.length === 0) return new Map();
   const noBlock = (person: SQL, host: SQL) => sql`not exists (select 1 from ${schema.blocks} b where (b.blocker_id = ${person} and b.blocked_id = ${host}) or (b.blocker_id = ${host} and b.blocked_id = ${person}))`;
   const rows = await db.execute<{ host_id: string; people: number }>(sql`
@@ -76,7 +77,7 @@ export async function peopleBehind(viewerId: string, hostIds: string[]): Promise
     join ${schema.hostProfiles} my_host on my_host.user_id = mine.host_id and my_host.status = 'approved' and my_host.hidden = false
     join ${schema.user} my_host_account on my_host_account.id = mine.host_id and my_host_account.closed_at is null and my_host_account.paused_at is null
     join ${schema.follows} shared on shared.host_id = mine.host_id and shared.unfollowed_at is null and shared.follower_id <> ${viewerId}
-    join ${schema.user} person on person.id = shared.follower_id and person.closed_at is null and person.paused_at is null
+    join ${schema.user} person on person.id = shared.follower_id and person.closed_at is null and person.paused_at is null and person.created_at <= ${new Date(now.getTime() - SUGGEST.minAccountDays * DAY).toISOString()}::timestamptz
     join ${schema.follows} theirs on theirs.follower_id = shared.follower_id and theirs.unfollowed_at is null
     where mine.follower_id = ${viewerId}
       and mine.unfollowed_at is null
@@ -131,7 +132,7 @@ async function workOut(viewerId: string, day: string, now: Date, among?: string[
   const pool = await candidates(viewerId, among);
   if (pool.length === 0) return [];
   const ids = pool.map((host) => host.hostId);
-  const [people, ratings, seen] = await Promise.all([peopleBehind(viewerId, ids), averagesFor(ids, "host", now), seenBy(ids, now)]);
+  const [people, ratings, seen] = await Promise.all([peopleBehind(viewerId, ids, now), averagesFor(ids, "host", now), seenBy(ids, now)]);
   const ranked = pool.map((host) => ({
     hostId: host.hostId,
     points: peoplePoints(people.get(host.hostId) ?? 0) + ratingPoints(ratings.get(host.hostId) ?? null),

@@ -20,6 +20,11 @@ export const SUGGEST = {
   minPeople: 3,
   /** The most points that can come from people. */
   maxPeoplePoints: 20,
+  /**
+   * A person counts toward the bar only once their account is this many days old. So accounts made today, to
+   * supply some of the three people oneself and see what the order gives away, count for nothing for a while.
+   */
+  minAccountDays: 3,
   /** Points for a host who is available now, and for one whose next open time is within `soonDays`. */
   availableNow: 20,
   openSoon: 10,

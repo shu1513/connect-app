@@ -90,8 +90,8 @@ company yet.
   the page never says why a host is suggested. In a very small community, someone who knows
   exactly who else follows their host could still guess something. And someone who makes two
   accounts of their own can supply two of the three people, and so learn that at least one more
-  person follows the same two hosts (not who). Is three enough, and does this need saying in the
-  privacy page?
+  person follows the same two hosts (not who). To make that harder, an account only counts from
+  its third day. Is three enough, and does this need saying in the privacy page?
 - **Deleting your own account** (new, plan 39; not built). Apple and Google require that a
   person can delete their account and the personal details that go with it, except records
   the law says must be kept. Today an account can only be closed by the founder, which locks
