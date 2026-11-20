@@ -11,6 +11,7 @@ import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/stat
 import { hostPriceProblem } from "@/lib/payments/pricing";
 import { identityState } from "@/lib/safety/identity";
 import { acceptHostAgreementIn, AgreementError, type Shown } from "@/legal/accept";
+import { queueNoticesFor } from "@/legal/notices";
 import { RULES } from "@/lib/terms";
 import { HOME_COUNTRY, isHostCountry } from "./countries";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
@@ -173,13 +174,17 @@ export async function createHostProfile(
   if (started?.accountId && country !== HOME_COUNTRY) {
     throw new ProfileError("You started setting up a payout account for the United States, so you cannot apply from another country here. Please write to support.");
   }
-  const now = new Date();
   try {
     await db.transaction(async (tx) => {
       // The person first, locked (the order of locks everywhere): an account closed or paused a moment ago applies for nothing.
       await openPersonIn(tx, userId);
+      // The clock is read with the lock held: a request that waited across the midnight a new Host Agreement takes
+      // effect is judged by the moment it writes, and is not written to about a version that is already in force.
+      const now = new Date();
       await acceptHostAgreementIn(tx, { userId, shown: agreements, occasion: "host_application", now });
       await tx.insert(schema.hostProfiles).values({ userId, handle, handleKey: handleKey(handle), ...details, country, sellerKind, usConfirmedAt: now });
+      // A Host Agreement that is coming: the new host is written to about it in this same step (plans/46, part 2).
+      await queueNoticesFor(tx, userId, "hosts", now);
     });
   } catch (error) {
     if (error instanceof AgreementError) throw new ProfileError(error.message);

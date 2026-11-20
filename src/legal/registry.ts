@@ -70,7 +70,10 @@ export function registryProblems(): string[] {
       if (index > 0 && !v.summary.trim()) problems.push(`${name} ${v.version} does not say what changed`);
       const before = versions[index - 1];
       // The 30 days are owed to people who hold a version in force. After a draft nothing was in force.
-      if (before && !before.draft && !v.urgent && dayOf(v.effectiveFrom).getTime() - dayOf(v.addedOn).getTime() < NOTICE_DAYS * DAY_MS) {
+      // Two versions on one day: which one is in effect, and which one people were told about, would depend on their order in the list.
+      if (before && before.effectiveFrom === v.effectiveFrom) problems.push(`${name} ${v.version} takes effect on the same day as ${before.version}`);
+      if (v.urgent !== undefined && !v.urgent.trim()) problems.push(`${name} ${v.version} is marked urgent without saying why`);
+      if (before && !before.draft && !v.urgent?.trim() && dayOf(v.effectiveFrom).getTime() - dayOf(v.addedOn).getTime() < NOTICE_DAYS * DAY_MS) {
         problems.push(`${name} ${v.version} takes effect less than ${NOTICE_DAYS} days after it was added, and gives no reason for the hurry`);
       }
       if (before && v.draft && !before.draft) problems.push(`${name} ${v.version} is a draft after a published version`);

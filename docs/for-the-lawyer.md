@@ -478,3 +478,30 @@ plan has the app do it. Nothing of this is built yet.
   messages Connect writes to a person are kept in the app ("Messages"). For how long may each be
   kept, and what happens to them when an account is closed?
 
+## 17. Telling people about new terms (new, plan 46 part 2, 20 November 2026)
+
+How it is built: a new version of a document is put on the site at least 30 days before its day;
+the page of the current version says so; everyone it concerns is sent one email with the day, a
+sentence about what changes, and a link to the new text; from the day on, each person is asked to
+accept at their next visit (hosts on their Hosting page). The app keeps, for each email, when it
+was written and when it was sent. Questions:
+
+- **Is that enough to change the terms for people who signed up under the old ones**, in each
+  country hosts are in? In particular for prices and money rules, and for consumers in the EU and
+  the UK, where a change by notice alone can be an unfair term.
+- **From when do the 30 days count:** from the email being sent, or being received? The app
+  counts from the sending.
+- **An address that no longer works.** The email is then not sent again, and the app does not
+  treat that as a notice that failed. Is the notice on the site enough for that person?
+- **A person who signs up, or becomes a host, inside the 30 days** accepts the current version,
+  is shown the coming one on the same page, and gets the email at once. They get less than 30
+  days. Is that all right, since they knew before they agreed?
+- **The Privacy Policy is told and not accepted.** Is telling enough where the change needs
+  consent (a new purpose, a new kind of information)?
+- **A person who does not agree** is told to stop using Connect and to ask for the account to be
+  closed. What about a booked call, a membership month that has begun, or money a host has not
+  collected, on the day the new version starts?
+- **The first published version** follows a draft that was never in force, so no 30 days are
+  given for it. People who signed up under the draft are asked to accept it at their next visit.
+  Is there anything they should be told beyond that?
+

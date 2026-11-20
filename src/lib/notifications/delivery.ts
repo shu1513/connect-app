@@ -20,6 +20,7 @@ import { errorSummary } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { membershipReminderProblem } from "./membership-reminders";
 import { followEmailProblem } from "@/lib/follows/emails";
+import { noticeEmailProblem } from "@/legal/notices";
 import { ownPaymentOn } from "@/lib/payments/own";
 
 /** How many emails one call of deliverEmails sends at most. */
@@ -29,6 +30,15 @@ const MAX_ATTEMPTS = 6;
 /** Waits before the next try: a minute, five, thirty, two hours, eight hours. */
 const BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
 const IDEMPOTENCY_MEMORY_MS = 24 * 3_600_000;
+/**
+ * How long after its first try an email may still be tried again: an hour less than the sending service remembers
+ * the key, so that a try which starts inside the time cannot arrive after the service has forgotten it.
+ */
+const REPEAT_SAFELY_MS = IDEMPOTENCY_MEMORY_MS - 3_600_000;
+/** Whether an email that was tried before is too old to be tried again without risking a second copy. */
+const pastRepeating = (email: { attempts: number; firstTriedAt: Date | null }, when: Date): boolean =>
+  email.attempts > 0 && email.firstTriedAt !== null && when.getTime() - email.firstTriedAt.getTime() > REPEAT_SAFELY_MS;
+const NOT_REPEATED = "an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service";
 /** A reasonable day's worth of event and reminder emails to one address. Login emails have their own limits. */
 const DAILY_CAP_PER_ADDRESS = 50;
 /** Resend allows two requests a second; a short pause between sends keeps under that. */
@@ -165,6 +175,9 @@ async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Pr
   // An email to a follower (plans/31) is asked about in full, as things stand at this moment.
   const follower = await followEmailProblem(key, new Date(), email.to);
   if (follower !== undefined) return follower;
+  // The notice of a coming version of a legal document (plans/46, part 2): not to a closed account, and not once its day was moved.
+  const notice = await noticeEmailProblem(key, new Date());
+  if (notice !== undefined) return notice;
   // Without its key such an email cannot be judged, so it is not sent.
   if (email.kind === "follow") return "an email to a follower without its key";
   const reminder = key.match(/^reminder:([^:]+):([^:]+):/);
@@ -252,8 +265,8 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         }
       }
       // A try whose answer was lost more than a day ago cannot be repeated safely: Resend has forgotten the key.
-      if (email.attempts > 0 && email.firstTriedAt && at.getTime() - email.firstTriedAt.getTime() > IDEMPOTENCY_MEMORY_MS) {
-        await fail(email, "an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service");
+      if (pastRepeating(email, at)) {
+        await fail(email, NOT_REPEATED);
         continue;
       }
       // A row that has used up its tries but was never closed (a helper died each time before it could
@@ -263,6 +276,12 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         continue;
       }
 
+      // Asked once more, with the clock of this moment: the checks above take time, and an email whose time ran out
+      // meanwhile (a notice of new terms at the midnight its day begins) is not sent after it.
+      if (email.expiresAt && email.expiresAt <= new Date()) {
+        await fail(email, "expired before it could be sent");
+        continue;
+      }
       // Counted as a try right before the service is asked, so a crash from here on is treated as an unknown outcome.
       const [tried] = await db
         .update(schema.emailOutbox)
@@ -271,6 +290,17 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         .returning({ attempts: schema.emailOutbox.attempts });
       // The lease was taken over by another helper (this one was too slow): it sends, not us.
       if (!tried) continue;
+      // The very last look before the service is asked: writing the try down took a moment too.
+      if (email.expiresAt && email.expiresAt <= new Date()) {
+        await fail(email, "expired before it could be sent");
+        continue;
+      }
+      // And the same for an email that was tried before: judged again by the clock of this moment, not by the one
+      // read when it was picked up, so a slow step in between cannot carry a second try past the service's memory.
+      if (pastRepeating(email, new Date())) {
+        await fail(email, NOT_REPEATED);
+        continue;
+      }
       const outcome = await transport({ id: email.id, to: email.to, subject: email.subject, text: email.body, headers: email.headers ? (JSON.parse(email.headers) as Record<string, string>) : {} });
       if (outcome.ok) {
         // Login links are not kept once the email is out.
