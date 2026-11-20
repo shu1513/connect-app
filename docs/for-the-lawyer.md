@@ -42,6 +42,19 @@ company yet.
   (never "donate"); the monthly agreement, and whether a yearly reminder is needed; that the email
   at the hold cannot always come three days before the money is taken, because a bank can shorten
   a hold. (Plans 23, 25.)
+- **Tips after a call** (new, plan 44). A customer can give the host a tip after a call, from $2,
+  paid by card, held for three days and then taken. Connect keeps its usual fee from it (4.9% plus
+  30 cents), and tells the customer so before they pay.
+  - In some places the law says a tip must reach the worker in full (for example the United
+    Kingdom's law on tips of 2023, and rules for employees in several US states). Hosts are not
+    Connect's employees. May Connect keep its fee from something it calls a "tip"? If not: must the
+    fee on tips be zero, or must the word be changed?
+  - Is the wording right: a tip is a thank-you for a call that took place, it buys nothing, and it
+    is not a donation to a charity?
+  - What is a tip for tax: the host's income like a call's price? Does sales tax or VAT apply to
+    it in any of the 33 countries a host can be in?
+  - Refunds of a tip are the host's decision once the money is taken. Is that allowed for
+    customers outside the United States?
 - **Money when someone deletes their own account** (new, plan 39; not built). A customer who
   deletes their account with a call booked would be treated as cancelling it themselves, so a
   late cancellation would be charged as usual. A host who deletes theirs would still be paid
