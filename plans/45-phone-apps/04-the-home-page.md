@@ -1,7 +1,9 @@
 # Phone apps, part 04: the home page
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
+the end) and the code (the list is before it). What the building changed or added is under "What the building changed"; where that
+list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
 
@@ -100,7 +102,123 @@ The page shows prices and earnings but sells nothing. No diary, no contribution,
 no word pointing to the website for any of them. The one hidden carrier Astra found, the
 diary choice inside the followed hosts, is cut by decision 1.
 
-## Astra's check (20 November 2026): "ready with changes", worked in
+## What the building changed (20 November 2026)
+
+1. **The putting-together now lives in `src/lib/home/gather.ts`,** and the website's page and
+   the app's address both call it. The website's page asks for the diary news; the app's
+   address never does, and then nothing of a diary is read at all. The page's own sentences
+   that both show (how a request stands, what the card says when no call is coming, "Why these
+   hosts?") moved to one place each, so the two cannot come to differ.
+2. **No account's number leaves the server.** A followed host goes out as a name, a page, "is
+   available" and a photo; a suggested host by her page's name and her place in the row. The
+   plan did not say; the website's page does not show them either.
+3. **Requests a host must answer** (decision 6) go out as: when, how long, the price, the name,
+   and the time to answer by. The rating, "ID confirmed", what the person wrote and the host's
+   own note about them are on the request's own screen, which is part 07's.
+4. **Rows do not lead anywhere yet.** The call's own page (parts 08 and 09), a request's
+   screen (07), a host's page (05), rating a call (10), "see all" of the followed hosts and the
+   people talked to (17) and the hosting shortcuts (11, 15, 16) are each wired in by the part
+   that builds the screen. Until then the home page shows them and stops there. Decision 6
+   said this of requests; it holds for all of them.
+5. **Photos** (decision 4) are asked for through the app's one way of asking the server, never
+   by the phone's own picture loader, which keeps pictures on the phone by its own rules. A
+   photo anyone may see is kept in the app's memory for five minutes; every other photo lives
+   only on the screen that asked for it. Nothing is written to the phone's storage: the
+   server's answer always says "do not store", and says in a header of its own how long the
+   app may keep an open photo in memory. (Decision 4 said the phone may keep an open photo
+   "for five minutes"; said the usual way, the phone's own keeping of web answers would have
+   stored it on the phone.) What is kept belongs to one sign-in and is dropped the moment
+   who is signed in changes. As on the website, someone with "18 and terms" still to do is a
+   guest to the photos.
+6. **"Available now"** beside a followed or suggested host also follows the apps' own switch
+   (part 01): with it off, nobody is shown as available in the apps.
+7. **The app reads the website's calendar files as they are** (decision 3). For that the app's
+   bundler and its tests are told where those two folders are (`mobile/metro.config.js`).
+8. **Every page can now be pulled down to ask again,** and knows when it has come to rest (a
+   suggested host counts as seen when the middle of its card is on the screen then).
+9. **If the server says today's suggestions are not made, the app asks for them** each time it
+   reads the page, not once per opening of the app. Once made, the server says so, so it is
+   still once a day.
+
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+It found the website's page unchanged by the move, and nothing private in the home answer. Four
+points it called "must", and seven smaller ones; all taken but the last, which is the plan's.
+
+1. *A host who has to accept the terms again was still handed a customer's photo* (the website
+   treats her as a guest until she has). Point 5 above.
+2. *A photo kept for one person could be shown to the next person on the same phone* after its
+   owner had hidden her page; and the phone's own keeping of web answers could have stored it.
+   Point 5.
+3. *When the server refused (the sign-in ran out, the terms to accept again), the old home page
+   stayed on the screen.* It is taken off at once now, for all three of the page's requests.
+4. *Moving the calendar to days not loaded yet showed "No calls in these days"* until the answer
+   came, and for good if it did not. The calendar now shows the days the server answered for,
+   and says "Loading other days…" meanwhile.
+5. *A host's private note opened for one customer stayed open when another customer's call took
+   its place.* Each call has its own.
+6. *The countdown counted the time since the last answer twice for a moment after each new
+   answer,* which could ask the server too early. And a call ended early with a report could be
+   sent as both "open" and "finished"; it is never "open" once finished.
+7. *A photo that was refused could leave the picture before it on the screen.* Each photo id
+   has a piece of its own.
+8. *The check of the home answer did not look inside its lists,* so a missing part there broke
+   the screen instead of showing an error.
+9. *"Seen" was measured against the whole screen, tab bar included, and was lost if the request
+   failed.* It is measured against the page's own window, and told again if it could not be
+   passed on. Hiding a host answers plainly when it fails.
+10. *Three checks proved less than their labels said* (another person's suggestion lines, the
+    words about the money, two requests "at the same time"). Rewritten.
+11. *Small calendar blocks are hard to hit; the shortcuts line is not shown.* Left: the list
+    beside the calendar has full-size rows, and the shortcuts come with the parts that build
+    the screens they lead to (point 4 above).
+
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+The ten fixes were found sound. Three further points it called "must", and four smaller ones; all
+taken.
+
+1. *One person signing in right after another on the same phone could, in one order of events,
+   leave the first person's home page standing for a moment.* Every screen now belongs to the
+   person signed in, and all of them are made anew when that person changes.
+2. *A photo already on the screen was never asked for again,* so it could stay for hours after
+   its owner hid her page. A photo on a page that keeps asking the server now asks again too,
+   at most every five minutes, and is taken away on a "no".
+3. *"Seen" and "hide" skipped what a refusal does on this page.* One piece of code now decides
+   that for every request of the page: the page is emptied and the opening question asked.
+4. *A "seen" that could not be sent was tried again at once, and again,* with no connection.
+   It is tried again the next time the page comes to rest. What waits to be sent belongs to its
+   day.
+5. *On an iPhone the page runs on behind the bar at the bottom,* so a card behind it could
+   count as seen. That strip is left out. (To be looked at on a real iPhone in part 20.)
+6. *The check of the answer took any text for the calendar's day.* It must be a real day.
+7. *"Loading other days…" was shown, or not shown, at the wrong moments.* It is shown exactly
+   while a question is under way for days other than the ones on the screen.
+
+## Astra's third look at the code (20 November 2026): "not ready", now worked in
+
+The seven fixes were found sound. What it still found were orders of events on one phone used
+by two people within seconds, and photos staying on a screen. All taken; they sit in the first
+changes of part 05's branch, because part 05 was already being built in the same files.
+
+1. *A question to the server asked for one person could still open that person's screens
+   while another was signing in.* When someone starts to sign in, every question still on its
+   way no longer counts.
+2. *A photo's "no" could be lost when the page was refreshed at that moment; and a photo taken
+   from the app's memory got a fresh five minutes on the screen.* Simpler now: every photo has
+   an end, five minutes after the server said yes. When it is reached the photo asks again, and
+   a "no", or no answer, takes it off the screen, with or without a connection.
+3. *A refusal that reached the phone could be dropped* if a newer request had started and then
+   failed. A refusal now counts unless a newer request was let in since.
+4. *A host that could not be hidden emptied the whole page.* Only the refusals that mean "this
+   person may not be here" do that; a step that merely failed says so beside what was pressed.
+5. *"Seen" places waiting to be sent could go under the wrong day* around midnight. Each day's
+   go under their own.
+6. *On an iPhone the strip left out at the bottom could be counted twice.* It is the phone's
+   own bottom margin now, no more. (Still to be looked at on a real iPhone, part 20.)
+7. *"Loading other days…" could stay beside an error.* It follows the newest question only.
+
+## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Making suggestions was missing* (reading alone never makes them). Decision 2.
 2. *The calendar's controls, the host's total, the paused notice, the followed hosts and the

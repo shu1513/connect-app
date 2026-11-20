@@ -4119,3 +4119,42 @@ look two days old went from 20 days left to 30); the too-old screen.
 **What cannot be tried here.** A real email arriving on a real phone. The pages of the website
 opened from the app (the test phone's browser asks to agree to Google's terms first; that was
 not done). The iPhone.
+
+## The phone apps, part 04: the home page (plan 45, 20 November 2026)
+
+**What this is.** The first screen after signing in: the website's home page on a phone. The
+next call with its countdown, what is waiting for the person, their calendar, their own
+requests, the hosts they follow, and suggested hosts. One page for everyone; a host sees more
+on it. No diary, no project, no tip.
+
+**What was built.**
+- *One gathering for both.* What the home page is made of is now put together in
+  `src/lib/home/gather.ts`, and the website's page and the app's address both call it. The
+  website's page is unchanged for everyone who looks at it (its own check, 110 points, passes
+  untouched). The app never asks for the diary, and then nothing of one is read.
+- *The app's answer* (`GET /api/app/home`), built field by field: no customer's email, no
+  account's number, nothing about a customer except for the host of that call while it is not
+  over.
+- *Suggested hosts* in four small steps (make, seen, opened, hide), and *photos* through an
+  address of the door that asks the website's own "may this person see this photo?" each time.
+- *The screen:* a live countdown that follows the server's clock and never decides by itself
+  that a room is open; a three-day calendar laid out by the website's own rules in the phone's
+  time zone; pull down to refresh.
+
+**What the building changed.** Nine things, listed in the plan. Rows do not lead anywhere yet:
+each later part wires in the screen it builds.
+
+**What the reviewers found.** Astra looked at the code four times. Most serious: a host who has
+to accept the terms again was still handed a customer's photo; a photo kept for one person
+could be shown to the next person on the same phone, and stayed on a screen after its owner
+hid her page; when the server refused, the old home page stayed on the screen; the calendar
+said "No calls in these days" of days it had not loaded yet. All taken. The fourth look said
+"ready with changes".
+
+**How it was checked.** 778 tests on the website, 53 on the app (a call across midnight, phones
+in other time zones). `scripts/app-home-check.ts`, 75 checks: the nine rules the home page's
+builders left for a phone version, each by name. `home-check` and `suggestions-check` pass
+unchanged. On the Android test phone, with pictures, as a host and as a customer.
+
+**What cannot be tried here.** The iPhone (one measure, where the page ends above the bar at
+the bottom, is to be looked at on a real iPhone in part 20).

@@ -38,7 +38,9 @@ function Opened() {
   if (opening.kind === "ready") {
     const where = whereFor(opening.start);
     return (
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.page } }}>
+      // Every screen belongs to whoever is signed in. When that becomes someone else, every screen is made anew, so
+      // nothing one person was shown (calls, notes, photos) can still stand on the next person's screen.
+      <Stack key={opening.start.me?.id ?? "nobody"} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.page } }}>
         <Stack.Protected guard={where === "home"}>
           <Stack.Screen name="(tabs)" />
         </Stack.Protected>

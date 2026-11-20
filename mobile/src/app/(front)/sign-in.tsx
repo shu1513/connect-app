@@ -13,7 +13,7 @@ import { Button, Field, Notice, Page, TextLink, Words } from "@/ui/pieces";
  */
 export default function SignIn() {
   const given = useLocalSearchParams<{ email?: string | string[]; again?: string | string[] }>();
-  const { refresh } = useOpening();
+  const { refresh, forgetQuestions } = useOpening();
   // An address handed over by a link is taken only when it is one plain piece of text.
   const [email, setEmail] = useState(typeof given.email === "string" ? given.email : "");
   const [password, setPassword] = useState("");
@@ -28,6 +28,9 @@ export default function SignIn() {
     sending.current = true;
     setBusy(true);
     setProblem(null);
+    // From here on the phone's sign-in is changing hands: a question to the server still on its way was asked
+    // for whoever was there before (an earlier sign-in whose answer never came, say), and must not open their screens.
+    forgetQuestions();
     try {
       const outcome = await signIn(address, password);
       if (outcome.kind === "in") {

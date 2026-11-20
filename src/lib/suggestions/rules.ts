@@ -173,3 +173,7 @@ export function inPlaces<T extends Ranked>(hosts: T[], viewerId: string, day: st
   }
   return out;
 }
+
+/** "Why these hosts?", the same for everyone: what the row says about itself, on the website and in the phone app. Never why one host is there. */
+export const SUGGEST_WHY =
+  "These are hosts you do not follow and have not called, who have open times. Being free sooner adds points. Hosts followed by people who follow the same hosts as you get points too, more for more people. Good ratings count a little. Two places are kept for hosts who have been shown less often. You get new suggestions each day. A host you have seen on two days without opening their page rests for about two weeks; one whose page you opened can be suggested again. The X hides a host for good.";
