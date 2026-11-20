@@ -3064,3 +3064,18 @@ sentence was reworded after the scripts ran; they do not read it.
 **Still open.** Before launch: test hosts and their requests must never be copied into the live
 database. For the founder: whether a $5 call should later carry a small video charge, once real
 calls show what the video costs.
+
+## A correction after the home page: one check of the project script (19 November 2026)
+
+`scripts/project-check.ts` keeps a list of the pages that may use the code of projects, posts and
+pictures, and fails when any other page does. The home page (plan 36) shows the first picture of
+a diary post and so uses `picturesOf`; the list did not name it, and that one check failed on
+`main` from pull request 61 on. The builder had run the scripts that read the home page, not this
+one; the session building photo uploads found it in its own full round and said so.
+
+Corrected: the home page is on the list of the reader's pages, with the reason, and a new check
+beside it: the home page takes exactly one thing from that code, the reader's question about
+pictures, and never asks it as the host. The page itself did not change. Checked: journey 18 of
+`scripts/project-check.ts`, all pass; the other journeys of that script passed in the other
+session's round. Learned: after a page starts to use code of another feature, run that feature's
+own check script too, not only the scripts that open the page.
