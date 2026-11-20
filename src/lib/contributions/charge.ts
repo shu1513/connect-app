@@ -626,6 +626,9 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
         await tx.update(pays).set({ problem: "Stripe did not say when this payment's hold ends, so it was let go and nothing was taken.", updatedAt: now }).where(eq(pays.id, payment.id));
         why = "no_hold_end";
       }
+      // A tip is paid with a card that was typed for it (plans/44, decision 7). A card that was saved for a booking is
+      // that booking's alone: a hold placed on it for a tip is not accepted, and is let go below.
+      if (!why && contribution.kind === "tip" && bookingsCard) why = "card_step";
       let cardId: string | null = null;
       if (!why && contribution.kind === "monthly") {
         // The card of this payment becomes the contribution's card in use, if Stripe really kept it for the contributor.
@@ -910,6 +913,22 @@ export async function giveUp(paymentId: string, how: string, now: Date = new Dat
     await giveUpInStep(tx, await lockForPayment(tx, paymentId), how, now);
   });
   await letGo(paymentId, now).catch((error) => log(`could not let go of contribution payment ${paymentId} yet; the helper will retry`, error));
+  return (await paymentById(paymentId))!;
+}
+
+/**
+ * Gives a payment up only if it is still waiting for a card at this moment, asked with the payment
+ * locked. For a card step whose time is over: between the look at Stripe that found no hold and
+ * this step, a message from Stripe or the customer's own page may have recorded a hold that was
+ * placed in time. That hold stays; a plain `giveUp` would cancel it. Returns the payment as it is.
+ */
+export async function giveUpIfWaiting(paymentId: string, how: string, now: Date = new Date()): Promise<ContributionPayment> {
+  const gaveUp = await db.transaction(async (tx) => {
+    const locked = await lockForPayment(tx, paymentId);
+    if (locked.payment.status !== "to_pay" || !open(locked.payment)) return false;
+    return giveUpInStep(tx, locked, how, now);
+  });
+  if (gaveUp) await letGo(paymentId, now).catch((error) => log(`could not let go of contribution payment ${paymentId} yet; the helper will retry`, error));
   return (await paymentById(paymentId))!;
 }
 

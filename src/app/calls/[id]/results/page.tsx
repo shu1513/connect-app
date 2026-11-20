@@ -280,7 +280,8 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         </section>
       )}
 
-      {tips.ask && <TipAsk callId={call.id} hostName={otherName} />}
+      {/* Never beside the project's box (decision 3): asked of the box this page really drew, should the project end between the two reads. */}
+      {tips.ask && !ask && <TipAsk callId={call.id} hostName={otherName} />}
       {tips.tip && <TipLine view={tips.tip} role={role} otherName={otherName} />}
 
       {call.safetyEndedAt && (

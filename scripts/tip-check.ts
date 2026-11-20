@@ -325,7 +325,9 @@ async function main() {
       if (payment.stripePaymentIntentId && (payment.status === "to_pay" || payment.status === "held")) await letGoAtStripe(payment.stripePaymentIntentId);
     }
     const cpIds = theirPayments.map((payment) => payment.id);
-    const calls = (await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)))).map((row) => row.id);
+    // The founder's email about a pair over $1,000 is addressed to the founders, not to anyone of ours: found by the payment it names.
+    for (const id of cpIds) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `contribution-1000:${id}:%`));
+    const calls =(await db.select({ id: schema.calls.id }).from(schema.calls).where(or(inArray(schema.calls.hostId, ids), inArray(schema.calls.customerId, ids)))).map((row) => row.id);
     const bookings = (await db.select({ id: schema.bookings.id }).from(schema.bookings).where(or(inArray(schema.bookings.hostId, ids), inArray(schema.bookings.customerId, ids)))).map((row) => row.id);
     const shares = cpIds.length > 0 ? (await db.select({ id: schema.payments.id }).from(schema.payments).where(inArray(schema.payments.contributionPaymentId, cpIds))).map((row) => row.id) : [];
     const projectIds = (await db.select({ id: schema.projects.id }).from(schema.projects).where(inArray(schema.projects.hostId, ids))).map((row) => row.id);
@@ -367,11 +369,12 @@ async function main() {
     for (const step of steps) await step().catch((error) => check("clean-up: each step could remove what it is for", false, error instanceof Error ? error.message.split("\n")[0] : String(error)));
   }
 
-  const startedAt = new Date();
   const atStart = await switches();
   console.log(`(The founder's switches at the start: tips ${atStart.tipsOff ? "off" : "on"}, projects "${atStart.projects}". They are put back at the end.)`);
   /** Whoever saves a switch for this script: its line in the founder's record is removed at the end. */
   let switchSaver: Person | null = null;
+  /** The ids of the lines the test admin's own presses on the tips switch wrote into the founder's record. */
+  const founderRecord: string[] = [];
 
   try {
     await wipe();
@@ -498,17 +501,19 @@ async function main() {
     check("the host now sees the tip on the call's results, held, with \"Let it go\"", tipLine(hostHeld) === "held" && hostHeld.words.includes(`A tip of $5.00 from ${cara.name}`) && formsOf(hostHeld.text).some((f) => f.buttons.some((b) => b.words === "Let it go")));
     check("her own results show it as held, with the way to cancel", tipLine(await results(goodCall, cara)) === "held" && (await results(goodCall, cara)).words.includes("See your tip, or cancel it"));
 
-    // Three days later. (The helper itself takes it here: no other tip is held at this moment.)
-    await helper((await PM(paymentId)).takeAt!);
+    // Three days later. (Taken by the app's own function for this one payment, with the later clock: a round of the
+    // helper with a clock three days ahead would take every hold in this computer's test database, not only ours.
+    // That the helper takes held money at its moment is the contribution's own code, proven by contribution-check.)
+    await take(paymentId);
     const taken = await PM(paymentId);
     const share = await shareOf(paymentId);
-    check("three days later the helper takes the money: $5.46", taken.status === "taken" && taken.takenCents === 546, taken.status);
+    check("three days later the money is taken: $5.46", taken.status === "taken" && taken.takenCents === 546, taken.status);
     check("the host's share is the whole tip: $5.00, and the fee is the 46 cents", share?.originalHostShareCents === 500 && share.originalFeeCents === 46 && share.kind === "contribution" && share.callId === null, { share: share?.originalHostShareCents, fee: share?.originalFeeCents });
     check("the tip is complete", (await CO(tipId)).status === "ended" && (await CO(tipId)).endedHow === "paid");
     const hostTaken = await results(goodCall, host);
     check("the host's results say the money was taken, her share of $5.00, and offer \"Refund\"", tipLine(hostTaken) === "taken" && hostTaken.words.includes("Your share: $5.00") && formsOf(hostTaken.text).some((f) => f.buttons.some((b) => b.words === "Refund")));
     const earning = (await unsentEarnings(new Date(), host.id)).find((one) => one.payment.contributionPaymentId === paymentId);
-    check("among her earnings it is a tip for that call, $5.00, not ready before its 7 days", earning?.shareCents === 500 && earning.tip?.callId === goodCall && earning.heldBack !== null && earning.project === null, { share: earning?.shareCents, tip: earning?.tip, why: earning?.heldBack });
+    check("among her earnings it is a tip for that call, $5.00, not ready for one reason alone: its 7 days", earning?.shareCents === 500 && earning.tip?.callId === goodCall && earning.heldBack === "not_yet" && earning.project === null, { share: earning?.shareCents, tip: earning?.tip, why: earning?.heldBack });
     check("the tip's page says it was taken, and that giving it back is the host's decision", (await page(`/contributions/${tipId}`, cara)).words.includes("$5.46 was taken") && (await page(`/contributions/${tipId}`, cara)).words.includes("This tip is complete."));
     check("a paid tip keeps its call: no box, and a second tip is refused", noBox(await results(goodCall, cara)) && (await refused(T.startTip({ customerId: cara.id, callId: goodCall, amount: "2", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) === TIP_THERE);
     const secondCall = await hadCall(host, cara);
@@ -533,6 +538,9 @@ async function main() {
         await give(seeded.id, host.id);
         try {
           const pressAt = (now: Date) => collectEarnings({ collectionId: randomUUID(), hostId: host.id, startedBy: host.id, now }).then(() => null, (error: unknown) => error as Error);
+          // (The "Your earnings" part of the Hosting page is only drawn for a host with a payout account, which she has for this step.)
+          const hosting = await page("/host", host);
+          check("her Hosting page lists it among her earnings as \"Tip for the call on ...\", $5.00, with a link to that call and the day it is ready", hosting.status === 200 && hosting.text.includes(`href="/calls/${goodCall}/results"`) && /Tip for the call on .{0,120}, \$5\.00: ready on/.test(hosting.words), hosting.words.match(/Not ready yet.{0,300}/)?.[0]);
           const before = (await unsentEarnings(new Date(taken.takenAt!.getTime() + 7 * DAY - MIN), host.id)).find((one) => one.payment.contributionPaymentId === paymentId);
           check("a minute before the tip's 7 days its share is not ready to collect, for that reason alone", before?.heldBack === "not_yet", before?.heldBack);
           const collected = await pressAt(new Date(Math.max(share.transferDueAt!.getTime(), taken.takenAt!.getTime() + 7 * DAY) + MIN));
@@ -569,16 +577,27 @@ async function main() {
     const hostLetGo = await press(host, `/calls/${secondCall}/results`, "Let it go");
     await helper(new Date());
     check("the host lets a held tip go from the call's results: the hold is gone at Stripe, and the customer is told", hostLetGo.found && hostLetGo.location.startsWith(`/calls/${secondCall}/results`) && (await intentOf(three.paymentId)).status === "canceled" && (await PM(three.paymentId)).endedHow === "host_let_go" && (await emailCount(cara.email, "Nothing was charged: your tip for")) === 2, noticeOf(hostLetGo));
-    check("a host cannot let go of, or refund, a tip that is not hers", await (async () => {
-      const other = await heldTip(await asHost(await quiet("host"), "Olga"));
-      const data = new FormData();
-      const drawn = formsOf((await results(goodCall, host)).text).find((f) => f.buttons.some((b) => b.words === "Refund"));
-      for (const [name, value] of drawn?.fields ?? []) data.append(name, name === "payment" ? other.paymentId : value);
-      const reply = await send(`/calls/${goodCall}/results`, { form: data, jar: host.jar });
-      const lib = await refused(R.refundContribution({ paymentId: other.paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "a check", requestKey: randomUUID() }));
-      await C.giveUp(other.paymentId, "cancelled", new Date());
-      return Boolean(drawn) && reply.location === "/" && lib === "Payment not found." && (await PM(other.paymentId)).refundedCents === 0;
-    })());
+    // Another host's tips: one held, one taken and not collected. Their two forms, as her own page draws them, are sent by the wrong host.
+    const olga = await asHost(await signUp("Olga"), "Olga");
+    const olgaHeld = await heldTip(olga);
+    const olgaTaken = await heldTip(olga);
+    await take(olgaTaken.paymentId);
+    const olgaHeldPage = await results(olgaHeld.callId, olga);
+    const olgaTakenPage = await results(olgaTaken.callId, olga);
+    const wrongLetGo = await press(host, `/calls/${olgaHeld.callId}/results`, "Let it go", {}, { drawn: olgaHeldPage.text });
+    const wrongRefund = await press(host, `/calls/${olgaTaken.callId}/results`, "Refund", {}, { drawn: olgaTakenPage.text });
+    check(
+      "a host cannot let go of, or refund, a tip that is not hers: each form, sent by another host, changes nothing and tells her nothing",
+      wrongLetGo.found && wrongLetGo.location === "/" && wrongRefund.found && wrongRefund.location === "/" && (await PM(olgaHeld.paymentId)).status === "held" && (await PM(olgaHeld.paymentId)).endedHow === null && (await PM(olgaTaken.paymentId)).refundedCents === 0 && (await db.select().from(schema.contributionRefunds).where(eq(schema.contributionRefunds.contributionPaymentId, olgaTaken.paymentId))).length === 0,
+      `${wrongLetGo.location} ${wrongRefund.location} ${(await PM(olgaHeld.paymentId)).status}`,
+    );
+    check("the app's own functions refuse the same, as \"not found\"", (await refused(R.refundContribution({ paymentId: olgaTaken.paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "a check", requestKey: randomUUID() }))) === "Payment not found." && /not found/i.test(await refused((await import("../src/lib/contributions/monthly")).letPaymentGo({ paymentId: olgaHeld.paymentId, by: "host", actorId: host.id }))));
+    // A tip of her own that never had a hold is not shown to her; a form that names its payment gets the same answer as one that names nothing of hers.
+    const unseenCustomer = await quiet("giver");
+    const unseen = await atCardStep(unseenCustomer, await hadCall(host, unseenCustomer));
+    const unseenLetGo = await press(host, `/calls/${olgaHeld.callId}/results`, "Let it go", { payment: unseen.paymentId }, { drawn: olgaHeldPage.text });
+    check("a form that names a tip of hers that never had a hold tells her nothing either: not that it exists, nor which call it is for", unseenLetGo.found && unseenLetGo.location === "/" && (await PM(unseen.paymentId)).status === "to_pay" && (await PM(unseen.paymentId)).endedHow === null, unseenLetGo.location);
+    await C.giveUp(unseen.paymentId, "cancelled", new Date());
 
     // A tip that is still being cancelled keeps its call. (Pretended: its reason is saved, and the hold is not let go yet.)
     const slow = await heldTip(host);
@@ -640,6 +659,15 @@ async function main() {
     check("while Stripe is still working on a payment, its card step is not ended, and no second tip for the call can start", (await PM(working.paymentId)).status === "to_pay" && (await PM(working.paymentId)).endedHow === null && (await refused(T.startTip({ customerId: gus.id, callId: gusCall, amount: "2", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) === TIP_THERE, (await PM(working.paymentId)).endedHow);
     await helper(new Date());
     check("once Stripe shows that nothing came of it, the card step is ended", (await PM(working.paymentId)).status === "given_up" && (await PM(working.paymentId)).endedHow === "card_step");
+    // A card that was saved for a booking is that booking's alone (decision 7). (Pretended: a card is saved at Stripe the way a booking's card step saves one.)
+    const bo = await quiet("giver");
+    const boTip = await atCardStep(bo, await hadCall(host, bo));
+    const [boCustomer] = await db.select().from(schema.stripeCustomers).where(eq(schema.stripeCustomers.userId, bo.id));
+    const saved = await stripe().setupIntents.create({ customer: boCustomer.stripeCustomerId, payment_method: "pm_card_visa", allowed_payment_method_types: ["card"], confirm: true, usage: "off_session", metadata: { bookingId: randomUUID() } });
+    await stripe().paymentIntents.confirm((await PM(boTip.paymentId)).stripePaymentIntentId!, { payment_method: saved.payment_method as string, return_url: RETURN });
+    await C.syncPayment(boTip.paymentId, new Date());
+    await helper(new Date());
+    check("a hold placed for a tip on a card that was saved for a booking is not accepted: it is let go, and nothing is taken", (await PM(boTip.paymentId)).status === "given_up" && (await PM(boTip.paymentId)).endedHow === "card_step" && (await intentOf(boTip.paymentId)).status === "canceled", `${(await PM(boTip.paymentId)).status} ${(await PM(boTip.paymentId)).endedHow}`);
 
     // ----------------------------------------------------------------------
     console.log("\n6. Refunds are the host's decision");
@@ -771,9 +799,6 @@ async function main() {
     const [kim2Payment] = kim2Id ? await db.select().from(pays).where(eq(pays.contributionId, kim2Id)) : [];
     if (kim2Payment) await pay(kim2Payment.id);
     check("(with projects on again, a new contribution is held)", kim2Payment ? (await PM(kim2Payment.id)).status === "held" : false);
-    const ended = await press(pia, "/host/project", "End this project", { sure: "on" });
-    await helper(new Date());
-    check("the host ending her project gives up that held contribution, and still does not touch her held tip", ended.found && (await runningProjectOf(pia.id)) === null && Boolean(kim2Payment) && (await PM(kim2Payment.id)).status === "given_up" && (await PM(piaTip.paymentId)).status === "held" && (await PM(piaTip.paymentId)).endedHow === null, noticeOf(ended));
 
     // A card form that is open in a browser, with its secret, when tips are switched off.
     const openCustomer = await signUp("Omar");
@@ -788,17 +813,22 @@ async function main() {
     await helper(new Date());
     check("their holds are let go at Stripe, and the open card step's payment is cancelled there", (await intentOf(t1.paymentId)).status === "canceled" && (await PM(t1.paymentId)).status === "given_up" && (await intentOf(open.paymentId)).status === "canceled" && (await PM(t2.paymentId)).status === "given_up");
     check("a tip that was taken before is not touched", (await PM(paymentId)).status === "taken" && (await PM(benPaid.paymentId)).status === "taken");
+    check("and a held contribution to a project is not touched by the TIPS switch", Boolean(kim2Payment) && (await PM(kim2Payment.id)).status === "held" && (await PM(kim2Payment.id)).endedHow === null);
     const offForm = await stripe().paymentIntents.confirm((await PM(open.paymentId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: RETURN }).then(() => "it was confirmed", () => "refused");
     check("the card form that was open can no longer place a hold", offForm === "refused", offForm);
     const offPress = await press(openCustomer, `/tips/new?call=${freshCall2}&amount=5.00`, "Continue to the card step", {}, { drawn: openSummary.text });
     check("a summary that was open before is refused, and nothing is started", offPress.found && noticeOf(offPress) === TIPS_OFF && (await tipsOfCall(freshCall2)).length === 0, noticeOf(offPress));
     const offSummary = await page(`/tips/new?call=${freshCall2}&amount=5.00`, openCustomer);
     check("while tips are off: no box, and the summary page says so with nothing to press", noBox(await results(freshCall2, openCustomer)) && offSummary.words.includes(TIPS_OFF) && !formsOf(offSummary.text).some((f) => f.buttons.some((b) => b.words === "Continue to the card step")));
-    check("and no way to pay is handed out for a tip", (await S.payNow({ paymentId: open.paymentId, contributorId: openCustomer.id })) === null);
     // A hold that a form opened earlier still places in the moment before its payment is cancelled at Stripe.
+    // (Pretended: the switch's line alone is written, so the tip is still waiting for its card as if that moment lasted.)
     await setSwitches({ tipsOff: false });
     const racing = await atCardStep(openCustomer, freshCall2);
     await setSwitches({ tipsOff: true });
+    check(
+      "while tips are off, no way to pay is handed out for a tip that is still waiting for its card: neither by the button nor by opening its page",
+      (await PM(racing.paymentId)).status === "to_pay" && (await PM(racing.paymentId)).endedHow === null && (await S.payNow({ paymentId: racing.paymentId, contributorId: openCustomer.id })) === null && (await S.secretToPay({ paymentId: racing.paymentId, contributorId: openCustomer.id })) === null && !(await page(`/contributions/${racing.contributionId}`, openCustomer)).text.includes("_secret_"),
+    );
     await pay(racing.paymentId);
     await helper(new Date());
     check("a hold that still lands while tips are off is not accepted: it is let go, and nothing is kept", (await PM(racing.paymentId)).status === "given_up" && (await PM(racing.paymentId)).endedHow === "switch" && (await intentOf(racing.paymentId)).status === "canceled", `${(await PM(racing.paymentId)).status} ${(await PM(racing.paymentId)).endedHow}`);
@@ -819,6 +849,11 @@ async function main() {
     await helper(new Date());
     check("switched on again, nothing old comes back", (await PM(t1.paymentId)).status === "given_up" && (await PM(open.paymentId)).status === "given_up" && (await PM(racing.paymentId)).status === "given_up" && (await PM(mid.paymentId)).status === "given_up");
     check("and the box is back for a call that qualifies", boxShown(await results(freshCall2, openCustomer)));
+    // The host ends her project while a tip for her and a contribution to it are both held.
+    const piaTip2 = await heldTip(pia, { customer: mona });
+    const ended = await press(pia, "/host/project", "End this project", { sure: "on" });
+    await helper(new Date());
+    check("the host ending her project gives up the held contribution to it, and does not touch her held tip", ended.found && (await runningProjectOf(pia.id)) === null && Boolean(kim2Payment) && (await PM(kim2Payment.id)).status === "given_up" && (await PM(piaTip2.paymentId)).status === "held" && (await PM(piaTip2.paymentId)).endedHow === null, noticeOf(ended));
     check("the saving of the tips switch is in the founder's record", (await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.action, "tips switch set"), eq(schema.adminActions.adminId, switchSaver.id)))).length === 3);
 
     // ----------------------------------------------------------------------
@@ -846,10 +881,14 @@ async function main() {
       const let1 = await press(admin, "/admin/projects?tips=1", "Let it go", { note: "A check by the tip script." }, { where: (form) => form.fields.some(([name, value]) => name === "payment" && value === lastTip.paymentId) });
       await helper(new Date());
       check("the founder lets a held tip go, with a reason", let1.found && (await PM(lastTip.paymentId)).status === "given_up" && (await PM(lastTip.paymentId)).endedHow === "founder_let_go", noticeOf(let1));
+      const pressedFrom = new Date();
       const off = await press(admin, "/admin/projects", "Save tips switch", { tips: "off" });
       check("the founder switches tips off on the page", off.found && noticeOf(off).startsWith("Tips are off.") && (await switches()).tipsOff === true, noticeOf(off));
       const on = await press(admin, "/admin/projects", "Save tips switch", { tips: "on" });
       check("and on again", on.found && noticeOf(on) === "Tips are on." && (await switches()).tipsOff === false, noticeOf(on));
+      // The two lines these two presses wrote into the founder's record, by their ids: removed at the end, and nothing else of the founder's.
+      founderRecord.push(...(await db.select({ id: schema.adminActions.id }).from(schema.adminActions).innerJoin(schema.user, eq(schema.user.id, schema.adminActions.adminId)).where(and(eq(schema.adminActions.action, "tips switch set"), eq(schema.user.email, "admin@test.local"), gte(schema.adminActions.createdAt, pressedFrom)))).map((row) => row.id));
+      check("(those two presses are in the founder's record)", founderRecord.length === 2, founderRecord.length);
       await send("/api/auth/sign-out", { json: {}, jar: admin.jar });
     }
 
@@ -862,11 +901,8 @@ async function main() {
     check("the results page and the summary page import none of the code that starts, pays, stops or refunds", !/from "@\/lib\/contributions\/(start|tip-start|charge|monthly|refund|ending|switch|jobs)"/.test(resultsCode + summaryCode));
   } finally {
     await setSwitches({ tipsOff: atStart.tipsOff, projects: atStart.projects, projectsHosts: atStart.projectsHosts }).catch((error) => check("afterwards: the founder's switches could be put back", false, String(error)));
-    // The founder's own record of this run's presses on the switches by the test admin (they name no person).
-    await db
-      .delete(schema.adminActions)
-      .where(and(inArray(schema.adminActions.action, ["tips switch set", "projects switch set"]), gte(schema.adminActions.createdAt, startedAt), inArray(schema.adminActions.adminId, db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, "admin@test.local")))))
-      .catch((error) => check("afterwards: this run's lines in the founder's record could be removed", false, String(error)));
+    // The lines this run's own two presses wrote into the founder's record, by their ids (they name no person, so the clean-up by person does not find them).
+    if (founderRecord.length > 0) await db.delete(schema.adminActions).where(inArray(schema.adminActions.id, founderRecord)).catch((error) => check("afterwards: this run's lines in the founder's record could be removed", false, String(error)));
     await wipe().catch((error) => check("afterwards: what this run made could be removed", false, String(error)));
     await db.delete(schema.rateLimit);
   }

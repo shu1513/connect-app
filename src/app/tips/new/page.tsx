@@ -10,13 +10,14 @@ import { callDay, chargeFor, readTip, refusal, TIP_WORDING_VERSION, tipSentences
 import { tipFacts } from "@/lib/contributions/tips";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
-import { isId } from "@/lib/projects/projects";
 import { requireUser } from "@/lib/session";
 import { startTipAction } from "../actions";
 
 export const metadata: Metadata = { title: "Give a tip" };
 
 export const dynamic = "force-dynamic";
+
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The summary before paying a tip (plans/44, decision 8): what the person pays, that the host
@@ -28,7 +29,7 @@ export const dynamic = "force-dynamic";
 export default async function NewTipPage(props: PageProps<"/tips/new">) {
   const query = await props.searchParams;
   const text = (value: string | string[] | undefined) => (typeof value === "string" ? value.slice(0, 20) : "");
-  const callId = typeof query.call === "string" && isId(query.call) ? query.call.toLowerCase() : "";
+  const callId = typeof query.call === "string" && ID.test(query.call) ? query.call.toLowerCase() : "";
   // An amount typed into the box counts before one that was picked.
   const typed = text(query.other).trim() || text(query.amount).trim();
   const user = await requireUser(`/tips/new?call=${callId}&amount=${encodeURIComponent(typed)}`);

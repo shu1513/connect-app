@@ -18,7 +18,7 @@ import { db, schema } from "@/db";
 import { MoneyError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, type OperationKind } from "@/lib/payments/operations";
 import { projectsOnFor, switches, tipsOn } from "@/lib/safety/switches";
 import { removeRetiredCards } from "./cards";
-import { giveUp, intentFor, letGo, lookAndRecord, syncPayment, takePayment, tryHold } from "./charge";
+import { giveUp, giveUpIfWaiting, intentFor, letGo, lookAndRecord, syncPayment, takePayment, tryHold } from "./charge";
 import { runDisputeLooks } from "./dispute";
 import { endContribution } from "./ending";
 import { writeDuePayments } from "./monthly";
@@ -106,14 +106,20 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
   // 3. Card steps that ran out without a hold. Stripe is asked first: a hold that arrived in time counts.
   await each(
     "end the card step",
-    await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "to_pay"), open, lte(pays.cardStepExpiresAt, now))).limit(BATCH),
+    // (The one that was looked at longest ago first, so payments that are still waiting for an outcome never keep the others out of the batch.)
+    await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "to_pay"), open, lte(pays.cardStepExpiresAt, now))).orderBy(pays.updatedAt).limit(BATCH),
     async (id) => {
       const { payment, shown } = await lookAndRecord(id, now);
       // Stripe is still working on the payment, or its answer could not be recorded: a hold placed in time may be
       // about to appear, and giving the payment up now would cancel it. Nothing is decided until there is an outcome;
-      // the next round looks again. (The rule a missed month follows too: charge.ts, missMonth.)
-      if (shown === "processing" || shown === "unrecorded") return;
-      if (payment.status === "to_pay" && !payment.endedHow && !payment.problem) await giveUp(id, "card_step", now);
+      // the next round looks again. (The rule a missed month follows too: charge.ts, missMonth.) It is marked as
+      // looked at, so it goes to the end of the line; if it waits like this for more than a day, the watch says so (health.ts).
+      if (shown === "processing" || shown === "unrecorded") {
+        await db.update(pays).set({ updatedAt: new Date() }).where(and(eq(pays.id, id), eq(pays.status, "to_pay")));
+        return;
+      }
+      // Given up only if it still waits for a card when it is locked: a hold recorded in this very moment stays.
+      if (payment.status === "to_pay" && !payment.endedHow && !payment.problem) await giveUpIfWaiting(id, "card_step", now);
     },
   );
 

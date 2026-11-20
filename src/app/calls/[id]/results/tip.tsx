@@ -77,10 +77,19 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
           {state === "cancelling" && <p className="mt-1">We are cancelling it. Its own page says so once that is done.</p>}
           {state === "cancelled" && <p className="mt-1">{payment.authorisedAt ? "It was cancelled. The hold was let go, and nothing was charged." : "It was cancelled. Nothing was charged."}</p>}
           {state === "problem" && <p className="mt-1">Something about this payment needs a look by Connect. Nothing more happens to it until then.</p>}
+          {/* What is said about a taken tip is read from what is recorded: the host's share, a problem, what went back. Nothing is claimed beyond that. */}
           {state === "taken" && payment.takenAt && (
             <p className="mt-1">
-              {formatMoney(payment.takenCents ?? payment.amountCents)} was taken on <LocalTime iso={payment.takenAt.toISOString()} />: the tip and a payment fee of {formatMoney(fee)}. {otherName} receives the whole tip.
+              {formatMoney(payment.takenCents ?? payment.amountCents)} was taken on <LocalTime iso={payment.takenAt.toISOString()} />.{" "}
+              {payment.problem
+                ? "Something about this payment needs a look by Connect."
+                : !share
+                  ? "It had been cancelled, so all of it goes back to your card."
+                  : payment.refundedCents === 0 && row.refundUnderWayCents === 0
+                    ? `That is the tip and a payment fee of ${formatMoney(fee)}. ${otherName} receives the whole tip.`
+                    : `That is the tip and a payment fee of ${formatMoney(fee)}.`}
               {payment.refundedCents > 0 ? ` ${formatMoney(payment.refundedCents)} of it was paid back to your card.` : ""}
+              {row.refundUnderWayCents > 0 ? ` ${formatMoney(row.refundUnderWayCents)} is on its way back to your card.` : ""}
             </p>
           )}
           <p className="mt-1">
@@ -96,7 +105,7 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
               It is held on the customer&apos;s card and taken on <LocalTime iso={payment.takeAt.toISOString()} />. Until then they can cancel it{role === "host" ? ", and you can let it go" : ""}. All of the tip is {role === "host" ? "yours" : "the host's"}: Connect keeps nothing of it.
             </p>
           )}
-          {state === "cancelling" && <p className="mt-1">It is being let go. Nothing was taken.</p>}
+          {state === "cancelling" && <p className="mt-1">It is being cancelled. This page says so once that is done.</p>}
           {state === "cancelled" && <p className="mt-1">It was cancelled before the money was taken. Nothing was charged.</p>}
           {state === "problem" && <p className="mt-1">Something about this payment needs a look by Connect. Nothing more happens to it until then.</p>}
           {state === "taken" && payment.takenAt && (
@@ -112,8 +121,10 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
                     </>
                   )}
                 </>
+              ) : payment.problem ? (
+                "Something about this payment needs a look by Connect. Nothing has been written for " + (role === "host" ? "you" : "the host") + " yet."
               ) : (
-                "All of it is being paid back to the customer."
+                "It had been cancelled before, so all of it goes back to the customer."
               )}
             </p>
           )}

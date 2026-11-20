@@ -1576,7 +1576,9 @@ async function main() {
     const contributors = ["src/app/contributions/actions.ts", "src/app/contributions/new/page.tsx", "src/app/contributions/[id]/page.tsx", "src/app/api/contributions/[id]/sync/route.ts"];
     const hosts = ["src/app/host/project/contribution-actions.ts"];
     const founders = ["src/app/admin/projects/contribution-actions.ts", "src/app/admin/projects/actions.ts"];
-    const known = [...contributors, ...hosts, ...founders];
+    // A tip after a call (plans/44) is kept as a contribution: what its customer and its host do about it is in one file of its own.
+    const tips = ["src/app/tips/actions.ts"];
+    const known = [...contributors, ...hosts, ...founders, ...tips];
     check("only the contributor's, the host's and the founder's own pages reach the code that starts, pays, stops or refunds a contribution", uses.every((file) => known.includes(file.path)) && uses.length === known.length, { found: uses.map((file) => file.path) });
 
     // "Starting is an action; loading is only reading": nothing that is drawn on opening a page may write a

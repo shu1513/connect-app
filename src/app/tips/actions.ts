@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { letPaymentGo } from "@/lib/contributions/monthly";
@@ -53,17 +53,20 @@ export async function startTipAction(formData: FormData) {
 }
 
 /**
- * The tip payment a host's form names, if it is a payment of a tip for one of HER calls, with that
- * call's id: the page she is sent back to. Null for anything else; the library checks once more.
+ * The tip payment a host's form names, if it is a payment of a tip for one of HER calls that she
+ * may see, with that call's id: the page she is sent back to. Null for anything else; the library
+ * checks once more. A tip that never had a hold is not shown to its host (plans/44, decision 2),
+ * so it is not found here either: it looks the same as one that does not exist.
  */
 async function hostsTip(hostId: string, formData: FormData): Promise<{ paymentId: string; callId: string } | null> {
   const paymentId = idOf(formData.get("payment"));
   if (!paymentId) return null;
+  const pays = schema.contributionPayments;
   const [found] = await db
     .select({ callId: schema.contributions.callId })
-    .from(schema.contributionPayments)
-    .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
-    .where(and(eq(schema.contributionPayments.id, paymentId), eq(schema.contributions.kind, "tip"), eq(schema.contributions.hostId, hostId)));
+    .from(pays)
+    .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
+    .where(and(eq(pays.id, paymentId), eq(schema.contributions.kind, "tip"), eq(schema.contributions.hostId, hostId), or(isNotNull(pays.authorisedAt), inArray(pays.status, ["held", "taken"]))));
   return found?.callId ? { paymentId, callId: found.callId } : null;
 }
 
