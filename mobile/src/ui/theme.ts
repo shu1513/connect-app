@@ -36,7 +36,8 @@ const light: Colors = {
   text: "#1c1917",
   soft: "#57534e",
   line: "#e7e5e4",
-  edge: "#a8a29e",
+  // Darker than the website's (#a8a29e): an empty field is found by this line alone, so it keeps 3 to 1 against a card and the page.
+  edge: "#8f8883",
   accent: "#c2410c",
   accentDeep: "#9a3412",
   onAccent: "#ffffff",

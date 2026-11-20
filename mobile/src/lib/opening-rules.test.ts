@@ -1,6 +1,6 @@
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { UNREACHABLE } from "./api-rules";
-import { openingAfter, openingFrom, PLEASE_UPDATE } from "./opening-rules";
+import { isStart, openingAfter, openingFrom, PLEASE_UPDATE } from "./opening-rules";
 
 const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules" };
 
@@ -19,6 +19,31 @@ describe("what the app shows when it opens", () => {
     expect(openingFrom({ ok: false, code: "not_the_app", message: "This address is for the Connect app." }).kind).toBe("unreachable");
   });
 
+  it("does not open on an answer that lacks what the screens read", () => {
+    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null };
+    expect(isStart(start)).toBe(true);
+    expect(isStart({ ...start, me })).toBe(true);
+    expect(isStart({ ...start, me: { ...me, timeZone: "Europe/London", next: "welcome", host: { status: "approved", hidden: false } } })).toBe(true);
+    for (const bad of [
+      {},
+      [],
+      null,
+      "start",
+      { ...start, updateNeeded: undefined },
+      { ...start, switches: undefined },
+      { ...start, switches: { ...start.switches, memberships: "maybe" } },
+      { ...start, switches: { ...start.switches, tips: "off" } },
+      { ...start, me: undefined },
+      { ...start, me: { ...me, id: 7 } },
+      { ...start, me: { ...me, next: "somewhere" } },
+      { ...start, me: { ...me, host: { status: "approved" } } },
+      { ...start, termsVersion: 3 },
+    ]) {
+      expect(isStart(bad)).toBe(false);
+      expect(openingFrom({ ok: true, data: bad as never })).toEqual({ kind: "unreachable", message: UNREACHABLE });
+    }
+  });
+
   it("keeps the screen the person was on when a quiet question does not get through", () => {
     const ready = { kind: "ready", start } as const;
     const lost = { ok: false, code: "unreachable", message: UNREACHABLE } as const;
@@ -31,5 +56,9 @@ describe("what the app shows when it opens", () => {
     expect(openingAfter(ready, { ok: true, data: signedOutLater })).toEqual({ kind: "ready", start: signedOutLater });
     expect(openingAfter(ready, { ok: false, code: "update_needed", message: "Please update." }).kind).toBe("update");
     expect(openingAfter(ready, { ok: true, data: { ...start, updateNeeded: true } }).kind).toBe("update");
+    // Half an answer counts as not getting through.
+    expect(openingAfter(ready, { ok: true, data: {} as never })).toBe(ready);
+    // A refusal is Connect's own word: the old, signed-in screens do not stay.
+    expect(openingAfter(ready, { ok: false, code: "not_signed_in", message: "Please log in." })).toEqual({ kind: "unreachable", message: "Please log in." });
   });
 });

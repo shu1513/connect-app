@@ -63,20 +63,22 @@ The everyday test build above loads its code from this Mac as it runs. A store b
 code inside, made smaller and checked harder, and some faults only show there. To try one on the
 test phone:
 
-1. Make the Android project fresh (this also applies `plugins/stripe-store-build.js`; without it
-   the store build stops on a Google library that Stripe's kit names and Google does not publish
-   openly, which Connect does not use):
+1. Make the Android project fresh. This throws away the folder `android/` and makes it again,
+   and it applies `plugins/stripe-store-build.js` (without it a store build stops twice on parts
+   of Stripe's kit that Connect does not use):
 
    ```bash
-   npx expo prebuild --platform android --no-install
+   npx expo prebuild --platform android --no-install --clean
    ```
 
 2. Only for this trial, on this Mac: a store build refuses plain `http`, and the website on this
-   Mac is plain `http`. In the fresh file `android/app/src/main/AndroidManifest.xml`, add
-   `android:usesCleartextTraffic="true"` to the `<application` line. The folder `android/` is
-   never kept, so this cannot reach a real build.
+   Mac is plain `http`. Two things let the trial through, and both are for the trial only:
+   in the fresh file `android/app/src/main/AndroidManifest.xml`, add
+   `android:usesCleartextTraffic="true"` to the `<application` line; and build with
+   `EXPO_PUBLIC_TEST_SCREENS=1`, which puts the two test screens in and lets the app itself use a
+   plain address.
 
-3. Build it with the test screens in, and put it on the phone:
+3. Build it and put it on the phone:
 
    ```bash
    (cd android && EXPO_PUBLIC_TEST_SCREENS=1 ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a)
@@ -86,8 +88,13 @@ test phone:
    ~/Library/Android/sdk/platform-tools/adb install -r android/app/build/outputs/apk/release/app-release.apk
    ```
 
-A build for a store is made **without** `EXPO_PUBLIC_TEST_SCREENS`: the two test screens then
-cannot be opened at all, by a button or by a link.
+4. **When the trial is over, delete the folder** (`rm -rf android`). It holds the change made by
+   hand and a copy of the app's code with the test screens in, and a later build in the same
+   folder could reuse both.
+
+A build for a store is always made from a fresh folder and **without**
+`EXPO_PUBLIC_TEST_SCREENS`. In such a build the two test screens cannot be opened at all, by a
+button or by a link, and the app sends nothing to a server whose address is not `https`.
 
 After changing a file, the everyday test build shows the change by itself, as long as the code
 server was started plainly (`npx expo start --dev-client`). Started with `CI=1` it does not watch

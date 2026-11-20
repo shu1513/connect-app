@@ -23,3 +23,10 @@ export const PLATFORM: "android" | "ios" = Platform.OS === "ios" ? "ios" : "andr
  * made without it, and the test screens then cannot be opened at all, by a button or by a link.
  */
 export const TEST_SCREENS = __DEV__ || process.env.EXPO_PUBLIC_TEST_SCREENS === "1";
+
+/**
+ * Whether the server's address may be a plain `http` one. Only in a test build, where the server
+ * is the website on this Mac. Any other copy of the app sends nothing over a connection that is
+ * not locked: with a plain address in its settings it reaches nothing at all.
+ */
+export const PLAIN_HTTP_ALLOWED = TEST_SCREENS;

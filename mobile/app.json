@@ -20,10 +20,18 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "sitemap": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -40,7 +48,13 @@
       ],
       "expo-secure-store",
       "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Connect uses the camera during a one-to-one video call, so the person you are talking to can see you.",
+          "microphonePermission": "Connect uses the microphone during a one-to-one video call, so the person you are talking to can hear you."
+        }
+      ],
       "expo-font",
       "./plugins/stripe-store-build"
     ],

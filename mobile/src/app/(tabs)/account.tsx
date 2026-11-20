@@ -21,7 +21,7 @@ export default function AccountPlace() {
           Memberships: {start?.switches.memberships ?? "unknown"}. Tips: {start?.switches.tips ? "on" : "off"}. Available now: {start?.switches.availableNow ? "on" : "off"}.
         </Words>
         <Words soft>
-          App version {APP_VERSION}. Server: {SERVER || "not set"}.
+          App version {APP_VERSION}.{TEST_SCREENS ? ` Server: ${SERVER || "not set"}.` : ""}
         </Words>
         <Button label="Ask again" kind="plain" onPress={askAgain} />
       </Card>

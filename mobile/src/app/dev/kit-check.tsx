@@ -15,7 +15,9 @@ import { Button, Card, Loading, Page, Words } from "@/ui/pieces";
  * starts, Stripe's kit takes the test key, the sign-in kit can be made, and the secure store keeps
  * a value across a restart of the app.
  */
-registerGlobals();
+
+/** LiveKit's parts are put in place when the check runs, once, and not merely because this file was read. */
+let videoPartsReady = false;
 
 type Line = { name: string; ok: boolean; detail: string };
 
@@ -43,6 +45,10 @@ async function checkKits(): Promise<Line[]> {
     return "took the test key";
   });
   await run("LiveKit: the parts for video", async () => {
+    if (!videoPartsReady) {
+      registerGlobals();
+      videoPartsReady = true;
+    }
     const kind = typeof (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection;
     if (kind !== "function") throw new Error(`the video parts are missing (${kind})`);
     return `ready; a room starts as "${new Room().state}"`;
@@ -53,9 +59,13 @@ async function checkKits(): Promise<Line[]> {
     return "started and stopped";
   });
   await run("The sign-in kit", async () => {
-    const client = createAuthClient({ baseURL: SERVER || "http://localhost", plugins: [expoClient({ scheme: "connect", storagePrefix: "connect", storage: SecureStore })] });
-    if (typeof client.signIn.email !== "function" || typeof client.getCookie !== "function") throw new Error("the kit is not what was expected");
-    return "can be made";
+    if (!SERVER) throw new Error("no server address was set for this build");
+    // Its own corner of the secure store, so that this check never touches a real sign-in.
+    const client = createAuthClient({ baseURL: SERVER, plugins: [expoClient({ scheme: "connect", storagePrefix: "kit-check", storage: SecureStore })] });
+    // Asks the server's login tool who is signed in. Nobody is: the point is that the question got there and back.
+    const asked = await client.getSession();
+    if (asked.error) throw new Error(`the server's login tool did not answer (${asked.error.status ?? "no connection"})`);
+    return asked.data ? "reached the server's login tool; somebody is signed in" : "reached the server's login tool; nobody is signed in";
   });
   return lines;
 }

@@ -23,7 +23,13 @@ describe("where a request may go", () => {
 
   it("is a path of the door on our own server", () => {
     expect(addressFor(server, "/api/app/start")).toBe("https://connect.example/api/app/start");
-    expect(addressFor("http://10.0.2.2:3310", "/api/app/home?day=2026-11-20")).toBe("http://10.0.2.2:3310/api/app/home?day=2026-11-20");
+    expect(addressFor("https://connect.example:8443", "/api/app/calls/8f2c-11/join?day=2026-11-20&q=a%20b")).toBe("https://connect.example:8443/api/app/calls/8f2c-11/join?day=2026-11-20&q=a%20b");
+  });
+
+  it("is a plain, unlocked server only in a test build", () => {
+    expect(addressFor("http://10.0.2.2:3310", "/api/app/start")).toBeNull();
+    expect(addressFor("http://10.0.2.2:3310", "/api/app/home?day=2026-11-20", { plain: true })).toBe("http://10.0.2.2:3310/api/app/home?day=2026-11-20");
+    expect(addressFor(server, "/api/app/start", { plain: true })).toBe("https://connect.example/api/app/start");
   });
 
   it("is nowhere for anything else, so the sign-in cannot be sent elsewhere", () => {
@@ -36,6 +42,17 @@ describe("where a request may go", () => {
       "api/app/start",
       "/api/app\\start",
       "/api/app//evil.test",
+      "/api/app/",
+      "/api/app",
+      "/api/app/start/",
+      "/api/app/%2e%2e/auth",
+      "/api/app/a%2Fb",
+      "/api/app/a.b",
+      "/api/app/start#x",
+      "/api/app/start?next=a#b",
+      "/api/app/start?a b",
+      "/api/app/start?a\\b",
+      "/api/app/sta rt",
       "",
     ]) {
       expect(addressFor(server, path)).toBeNull();
@@ -43,8 +60,9 @@ describe("where a request may go", () => {
   });
 
   it("is nowhere when the server setting is missing or is not a plain server address", () => {
-    for (const bad of ["", "connect.example", "https://connect.example/", "https://connect.example/some/path", "ftp://connect.example", "https://connect.example?x=1"]) {
+    for (const bad of ["", "connect.example", "https://connect.example/", "https://connect.example/some/path", "ftp://connect.example", "https://connect.example?x=1", "https://someone:secret@connect.example", "https://someone@connect.example", "https://connect.example:port", "https://"]) {
       expect(addressFor(bad, "/api/app/start")).toBeNull();
+      expect(addressFor(bad, "/api/app/start", { plain: true })).toBeNull();
     }
   });
 });
@@ -59,11 +77,17 @@ describe("reading an answer", () => {
     expect(readAnswer(426, { error: { code: "update_needed", message: "Please update." } })).toEqual({ ok: false, code: "update_needed", message: "Please update." });
   });
 
+  it("takes a refusal for a refusal whatever number came with it", () => {
+    expect(readAnswer(200, { error: { code: "update_needed", message: "Please update." } })).toEqual({ ok: false, code: "update_needed", message: "Please update." });
+  });
+
   it("counts everything else as not reaching Connect, and never guesses", () => {
     for (const [status, body] of [
       [500, { error: "boom" }],
       [502, null],
       [200, null],
+      [200, []],
+      [200, [{ me: null }]],
       [200, "<html>Sign in to this network</html>"],
       [403, { error: { code: "something_new", message: "?" } }],
       [403, { error: { code: "paused" } }],

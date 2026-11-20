@@ -29,13 +29,26 @@ export const DOOR = "/api/app/";
  * only a path under the door, joined to the server from the app's settings. A screen cannot hand
  * in a full address, another site, or a path that climbs out of the door. Returns null for
  * anything else, and the request is then never sent.
+ *
+ * The server must be a bare, locked address: `https://name` or `https://name:port`, with no name
+ * and password in it and nothing after it. A plain `http` address is taken only when `plain` is
+ * set, which only a test build does (the website on this Mac is plain); a build for a store never
+ * sends anything over a connection that is not locked.
+ *
+ * The path, up to a "?", is made of plain steps only: letters, digits, "-" and "_". No "%", so
+ * nothing in it can turn into another path if something on the way reads it differently.
  */
-export function addressFor(server: string, path: string): string | null {
-  if (!/^https?:\/\/[^/?#]+$/.test(server)) return null;
-  if (!path.startsWith(DOOR) || path.includes("..") || path.includes("\\") || path.includes("//")) return null;
+export function addressFor(server: string, path: string, options: { plain?: boolean } = {}): string | null {
+  const bare = /^(https?):\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.exec(server);
+  if (!bare || (bare[1] === "http" && !options.plain)) return null;
+  const cut = path.indexOf("?");
+  const steps = cut === -1 ? path : path.slice(0, cut);
+  if (!/^\/api\/app\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(steps)) return null;
+  // After the "?": anything a question may carry, but no "#", no backslash, no space or unseen character.
+  if (cut !== -1 && !/^[\x21\x24-\x5b\x5d-\x7e]*$/.test(path.slice(cut + 1))) return null;
   try {
     const url = new URL(path, server);
-    if (url.origin !== new URL(server).origin || !url.pathname.startsWith(DOOR)) return null;
+    if (url.origin !== new URL(server).origin || url.pathname !== steps || url.username !== "" || url.password !== "") return null;
     return url.toString();
   } catch {
     return null;
@@ -60,13 +73,17 @@ function isRefusal(body: unknown): body is Refusal {
 }
 
 /**
- * Reads what the server sent. A success is an answer of the door; a refusal is one of its codes
- * with its sentence. Anything else (a page of some network in between, an error of the server
- * itself, half an answer) counts as "could not reach Connect": the app never guesses.
+ * Reads what the server sent. A refusal is one of the door's codes with its sentence, whatever
+ * number came with it; a success is an answer of the door, which is always one plain thing with
+ * named parts. Anything else (a page of some network in between, an error of the server itself,
+ * half an answer, a list) counts as "could not reach Connect": the app never guesses.
+ *
+ * This only tells an answer from a refusal. Whether an answer has the parts a screen needs is
+ * for the one who asked to check (see `isStart` in opening-rules.ts).
  */
 export function readAnswer<T>(status: number, body: unknown): Answer<T> {
-  if (status >= 200 && status < 300 && body !== null && typeof body === "object") return { ok: true, data: body as T };
   if (isRefusal(body)) return { ok: false, code: body.error.code, message: body.error.message };
+  if (status >= 200 && status < 300 && body !== null && typeof body === "object" && !Array.isArray(body)) return { ok: true, data: body as T };
   return { ok: false, code: "unreachable", message: UNREACHABLE };
 }
 

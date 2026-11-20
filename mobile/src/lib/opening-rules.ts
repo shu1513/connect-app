@@ -3,7 +3,7 @@
  * (plans/45-phone-apps/02-the-frame.md). Plain logic, tested on its own.
  */
 import type { AppStart } from "../../../src/lib/app-door/types";
-import type { Answer } from "./api-rules";
+import { UNREACHABLE, type Answer } from "./api-rules";
 
 export type Opening =
   /** Still asking. */
@@ -17,13 +17,45 @@ export type Opening =
 
 export const PLEASE_UPDATE = "This version of the Connect app is too old. Please update the app to carry on.";
 
+const isThing = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * Whether an answer really is the opening answer, with every part the screens read. The type
+ * says what the server promises; this is the check that it kept the promise, so that half an
+ * answer, or some other site's answer, never opens the app.
+ */
+export function isStart(data: unknown): data is AppStart {
+  if (!isThing(data) || typeof data.updateNeeded !== "boolean" || typeof data.termsVersion !== "string") return false;
+  const switches = data.switches;
+  if (!isThing(switches) || typeof switches.tips !== "boolean" || typeof switches.availableNow !== "boolean") return false;
+  if (switches.memberships !== "on" && switches.memberships !== "use_only" && switches.memberships !== "off") return false;
+  const me = data.me;
+  if (me === null) return true;
+  if (!isThing(me) || typeof me.id !== "string" || typeof me.name !== "string" || typeof me.email !== "string" || typeof me.paused !== "boolean") return false;
+  if (me.timeZone !== null && typeof me.timeZone !== "string") return false;
+  if (me.next !== null && me.next !== "welcome") return false;
+  return me.host === null || (isThing(me.host) && typeof me.host.status === "string" && typeof me.host.hidden === "boolean");
+}
+
+/**
+ * Whether Connect itself answered: a whole opening answer, or one of its own refusals. Not
+ * getting through (no connection, some other site's page, half an answer) is the other case.
+ */
+function gotThrough(answer: Answer<AppStart>): boolean {
+  return answer.ok ? isStart(answer.data) : answer.code !== "unreachable";
+}
+
 /**
  * Where an answer of the opening address leads. An answer that says "update" leads to the update
  * screen even though the address itself answered; a refusal of any other kind is treated as not
- * having reached Connect, since the opening address refuses nobody who comes the app's way.
+ * having reached Connect, since the opening address refuses nobody who comes the app's way; and
+ * so is an answer without the parts it must have.
  */
 export function openingFrom(answer: Answer<AppStart>): Opening {
-  if (answer.ok) return answer.data.updateNeeded ? { kind: "update", message: PLEASE_UPDATE } : { kind: "ready", start: answer.data };
+  if (answer.ok) {
+    if (!isStart(answer.data)) return { kind: "unreachable", message: UNREACHABLE };
+    return answer.data.updateNeeded ? { kind: "update", message: PLEASE_UPDATE } : { kind: "ready", start: answer.data };
+  }
   if (answer.code === "update_needed") return { kind: "update", message: answer.message };
   return { kind: "unreachable", message: answer.message };
 }
@@ -32,9 +64,10 @@ export function openingFrom(answer: Answer<AppStart>): Opening {
  * What the app shows after an answer, given what it shows now. Once the app is open and in use, a
  * question asked quietly (on coming back to the front) that does not get through changes nothing:
  * the person keeps the screen they were on, and whatever they do next says for itself if Connect
- * cannot be reached. A real answer always counts, and so does "this copy is too old".
+ * cannot be reached. Whatever Connect itself answers always counts: a newer answer replaces the
+ * old one (someone signed out elsewhere is signed out here), "this copy is too old" closes the
+ * app, and a refusal never leaves the old, signed-in screens standing.
  */
 export function openingAfter(now: Opening, answer: Answer<AppStart>): Opening {
-  const next = openingFrom(answer);
-  return now.kind === "ready" && next.kind === "unreachable" ? now : next;
+  return now.kind === "ready" && !gotThrough(answer) ? now : openingFrom(answer);
 }
