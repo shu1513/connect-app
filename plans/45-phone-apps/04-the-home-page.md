@@ -67,16 +67,19 @@ The session that built the page left nine rules for a phone version. They are bi
 3. **The calendar** shows three days at a time (the website already does in a narrow window),
    with arrows, "today", the switch to a list, a call's details on touch, the host's total and
    the cut-short notice. The app reads the website's own layout files; nothing is copied.
-4. **Photos, here for the first time.** A photo is asked for by its ID with the app's sign-in,
-   through an address under the door that uses the website's own "may this person see this
-   photo?" (`photoFor`). Same answers as the website: "not found" for anything not allowed, a
-   private photo never kept, a public host photo kept for at most five minutes, initials when
-   there is none. Signing in as someone else on the same phone must not show the first
-   person's photos.
+4. **Photos, here for the first time.** A photo is asked for by its ID through an address
+   under the door that uses the website's own "may this person see this photo?" (`photoFor`).
+   It answers a guest too (an approved, visible host's photo is open to anyone), uses the
+   signed-in person where there is one, and never gives the founder's wider view. Same
+   answers as the website: "not found" for anything not allowed; an open photo may be kept on
+   that person's phone for five minutes and nowhere in between; every other photo and every
+   refusal is never kept; initials when there is none. Signing in as someone else on the same
+   phone must not show the first person's photos.
 5. **Pull down to refresh,** a refresh when the app comes back to the front, and every minute
    while it is open at the front.
-6. **Requests a host must answer** are listed with their countdown; Accept and Decline arrive
-   with part 07. Until then the row opens the request's page.
+6. **Requests a host must answer** are listed with their countdown. The row leads to the
+   request's own screen, and Accept and Decline appear, when part 07 has built them; until
+   then the row is shown without a way further.
 7. The shortcuts are the website's (there is no project shortcut on it today).
 
 ## How it is tried

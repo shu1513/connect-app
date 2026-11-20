@@ -24,8 +24,8 @@ in `src/lib/payments/collect.ts`:
   host abroad has its own wording (plan 27).
 - The lines are calls, membership months, and, from the website, contributions (and tips,
   once plan 44 is merged). **The function that reads them hands back whole records, a
-  project's name among them,** and the "ready" total counts every line without a call as
-  membership time, so a contribution would be named wrongly there.
+  project's name among them.** The website's "ready" amount is right, but its caption calls
+  every line without a call "expired member time", a contribution included.
 
 ## Decisions (the builder's)
 
@@ -39,9 +39,11 @@ in `src/lib/payments/collect.ts`:
    project, no word about what it was, and no way to it. This is the one place where the app
    shows something that came from a project, and the reason is an honest total: it is her
    money, and she collects it with the rest. The server puts each line in its right group
-   itself; the wrong naming described above is put right for the website too.
-3. **"Collect earnings" asks once more,** with the amount she will receive and the 25 cents
-   (the website has one button; on a phone a touch by mistake is easier). Pressing twice is
+   itself; the website's wrong caption is put right too (the caption only; its amounts are
+   correct).
+3. **"Collect earnings" asks once more,** with the amount she will receive and the charge as
+   the server worked it out (up to 25 cents; less when what is ready is made of very small
+   shares). The website has one button; on a phone a touch by mistake is easier. Pressing twice is
    one collection. "In part", "refused" and "not known yet" are shown as that.
 4. **Not possible?** The app says which reason the server gave and leads to the payout
    account (part 14b) only when that is the reason.

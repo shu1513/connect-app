@@ -46,10 +46,12 @@ the app, and the first that needs the browser sheet (for the ID check).
 1. **The same steps, the same functions.** Addresses: what the booking page shows for a host
    and a chosen time; send the request; the request's page; start (or restart) the card step;
    "the card is saved"; take it back.
-2. **The box is ticked in the app before the request is sent,** with the server's own
-   sentence, word for word, and the tick travels with the request exactly as from the website.
-   Without it nothing is sent. The same goes for the note, the price and rule the person saw,
-   and the once-only key (the app makes one per press, so a double tap is one request).
+2. **For a paid call the box is ticked in the app before the request is sent,** with the
+   server's own sentence, word for word, and the tick travels with the request exactly as
+   from the website. Without it nothing is sent. (A free call has no card and no box; its
+   request goes straight to the host.) The same goes for the note and the price and rule the
+   person saw. The once-only key is made when the summary screen is shown, and the same key
+   is used for a second tap and for trying again, so they are all one request.
 3. **The card is typed into Stripe's own sheet for phones,** on the saved-card step the server
    already makes. Cards only, as on the website; Stripe's extras (its own wallet, pay by bank)
    stay off, and no list of earlier cards is offered, since a card belongs to one booking.
@@ -63,11 +65,15 @@ the app, and the first that needs the browser sheet (for the ID check).
    asking its own address again; this is new compared with the website and reads only.
 6. **The ID check, built here** because a customer can need it before any host does:
    - the app asks the server to start it; the server answers with Stripe's page;
-   - the browser sheet opens it; Stripe sends the person back to a small page of Connect's
-     that needs no sign-in, says "Done, return to Connect", and hands back to the app;
-   - the app asks the server, and the server asks Stripe. The app never believes the sheet;
-   - the limit on tries and the wording are the website's. A browser that has never signed in
-     to Connect must be enough.
+   - the browser sheet opens it; Stripe sends the person back to one fixed page of Connect's
+     (the function that starts the check already takes the return address it is given). That
+     page needs no sign-in and can do no harm: it takes no person and no destination from
+     its address, shows no result, changes nothing, and only offers "Return to Connect to
+     see where your check stands";
+   - the app asks the server about its own signed-in person, and the server asks Stripe,
+     which names the person the check was made for. The app never believes the sheet;
+   - the limit on tries and the wording are the website's. It must work whoever, if anyone,
+     is signed in to Connect in that browser.
    Part 14b uses the same sheet and the same return page for hosts.
 7. **Everything on the screen comes from the server:** price, deadlines, the sentences. The
    app does no sums.

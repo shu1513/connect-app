@@ -42,6 +42,10 @@ website.
    Proving an account by signing in at TikTok or Meta is part 14b.
 3. **The photo** is chosen from the phone's pictures or taken with its camera, made smaller on
    the phone, and sent to a twin of the website's upload address, through the same checks.
+   **Before the first photo is sent, the app says who will look at it and why** (the checking
+   services the privacy page names, to keep unsuitable pictures out) and the person agrees.
+   Apple asks for a plain yes before personal data goes to another company, a company that
+   checks pictures by machine included.
    Taking it from Instagram or TikTok, updating and removing work as on the website. A locked
    photo is shown as locked.
 4. **"What you still need" is one list at the top, from the server.** Each line leads to its

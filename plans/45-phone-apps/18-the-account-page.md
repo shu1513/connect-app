@@ -44,7 +44,12 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
    not word for word:** the sections that are only about projects are marked as such in the
    one source, and the app's version leaves them out; a short part about what the apps
    themselves collect (the phone's notification address, the camera and microphone) is added
-   for the apps. Until the lawyer has written the real pages this is done on the placeholder
+   for the apps. **What must stay:** the privacy page names the services that check pictures
+   inside its part about diaries, and later parts point back to it; those same services
+   check profile photos, so their names and purpose stay in the apps' version. **The terms a
+   person accepts are the same on the website and in the app** (there is one acceptance per
+   account today), so nothing is left out of the terms themselves.
+   Until the lawyer has written the real pages this is done on the placeholder
    text, and it is a point for the lawyer that the two versions must stay one document.
    When the terms change, the app's "18 and terms" step asks again, because the server says
    so.

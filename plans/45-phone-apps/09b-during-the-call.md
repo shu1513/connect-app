@@ -18,8 +18,11 @@ as evidence for a refund; asking for more time; and the text chat.
   website's own page sent (`fromThisSite`), and which checks the person, the room's time, the
   size and repeats. They are **evidence for refunds**, not for charging.
 - **More time** (plan 9; `src/lib/extend/`): the customer asks near the end, choosing minutes
-  from the choices that fit (or their own number). **The server tries the saved card itself**
-  (the one kept with the booking, part 06); there is no card form. The answer is a request in
+  from the choices that fit (or their own number). **The server tries the saved card itself:**
+  the card that paid for the call's hold, if it can be used again (the one kept with the
+  booking, part 06); for a member paying extra time by card, the membership's saved card.
+  There is no card form; a card that was typed in for one use cannot pay for more time.
+  The answer is a request in
   the state "checking" or "waiting". If the bank wants its own approval, the request fails and
   the call ends when it would have. A free call's extension needs no money. A member's is paid
   from the month's time if it covers all of it, and otherwise wholly by card, at the price
@@ -57,14 +60,17 @@ as evidence for a refund; asking for more time; and the text chat.
    when the server says the end has moved. The host's Accept appears only when the server
    says the money is ready.
 5. **The chat is in the app:** a person on the website may type, and the person in the app
-   must be able to read it and answer. As on the website, nothing of it is kept.
+   must be able to read it and answer. LiveKit's kit for phones carries the same chat as its
+   website parts; that the two really talk to each other is tried in a mixed call before it
+   is relied on. As on the website, nothing of it is kept.
 6. **The apps' switches apply here too:** with memberships off for the apps, more time for a
    member's call is offered by card only if the server offers it so; the app never decides.
 
 ## How it is tried
 
-- Check script: grades sent the app's way are accepted and are refused for a stranger, outside
-  the room's time, too large, or repeated; a refund request's summary for a mixed app and
+- Check script: grades sent the app's way are accepted, and are refused for a stranger,
+  outside the room's time or too large; the same note sent twice is kept once and the second
+  sending still succeeds; a refund request's summary for a mixed app and
   website call holds both people's grades; more time asked the app's way in each case (card,
   membership time, free, the bank refusing, the way changed meanwhile).
 - `extend-check`, `refunds-check` and `member-calls-check` unchanged and green.

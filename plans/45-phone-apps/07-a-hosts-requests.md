@@ -37,10 +37,16 @@ requests, and on a request's own page. (The instant kind, "call now", is part 11
 1. **What a host sees about a waiting request comes from the list's own shared code,** moved
    out of `request-list.tsx` into a function the website's list, the home page and the app's
    addresses all call. (`customerDetailsFor` is for booked calls and cannot describe a
-   request; using it here was a mistake in the first draft.) The same person-by-person rules:
-   nothing beyond who and when for a closed or blocked customer.
+   request; using it here was a mistake in the first draft.) For a customer whose account is
+   closed or who is blocked, the list keeps the name, the start, the length, the price and
+   the deadline, and nothing personal: no rating, no "ID confirmed", no photo, and not what
+   they wrote when asking. Today the website's page for one request does not apply quite the
+   same rule as its list. **In the app, a waiting request follows the list's rule wherever
+   it is opened.**
 2. **Addresses:** the list; one request as the host sees it; accept; decline; save the note;
-   block. On the same functions, with the same refusals and the same sentences.
+   block. On the same functions, with the same refusals and the same sentences. The list
+   holds instant requests too; answering one of those goes the instant way (part 11), which
+   tries the saved card at once, and the app picks the way by the kind the server names.
 3. **Accept asks once more** ("Accept a 30-minute call on Friday at 3:00 pm for $40?"), since
    a touch by mistake makes a commitment. Decline does not ask.
 4. **After any answer the app reads the request again and shows what really happened,**

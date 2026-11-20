@@ -34,17 +34,21 @@ cancelling. The Join button appears here and leads to part 09. And the list of p
 1. **The existing call addresses get a twin under the door,** not a second copy of their
    work: the body of each (`payment/start`, `payment/sync`, `live`) moves into a function that
    is handed the person asking. New addresses: past calls (a page at a time), one call's page,
-   cancel.
+   cancel. The address that reads a call's page only reads; where the website's page also
+   brings the hold up to date while loading, the app asks for that with its own "sync" step.
 2. **Paying uses Stripe's sheet for phones on the hold the server already makes,** with the
    same settings as part 06 (cards only, extras off, the way back into the app after a bank's
    approval). Afterwards, and whenever the app comes back to the front on this page, it asks
    the server, and shows only what the server says: held; the bank refused; not confirmed
    yet; already held. A hold is a hold: the screen never says "paid".
 3. **Cancelling shows the outcome first, from the server,** in the website's words (free; a
-   late charge of so much; membership time used or given back), and asks once more. **The
-   server checks again when the person confirms:** if a free cancellation has meanwhile become
-   a charged one, nothing is cancelled and the new outcome is shown, to be confirmed again.
-   This check is added to the website's cancelling too, since it protects money there as well.
+   late charge of so much; membership time used, given back, or held while a dispute is
+   open), and asks once more. The server already works the outcome out afresh at the moment
+   of cancelling. What is missing today is the comparison with what the person was shown:
+   the form sends only which call. So **what was shown travels with the press; if the cost
+   has risen meanwhile, nothing is cancelled and the new outcome is shown, to be confirmed
+   again.** This is added where a person cancels, on the website and in the app; the
+   cancellations the system makes by itself are not touched.
 4. **The countdown runs on the phone's clock but the server decides.** Join is offered when
    the server says the room is open.
 5. **Every state of the page above is shown,** each with the website's sentence.

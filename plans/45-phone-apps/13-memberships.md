@@ -24,10 +24,12 @@ with three positions.
   that store accepts it. This plan no longer promises that it will.
 - **Nothing here risks the 4.9% itself:** if a store objects, memberships leave the apps (the
   switch) and stay on the website. What is at risk is a refused or delayed review.
-- **So, before the first submission to a store, the founder chooses** the switch's position
-  for it, knowing this: *off* is the position with nothing to dispute; *on* is what plan 39
-  chose, named openly to the reviewers as prepaid one-to-one talk time. Whatever a switch can
-  turn on is told to the reviewers beforehand (part 20).
+- **So, before the apps are first sent to the stores, the founder chooses** the switch's
+  position, knowing this: *off* is the position with nothing to dispute; *on* is what plan 39
+  chose, described openly as prepaid one-to-one talk time. One setting covers both stores;
+  if they differ, the stricter one is used. Whatever a switch can turn on is described in
+  what is sent to the reviewers, and they are given an account in which they can see it
+  (part 20).
 
 ## What is there today (read in the code)
 
@@ -59,15 +61,22 @@ with three positions.
    - **on:** everything below.
    - **on, but nothing is bought in the app:** refused to the app, on every address: joining,
      paying or paying again for a month, resuming, carrying on with a card step, switching
-     renewal back on, accepting a changed offer that costs money, **and a member's booking
-     that would take a held month's money.** Allowed: seeing the membership, booking from
-     time that is already paid, and cancelling. No invitation and no offer is shown, and
-     nothing says where to join. **This position is only used for a store that has accepted
-     it.**
+     renewal back on, accepting any new terms that are paid for, cheaper ones that charge
+     later included, **and a member's booking that would take a held month's money.**
+     Allowed: seeing the membership, booking from time that is already paid, and cancelling.
+     No invitation and no offer is shown, and nothing says where to join. **This position is
+     only used when the stores have accepted it.**
+   - **Turning the switch does not reach a card sheet that is already open on someone's
+     phone:** Stripe would still take that payment. So when the switch is turned to a
+     stricter position, the server first ends every membership payment that an app has begun
+     and not finished, and settles any that was already sent, before the new position counts
+     as in force.
    - **off:** no membership address answers the app, except the two below.
-2. **A member can always cancel, and always see what they are paying for, in any position.**
-   A person whose membership renews must never be left without the way to stop it because a
-   switch was turned. Their calls already booked stay in their calls.
+2. **A member can always cancel, and always see what they are paying for, in any position:**
+   their own membership, with months that are held or not paid yet, and both ways of
+   cancelling that apply. A person whose membership renews must never be left without the
+   way to stop it because a switch was turned. Their calls already booked stay in their
+   calls.
 3. **The agreement a customer accepts is the server's text, word for word,** with its wording
    version, ticked before paying. The app holds no copy.
 4. **Paying a month** uses Stripe's sheet for phones on the payment the server already makes,

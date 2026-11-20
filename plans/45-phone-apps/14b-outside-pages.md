@@ -2,8 +2,10 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Made
 when Astra's check split the first draft of part 14 and found its way of proving a social
-account unsafe. This is the one part with new security work; Astra is asked to try to break
-it again.
+account unsafe. Astra's second check ("not ready") found the hand-over to the app still
+open in two places (the answer was not tied to the attempt before it reached the app, and a
+plain app link can be claimed by another app); decision 2 is rewritten for both. This is the
+one part with new security work, and it is shown to Astra again before it is built.
 
 ## For the founder: what this is
 
@@ -39,8 +41,10 @@ in the sheet, so it needs its own protection.
 ## Decisions (the builder's)
 
 1. **Stripe's two flows:** the app asks the server to start; the sheet opens Stripe's page;
-   Stripe sends the person back to a page of ours on the website's own secure address that
-   needs no sign-in, says "Done, return to Connect" with a button, and hands back to the app.
+   Stripe sends the person back to a fixed page of ours on the website's own secure address,
+   one for "finished or left" and one for "the link ran out". Neither needs a sign-in, takes
+   a person or a destination from its address, shows a result, or changes anything; each
+   only offers "Return to Connect" with a button, and hands back to the app.
    If the sheet does not work on some phone, the phone's ordinary browser is used the same
    way. The app then asks the server, and the server asks Stripe: "not finished yet" and "the
    link ran out" are shown as that, with "Continue" (a fresh link, asked for through the
@@ -50,20 +54,25 @@ in the sheet, so it needs its own protection.
    - The app makes a secret, keeps it, and sends the server only its fingerprint when it
      starts. The server records an attempt: this person, this phone's sign-in, this company,
      this purpose (proof, or photo), a few minutes to live, usable once.
-   - The outside company sends the person back to our page with its code. That page attaches
-     nothing. It hands the code to the app. A website sign-in that happens to exist in that
-     browser is ignored.
-   - The app, still signed in as the same person, sends the code together with its secret
-     through the door. Only then does the server ask the outside company who signed in.
+   - The outside company sends the person back to **our own page on the website's secure
+     address**. That page checks that the answer belongs to an attempt that is open (the
+     random value the company sends back, as today), asks the outside company who signed in
+     (with the same return address the attempt started with, and TikTok's own extra key
+     where it has one), and notes the answer on the attempt. **It attaches nothing.** A
+     website sign-in that happens to exist in that browser is ignored.
+   - The page then hands the phone a ticket that works once, through a link that only the
+     real Connect app can open (a verified link, which another app on the phone cannot claim;
+     a plain "connect://" link could be claimed by any app on Android).
+   - The app that started the attempt, still signed in as the same person, presents the
+     ticket **and** its secret through the door. Either one alone does nothing; the app can
+     never fetch the result just by asking again and again.
    - **The app shows the account's name that came back and asks "Attach @name to your
-     profile?"** Nothing is attached before the person says yes.
-   - The attempt is used up in one step, so two returns at once cannot both win, and the
-     person's account is checked to be open and active at that moment.
-   - Where the outside company offers its own form of this protection (TikTok does), it is
-     used as well.
+     profile?"** On yes, the server attaches exactly that account, for exactly that purpose,
+     once. The attempt is used up in that one step, so two returns at once cannot both win,
+     and the person's account is checked to be open and active at that moment.
    A link that was forwarded, a different person's app, an attempt used twice or too late, a
-   changed value, and "photo" used for "proof" are each refused. The website's own way does
-   not change.
+   changed value, a ticket without the secret, and "photo" used for "proof" are each
+   refused. The website's own way does not change.
 3. **The ID check for hosts** is part 06's, with "continue where you were".
 4. **Each of these is switched on for the apps only after it has worked** in the outside
    company's test mode on the Android test phone, and stays marked "to prove on real phones"

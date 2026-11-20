@@ -28,9 +28,12 @@ this build and a real app in the two stores, each item with who can do it.
    note may say "tip", and a link to a payment may be called "Continue"). It works with real
    things that must stay out: a host with a project, a diary, contributions and, once they
    exist, tips. It then asks every app address as that host, as a contributor, as a follower,
-   and reads what comes back: no field, no line, no link and no notification that comes from
-   those things, except the one "Other earnings" amount (part 16). And it tries every
-   membership address in each position of the membership switch, a held month included. It
+   and reads what comes back; and it makes the things happen that send notifications (a new
+   diary post, a contribution paid) and reads what is written for the phones: no field, no
+   line, no link and no notification that comes from those things, except the two "Other
+   earnings" amounts (part 16). And in each position of the membership switch it tries every
+   way to a membership payment, the ones through booking, the calendar and Contacts
+   included, with a held month, and checks that no charge and no invitation came of it. It
    runs with the other checks from then on.
 4. **The switches, one by one,** with the app open: each is turned off on the admin page, and
    the thing disappears from the app and is refused by the server.
@@ -46,20 +49,23 @@ You asked for every feature. These are the differences that remain:
 - **Left out to keep the 4.9%:** projects (wholly), tips (until Apple's rule is clear), and,
   if you so choose before a store's review, memberships (part 13).
 - **Left out because they are the founder's tools:** the admin pages.
-- **Not in this build:** signing in with Google (it would force "Sign in with Apple" too);
-  sharing the phone's own screen in a call (the app shows a screen shared from the website);
-  a downloadable receipt (there is none on the website either).
+- **Not in this build:** signing in with Google (on iPhone it would have to come with a second
+  way of signing in that keeps the email address private, such as "Sign in with Apple");
+  sharing the phone's own screen in a call (the app shows a screen shared from the website).
 - **Built but not switched on until keys exist:** notifications, and with them "available
-  now" on a locked phone; Apple Pay and Google Pay.
-- **Built but only proven in test mode:** proving a TikTok or Instagram account from the app.
+  now" on a locked phone.
+- **Waiting for your decision, once the store accounts exist:** Apple Pay and Google Pay.
+- **Built but only proven in test mode:** proving a TikTok or Instagram account from the
+  app. TikTok and Meta must each approve the real app before it works for real hosts.
 
 ## The list for the founder, in the order it unblocks things
 
 1. **Start two slow things early:** the lawyer (what deleting an account must wipe and keep,
    the terms and privacy pages the apps show; `docs/for-the-lawyer.md`), and the decision
    which Apple and Google accounts the apps will belong to. A **new personal** Google Play
-   account must first run a closed test with at least 12 testers for 14 days before it may
-   publish; a company account does not have that wait.
+   account must first run a closed test in which at least 12 testers stay signed up for 14
+   days in a row, before it may even apply to publish; a company account does not have that
+   wait.
 2. **A real address for the server,** with the helper and the outside companies' messages
    reaching it. A test address is enough to begin with. The outside pages (Stripe, TikTok,
    Meta) and real phones need it; they cannot reach this Mac.

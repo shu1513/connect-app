@@ -3,10 +3,15 @@
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
 checked it once ("ready with changes"); its points are worked in (the list is at the end).
 
-**Tried already, while this plan was being checked:** in a throwaway folder outside the
-repository, today's Expo 58 template with the kits below installed together without a
-conflict, and Expo's own health check passed 18 of 18. Whether they also build into an app
-and run is this part's first step.
+**Tried already, while this plan was being checked** (20 November, in a throwaway folder
+outside the repository): Expo 58.0.26 (React Native 0.88.1, React 19.3.0) with
+`@livekit/react-native` 3.2.0, `@livekit/react-native-webrtc` 150.2.0,
+`@livekit/react-native-expo-plugin` 1.2.0, `@config-plugins/react-native-webrtc` 15.0.2,
+`livekit-client` 2.24.1, `@stripe/stripe-react-native` 0.81.0, and `better-auth` with
+`@better-auth/expo` 1.7.18 installed together without a conflict, passed Expo's own health
+check 18 of 18, and built into an Android test app. **Still not known:** whether that app
+starts and each kit works on a phone, the kind of build that goes to a store, and anything
+about the iPhone. Those are this part's first step.
 
 ## For the founder: what this is
 

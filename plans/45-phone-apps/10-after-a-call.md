@@ -19,13 +19,14 @@ earned, the rating, the follow box, the host's note, and the buttons that lead o
   stretches each was connected (`loadAttendance`, `countedSeconds`).
 - **Money, one receipt for each payment of the call** (the call itself, each added time):
   what was held, charged, given back, and what is paid in the end; when the money will be
-  taken (`moneyTiming`, `moneyPlan`, about a day after the call); membership time against
+  taken (`moneyTiming`, `moneyPlan`: about a day counted from the call's start, sooner if the
+  hold would run out, later while a refund request is open); membership time against
   card money; a bank dispute or a payment under review; a cancellation or a safety ending.
   **Both people see those amounts. The host also sees Connect's fee, her share, and whether it
   has been paid out** (`currentSplit`). The customer never sees the host's share.
 - **The rating** (`rateCallAction`, `myRating`, `ratingStateOf`, `RATING`): private, final,
   one per person per call; only for a call that is closed and complete, with at least 2
-  minutes together, within 7 days of the booked end.
+  minutes together, within 7 days of the call's end (the later end, if time was added).
 - **Following:** Follow, Unfollow or "Don't follow" (a call that took place makes the
   customer follow by itself, plan 30), and the offer to be told when she is online.
 - **The host's private note** about the customer (`NoteForm`), **Report**, **Block**,

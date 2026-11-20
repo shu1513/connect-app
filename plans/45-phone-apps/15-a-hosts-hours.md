@@ -43,8 +43,11 @@ people can book, her time zone, and which hours are for members only.
 5. **While memberships are not fully on for the apps** (part 13's switch): the app does not
    let a change of hours quietly do something to members. Members-only hours are shown but
    cannot be changed from the app, and a cut that would need a choice about a member is
-   refused with "this change affects your members; it cannot be made here right now". Hours
-   that touch no member are changed freely.
+   refused with "this change affects your members; it cannot be made here right now". The
+   same refusal meets a cut that would withdraw an open invitation (which today needs no
+   choice and would happen silently), and making hours members-only. The server decides this
+   inside the saving itself, so an invitation made between the preview and the press is
+   protected too. Hours that touch no member and no invitation are changed freely.
 
 ## How it is tried
 

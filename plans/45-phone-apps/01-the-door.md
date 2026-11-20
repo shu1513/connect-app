@@ -47,16 +47,23 @@ the rules every later address follows:
    the website's list of libraries. What the kit does on the server: when a request has no
    "where from" of its own, it takes the app's; a browser's own "where from" is never
    replaced. It also adds one address of its own (for outside sign-ins like Google, which the
-   app does not use). The switched-off addresses stay switched off. All of this is checked by
-   the script below, not assumed.
+   app does not use). The switched-off addresses stay switched off. **Trusting the app's name
+   must not let an emailed link lead into an app:** the links for confirming an email address
+   and for a new password carry a sign-in or a reset key to wherever they point, so the
+   server accepts only Connect's own website as their destination, both when the email is
+   asked for and when the link is opened. All of this is checked by the script below, not
+   assumed.
 
 2. **The phone keeps the sign-in in its secure store** and sends it only to Connect's own
    server, never to any other address. A sign-in from the app is one more session in the same
    table. **Thirty days from last use must really hold on a phone:** when the server renews a
    session it hands back a renewed sign-in, and an app that asked through its own addresses
-   would never receive it. So the app renews through better-auth's own address, which its kit
-   understands, each time it opens and at least once a day while open. The check script proves
-   a session used after more than a day is renewed and that the app holds the renewed one.
+   would never receive it; worse, the renewal would then count as done and not be offered
+   again. So **the app's own addresses read the sign-in without renewing it,** and only the
+   phone's direct request to better-auth's own address renews it, which its kit understands;
+   the app makes that request each time it opens and at least once a day while open. The
+   check script proves it the hard way round: after more than a day an ordinary app request
+   comes first, then the renewal, and the phone must then hold the later date.
 
 3. **Every app address lives under `/api/app/`** and goes through one gate, `appRequest()`, in
    a new folder `src/lib/app-door/`:
@@ -84,8 +91,10 @@ the rules every later address follows:
 4. **Answers an app can read.** Every refusal is a small fixed code plus the sentence to show,
    written on the server in the website's words. The gate's codes: `not_the_app`,
    `update_needed`, `not_signed_in`, `confirm_email`, `welcome_needed`, `paused`,
-   `switched_off`. A closed account is simply `not_signed_in`, with the website's own sentence
-   for a failed sign-in, so nobody learns from the app that an account was closed. A stranger
+   `switched_off`. A closed account has no sign-in left (closing removes them): on a private
+   address it is simply `not_signed_in`, on an address for anyone it gets what any guest
+   gets, and only an attempt to sign in gets the website's "wrong email or password"
+   sentence. So nobody learns from the app that an account was closed. A stranger
    gets the same answer whether or not a thing exists. Anything about a person is marked "do
    not keep a copy" for whatever sits between the phone and the server.
 
@@ -99,9 +108,10 @@ the rules every later address follows:
 6. **Switches for the apps,** new fields on the one row, saved the way the others are (only
    what is given changes), with the same safe position in the database and in `switches()`
    before the founder has saved anything:
-   - **memberships in the apps:** *on*, *on but no joining*, or *off* (born *on*). The middle
-     position is plan 39's first fallback: members keep using their membership in the app, but
-     nobody can join or pay for one there (part 13);
+   - **memberships in the apps:** *on*, *on, but nothing is bought in the app*, or *off* (born
+     *on*). In the middle position members may spend time they have already paid for, and
+     nothing in the app can take a monthly payment, a member's booking that would take one
+     included (part 13);
    - **tips in the apps:** on or off (born **off**). Tips reach the app only if the website's
      own tip switch (plan 44) allows them *and* this one does;
    - **"available now" in the apps:** on or off (born on);
@@ -180,3 +190,11 @@ website's own tip switch as well.
    needs a middle position to keep plan 39's promise; partial saving. Decisions 6 and 7.
 6. *A closed account must not be told apart by its answer.* Decision 4.
 7. *The website's own checks would have picked up the app's files.* "What gets built", step 6.
+
+## Astra's second check, the same day: "not ready" on one point, now worked in
+
+1. *An ordinary app request could use up the renewal the phone needs.* Decision 2: the app's
+   addresses read without renewing.
+2. *Trusting the app's name also affects where emailed links may lead.* Decision 1.
+3. *A closed account on an address for anyone is just a guest.* Decision 4.
+4. *The middle position of the membership switch, said exactly.* Decision 6.

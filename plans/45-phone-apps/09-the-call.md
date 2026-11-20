@@ -24,8 +24,8 @@ connection check before a call is part 09c.
     paused across Connect; it takes the person out of any other room first;
   - **in the room:** LiveKit's ready-made call screen, which on the website also has a text
     chat that lasts as long as the call and sharing one's screen;
-  - **leaving and coming back** is ordinary; entering from a second device asks first and then
-    takes over from the first;
+  - **leaving and coming back** is ordinary; a second device can enter, which puts the first
+    one out, and the one put out is offered "Use this tab instead";
   - **the end:** shortly before the end the screen asks the server once more whether time was
     added, tries again briefly if it cannot reach it, then ends and offers the results. The
     server also closes the room and cancels the passes on its own (`src/lib/video/closing.ts`).
@@ -54,8 +54,8 @@ connection check before a call is part 09c.
    leave. The time left. "The other person has left" or "has not joined yet", without ending
    anything.
 4. **The screen stays awake during a call.**
-5. **Leaving, coming back, a second device** work as on the website, the question before
-   taking over included.
+5. **Leaving, coming back, a second device** work as on the website: the device that was put
+   out says so and offers "Use this phone instead".
 6. **The end** is the website's: the last question to the server about added time, the short
    retry, then the results. The app also obeys the server's own closing of the room.
 7. **A dropped connection:** the app tries again by itself for a short while and says so; then
@@ -63,12 +63,14 @@ connection check before a call is part 09c.
 8. **"End call and report":** one touch away; asks once; takes the person out at once; tries
    again if ending it for both did not go through; opens the report form.
 9. **The report form is built here,** as a screen of the app on its own address (the website's
-   form needs a signed-in browser), with the website's reasons and rules. It is the same form
-   that parts 05, 07, 10 and 18 open.
+   form needs a signed-in browser), with the website's reasons and rules. It takes reports
+   about a call, a request or a public profile, and nothing else (the website's also takes
+   diary posts, which the app does not have). It says, as the website does, that reporting a
+   person also blocks them. It is the same form that parts 05, 07, 10 and 18 open.
 10. **Sharing a screen:** the app shows a screen the other person shares from the website. It
     does not offer to share the phone's own screen: that needs extra system parts on both
-    kinds of phone and is the easiest way to show something by mistake. A deliberate gap,
-    listed in part 20.
+    kinds of phone and is the easiest way to show something by mistake. This is a feature of
+    the website that the app does not have; it is named as such to the founder in part 20.
 11. **Never recorded.** The app has no recording. On Android the call screen is marked so the
     system's screenshots and screen recording show black. On iPhone the same is asked of the
     system where it allows it; this is tried on a real iPhone before anything is promised.

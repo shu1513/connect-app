@@ -49,8 +49,9 @@ host's page can be looked at without an account.
    for whom, lives in that function, once. The answers are built field by field and hold no
    project, diary or contribution field.
 2. **Photos** as part 04 built them.
-3. **Open times are shown in the phone's time zone,** with the host's own time beside them as
-   the website does. The server sends the open times; the phone only groups them by its days.
+3. **Open times are shown in the phone's time zone,** as the website shows them in the
+   viewer's. (The host's own time appears beside the chosen time on the booking summary, part
+   06.) The server sends the open times; the phone only groups them by its days.
 4. **Follow, unfollow, the choices (with their hours), "tell me when she is online":** small
    addresses on the same functions. **The diary choice is not shown and is never sent:** the
    app's address hands the function only the fields the app has, so the choice a person made

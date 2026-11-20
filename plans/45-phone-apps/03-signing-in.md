@@ -42,7 +42,9 @@ already have, or by making one. It is the same account as on the website.
      The app hands over the website's full address for the "18 and terms" page; a short
      address would be turned into an app link by the kit.
    - **Forgot password:** the same, with the website's full address of the new-password page.
-   The website's address is part 02's one setting, and must be one the phone can reach.
+   The website's address is part 02's one setting, and must be one the phone can reach. The
+   server itself refuses any other destination for these two links (part 01, decision 1), so
+   a changed app could not make them lead elsewhere.
 
 3. **The screens:**
    - *First opening:* Connect's name, one line of what it is, "Sign in" and "Create account".

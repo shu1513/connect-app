@@ -11,10 +11,11 @@ A host sets her membership offer, sees her members, and looks after them, from t
 
 `src/app/host/membership/`, `membership.tsx` and `membership-actions.ts`:
 
-- **The offer** (`offerOfHost`): the monthly amount and the talk time it buys, how many
-  members she takes, her offer on or off. **Changing it shows first what the change does**
-  (`previewOfferChange`): to members who are paying now, and what each is then offered.
-  Saving is `saveMembershipAction`.
+- **The offer** (`offerOfHost`): her price for 15 minutes and the minutes a month includes,
+  her offer on or off. How many members she can take is worked out from her hours and what
+  she has already promised. **Changing it shows first what the change does**
+  (`previewOfferChange`): whose price will fall, which invitations end, and who keeps the
+  terms they have. Saving is `saveMembershipAction`.
 - **Her members:** each one's state, time left this month; pausing a member and undoing it
   (`pauseMemberAction`, `undoPauseAction`), ending a membership (`endMemberAction`), taking
   back an offer made to a member (`takeBackOfferAction`), in its two forms.

@@ -43,8 +43,10 @@ stand-in, and no notification leaves this Mac.
    The email outbox is not stretched to hold them: it is built around an address, a subject
    and a body.
 2. **An explicit list of what becomes a notification,** and nothing else does: a new instant
-   request (and its second alert after one minute); a booked request arriving (at once, not
-   gathered); a request answered; a request about to run out (host); the three reminders; a
+   request (and its second alert after one minute); booked requests waiting, as one alert at
+   the moment the host's gathered email about them is made (the same rule as today, so a
+   host is not told more often by phone than by email); a request answered;
+   a request about to run out (host); the three reminders; a
    refund asked and answered; a membership needing the member (while memberships are on for
    the apps); a card that failed before a booked call. **Never:** anything about
    contributions, tips or the diary, emails to followers, admin and sign-in emails.
@@ -72,12 +74,17 @@ stand-in, and no notification leaves this Mac.
    Apple and Google. What is known about it and built for: it answers at once that it *took*
    a message, and only later whether Apple or Google accepted it, so the helper asks again
    after about a quarter of an hour; an address reported dead is dropped; a busy answer is
-   tried again more slowly; its limits on how many at once are kept. **A message taken is not
-   a phone that rang:** nothing in Connect may assume it. If the founder later prefers to
+   tried again more slowly; its limits on how many at once are kept. An address is dropped
+   only when the service says that address is dead, not for any other failure. **A message
+   taken is not a phone that rang,** and a message can arrive twice or never: nothing in
+   Connect may assume otherwise. If the founder later prefers to
    talk to Apple and Google directly, the phones' addresses are of another kind and must be
    registered again; that would be its own small change.
-8. **Signing out, or signing in as someone else on the same phone,** removes that phone's row
-   first, so the next person never gets the last person's alerts.
+8. **Signing out, or signing in as someone else on the same phone,** ends that phone's
+   registration and whatever was still waiting to be sent to it, together with the sign-in.
+   An alert already handed to Apple or Google can still arrive afterwards; that is one more
+   reason every alert says nothing private, and the app checks who is signed in before it
+   shows anything when an alert is touched.
 9. **When this part is switched on** (keys present), part 11's second step comes alive for
    phones that allow notifications.
 

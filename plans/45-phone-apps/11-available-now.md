@@ -41,9 +41,10 @@ saves a card and waits; the host accepts; a minute later they talk.
      while the app is open at the front. The host is told so in one line under the switch.
    - **With part 12 switched on: a phone that can receive notifications keeps the status
      while it is locked,** and the first request that runs out unanswered ends that period.
-2. **Each period gets a name of its own on the server,** kept on the one row a host has: where
-   it was switched on (the website, or which phone), and by which rule it lives ("while it
-   says still here" or "until its time is up"). Rows from before this change count as the
+2. **Each period gets a name of its own on the server,** kept on the one row a host has:
+   exactly where it was switched on (which browser tab, or which phone; "the website" alone
+   could not tell two tabs apart), and by which rule it lives ("while it says still here" or
+   "until its time is up"). Rows from before this change count as the
    website's rule. Every instant request remembers the period it was asked in.
    - **Only the place that started a period keeps it alive.** Another open page or phone shows
      it and can switch it off on purpose, but its "still here" and its closing change nothing.
@@ -53,14 +54,17 @@ saves a card and waits; the host accepts; a minute later they talk.
    - **In a period that lives "until its time is up",** the first request to run out
      unanswered ends the period and the other requests waiting in it, through the same code
      that ends requests today, so their saved cards are removed and the customers are told at
-     once that nothing was charged. Such a period is only given to a phone the server can
-     notify; it ends, and the host is told why, when that phone signs out, loses its
-     notification address, or the apps' switch is turned off.
+     once that nothing was charged. The period counts as over from that request's deadline
+     itself, even if the helper that tidies up wakes a little late: a second request cannot
+     be accepted in between. Such a period is only given to a phone the server can notify; it
+     ends, and the host is told why, when that phone signs out, when Connect learns that its
+     notification address is dead, or when the apps' switch is turned off.
    - **Everything that asks "is she available?"** (her page, the Following list, the emails to
      followers) asks through the same one function.
 3. **The phone's "still here" cannot be trusted to be on time, and its goodbye may never be
-   sent** (a phone can stop an app without warning). So the server's 15 seconds of silence is
-   what decides, as today. When the app comes back to the front it reads the status again
+   sent** (a phone can stop an app without warning). So for a period that lives "while it
+   says still here", the server's 15 seconds of silence is what decides, as today.
+   When the app comes back to the front it reads the status again
    and, if it lapsed, says so and offers to switch on again; it never shows "on" from memory.
 4. **The clocks and limits do not change,** and no alert restarts one.
 5. **The apps' "available now" switch** (part 01) takes the host's switch and the customer's
