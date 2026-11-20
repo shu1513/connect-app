@@ -22,7 +22,7 @@ const WAIT_MS = 15_000;
  * the phone's secure store); until it is set, the app asks as nobody.
  */
 let signIn: () => Promise<string | null> = async () => null;
-export function useSignInFrom(source: () => Promise<string | null>): void {
+export function signInComesFrom(source: () => Promise<string | null>): void {
   signIn = source;
 }
 

@@ -6,10 +6,18 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AppState } from "react-native";
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { ask } from "./api";
+import type { Answer } from "./api-rules";
+import { RENEW_LOOK_MS, renewSignIn } from "./auth";
 import { openingAfter, type Opening } from "./opening-rules";
 
-type Value = { opening: Opening; askAgain: () => void };
-const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {} });
+type Value = {
+  opening: Opening;
+  /** "Try again", pressed by the person. */
+  askAgain: () => void;
+  /** Asks again quietly, after something changed who is signed in or what stands in the way. Gives back the server's answer. */
+  refresh: () => Promise<Answer<AppStart>>;
+};
+const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {}, refresh: async () => ({ ok: false, code: "unreachable", message: "" }) });
 
 export function OpeningProvider({ children }: { children: ReactNode }) {
   const [opening, setOpening] = useState<Opening>({ kind: "asking" });
@@ -17,30 +25,39 @@ export function OpeningProvider({ children }: { children: ReactNode }) {
   const newest = useRef(0);
 
   /** Puts the question, quietly: what is on the screen stays until the answer is in. */
-  const put = useCallback(() => {
+  const put = useCallback(async (renewNow = false) => {
     const mine = ++newest.current;
-    void ask<AppStart>("/api/app/start").then((answer) => {
-      if (mine === newest.current) setOpening((now) => openingAfter(now, answer));
-    });
+    // First the phone's own request that keeps the sign-in alive (part 01, decision 2), then the question.
+    await renewSignIn(renewNow);
+    const answer = await ask<AppStart>("/api/app/start");
+    if (mine === newest.current) setOpening((now) => openingAfter(now, answer));
+    return answer;
   }, []);
 
   useEffect(() => {
     // On opening, the app already shows "asking".
-    put();
+    void put(true);
     // Coming back to the front: ask again.
     const listener = AppState.addEventListener("change", (state) => {
-      if (state === "active") put();
+      if (state === "active") void put();
     });
-    return () => listener.remove();
+    // While the app stays open: keep the sign-in alive.
+    const timer = setInterval(() => void renewSignIn(), RENEW_LOOK_MS);
+    return () => {
+      listener.remove();
+      clearInterval(timer);
+    };
   }, [put]);
 
   /** "Try again", pressed by the person: say that the app is asking, then ask. */
   const askAgain = useCallback(() => {
     setOpening({ kind: "asking" });
-    put();
+    void put();
   }, [put]);
 
-  return <OpeningContext.Provider value={{ opening, askAgain }}>{children}</OpeningContext.Provider>;
+  const refresh = useCallback(() => put(), [put]);
+
+  return <OpeningContext.Provider value={{ opening, askAgain, refresh }}>{children}</OpeningContext.Provider>;
 }
 
 export function useOpening(): Value {

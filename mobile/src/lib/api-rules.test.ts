@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { addressFor, APP_HEADER, appHeader, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
+import { addressFor, APP_HEADER, appHeader, isServer, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
 
 describe("the names the app and the server share", () => {
   it("are the same on both sides", () => {
@@ -57,6 +57,14 @@ describe("where a request may go", () => {
     ]) {
       expect(addressFor(server, path)).toBeNull();
     }
+  });
+
+  it("knows a server address the app may talk to", () => {
+    expect(isServer("https://connect.example")).toBe(true);
+    expect(isServer("https://connect.example:8443")).toBe(true);
+    expect(isServer("http://localhost:3310")).toBe(false);
+    expect(isServer("http://localhost:3310", { plain: true })).toBe(true);
+    for (const bad of ["", "https://", "https://a@connect.example", "https://connect.example/", "https://connect.example/x", "ftp://connect.example"]) expect(isServer(bad, { plain: true })).toBe(false);
   });
 
   it("is nowhere when the server setting is missing or is not a plain server address", () => {

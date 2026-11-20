@@ -1,25 +1,31 @@
 /**
  * The shared pieces every screen is made of, so that every screen looks the same
  * (plans/45-phone-apps/02-the-frame.md): a page, a card, a button, a field with its label and its
- * problem line, a notice, "loading", and "something went wrong, try again".
+ * problem line, a box to tick, a link, a notice, "loading", and "something went wrong, try again".
  *
  * Each button and field has a name a screen reader can say, is at least 44 points tall, and its
  * text grows with the phone's text size.
  */
 import type { ReactNode } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { shape, type, useColors } from "./theme";
 
-/** A whole screen: the warm page colour, safe from the phone's notch and bars, scrolling when it is long. */
+/**
+ * A whole screen: the warm page colour, safe from the phone's notch and bars, scrolling when it
+ * is long. When the keyboard is up the page ends above it, so the field being typed in, and what
+ * is under it, can be scrolled into sight.
+ */
 export function Page({ title, children }: { title?: string; children: ReactNode }) {
   const colors = useColors();
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: colors.page }]} edges={["top", "left", "right"]}>
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-        {title ? <Title>{title}</Title> : null}
-        {children}
-      </ScrollView>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
+        <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+          {title ? <Title>{title}</Title> : null}
+          {children}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -101,6 +107,29 @@ export function Field({ label, problem, ...input }: { label: string; problem?: s
   );
 }
 
+/** A box to tick, with its words beside it. The whole row can be touched. */
+export function Tick({ label, checked, onChange, children }: { label: string; checked: boolean; onChange: (checked: boolean) => void; children?: ReactNode }) {
+  const colors = useColors();
+  return (
+    <Pressable accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={styles.tick}>
+      <View style={[styles.tickBox, { borderColor: checked ? colors.accent : colors.edge, backgroundColor: checked ? colors.accent : colors.surface }]}>
+        {checked ? <Text style={[styles.tickMark, { color: colors.onAccent }]}>✓</Text> : null}
+      </View>
+      <Text style={[styles.words, styles.tickWords, { color: colors.text }]}>{children ?? label}</Text>
+    </Pressable>
+  );
+}
+
+/** Words that lead somewhere when touched: another screen, or a page of the website. */
+export function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
+  const colors = useColors();
+  return (
+    <Pressable accessibilityRole="link" accessibilityLabel={label} onPress={onPress} style={styles.link} hitSlop={4}>
+      <Text style={[styles.words, styles.linkWords, { color: colors.accent }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 /** Something the person should know: a result, a rule, what happens next. */
 export function Notice({ children }: { children: ReactNode }) {
   const colors = useColors();
@@ -150,5 +179,11 @@ const styles = StyleSheet.create({
   input: { minHeight: shape.touch, borderWidth: 1, borderRadius: shape.field, paddingVertical: 10, paddingHorizontal: 14, fontSize: type.body },
   problem: { fontSize: type.small, lineHeight: 20 },
   notice: { borderWidth: 1, borderRadius: shape.field, padding: 12 },
+  tick: { flexDirection: "row", alignItems: "flex-start", gap: 12, minHeight: shape.touch, paddingVertical: 6 },
+  tickBox: { width: 28, height: 28, borderWidth: 2, borderRadius: 8, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  tickMark: { fontSize: 18, fontWeight: "800", lineHeight: 22 },
+  tickWords: { flex: 1 },
+  link: { minHeight: shape.touch, justifyContent: "center", alignSelf: "flex-start" },
+  linkWords: { textDecorationLine: "underline", fontWeight: "600" },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", gap: shape.gap, padding: shape.pad },
 });

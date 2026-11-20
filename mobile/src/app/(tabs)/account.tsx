@@ -1,4 +1,6 @@
 import { router } from "expo-router";
+import { useState } from "react";
+import { signOut } from "@/lib/auth";
 import { APP_VERSION, SERVER, TEST_SCREENS } from "@/lib/config";
 import { useOpening } from "@/lib/opening";
 import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
@@ -9,8 +11,18 @@ import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
  * the two test screens.
  */
 export default function AccountPlace() {
-  const { opening, askAgain } = useOpening();
+  const { opening, askAgain, refresh } = useOpening();
   const start = opening.kind === "ready" ? opening.start : null;
+  const [leaving, setLeaving] = useState(false);
+
+  /** Ends this phone's session on the server, wipes what the phone kept, and asks the server again: the first screens then open. */
+  async function leave() {
+    setLeaving(true);
+    await signOut();
+    await refresh();
+    setLeaving(false);
+  }
+
   return (
     <Page title="Account">
       <Words soft>Your account will be here.</Words>
@@ -25,6 +37,7 @@ export default function AccountPlace() {
         </Words>
         <Button label="Ask again" kind="plain" onPress={askAgain} />
       </Card>
+      <Button label="Sign out" kind="plain" busy={leaving} onPress={() => void leave()} />
       {TEST_SCREENS ? (
         <Card>
           <Heading>Test screens</Heading>

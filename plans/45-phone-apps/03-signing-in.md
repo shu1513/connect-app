@@ -1,7 +1,9 @@
 # Phone apps, part 03: signing up and signing in
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
+the end). What the building changed or added is under "What the building changed"; where that
+list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
 
@@ -113,6 +115,32 @@ service is live). The iPhone.
 ## Keeping the 4.9%
 
 No money. The "18 and terms" screen links to the terms; it sells nothing.
+
+## What the building changed (20 November 2026)
+
+1. **The "18 and terms" step has a second address, `GET /api/app/welcome`,** which tells the
+   app what to show: whether the step is done, whether the person accepted an earlier version
+   of the terms ("We have updated the rules"), and every time zone the server accepts. The app
+   offers the phone's own time zone if the server accepts it, and a search otherwise. (A phone
+   and the server do not always call the same place by the same name, and the plan's "the
+   phone's own time zone sent along" would then have been refused with no way on.)
+2. **Signing in with an address that is not confirmed** leads to "Check your email" with one
+   more line: the password was right, the address is not confirmed, a new link was sent. That
+   is what the website does.
+3. **The login tool is asked the same careful way as the door** (part 02): only the server in
+   the app's settings, a locked connection outside a test build, and no redirect followed.
+4. **The phone keeps the sign-in and nothing else.** The kit can also keep a copy of who the
+   person is; that is switched off. Who is signed in comes from the server each time.
+5. **When the sign-in is renewed** (part 01, decision 2): every time the app is opened afresh;
+   on coming back to it if the last renewal is six hours old or more; and the app looks once an
+   hour while it stays open. Tried on the test phone: a session made to look two days old, with
+   20 days left, had 30 days left after the app was opened.
+6. **Signing out wipes the phone's side even when the server cannot be reached,** so a phone
+   handed to someone else never stays signed in. The server's side then runs out by itself.
+7. **Every page now ends above the keyboard** (a change to the shared page of part 02): a field
+   low on a page was hidden behind it.
+8. **The two-step code is asked at every sign-in.** The app never asks the server to remember
+   the phone as trusted, as the website does not.
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 

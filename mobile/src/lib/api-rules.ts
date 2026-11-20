@@ -19,6 +19,17 @@ export function appHeader(platform: "android" | "ios", version: string): string 
   return `${platform} ${version}`;
 }
 
+/**
+ * Whether the server's address in the app's settings is one the app may talk to: a bare, locked
+ * address (`https://name` or `https://name:port`), or a plain `http` one when `plain` is set,
+ * which only a test build does. The same rule for every request the app makes, to the door and to
+ * the login tool.
+ */
+export function isServer(server: string, options: { plain?: boolean } = {}): boolean {
+  const bare = /^(https?):\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.exec(server);
+  return bare !== null && (bare[1] === "https" || options.plain === true);
+}
+
 /** Every address of the app on the server starts with this. Nothing else is ever asked for. */
 export const DOOR = "/api/app/";
 
@@ -39,8 +50,7 @@ export const DOOR = "/api/app/";
  * nothing in it can turn into another path if something on the way reads it differently.
  */
 export function addressFor(server: string, path: string, options: { plain?: boolean } = {}): string | null {
-  const bare = /^(https?):\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.exec(server);
-  if (!bare || (bare[1] === "http" && !options.plain)) return null;
+  if (!isServer(server, options)) return null;
   const cut = path.indexOf("?");
   const steps = cut === -1 ? path : path.slice(0, cut);
   if (!/^\/api\/app\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(steps)) return null;
