@@ -165,7 +165,7 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 2 | Proof of acceptance | **Built** (part 1): one line for each person, document and version, never changed; the privacy policy is shown, not accepted. |
 | 3 | A tick box for the Host Agreement | **Built** (part 1), with a box on the Hosting page for hosts from before. |
 | 4 | Real addresses | The support address is a setting (`SUPPORT_EMAIL`); the others are written into the first published version. Someone has to read the inbox. |
-| 5 | Thirty days' notice of new terms by email | **Built** (part 2): one email to everyone a coming version concerns, a note on the pages, and a line in the health report when the 30 days were not kept. |
+| 5 | Thirty days' notice of new terms by email | **Built** (part 2): one email to everyone a coming version concerns, a note on the pages, and an email to the founder (and a count on the Emails page) when the 30 days are at risk. |
 | 6 | Closing your own account and deleting your details | Plan 45, parts 19 to 19c (the phone-apps work). Until then: "write to us", and the founder closes the account. |
 | 7 | End dates for records | Plan 46, part 4, for emails and login records. The other periods of the privacy policy are proposals and are **not built**. |
 | 8 | Business or private host | **Built** (part 1): asked when applying, shown on the host's page and where a call is asked for. |
