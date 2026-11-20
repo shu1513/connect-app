@@ -2320,14 +2320,25 @@ line while the table was locked (now a default that is taken away again, which d
 the table); the race tests did not really force both orders (they now hold the lock and let the
 two steps go in a chosen order); a member of a host who hides their page lost "Unfollow" on that
 page.
-CodeRabbit was at its limit that day; the founder said to go on without it.
+CodeRabbit was at its limit when the plans were ready, and the founder said to go on without
+it: the plans (pull request 51) were merged on Astra's three checks. It did review the code
+(pull request 52): five small comments, four taken. The follow decision now runs in a loop of
+its own in the helper, so that waiting for a follower's lock can never hold up closing a room
+or the money work; the home page stays fresh for a quarter of an hour after a call, so the host
+appears on it once the follow is decided; a race test now fails if the order it means to force
+was not forced; and the README says to stop the helper before running the check script. Not
+taken: asking for several hosts' availability in one question instead of one after the other,
+which CodeRabbit itself rated a poor trade unless it proves slow (only the few followed hosts
+who say "available" at that moment are asked).
 
 **How it was checked.** Unit tests of the rules (14). `scripts/follow-check.ts`: about 90
 checks against the local database, with the races forced in each order, and, with `--app=`, the
 pages themselves asked of the running app as the seeded test customer. In the browser,
 phone-sized and wide: following from a host's page, the list with the host available, "Talk
-now" on the home page, unfollowing. All check scripts on the code with the host's photo merged
-in. The database change is number 40 (`0040_follows`).
+now" on the home page, unfollowing. All 21 check scripts on the code with the host's photo merged
+in; one check of `scripts/photo-check.ts` reads a line of the host's page that this change
+extends, and was updated to the line as it now reads. The database change is number 40
+(`0040_follows`).
 
 **Still open.** Two people on two real devices, one switching "Available now" on and the other
 watching it appear within a minute. Whether the home page's new order reads well to a real

@@ -166,6 +166,9 @@ export default async function HomePage(props: PageProps<"/">) {
   // "Talk now" (plans/30): the rooms that are open at this moment, and the followed hosts who are available now.
   const openNow = comingUp.filter((call) => roomState(call, now) === "open");
   const availableNow = followed.filter((host) => host.available && host.handle);
+  // Right after a call the follow that comes by itself is still to be decided (about two minutes after the room closes):
+  // the page stays fresh for a quarter of an hour, so the host appears here without a reload.
+  const followToCome = calls.some((call) => call.customerId === user.id && !call.followCheckedAt && !call.cancelledAt && !call.safetyEndedAt && call.endsAt.getTime() > now.getTime() - 15 * 60_000);
   const otherOf = (call: (typeof calls)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown";
   const callsTable = (list: typeof calls) => (
     <div className="mt-2 overflow-x-auto">
@@ -215,7 +218,7 @@ export default async function HomePage(props: PageProps<"/">) {
   return (
     <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
       {/* Who is available, and which room is open, changes by the minute: someone with a reason to look gets a fresh page. */}
-      {(followed.length > 0 || comingUp.length > 0) && <RefreshEvery seconds={FOLLOW.refreshSeconds} />}
+      {(followed.length > 0 || comingUp.length > 0 || followToCome) && <RefreshEvery seconds={FOLLOW.refreshSeconds} />}
       <h1 className="text-2xl font-semibold">Your calls</h1>
       <p className="mt-2 flex flex-wrap gap-x-6 text-sm">
         <Link href="/following" className="inline-flex min-h-11 items-center underline underline-offset-2">

@@ -311,17 +311,23 @@ async function main() {
       // steps are made to wait for the customer's lock, which is held here, and are let go in the order they came.
       const waitingFor = async (customerId: string) =>
         Number((await db.execute(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted and objid = (hashtext(${`follows:${customerId}`})::bigint & 4294967295)::oid`))[0].n);
-      const inOrder = async (customerId: string, first: () => Promise<unknown>, second: () => Promise<unknown>) => {
+      /** Returns false if a step never came to wait for the lock: then the order was not forced, and the check must fail. */
+      const inOrder = async (customerId: string, first: () => Promise<unknown>, second: () => Promise<unknown>): Promise<boolean> => {
         const running: Promise<unknown>[] = [];
+        let forced = true;
         await db.transaction(async (tx) => {
           await F.lockFollowers(tx, [customerId]);
           for (const step of [first, second]) {
             const before = await waitingFor(customerId);
             running.push(step());
-            for (let i = 0; i < 200 && (await waitingFor(customerId)) <= before; i++) await new Promise((resolve) => setTimeout(resolve, 25));
+            let waits = false;
+            for (let i = 0; i < 200 && !(waits = (await waitingFor(customerId)) > before); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+            if (!waits) forced = false;
           }
         });
-        await Promise.all(running);
+        // The lock is let go above whatever happened, so both steps always finish before anything is cleaned up.
+        await Promise.allSettled(running);
+        return forced;
       };
       const raced = async (name: string, who: "customer" | "host", order: "block first" | "decision first") => {
         const rh = await host(`${name}h`);
@@ -329,8 +335,9 @@ async function main() {
         const made = await call({ hostId: rh.id, customerId: rc.id });
         const blocks = () => block({ blockerId: who === "customer" ? rc.id : rh.id, blockedId: who === "customer" ? rh.id : rc.id, now });
         const decides = () => decide([made.id]);
-        await inOrder(rc.id, order === "block first" ? blocks : decides, order === "block first" ? decides : blocks);
-        return { state: await F.followingOf(rc.id, rh.id), decided: (await checkedAt(made.id)) !== null };
+        const forced = await inOrder(rc.id, order === "block first" ? blocks : decides, order === "block first" ? decides : blocks);
+        // "decided" is only true when the order was really forced: a run that did not force it proves nothing.
+        return { state: await F.followingOf(rc.id, rh.id), decided: forced && (await checkedAt(made.id)) !== null };
       };
       const r1 = await raced("race1", "customer", "block first");
       check("the customer blocks, then the decision: no follow at all", r1.state === "none" && r1.decided, r1.state);
