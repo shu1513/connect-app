@@ -22,7 +22,7 @@ type Note = NonNullable<NonNullable<AppBooking["host"]>["note"]>;
  * was showing, so the box sends that along. When the note was changed elsewhere meanwhile, the
  * box offers to take the stored note in, and until then keeps what was typed.
  */
-export function NoteBox({ path, note, onSaved }: { path: string; note: Note; onSaved?: () => void }) {
+export function NoteBox({ path, note, onSettled }: { path: string; note: Note; onSettled?: () => void }) {
   const colors = useColors();
   /** The stored note as this box last knew it: what a save says it is replacing. */
   const [shown, setShown] = useState<string | null>(note.text);
@@ -58,12 +58,13 @@ export function NoteBox({ path, note, onSaved }: { path: string; note: Note; onS
       setShown(answer.data.text);
       setDraft(answer.data.text ?? "");
       setSaid({ words: answer.data.words, good: true });
-      // The page around this box reads the request again, so what it knows of the note is the stored one.
-      onSaved?.();
     } else {
       // The server's own sentence (it ends with "nothing was saved, what you typed is still in the box").
       setSaid({ words: answer.ok ? UNREACHABLE : answer.message, good: false });
     }
+    // Saved or refused, the page around this box reads the request again: what it knows of the note is then the
+    // stored one, and after a refusal because the note was changed elsewhere, the box can offer that one.
+    onSettled?.();
     busy.current = false;
     setSaving(false);
   }

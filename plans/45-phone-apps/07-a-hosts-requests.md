@@ -110,7 +110,7 @@ one-to-one service the stores allow.
 
 ### How it was tried
 
-- `scripts/app-requests-check.ts`, 67 checks: the list and what may be known about each person
+- `scripts/app-requests-check.ts`, 68 checks: the list and what may be known about each person
   (also for a closed account and across a block); one request as the host sees it; accepting
   gives the same call, busy time, passed-over request and emails as the website's own
   function; every refusal (answered twice, too late, the time taken by a request of her own,
@@ -123,7 +123,35 @@ one-to-one service the stores allow.
   (the other person passed over), a request declined elsewhere while the phone showed it, the
   note saved, Block with its question and the page after it.
 
-## Astra's check (20 November 2026): "not ready", now worked in
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+It found the website's pages unchanged where they were moved onto shared code, nobody able to
+do another person's step, and no account id, email or card detail in any answer. Two points it
+wanted before merging, both about the host's private note, and eight notes. All taken:
+
+1. *(Before merging.) The host's page could carry her note beside "nothing may be said about
+   this person",* when a block landed between two readings. The note is now only ever sent
+   together with "may be known".
+2. *(Before merging.) A note could be saved a blink after a block.* Whether she may keep a
+   note, and the writing of it, are now one step that a block and the closing of an account
+   wait for. (The website's function, so the website too.)
+3. *Accepting was judged by the clock from when the question came in.* The addresses people
+   call are now judged and dated by the clock at the moment of deciding, as in part 06.
+4. *A request that had stopped at its card step and then ended offered Block.* One rule now,
+   for the button and the address: only a request that was really sent, or became a call.
+5. *After a refused save, the note box did not learn of the newer note.* The page is read
+   again after every save, refused or not.
+6. *An answered row on the list could be pressed again if the list could not be read.* It
+   offers nothing more from the moment the answer is in.
+7. *After a refused step, the page's fresh reading could be skipped.* Not any more.
+8. *The list showed the first lines of every private note.* Folded now, as on the website,
+   and opened one at a time.
+9. *"Try again in a minute" after a block that could not cancel a call yet, with no button
+   to try with.* The button stays in that one case.
+10. *A throwaway demo script had got into one of this part's commits.* The branch was rebuilt
+    without it (nothing had been pushed).
+
+## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *`customerDetailsFor` cannot describe a waiting request.* Decision 1.
 2. *Booked and instant answers are different things:* "decline and block" and the existing

@@ -1,5 +1,5 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
-import { bookingPageFor, mayEnterCard } from "@/lib/app-door/booking";
+import { bookingPageFor, mayBlockThrough, mayEnterCard } from "@/lib/app-door/booking";
 import { switchesForApps } from "@/lib/app-door/start";
 import type { AppCardStep, AppNoteSaved } from "@/lib/app-door/types";
 import { accept, BookingError, cardStepOf, decline, finishCardStep, takeBack } from "@/lib/booking/bookings";
@@ -60,8 +60,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
   const { booking, role } = found;
   if ((FOR_CUSTOMER.includes(step) && role !== "customer") || (FOR_HOST.includes(step) && role !== "host")) return refuse("not_found");
   const switches = switchesForApps(asked.switches);
-  const page = async (notice: string | null = null) => {
-    const body = await bookingPageFor(me, id, switches, new Date(), notice);
+  const page = async (notice: string | null = null, options: { blockAgain?: boolean } = {}) => {
+    const body = await bookingPageFor(me, id, switches, new Date(), notice, options);
     return body ? answer(body) : refuse("not_found");
   };
 
@@ -96,7 +96,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
     if (step !== "take-back" && booking.source === "now") return refuse("not_valid", WAITING_WORDS.nowElsewhere);
     try {
       if (step === "take-back") await takeBack({ bookingId: id, customerId: me.id, now });
-      else if (step === "accept") await accept({ bookingId: id, hostId: me.id, now });
+      else if (step === "accept") await accept({ bookingId: id, hostId: me.id, now, live: true });
       else await decline({ bookingId: id, hostId: me.id, now });
     } catch (error) {
       if (!(error instanceof BookingError)) console.error(`[bookings] the step "${step}" failed for the app`, error);
@@ -122,11 +122,12 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
     }
   }
 
-  // Block: the other person of the request, once it was sent (never from a request still at its card step).
-  if (booking.stage === "card") return refuse("not_found");
+  // Block: the other person of the request, once it was really sent (never from one that stopped at its card step).
+  if (!mayBlockThrough(booking)) return refuse("not_found");
   try {
     const { callsNotCancelled } = await block({ blockerId: me.id, blockedId: role === "host" ? booking.customerId : booking.hostId, now });
-    return page(callsNotCancelled > 0 ? BLOCK_WORDS.notCancelled(callsNotCancelled) : BLOCK_WORDS.done);
+    // When a call between the two could not be cancelled yet, the sentence says to try again: the button stays for that.
+    return callsNotCancelled > 0 ? page(BLOCK_WORDS.notCancelled(callsNotCancelled), { blockAgain: true }) : page(BLOCK_WORDS.done);
   } catch (error) {
     if (!(error instanceof BlockError)) console.error("[safety] could not block from the app", error);
     return refuse("not_valid", error instanceof BlockError ? error.message : BLOCK_WORDS.wrong);

@@ -64,6 +64,15 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
   };
 }
 
+/**
+ * Whether one of a request's two people may block the other through it: only once it was really sent
+ * (or became a call). A request that stopped at its card step never reached the host, also after it has
+ * ended: neither of the two has anything of the other's through it.
+ */
+export function mayBlockThrough(booking: { stage: string; requestedAt: Date | null; callId: string | null }): boolean {
+  return booking.stage !== "card" && (booking.requestedAt !== null || booking.callId !== null);
+}
+
 /** Whether the card of this request may be entered from the app, as the founder's switches stand. */
 export function mayEnterCard(booking: { source: string }, switches: AppSwitches): boolean {
   return booking.source !== "now" || switches.availableNow;
@@ -89,8 +98,9 @@ async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["hos
     ratingWords: known && !rating ? WAITING_WORDS.newCustomer : null,
     idConfirmed: known && found.idConfirmed,
     words: known && booking.note ? { label: WAITING_WORDS.theirNote, text: booking.note } : null,
-    // Whether she may keep a note about this person is decided where notes are kept; here it is only shown.
-    note: found.note?.allowed ? { title: WAITING_WORDS.noteTitle(name), hint: WAITING_WORDS.noteHint, text: found.note.text, max: NOTE_MAX, save: WAITING_WORDS.noteSave, notSaved: WAITING_WORDS.noteNotSaved } : null,
+    // Whether she may keep a note about this person is decided where notes are kept; here it is only shown, and
+    // never beside "nothing may be said about them" (the two are asked at slightly different moments).
+    note: known && found.note?.allowed ? { title: WAITING_WORDS.noteTitle(name), hint: WAITING_WORDS.noteHint, text: found.note.text, max: NOTE_MAX, save: WAITING_WORDS.noteSave, notSaved: WAITING_WORDS.noteNotSaved } : null,
     answer: booking.stage === "waiting" ? answerFor(booking) : null,
   };
 }
@@ -100,7 +110,7 @@ async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["hos
  * for a host who was never sent it (one still at the card step, a member's booking that never
  * became a call). What only one of the two may see is filled only for that one.
  */
-export async function bookingPageFor(person: { id: string }, bookingId: string, switches: AppSwitches, now: Date, notice: string | null = null): Promise<AppBooking | null> {
+export async function bookingPageFor(person: { id: string }, bookingId: string, switches: AppSwitches, now: Date, notice: string | null = null, options: { blockAgain?: boolean } = {}): Promise<AppBooking | null> {
   const found = await gatherRequest(person.id, bookingId, now);
   if (!found) return null;
   const { booking, role, paid } = found;
@@ -145,7 +155,7 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     takeBackSure: mine && waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
     host: mine ? null : await hostPart(found),
     // As on the website's page: either of the two can block the other once the request was sent.
-    block: booking.stage !== "card" && otherName && !blockedByMe ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
+    block: mayBlockThrough(booking) && otherName && (!blockedByMe || options.blockAgain) ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
     // What else the call's own page is for is said once the app has that page (part 08).
     call: booking.callId ? { id: booking.callId } : null,
     // (Past the card step's time the helper ends the request within moments: the page asks again until it has.)

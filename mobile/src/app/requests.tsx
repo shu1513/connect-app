@@ -27,6 +27,10 @@ export default function RequestsScreen() {
   const [problem, setProblem] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
+  /** Requests answered from this screen: they offer nothing more, also when the list could not be read again yet. */
+  const [answered, setAnswered] = useState<readonly string[]>([]);
+  /** Whose private note is unfolded. A list is on show longer than one request's page: the notes stay folded until asked for. */
+  const [noteOpen, setNoteOpen] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
   const newest = useRef(0);
   const acting = useRef(false);
@@ -39,6 +43,8 @@ export default function RequestsScreen() {
     if (mine !== newest.current) return;
     if (answer.ok && isRequests(answer.data)) {
       setList(answer.data);
+      // The list as it stands now no longer holds what was answered.
+      setAnswered([]);
       setProblem(null);
     } else if (!answer.ok && answer.code !== "unreachable") {
       // Not for this person as things stand: the sentence, and the opening question says where they belong.
@@ -79,7 +85,10 @@ export default function RequestsScreen() {
     setAnswering(`${request.id} ${step}`);
     setSaid(null);
     const done = await ask<AppBooking>(`/api/app/bookings/${request.id}/${step}`, { body: {} });
-    if (done.ok && isBooking(done.data)) setSaid(done.data.notice);
+    if (done.ok && isBooking(done.data)) {
+      setSaid(done.data.notice);
+      setAnswered((before) => [...before, request.id]);
+    }
     else if (!done.ok && (done.code === "not_valid" || done.code === "paused" || done.code === "not_found" || done.code === "unreachable")) setSaid(done.message);
     else if (!done.ok) {
       setSaid(done.message);
@@ -116,12 +125,13 @@ export default function RequestsScreen() {
               </Pressable>
               {request.words ? <Text style={[styles.small, { color: colors.text }]}>“{request.words}”</Text> : null}
               {request.note ? (
-                <Text numberOfLines={2} style={[styles.small, { color: colors.soft }]}>
-                  Your note: {request.note}
-                </Text>
+                <Pressable accessibilityRole="button" accessibilityState={{ expanded: noteOpen === request.id }} accessibilityLabel={`Your private note about ${request.name}`} onPress={() => setNoteOpen(noteOpen === request.id ? null : request.id)} style={styles.note}>
+                  <Text style={[styles.small, { color: colors.accent }]}>{noteOpen === request.id ? "▾ Your note" : "▸ Your note"}</Text>
+                  {noteOpen === request.id ? <Text style={[styles.small, { color: colors.soft }]}>{request.note}</Text> : null}
+                </Pressable>
               ) : null}
               {request.respondBy ? <Text style={[styles.small, { color: colors.accentDeep }]}>Answer by {localTime(request.respondBy)}</Text> : null}
-              {request.answer.kind === "booked" ? (
+              {answered.includes(request.id) ? null : request.answer.kind === "booked" ? (
                 <View style={styles.buttons}>
                   <View style={styles.button}>
                     <Button label={request.answer.accept} busy={answering === `${request.id} accept`} disabled={answering !== null} onPress={() => askBeforeAccepting(request.answer, () => void answer(request, "accept"))} />
@@ -145,6 +155,7 @@ const styles = StyleSheet.create({
   one: { borderTopWidth: 1, paddingTop: 12, gap: 8 },
   open: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   small: { fontSize: type.small, lineHeight: 20 },
+  note: { minHeight: 44, justifyContent: "center", gap: 4 },
   buttons: { flexDirection: "row", gap: 12 },
   button: { flex: 1 },
 });

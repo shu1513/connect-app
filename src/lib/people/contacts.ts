@@ -8,6 +8,7 @@
  */
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { lockCalendars } from "@/lib/booking/bookings";
 import { NOTE_MAX, tidyNote } from "./note-rules";
 
 /** A problem the person can understand. Its message is safe to show them. */
@@ -23,6 +24,8 @@ export class NoteChangedError extends NoteError {
 export { NOTE_MAX };
 
 type Reader = Pick<typeof db, "select">;
+/** The database, or a step of its own inside it, for something that also writes. */
+type Writer = Pick<typeof db, "select" | "insert" | "update" | "delete">;
 
 export type Contact = {
   userId: string;
@@ -253,7 +256,20 @@ export async function saveHostNote(input: { hostId: string; customerId: string; 
   // Tidied like a stored note, so a note nobody changed always compares equal, whatever a browser did to its line breaks.
   const shown = tidyNote(input.shown ?? "") || null;
   if (text.length > NOTE_MAX) throw new NoteError(`A note can be at most ${NOTE_MAX.toLocaleString("en-US")} characters.`);
-  if (!(await mayNote(input.hostId, input.customerId))) throw new NoteError("You can keep a note only about someone who has asked you for a call.");
+  // Whether she may keep a note about this person, and the writing of it, are one step. A block between the two
+  // takes both calendars' locks, and closing an account changes the person's own row: this step holds both while it
+  // looks and writes, so neither can come in between "she may" and "it is saved".
+  return db.transaction(async (tx) => {
+    await lockCalendars(tx, [input.hostId, input.customerId]);
+    await tx.select({ id: schema.user.id }).from(schema.user).where(inArray(schema.user.id, [input.hostId, input.customerId])).for("share");
+    if (!(await mayNote(input.hostId, input.customerId, tx))) throw new NoteError("You can keep a note only about someone who has asked you for a call.");
+    return writeNote(tx, { ...input, text, shown });
+  });
+}
+
+/** The writing itself: only if the stored note is still the one the page was showing. */
+async function writeNote(db: Writer, input: { hostId: string; customerId: string; text: string; shown: string | null; now: Date }): Promise<string | null> {
+  const { text, shown } = input;
   const theirs = and(eq(schema.hostNotes.hostId, input.hostId), eq(schema.hostNotes.customerId, input.customerId));
   const one = { hostId: schema.hostNotes.hostId };
 

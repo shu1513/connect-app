@@ -137,9 +137,12 @@ function OneRequest({ id }: { id: string }) {
     [asked],
   );
 
-  /** Reads the page, unless a step is under way. */
+  /**
+   * Reads the page, unless a step is under way. `now`: a reading that must not be skipped (after a step, to
+   * show where the request really stands), even while a fuller reading is still on its way.
+   */
   const look = useCallback(
-    async (andCard: boolean) => {
+    async (andCard: boolean, now = false) => {
       if (acting.current) return;
       if (!id) {
         setGone(true);
@@ -147,7 +150,7 @@ function OneRequest({ id }: { id: string }) {
       }
       // The timer's plain reading stands back while a fuller one is under way: overtaking it would drop the question
       // about the card that follows it (a card saved while the app was away would then go unnoticed).
-      if (!andCard && checking.current > 0) return;
+      if (!andCard && !now && checking.current > 0) return;
       if (andCard) checking.current++;
       try {
         await read(andCard);
@@ -245,7 +248,7 @@ function OneRequest({ id }: { id: string }) {
     acting.current = false;
     setBusy(null);
     // Refused (it was answered meanwhile, say): the page is read again, so it shows where the request stands now.
-    if (!done) void look(false);
+    if (!done) void look(false, true);
   }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/"));
@@ -326,7 +329,7 @@ function OneRequest({ id }: { id: string }) {
           ) : null}
         </Card>
       ) : null}
-      {host?.note ? <NoteBox path={path} note={host.note} onSaved={() => void look(false)} /> : null}
+      {host?.note ? <NoteBox path={path} note={host.note} onSettled={() => void look(false, true)} /> : null}
 
       {host ? null : page.card ? (
         <Card>

@@ -376,6 +376,11 @@ async function main() {
       const byCustomer = await step(custAsk2.id, "block", cust.jar);
       check("the customer of a request can block its host the same way", byCustomer.status === 200 && (byCustomer.json as AppBooking).role === "customer" && (byCustomer.json as AppBooking).notice?.startsWith("Blocked.") === true && (await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, other.id)))).length === 1 && (await row(custAsk2.id)).stage !== "waiting");
       check("a step that does not exist is not found", refusal(await step(custAsk.id, "report", hana.jar)) === "not_found");
+      // A request that stopped at its card step never reached the host, also after it has ended: nobody blocks anybody through it.
+      const stopSlot = (await timesOf(other.id))[12];
+      const [stopped] = await db.insert(schema.bookings).values({ hostId: other.id, customerId: hana.id, startsAt: stopSlot, endsAt: new Date(stopSlot.getTime() + 30 * MINUTE), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 2000, totalCents: 4000, freeCancelMinutes: 0, note: "", stage: "ran_out", source: "customer", requestKey: randomUUID(), endedReason: "the card was not entered in time", endedAt: now }).returning();
+      const stoppedPage = await requestPage(stopped.id, hana.jar);
+      check("a request that ended at its card step offers no Block, and none can be made through it", stoppedPage.reply.status === 200 && stoppedPage.body?.block === null && refusal(await step(stopped.id, "block", hana.jar)) === "not_found" && (await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, hana.id), eq(schema.blocks.blockedId, other.id)))).length === 0);
     }
   } finally {
     const ids = made.length ? made : ["-"];

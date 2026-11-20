@@ -41,7 +41,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/bookings/[i
       return Response.json({ ok: true });
     }
     if (body.answer !== "accept") return Response.json({ error: "Say accept, decline or block." }, { status: 400 });
-    const { callId } = await accept({ bookingId: id, hostId: user.id, now });
+    const { callId } = await accept({ bookingId: id, hostId: user.id, now, live: true });
     // The customer is waiting: the saved card is tried right away, not at the helper's next pass.
     const hold = await tryHoldForAcceptedBooking(id, now).catch((error) => {
       console.error(`[now] the hold for booking ${id} could not be tried from the page; the helper will`, error);

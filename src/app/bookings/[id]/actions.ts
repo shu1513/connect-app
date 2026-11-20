@@ -38,7 +38,7 @@ export async function acceptAction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   let notice: string;
   try {
-    await accept({ bookingId: id, hostId: user.id, now: new Date() });
+    await accept({ bookingId: id, hostId: user.id, now: new Date(), live: true });
     notice = WAITING_WORDS.accepted;
   } catch (error) {
     notice = problem(error);
