@@ -492,3 +492,18 @@ The plan was not sent a third time. Each part's code goes to Astra, as always.
   step: `npm run seed` does it. Until every open branch has this part, a seeded person fits
   either the old step or the new one, not both.
 
+## What building part 5 added (20 November 2026)
+
+- `src/lib/payments/statement.ts`: the sums, and five questions to the books, one for each way a
+  line leads to its host (a call's payment, a member's unused time, a contribution's or tip's
+  share, a member's month, a contribution's or tip's own payment).
+- The page is `/host/statement` (made for printing; "save as PDF" is the browser's own), the file
+  is `/host/statement/csv`. Both only for the host herself, and only for a year from the one her
+  host profile was made to this one. The page opens on last year, which is what a host comes for
+  in January.
+- **Two columns more than the plan listed:** "Your share" (what she earned, which for a member's
+  month falls when the time is used or runs out, not when it was paid) and "Collection charges".
+- "Sent to you" is read from the books' own line for a transfer that went through. A transfer
+  that was refused writes no such line, so it counts as nothing, and one that went through
+  counts once.
+
