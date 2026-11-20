@@ -1,6 +1,6 @@
 /**
  * A host's photo: Connect's own copy of the profile picture of a social media account the host
- * has confirmed (plans/29). Hosts never upload one.
+ * has confirmed (plans/29), or of a picture the host uploaded (plans/35).
  *
  * One press is three steps, so that no database step is held open while a network or a checking
  * service is asked:
@@ -19,6 +19,10 @@
  * press (startPhotoTry), then the host is away at TikTok, and what comes back is taken up by one
  * return (takeUpTry) and goes through the outside work and the finish (finishTikTokTry).
  *
+ * An upload is the same three steps again (uploadPhoto): the start asks for no confirmed account,
+ * "the picture is fetched" means the file is read out of the request, and the finish compares no
+ * account. The copy that is kept is a square cut from the middle.
+ *
  * A photo is shown only after an outside service has looked at all of it and found nothing:
  * Connect's own checker is never asked here. `photoFor` is the only function that hands out a
  * photo's bytes. The steps other files share are in photo-steps.ts.
@@ -27,6 +31,7 @@ import { createHash } from "node:crypto";
 import { and, eq, exists, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
+import { hasAskedHost } from "@/lib/people/contacts";
 import { askInOrder } from "@/lib/projects/checks/order";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
 import type { Checker } from "@/lib/projects/checks/types";
@@ -38,7 +43,7 @@ import { PICTURE, ProjectError } from "@/lib/projects/rules";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { readInstagramPhoto, type PhotoReader } from "./bio-check";
 import { fetchPicture } from "./photo-fetch";
-import { PHOTO, PICTURE_SERVERS, pictureAddress, serverFamily, type PhotoNetwork } from "./photo-rules";
+import { PHOTO, PICTURE_SERVERS, pictureAddress, serverFamily, type PhotoNetwork, type PhotoSource } from "./photo-rules";
 import { deletePhotoInStep, stopTriesInStep } from "./photo-steps";
 import { INSTAGRAM_CHECKS_PER_HOUR, INSTAGRAM_PHOTO, lockedProfile, ProfileError } from "./profiles";
 import { readSocialName } from "./social";
@@ -120,7 +125,8 @@ async function writeRefusal(userId: string, tryId: string, refusal: NonNullable<
   });
 }
 
-type Started = { tryId: string; nameKey: string; accountId: string | null };
+/** A try that was written down. `entry` is the confirmed account it started from; an upload starts from none. */
+type Started = { tryId: string; entry: { nameKey: string; accountId: string | null } | null };
 
 /** How a press ended; for a picture that cannot be used, why; and whether a refusal took down the host's photo because it was the same picture. */
 export type PhotoResult = { outcome: PhotoOutcome; detail?: string; tookDown?: boolean };
@@ -137,10 +143,13 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
   if (typeof started === "string") return { outcome: started };
   const end = (result: Exclude<PhotoOutcome, "shown">, detail: string) => endTry(started.tryId, result, detail, clock());
   const known: Known = {};
+  // A try on a network always starts from a confirmed entry (startTry).
+  const entry = started.entry;
+  if (!entry) return { outcome: await end("stopped", "a try on a network without an entry") };
 
   try {
     // 2. The outside work. Meta first: the account's number and where its picture is, from one answer.
-    const answer = await (options.read ?? readInstagramPhoto)(started.nameKey).catch(() => ({ kind: "unavailable" as const }));
+    const answer = await (options.read ?? readInstagramPhoto)(entry.nameKey).catch(() => ({ kind: "unavailable" as const }));
     await options.meanwhile?.("asked");
     if (answer.kind === "refused") {
       // Our own key or permission, never the host's account: the founder's page says so.
@@ -149,13 +158,33 @@ export async function takePhoto(input: { userId: string; network: PhotoNetwork }
     if (answer.kind === "no_account" || answer.kind === "no_picture") return { outcome: await end("no_picture", answer.kind) };
     if (answer.kind !== "picture") return { outcome: await end("not_fetched", `instagram: ${answer.kind}`) };
     // The entry was proven by signing in: the name must still lead to that very account.
-    if (started.accountId && answer.accountId !== started.accountId) return { outcome: await end("no_picture", "the name now leads to another account") };
+    if (entry.accountId && answer.accountId !== entry.accountId) return { outcome: await end("no_picture", "the name now leads to another account") };
     const address = pictureAddress(answer.address, PICTURE_SERVERS[input.network]);
     if (!address) {
       console.error(`[host-photo] ${input.network} named a picture server that is not allowed: ${serverFamily(answer.address)}`);
       return { outcome: await end("not_fetched", "a picture server that is not allowed") };
     }
-    return await copyCheckAndFinish({ userId: input.userId, network: input.network, tryId: started.tryId, source: { nameKey: started.nameKey, accountId: answer.accountId }, address }, asked, clock, options, known);
+    const original = () => (options.fetch ?? fetchPicture)(address);
+    return await copyCheckAndFinish({ userId: input.userId, network: input.network, tryId: started.tryId, source: { nameKey: entry.nameKey, accountId: answer.accountId }, original }, asked, clock, options, known);
+  } catch (error) {
+    return afterFailure(error, input.userId, started.tryId, known, clock);
+  }
+}
+
+/**
+ * "Upload a photo" (plans/35): the whole press. `read` hands over the file as it arrived; it is
+ * called only after the start has said yes, and while this server's one place for pictures is
+ * held, so a request that is refused is never read. It may throw a ProjectError with words for
+ * the person (too large, not one file), which ends the try as "unusable".
+ */
+export async function uploadPhoto(input: { userId: string; read: () => Promise<Buffer> }, options: Omit<PhotoOptions, "read" | "fetch"> = {}): Promise<PhotoResult> {
+  const clock = options.clock ?? (() => new Date());
+  const asked = (options.services ?? services()).filter((service) => service.keyMark);
+  const started = await startTry(input.userId, "upload", asked.length > 0, clock, options.diaryHosts);
+  if (typeof started === "string") return { outcome: started };
+  const known: Known = {};
+  try {
+    return await copyCheckAndFinish({ userId: input.userId, network: "upload", tryId: started.tryId, source: null, original: input.read }, asked, clock, options, known);
   } catch (error) {
     return afterFailure(error, input.userId, started.tryId, known, clock);
   }
@@ -239,11 +268,13 @@ export async function finishTikTokTry(input: { userId: string; tryId: string; ac
       .select({ entryNameKey: tries.entryNameKey, entryAccountId: tries.entryAccountId, result: tries.result })
       .from(tries)
       .where(and(eq(tries.id, input.tryId), eq(tries.userId, input.userId), eq(tries.network, "tiktok")));
-    if (!attempt || attempt.result !== null) return { outcome: "stopped" };
+    // (A TikTok try always has the name of the entry it started from.)
+    const entryNameKey = attempt?.entryNameKey;
+    if (!attempt || attempt.result !== null || !entryNameKey) return { outcome: "stopped" };
     // The number is the network's own text. It is kept exactly as it came, never read as a number.
     if (!/^[\x21-\x7e]{1,200}$/.test(input.account.openId)) return { outcome: await end("not_fetched", "an account number that cannot be used") };
     const signedIn = readSocialName("tiktok", input.account.username);
-    const same = attempt.entryAccountId ? attempt.entryAccountId === input.account.openId : !("problem" in signedIn) && signedIn.nameKey === attempt.entryNameKey;
+    const same = attempt.entryAccountId ? attempt.entryAccountId === input.account.openId : !("problem" in signedIn) && signedIn.nameKey === entryNameKey;
     if (!same) {
       const ended = await end("no_picture", "another account than the confirmed one signed in");
       return { outcome: ended === "stopped" ? "stopped" : "other_account" };
@@ -262,7 +293,8 @@ export async function finishTikTokTry(input: { userId: string; tryId: string; ac
       return { outcome: await end("not_fetched", "a picture server that is not allowed") };
     }
     // The photo remembers TikTok's number from this answer and the entry's name, also when the entry has no number.
-    return await copyCheckAndFinish({ userId: input.userId, network: "tiktok", tryId: input.tryId, source: { nameKey: attempt.entryNameKey, accountId: input.account.openId }, address }, asked, clock, options, known);
+    const original = () => (options.fetch ?? fetchPicture)(address);
+    return await copyCheckAndFinish({ userId: input.userId, network: "tiktok", tryId: input.tryId, source: { nameKey: entryNameKey, accountId: input.account.openId }, original }, asked, clock, options, known);
   } catch (error) {
     return afterFailure(error, input.userId, input.tryId, known, clock);
   }
@@ -272,7 +304,7 @@ export async function finishTikTokTry(input: { userId: string; tryId: string; ac
 // 1. The start
 // ---------------------------------------------------------------------------
 
-async function startTry(userId: string, network: PhotoNetwork, hasChecker: boolean, clock: () => Date, diaryHosts: string[] | undefined): Promise<Started | Exclude<PhotoOutcome, "shown">> {
+async function startTry(userId: string, network: PhotoSource, hasChecker: boolean, clock: () => Date, diaryHosts: string[] | undefined): Promise<Started | Exclude<PhotoOutcome, "shown">> {
   return db.transaction(async (tx) => {
     // This host's presses one after the other.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`host-photo:${userId}`}))`);
@@ -286,14 +318,19 @@ async function startTry(userId: string, network: PhotoNetwork, hasChecker: boole
     if (network === "instagram") await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"bio-check:instagram:global"}))`);
     // Read with the locks held, never before waiting for them.
     const now = clock();
-    if (closed || paused || !profile) return "cannot";
+    // A photo from a network is a host's: it needs a host profile. Anyone may upload one (plans/35).
+    if (closed || paused || (network !== "upload" && !profile)) return "cannot";
     const [locked] = await tx.select({ id: photos.id }).from(photos).where(and(eq(photos.userId, userId), isNotNull(photos.lockedAt))).limit(1);
     if (locked) return "locked";
-    const [entry] = await tx
-      .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
-      .from(schema.socialAccounts)
-      .where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, network), isNotNull(schema.socialAccounts.confirmedAt)));
-    if (!entry) return "no_account";
+    // A photo from a network starts from the host's confirmed account there. An upload starts from none.
+    const [entry] =
+      network === "upload"
+        ? []
+        : await tx
+            .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
+            .from(schema.socialAccounts)
+            .where(and(eq(schema.socialAccounts.userId, userId), eq(schema.socialAccounts.network, network), isNotNull(schema.socialAccounts.confirmedAt)));
+    if (network !== "upload" && !entry) return "no_account";
 
     // One at a time. A try that never ended (the server stopped under it) counts as stopped after two minutes.
     const open = await tx.select({ id: tries.id, startedAt: tries.startedAt }).from(tries).where(and(eq(tries.userId, userId), isNull(tries.result)));
@@ -315,8 +352,8 @@ async function startTry(userId: string, network: PhotoNetwork, hasChecker: boole
     if (!hasChecker) return "no_checker";
     if (await diaryIsOwed(tx, diaryHosts)) return "no_checker";
 
-    const [attempt] = await tx.insert(tries).values({ userId, network, startedAt: now, entryNameKey: entry.nameKey, entryAccountId: entry.providerAccountId }).returning({ id: tries.id });
-    return { tryId: attempt.id, nameKey: entry.nameKey, accountId: entry.providerAccountId };
+    const [attempt] = await tx.insert(tries).values({ userId, network, startedAt: now, entryNameKey: entry?.nameKey ?? null, entryAccountId: entry?.providerAccountId ?? null }).returning({ id: tries.id });
+    return { tryId: attempt.id, entry: entry ? { nameKey: entry.nameKey, accountId: entry.providerAccountId } : null };
   });
 }
 
@@ -349,7 +386,12 @@ async function endTry(tryId: string, result: Exclude<PhotoOutcome, "shown">, det
 // 2. and 3. From the picture's address to the photo
 // ---------------------------------------------------------------------------
 
-type Candidate = { userId: string; network: PhotoNetwork; tryId: string; source: { nameKey: string; accountId: string }; address: URL };
+/**
+ * What a try has in hand once it knows where its picture is. `source` is the account the picture
+ * comes from (none for an upload). `original` gets the picture as it is: fetched from the
+ * network's server, or read out of the upload's request. Null: it could not be had.
+ */
+type Candidate = { userId: string; network: PhotoSource; tryId: string; source: { nameKey: string; accountId: string } | null; original: () => Promise<Buffer | null> };
 
 async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock: () => Date, options: PhotoOptions, known: Known): Promise<PhotoResult> {
   const end = (result: Exclude<PhotoOutcome, "shown">, detail: string, more?: { sha256?: string; checkedBy?: string }) => endTry(candidate.tryId, result, detail, clock(), more);
@@ -360,29 +402,45 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
     const ended = await end("not_fetched", "another picture was being opened");
     return { outcome: ended === "stopped" ? "stopped" : "place_taken" };
   }
-  // Nothing but the fetching and the copying happens while the place is held: what is written down about it comes after.
-  let made: { copy: Copy } | { unusable: string } | null;
+  // Nothing but the fetching (or the reading of an upload) and the copying happens while the place is held: what is
+  // written down about it comes after.
+  const fingerprint = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+  let made: { copy: Copy; diarySha256: string | null } | { unusable: string } | null;
   try {
-    const original = await (options.fetch ?? fetchPicture)(candidate.address);
-    made = original ? await makeCopy(original).then(
-      (copy) => ({ copy }),
-      (error: unknown) => {
+    made = await (async () => {
+      const original = await candidate.original();
+      if (!original) return null;
+      if (candidate.network !== "upload") {
+        // A photo from a network is copied exactly as a diary picture is, so one fingerprint serves for both.
+        const copy = await makeCopy(original);
+        return { copy, diarySha256: fingerprint(copy.bytes) };
+      }
+      // An uploaded photo is kept as a square, which never has the fingerprint of a diary picture of the same file.
+      // So the diary's kind of copy is made as well, only for its fingerprint, and thrown away. A file the diary
+      // itself could not have copied (too long and thin, too detailed) is no diary picture of anyone's.
+      const copy = await makeCopy(original, { square: PHOTO.uploadSide });
+      const whole = await makeCopy(original).catch((error: unknown) => {
         if (!(error instanceof ProjectError)) throw error;
-        return { unusable: error.message };
-      },
-    ) : null;
+        return null;
+      });
+      return { copy, diarySha256: whole ? fingerprint(whole.bytes) : null };
+    })().catch((error: unknown) => {
+      // Words for the person: the file is not a picture Connect can use, or the upload could not be read as one file.
+      if (!(error instanceof ProjectError)) throw error;
+      return { unusable: error.message };
+    });
   } finally {
     givePlace();
   }
   if (!made) return { outcome: await end("not_fetched", "the picture could not be fetched") };
   if ("unusable" in made) return { outcome: await end("unusable", made.unusable), detail: made.unusable };
-  const { copy } = made;
+  const { copy, diarySha256 } = made;
   await options.meanwhile?.("copied");
-  const sha256 = createHash("sha256").update(copy.bytes).digest("hex");
+  const sha256 = fingerprint(copy.bytes);
 
   // The same copy as one that was refused before, as a photo or in her diary, or that is locked there: a new try is
   // not a second chance at a clean answer. No service is asked.
-  const before = await refusedBefore(db, candidate.userId, sha256);
+  const before = await refusedBefore(db, candidate.userId, sha256, diarySha256);
   if (before) {
     const outcome = await end("refused_before", before === "locked" ? "the same picture as a locked diary picture" : "the same picture as one that was refused before", { sha256 });
     if (before === "locked" && outcome === "refused_before") {
@@ -391,7 +449,7 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
         .transaction((tx) =>
           tellFounders(tx, {
             subject: "A locked picture was tried as a host's photo",
-            text: `A host pressed "Use my photo", and the profile picture that came back is the same, byte for byte, as a diary picture of theirs that you removed and reported. It was not taken.\n\n${adminUrl()}`,
+            text: `A host tried to take a photo${candidate.network === "upload" ? " by uploading a picture" : ""}, and the picture is the same as a diary picture of theirs that you removed and reported. It was not taken.\n\n${adminUrl()}`,
             key: `host-photo-locked-before:${candidate.tryId}`,
           }),
         )
@@ -411,7 +469,7 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
       .select({
         result: tries.result,
         owed: sql<boolean>`${exists(db.select({ one: sql`1` }).from(schema.projectPictures).where(owedDiaryPicture(options.diaryHosts)))}`,
-        refused: sql<boolean>`${exists(db.select({ one: sql`1` }).from(earlier).where(and(eq(earlier.userId, candidate.userId), eq(earlier.sha256, sha256), eq(earlier.result, "not_accepted"))))}`,
+        refused: sql<boolean>`${exists(db.select({ one: sql`1` }).from(earlier).where(and(eq(earlier.userId, candidate.userId), inArray(earlier.sha256, printsOf(sha256, diarySha256)), eq(earlier.result, "not_accepted"))))}`,
       })
       .from(tries)
       .where(eq(tries.id, candidate.tryId));
@@ -434,7 +492,7 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
 
   if (answer.kind === "refused") return { outcome: "not_accepted", tookDown };
   if (answer.kind !== "shown" || answer.level !== "full") return { outcome: await end("not_checked", answer.detail, { sha256 }) };
-  return { outcome: await finish(candidate, copy, sha256, { by: answer.by, detail: answer.detail }, clock) };
+  return { outcome: await finish(candidate, copy, { sha256, diarySha256 }, { by: answer.by, detail: answer.detail }, clock) };
 }
 
 /** Whether this account number, on this network, is another host's confirmed account. */
@@ -447,16 +505,29 @@ async function confirmedElsewhere(reader: Pick<typeof db, "select">, network: Ph
   return Boolean(elsewhere);
 }
 
-/** Whether this host's copy with this fingerprint was refused before, as a photo or as a diary picture, or is locked in her diary. */
-async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, sha256: string): Promise<"refused" | "locked" | null> {
+/** The fingerprints a file can have been refused under as a photo: its own copy's, and the whole copy's when that is another. */
+const printsOf = (sha256: string, diarySha256: string | null): string[] => (diarySha256 && diarySha256 !== sha256 ? [sha256, diarySha256] : [sha256]);
+
+/**
+ * Whether this host's picture was refused before, as a photo or as a diary picture, or is locked in
+ * her diary. `sha256` is the fingerprint of the photo's own copy. `diarySha256` is the fingerprint
+ * the same file has as a diary picture, compared with her diary: the same as `sha256` for a photo
+ * from a network, another for an upload, and null when the diary could not have copied the file at
+ * all. Her earlier tries are compared with both: a photo from a network is kept as the whole copy,
+ * so a picture refused that way and then uploaded as the very same file is known by the whole
+ * copy's fingerprint, not by the square's.
+ */
+async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, sha256: string, diarySha256: string | null): Promise<"refused" | "locked" | null> {
   const pictures = schema.projectPictures;
-  const inDiary = await reader
-    .select({ state: pictures.state })
-    .from(pictures)
-    .where(and(eq(pictures.hostId, userId), eq(pictures.sha256, sha256), or(eq(pictures.state, "locked"), eq(pictures.refusedByChecker, true))));
+  const inDiary = diarySha256
+    ? await reader
+        .select({ state: pictures.state })
+        .from(pictures)
+        .where(and(eq(pictures.hostId, userId), eq(pictures.sha256, diarySha256), or(eq(pictures.state, "locked"), eq(pictures.refusedByChecker, true))))
+    : [];
   if (inDiary.some((picture) => picture.state === "locked")) return "locked";
   if (inDiary.length > 0) return "refused";
-  const [asPhoto] = await reader.select({ id: tries.id }).from(tries).where(and(eq(tries.userId, userId), eq(tries.sha256, sha256), eq(tries.result, "not_accepted"))).limit(1);
+  const [asPhoto] = await reader.select({ id: tries.id }).from(tries).where(and(eq(tries.userId, userId), inArray(tries.sha256, printsOf(sha256, diarySha256)), eq(tries.result, "not_accepted"))).limit(1);
   return asPhoto ? "refused" : null;
 }
 
@@ -467,7 +538,8 @@ async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, 
  * account the picture came from has not become another host's confirmed account, and no service
  * has refused this very copy in the meantime (see writeRefusal).
  */
-async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: { by: string; detail: string }, clock: () => Date): Promise<PhotoOutcome> {
+async function finish(candidate: Candidate, copy: Copy, prints: { sha256: string; diarySha256: string | null }, passed: { by: string; detail: string }, clock: () => Date): Promise<PhotoOutcome> {
+  const { sha256 } = prints;
   return db.transaction(async (tx) => {
     const { closed, paused, profile } = await lockedProfile(tx, candidate.userId);
     const [attempt] = await tx.select().from(tries).where(eq(tries.id, candidate.tryId)).for("update");
@@ -478,23 +550,27 @@ async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: 
       await tx.update(tries).set({ result: "stopped", detail: why, sha256, endedAt: now }).where(eq(tries.id, attempt.id));
       return "stopped";
     };
-    if (closed || paused || !profile) return stop("the account could no longer do this");
+    if (closed || paused || (candidate.network !== "upload" && !profile)) return stop("the account could no longer do this");
     const [locked] = await tx.select({ id: photos.id }).from(photos).where(and(eq(photos.userId, candidate.userId), isNotNull(photos.lockedAt))).limit(1);
     if (locked) return stop("a photo was removed and reported meanwhile");
-    const [entry] = await tx
-      .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
-      .from(schema.socialAccounts)
-      .where(and(eq(schema.socialAccounts.userId, candidate.userId), eq(schema.socialAccounts.network, candidate.network), isNotNull(schema.socialAccounts.confirmedAt)));
-    if (!entry || entry.nameKey !== attempt.entryNameKey || entry.providerAccountId !== attempt.entryAccountId) return stop("the account changed meanwhile");
-    // An entry confirmed without a number is tied to its name. If the account that name led to has, in the meantime
-    // or before, been confirmed by number for another host, its picture is not this host's photo.
-    if (await confirmedElsewhere(tx, candidate.network, candidate.source.accountId, candidate.userId)) {
-      await tx.update(tries).set({ result: "no_picture", detail: "the account is confirmed for another host", sha256, endedAt: now }).where(eq(tries.id, attempt.id));
-      return "taken_account";
+    // A photo from a network: its account must still be the host's confirmed one. An upload came from no account.
+    if (candidate.network !== "upload") {
+      if (!candidate.source) return stop("a photo from a network without its account");
+      const [entry] = await tx
+        .select({ nameKey: schema.socialAccounts.nameKey, providerAccountId: schema.socialAccounts.providerAccountId })
+        .from(schema.socialAccounts)
+        .where(and(eq(schema.socialAccounts.userId, candidate.userId), eq(schema.socialAccounts.network, candidate.network), isNotNull(schema.socialAccounts.confirmedAt)));
+      if (!entry || entry.nameKey !== attempt.entryNameKey || entry.providerAccountId !== attempt.entryAccountId) return stop("the account changed meanwhile");
+      // An entry confirmed without a number is tied to its name. If the account that name led to has, in the meantime
+      // or before, been confirmed by number for another host, its picture is not this host's photo.
+      if (await confirmedElsewhere(tx, candidate.network, candidate.source.accountId, candidate.userId)) {
+        await tx.update(tries).set({ result: "no_picture", detail: "the account is confirmed for another host", sha256, endedAt: now }).where(eq(tries.id, attempt.id));
+        return "taken_account";
+      }
     }
     // Looked for once more, with the locks a refusal's own write takes: an earlier try of this host's, stopped while a
     // service was still looking at the same copy, may have brought its refusal since this try began.
-    if (await refusedBefore(tx, candidate.userId, sha256)) {
+    if (await refusedBefore(tx, candidate.userId, sha256, prints.diarySha256)) {
       await tx.update(tries).set({ result: "refused_before", detail: "the same picture was refused while this try was under way", sha256, endedAt: now }).where(eq(tries.id, attempt.id));
       return "refused_before";
     }
@@ -504,8 +580,8 @@ async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: 
     await tx.insert(photos).values({
       userId: candidate.userId,
       network: candidate.network,
-      sourceNameKey: candidate.source.nameKey,
-      sourceAccountId: candidate.source.accountId,
+      sourceNameKey: candidate.source?.nameKey ?? null,
+      sourceAccountId: candidate.source?.accountId ?? null,
       width: copy.width,
       height: copy.height,
       byteLength: copy.bytes.length,
@@ -535,7 +611,7 @@ export async function removePhoto(input: { userId: string; now: Date }): Promise
 }
 
 /** The photo the founder is looking at, with its host's locks taken first, for one decision. */
-async function decide(photoId: string, work: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], photo: { id: string; userId: string; lockedAt: Date | null; network: string; sourceNameKey: string; sourceAccountId: string; takenAt: Date }) => Promise<void>): Promise<void> {
+async function decide(photoId: string, work: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], photo: { id: string; userId: string; lockedAt: Date | null; network: string; sourceNameKey: string | null; sourceAccountId: string | null; takenAt: Date }) => Promise<void>): Promise<void> {
   if (!isId(photoId)) throw new ProfileError(NOT_FOUND);
   await db.transaction(async (tx) => {
     const [found] = await tx.select({ userId: photos.userId }).from(photos).where(eq(photos.id, photoId));
@@ -607,12 +683,19 @@ export async function recordPhotoReportMade(input: { adminId: string; photoId: s
 export type Viewer = { id: string; admin: boolean } | null;
 
 /**
- * A photo's bytes for this viewer, or null. The whole rule (plans/29, "Who sees it"):
+ * A photo's bytes for this viewer, or null. The whole rule (plans/29, "Who sees it"; plans/35):
  *
- *   the host's page                                    visitor   the host   the founder
- *   open to everyone (approved, not hidden, not closed)  yes       yes        yes
- *   hidden, waiting, declined or suspended               no        yes        yes
- *   a locked photo, whatever the page                    no        no         no
+ *   the photo's owner                                  visitor   a host the owner   the owner   the founder
+ *                                                                has asked
+ *   has a host page open to everyone                     yes       yes                yes         yes
+ *   anyone else: a customer, or a host whose page is
+ *   hidden, waiting, declined or suspended               no        yes                yes         yes
+ *   a locked photo, whoever's                            no        no                 no          no
+ *
+ * "A host the owner has asked" is the rule a host's notes go by (hasAskedHost): the owner really
+ * sent this viewer a request, neither has blocked the other, and the owner's account is not
+ * closed. It is asked afresh each time, after the read that brought the bytes: a "yes" that
+ * became a "no" in between is at most a moment old.
  *
  * `open` says whether the answer went to someone who could see the photo without being logged
  * in; only such an answer may be kept by a browser. A photo that was replaced or removed has no
@@ -630,8 +713,9 @@ export async function photoFor(viewer: Viewer, photoId: string): Promise<{ bytes
     .where(and(eq(photos.id, photoId), isNull(photos.lockedAt)));
   if (!row) return null;
   const open = row.status === "approved" && row.hidden === false && !row.closedAt;
-  if (!open && viewer?.id !== row.userId && !viewer?.admin) return null;
-  return { bytes: row.bytes, open };
+  if (open || viewer?.id === row.userId || viewer?.admin) return { bytes: row.bytes, open };
+  if (viewer && !row.closedAt && (await hasAskedHost(viewer.id, row.userId))) return { bytes: row.bytes, open: false };
+  return null;
 }
 
 /** The ids of these hosts' photos, for a page that has already decided that each host's page is open to this viewer. Never the bytes. */
@@ -641,6 +725,19 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
   const rows = await db.select({ id: photos.id, userId: photos.userId }).from(photos).where(and(inArray(photos.userId, hostIds), isNull(photos.lockedAt)));
   for (const row of rows) byHost.set(row.userId, row.id);
   return byHost;
+}
+
+/**
+ * The ids of these people's photos, for a host's own pages (the requests, "Available now", one
+ * booking): only of the people this host is handed a photo of, by the very rule the photo's
+ * address goes by (hasAskedHost). Being on the host's list is never taken as proof: a host who
+ * was blocked, or whose booking was a test call, learns nothing here, not even whether the person
+ * has a photo or has changed it. Never the bytes.
+ */
+export async function photosForHost(hostId: string, customerIds: string[]): Promise<Map<string, string>> {
+  const all = [...(await photosOf([...new Set(customerIds)]))];
+  const handed = await Promise.all(all.map(([customerId]) => hasAskedHost(hostId, customerId)));
+  return new Map(all.filter((_, index) => handed[index]));
 }
 
 /**
@@ -657,7 +754,8 @@ export async function photoStates(photoIds: string[]): Promise<Map<string, "curr
   return states;
 }
 
-export type OwnPhoto = { id: string; network: string; sourceNameKey: string; takenAt: Date };
+/** `sourceNameKey` is the account the photo came from; null for an uploaded one. */
+export type OwnPhoto = { id: string; network: string; sourceNameKey: string | null; takenAt: Date };
 
 /** What the Hosting page shows its host: their photo if they have one, and whether one of theirs was removed and reported. */
 export async function ownPhotoState(userId: string): Promise<{ photo: OwnPhoto | null; locked: boolean }> {
@@ -666,14 +764,16 @@ export async function ownPhotoState(userId: string): Promise<{ photo: OwnPhoto |
   return { photo: current ? { id: current.id, network: current.network, sourceNameKey: current.sourceNameKey, takenAt: current.takenAt } : null, locked: rows.some((row) => row.lockedAt) };
 }
 
-export type AdminPhoto = { id: string; userId: string; network: string; sourceNameKey: string; takenAt: Date; lockedAt: Date | null; reportMadeAt: Date | null };
+/** `name` is the person's own name on their account: what the founder's page shows for someone without a host profile. */
+export type AdminPhoto = { id: string; userId: string; name: string; network: string; sourceNameKey: string | null; takenAt: Date; lockedAt: Date | null; reportMadeAt: Date | null };
 
-/** Every photo of these hosts, the locked ones too, for the founder's page. Never the bytes. */
-export async function photosForAdmin(userIds: string[]): Promise<AdminPhoto[]> {
-  if (userIds.length === 0) return [];
+/** Every photo, the locked ones too, for the founder's page: everyone's, or only these people's. Never the bytes. */
+export async function photosForAdmin(userIds?: string[]): Promise<AdminPhoto[]> {
+  if (userIds && userIds.length === 0) return [];
   return db
-    .select({ id: photos.id, userId: photos.userId, network: photos.network, sourceNameKey: photos.sourceNameKey, takenAt: photos.takenAt, lockedAt: photos.lockedAt, reportMadeAt: photos.reportMadeAt })
+    .select({ id: photos.id, userId: photos.userId, name: schema.user.name, network: photos.network, sourceNameKey: photos.sourceNameKey, takenAt: photos.takenAt, lockedAt: photos.lockedAt, reportMadeAt: photos.reportMadeAt })
     .from(photos)
-    .where(inArray(photos.userId, userIds))
+    .innerJoin(schema.user, eq(schema.user.id, photos.userId))
+    .where(userIds ? inArray(photos.userId, userIds) : undefined)
     .orderBy(photos.takenAt);
 }

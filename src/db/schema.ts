@@ -6,6 +6,7 @@ import {
   boolean,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -1196,7 +1197,7 @@ export const bioChecks = pgTable(
 
 /**
  * A host's photo: Connect's own copy of the profile picture of a social media account the host
- * has confirmed (plans/29). One line for each photo. A host has at most one that is not locked;
+ * has confirmed (plans/29), or of a picture the host uploaded (plans/35). One line for each photo. A host has at most one that is not locked;
  * a new photo is a new line with a new id, so an old address stops working.
  *
  * A locked photo ("Remove and report") is kept exactly as it is and never deleted: not by the
@@ -1213,11 +1214,11 @@ export const hostPhotos = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id),
-    /** instagram or tiktok. */
+    /** Where the picture came from: instagram, tiktok, or upload (the person's own file, plans/35). */
     network: text("network").notNull(),
-    /** The account's name and the network's own number for it, as they were in the answer that gave the picture. */
-    sourceNameKey: text("source_name_key").notNull(),
-    sourceAccountId: text("source_account_id").notNull(),
+    /** The account's name and the network's own number for it, as they were in the answer that gave the picture. Both empty for an upload, and only then. */
+    sourceNameKey: text("source_name_key"),
+    sourceAccountId: text("source_account_id"),
     width: integer("width").notNull(),
     height: integer("height").notNull(),
     byteLength: integer("byte_length").notNull(),
@@ -1241,12 +1242,16 @@ export const hostPhotos = pgTable(
     // The database itself guarantees one photo that is not locked for each host.
     uniqueIndex("host_photos_current_uq").on(t.userId).where(sql`${t.lockedAt} is null`),
     index("host_photos_user_idx").on(t.userId),
-    check("host_photos_network", sql`${t.network} in ('instagram', 'tiktok')`),
+    check("host_photos_network", sql`${t.network} in ('instagram', 'tiktok', 'upload')`),
+    check(
+      "host_photos_source",
+      sql`(${t.network} = 'upload' and ${t.sourceNameKey} is null and ${t.sourceAccountId} is null) or (${t.network} <> 'upload' and ${t.sourceNameKey} is not null and ${t.sourceAccountId} is not null)`,
+    ),
   ],
 );
 
 /**
- * One line for each try at taking a host's photo (plans/29). Used for the limit of tries, for
+ * One line for each try at taking a host's photo (plans/29), an upload included (plans/35). Used for the limit of tries, for
  * "one at a time", for stopping a try that is under way, and to remember the fingerprint of a
  * copy a checking service refused. The picture of a try is never kept here.
  *
@@ -1269,8 +1274,8 @@ export const hostPhotoTries = pgTable(
       .references(() => user.id),
     network: text("network").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-    /** The host's confirmed entry on that network as it was when the try started. The number is empty for an entry proven with the code. */
-    entryNameKey: text("entry_name_key").notNull(),
+    /** The host's confirmed entry on that network as it was when the try started. The number is empty for an entry proven with the code. Both empty for an upload, and only then. */
+    entryNameKey: text("entry_name_key"),
     entryAccountId: text("entry_account_id"),
     result: text("result"),
     /** The fingerprint of Connect's copy, once one was made. */
@@ -1290,7 +1295,11 @@ export const hostPhotoTries = pgTable(
     index("host_photo_tries_user_idx").on(t.userId, t.startedAt),
     index("host_photo_tries_bytes_idx").on(t.userId, t.sha256),
     index("host_photo_tries_network_idx").on(t.network, t.startedAt),
-    check("host_photo_tries_network", sql`${t.network} in ('instagram', 'tiktok')`),
+    check("host_photo_tries_network", sql`${t.network} in ('instagram', 'tiktok', 'upload')`),
+    check(
+      "host_photo_tries_entry",
+      sql`(${t.network} = 'upload' and ${t.entryNameKey} is null and ${t.entryAccountId} is null) or (${t.network} <> 'upload' and ${t.entryNameKey} is not null)`,
+    ),
     check(
       "host_photo_tries_result",
       sql`${t.result} is null or ${t.result} in ('shown', 'not_accepted', 'refused_before', 'no_picture', 'not_fetched', 'unusable', 'not_checked', 'stopped')`,
@@ -2063,6 +2072,77 @@ export const contributionRefunds = pgTable(
     check("contribution_refunds_amount", sql`${t.amountCents} > 0`),
     check("contribution_refunds_decided_by", sql`${t.decidedBy} in ('host', 'founder', 'app')`),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Suggested hosts (plans/37-suggested-hosts.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * One line per person and day: that day's suggestions were made. It is written also when no host
+ * fitted, so the work is done once a day and not on every look. Deleted after 90 days, and with
+ * the person's account.
+ */
+export const suggestionDays = pgTable(
+  "suggestion_days",
+  {
+    viewerId: text("viewer_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** The calendar day in UTC, as "2026-11-27". */
+    day: text("day").notNull(),
+    /** Which rule made them (SUGGEST.ruleVersion). */
+    ruleVersion: integer("rule_version").notNull(),
+    madeAt: timestamp("made_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.day] }), check("suggestion_days_day", sql`${t.day} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`)],
+);
+
+/**
+ * The hosts suggested to a person on a day, each in its place. A host at most once a day per
+ * person. `seenAt` is set when that card first really came into view on the person's screen.
+ * Only the person themselves ever reads their own lines; nothing here is shown to a host.
+ */
+export const suggestionShows = pgTable(
+  "suggestion_shows",
+  {
+    viewerId: text("viewer_id").notNull(),
+    day: text("day").notNull(),
+    /** 1 to 6. */
+    place: integer("place").notNull(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** One of the places kept for the hosts seen by the fewest people. */
+    kept: boolean("kept").notNull().default(false),
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    /** Set when the person first opened this host's page from the row (plans/41). Interest: it keeps the host coming back. */
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.viewerId, t.day, t.place] }),
+    // A day's hosts go when the day's line goes: after 90 days, or with the person's account.
+    foreignKey({ name: "suggestion_shows_day_fk", columns: [t.viewerId, t.day], foreignColumns: [suggestionDays.viewerId, suggestionDays.day] }).onDelete("cascade"),
+    uniqueIndex("suggestion_shows_host_uq").on(t.viewerId, t.day, t.hostId),
+    // "Seen by the fewest different people in the last seven days" reads the seen lines of a host.
+    index("suggestion_shows_seen_idx").on(t.hostId, t.seenAt).where(sql`${t.seenAt} is not null`),
+    check("suggestion_shows_place", sql`${t.place} between 1 and 6`),
+  ],
+);
+
+/** A person hid this host from their suggestions with the X. Kept as long as the account: it is their choice. The host is never told. */
+export const suggestionHides = pgTable(
+  "suggestion_hides",
+  {
+    viewerId: text("viewer_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.hostId] }), check("suggestion_hides_not_self", sql`${t.viewerId} <> ${t.hostId}`)],
 );
 
 export type Call = typeof calls.$inferSelect;

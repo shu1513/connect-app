@@ -8,7 +8,7 @@ import { db, schema } from "@/db";
 import { lockCalendar } from "@/lib/membership/locks";
 import { memberPriceFloor } from "@/lib/membership/room";
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
-import { priceProblem } from "@/lib/payments/hold";
+import { hostPriceProblem } from "@/lib/payments/pricing";
 import { identityState } from "@/lib/safety/identity";
 import { HOME_COUNTRY, isHostCountry } from "./countries";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
@@ -90,7 +90,7 @@ function checkedDetails(input: { displayName: string; about: string; pricePer15C
     throw new ProfileError(`Your display name must be ${NAME_MIN} to ${NAME_MAX} characters long.`);
   }
   if (about.length > ABOUT_MAX) throw new ProfileError(`The "about" text can be at most ${ABOUT_MAX} characters.`);
-  const problem = priceProblem(input.pricePer15Cents);
+  const problem = hostPriceProblem(input.pricePer15Cents);
   if (problem) throw new ProfileError(problem);
   if (input.pricePer15Cents > MAX_PRICE_PER_15_CENTS) throw new ProfileError("The price is too high.");
   return { displayName, about, pricePer15Cents: input.pricePer15Cents };
@@ -156,9 +156,7 @@ export async function updateHostProfile(
     const floor = await memberPriceFloor(tx, userId);
     if (floor > 0 && details.pricePer15Cents < floor) {
       throw new ProfileError(
-        details.pricePer15Cents === 0
-          ? "You offer a membership, or a member's month is still running, so your calls cannot be free."
-          : `Your regular price cannot be lower than your member price ($${(floor / 100).toFixed(2)} per 15 minutes). Lower the member price first. Your regular price can follow when the months at the old price have ended.`,
+        `Your regular price cannot be lower than your member price ($${(floor / 100).toFixed(2)} per 15 minutes). Lower the member price first. Your regular price can follow when the months at the old price have ended.`,
       );
     }
     // A new name must be approved again, so an approved profile cannot be renamed into someone famous.

@@ -2716,3 +2716,529 @@ day before the call. Not tried by hand: receiving the reminder as a real email.
 **Still open.** For the founder: whether a host should also be told when a customer's card
 fails (today the host hears only if the call is cancelled, now a day before). The wording of
 the reminder is the builder's.
+
+## A later change: the home page (plan 36, 19 November 2026)
+
+**What the founder asked for.** "What should the customer see? probably all the upcoming bookings
+that he has with different hosts. maybe the status of his followed hosts if they are online, the
+countdown of the room that he can enter for the next call with the host, also probably the new
+things the hosts have done in their projects as the newsfeed like on facebook. also possibly some
+hosts suggestions." And about the order: the countdown first, then the next calls. The suggested
+hosts are plan 37 and are not part of this change.
+
+**What was decided** (the builder's; all of it in `plans/36-customer-home-page.md`).
+- One home page for everyone who is logged in, designed for the customer first. From top to
+  bottom: the next call with its countdown, "Waiting for you", the next calls grouped by day, the
+  hosts the person follows, news from those hosts.
+- The countdown runs to the moment the room opens, five minutes before the start. At zero it
+  says "Checking…" and asks the server; "Enter the room" is shown only on the server's answer,
+  and it is only a link: the call's own page decides who may enter. A call that is not paid yet
+  gets "Open the call".
+- A list grouped by day ("Today", "Tomorrow", the date), not a week calendar.
+- News: ten posts from the last 30 days (it was five from seven days), each with the host's
+  photo and the post's first picture that everyone may see.
+- Calls that are over are on a page of their own, `/calls` ("Past calls"), 50 to a page.
+- The page asks the server again every minute for everyone who is logged in.
+- The link in the top bar is "Home".
+
+**What was built.** The plain rules in `src/lib/home/rules.ts` (which calls are not over, the
+next call, the countdown's words, the days). Two parts that run in the browser:
+`src/components/countdown.tsx` and `src/components/calls-by-day.tsx`. The logged-in half of
+`src/app/page.tsx`, written anew; the visitor's front page in the same file is untouched, letter
+for letter. `src/app/calls/page.tsx`. The money line of a call moved, as it was, to
+`src/lib/home/payment-line.ts`. `diaryNews` gives ten posts from 30 days and the host's id. No
+change to the database, and drawing the page writes nothing.
+
+Different from the plan as first written, and said in the plan since: with a single call coming,
+the list is left out (the call is in the card above); between one and two days the countdown
+says "in 1 day 4 hours"; the page greets the person by first name.
+
+**What the reviewers found.**
+- *Astra, on the plan (two rounds, "ready with changes" both times).* Taken: "not over" is
+  defined in one place and `/calls` holds exactly the rest; an unpaid call does not promise the
+  room; the page refreshes for everyone, because a page that no longer loads past calls cannot
+  tell who has just finished one; the countdown counts with the browser's steady counter and the
+  server confirms at zero; two check scripts looked for more than the plan had listed. Not taken:
+  a request of its own only to ask the server's time.
+- *CodeRabbit, on the plans' pull request (59).* It answered that its review limit was reached.
+  By the founder's rule for that case the builder reviewed the pull request himself and corrected
+  five places where the plan's words and the page's words differed.
+- *Astra, on the code (two rounds).* First round, "ready with changes", five points. Taken: a
+  call that began late yesterday and is still running was listed under "Today" with last
+  night's time; it now stands under the day it really began. Taken: the list of followed hosts
+  asked about each available host one after another; it now asks five at a time. Taken: the
+  check script's labels promised more than they tested (the order of the news, the age limit,
+  the length of the excerpt); they now test it, and both scripts have a 20-day-old post that
+  must be shown. Taken: the countdown's moments that only happen in a browser were tried there
+  (below). Not taken: reworking how calls waiting for a rating are found, which this change did
+  not touch. Astra confirmed that the front page is unchanged letter for letter, that the home
+  page and "Past calls" never show the same call or miss one, and found no leak of a name, photo
+  or picture.
+  Second round, on the fixes: nothing that must be fixed; one more check made exact (the news
+  excerpt is compared letter for letter).
+
+- *CodeRabbit, on the code's pull request (61).* Two points, both taken. Past calls showed their
+  date without the year, so two calls a year apart could look alike: the year is shown there
+  now. And the countdown counted from a time taken before the page had read its data, so it ran
+  behind by however long the reading took: the time is now taken after the reading. After these
+  two fixes `scripts/home-check.ts` (44) and `scripts/journey-check.ts` were run again; both pass.
+
+**How it was checked.** 642 automatic tests on the code, 21 of them new (which call is next, the
+countdown's words, how long ago a start was, days on both sides of midnight and on the day the
+clocks change). On this computer, against the local database, after Astra's fixes:
+`scripts/home-check.ts` (new), 44 checks against the running app, with people it signs up itself
+(someone new; the next call among cancelled, reported and finished ones; an open room; a call
+that is not paid; someone who hosts; followed hosts, also for a follower the host has blocked;
+the news with its limits and pictures; nobody else's calls; 51 past calls over two pages);
+`scripts/follow-emails-check.ts`, 99 checks, 2 of them changed and 1 new (ten at most, 30 days,
+a 20-day-old post); `scripts/follow-check.ts`, 90 checks; `scripts/journey-check.ts`, all passed,
+with the founder's pages skipped because the test admin's login is not set up here. Before
+Astra's fixes, which touch none of its code: `scripts/accounts-check.ts`, all passed.
+
+One run of `follow-emails-check` had one failed check (about sending an email) while another
+session's check script was running on the same test database. Run again alone, all 99 pass.
+
+In a browser, as two test people, at phone size and desktop size: the page with several calls,
+grouped as "Today", "Tomorrow" and a date; a countdown watched from 1:00 down to zero,
+"Checking…", then "The room is open" and "Enter the room" after the server's answer; a call
+whose booked end passed, the card moving on to the next call by itself, with two requests to the
+server in 80 seconds; "Past calls" with the call that had just ended. Not tried: a device whose
+clock is wrong (the countdown does not read the device's clock, it counts from the server's
+time), and a real phone.
+
+**Still open.** For the founder: the order of the page and the list instead of a week calendar
+are the builder's choices and easy to change now that the page can be looked at. The suggested
+hosts are plan 37, the next change.
+
+## A later change: uploading a photo, part one: hosts (plan 35, 19 November 2026)
+
+**Why.** A host's photo could only be the profile picture of a confirmed Instagram or TikTok
+account (plans 29 and 33). A host with a personal Instagram account gets nothing from Meta, and
+TikTok's sign-in is not open to real hosts yet, so those hosts kept the circle with a letter.
+The founder asked on 19 November 2026 whether hosts, and customers too, should be able to
+upload a photo, and said "Yes, plan both", then "Yes, build it". This turns round one line of
+plan 29, which had left uploading out on purpose.
+
+**What it is (part one, hosts).**
+- **"Upload a photo"** in the part "Your photo" of the Hosting page: a file field and a button,
+  for every host with a profile, whether or not they have a confirmed account. The buttons for
+  Instagram and TikTok stay beside it.
+- **The same rules as a photo from a network:** checked by an outside service before anyone
+  sees it, never shown after only Connect's own checker; a refused picture stays refused; the
+  old photo stays until the new one has passed; one photo at a time; five tries in any 24
+  hours, counted together with tries from Instagram and TikTok; diary pictures first.
+- **What is kept:** only Connect's own copy, a square cut from the middle of the picture, at
+  most 512 points on each side, never enlarged. A JPEG, PNG or WebP of up to 10 MB can be sent.
+- **An uploaded photo belongs to no social account.** Removing or changing a confirmed account
+  leaves it alone; a photo taken from an account still goes with its account.
+- **A picture refused or locked in the host's diary is refused as a photo too.** A diary keeps
+  the whole picture and a photo keeps a square, so their fingerprints differ; an upload makes
+  the diary's kind of copy as well, only to compare, and throws it away.
+
+**The builder's decisions** (the founder can change any; all ten are in plan 35): one photo for
+each account; no mark on the public page for where a photo came from; no cropping tool; the
+tables keep their names (`host_photos`, `host_photo_tries`) although they will hold customers'
+photos in part two.
+
+**What was built.**
+- **Database:** migration `0044_photo_uploads`. Both tables take `upload` as a source; the
+  account's name and number may be empty, and the database allows that only for an upload.
+- **`src/lib/profiles/photo.ts`:** `uploadPhoto`, the same three steps as a network's try. The
+  start asks for no confirmed account. "Fetch the picture" became "get the original", which for
+  an upload reads the file out of the request, only after the start has said yes, and while the
+  server's one place for pictures is held. The finish compares no account.
+- **`src/lib/projects/copy.ts`:** `makeCopy` takes one option, a square.
+- **`src/app/photo/route.ts` (new):** the address a photo is uploaded to, built like the
+  diary's: only from Connect's own page, a logged-in person who is not paused, a file form that
+  does not say it is too large. Where the browser is sent afterwards is decided on the server.
+- **`src/lib/projects/upload-body.ts` (new):** reading one file out of a request, moved out of
+  the diary's address so both use the same code. The diary's address behaves as before.
+- **The pages:** the Hosting page's form and words; "Uploaded" in place of the network and
+  account on the Hosting page and the founder's page; one paragraph on the privacy page; one
+  sentence on the rules page.
+
+**Said plainly: what this does not protect against.** Nothing compares an uploaded face with
+anyone: a host could upload someone else's picture. The founder approves every host's page,
+sees every photo on the admin page and can remove one. And the child-safety tool is still not
+set up (plan 23): an uploaded photo comes straight from a person's device, as a diary picture
+already does, and no picture is compared with the list of known pictures of child abuse.
+
+**Tried for real (19 November 2026),** on this computer, as the local test host, in the
+built-in browser on a test server of its own:
+- A real JPEG of 4,032 by 3,024 points and 1.9 MB was uploaded through the form. OpenAI's real
+  check passed it in 1.5 seconds. What was kept is a square of 512 points, 16 KB. The host was
+  sent back to "Your photo" with "Your photo passed the check and is saved", and it replaced
+  the photo the host had from TikTok.
+- The host's page and "Find a host" showed it in place of the letter; phone-sized (375 points
+  wide) the form fits the screen.
+- A second upload at the five-a-day limit was refused with its sentence, and the browser
+  followed the answer although the 1.9 MB it was sending were never read.
+- The test host's own photo and tries were put back afterwards.
+
+Not seen for real: a picture a service refuses, a file over 10 MB sent from a real phone, and
+the founder's page with an uploaded photo (the check script covers all three).
+
+**What the reviewers found.**
+- *Astra, on the plan:* "ready with changes", five points, all taken. The two that mattered: a
+  square photo and a whole diary picture never share a fingerprint, so the rule "refused in the
+  diary, refused as a photo" would have stopped working for uploads without anyone noticing;
+  and the rule plan 32 uses for a host's notes lets in a member's booking that is still waiting
+  for its payment, which part two must not reuse unchanged.
+- *Astra, on the code:* "ready", nothing that had to change. Two of its three suggestions were
+  taken, both tests: a request that stalls is given up on and let go of; and the diary picture
+  in the check now really goes through the diary's own upload step. The third was first left
+  out and then taken in one direction, when the automatic security review of the commit raised
+  it too: a picture refused as a photo from Instagram or TikTok is now also refused when the
+  very same file is uploaded (a host can save their own profile picture and upload it). Not
+  taken: the other direction, a picture refused as an upload and then set as the Instagram
+  picture. Instagram makes its own file of what it is given, so the two would not match.
+
+- *CodeRabbit did not review this one.* It answered that its review limit was reached for the
+  next 50 minutes, and the founder's rule for that case is not to wait. The builder read the
+  whole change once more, line by line, and found only comments in the code that still said a
+  host's photo comes from a social media account alone; they now name uploads too.
+
+**How it was checked:** 628 automatic tests on the code (new: the square copy, and the
+sentences after an upload); three new journeys of 71 checks in `scripts/photo-check.ts` (255 in
+all): each way an upload can end, a start that says "no" never reading the file, a refused
+picture staying refused (also one refused in the diary, sent through the diary's own upload
+step), an upload while the photo is removed, the account closed or paused, or a confirmed
+account changed, and the upload's address through the running app; `scripts/project-check.ts`
+passing (311), with the diary's address now on the shared reader; all 22 check scripts once
+more, taking turns with another session on the shared test database; the real try above.
+
+**Still open.** Part two (customers). The founder's ten decisions in plan 35. The lawyer: the
+privacy page's new words. Before the child-safety tool is switched on, uploaded photos have to
+be brought under it with the others (plan 29's list).
+
+## A later change: suggested hosts (plan 37, 19 November 2026)
+
+**What the founder asked for.** "Also possibly some hosts suggestions - the suggestions should
+have an algorithm, not sure what's the best algorithm for that, maybe if other people who also
+talk with the hosts existing user talked to, some other hosts these other users talk to, we can
+use those as a suggestion?" The founder asked for research into how TikTok, Instagram, YouTube
+and Facebook do it; the builder and Astra each did that separately before the plan was written.
+
+**What was decided** (in `plans/37-suggested-hosts.md`).
+- *The founder's:* the "people who follow the same hosts" idea is built in from the first day,
+  with a bar of three different people. Astra had advised ten and switched off at the start.
+- *The builder's:* up to six hosts the person does not know yet, who have open times. The order
+  comes from three kinds of points: being free sooner (20 now, 10 within a week), people behind
+  the host (3 each from three people on, 20 at most), and ratings (1 to 5, a new host counts as
+  4). Places 3 and 6 are kept for the hosts whose card was seen by the fewest different people
+  that week. A person's suggestions are made once a day and stay the same that day. An X hides a
+  host for good. The row never says why a host is there.
+- Changed on the way, and told to the founder: a call does not count for more than a follow.
+  Telling a call that took place from a booking nobody came to needs the whole attendance
+  record, and one person's call would have moved a host up or down.
+
+**What was built.** Three small tables (`suggestion_days`, `suggestion_shows`,
+`suggestion_hides`; database change 0045). The plain rule in `src/lib/suggestions/rules.ts`.
+Reading and writing in `src/lib/suggestions/suggestions.ts`. The row
+(`src/components/suggested-hosts.tsx`) on the home page. A small part that runs in the browser
+(`src/components/suggestions-watch.tsx`) asks for the day's suggestions to be made a moment after
+the page is there, and reports each card that is at least half on the screen; drawing the page
+never writes. The helper deletes what was suggested after 90 days; an X is kept.
+
+Different from the plan as first written, and said in the plan since: only a host who was
+really suggested to a person can be hidden by them; a host for whom the person once hosted a
+call is left out too; the check script can limit which hosts are looked at and whose old lines
+are deleted, because the test database is shared.
+
+**What the reviewers found.**
+- *Astra, on the plan (two rounds, "ready with changes" both times).* Taken: equal points for
+  every person instead of more for a call; a day's suggestions are made by a request from the
+  browser and written in one step under a lock, never while a page is drawn; "seen" is kept per
+  card; closed and paused accounts and blocked follows do not count; the working out happens
+  before the locked step, so it cannot wait for a database connection that other locked steps
+  hold. Not taken: checking each customer's own limits for every suggested host.
+- *Astra, on the code, first round ("ready with changes", six points), all taken.* A host who
+  had blocked the viewer still counted as one of "your hosts", because a block leaves the follow
+  standing: left out now. The check script deleted old lines of everybody and said it touched
+  nobody else's data: it now deletes only its own. The X accepted any handle, so made-up
+  requests could pile up lines: only a suggested host can be hidden now. The part that asks for
+  the day's suggestions could get stuck after midnight or after a failure: it starts afresh
+  each day and tries three times. A card that only touched the edge of the screen counted as
+  seen: half of it must be there now. Three checks proved less than their labels said: they
+  now use a person for whom the day's own order would give the opposite result on equal points.
+  Also taken: "available now" is only asked of a host who says so, which saves about a third of
+  the reads for a row. Astra found no leak of names or counts and no half-written day.
+- *Astra, on the code, second round.* All six points resolved, nothing that must be fixed. One
+  tidy-up taken: the part that asks for the day's suggestions now notes whether it is still on
+  the page when the answer comes, and clears its one timer when it leaves.
+
+- *CodeRabbit, on the pull request (63).* Its review limit was reached, so the builder reviewed
+  the pull request line by line himself, by the founder's rule for that case. Two things found
+  and changed: a paused person no longer gets an empty day written (they would have had no
+  suggestions on the day their pause ended), and the plan now says what the row costs in
+  questions to the database.
+
+**How it was checked.** 661 automatic tests on the code, 19 of them new (the points from people
+below and above the bar and at the cap, the rating pulled toward 4, the three steps of open
+time, the six places with few, exactly six and many hosts, the same order for the same person
+on the same day and another one the next day). On this computer, against the local database,
+after Astra's fixes: `scripts/suggestions-check.ts` (new), 87 checks: the plan's example; who
+counts as a person behind a host (once, not with an ended follow, a closed or paused account,
+or a block, also the viewer's own); fifteen kinds of host that must never be suggested; the
+kept places and what "seen" counts; once a day, also with three requests at the same moment;
+what changes during the day; marking cards as seen; what is deleted when; and the real page
+(drawing writes nothing; no name or count of the people behind a suggestion).
+`scripts/home-check.ts` (44), `scripts/journey-check.ts` and `scripts/accounts-check.ts` again
+with the row in place: all pass (the founder's pages in the journey are skipped here, as
+before).
+
+In a browser, as a test person, at phone size: the row appearing by itself a moment after the
+page; six cards with photo letter, name, "New on Connect", price and next open time; after
+scrolling so that two cards were at least half on the screen, exactly those two marked as seen
+in the database; the X removing a host, with a short notice, and its place staying empty; and,
+by chance, hosts whose accounts a check script deleted meanwhile disappearing from the row.
+Not tried: a failure of the request that makes the day (the three tries), and a tab left open
+over midnight.
+
+**An automatic security review of the pushed code** raised one point: with two made-up accounts
+a person can supply two of the three people behind a host, and then learn from their own
+suggestions that at least one more person follows the same two hosts (not who). Nothing in the
+code was changed for it: the bar of three is the founder's decision. It is written into the plan
+as an accepted risk, with two small ways to tighten it later, and into the lawyer's file.
+
+**Tightened the same day.** Told of that point in plain words, the founder said: "we can tighten
+it a bit now if it has no harm". An account now counts as one of the people behind a host only
+once it is at least three days old (`SUGGEST.minAccountDays`; the rule's version is 2 from here), so accounts made for the purpose are worth nothing
+at first. The cost: a new person's follows start to count three days after they joined, and in
+the first three days after the app opens this part gives no points. The trick is slower, not
+impossible; the bar of three is unchanged. `scripts/suggestions-check.ts` has four more checks
+for it (91 in all), one of them to the millisecond. Its first run failed: a date was handed to the
+database in a form it does not take inside a hand-written question, so the count could not be
+asked at all; fixed before anything was merged. Astra reviewed the change ("ready with changes"):
+taken, the rule's version goes from 1 to 2, the exact boundary is checked, and the documents say
+"at least three days old"; Astra confirmed that nothing in the app can reset or backdate when
+an account was made, and that "tightened a little, not closed" is an honest description.
+
+**Still open.** For the founder: every number of the rule is a starting value in
+`src/lib/suggestions/rules.ts`, to be adjusted when there is something to learn from; the bar
+of three is the founder's to raise. With few people the row is mostly open times, ratings and
+the kept places. For the lawyer (`docs/for-the-lawyer.md`, sections 4 and 7): the two EU rules
+about explaining suggestions and ranking, and using follows for suggestions. Not built:
+bringing a hidden suggestion back, a switch to turn personal suggestions off, and filters.
+
+## A later change: hosts cannot set free calls (plan 40, 19 November 2026)
+
+**What the founder decided.** Asked whether hosts could be free, and told that a host could set a
+price of zero: "no. hosts must charge something, and that something should cover our expenses
+with livekit." Then, with the numbers below: "we keep $5 per 15 minutes as the minimum for now,
+hosts can't set free calls." This changes decision 9 of `plans/02-payments.md`.
+
+**The numbers the founder was given** (LiveKit's own pricing page on that day; Stripe's standard
+US fees as in plan 2). A 15-minute call at $5: Connect's fee about 55 cents (4.9% and 30 cents),
+Stripe's card fee about 45 cents, Stripe's share of the payout about 1 cent, the video about 6 to
+9 cents once LiveKit's monthly allowance is used up (the $50 plan includes 150,000 minutes and
+250 GB a month; then $0.0005 a minute for each person and $0.12 a GB). About 0 to 3 cents are
+left. The video figure is the builder's estimate of the data a call uses, not a measurement.
+Nothing is left for the monthly costs: LiveKit's plan, hosting, and Stripe's $2 in a month in
+which a host is paid (an inactive host costs nothing). Two ways to make every call cover its
+video were offered, a small video charge in the fee or a higher minimum; the founder chose
+neither for now.
+
+**What was built.** The two places where a host's price is set (applying, and saving the
+profile) refuse a price under $5, zero included (`hostPriceProblem` in
+`src/lib/payments/pricing.ts`). The Hosting form says "at least $5" and its field takes no less.
+Two sentences for customers no longer speak of "booking a free call". No change to the database.
+The rules for a call without a price stay in the code: a call keeps the price it was made with,
+and the check scripts use them to try calls without Stripe; no new host can reach them.
+
+**What the reviewers found.** *Astra* (plan and code together, one round): "ready", nothing that
+must be fixed. It went through every way a price is set or copied and found each closed for a
+new host, found no check script that was missed, and judged it sound to leave the rules for
+calls without a price in place while the live database starts empty. One point taken: the
+sentence for a host at zero says more clearly what changes.
+
+**How it was checked.** 671 automatic tests, 3 of them new (the lowest price, zero, not a whole
+number of cents). On this computer, against the local database: `scripts/accounts-check.ts`, 218
+checks, one of them new (a price of zero is refused, with its sentence); `scripts/journey-check.ts`,
+60 checks (the founder's pages skipped here, as before); journey 17 of
+`scripts/membership-check.ts` (a host with a membership cannot go to zero either). In a browser,
+as the test host: the form says "at least $5" and refuses 0. Not seen in a browser: the sentence
+for a host who is at zero, because no test host that can be logged in as is at zero. That
+sentence was reworded after the scripts ran; they do not read it.
+
+**Still open.** Before launch: test hosts and their requests must never be copied into the live
+database. For the founder: whether a $5 call should later carry a small video charge, once real
+calls show what the video costs.
+
+## A later change: uploading a photo, part two: customers (plan 35, 19 November 2026)
+
+**Why.** The second half of plan 35. The founder: "Customers also can upload photos yes? I
+think that would be good."
+
+**What it is.**
+- **For a customer:** a new part "Your photo" on the Account page, with a file field, "Upload a
+  photo" and "Remove". It is optional. The rules are part one's: checked by an outside service
+  before anyone sees it, a refused picture stays refused, one photo at a time, five tries in 24
+  hours, a square from the middle of at most 512 points.
+- **Who sees a customer's photo:** only hosts that customer has really asked for a call (a
+  request that was sent, or a member's booking whose call was made), the customer, and the
+  founder. It stops for a host when either of the two blocks the other, and when the
+  customer's account is closed. No browser may keep such a photo.
+- **Where a host sees it:** a small circle beside the customer's name on the list of requests,
+  on the "Available now" page, and on the page of one request or booking. The first letter of
+  the name when the customer has no photo.
+- **One photo for each account.** A host's photo is on the Hosting page as before, and the
+  Account page of a host points there. A host who asks another host for a call is shown there
+  with their host photo; the Hosting page says so. A customer who becomes a host keeps their
+  photo, and it is shown to everyone once their page is open to everyone.
+- **For the founder:** the list of photos on the page for people now has everyone's, with "(not
+  a host)" beside a customer. "Remove", "Remove and report" and "I have made the report" work
+  for a customer's photo as for a host's. A report made from a call or a request keeps the id
+  of the photo the reported person had.
+
+**The founder asked, while it was being built,** whether hosts a customer follows see the photo
+too. They do not: hosts never see who follows them (plan 30), so there is no place for it, and
+following is a light step that should not show a person's face to anyone. The founder was told
+so and that showing hosts their followers would be a feature of its own.
+
+**What was built.**
+- **`hasAskedHost` in `src/lib/people/contacts.ts`:** the rule a host's notes already went by
+  (plan 32), now under a name of its own and used for photos too. **Made stricter for both:** a
+  member's booking counts only once its call exists. Such a booking is written down before the
+  month's payment has gone through, and the host cannot see it until then.
+- **`src/lib/profiles/photo.ts`:** an upload no longer needs a host profile (a photo from a
+  network still does). `photoFor` hands a photo that is not open to everyone to its owner, the
+  founder, and a host the owner has asked. `photosForHost` gives a host's pages the ids of the
+  photos that host is handed, and of no others. `photosForAdmin` can list everyone's.
+- **`src/app/photo/route.ts`:** sends a person without a host profile back to the Account
+  page. Which page is decided from the login.
+- **The pages:** the Account page and its "Remove"; the requests list, "Available now" (its
+  list gains `photoId`) and the booking page; the Hosting page's one new sentence; the
+  founder's pages for people and for reports; the privacy page.
+- **No change to the database.**
+
+**What the reviewers found.**
+- *Astra, on the code:* "ready with changes". One point had to change: the page of one booking
+  asked for the customer's photo id without asking the rule, so a host the customer had
+  blocked, or a host in a founder's test call, could have seen whether the customer has a
+  photo and when they change it. All three host pages now go through `photosForHost`. Also
+  taken: the Account page and the privacy page said "nobody else" sees a customer's photo,
+  which left out Connect's own staff; they now say so. And two checks were made real: what the
+  "Available now" page asks for is now read through the running app, and a customer's report
+  of a host is checked against a host who has a photo. Not taken: logging in as the founder
+  through the running app to fetch a photo; the script already reads that the photo's address
+  counts a founder only with the second login step.
+
+- *CodeRabbit did not review this one either.* It answered "review rate limited", with the next
+  review 56 minutes away, and the founder's rule for that case is not to wait. The builder read
+  the whole change once more, line by line, and changed one name in the upload's address.
+
+**Tried for real (19 November 2026),** on this computer, in the built-in browser on a test
+server of its own, with OpenAI's real check:
+- As the local test customer: "Your photo" on the Account page, a real photograph uploaded
+  through the form, passed by the check in about a second, kept as a square of 512 points, and
+  the customer was sent back with "Your photo passed the check and is saved. Hosts you ask for
+  a call see it beside your name."
+- Not logged in, the photo's address answered "not found". Logged in as its owner it answered
+  with the picture and "do not keep".
+- As the local test host, whom that customer had asked before: the page of that request showed
+  the customer's photo beside "Request from Cory Customer", also phone-sized (375 points wide,
+  nothing wider than the screen), and the photo's address answered the host with "do not keep".
+- The Account page of the host said "Your photo is on your Hosting page", and the Hosting page
+  carried the new sentence.
+- The test customer's photo and try were removed afterwards.
+
+Not seen for real: the list of requests and "Available now" with a waiting request (the script
+reads both through the running app), a block, and the founder's page with a customer's photo.
+
+**How it was checked:** 650 automatic tests on the code; a new journey of 29 checks in
+`scripts/photo-check.ts` on who is and is not handed a customer's photo, and 10 more through
+the running app (293 in all); `scripts/ratings-check.ts` and `scripts/member-calls-check.ts`
+passing with the stricter rule for notes; `scripts/verified-check.ts` with the new field; all
+23 check scripts once more, taking turns with another session on the shared test database.
+One check of `scripts/project-check.ts` fails on main since the home page (pull request 61)
+and has nothing to do with photos; the session that built the home page corrected it in pull
+request 66.
+
+**Said plainly.** A customer's photo proves nothing about who they are; "ID confirmed" stays
+the only sign of that. Nothing compares an uploaded face with anyone. The child-safety tool is
+still not set up. A host who was asked can keep seeing the photo until the customer removes
+it, blocks the host, or closes the account.
+
+**Still open.** The founder's choices in plan 35, above all "one photo for each account" and
+"no mark for where a photo came from". The lawyer: the privacy page's new words, and keeping
+customers' photos at all. Before the child-safety tool is switched on, every photo has to be
+brought under it. Left out on purpose: the photo on the home page's list of calls, the
+contacts page, the list of members, the call screen and in emails; the host's photo on the
+customer's own pages.
+
+## A correction after the home page: one check of the project script (19 November 2026)
+
+`scripts/project-check.ts` keeps a list of the pages that may use the code of projects, posts and
+pictures, and fails when any other page does. The home page (plan 36) shows the first picture of
+a diary post and so uses `picturesOf`; the list did not name it, and that one check failed on
+`main` from pull request 61 on. The builder had run the scripts that read the home page, not this
+one; the session building photo uploads found it in its own full round and said so.
+
+Corrected: the home page is on the list of the reader's pages, with the reason, and a new check
+beside it: the home page takes exactly one thing from that code, the reader's question about
+pictures, and never asks it as the host. The page itself did not change. Checked: journey 18 of
+`scripts/project-check.ts`, all pass; the other journeys of that script passed in the other
+session's round. Learned: after a page starts to use code of another feature, run that feature's
+own check script too, not only the scripts that open the page.
+
+CodeRabbit reviewed the correction and made two points about the new check, both taken: it now
+reads every import from that code whichever quotes it is written with, and it refuses the word
+`forHost` anywhere on the home page instead of trying to read the call. Journey 18 passes again.
+
+## A later change: suggested hosts, fewer at once, rotating, and no ceiling (plan 41, 19 November 2026)
+
+**What the founder asked for.** After seeing how the row works: ten people behind a host should
+come before three; "maybe not too many suggestions, this way the home page is not noisy and
+overwhelming"; and "we periodically rotate the suggestions", because a customer who has seen a
+suggestion probably does not want to see it again, unless they opened it. Told that the points
+stopped at seven people: "why? why even a ceiling". About interest: "this happens each time if
+someone shows interest". Then: "Yes, build them".
+
+**What was decided** (`plans/41-suggestions-fewer-and-rotating.md`). The founder's: fewer at
+once, resting what was seen, interest brings a host back every time, no ceiling. The builder's
+numbers: three shown and "Show more" for the other three; a host rests when the person saw the
+card on two different days without opening it, for as long as those days are no more than
+fourteen back; nine points at three people and six more for each doubling.
+
+**What was built.** The row shows places 1 to 3 and keeps 4 to 6 in a closed "Show 3 more"; a
+card in the closed part is not counted as seen. Pressing a host's name on a card is written on
+that card's line (`suggestion_shows.opened_at`, database change 0046). When a day's suggestions
+are made, the person's own lines of the last two weeks say who rests; resting hosts are left out
+and fill the row only when fewer than three fresh hosts fit. `peoplePoints` has no ceiling. The
+rule's version is 3. The explanation under the row has two more sentences.
+
+**A correction to what the founder was told.** The builder had said that a host with a hundred
+people behind them "cannot bury" a host who is available now. Too strong: a hundred people are
+worth about 39 points, "available now" 20. True is: being available now is worth as much as ten
+times the people, and two of the six places are kept for hosts shown less. The founder was told.
+
+**What the reviewers found.** *Astra* (plan and code together), "ready with changes", six
+points, all taken. An opening was counted on the day of the card and not on the day of the
+press, so an older card pressed later did not answer the sightings in between: the day of the
+press counts now. When resting hosts filled a row, the third could be the one seen the least
+instead of the one with the most points: fillers are the most points first now. A press of the
+right mouse button counted as an opening: no longer. Checks that proved less than their labels;
+the limits of the look-ups and softer words in the plan; and rounding that made 894 and 895
+people worth the same. Astra found the day arithmetic sound and nothing that lets one person
+learn about another. Its first run was cut short because the builder switched the working folder
+to another branch to resolve a merge conflict; it was run again from the start.
+
+**How it was checked.** 681 automatic tests, 13 of them new or changed for this (the points at
+3, 6, 12, 24 people and that they always grow; resting after two sightings, not from cards that
+never came into view, free again after an opening every time, the fourteen days to the day, an
+older card pressed later; fillers by points). On this computer, against the local database and
+the running app, after Astra's fixes and after merging `main`: `scripts/suggestions-check.ts`,
+110 checks, 23 of them new (resting, interest on successive days, the two weeks, a thin row
+filled, a row of only resting hosts, a late press, openings and what made-up arguments can do,
+"Show more" closed with three cards behind it); `scripts/home-check.ts` (44); journey 18 of
+`scripts/project-check.ts`. In a browser at phone size, before Astra's fixes: three cards and
+"Show 3 more"; with it closed, only the first three cards marked as seen; after opening it, the
+other three marked too; pressing a host's name opened the page and was written on that card.
+Not tried in a browser after the fixes: the middle and right mouse buttons, and a press on a
+card of an older day (both are covered by the script or by reading the code, not by hand).
+
+**Still open.** For the founder: the numbers are starting values. Without a ceiling, made-up
+accounts can push a host further than before (seventy accounts about 36 points, where the
+ceiling was 20); the bar of three and the three-day rule slow it. For the lawyer: openings are
+now recorded (`docs/for-the-lawyer.md`, section 4).

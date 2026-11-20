@@ -9,7 +9,7 @@ const subscribe = () => () => {};
  * The server cannot know the viewer's zone, so it sends the UTC time and the
  * local version appears once the page is running in the browser.
  */
-export function LocalTime({ iso, seconds = false }: { iso: string; seconds?: boolean }) {
+export function LocalTime({ iso, seconds = false, year = false }: { iso: string; seconds?: boolean; year?: boolean }) {
   const inBrowser = useSyncExternalStore(
     subscribe,
     () => true,
@@ -18,6 +18,8 @@ export function LocalTime({ iso, seconds = false }: { iso: string; seconds?: boo
 
   const text = inBrowser
     ? new Date(iso).toLocaleString(undefined, {
+        // Only where dates from other years stand side by side (past calls).
+        year: year ? "numeric" : undefined,
         month: "short",
         day: "numeric",
         hour: "numeric",

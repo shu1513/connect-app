@@ -14,6 +14,9 @@ export const FOLLOW = {
   perRound: 50,
   /** The list and the home page ask the server again this often while the tab is in front. */
   refreshSeconds: 60,
+  /** "News from your hosts" on the home page: at most this many diary posts, from the last so many days (plans/36). */
+  newsPosts: 10,
+  newsDays: 30,
 } as const;
 
 /**

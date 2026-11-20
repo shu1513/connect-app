@@ -19,8 +19,12 @@ const UNREADABLE = "That file could not be read as a picture. Please try another
 /**
  * The copy of this file, or a ProjectError with words for the host. Heavy work: the caller makes
  * sure only one picture is worked on at a time.
+ *
+ * With `square`, the copy is a square cut from the middle of the picture, at most that many points
+ * on each side and never enlarged: what a person's uploaded photo is (plans/35). Everything else
+ * about the copy is the same.
  */
-export async function makeCopy(original: Buffer): Promise<Copy> {
+export async function makeCopy(original: Buffer, options: { square?: number } = {}): Promise<Copy> {
   if (original.length > PICTURE.uploadMaxBytes) throw new ProjectError("A picture can be up to 10 MB.");
   const kind = pictureKind(original);
   if (!kind) throw new ProjectError(WRONG_KIND);
@@ -41,6 +45,9 @@ export async function makeCopy(original: Buffer): Promise<Copy> {
   if (!seen.width || !seen.height) throw new ProjectError(UNREADABLE);
   if (seen.width * seen.height > PICTURE.maxPixels) throw new ProjectError("That picture is too large. Please use one with fewer than 50 million points.");
   if (Math.min(seen.width, seen.height) < PICTURE.minSide) throw new ProjectError(`That picture is too small. It needs at least ${PICTURE.minSide} points on each side.`);
+  // A square is as large as the picture's shorter side allows, up to the size asked for. (Turning the picture the
+  // right way up swaps its sides at most, so the shorter side is the same before and after.)
+  const square = options.square ? Math.min(options.square, seen.width, seen.height) : null;
 
   for (const quality of PICTURE.qualities) {
     let made: { data: Buffer; info: OutputInfo };
@@ -48,7 +55,7 @@ export async function makeCopy(original: Buffer): Promise<Copy> {
       made = await open()
         // Turned the right way up first: the note that says which way is up is among what is left out.
         .rotate()
-        .resize({ width: PICTURE.side, height: PICTURE.side, fit: "inside", withoutEnlargement: true })
+        .resize(square ? { width: square, height: square, fit: "cover", position: "centre" } : { width: PICTURE.side, height: PICTURE.side, fit: "inside", withoutEnlargement: true })
         // White behind anything see-through: a JPEG cannot be see-through.
         .flatten({ background: "#ffffff" })
         // Written in standard colours (the file's own colour description is used for that, then left out),
