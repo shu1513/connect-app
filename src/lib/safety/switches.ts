@@ -11,10 +11,29 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 export type MembershipsSwitch = "off" | "named" | "everyone";
-export type Switches = { requestsOff: boolean; joiningOff: boolean; memberships: MembershipsSwitch; membershipsHosts: string[]; projects: MembershipsSwitch; projectsHosts: string[]; tipsOff: boolean };
+/** Memberships in the phone apps: everything; only spending time already paid for; or only seeing and cancelling one's own. */
+export type AppMembershipsSwitch = "on" | "use_only" | "off";
+export type Switches = {
+  requestsOff: boolean;
+  joiningOff: boolean;
+  memberships: MembershipsSwitch;
+  membershipsHosts: string[];
+  projects: MembershipsSwitch;
+  projectsHosts: string[];
+  /** Tips on the website (plans/44, decision 12): on unless the founder switched them off. */
+  tipsOff: boolean;
+  /** The four switches for the phone apps (plans/45-phone-apps/01-the-door.md). The website does not read them. */
+  appMemberships: AppMembershipsSwitch;
+  appTips: boolean;
+  appAvailableNow: boolean;
+  /** The oldest version of the app still allowed, or "" for none. */
+  appOldestVersion: string;
+};
 
 /** A saved position, read strictly: anything that is not one of the three words counts as "off", the safe side. */
 const asPosition = (value: string | undefined): MembershipsSwitch => (value === "named" || value === "everyone" ? value : "off");
+/** The same strict reading for the apps' memberships switch: anything that is not one of the three words counts as "off". */
+const asAppPosition = (value: string | undefined): AppMembershipsSwitch => (value === "on" || value === "use_only" ? value : "off");
 
 /**
  * Code that is inside a database step of its own passes that step as the reader, so it never
@@ -34,6 +53,11 @@ export async function switches(reader: Pick<typeof db, "select"> = db): Promise<
     projectsHosts: (row?.projectsHosts ?? "").split(",").filter(Boolean),
     // Tips are on unless the founder switched them off (plans/44, decision 12): no row yet means on.
     tipsOff: row?.tipsOff ?? false,
+    // The apps: before the founder has saved any switch, each is where its column starts.
+    appMemberships: row ? asAppPosition(row.appMemberships) : "on",
+    appTips: row?.appTips ?? false,
+    appAvailableNow: row?.appAvailableNow ?? true,
+    appOldestVersion: row?.appOldestVersion ?? "",
   };
 }
 
@@ -51,6 +75,10 @@ export async function setSwitches(values: Partial<Switches>, writer: Pick<typeof
     ...(values.projects !== undefined ? { projects: asPosition(values.projects) } : {}),
     ...(values.projectsHosts !== undefined ? { projectsHosts: [...new Set(values.projectsHosts)].join(",") } : {}),
     ...(values.tipsOff !== undefined ? { tipsOff: values.tipsOff } : {}),
+    ...(values.appMemberships !== undefined ? { appMemberships: asAppPosition(values.appMemberships) } : {}),
+    ...(values.appTips !== undefined ? { appTips: values.appTips } : {}),
+    ...(values.appAvailableNow !== undefined ? { appAvailableNow: values.appAvailableNow } : {}),
+    ...(values.appOldestVersion !== undefined ? { appOldestVersion: values.appOldestVersion } : {}),
     updatedAt: new Date(),
   };
   await writer

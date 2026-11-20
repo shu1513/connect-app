@@ -76,6 +76,32 @@ export async function switchesAction(formData: FormData) {
 }
 
 /** The memberships switch: off, on for the hosts named by their handle, or on for everyone. */
+/**
+ * The switches for the phone apps (plans/45-phone-apps/01-the-door.md). The server reads them for
+ * every request of an app, so a thing switched off here is refused to the apps, not only hidden.
+ * (No app can pay for a membership yet. When one can, turning memberships to a stricter position
+ * must first end the payments an app has begun: plans/45-phone-apps/13-memberships.md.)
+ */
+export async function appSwitchesAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const chosen = String(formData.get("appMemberships") ?? "");
+  const appMemberships = chosen === "on" || chosen === "use_only" ? chosen : "off";
+  const appOldestVersion = String(formData.get("appOldestVersion") ?? "").trim();
+  // A slip in this field could tell every phone to update, or nobody. So it is saved only when it is a version, or empty.
+  if (appOldestVersion !== "" && !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(appOldestVersion)) {
+    back("The oldest allowed version must look like 1.2.0, or be left empty. Nothing was changed.");
+  }
+  const values = { appMemberships, appTips: formData.get("appTips") === "on", appAvailableNow: formData.get("appAvailableNow") === "on", appOldestVersion } as const;
+  await setSwitches(values);
+  const membershipWords = { on: "on", use_only: "on, but nothing is bought in the app", off: "off" }[appMemberships];
+  await recordAdminAction({
+    adminId: admin.id,
+    action: "phone app switches set",
+    detail: `memberships ${membershipWords}; tips ${values.appTips ? "on" : "off"}; available now ${values.appAvailableNow ? "on" : "off"}; oldest version ${appOldestVersion || "none"}`,
+  });
+  back("The switches for the phone apps were saved.");
+}
+
 export async function membershipsSwitchAction(formData: FormData) {
   const admin = await requireAdmin();
   const chosen = String(formData.get("memberships") ?? "");

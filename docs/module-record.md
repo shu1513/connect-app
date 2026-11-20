@@ -3956,6 +3956,58 @@ changed, so no check script was run.
 protects nobody; a lawyer's reading of every document; the blanks; the nine choices; and the
 14 changes to the app, none of which is built.
 
+## The phone apps, part 01: the door for the app (plan 45, 20 November 2026)
+
+**What this is.** Nothing a person can see. Until now almost everything the server does could
+only be asked for by the website's own pages. This part gives the phone app its own, small set
+of addresses on the server (they all start with `/api/app/`), and one gate that every one of
+them goes through. Every later part of the phone apps stands on it.
+
+**What was built.**
+- *The gate* (`src/lib/app-door/`). In this order: the request must come the app's way (the
+  app's own header, and none of a browser's marks); this copy of the app must not be older than
+  the oldest the founder still allows; and the person must be someone this address is for
+  (anyone; signed in with a confirmed email; also done with "18 and terms"; also not paused).
+  Each refusal has a fixed code and a sentence the app shows.
+- *The sign-in travels in a header of the app's own,* and an address for the app never reads a
+  browser's cookie. A page on Connect's own site cannot read the login cookie, so it has nothing
+  to put there.
+- *The opening address* (`GET /api/app/start`): must this copy update, what is switched on for
+  the apps, and who is signed in.
+- *Four switches for the apps* on the founder's page ("The phone apps"): memberships (on, use
+  only, off), tips, "available now", and the oldest version still allowed. Tips reach the
+  apps only when the website's own tip switch (plan 44) and the apps' tip switch are both on;
+  the apps' one is born off, and stays off until a store has said yes. The app is told afresh
+  each time it opens, so either switch works without a new version of the app.
+- *Signing in from an app* through the login tool, without taking its kit on the server: the
+  app's name is accepted as where a request comes from, and the links in emails can only lead
+  to the website.
+- *Thirty days from last use holds on a phone:* the app's addresses read the sign-in without
+  extending it; only the phone's own request to the login tool extends it.
+
+**What the building changed.** Listed in the plan (`plans/45-phone-apps/01-the-door.md`). Two
+of them change the website too, for the better: a closed account's sign-in is answered exactly
+like a wrong password, and which addresses count as "the website" for an emailed link is
+stricter.
+
+**What the reviewers found.**
+- *Astra, on the plan (two rounds):* the first draft made signing up impossible (the "18 and
+  terms" step sat behind the gate it opens) and credited the protection to the wrong thing.
+- *Astra, on the code (three rounds):* a page on Connect's own site could have added the app's
+  header (hence the sign-in in a header of its own); paths that the login tool tidies into
+  another site; a closed account told apart by its answer; the check script could have run
+  against the wrong database. All taken.
+
+**How it was checked.** On `main` with the tips merged: 775 automatic tests. `scripts/app-door-check.ts`, 95 checks at the end
+of this part (119 with part 03's), against a database made for checking only (it refuses any
+other). The database change (`0048_app_switches`, four columns on the row of switches) was applied with
+every earlier one to an empty database. The website's own `accounts-check` passes unchanged
+there (218 checks); `safety-check` and `journey-check` passed before the tips were merged in.
+The founder's form for the switches was tried by hand in a browser.
+
+**What the automatic checks cannot test.** A real phone. A real store build talking to a real
+server address.
+
 ## Two sentences the agreements need (20 November 2026)
 
 **Why.** The founder asked for the changes that let the drafted agreements go live

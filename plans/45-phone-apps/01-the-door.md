@@ -1,8 +1,10 @@
 # Phone apps, part 01: the door for the app
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone, from the code on `main`
-after pull request 74. Part of plan 45. Astra checked it once ("not ready"); every point was
-read against the code and is worked in (the list is at the end). Nothing here shows on any
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone, from the code on `main` after pull request 74. Part of plan 45. Astra checked
+the plan twice and the code twice; every point was read against the code and worked in. The
+building changed four things, listed under "What the building changed" near the end; where
+that list and a decision differ, the list is what was built. Nothing here shows on any
 screen: it is the server's side, on which every later part stands.
 
 ## For the founder: what this is
@@ -181,6 +183,31 @@ Any screen; any address beyond `start`; notifications (part 12).
 
 Nothing here takes or shows money. The tips switch for the apps is born off, and needs the
 website's own tip switch as well.
+
+## What the building changed (20 November 2026)
+
+1. **The sign-in travels in the app's own header, and an address for the app never reads a
+   browser's cookie.** Decision 3 kept browsers out by the app's header and a browser's own
+   marks. Astra's review of the code found the gap: a page on Connect's own site can add that
+   header, and an old browser, or one on a plain connection, sends no marks. So the app now
+   hands its sign-in over in a second header of its own, and the server reads the sign-in from
+   there and nowhere else. A page cannot read the login cookie (it is hidden from scripts), so
+   it has nothing to put there. The two earlier locks stay as well.
+2. **The server did not take the kit** (the note at the end of decision 1). A few lines in
+   `src/lib/auth.ts` do the one thing its server half was needed for, for exactly the app's
+   name. The kit's extra address, and its way of handing a login to an app link after an email
+   is confirmed, do not exist here.
+3. **A closed account's sign-in is answered exactly like a wrong password, on the website
+   too.** Before, the login tool gave a different answer ("failed to create session") that the
+   website's form hid but a careful eye could read; and an account closed before it was ever
+   confirmed was sent its confirmation email again. Both are gone.
+4. **Which addresses count as "the website"** for an emailed link is stricter than first
+   written: a path must mean the same before and after the login tool tidies it, because one
+   like `/.//another-site` is tidied into another site.
+
+The check script, `scripts/app-door-check.ts`, empties the table of attempt limits and
+rewrites the switches as it goes, so it only runs against a database made for checking (a
+name ending in `_check`), never the one other sessions share.
 
 ## Astra's check (20 November 2026): "not ready", now worked in
 
