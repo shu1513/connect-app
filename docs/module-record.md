@@ -4032,3 +4032,48 @@ touches these pages runs them.
 
 **Still open.** The other changes of that list follow in plan 46.
 
+## The phone apps, part 02: the app's frame (plan 45, 20 November 2026)
+
+**What this is.** The empty app. It opens on the Android test phone, looks like Connect, has its
+four places at the bottom (Home, Search, Calls, Account), and talks to the server through part
+01's door. It is also where the biggest unknown was settled first: the four kits the app stands
+on (LiveKit for video, Stripe for paying, better-auth for signing in, the phone's secure store)
+work together in today's versions, in the everyday test build and in a build made the way a
+store build is made.
+
+**What was built.** A new folder `mobile/`, a project of its own inside the repository (React
+Native with Expo 58): its own libraries, its own checks, and a second job on GitHub that runs
+them for every pull request. The website does not depend on it.
+- *One way of asking the server* (`mobile/src/lib/api.ts`): it adds the app's name and version
+  and the sign-in, and sends them to Connect's own server only, to an address of the door, over
+  a locked connection, and never on to wherever a redirect points.
+- *Opening:* "Opening Connect…", then the app; or "Cannot reach Connect" with "Try again"; or
+  "This version is too old" with no way on. Coming back to the app with no connection keeps the
+  screen the person was on.
+- *The look* (`mobile/src/ui/`): the website's warm colours and shapes, in light and dark,
+  growing with the phone's text size.
+- *Two test screens,* only in a test build. `mobile/README.md` says how to start the test phone
+  and how to try a store-style build.
+
+**What the building changed.** Nine things, listed in the plan. The ones that matter most: a
+store build of the Android app stopped twice on a part of Stripe's kit that Connect does not
+use, and a small piece of build code deals with that; the sign-in cannot follow a redirect;
+outside a test build the app sends nothing over a connection that is not locked.
+
+**What the reviewers found.**
+- *Astra, on the code (first round):* "not ready", nine points, all taken (a redirect could
+  have carried the sign-in elsewhere; any answer at all opened the app; plain `http` in every
+  build; two pages of the tools outside the app's frame).
+- *Astra, second round:* "ready with changes", four points, all taken (the test build copied
+  every request to the developer's computer; "too old" must be understood even in an answer
+  this copy cannot otherwise read).
+
+**How it was checked.** The app's own type check, lint and tests; Expo's health check 18 of 18.
+On the Android test phone, with pictures: opening, the server's answer, a restart, the five
+kits alive, dark mode, large text, "cannot reach Connect" and "Try again", the too-old screen.
+A store-style build with the test screens (opens, reaches the server, all kits pass), and one
+without (no test screens; with a plain address in its settings it sends nothing).
+
+**What cannot be tried here.** The iPhone build (this Mac's Xcode is too old). A real phone.
+
+**Left for part 20:** two small things seen on the test phone, noted in that part's plan.
