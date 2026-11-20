@@ -15,6 +15,12 @@ company yet.
 
 ## 1. The three documents every user agrees to
 
+- **First drafts now exist** (20 November 2026): `docs/legal/` holds the builder's drafts of the
+  Terms of Service, the Payment Terms, the Community Rules, the Host Agreement, the Privacy
+  Policy, a copyright and complaints policy and an identity-check notice, with Astra's own set
+  beside them. They are not in force. `docs/legal/README.md` lists the blanks, the choices made
+  and the points where the two drafts differ. Every one of them needs a lawyer's reading.
+
 - **The terms, the privacy page and the rules page are placeholders.** A lawyer has to write the
   terms and the privacy page and review the rules. (Plans 3, 5, 11.)
 - **The two boxes at sign-up:** "I am 18 or older" and "I accept the terms". No date of birth is

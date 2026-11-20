@@ -3897,6 +3897,65 @@ three are a company, who the seller is, and the report of child abuse to the aut
 is still made by hand. The founder then asked for the agreements themselves to be drafted
 (terms, host agreement, privacy and the rest); that is a change of its own, in `docs/legal/`.
 
+## The legal agreements, as drafts (20 November 2026)
+
+**Why.** After the legal review above, the founder said what they had meant by it: "what legal
+agreements we should write for customers and hosts to accept... You will write the legal
+agreement. I know that you are not a lawyer, this is just for me to see what's the best you can
+come up with." And: "have astra do the same."
+
+**What was written.** `docs/legal/`, eight texts and a map. Nothing in the app changed: the
+pages `/terms`, `/privacy` and `/rules` still show their placeholders, and nothing here is in
+force.
+- `README.md`: which documents there are, who accepts each and how, the blanks to fill in, the
+  founder's decisions, where the app would have to change (14 points), and how Astra's drafts
+  differ.
+- `terms-of-service.md` for everyone; `payment-terms.md` (holds, charges, cancelling, refunds,
+  memberships, contributions, tips); `community-rules.md` (today's nine rules, completed to
+  twelve); `host-agreement.md` for hosts only; `privacy-policy.md`; `copyright-policy.md`
+  (copyright, other complaints about content, requests from authorities);
+  `identity-check-notice.md` (the notice and consent for comparing a face with an ID).
+- `astra-drafts.md`: Astra's own full set, unedited, written from the same code without seeing
+  the builder's.
+
+**The founder's decisions.**
+- *One set of terms for everyone, and one more agreement for hosts.* The founder asked what is
+  best when a person is both; this was the builder's answer.
+- *"Include the big boy clause and basically make it maximum protection for us."* The clause
+  (each person decides for themselves, relies on nothing Connect said, and accepts the risk) is
+  in the Terms (16.4), the Host Agreement (18.5) and the contributions section of the Payment
+  Terms. Where Astra's drafts were more generous to users, the stricter version was kept.
+- *Acceptance is implicit, "like how we did it for electionssimplified.com"*: one sentence
+  beside the "Create an account" button, naming and linking each document, no tick box, the
+  version saved, and no single clause called out beside the button.
+
+**The builder's own choices** (each can be changed; the README lists them): the host sells the
+call and Connect takes the payment as the host's agent (Astra chose the same); three things stay
+tick boxes (18 or older, the Host Agreement, every payment that repeats); arbitration with a
+30-day opt-out; a cap of US $100 or the fees of 12 months; a booked call treated as a leisure
+service with a set date, outside the 14-day rule of the United Kingdom and Europe; the periods
+proposed for keeping records.
+
+**How the two drafts were put together.** Both were written separately and then compared. They
+agree on the frame. Taken from Astra: a wider ban on recording; the court option for claims of
+sexual assault or harassment; a way to court for a claim that waits too long in a mass
+arbitration; "not a bank"; no pressure on customers to add time or to tip; what data a host can
+get; a written statement before money is taken back from a host; the identity notice; and three
+corrections of fact about charges. Nine points where Astra is more generous to users are set
+side by side in the README, section 8, for the founder to choose.
+
+**How it was checked.** Every rule about money, time and data was taken from the code or from
+what the app's pages tell customers today. Three statements describe the app as it would have
+to be (thirty days' notice of new terms, closing your own account, hosts saying whether they
+host as a business); the README names them. The law was written from the builder's and Astra's
+knowledge and was not looked up again: the names of laws, the 48-hour rule for intimate
+pictures, the 14-day rule and its exception, and the notice periods need a lawyer. No code
+changed, so no check script was run.
+
+**Still open, for the founder.** A company, without which "claims against the company only"
+protects nobody; a lawyer's reading of every document; the blanks; the nine choices; and the
+14 changes to the app, none of which is built.
+
 ## The phone apps, part 01: the door for the app (plan 45, 20 November 2026)
 
 **What this is.** Nothing a person can see. Until now almost everything the server does could
