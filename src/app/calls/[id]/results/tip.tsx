@@ -60,6 +60,7 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
   const fee = payment.amountCents - tipCents;
   const sent = share?.transferStatus === "sent";
   const disputed = payment.dispute === "open" || payment.dispute === "lost";
+  const shareCents = share ? currentSplit(share).hostShareCents : 0;
   const page = `/contributions/${tip.id}`;
   return (
     <section className="mt-4 rounded border border-neutral-400 p-4 text-sm" data-tip={state}>
@@ -113,12 +114,21 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
               The money was taken on <LocalTime iso={payment.takenAt.toISOString()} />.{" "}
               {share ? (
                 <>
-                  {role === "host" ? "Your share" : "The host's share"}: {formatMoney(currentSplit(share).hostShareCents)}
-                  {sent ? ", sent to " + (role === "host" ? "you" : "her") + "." : "."}{" "}
-                  {!sent && share.transferDueAt && (
+                  {role === "host" ? "Your share" : "The host's share"}: {formatMoney(shareCents)}.{" "}
+                  {/* What was really sent is said from the sending itself. Whether a share can be collected right now is the Hosting page's to say: here only its earliest day, and only for a share that is there and not disputed. */}
+                  {sent ? (
                     <>
-                      {role === "host" ? "You can collect it" : "She can collect it"} with {role === "host" ? "your" : "her"} other earnings from <LocalTime iso={share.transferDueAt.toISOString()} />.
+                      {formatMoney(share.transferCents ?? 0)} was sent to {role === "host" ? "you" : "her"}
+                      {(share.payoutFeeCents ?? 0) > 0 ? `, after ${formatMoney(share.payoutFeeCents ?? 0)} of the collection charge` : ""}.
                     </>
+                  ) : (
+                    shareCents > 0 &&
+                    !disputed &&
+                    share.transferDueAt && (
+                      <>
+                        It is among {role === "host" ? "your" : "her"} earnings; the earliest day to collect it is <LocalTime iso={share.transferDueAt.toISOString()} />.
+                      </>
+                    )
                   )}
                 </>
               ) : payment.problem ? (

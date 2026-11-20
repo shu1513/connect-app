@@ -31,7 +31,7 @@ import { addLedgerEntry, MoneyError, NotSentError, OutcomeUnknownError, runOwned
 import { DEFAULT_FEE_TERMS, splitCharge, type FeeTerms } from "@/lib/payments/pricing";
 import { stripe } from "@/lib/payments/stripe";
 import { takingOnFor } from "@/lib/safety/switches";
-import { cardInUse, retireCard, takeCardForContribution } from "./cards";
+import { cardInUse, retireCard, savedForSomething, takeCardForContribution } from "./cards";
 import { queueAgreementEmail, queueHoldEmail, queueNewContributorEmail, queueNothingChargedEmail, queuePaymentFailedEmail, tellFounderOfLargeTotal } from "./emails";
 import { lockForPayment, paymentOwner, type LockedPayment } from "./locks";
 import { collectFrom, CONTRIBUTION, lastMomentToTake, mayTake, monthMissed, waitFor, type PairPayment } from "./rules";
@@ -626,9 +626,12 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
         await tx.update(pays).set({ problem: "Stripe did not say when this payment's hold ends, so it was let go and nothing was taken.", updatedAt: now }).where(eq(pays.id, payment.id));
         why = "no_hold_end";
       }
-      // A tip is paid with a card that was typed for it (plans/44, decision 7). A card that was saved for a booking is
-      // that booking's alone: a hold placed on it for a tip is not accepted, and is let go below.
-      if (!why && contribution.kind === "tip" && bookingsCard) why = "card_step";
+      // A tip is paid with a card that was typed for it (plans/44, decision 7). A card that is saved for a booking, a
+      // membership or a contribution is that one's alone: a hold placed on it for a tip is not accepted, and is let go
+      // below. Asked of Stripe (a booking's card we have not heard of yet) and of our own lines by the card's id, which
+      // also know a card that was removed at Stripe in this very moment. It has a reason of its own, so that the person
+      // is not told that they were late.
+      if (!why && contribution.kind === "tip" && method && (bookingsCard || (await savedForSomething(tx, method.id)))) why = "saved_card";
       let cardId: string | null = null;
       if (!why && contribution.kind === "monthly") {
         // The card of this payment becomes the contribution's card in use, if Stripe really kept it for the contributor.

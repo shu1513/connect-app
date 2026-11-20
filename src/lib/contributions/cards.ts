@@ -43,6 +43,19 @@ export async function takeCardForContribution(tx: Tx, contributionId: string, pa
   return card;
 }
 
+/**
+ * Is this card saved for something: a booking, a membership or a contribution, now or ever? Asked
+ * of our own lines by the card's id, so it also holds once the card was removed at Stripe. A tip is
+ * paid with a card that was typed for it (plans/44, decision 7), never with one of these.
+ */
+export async function savedForSomething(reader: Pick<Tx, "select">, paymentMethodId: string): Promise<boolean> {
+  const [booked] = await reader.select({ id: schema.bookingCards.bookingId }).from(schema.bookingCards).where(eq(schema.bookingCards.stripePaymentMethodId, paymentMethodId)).limit(1);
+  const [onBooking] = await reader.select({ id: schema.bookings.id }).from(schema.bookings).where(eq(schema.bookings.stripePaymentMethodId, paymentMethodId)).limit(1);
+  const [members] = await reader.select({ id: schema.membershipCards.id }).from(schema.membershipCards).where(eq(schema.membershipCards.stripePaymentMethodId, paymentMethodId)).limit(1);
+  const [contributes] = await reader.select({ id: cards.id }).from(cards).where(eq(cards.stripePaymentMethodId, paymentMethodId)).limit(1);
+  return Boolean(booked || onBooking || members || contributes);
+}
+
 /** The contribution stops using its card for anything new (it has ended). The card is removed later, when nothing needs it. */
 export async function retireCard(tx: Tx, contributionId: string, now: Date): Promise<void> {
   await tx.update(cards).set({ retiredAt: now }).where(and(eq(cards.contributionId, contributionId), isNull(cards.retiredAt)));

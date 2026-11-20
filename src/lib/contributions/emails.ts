@@ -133,6 +133,8 @@ function whyLetGo(how: string | null, hostName: string, tip = false): string {
     case "not_taken_in_time":
     case "no_hold_end":
       return "It could not be taken in time, so it was let go.";
+    case "saved_card":
+      return "The card is one that is saved for something else on Connect, so it was not used.";
     case "switch":
       return tip ? "Tips are paused at the moment." : "Contributions to this project are paused at the moment.";
     default:

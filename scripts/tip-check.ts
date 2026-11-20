@@ -667,7 +667,7 @@ async function main() {
     await stripe().paymentIntents.confirm((await PM(boTip.paymentId)).stripePaymentIntentId!, { payment_method: saved.payment_method as string, return_url: RETURN });
     await C.syncPayment(boTip.paymentId, new Date());
     await helper(new Date());
-    check("a hold placed for a tip on a card that was saved for a booking is not accepted: it is let go, and nothing is taken", (await PM(boTip.paymentId)).status === "given_up" && (await PM(boTip.paymentId)).endedHow === "card_step" && (await intentOf(boTip.paymentId)).status === "canceled", `${(await PM(boTip.paymentId)).status} ${(await PM(boTip.paymentId)).endedHow}`);
+    check("a hold placed for a tip on a card that was saved for a booking is not accepted: it is let go, and nothing is taken", (await PM(boTip.paymentId)).status === "given_up" && (await PM(boTip.paymentId)).endedHow === "saved_card" && (await intentOf(boTip.paymentId)).status === "canceled", `${(await PM(boTip.paymentId)).status} ${(await PM(boTip.paymentId)).endedHow}`);
 
     // ----------------------------------------------------------------------
     console.log("\n6. Refunds are the host's decision");
@@ -788,11 +788,15 @@ async function main() {
     const piaTip = await heldTip(pia, { customer: mona });
     check("(a tip and a contribution to the same host are both held)", (await PM(kimPayment.id)).status === "held" && (await PM(piaTip.paymentId)).status === "held");
 
-    await saveProjectsSwitch({ adminId: switchSaver.id, values: { projects: "off" }, detail: "off (the tip check)" });
+    // Off for our hosts. A host of someone else with a payment that is not taken stays named, so that this script
+    // never gives up a payment it did not make. (With none there, the switch is simply off.)
+    const ours = (await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, "tipcheck-%"))).map((row) => row.id);
+    const others = [...new Set((await db.select({ hostId: schema.contributions.hostId }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(inArray(pays.status, ["to_pay", "held"]))).map((row) => row.hostId))].filter((id) => !ours.includes(id));
+    await saveProjectsSwitch({ adminId: switchSaver.id, values: others.length > 0 ? { projects: "named", projectsHosts: others } : { projects: "off" }, detail: "off for the tip check's hosts" });
     await helper(new Date());
     check("switching PROJECTS off gives up the held contribution and does not touch a held tip", (await PM(kimPayment.id)).status === "given_up" && (await PM(piaTip.paymentId)).status === "held" && (await PM(piaTip.paymentId)).endedHow === null && (await PM(t1.paymentId)).status === "held");
     check("and a tip can still be started while projects are off", (await PM((await heldTip(quietHost)).paymentId)).status === "held");
-    await saveProjectsSwitch({ adminId: switchSaver.id, values: { projects: "everyone" }, detail: "on for everyone (the tip check)" });
+    await saveProjectsSwitch({ adminId: switchSaver.id, values: { projects: "everyone", projectsHosts: atStart.projectsHosts }, detail: "on for everyone (the tip check)" });
     const kim2To = leadsTo((await page(`/h/${pia.handle}/project`, kim)).text, "Contribute once", { amount: "10.00" }) ?? "";
     const kim2Started = await press(kim, kim2To, "Continue to the card step", {}, { drawn: (await page(kim2To, kim)).text });
     const kim2Id = kim2Started.location.match(/^\/contributions\/([0-9a-f-]{36})$/)?.[1] ?? "";
@@ -889,6 +893,8 @@ async function main() {
       // The two lines these two presses wrote into the founder's record, by their ids: removed at the end, and nothing else of the founder's.
       founderRecord.push(...(await db.select({ id: schema.adminActions.id }).from(schema.adminActions).innerJoin(schema.user, eq(schema.user.id, schema.adminActions.adminId)).where(and(eq(schema.adminActions.action, "tips switch set"), eq(schema.user.email, "admin@test.local"), gte(schema.adminActions.createdAt, pressedFrom)))).map((row) => row.id));
       check("(those two presses are in the founder's record)", founderRecord.length === 2, founderRecord.length);
+      // Anything else than exactly our two is not ours to judge: nothing of the founder's record is removed then.
+      if (founderRecord.length !== 2) founderRecord.length = 0;
       await send("/api/auth/sign-out", { json: {}, jar: admin.jar });
     }
 

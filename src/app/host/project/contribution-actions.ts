@@ -65,8 +65,9 @@ export async function refundAsHostAction(formData: FormData) {
     const request = String(formData.get("request") ?? "");
     if (!ID.test(request)) throw new ContributionError("Please open the page again. Nothing was refunded.");
     const amountCents = readSum(String(formData.get("amount") ?? ""));
-    await refundContribution({ paymentId: String(formData.get("payment") ?? ""), amountCents, by: "host", deciderId: user.id, reason: String(formData.get("reason") ?? "").replace(/\s+/g, " ").trim().slice(0, 300), requestKey: request.toLowerCase() });
-    notice = `The refund of ${formatMoney(amountCents)} is on its way to the contributor's card. Our fee goes back in the same proportion.`;
+    const refund = await refundContribution({ paymentId: String(formData.get("payment") ?? ""), amountCents, by: "host", deciderId: user.id, reason: String(formData.get("reason") ?? "").replace(/\s+/g, " ").trim().slice(0, 300), requestKey: request.toLowerCase() });
+    // The amount that is really owed: a form sent a second time gets the refund its first sending made.
+    notice = `The refund of ${formatMoney(refund.amountCents)} is on its way to the contributor's card. Our fee goes back in the same proportion.`;
   } catch (error) {
     notice = problem(error);
   }
