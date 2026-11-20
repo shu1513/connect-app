@@ -37,6 +37,11 @@ either, nothing is really sent and the full text is shown on the admin "Emails" 
 `RESEND_WEBHOOK_SECRET` lets Resend tell us about bounces and complaints, so bad addresses are never
 written to again.
 
+Emails to followers ("Anna is available now", "Anna wrote in her diary", `plans/31`) are switched off
+until `FOLLOW_EMAILS_ADDRESS` is set in `.env.local`: the postal address of the sender, which goes on
+the last line of those emails. Without it the choices for them are not shown and none is written or
+sent.
+
 Google sign-in is switched on by adding `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env.local`.
 Without them the Google button is simply not shown.
 
@@ -118,6 +123,12 @@ Testing tools:
   checks that count them fail. With
   `--app=http://localhost:3000` (the app running, the test accounts seeded) it also asks the app for the
   pages, to see that someone a host has blocked is shown the same as anyone else.
+- `npx tsx scripts/follow-emails-check.ts` runs the journeys of the emails to followers against the
+  local database, reading what lands in the outbox and sending through a pretend sending service: the
+  switch off and on, "available now" a minute after switching on, the hours, who is never written to,
+  the limits (also with two things at the same moment), the last look before sending, taking a yes
+  back, the stop link, the diary email, and "New in diaries". It makes and removes its own people,
+  and needs neither Stripe nor the app running. Stop the helper first.
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call and report", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.

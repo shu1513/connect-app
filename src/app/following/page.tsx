@@ -107,8 +107,8 @@ export default async function FollowingPage(props: PageProps<"/following">) {
                     </label>
                     <p className="flex flex-wrap items-center gap-2 pl-6">
                       <label className="flex items-center gap-2">
-                        <span>only between</span>
-                        <select name="from" defaultValue={host.hoursFrom === null ? "" : String(host.hoursFrom / 60)} className={warm.input}>
+                        <span className="whitespace-nowrap">only between</span>
+                        <select name="from" defaultValue={host.hoursFrom === null ? "" : String(host.hoursFrom / 60)} className={`${warm.input} w-auto`}>
                           <option value="">any time</option>
                           {HOURS.map(({ hour, label }) => (
                             <option key={hour} value={hour}>
@@ -118,8 +118,8 @@ export default async function FollowingPage(props: PageProps<"/following">) {
                         </select>
                       </label>
                       <label className="flex items-center gap-2">
-                        <span>and</span>
-                        <select name="to" defaultValue={host.hoursTo === null ? "" : String(host.hoursTo / 60)} className={warm.input}>
+                        <span className="whitespace-nowrap">and</span>
+                        <select name="to" defaultValue={host.hoursTo === null ? "" : String(host.hoursTo / 60)} className={`${warm.input} w-auto`}>
                           <option value="">any time</option>
                           {HOURS.map(({ hour, label }) => (
                             <option key={hour} value={hour}>
