@@ -104,7 +104,7 @@ describe("a request's page", () => {
 });
 
 describe("what the card sheet is given", () => {
-  const step = { clientSecret: "seti_1UdsdcDLvGtpPRHZvDqJ7QJ1_secret_VfD35J03bq3tMvByskUeoWnYUd", publishableKey: "pk_test_51Abc", merchant: "Connect" };
+  const step = { clientSecret: "seti_MadeUp123_secret_MadeUp456", publishableKey: "pk_test_51Abc", merchant: "Connect" };
   it("takes a secret for saving a card and a key that may be shown", () => {
     expect(isCardStep(step)).toBe(true);
     expect(isCardStep({ ...step, publishableKey: "pk_live_51Abc" })).toBe(true);
