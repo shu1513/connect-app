@@ -160,3 +160,44 @@ export function inLanes<S extends { from: number; to: number }>(segments: S[], l
   close();
   return placed;
 }
+
+/** A time people have asked a host for and she has not answered: how many asked, and nothing else about them. */
+export type Ask = { startsAt: string; endsAt: string; count: number };
+
+/**
+ * The requests waiting for a host's answer as the calendar shows them (plans/43, decision 10): one
+ * for each time asked for, with the number of people who asked. People who ask for the same start
+ * sit together, as on the requests page; the block is as long as the longest of their calls.
+ * Only the times that touch the stretch the calendar was loaded for, the soonest first.
+ */
+export function asksByTime(requests: Array<{ startsAt: Date; endsAt: Date }>, around: { from: Date; to: Date }): Ask[] {
+  const byStart = new Map<number, { endsAt: number; count: number }>();
+  for (const request of requests) {
+    if (request.startsAt.getTime() >= around.to.getTime() || request.endsAt.getTime() <= around.from.getTime()) continue;
+    const one = byStart.get(request.startsAt.getTime()) ?? { endsAt: request.endsAt.getTime(), count: 0 };
+    one.endsAt = Math.max(one.endsAt, request.endsAt.getTime());
+    one.count++;
+    byStart.set(request.startsAt.getTime(), one);
+  }
+  return [...byStart]
+    .sort(([a], [b]) => a - b)
+    .map(([startsAt, one]) => ({ startsAt: new Date(startsAt).toISOString(), endsAt: new Date(one.endsAt).toISOString(), count: one.count }));
+}
+
+/**
+ * The line over the calendar (plans/43, decision 9): the calls this person hosted that are over,
+ * among the calls given (the ones in view, each once), and what they earned together. Null when
+ * she hosted none of them. "So far" while the money of any of them is not settled: a call is
+ * charged a day or two after it. A cancelled call is never among the calls given.
+ */
+export function hostedTotal(calls: Array<{ hosting: boolean; finished: boolean; earned?: { cents: number }; moneyOpen?: boolean }>): { calls: number; cents: number; soFar: boolean } | null {
+  const hosted = calls.filter((call) => call.hosting && call.finished);
+  if (hosted.length === 0) return null;
+  return { calls: hosted.length, cents: hosted.reduce((sum, call) => sum + (call.earned?.cents ?? 0), 0), soFar: hosted.some((call) => call.moneyOpen) };
+}
+
+/** Money as the rest of the site writes it (`formatMoney`: a dollar sign, the dollars, two places of cents), for the part that runs in the browser. */
+export function dollars(cents: number): string {
+  const abs = Math.abs(cents);
+  return (cents < 0 ? "-" : "") + "$" + Math.floor(abs / 100) + "." + String(abs % 100).padStart(2, "0");
+}

@@ -16,9 +16,9 @@ import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { PASSED_OVER } from "@/lib/booking/rules";
 import { roomOpensAt, roomState } from "@/lib/calls";
-import { CALENDAR, parseDay, viewRange } from "@/lib/home/calendar";
+import { asksByTime, CALENDAR, parseDay, viewRange } from "@/lib/home/calendar";
 import { customerDetailsFor } from "@/lib/home/customer-details";
-import { earnedFrom } from "@/lib/home/earned";
+import { earnedFrom, unsettled } from "@/lib/home/earned";
 import { diaryNews, followedHosts } from "@/lib/follows/follows";
 import { FOLLOW } from "@/lib/follows/rules";
 import { notPaidYet, paymentLine, paymentsByCall } from "@/lib/home/payment-line";
@@ -221,7 +221,8 @@ export default async function HomePage(props: PageProps<"/">) {
     const paid = paymentsOf.get(call.id) ?? [];
     // What a finished call earned its host (plans/43, decision 8): her share of each charge, by the one rule for that.
     // Worked out here, and only for a call this person hosted.
-    const earned = hosting && finished ? earnedFrom(paid.map((payment) => ({ status: payment.status, needsReview: payment.needsReview, shareCents: payment.status === "charged" ? currentSplit(payment).hostShareCents : 0 }))) : null;
+    const parts = hosting && finished ? paid.map((payment) => ({ status: payment.status, needsReview: payment.needsReview, shareCents: payment.status === "charged" ? currentSplit(payment).hostShareCents : 0 })) : null;
+    const earned = parts ? earnedFrom(parts) : null;
     return {
       id: call.id,
       startsAt: call.startsAt.toISOString(),
@@ -234,11 +235,19 @@ export default async function HomePage(props: PageProps<"/">) {
       open: roomState(call, drawn) === "open",
       finished,
       payment: paymentLine(paid),
-      ...(earned ? { earned: { text: formatMoney(earned.cents), soFar: earned.soFar } } : {}),
+      ...(earned ? { earned: { text: formatMoney(earned.cents), cents: earned.cents, soFar: earned.soFar } } : {}),
+      ...(parts && unsettled(parts) ? { moneyOpen: true } : {}),
       // Only ever set for a call this person hosts that is not over: `customerDetailsFor` answers for no other.
-      ...(finished ? {} : { about: aboutOf.get(call.id)?.details }),
+      // (Not even an empty place for it on any other call: nothing about a customer is named where there is nothing to say.)
+      ...(!finished && aboutOf.has(call.id) ? { about: aboutOf.get(call.id)!.details } : {}),
     };
   });
+  // The times people have asked this person for and that wait for her answer (plans/43, decision 10): for each time
+  // only how many asked. Who they are, and what they wrote, is in the list of requests above the calendar.
+  const asks = asksByTime(
+    toAnswer.map(({ booking }) => ({ startsAt: booking.startsAt, endsAt: booking.endsAt })),
+    around,
+  );
   const next = nextCall(soonest, drawn);
   const nextListed = next ? listed.find((call) => call.id === next.id)! : null;
   const firstName = user.name.trim().split(/\s+/)[0] ?? "";
@@ -388,11 +397,12 @@ export default async function HomePage(props: PageProps<"/">) {
       )}
 
       {/* The calendar (plans/43): the calls of the days in view, also the ones that are over. Not for someone who never had a call. */}
-      {hasCalls && (
+      {/* Also for a host whose first requests wait before she has had any call: they are on the calendar too. */}
+      {(hasCalls || toAnswer.length > 0) && (
         <section className={`${warm.card} mt-6`} data-calendar>
           <h2 className={sectionTitle}>Your calendar</h2>
           <div className="mt-2">
-            <CallsCalendar calls={listed} serverNow={drawn.toISOString()} day={day} nextId={next?.id ?? null} cut={cut} />
+            <CallsCalendar calls={listed} asks={asks} serverNow={drawn.toISOString()} day={day} nextId={next?.id ?? null} cut={cut} />
           </div>
         </section>
       )}

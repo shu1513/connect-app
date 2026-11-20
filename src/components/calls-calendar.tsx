@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { CallRow, type ListedCall } from "@/components/call-row";
-import { CALENDAR, daysInView, dayToMoveTo, hoursToDraw, inLanes, segmentsOf, weekStartFrom } from "@/lib/home/calendar";
+import { type Ask, CALENDAR, daysInView, dayToMoveTo, dollars, hostedTotal, hoursToDraw, inLanes, minuteOfDay, segmentsOf, weekStartFrom } from "@/lib/home/calendar";
 import { dayAfter, dayOf } from "@/lib/home/rules";
 
 const never = () => () => {};
@@ -33,7 +33,9 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
  * "Your calendar" on the home page (plans/43-calendar-on-the-home-page.md): the days across, the
  * hours down, and a block for every call at its time. The calls this person hosts, the calls they
  * booked, and the calls that are over (with what a hosted one earned) each have their look, named
- * in words under the calendar. Tapping a call shows its row underneath.
+ * in words under the calendar. Tapping a call shows its row underneath. A time people have asked
+ * her for and she has not answered is a dashed block that leads to the requests; a line says what
+ * the calls she hosted in these days earned together; a red line marks "now" in today's column.
  *
  * Seven days in a wide window, three in a narrow one (the calendar's own width follows the window's). The arrows are links: the day is in the
  * page's address, so the back button works and the page's own refresh stays where it is.
@@ -47,7 +49,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
  * exactly the words and numbers for the person looking. Which call is chosen is remembered by its
  * id only, so what is shown about it is always what the server sent last.
  */
-export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: ListedCall[]; serverNow: string; day: string | null; nextId: string | null; cut: boolean }) {
+export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { calls: ListedCall[]; asks: Ask[]; serverNow: string; day: string | null; nextId: string | null; cut: boolean }) {
   const zone = useSyncExternalStore(
     never,
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -65,11 +67,18 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
     // The details of the next call are in the card above, once: its row here goes without them.
     const coming = calls.filter((call) => !call.finished).map((call) => (call.id === nextId ? { ...call, about: undefined } : call));
     return (
-      <ul data-days="plain">
-        {coming.map((call) => (
-          <CallRow key={call.id} call={call} timeOnly={false} />
-        ))}
-      </ul>
+      <>
+        <ul data-days="plain">
+          {coming.map((call) => (
+            <CallRow key={call.id} call={call} timeOnly={false} />
+          ))}
+        </ul>
+        {/* This list is only the coming days: the page loads the calls around the day in view, not every call. It is said
+            here, for the moment before the calendar is drawn, and for a browser in which it never is. */}
+        <p className="mt-2 text-sm text-[#57534e]" data-days-note>
+          {coming.length > 0 && "These are your calls of the coming days. "}The calendar, which shows every week, appears here in a moment. If it does not, scripts (JavaScript) are switched off in your browser, and the calendar needs them.
+        </p>
+      </>
     );
   }
 
@@ -82,13 +91,29 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
     days,
     zone,
   );
-  const hours = hoursToDraw(segments);
+  // The times people have asked her for and she has not answered: a block each, with how many asked.
+  const askSegments = segmentsOf(
+    asks.map((ask) => ({ ask, startsAt: new Date(ask.startsAt), endsAt: new Date(ask.endsAt) })),
+    days,
+    zone,
+  );
+  // Calls and asked-for times together, so two that would cover each other stand side by side.
+  const pieces: Array<{ day: string; from: number; to: number; call: ListedCall | null; ask: Ask | null }> = [
+    ...segments.map((segment) => ({ day: segment.day, from: segment.from, to: segment.to, call: segment.call.call, ask: null })),
+    ...askSegments.map((segment) => ({ day: segment.day, from: segment.from, to: segment.to, call: null, ask: segment.call.ask })),
+  ];
+  const hours = hoursToDraw(pieces);
   const height = (hours.to - hours.from) * CALENDAR.hourPixels;
+  // Where "now" is in today's column, when today and this hour are in view.
+  const nowMinute = minuteOfDay(new Date(serverNow), zone);
+  const nowTop = days.includes(today) && nowMinute >= hours.from * 60 && nowMinute < hours.to * 60 ? ((nowMinute - hours.from * 60) / 60) * CALENDAR.hourPixels : null;
   // The first of the days in view that each call has a part in: where the list puts it.
   const firstDayOf = new Map<string, string>();
   for (const segment of [...segments].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))) if (!firstDayOf.has(segment.call.call.id)) firstDayOf.set(segment.call.call.id, segment.day);
   const inView = calls.filter((call) => firstDayOf.has(call.id));
   const chosenCall = inView.find((call) => call.id === chosen) ?? null;
+  // What the calls she hosted in these days earned together; nothing to say when she hosted none that is over.
+  const total = hostedTotal(inView);
   const dayName = (one: string, long = false) => plain(one).toLocaleDateString(undefined, { weekday: long ? "long" : "short", day: "numeric", ...(long ? { month: "long" } : {}), timeZone: "UTC" });
   // Made once for all the blocks: a week can hold hundreds.
   const hourAndMinute = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone });
@@ -131,6 +156,14 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
           </Link>
         </div>
       </div>
+      {total && (
+        <p className="mt-1 text-sm text-[#57534e]" data-calendar-total={total.cents}>
+          {total.calls} {total.calls === 1 ? "call" : "calls"} hosted in these days · earned <strong>{dollars(total.cents)}</strong>
+          {total.soFar && " so far"}
+          {/* When not every call around these days could be loaded, the sum is of the ones that were. */}
+          {cut && " from the calls shown"}
+        </p>
+      )}
       <div className="mt-3 flex gap-2" role="group" aria-label="How to show your calls">
         <button type="button" className={tab(view === "calendar")} aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>
           Calendar
@@ -163,10 +196,30 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
                 className="relative border-l border-[#e7e5e4]"
                 style={{ height, ...hourLines }}
               >
-                {inLanes(segments.filter((segment) => segment.day === one)).map((segment) => {
-                  const call = segment.call.call;
+                {/* Two pixels thick, and kept inside the grid in the last minute drawn. */}
+                {one === today && nowTop !== null && <div aria-hidden data-calendar-now className="pointer-events-none absolute right-0 left-0 z-10 border-t-2 border-[#dc2626]" style={{ top: Math.min(nowTop, height - 2) }} />}
+                {inLanes(pieces.filter((piece) => piece.day === one)).map((segment) => {
                   const top = ((segment.from - hours.from * 60) / 60) * CALENDAR.hourPixels;
                   const tall = (Math.max(segment.to - segment.from, CALENDAR.leastMinutes) / 60) * CALENDAR.hourPixels;
+                  const place = { minHeight: 0, minWidth: 0, top, height: tall - 1, left: `calc(${(segment.lane / segment.lanes) * 100}% + 1px)`, width: `calc(${100 / segment.lanes}% - 2px)` };
+                  if (segment.ask) {
+                    const words = segment.ask.count === 1 ? "1 request" : `${segment.ask.count} requests`;
+                    return (
+                      // A time people asked for: a dashed block that leads to the requests, where she answers them.
+                      <Link
+                        key={`ask-${segment.ask.startsAt}-${one}`}
+                        href="/host/requests"
+                        // The day it starts on, also for the part of it that is drawn in the day after.
+                        aria-label={`${dayName(dayOf(new Date(segment.ask.startsAt), zone), true)}, ${new Date(segment.ask.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}, ${words} waiting for your answer`}
+                        data-calendar-ask={segment.ask.count}
+                        className="absolute overflow-hidden rounded-md border border-dashed border-[#57534e] bg-white px-1 text-left text-[11px] leading-[12px] whitespace-nowrap text-[#44403c] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1c1917]"
+                        style={place}
+                      >
+                        <span className="block overflow-hidden text-ellipsis">{words}</span>
+                      </Link>
+                    );
+                  }
+                  const call = segment.call!;
                   return (
                     <button
                       key={`${call.id}-${one}`}
@@ -178,8 +231,8 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
                       data-calendar-look={call.finished ? "finished" : call.hosting ? "hosting" : "booked"}
                       className={`absolute overflow-hidden rounded-md px-1 text-left text-[11px] leading-[14px] whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1c1917] ${look(call)} ${chosen === call.id ? "ring-2 ring-[#1c1917]" : ""}`}
                       // A block is as tall as its call is long and as wide as its share of the day, so the site's least
-                      // size for a button is set aside here: the list beside the calendar has the full-size rows.
-                      style={{ minHeight: 0, minWidth: 0, top, height: tall - 1, left: `calc(${(segment.lane / segment.lanes) * 100}% + 1px)`, width: `calc(${100 / segment.lanes}% - 2px)` }}
+                      // size for a button is set aside (in `place`): the list beside the calendar has the full-size rows.
+                      style={place}
                     >
                       <span className="block overflow-hidden text-ellipsis">
                         {/* A finished call she hosted says what it earned, first, so it is what stays when the block is narrow. */}
@@ -204,6 +257,7 @@ export function CallsCalendar({ calls, serverNow, day, nextId, cut }: { calls: L
             <Key look="bg-[#fed7aa]" words="You host" />
             <Key look="bg-[#99f6e4]" words="You booked" />
             <Key look="bg-[#e7e5e4]" words="Finished" />
+            {askSegments.length > 0 && <Key look="border border-dashed border-[#57534e] bg-white" words="Asked for, not answered" />}
           </p>
           <div className="mt-3 border-t border-[#e7e5e4]" data-calendar-chosen={chosenCall?.id ?? ""}>
             {chosenCall ? (
