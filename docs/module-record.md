@@ -2774,3 +2774,32 @@ says "in 1 day 4 hours"; the page greets the person by first name.
   not touch. Astra confirmed that the front page is unchanged letter for letter, that the home
   page and "Past calls" never show the same call or miss one, and found no leak of a name, photo
   or picture.
+  Second round, on the fixes: nothing that must be fixed; one more check made exact (the news
+  excerpt is compared letter for letter).
+
+**How it was checked.** 642 automatic tests on the code, 21 of them new (which call is next, the
+countdown's words, how long ago a start was, days on both sides of midnight and on the day the
+clocks change). On this computer, against the local database, after Astra's fixes:
+`scripts/home-check.ts` (new), 44 checks against the running app, with people it signs up itself
+(someone new; the next call among cancelled, reported and finished ones; an open room; a call
+that is not paid; someone who hosts; followed hosts, also for a follower the host has blocked;
+the news with its limits and pictures; nobody else's calls; 51 past calls over two pages);
+`scripts/follow-emails-check.ts`, 99 checks, 2 of them changed and 1 new (ten at most, 30 days,
+a 20-day-old post); `scripts/follow-check.ts`, 90 checks; `scripts/journey-check.ts`, all passed,
+with the founder's pages skipped because the test admin's login is not set up here. Before
+Astra's fixes, which touch none of its code: `scripts/accounts-check.ts`, all passed.
+
+One run of `follow-emails-check` had one failed check (about sending an email) while another
+session's check script was running on the same test database. Run again alone, all 99 pass.
+
+In a browser, as two test people, at phone size and desktop size: the page with several calls,
+grouped as "Today", "Tomorrow" and a date; a countdown watched from 1:00 down to zero,
+"Checking…", then "The room is open" and "Enter the room" after the server's answer; a call
+whose booked end passed, the card moving on to the next call by itself, with two requests to the
+server in 80 seconds; "Past calls" with the call that had just ended. Not tried: a device whose
+clock is wrong (the countdown does not read the device's clock, it counts from the server's
+time), and a real phone.
+
+**Still open.** For the founder: the order of the page and the list instead of a week calendar
+are the builder's choices and easy to change now that the page can be looked at. The suggested
+hosts are plan 37, the next change.
