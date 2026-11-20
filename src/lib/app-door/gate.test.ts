@@ -13,7 +13,12 @@ import { APP_HEADER, SIGN_IN_HEADER } from "./rules";
 const person = { id: "u1", name: "Maria", email: "maria@example.test", timeZone: null, paused: false, emailVerified: true, welcomed: true, closed: false, twoFactorEnabled: false, sessionCreatedAt: new Date() };
 const ask = (headers: Record<string, string>) => new Request("https://connect.example/api/app/anything", { headers });
 const app = (more: Record<string, string> = {}) => ask({ [APP_HEADER]: "android 1.0.0", ...more });
-const code = async (result: unknown) => (result instanceof Response ? ((await result.json()) as { error: { code: string } }).error.code : "let in");
+/** The refusal's code; or "let in" for a real answer of the gate (one that names the app that asked), and never for anything else. */
+const code = async (result: unknown) => {
+  if (result instanceof Response) return ((await result.json()) as { error: { code: string } }).error.code;
+  const asked = result as { client?: { platform?: string }; switches?: unknown } | undefined;
+  return asked?.client?.platform === "android" && asked.switches !== undefined ? "let in" : "neither a refusal nor an answer";
+};
 
 beforeEach(() => {
   switches.mockReset().mockResolvedValue({ appOldestVersion: "" });
@@ -34,6 +39,8 @@ describe("the gate for the app's addresses", () => {
     const refused = await appRequest(app({ [SIGN_IN_HEADER]: "s=1" }), "member");
     expect(refused instanceof Response && refused.status).toBe(426);
     expect(await code(refused)).toBe("update_needed");
+    // An address for anyone is no exception: only the opening address answers a copy that is too old.
+    expect(await code(await appRequest(app(), "anyone"))).toBe("update_needed");
     const opening = await appRequest(app(), "anyone", { opening: true });
     expect(opening instanceof Response).toBe(false);
     expect(!(opening instanceof Response) && opening.updateNeeded).toBe(true);
@@ -47,6 +54,7 @@ describe("the gate for the app's addresses", () => {
 
     const result = await appRequest(app({ cookie: "better-auth.session_token=ambient", [SIGN_IN_HEADER]: "better-auth.session_token=mine" }), "member");
     expect(result instanceof Response).toBe(false);
+    expect(!(result instanceof Response) && result.person?.id).toBe("u1");
     const [handed, options] = signedInFrom.mock.calls[0] as [Headers, { renew?: boolean }];
     expect(handed.get("cookie")).toBe("better-auth.session_token=mine");
     expect([...handed.keys()]).toEqual(["cookie"]);

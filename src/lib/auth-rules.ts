@@ -16,6 +16,11 @@ export const UNUSED_LOGIN_PATHS = [
   "/two-factor/disable",
 ];
 
+/** Whether an address of the login tool is one of those switched off: the address itself, or anything under it. */
+export function isSwitchedOffLoginPath(path: string): boolean {
+  return UNUSED_LOGIN_PATHS.some((off) => path === off || path.startsWith(`${off}/`));
+}
+
 /**
  * The phone app's own name, as the place its requests say they come from. The app has no web
  * address; this is what the login tool is told to trust for it (plans/45-phone-apps/01-the-door.md).
@@ -42,7 +47,11 @@ export function leadsToTheWebsite(destination: unknown, own: string[]): boolean 
   if (destination.startsWith("/")) return isPlainPath(destination);
   try {
     const url = new URL(destination);
-    return (url.protocol === "https:" || url.protocol === "http:") && own.includes(url.origin) && url.username === "" && url.password === "" && isPlainPath(url.pathname);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || !own.includes(url.origin) || url.username !== "" || url.password !== "") return false;
+    // The path as it was written, not as it reads once tidied: the same rule as for a path alone.
+    if (!destination.startsWith(url.origin)) return false;
+    const written = destination.slice(url.origin.length);
+    return written === "" || isPlainPath(written);
   } catch {
     return false;
   }

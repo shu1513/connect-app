@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leadsToTheWebsite, outsideLoginProblem } from "./auth-rules";
+import { isSwitchedOffLoginPath, leadsToTheWebsite, outsideLoginProblem } from "./auth-rules";
 
 const google = (profile?: Record<string, unknown>) => ({ method: "oauth", oauth: { providerId: "google", profile } });
 
@@ -79,5 +79,47 @@ describe("leadsToTheWebsite", () => {
 
   it("refuses what is not a piece of text", () => {
     for (const value of [undefined, null, 1, {}, ["/welcome"]]) expect(leadsToTheWebsite(value, own)).toBe(false);
+  });
+});
+
+describe("leadsToTheWebsite, for a full address", () => {
+  const own = ["https://connect.example"];
+
+  it("judges the path as it was written, not as it reads once tidied", () => {
+    expect(leadsToTheWebsite("https://connect.example", own)).toBe(true);
+    expect(leadsToTheWebsite("https://connect.example/", own)).toBe(true);
+    expect(leadsToTheWebsite("https://connect.example/welcome?next=%2Fcalls", own)).toBe(true);
+    for (const odd of ["https://connect.example/a/../welcome", "https://connect.example/./welcome", "https://connect.example/%2e%2e/x", "HTTPS://CONNECT.EXAMPLE/welcome", "https://connect.example:443/welcome"]) {
+      expect(leadsToTheWebsite(odd, own), odd).toBe(false);
+    }
+  });
+});
+
+describe("the addresses of the login tool that are switched off", () => {
+  // Written out here on purpose, not read from the list in the code: an address taken off that list by mistake must fail this test.
+  const off = [
+    "/update-user",
+    "/change-email",
+    "/delete-user",
+    "/delete-user/callback",
+    "/link-social",
+    "/unlink-account",
+    "/revoke-session",
+    "/revoke-sessions",
+    "/revoke-other-sessions",
+    "/two-factor/disable",
+  ];
+
+  it("are each switched off, with anything under them", () => {
+    for (const path of off) {
+      expect(isSwitchedOffLoginPath(path), path).toBe(true);
+      expect(isSwitchedOffLoginPath(`${path}/anything`), path).toBe(true);
+    }
+  });
+
+  it("leave the addresses the app and the website use switched on", () => {
+    for (const path of ["/sign-in/email", "/sign-up/email", "/sign-out", "/get-session", "/verify-email", "/send-verification-email", "/request-password-reset", "/reset-password", "/change-password", "/two-factor/verify-totp", "/two-factor/verify-backup-code", "/update-user-extra", "/revoke-sessions-later"]) {
+      expect(isSwitchedOffLoginPath(path), path).toBe(false);
+    }
   });
 });

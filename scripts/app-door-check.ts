@@ -16,7 +16,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
 import http from "node:http";
-import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
 import type { AppStart, Refusal } from "../src/lib/app-door/types";
@@ -116,13 +116,19 @@ const refusal = (reply: Reply) => (reply.json as Refusal | null)?.error?.code ??
 
 async function main() {
   requireLocalDatabase();
-  const database = new URL(process.env.DATABASE_URL ?? "").pathname.slice(1);
-  if (!database.endsWith("_check")) {
-    throw new Error(`This script empties the attempt limits and rewrites the switches, so it only runs against a database made for checking (a name ending in "_check"), not "${database}".`);
+  const setting = new URL(process.env.DATABASE_URL ?? "");
+  // The address can also name its database or its computer after a "?", which would win over what is checked here.
+  for (const override of ["database", "dbname", "host", "hostaddr", "port", "service"]) {
+    if (setting.searchParams.has(override)) throw new Error(`DATABASE_URL must name its database in the address itself, not with "?${override}=".`);
   }
   const { db, schema } = await import("../src/db");
   const { switches, setSwitches } = await import("../src/lib/safety/switches");
   const closing = await import("../src/lib/profiles/closing");
+  // Asked of the connection itself, before anything is written: which database is this really?
+  const [{ name: database }] = (await db.execute(sql`select current_database() as name`)) as unknown as { name: string }[];
+  if (!database.endsWith("_check")) {
+    throw new Error(`This script empties the attempt limits and rewrites the switches, so it only runs against a database made for checking (a name ending in "_check"), not "${database}".`);
+  }
 
   const up = await asBrowser("/login").catch(() => null);
   if (!up || up.status !== 200) throw new Error(`The app is not running at ${BASE}. Start it first.`);
@@ -164,11 +170,27 @@ async function main() {
     return { ...person, id: row.id };
   }
 
-  // The founder's switches exactly as they were, to put back at the end: the row itself, or that there was none.
-  const [savedRow] = await db.select().from(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
+  // The founder's switches exactly as they were, to put back at the end: the row itself as the
+  // database writes it out (so not a fraction of a second of its date is lost), or that there was none.
+  const [saved] = (await db.execute(sql`select row_to_json(s)::text as row from site_switches s where id = 1`)) as unknown as { row: string }[];
   async function restoreSwitches() {
-    await db.delete(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
-    if (savedRow) await db.insert(schema.siteSwitches).values(savedRow);
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
+      if (saved) await tx.execute(sql`insert into site_switches select * from json_populate_record(null::site_switches, ${saved.row}::json)`);
+    });
+  }
+
+  // Is the app that is running at BASE really working on this same database? A wrong port would
+  // otherwise let this script make accounts in one database and clean up in another. A switch is
+  // turned here, the app is asked whether it sees it, and the switch is put back.
+  {
+    await setSwitches({ appOldestVersion: "9000.0.0" });
+    const seen = (await asApp("/api/app/start")).json as AppStart | null;
+    await restoreSwitches();
+    const gone = (await asApp("/api/app/start")).json as AppStart | null;
+    if (seen?.updateNeeded !== true || gone?.updateNeeded === seen?.updateNeeded) {
+      throw new Error(`The app at ${BASE} does not see changes made in the database "${database}". It is running against another database; nothing was changed there.`);
+    }
   }
 
   try {
@@ -279,6 +301,7 @@ async function main() {
 
       // The reset link, as the website asks for it and as the email carries it.
       const three = await newPerson("reset");
+      check("(the person whose password is about to be reset is signed in on the app)", (await start(three.jar)).body?.me?.email === three.email);
       const asked = await asBrowser("/api/auth/request-password-reset", { body: { email: three.email, redirectTo: "/reset-password" } });
       check("the website's own way of asking for a reset still works", asked.status === 200, `${asked.status}`);
       const [resetMail] = await emails(three.email, "Reset your");
@@ -367,12 +390,15 @@ async function main() {
       check("with no switch ever saved: memberships on, tips off, available now on, nobody too old", none.switches.memberships === "on" && none.switches.tips === false && none.switches.availableNow === true && none.updateNeeded === false, JSON.stringify(none));
       // A row made by something else, with the apps' fields left to the database's own starting values.
       await db.insert(schema.siteSwitches).values({ id: 1 });
+      const [bornRow] = await db.select().from(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
+      check("the database starts the apps' switches as: memberships on, tips off, available now on, no oldest version", bornRow.appMemberships === "on" && bornRow.appTips === false && bornRow.appAvailableNow === true && bornRow.appOldestVersion === "", JSON.stringify([bornRow.appMemberships, bornRow.appTips, bornRow.appAvailableNow, bornRow.appOldestVersion]));
       const born = (await start()).body!;
       check("the database's own starting values say the same", JSON.stringify(born.switches) === JSON.stringify(none.switches) && born.updateNeeded === false, JSON.stringify(born.switches));
 
       await setSwitches({ appMemberships: "use_only", appAvailableNow: false, appOldestVersion: "0.9.0", joiningOff: true });
       await setSwitches({ appTips: true });
       const kept = await switches();
+      check("the tips switch for the apps is saved", kept.appTips === true && (await db.select().from(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1)))[0].appTips === true);
       check("saving one switch leaves every other as it was", kept.appMemberships === "use_only" && kept.appAvailableNow === false && kept.appOldestVersion === "0.9.0" && kept.joiningOff === true && kept.memberships === "everyone", JSON.stringify(kept));
       const told = (await start()).body!;
       check("the app is told the middle position of memberships and that 'available now' is off", told.switches.memberships === "use_only" && told.switches.availableNow === false);
@@ -421,6 +447,14 @@ async function main() {
       check("signing in to it with the right password is answered exactly as a wrong password is", same(rightPassword), `${rightPassword.status} ${rightPassword.text.slice(0, 80)}`);
       const fromBrowser = await asBrowser("/api/auth/sign-in/email", { body: { email: four.email, password: four.password, callbackURL: "/" }, jar: new Map() });
       check("in a browser too", fromBrowser.status === wrong.status && fromBrowser.text === wrong.text, `${fromBrowser.status} ${fromBrowser.text.slice(0, 80)}`);
+      const otherCase = await asApp("/api/auth/sign-in/email", { body: { email: four.email.toUpperCase(), password: four.password }, jar: new Map() });
+      check("and written in capital letters", same(otherCase), `${otherCase.status} ${otherCase.text.slice(0, 80)}`);
+      // An address that is not an email address, but that turns into this one when made lower-case
+      // (its "k" is the Kelvin sign, not the letter): it must get the same answer whether the account is closed or not.
+      const kelvin = (email: string) => email.replace("check-", "chec\u212a-");
+      const strange = await asApp("/api/auth/sign-in/email", { body: { email: kelvin(address("nobody-at-all")), password: four.password }, jar: new Map() });
+      const strangeClosed = await asApp("/api/auth/sign-in/email", { body: { email: kelvin(four.email), password: four.password }, jar: new Map() });
+      check("an address with a letter that is not a plain one is turned away the same for a closed account as for any other", kelvin(four.email).toLowerCase() === four.email && strangeClosed.status === strange.status && strangeClosed.text === strange.text, `${strangeClosed.status} vs ${strange.status}`);
 
       // Closed before its email was ever confirmed: no "confirm your email" answer, and no new confirmation email.
       const five = { email: address("five"), password: strongPassword() };

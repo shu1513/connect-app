@@ -4,14 +4,19 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { APP_ORIGIN, leadsToTheWebsite, outsideLoginProblem, UNUSED_LOGIN_PATHS } from "./auth-rules";
+import { randomUUID } from "node:crypto";
+import { APP_ORIGIN, isSwitchedOffLoginPath, leadsToTheWebsite, outsideLoginProblem } from "./auth-rules";
 import { sendEmailInBackground } from "./email";
 import { ownOrigins } from "./same-site";
 
 const APP_NAME = "Connect";
 const ONE_HOUR = 3600;
-/** An email address that no account can have (".invalid" is set aside so that it never exists). See the sign-in of a closed account, below. */
-const NOBODY = "nobody@closed-account.invalid";
+/**
+ * An email address that no account has: a new one made up each time, which nobody can guess and
+ * so nobody can sign up with beforehand (and ".invalid" can never receive mail). See the sign-in
+ * of a closed account, below.
+ */
+const nobody = () => `${randomUUID()}@closed-account.invalid`;
 
 /** Google sign-in is offered only when its keys are set in .env.local. */
 export const googleSignInConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -191,7 +196,7 @@ export const auth = betterAuth({
     // Changing the password always logs out every other device, whatever the browser sends.
     before: createAuthMiddleware(async (ctx) => {
       // Parts of the login tool this app does not use are switched off.
-      if (UNUSED_LOGIN_PATHS.some((path) => ctx.path === path || ctx.path.startsWith(`${path}/`))) throw new APIError("NOT_FOUND");
+      if (isSwitchedOffLoginPath(ctx.path)) throw new APIError("NOT_FOUND");
       // Wherever the login tool is asked to send someone on to, it must be the website: when an email
       // is asked for, and again when its link is opened. (See leadsToTheWebsite: trusting the phone
       // app's name must not let a confirmation or reset link lead into an app.)
@@ -207,9 +212,13 @@ export const auth = betterAuth({
       // never confirmed its email it would even send the confirmation again. So a sign-in for a
       // closed account is handed on as a sign-in for an address nobody has: the login tool then
       // gives its ordinary "invalid email or password", after the same work as for any stranger.
-      if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string") {
+      // Only for an address written in plain characters, as every stored address is: anything else
+      // is left to the login tool, which turns it away as "not an email address" for everyone alike.
+      // (Some unusual letters become plain ones when made lower-case; looked up here, they would find
+      // a closed account and answer differently from an open one.)
+      if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string" && /^[\x21-\x7e]+$/.test(ctx.body.email)) {
         const [account] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.email, ctx.body.email.toLowerCase()));
-        if (account?.closedAt) return { context: { ...ctx, body: { ...ctx.body, email: NOBODY } } };
+        if (account?.closedAt) return { context: { ...ctx, body: { ...ctx.body, email: nobody() } } };
       }
       if (ctx.path === "/change-password") {
         return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };
