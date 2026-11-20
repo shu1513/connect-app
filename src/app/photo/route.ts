@@ -33,13 +33,13 @@ export async function POST(request: Request) {
   // Where the person is sent back to: a host's photo is on the Hosting page, anyone else's on the Account page.
   // Decided here, from the login: never from anything the request says.
   const [hostProfile] = await db.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
-  const PAGE = hostProfile ? "/host" : "/account";
+  const page = hostProfile ? "/host" : "/account";
 
   // 3. A file form, and not one that says it is too large.
   const kind = request.headers.get("content-type") ?? "";
-  if (!kind.toLowerCase().startsWith("multipart/form-data")) return goTo(PAGE, "Please choose a picture.");
+  if (!kind.toLowerCase().startsWith("multipart/form-data")) return goTo(page, "Please choose a picture.");
   const said = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(said) && said > REQUEST_MAX) return goTo(PAGE, TOO_LARGE);
+  if (Number.isFinite(said) && said > REQUEST_MAX) return goTo(page, TOO_LARGE);
 
   // 4. The whole press. The file is read inside it, after the start, while the one place for pictures is held.
   try {
@@ -53,9 +53,9 @@ export async function POST(request: Request) {
         return file;
       },
     });
-    return goTo(PAGE, photoNotice(result, "upload", !hostProfile));
+    return goTo(page, photoNotice(result, "upload", !hostProfile));
   } catch (error) {
     console.error("[host-photo] an upload failed", error instanceof Error ? error.name : "error");
-    return goTo(PAGE, "Something went wrong. Your photo was not changed. Please try again.");
+    return goTo(page, "Something went wrong. Your photo was not changed. Please try again.");
   }
 }

@@ -3124,6 +3124,10 @@ so and that showing hosts their followers would be a feature of its own.
   through the running app to fetch a photo; the script already reads that the photo's address
   counts a founder only with the second login step.
 
+- *CodeRabbit did not review this one either.* It answered "review rate limited", with the next
+  review 56 minutes away, and the founder's rule for that case is not to wait. The builder read
+  the whole change once more, line by line, and changed one name in the upload's address.
+
 **Tried for real (19 November 2026),** on this computer, in the built-in browser on a test
 server of its own, with OpenAI's real check:
 - As the local test customer: "Your photo" on the Account page, a real photograph uploaded
