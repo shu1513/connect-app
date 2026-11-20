@@ -58,7 +58,10 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
         </p>
       )}
 
-      <p className="mt-4 font-medium">{stageWords(booking, role)}</p>
+      {/* Past the card step's time, in the moments before the helper ends the request: said in place of "enter your card". */}
+      <p className="mt-4 font-medium" role={cardTooLate ? "alert" : undefined}>
+        {cardTooLate ? REQUEST_WORDS.cardTooLate : stageWords(booking, role)}
+      </p>
       {ended && <p className="mt-1 text-sm opacity-70">{ended}</p>}
       {role === "customer" && byMember && booking.stage === "paying" && (
         <form action={continueMemberAction} className="mt-4 text-sm">
@@ -124,8 +127,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
 
       {cardTooLate && (
         <section className="mt-6 text-sm">
-          <p role="alert">{REQUEST_WORDS.cardTooLate}</p>
-          <p className="mt-2">
+          <p>
             <Link href={hostHandle ? `/h/${hostHandle}` : "/"} className="underline underline-offset-2">
               Choose the time again
             </Link>

@@ -19,6 +19,8 @@ import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
 
 /** How often the app asks again about a request that waits for the host's answer, or for a month's payment. */
 const WAITING_REFRESH_SECONDS = 20;
+/** How often it asks again while a request stands at its card step: so that a page left open says so when the time is up. */
+const CARD_REFRESH_SECONDS = 30;
 
 /**
  * What a customer reads before asking this host for this time, or null when there is no such page
@@ -104,7 +106,7 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     // What else the call's own page is for is said once the app has that page (part 08).
     call: booking.callId ? { id: booking.callId } : null,
     // (Past the card step's time the helper ends the request within moments: the page asks again until it has.)
-    refreshSeconds: waiting || booking.stage === "paying" || tooLate ? WAITING_REFRESH_SECONDS : null,
+    refreshSeconds: waiting || booking.stage === "paying" || tooLate ? WAITING_REFRESH_SECONDS : atCard ? CARD_REFRESH_SECONDS : null,
     notice,
   };
 }

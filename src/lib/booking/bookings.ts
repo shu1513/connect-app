@@ -421,7 +421,9 @@ export async function askForCall(input: {
   /**
    * The price and cancelling rule the customer was shown and agreed to. If the host has changed them since, nothing
    * is sent. `cardTermsVersion`: the version of the words beside the card box that the customer was shown and
-   * ticked; if those words have been changed since, nothing is sent either (the tick was for the old ones).
+   * ticked; if those words have been changed since, nothing is sent either (the tick was for the old ones). A
+   * form hands in what it was sent, or null when it was sent none: null is no version, and is refused for a paid
+   * request. Only code that leaves the field out altogether (the check scripts) is not asked.
    */
   seen: { pricePer15Cents: number; freeCancelMinutes: number; cardTermsVersion?: string | null };
   now: Date;
@@ -461,17 +463,19 @@ export async function askForCall(input: {
       if (taken) throw new BookingError(TAKEN_THEN);
       if (paid) {
         // The tick is recorded with the version of the words in force. A tick given for other words is not one for these.
-        if (input.seen.cardTermsVersion != null && input.seen.cardTermsVersion !== CARD_CONSENT_VERSION) {
+        if (input.seen.cardTermsVersion !== undefined && input.seen.cardTermsVersion !== CARD_CONSENT_VERSION) {
           throw new BookingError("The words about your card have changed since you opened this page. Please read them again.");
         }
         // A paid request stands at the card step until its card is saved: it takes nobody's time and is not a sent
         // request, so none of the limits above counts it. These two do, whether or not a card is ever saved.
         const drafts = and(eq(schema.bookings.customerId, customer.id), eq(schema.bookings.source, "customer"), gt(schema.bookings.totalCents, 0));
-        // Standing at the card step: only those whose time is not up (one past it is over, also before the helper has ended it).
+        // Standing at the card step: only those whose time is not up (one past it is over, also before the helper has
+        // ended it), judged by the clock now that the calendars are locked.
+        const at = Math.max(now.getTime(), Date.now());
         const [{ open }] = await tx
           .select({ open: sql<number>`count(*)::int` })
           .from(schema.bookings)
-          .where(and(drafts, eq(schema.bookings.stage, "card"), gt(schema.bookings.createdAt, new Date(now.getTime() - LIMITS.cardStepMinutes * 60_000))));
+          .where(and(drafts, eq(schema.bookings.stage, "card"), gt(schema.bookings.createdAt, new Date(at - LIMITS.cardStepMinutes * 60_000))));
         if (open >= LIMITS.cardStepsOpen) throw new BookingError("You have several requests waiting for their card. Finish one of them first, or wait until they have ended.");
         const [{ today }] = await tx.select({ today: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, gt(schema.bookings.createdAt, new Date(now.getTime() - DAY))));
         if (today >= LIMITS.cardStepsPerDay) throw new BookingError("You have started a lot of requests today. Please try again tomorrow.");
@@ -646,34 +650,37 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       await lockCalendars(tx, [before.hostId, before.customerId]);
       const [booking] = await tx.select().from(schema.bookings).where(eq(schema.bookings.id, before.id)).for("update");
       if (booking.stage !== "card") return booking;
+      // The moment of deciding: now that Stripe has been asked and the calendars are locked, not when the question
+      // came in (both can take a while). Everything below is judged and dated by it: whether the card step's time
+      // is up, whether the host is still there for a call asked for "now", and from when her time to answer runs.
+      // (Never earlier than the moment handed in.)
+      const at = new Date(Math.max(input.now.getTime(), Date.now()));
       // A card belongs to a booking or to a membership, never both. From here on it is remembered as a booking's.
       const mine = await bookingCardSeen(tx, booking.id, paymentMethodId);
       const end = (reason: string) =>
         tx
           .update(schema.bookings)
           // The card is kept on the row so the helper can remove it from Stripe (never a membership's card).
-          .set({ stage: "ran_out", endedReason: reason, endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
+          .set({ stage: "ran_out", endedReason: reason, endedAt: at, stripePaymentMethodId: mine ? paymentMethodId : null })
           .where(eq(schema.bookings.id, booking.id))
           .returning()
           .then((rows) => rows[0]);
       if (!mine) return end("that card is saved for a membership, so it cannot be used for a booking; please ask again with another card");
       // The card step lasts as long as the customer was told, and no longer: past it the request ends here, in the
       // helper's own words, whether or not the helper has been by. (The card is kept on the row so the helper removes it.)
-      // Judged by the clock at this moment, with the calendars locked, not by when the question came in: asking
-      // Stripe and waiting for the lock take time. (Never earlier than the moment handed in.)
-      if (!cardStepOpen(booking.createdAt, new Date(Math.max(input.now.getTime(), Date.now())))) return end("the card was not entered in time");
+      if (!cardStepOpen(booking.createdAt, at)) return end("the card was not entered in time");
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
       // The deadlines come from the terms fixed on this request, so the time is checked against those
       // same terms, not against whatever the host's settings are now.
       const asAsked = { ...offer, pricePer15Cents: booking.pricePer15Cents, freeCancelMinutes: booking.freeCancelMinutes, breakMinutes: booking.breakMinutes };
       try {
-        await checkMayAsk(tx, asAsked, booking, input.now);
+        await checkMayAsk(tx, asAsked, booking, at);
       } catch (error) {
         if (error instanceof BookingError) return end(error.message);
         throw error;
       }
-      return sendToHost(tx, booking, input.now, paymentMethodId);
+      return sendToHost(tx, booking, at, paymentMethodId);
     });
   } catch (error) {
     if (!isOverlap(error)) throw error;

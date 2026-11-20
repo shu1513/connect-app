@@ -10,7 +10,9 @@
  * test key (nothing is ever held or charged, and nothing real is made). **Start the app it talks
  * to with the same test key** (the same `.env.local`): the app, not this tool, makes the first
  * things at Stripe. The app itself refuses a key that is not a test key unless it was started with
- * ALLOW_LIVE_STRIPE=yes, and this tool stops at once if the app hands out anything but a test key. It empties the table of
+ * ALLOW_LIVE_STRIPE=yes, and this tool stops at the app's first answer about a card if that does
+ * not carry this tool's own test key (the same key means the same Stripe test account). By then
+ * the app has made one test customer and one card step, and no more. It empties the table of
  * attempt limits as it goes, so it only runs against a database made for checking (its name must
  * end in "_check"). It removes what it made, here and at Stripe. It never prints a secret.
  *
@@ -353,6 +355,10 @@ async function main() {
       check("a paid call without the box ticked, or with no box at all: nothing is sent", sentence(noTick) === "Please tick the box about your card to continue." && sentence(noBox) === sentence(noTick));
       // A tick is for the words it stood beside. Without saying which, or for words that have been changed since, it is no tick.
       check("a tick that does not say which words it was given for is not taken", refusal(await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTermsVersion: undefined })) === "not_valid" && refusal(await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTermsVersion: 7 })) === "not_valid");
+      // The website's form hands the same function what it was sent, or "none" when the field was missing: for a paid call that is refused too.
+      let noVersion = "";
+      await B.askForCall({ customer: { id: cust.id, name: cust.name, email: cust.email }, hostId: noor.id, startsAt: new Date(paidS.startsAt), lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: true, seen: { pricePer15Cents: 2000, freeCancelMinutes: 60, cardTermsVersion: null }, now: new Date() }).catch((error: Error) => (noVersion = error.message));
+      check("a paid form that does not say which wording was ticked sends nothing, on the website either", noVersion === "The words about your card have changed since you opened this page. Please read them again.", noVersion);
       check("a tick given for an earlier wording sends nothing", sentence(await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTermsVersion: "2020-01-a" })) === "The words about your card have changed since you opened this page. Please read them again.");
       await setSwitches({ requestsOff: true });
       check("requests switched off by the founder", sentence(await send(maya.handle, s, cust.jar, fresh())) === "Connect is not taking new requests right now. Please try again later.");
@@ -411,13 +417,14 @@ async function main() {
       check("the tick is recorded with the wording's version, and Stripe's step is made", made1?.cardConsentVersion === CARD_CONSENT_VERSION && made1.cardConsentAt !== null && Boolean(made1.stripeSetupIntentId));
       check("nobody's time is taken yet, and no email has gone", !(await busyOf(second.id)).some((b) => b.bookingId === id) && (await emailsTo(second.email, `Your request to ${noor.displayName} was sent`)) === 0);
       const page = (await requestPage(id, second.jar)).body;
-      check("its page shows the card step, with the website's words and by when", page?.stage === "card" && page.stageWords === "Almost there: enter your card to send the request." && page.card?.title === "Your card" && page.card.words.startsWith("Nothing is held or charged now.") && page.card.button === "Save card and send request" && page.card.deadline.some((part) => typeof part === "object" && "time" in part && part.time === new Date(made1.createdAt.getTime() + LIMITS.cardStepMinutes * MINUTE).toISOString()) && keys(page.card) === "button,checkAgain,deadline,givenUp,notConfirmed,notSaved,title,words" && page.card.checkAgain === "Check again" && page.takeBack === null && page.takeBackSure === null && page.hearBy === null, keys(page?.card));
+      check("its page shows the card step, with the website's words and by when", page?.stage === "card" && page.stageWords === "Almost there: enter your card to send the request." && page.card?.title === "Your card" && page.card.words.startsWith("Nothing is held or charged now.") && page.card.button === "Save card and send request" && page.card.deadline.some((part) => typeof part === "object" && "time" in part && part.time === new Date(made1.createdAt.getTime() + LIMITS.cardStepMinutes * MINUTE).toISOString()) && keys(page.card) === "button,checkAgain,deadline,givenUp,notConfirmed,notSaved,title,words" && page.card.checkAgain === "Check again" && page.refreshSeconds === 30 && page.takeBack === null && page.takeBackSure === null && page.hearBy === null, keys(page?.card));
       check("the price line says the most it can cost", page?.price.words === "$40.00 at most");
 
       const card = await step(id, "card", second.jar);
       const c = card.json as AppCardStep;
       // The app this tool talks to must be on Stripe's test key too. Anything else: stop here, before more is made.
-      if (card.status === 200 && !String(c.publishableKey).startsWith("pk_test_")) throw new Error("The app at " + BASE + " is not using Stripe's test key. Stopping.");
+      // And on this tool's own test account: what this tool confirms and removes at Stripe must be what the app made there.
+      if (card.status === 200 && (!String(c.publishableKey).startsWith("pk_test_") || c.publishableKey !== process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)) throw new Error("The app at " + BASE + " is not using this tool's Stripe test key (.env.local). Stopping.");
       check("the card sheet gets what it needs, and nothing else", card.status === 200 && keys(c) === "clientSecret,merchant,publishableKey" && /^seti_[A-Za-z0-9]+_secret_[A-Za-z0-9]+$/.test(c.clientSecret) && c.publishableKey.startsWith("pk_test_") && c.merchant === "Connect", `${card.status} ${keys(c)}`);
       check("and the secret is never kept on the way", String(card.headers["cache-control"]).includes("no-store"));
       check("nobody else gets it: somebody else, nobody, a browser", refusal(await step(id, "card", cust.jar)) === "not_found" && refusal(await step(id, "card")) === "not_signed_in" && refusal(await asBrowser(`/api/app/bookings/${id}/card`, { jar: second.jar, body: {} })) === "not_the_app");
@@ -459,7 +466,9 @@ async function main() {
         const latePage = (await requestPage(lateId, third.jar)).body;
         check("past its time the request's page offers no card step, says why in place of 'enter your card', and asks again by itself", latePage?.stage === "card" && latePage.card === null && latePage.stageWords === "The time to enter a card for this request has passed. Nothing was sent." && latePage.reason === null && latePage.refreshSeconds === 20, JSON.stringify(latePage).slice(0, 200));
         const lateWeb = await asBrowser(`/bookings/${lateId}`, { jar: third.jar });
-        check("the website's page says the same and shows no card form", lateWeb.status === 200 && lateWeb.text.includes("The time to enter a card for this request has passed. Nothing was sent.") && !lateWeb.text.includes("Save card and send request") && !lateWeb.text.includes("The card form could not be loaded"), `${lateWeb.status}`);
+        // What the page shows (its own bookkeeping, which repeats the words for the browser, is left out).
+        const lateShown = lateWeb.text.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " ");
+        check("the website's page says the same and shows no card form", lateWeb.status === 200 && lateShown.split("The time to enter a card for this request has passed. Nothing was sent.").length === 2 && !lateShown.includes("Almost there") && lateShown.includes("Choose the time again") && !lateShown.includes("Save card and send request") && !lateShown.includes("The card form could not be loaded"), `${lateWeb.status} ${lateShown.split("The time to enter a card").length - 1} ${lateShown.includes("Almost there")}`);
         check("and the card sheet is refused", sentence(await step(lateId, "card", third.jar)) === "The time to enter a card for this request has passed. Nothing was sent.");
         // Even a card that Stripe has saved by then sends nothing: the request ends, and the helper removes the card.
         await stripe().setupIntents.confirm(lateRow.stripeSetupIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });

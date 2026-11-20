@@ -68,7 +68,17 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
     const body: AppBookSent = { id: booking.id };
     return answer(body);
   } catch (error) {
-    if (!(error instanceof BookingError)) console.error("[bookings] request from the app failed", error);
+    if (!(error instanceof BookingError)) {
+      console.error("[bookings] request from the app failed", error);
+      // A paid request is written down first, and its card step is made at Stripe after. If only the second failed,
+      // the request exists: it is answered as made (its own screen makes the card step when it is asked for), never
+      // as "nothing was sent".
+      const made = await requestWithKey(me.id, given.requestKey).catch(() => null);
+      if (made) {
+        const body: AppBookSent = { id: made.id };
+        return answer(body);
+      }
+    }
     return refuse("not_valid", error instanceof BookingError ? error.message : "Something went wrong. Nothing was sent. Please try again.");
   }
 }

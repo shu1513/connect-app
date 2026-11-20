@@ -54,6 +54,8 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
    * very same request, so the two can only ever be one request, on the terms the person saw.
    */
   const [unsure, setUnsure] = useState<Sent | null>(null);
+  /** A request that is on its way right now. From the moment the button is pressed, what is being sent is shown and cannot be changed. */
+  const [onItsWay, setOnItsWay] = useState<Sent | null>(null);
   /** The request this screen made, once the server has said so: the form is then done with. */
   const [made, setMade] = useState<string | null>(null);
   const frozen = useRef(false);
@@ -115,11 +117,14 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
 
   const back = () => (router.canGoBack() ? router.back() : router.replace(handle ? `/h/${handle}` : "/"));
 
-  /** Sends a request, or sends an unsettled one again exactly as it was. */
-  async function send(what: Sent) {
+  /** Sends a request, or (`again`) sends an unsettled one once more exactly as it was. */
+  async function send(what: Sent, again: boolean) {
     if (busy.current) return;
     busy.current = true;
     const still = watch();
+    // From here until the server has answered, the summary is not read again and nothing on the screen can be changed.
+    frozen.current = true;
+    setOnItsWay(what);
     setSending(true);
     setSaid(null);
     const answer = await ask<AppBookSent>(path, { body: what.body });
@@ -131,14 +136,29 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
       setUnsure(null);
       setMade(answer.data.id);
       if (still()) router.replace(`/bookings/${answer.data.id}`);
+    } else if (!answer.ok && again && answer.code !== "not_valid" && answer.code !== "not_found") {
+      // An unsettled request was sent again and turned away at the door (paused, signed out, this copy too old),
+      // before the server looked whether the first sending had arrived. What became of it is still not known: what
+      // was sent stays on the screen as it is, to be tried again.
+      setSaid(answer.message);
+      if (answer.code !== "paused") void askOpening();
     } else if (!answer.ok && answer.code !== "unreachable") {
-      // The server's own sentence: nothing was made. The form is live again, and what it shows is read again (the
-      // price or the time may have changed, or the page may be gone).
+      // The server's own sentence, and with it the certainty that no request was made (one that had been made is
+      // answered as made, whatever else has changed). The form is live again.
       frozen.current = false;
       setUnsure(null);
       setSaid(answer.message);
-      if (answer.code !== "not_valid" && answer.code !== "paused" && answer.code !== "not_found") void askOpening();
-      await load();
+      if (answer.code === "not_found") {
+        // The page is gone: nothing of it stays on the screen to be sent again.
+        newest.current++;
+        setSummary(null);
+        setAgreedTo(null);
+        setGone(true);
+      } else {
+        // What the form shows is read again: the price or the time may have changed.
+        if (answer.code !== "not_valid" && answer.code !== "paused") void askOpening();
+        await load();
+      }
     } else {
       // It may or may not have arrived.
       frozen.current = true;
@@ -146,6 +166,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
       setSaid(answer.ok ? UNREACHABLE : answer.message);
     }
     busy.current = false;
+    setOnItsWay(null);
     setSending(false);
   }
 
@@ -165,25 +186,30 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
     );
   }
 
-  if (unsure) {
-    // What was sent, as it was sent. Nothing here can be changed until the server has said what became of it.
-    const was = unsure.shown;
+  const sentView = unsure ?? onItsWay;
+  if (sentView) {
+    // What is being sent, or was sent without an answer coming back: all of it, exactly as the person saw it when
+    // they pressed the button. Nothing here can be changed until the server has said what became of it.
+    const was = sentView.shown;
     return (
       <Page>
         <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
           {was.title}
         </Text>
-        <Notice>
-          {said ?? UNREACHABLE}
-          {"\n\n"}
-          Your request may or may not have arrived. Try again to find out: it is sent once at most, exactly as shown here.
-        </Notice>
+        {unsure ? (
+          <Notice>
+            {said ?? UNREACHABLE}
+            {"\n\n"}
+            Your request may or may not have arrived. Try again to find out: it is sent once at most, exactly as shown here.
+          </Notice>
+        ) : null}
         <Card>
           <View>
             <Text style={[styles.label, { color: colors.soft }]}>When</Text>
             <Words>
               <Text style={styles.bold}>{localTime(was.startsAt)}</Text> ({was.minutes} minutes)
             </Words>
+            <Words soft>{was.hostTime}</Words>
           </View>
           <View>
             <Text style={[styles.label, { color: colors.soft }]}>Price</Text>
@@ -191,20 +217,27 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
               <Text style={styles.bold}>{was.price}</Text>
             </Words>
           </View>
-          {unsure.note.trim() ? (
-            <View>
-              <Text style={[styles.label, { color: colors.soft }]}>Your note</Text>
-              <Words>{unsure.note}</Words>
-            </View>
-          ) : null}
+          <Words soft>{was.what}</Words>
+        </Card>
+        <Card>
+          <Heading>{was.pointsTitle}</Heading>
+          {was.points.map((point, index) => (
+            <Sentence key={index} parts={point} lead="• " />
+          ))}
+        </Card>
+        <Card>
+          <View>
+            <Text style={[styles.label, { color: colors.soft }]}>Your note</Text>
+            <Words>{sentView.note.trim() ? sentView.note : "None."}</Words>
+          </View>
           {was.cardTerms ? (
             <View>
-              <Text style={[styles.label, { color: colors.soft }]}>{unsure.ticked ? "You ticked" : "You did not tick"}</Text>
+              <Text style={[styles.label, { color: colors.soft }]}>{sentView.ticked ? "You ticked" : "You did not tick"}</Text>
               <Words soft>{was.cardTerms}</Words>
             </View>
           ) : null}
         </Card>
-        <Button label="Try again" busy={sending} onPress={() => void send(unsure)} />
+        {unsure ? <Button label="Try again" busy={sending} onPress={() => void send(unsure, true)} /> : <Button label={was.button} busy onPress={() => {}} />}
       </Page>
     );
   }
@@ -292,7 +325,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
         busy={sending}
         onPress={() => {
           const what = fromForm(summary);
-          if (what) void send(what);
+          if (what) void send(what, false);
         }}
       />
     </Page>

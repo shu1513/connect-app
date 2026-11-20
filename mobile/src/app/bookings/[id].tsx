@@ -120,7 +120,11 @@ function OneRequest({ id }: { id: string }) {
         return;
       }
       const got = await asked("");
-      if (got?.card && andCard && !acting.current) await asked("/card-saved");
+      if (got?.card && andCard && !acting.current) {
+        // No page back: the server could not be asked, or could not tell. A card may be saved all the same (the app
+        // may have been closed in the middle of a bank's approval): the screen then offers to ask again.
+        if (!(await asked("/card-saved"))) setUnchecked(true);
+      }
     },
     [id, asked],
   );
@@ -193,6 +197,8 @@ function OneRequest({ id }: { id: string }) {
     if (after && !after.card) setUnchecked(false);
     acting.current = false;
     setBusy(null);
+    // Refused, or not reached: the page is read, so the screen shows where the request stands and what can be done.
+    if (!after) void look(false);
   }
 
   async function takeBack() {
@@ -218,6 +224,8 @@ function OneRequest({ id }: { id: string }) {
     );
   }
   if (!page) return problem ? <Problem words={problem} onRetry={() => void look(true)} /> : <Loading />;
+  // "Check again" belongs to a request that still stands at its card step.
+  const mayCheck = unchecked && page.card !== null;
   const takeBackLabel = page.takeBack;
   const sure = page.takeBackSure;
   const hostHandle = page.hostHandle;
@@ -267,8 +275,8 @@ function OneRequest({ id }: { id: string }) {
           <Words soft>{page.card.words}</Words>
           <Sentence parts={page.card.deadline} soft />
           {saying ? <Notice>{saying}</Notice> : null}
-          {unchecked ? <Button label={page.card.checkAgain} busy={busy === "check"} disabled={busy !== null} onPress={() => void checkAgain(page.card!)} /> : null}
-          <Button label={page.card.button} kind={unchecked ? "plain" : "main"} busy={busy === "card"} disabled={busy !== null} onPress={() => void card(page.card!)} />
+          {mayCheck ? <Button label={page.card.checkAgain} busy={busy === "check"} disabled={busy !== null} onPress={() => void checkAgain(page.card!)} /> : null}
+          <Button label={page.card.button} kind={mayCheck ? "plain" : "main"} busy={busy === "card"} disabled={busy !== null} onPress={() => void card(page.card!)} />
         </Card>
       ) : saying ? (
         <Notice>{saying}</Notice>

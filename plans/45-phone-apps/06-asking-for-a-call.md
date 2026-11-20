@@ -144,7 +144,7 @@ call. The screen says what is being bought in those words. The ID check is not a
 
 ### How it was tried
 
-- `scripts/app-booking-check.ts`, 120 checks, with real test cards at Stripe (test mode): the
+- `scripts/app-booking-check.ts`, 121 checks, with real test cards at Stripe (test mode): the
   summary in the website's own sentences (and the website's page for the same time saying the
   same); a request from the app is the same row, deadlines and email as one made by the
   website's own function; sent twice it is one; every refusal; the card step, where only
@@ -279,6 +279,41 @@ what happens around a lost answer:
    and the oldest version still let in must be raised when it cannot.
 10. *A cancelled ID check could be written back to "being looked at" by an older reading.* A
     cancelled check is now left alone, like a passed one.
+
+## Astra's third look at the code (20 November 2026): "not ready", now worked in
+
+It found points 2, 5 and 10 of its second look fixed, accepted the two that were not taken,
+and named nine narrower ones:
+
+1. *A paid request could exist after the app had said "nothing was sent"* (the request is
+   written down first, its card step is made at Stripe after; if only the second failed, the
+   answer was a refusal). The address now looks for the request before it answers a failure,
+   and answers it as made.
+2. *A retry turned away at the door (paused, signed out) threw away the copy of what was
+   sent.* It is kept: what became of the first sending is still not known then. And when the
+   answer is "not found", nothing of the page stays on the screen to be sent again.
+3. *The website still took a paid tick that did not say which wording it was for.* Refused
+   now; only code that leaves the field out altogether (the check scripts) is not asked.
+4. *The check script learns which Stripe account the app uses only from the app's first
+   answer about a card.* It now stops there unless the app hands out this tool's own test key
+   (the same key means the same account), so what it confirms and removes is what the app
+   made. **Not closed further:** the app's first test customer and card step exist by then.
+   The app itself refuses any key that is not a test key unless it was started with
+   ALLOW_LIVE_STRIPE=yes.
+5. *Sending on after the card used the clock from when the question came in* for the host's
+   time to answer and for "is she still there" (a call asked for now). One clock now, taken
+   when the calendars are locked, for everything decided at that moment.
+6. *A request's page left open across the 30 minutes kept offering the card.* The page now
+   asks again every half minute while it stands at the card step. The count of requests
+   standing there is also taken by the clock after the lock.
+7. *The website's page said "enter your card" above "the time has passed".* It says the second
+   in place of the first, once.
+8. *"Check again" was only offered after the sheet had been open in the same sitting.* It is
+   also offered when the app is opened again and the server could not be asked, and a refused
+   check reads the page again.
+9. *The read-only view of what was sent left out the rules the tick refers to, and the form
+   could be changed while the first sending was on its way.* The view now shows everything
+   (the points included), and it replaces the form from the moment the button is pressed.
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
