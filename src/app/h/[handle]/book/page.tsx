@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
-import { offerOf, openTimes } from "@/lib/booking/bookings";
+import { isHostToo, offerOf, openTimes } from "@/lib/booking/bookings";
 import { whenFor } from "@/lib/booking/emails";
-import { answerDeadline, LIMITS, payCutoff } from "@/lib/booking/rules";
+import { AFTER_CALL_MINUTES, answerDeadline, LIMITS, payCutoff } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { hostForMemberByHandle } from "@/lib/membership/access";
 import { memberBookingView, memberCallCents, memberOpenTimes } from "@/lib/membership/book";
@@ -85,6 +85,7 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
   const terms = { startsAt, paid, freeCancelMinutes: offer.freeCancelMinutes };
   const answerBy = answerDeadline({ ...terms, requestedAt: now });
   const hostZoneTime = whenFor({ timeZone: offer.timeZone }, startsAt);
+  const hostToo = await isHostToo(person.id);
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
@@ -124,7 +125,15 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
           <li>
             You will have an answer by <LocalTime iso={answerBy.toISOString()} />. If there is none by then, the request ends by itself.
           </li>
-          <li>While you wait, this time is kept for this request in your own Connect calendar: you cannot ask for another call that overlaps it.</li>
+          <li>
+            While you wait, this time is kept for this request in your own Connect calendar: you cannot ask for another call that overlaps it
+            or starts in the {AFTER_CALL_MINUTES} minutes after it.
+          </li>
+          {hostToo && (
+            <li>
+              <strong>You are a host too:</strong> while this request waits, and during the call, nobody can book you at this time.
+            </li>
+          )}
           <li>You can take the request back for free at any time before it is accepted.</li>
           {paid && (
             <>
@@ -214,6 +223,7 @@ async function MemberBook(props: { profile: { userId: string; handle: string; di
   if (view.offer.verifiedOnly && !(await identityState(person.id)).passed) return <ConfirmIdFirst reason="host" hostName={profile.displayName} next={props.here} />;
   const { month, offer } = view;
   const cents = memberCallCents(month.pricePer15Cents, minutes);
+  const hostToo = await isHostToo(person.id);
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
@@ -265,6 +275,11 @@ async function MemberBook(props: { profile: { userId: string; handle: string; di
           </li>
           <li>{MEMBER_CANCEL_RULE[offer.freeCancelMinutes]}</li>
           <li>The call must end before your month ends, on <LocalTime iso={view.monthEndsAt.toISOString()} />.</li>
+          {hostToo && (
+            <li>
+              <strong>You are a host too:</strong> nobody can book you during this call, and requests to you for that time end.
+            </li>
+          )}
         </ul>
       </section>
 

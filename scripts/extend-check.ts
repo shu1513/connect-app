@@ -175,7 +175,7 @@ async function main() {
       const booking = await bookingOf(callId);
       check("the same call now ends 10 minutes later", longer.endsAt.getTime() === booked.endsAt.getTime() + 10 * MINUTE && longer.roomName === booked.roomName && longer.startsAt.getTime() === booked.startsAt.getTime());
       check("the booking's end and length moved with it", booking.endsAt.getTime() === longer.endsAt.getTime() && booking.lengthMinutes === 25 && booking.totalCents === 0);
-      check("the host is taken until the new end plus their break; the customer until the new end", (await busyOf(callId, fred.id)).endsAt.getTime() === longer.endsAt.getTime() + booking.breakMinutes * MINUTE && (await busyOf(callId, cust.id)).endsAt.getTime() === longer.endsAt.getTime());
+      check("the host is taken until the new end plus their break; the customer until the new end plus the 2 minutes after every call", (await busyOf(callId, fred.id)).endsAt.getTime() === longer.endsAt.getTime() + booking.breakMinutes * MINUTE && (await busyOf(callId, cust.id)).endsAt.getTime() === longer.endsAt.getTime() + 2 * MINUTE);
       check("the request is on record as accepted, and a free call has no payment", (await extensionOf(asked.extensionId)).status === "accepted" && (await paymentsOfCall(callId)).length === 0);
       check("at the old end, the helper does not close the room: the call was made longer", (await closeCallIfDue(callId, new Date(booked.endsAt.getTime() + 1000))) === "not over");
       check("answering again changes nothing", await refusedWith(X.answerExtension({ extensionId: asked.extensionId, hostId: fred.id, accept: false, now: new Date(booked.endsAt.getTime() - 20_000) }), "no longer waiting"));
@@ -235,14 +235,14 @@ async function main() {
       await freeCall(fred, otherCust, new Date(call.endsAt.getTime() + 12 * MINUTE));
       check("the host's next call is 12 minutes later: 7 minutes fit, leaving the 5-minute break", (await X.addTimeChoices(call)).fits === 7);
       check("asking for 10 is refused", await refusedWith(ask(callId, cust, 10, 80), "up to 7"));
-      // The customer has a call with someone else 6 minutes after this one ends.
+      // The customer has a call with someone else 8 minutes after this one ends.
       const otherHost = await person("h2");
-      await freeCall(otherHost, cust, new Date(call.endsAt.getTime() + 6 * MINUTE));
-      check("the customer's own next call is 6 minutes later: 6 minutes fit", (await X.addTimeChoices(call)).fits === 6);
+      await freeCall(otherHost, cust, new Date(call.endsAt.getTime() + 8 * MINUTE));
+      check("the customer's own next call is 8 minutes later: 6 minutes fit, leaving the 2 minutes after every call", (await X.addTimeChoices(call)).fits === 6);
       check("asking for 7 is refused", await refusedWith(ask(callId, cust, 7, 80), "up to 6"));
       const asked = await ask(callId, cust, 6, 80);
       await answer(asked.extensionId, callId, fred, true, 40);
-      check("exactly what fits can be added, right up to the customer's next call", (await callOf(callId)).endsAt.getTime() === call.endsAt.getTime() + 6 * MINUTE);
+      check("exactly what fits can be added, up to 2 minutes before the customer's next call", (await callOf(callId)).endsAt.getTime() === call.endsAt.getTime() + 6 * MINUTE);
       check("now nothing more fits, and asking says so", (await X.addTimeChoices(await callOf(callId))).fits === 0 && (await refusedWith(ask(callId, cust, 5, 60), "no room")));
 
       // The time is free when the customer asks, and taken by another call at the moment the host accepts.
@@ -272,10 +272,23 @@ async function main() {
         .values({ hostId: fred.id, customerId: cust9.id, startsAt: new Date(thirdCall.endsAt.getTime() + 3 * MINUTE), endsAt: new Date(thirdCall.endsAt.getTime() + 18 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: new Date(), respondBy: thirdCall.endsAt })
         .returning();
       await db.insert(schema.busyEntries).values({ bookingId: inTheWay.id, userId: cust9.id, startsAt: inTheWay.startsAt, endsAt: inTheWay.endsAt });
+      // The customer of this call is asked for a call herself, as a host, in those same minutes (plans/42).
+      const cust10 = await person("c42");
+      const [toTheCustomer] = await db
+        .insert(schema.bookings)
+        .values({ hostId: cust8.id, customerId: cust10.id, startsAt: new Date(thirdCall.endsAt.getTime() + 3 * MINUTE), endsAt: new Date(thirdCall.endsAt.getTime() + 18 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: new Date(), respondBy: new Date(Date.now() + 24 * HOUR) })
+        .returning();
+      await db.insert(schema.busyEntries).values({ bookingId: toTheCustomer.id, userId: cust10.id, startsAt: toTheCustomer.startsAt, endsAt: toTheCustomer.endsAt });
       const more = await ask(third, cust8, 10, 80);
       await answer(more.extensionId, third, fred, true, 40);
       const [passed] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, inTheWay.id));
       check("a waiting request of someone else for those minutes ends, as when the host accepts any call", passed.stage === "passed_over" && (await db.select().from(schema.busyEntries).where(eq(schema.busyEntries.bookingId, inTheWay.id))).length === 0);
+      const [own] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, toTheCustomer.id));
+      check(
+        "a request to the customer herself, as a host, for those minutes ends too, and is told only that she is no longer free",
+        own.stage === "passed_over" && own.endedReason === "the host is no longer free at that time" && passed.endedReason === "the host accepted another request" && (await db.select().from(schema.busyEntries).where(eq(schema.busyEntries.bookingId, toTheCustomer.id))).length === 0,
+        `${own.stage} ${own.endedReason}`,
+      );
     }
 
     // ----------------------------------------------------------------------

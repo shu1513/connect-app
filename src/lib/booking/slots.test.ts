@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hoursAsStretches, isOpenStart, openStarts, stretchesFor, type WeeklyRange } from "./slots";
+import { hoursAsStretches, isOpenStart, openStarts, stretchesFor, withOwnBreak, type WeeklyRange } from "./slots";
 
 const NY = "America/New_York";
 const at = (iso: string) => new Date(iso);
@@ -221,5 +221,43 @@ describe("hours for members only", () => {
   });
   it("a host whose hours are all for members has no times for the public", () => {
     expect(openStarts({ ...base, weekly: stretchesFor([weekly[1]], "anyone") })).toEqual([]);
+  });
+});
+
+describe("a host's break after a call she booked herself (plans/42)", () => {
+  // She is the customer in a call from 18:30 to 19:00. As stored, that takes her time until 19:02.
+  const own = { start: at("2026-11-03T23:30:00Z"), end: at("2026-11-04T00:02:00Z"), ownCallEnd: at("2026-11-04T00:00:00Z") };
+  // And she hosts a call from 20:00 to 20:15, stored with the 5-minute break it was booked with.
+  const hosted = { start: at("2026-11-04T01:00:00Z"), end: at("2026-11-04T01:20:00Z"), ownCallEnd: null };
+
+  it("counts her break after her own call, and leaves a call she hosts as it is stored", () => {
+    expect(withOwnBreak([own, hosted], 5)).toEqual([
+      { start: own.start, end: at("2026-11-04T00:05:00Z") },
+      { start: hosted.start, end: hosted.end },
+    ]);
+  });
+
+  it("never makes the stored time shorter: a break of 2 minutes, or none, changes nothing", () => {
+    expect(withOwnBreak([own], 2)).toEqual([{ start: own.start, end: own.end }]);
+    expect(withOwnBreak([own], 0)).toEqual([{ start: own.start, end: own.end }]);
+  });
+
+  it("counts from the end of the call, not from the stored end, so the 2 minutes are not added twice", () => {
+    expect(withOwnBreak([own], 15)).toEqual([{ start: own.start, end: at("2026-11-04T00:15:00Z") }]);
+  });
+
+  it("keeps a request for a call right now from the moment it was sent", () => {
+    // Sent at 18:00; the call could run until 18:33; stored until 18:35.
+    const waiting = { start: at("2026-11-03T23:00:00Z"), end: at("2026-11-03T23:35:00Z"), ownCallEnd: at("2026-11-03T23:33:00Z") };
+    expect(withOwnBreak([waiting], 10)).toEqual([{ start: waiting.start, end: at("2026-11-03T23:43:00Z") }]);
+  });
+
+  it("the first time offered after her own call is the end of her break, and the last one before it leaves the new call's break", () => {
+    const open = times(openStarts({ ...base, weekly: TUESDAY_EVENING, busy: withOwnBreak([own], 5) }));
+    // 30-minute calls with a 5-minute break: 18:00 would run to 18:35 with its break, into her own call at 18:30.
+    expect(open).not.toContain("2026-11-03T23:00");
+    expect(open).not.toContain("2026-11-04T00:00"); // the minute her own call ends
+    expect(open).not.toContain("2026-11-04T00:02"); // the end of the 2 minutes: for others her break still runs
+    expect(open.find((time) => time > "2026-11-03T23:30")).toBe("2026-11-04T00:05");
   });
 });

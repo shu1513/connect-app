@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { instantOffer } from "@/lib/booking/bookings";
+import { instantOffer, isHostToo } from "@/lib/booking/bookings";
 import { NOW } from "@/lib/booking/now-rules";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
@@ -58,6 +58,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
   const total = bookedTotalCents(open.offer.pricePer15Cents, minutes * 60);
   const paid = total > 0;
   const idConfirmed = (await identityState(person.id)).passed;
+  const hostToo = await isHostToo(person.id);
   if ((!paid || open.offer.verifiedOnly) && !idConfirmed) return <ConfirmIdFirst reason={paid ? "host" : "free"} hostName={profile.displayName} next={here} />;
 
   return (
@@ -97,6 +98,11 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
             When they accept, the call starts <strong>about a minute later</strong>. Keep this tab open: it takes you to the call.
           </li>
           <li>You can take the request back for free until it is accepted, and cancel for free until the call starts.</li>
+          {hostToo && (
+            <li>
+              <strong>You are a host too:</strong> while this request waits, and during the call, nobody can book you at this time.
+            </li>
+          )}
           {paid && (
             <>
               <li>

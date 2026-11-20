@@ -34,6 +34,7 @@ import { holdCoversCall } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { switches } from "@/lib/safety/switches";
+import { PASSED_OVER, takenUntil } from "@/lib/booking/rules";
 import { askWindow, canStillAccept, extensionPriceCents, MAX_REQUESTS_PER_CALL, minutesProblem, minutesThatFit } from "./rules";
 
 type Reader = Pick<typeof db, "select">;
@@ -521,7 +522,7 @@ export async function answerExtension(input: { extensionId: string; hostId: stri
 
       // Both people are now taken for longer. If either already is, the database refuses.
       await tx.update(schema.busyEntries).set({ endsAt: busyUntil }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, call.hostId)));
-      await tx.update(schema.busyEntries).set({ endsAt: extension.newEndsAt }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, call.customerId)));
+      await tx.update(schema.busyEntries).set({ endsAt: takenUntil(extension.newEndsAt) }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, call.customerId)));
       await tx.update(schema.calls).set({ endsAt: extension.newEndsAt }).where(eq(schema.calls.id, call.id));
       await tx
         .update(schema.bookings)
@@ -532,6 +533,8 @@ export async function answerExtension(input: { extensionId: string; hostId: stri
       await tx.update(schema.callExtensions).set({ status: "accepted", decidedAt: now }).where(eq(schema.callExtensions.id, extension.id));
       // Other people's waiting requests for the time the call now takes can no longer be accepted.
       await endRequestsInTheWay(tx, { hostId: call.hostId, exceptBookingId: booking.id, from: call.startsAt, until: busyUntil, now });
+      // The customer may be a host too: requests to her that her own, longer call makes impossible end as well (plans/42).
+      await endRequestsInTheWay(tx, { hostId: call.customerId, exceptBookingId: booking.id, from: call.startsAt, until: takenUntil(extension.newEndsAt), now, reason: PASSED_OVER.ownCall });
     });
   } catch (error) {
     if (!isOverlap(error)) throw error;
