@@ -152,6 +152,14 @@ company yet.
   not built). The apps do not have projects, so the apps' version would leave out the parts
   that are only about projects and add what an app collects. The terms a person accepts stay
   the same everywhere. Is that acceptable, and what must the apps' version say?
+- **Saving a card, and the ID check, in the phone apps** (new, plan 45, part 06; built, not
+  live). Before a paid request is sent from the app, the customer ticks the same box, with the
+  same words and the same recorded version, as on the website. The card is then typed into
+  Stripe's own sheet, which adds a line of Stripe's own under the card ("By providing your card
+  information, you allow Connect to charge your card for future payments in accordance with
+  their terms"). Do the box's words and Connect's terms cover what that line says? The ID check
+  opens Stripe's page in the phone's browser over the app; Stripe asks there for its own yes
+  to the photo and the selfie. Is anything more needed from Connect before that page opens?
 - **Photos sent to checking companies from an app** (new, plan 45, part 14; not built). Apple
   asks for a person's plain yes before personal data goes to another company, a company that
   checks pictures by machine included. The app would ask before the first photo is sent.
@@ -436,3 +444,37 @@ written here.
   cover this; it was missing here.)
 - **Software from others.** One building block for pictures (libvips, inside `sharp`) has a
   licence with conditions of its own (LGPL). Do they matter for the phone apps?
+
+## 16. Bank disputes handled by the app (new, plan 47)
+
+From `plans/47-bank-disputes.md`. Today a bank dispute is answered by the founder by hand; the
+plan has the app do it. Nothing of this is built yet.
+
+- **What is sent to a bank without a person looking first.** To fight a dispute, the app sends
+  the customer's bank, through Stripe: the customer's name and email address, the internet
+  address and device their account was used from, when they joined and left the call, what they
+  paid, the version of the terms they accepted, and any refund request with its answer. Does the
+  privacy policy say this clearly enough (payment terms draft, section 9.7, says only "we may
+  give the bank our records")? Is anything in that list more than a bank should get?
+- **A statement written by a machine.** The letter to the bank is put together by the app from
+  its records and goes out in Connect's name, at once and for good. Who answers if a fact in it
+  is wrong, and should a person see it first above some amount?
+- **The host decides whether Connect gives in.** The host gets 24 hours to choose "give the
+  money back" or "fight it"; no answer counts as "fight". Does that fit the role Connect wants
+  (the host's agent for taking payment, section 9)? Must the host agreement say that silence
+  means Connect answers the bank, and that giving in costs the host their share?
+- **Taking a share back at Stripe.** When a dispute is lost after the host collected, the app
+  tells the host, waits 14 days and then reverses the transfer at Stripe. The host's Stripe
+  balance can go below zero; Stripe makes that up from later payments and, in some countries,
+  by debiting the host's bank account. Is section 9.4 of the host agreement draft enough for
+  that in each of the 33 countries? Are 14 days enough notice under the European rules for
+  platforms (section 9 above)? What must the notice say?
+- **A customer kept from paying.** While a chargeback is open the customer cannot start a new
+  payment; if the bank decides for them after Connect sent proof that the call took place, it
+  stays that way until the founder allows it again. May a customer be treated so for using a
+  right their card gives them (in the United Kingdom also a right by law for credit cards)? The
+  payment terms draft speaks only of a pause while the dispute is open.
+- **How long things are kept.** The proof that was sent is kept with the dispute, and the
+  messages Connect writes to a person are kept in the app ("Messages"). For how long may each be
+  kept, and what happens to them when an account is closed?
+

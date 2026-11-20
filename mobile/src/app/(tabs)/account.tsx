@@ -36,6 +36,7 @@ export default function AccountPlace() {
         </Words>
         <Button label="Ask again" kind="plain" onPress={askAgain} />
       </Card>
+      <Button label="Confirm who you are" kind="plain" onPress={() => router.push("/identity")} />
       <Button label="Sign out" kind="plain" busy={leaving} onPress={() => void leave()} />
       {notOut ? <Notice>Signing out did not work on this phone. Please try again.</Notice> : null}
       {TEST_SCREENS ? (

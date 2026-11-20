@@ -238,6 +238,8 @@ export type AppHostPage = {
   /** The viewer's own following, "visitor" for someone not signed in, or null when no Follow button is shown. */
   follow: "following" | "ended" | "none" | "visitor" | null;
   price: string;
+  /** Whether she offers calls as a business or as a private person, by her own statement; null when she has not said (plans/46-agreements-live.md, decision 10). */
+  seller: string | null;
   /** What the call is, and until when it can be cancelled for free. */
   callWords: string;
   /** She only takes calls from people who have confirmed their ID. `confirmId`: this viewer has not, and is offered the check. */
@@ -279,6 +281,138 @@ export type AppHostPage = {
     } | null;
   } | null;
 };
+
+/** A piece of a sentence: plain words, words to stress, or an exact moment, which the phone writes in its own time zone. */
+export type AppPart = string | { bold: string } | { time: string };
+
+/**
+ * The answer of GET /api/app/hosts/[handle]/book: what a customer reads before asking a host for
+ * a call at a time. Every word and number is the server's; the app adds nothing up.
+ */
+export type AppBookSummary =
+  /** The time cannot be asked for (any more). */
+  | { kind: "gone"; title: string; button: string }
+  /** The person is looking at their own page. */
+  | { kind: "own"; title: string; words: string }
+  /** The identity check comes first. */
+  | { kind: "confirm_id"; title: string; words: string; small: string; button: string }
+  | {
+      kind: "ok";
+      title: string;
+      startsAt: string;
+      minutes: number;
+      /** The start in the host's own time zone, in words. */
+      hostTime: string;
+      price: string;
+      /** What is being asked for: a private one-to-one video call, and until when it can be cancelled for free. */
+      what: string;
+      pointsTitle: string;
+      /** Whether the host offers calls as a business or as a private person, by her own statement; null when she has not said. */
+      seller: string | null;
+      points: AppPart[][];
+      /** The note to the host: its label, and the most it can hold. */
+      note: { label: string; max: number };
+      /** For a paid call: the words beside the box that must be ticked before anything is sent. Null for a free call. */
+      cardTerms: string | null;
+      /** Which wording that is; handed back with the request. Null for a free call. */
+      cardTermsVersion: string | null;
+      /** That the host sees the person's ID is confirmed; null when it is not. */
+      idLine: string | null;
+      button: string;
+      /** Makes a request sent twice count once. The app keeps the first one it was given for as long as the screen stands. */
+      requestKey: string;
+      /** The price and the cancelling rule this summary showed, handed back as they are when the request is sent. */
+      seen: { price: number; freeCancel: number };
+    };
+
+/** The answer of POST /api/app/hosts/[handle]/book: the request that was made, to open its screen. */
+export type AppBookSent = { id: string };
+
+/**
+ * The answer of GET /api/app/bookings/[id]: one request for a call, for the customer who made it.
+ * (The host's side of a request comes with the screens for answering one.)
+ */
+export type AppBooking = {
+  id: string;
+  title: string;
+  /** The host's page, to look for another time. */
+  hostHandle: string | null;
+  stage: string;
+  /** Where the request stands, in one sentence; and, for one that ended unsent, why. */
+  stageWords: string;
+  reason: string | null;
+  startsAt: string;
+  minutes: number;
+  price: { label: string; words: string };
+  /** While it waits for the host: by when the answer comes. */
+  hearBy: string | null;
+  /**
+   * At the card step: the words about the card and by when it must be entered, and what to say when the
+   * card sheet was closed and the request is still not sent (closed without a card, a card that was not
+   * saved, a card not confirmed yet). Null at every other stage.
+   */
+  card: { title: string; words: string; button: string; deadline: AppPart[]; givenUp: string; notSaved: string; notConfirmed: string; checkAgain: string } | null;
+  /** Under a request that waits for the host's answer. */
+  waitingWords: string | null;
+  /** The label of the button that takes the request back; null when it cannot be taken back. */
+  takeBack: string | null;
+  /** What the app asks before it takes the request back: the words, and the two answers. */
+  takeBackSure: { words: string; yes: string; no: string } | null;
+  /** The call, once there is one. */
+  call: { id: string } | null;
+  /** While the request can still change by itself: how often the app asks again. */
+  refreshSeconds: number | null;
+  /** What was just done, in the answer to a step ("Your request was taken back…"); null otherwise. */
+  notice: string | null;
+};
+
+/** The answer of POST /api/app/bookings/[id]/card: what Stripe's card sheet needs. Nothing is held or charged by it. */
+export type AppCardStep = { clientSecret: string; publishableKey: string; merchant: string };
+
+/** The answer of GET /api/app/identity: where the signed-in person's identity check stands. */
+/**
+ * A legal document's text in pieces, exactly as the website's own reader gives them
+ * (src/legal/parse.ts; written out here because this file imports nothing). The app draws them
+ * as the website does: headings, paragraphs, lists, tables, set-off blocks and lines; inside
+ * them plain words, bold, links (`outside`: an address outside Connect; otherwise a path of the
+ * website) and blanks that are not filled in yet.
+ */
+export type AppLegalInline = { t: "text"; v: string } | { t: "bold"; c: AppLegalInline[] } | { t: "link"; href: string; outside: boolean; c: AppLegalInline[] } | { t: "blank"; v: string };
+export type AppLegalBlock =
+  | { t: "heading"; level: 1 | 2 | 3; c: AppLegalInline[]; plain: string }
+  | { t: "paragraph"; c: AppLegalInline[] }
+  | { t: "list"; ordered: boolean; start: number; items: AppLegalInline[][] }
+  | { t: "table"; head: AppLegalInline[][]; rows: AppLegalInline[][][] }
+  | { t: "quote"; lines: AppLegalInline[][] }
+  | { t: "line" };
+
+/**
+ * The Identity Check Notice in effect, shown in full above the button that starts a check
+ * (plans/46-agreements-live.md, decision 9): pressing the button is the person's agreement to it.
+ * `href`: the path of exactly this version on the website; `agree`: the sentence above the
+ * button. The app sends `name` and `version` back when it starts a check; the server writes the
+ * agreement down first and starts nothing for a version that is no longer the one in effect.
+ */
+export type AppIdentityNotice = { name: string; version: string; title: string; href: string; open: string; blocks: AppLegalBlock[]; agree: string };
+
+export type AppIdentity = {
+  passed: boolean;
+  /** A check is still being looked at by Stripe. */
+  pending: boolean;
+  title: string;
+  /** What to say, paragraph by paragraph. */
+  words: string[];
+  /** The label of the button that starts a check; null when none can be started. */
+  button: string | null;
+  /** "2 of 3 tries left"; null when it does not matter. */
+  tries: string | null;
+  /** The notice the button agrees to; null when no check can be started. */
+  notice: AppIdentityNotice | null;
+  small: string;
+};
+
+/** The answer of POST /api/app/identity/start: Stripe's own page for the check, to open in the browser sheet. */
+export type AppIdentityStart = { url: string };
 
 /** The answer of the follow and unfollow addresses: the sentence to show, and how the following stands now. */
 export type AppFollowDone = { words: string; follow: "following" | "ended" | "none" };
