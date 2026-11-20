@@ -23,7 +23,7 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, ne, or } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
@@ -380,6 +380,13 @@ async function main() {
       await requestOf(withPaused, { source: "now" });
       const testCall = await call({ hostId: bri.id, customerId: tester.id, startsInMinutes: 400 });
       await requestOf(testCall, { words: `Words of a test call ${RUN}`, source: "admin" });
+      // The same person is also a real customer of hers, with a past call, a note and a photo: still nothing on the test call.
+      const testersReal = await call({ hostId: bri.id, customerId: tester.id, startsInMinutes: -6 * 24 * 60 });
+      await requestOf(testersReal);
+      await joined(testersReal.id, [bri.id, tester.id]);
+      await db.insert(schema.hostNotes).values({ hostId: bri.id, customerId: tester.id, text: `A note about the tester ${RUN}` });
+      const photo = (userId: string) => ({ userId, network: "upload", width: 8, height: 8, byteLength: 1, sha256: randomUUID(), bytes: Buffer.from("x"), takenAt: now, checkedBy: "homecheck", rulesVersion: "homecheck" });
+      const [testersPhoto, regularsPhoto] = await db.insert(schema.hostPhotos).values([photo(tester.id), photo(regular.id)]).returning({ id: schema.hostPhotos.id });
       const sheBooked = await call({ hostId: seller.id, customerId: bri.id, startsInMinutes: 500 });
       await requestOf(sheBooked, { words: `Her own words as a customer ${RUN}` });
 
@@ -400,15 +407,18 @@ async function main() {
       const pausedRow = detailsOf(hers.html, withPaused.id);
       check("a paused membership is not \"Your member\", and a call right now has no words", pausedRow !== "" && !pausedRow.includes("data-customer-member") && !pausedRow.includes("data-customer-words"), words(pausedRow).slice(0, 160));
       check("a test call shows no details", listed(hers.html, testCall.id) && detailsOf(hers.html, testCall.id) === "" && !hers.text.includes(`Words of a test call ${RUN}`));
+      check("also when its customer is a real customer of hers too: not their note, nor their photo", !hers.text.includes(`A note about the tester ${RUN}`) && !hers.text.includes(testersPhoto.id));
+      check("the photo of a real customer is asked for beside their call", hers.html.includes(`/host-photos/${regularsPhoto.id}`));
       check("a call she booked as a customer is on the same page, without details", listed(hers.html, sheBooked.id) && detailsOf(hers.html, sheBooked.id) === "" && !hers.text.includes(`Her own words as a customer ${RUN}`));
       check("the shortcuts for a host are there, with her page", hers.html.includes("data-host-shortcuts") && hers.html.includes(`href="/h/${bri.handle}"`) && hers.html.includes('href="/host/now"') && hers.html.includes('href="/host#paid"'));
 
       const his = await page("/", regular.jar);
       check("the customer of that call gets none of it on their own home page", listed(his.html, withRegular.id) || his.html.includes(`data-next-call="${withRegular.id}"`) ? !his.text.includes("data-customer-") && !his.text.includes(noteText) && !his.text.includes("Your member") && !his.text.includes("calls before") : false);
       check("and no shortcuts for someone who only books calls", !his.html.includes("data-host-shortcuts"));
-      // What a page hands to the parts that run in the browser travels inside the page itself, and is what a refresh
-      // sends again. So the whole reply is searched, not only what is drawn: the host's holds the details, the customer's none.
-      check("nor in what the page hands to the browser, which is what a refresh sends again; the host's page does hold it there", !his.text.includes("callsBefore") && !his.text.includes("idConfirmed") && hers.text.includes("callsBefore") && hers.text.includes(noteText));
+      // What a page hands to the parts that run in the browser travels inside the page itself. So the whole reply is
+      // searched, not only what is drawn. The minute's refresh is made by the same code with the same data, but it is
+      // not fetched here: that, and a note staying open over it, is tried in a real browser.
+      check("nor in what the first page hands to the parts that run in the browser; the host's page does hold it there", !his.text.includes("callsBefore") && !his.text.includes("idConfirmed") && hers.text.includes("callsBefore") && hers.text.includes(noteText));
       const sellers = await signUp("sellerlogin");
       const sellersCall = await call({ hostId: sellers.id, customerId: regular.id, startsInMinutes: 600 });
       await requestOf(sellersCall);
@@ -418,15 +428,39 @@ async function main() {
       // The check for several people at once against the single check, person by person.
       const abandoned = await person("abandoned");
       await db.insert(schema.bookings).values({ hostId: bri.id, customerId: abandoned.id, startsAt: new Date(Date.now() + DAY), endsAt: new Date(Date.now() + DAY + 30 * MINUTE), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "card", requestKey: randomUUID() });
-      const everyone = [regular.id, first.id, pausedMember.id, tester.id, seller.id, stranger.id, abandoned.id, bri.id];
+      const onlyTest = await person("onlytest");
+      const onlyTestCall = await call({ hostId: bri.id, customerId: onlyTest.id, startsInMinutes: 700 });
+      await requestOf(onlyTestCall, { source: "admin" });
+      const everyone = [regular.id, first.id, pausedMember.id, tester.id, onlyTest.id, seller.id, stranger.id, abandoned.id, bri.id];
+      /** The single check as it was before plans/38, written out here on its own: what the new code is compared with. */
+      const asBefore = async (hostId: string, customerId: string) => {
+        if (hostId === customerId) return false;
+        const b = schema.bookings;
+        const [asked] = await db.select({ id: b.id }).from(b).where(and(eq(b.hostId, hostId), eq(b.customerId, customerId), ne(b.source, "admin"), isNotNull(b.requestedAt), or(ne(b.source, "member"), isNotNull(b.callId)))).limit(1);
+        if (!asked) return false;
+        const [customer] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, customerId));
+        if (!customer || customer.closedAt) return false;
+        const [block] = await db.select({ blockerId: schema.blocks.blockerId }).from(schema.blocks).where(or(and(eq(schema.blocks.blockerId, hostId), eq(schema.blocks.blockedId, customerId)), and(eq(schema.blocks.blockerId, customerId), eq(schema.blocks.blockedId, hostId)))).limit(1);
+        return !block;
+      };
       const same = async () => {
         const many = await haveAskedHost(bri.id, everyone);
         const single = await Promise.all(everyone.map((id) => hasAskedHost(bri.id, id)));
-        return { ok: everyone.every((id, i) => many.has(id) === single[i]), many };
+        const before = await Promise.all(everyone.map((id) => asBefore(bri.id, id)));
+        return { ok: everyone.every((id, i) => many.has(id) === before[i] && single[i] === before[i]), many };
       };
       const open = await same();
-      check("the check for several customers at once answers as the single check does for each", open.ok && open.many.has(regular.id) && open.many.has(first.id) && open.many.has(pausedMember.id));
-      check("never for a test call, a host she booked herself, a stranger, a request abandoned at the card step, or herself", ![tester.id, seller.id, stranger.id, abandoned.id, bri.id].some((id) => open.many.has(id)));
+      check("the check for several customers at once, and the single check, answer as the old single check did for each", open.ok);
+      check("yes for her real customers, also one who has a test call as well", [regular.id, first.id, pausedMember.id, tester.id].every((id) => open.many.has(id)) && open.many.size === 4, String(open.many.size));
+      check("never for a customer of a test call only, a host she booked herself, a stranger, a request abandoned at the card step, or herself", ![onlyTest.id, seller.id, stranger.id, abandoned.id, bri.id].some((id) => open.many.has(id)));
+      check("an empty list and a list with the same person twice are answered plainly", (await haveAskedHost(bri.id, [])).size === 0 && (await haveAskedHost(bri.id, [regular.id, regular.id])).size === 1);
+      const inside = await db.transaction(async (tx) => {
+        await tx.insert(schema.blocks).values({ blockerId: regular.id, blockedId: bri.id });
+        const seen = [(await haveAskedHost(bri.id, [regular.id], tx)).has(regular.id), await hasAskedHost(bri.id, regular.id, tx)];
+        await tx.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, regular.id), eq(schema.blocks.blockedId, bri.id)));
+        return seen;
+      });
+      check("asked inside a change that is not finished yet, both see that change", inside.every((answer) => answer === false));
 
       // A block, in either direction, with the call still on the list (a block cancels only calls that have not started, and that can fail).
       for (const [blockerId, blockedId, which] of [
@@ -460,6 +494,22 @@ async function main() {
       const requestsPage = await page("/host/requests", bri.jar);
       check("the requests page shows all of them, with its own return field, and the note folded", count(requestsPage.html, "data-request=") === 8 && count(requestsPage.html, 'name="from" value="requests"') === 16 && !requestsPage.html.includes('name="from" value="home"') && requestsPage.html.includes('data-host-note="folded"'), `${count(requestsPage.html, "data-request=")} shown`);
       check("the customer who asked sees no list of requests to answer", !(await page("/", regular.jar)).html.includes("data-request-list"));
+      // A request that is still waiting although the account was closed, or a block was made (ending it can fail).
+      await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, asking[1].id));
+      await db.insert(schema.blocks).values({ blockerId: regular.id, blockedId: bri.id });
+      for (const [path, where] of [
+        ["/", "the home page"],
+        ["/host/requests", "the requests page"],
+      ] as const) {
+        const html = (await page(path, bri.jar)).html;
+        const rowOf = (id: string) => html.slice(html.indexOf(`data-request="${id}"`), html.indexOf("Decline", html.indexOf(`data-request="${id}"`)));
+        const [closedRow, blockedRow, openRow] = [rowOf(sameTime[1].id), rowOf(fromRegular.id), rowOf(sameTime[0].id)];
+        const bare = (row: string) => row !== "" && !row.includes("ratings") && !row.includes("ID confirmed") && !row.includes("data-host-note") && !row.includes("&ldquo;") && !row.includes("“") && !row.includes("/host-photos/");
+        check(`${where}: a request of a closed account, and one across a block, show the time, length and price only`, bare(closedRow) && bare(blockedRow) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`), `${words(closedRow).slice(0, 90)} | ${words(blockedRow).slice(0, 90)}`);
+        check("  and the request beside them keeps its details", words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
+      }
+      await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, asking[1].id));
+      await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, regular.id), eq(schema.blocks.blockedId, bri.id)));
 
       // A host whose profile waits for approval again still has hosting to do.
       await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, bri.id));
@@ -475,6 +525,7 @@ async function main() {
     await db.delete(schema.hostNotes).where(or(inArray(schema.hostNotes.hostId, ids), inArray(schema.hostNotes.customerId, ids)));
     await db.delete(schema.memberships).where(or(inArray(schema.memberships.hostId, ids), inArray(schema.memberships.customerId, ids)));
     await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, ids));
+    await db.delete(schema.hostPhotos).where(inArray(schema.hostPhotos.userId, ids));
     const projectIds = projects.length ? projects : [randomUUID()];
     const posts = (await db.select({ id: schema.projectPosts.id }).from(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds))).map((p) => p.id);
     if (posts.length) await db.delete(schema.projectPictures).where(inArray(schema.projectPictures.postId, posts));

@@ -101,7 +101,9 @@ logging in.
    three people asked for counts as one); "See all" leads to the requests page. After Accept or
    Decline she is back on the home page with the usual message. A request for a call right now
    is in the list too, as on the requests page today; the "Available now" page stays the place
-   that shows it the moment it arrives.
+   that shows it the moment it arrives. Decision 7 holds in this list as well, on both pages: a
+   request that is still waiting from a closed account, or across a block, shows its time,
+   length and price only.
 
 6. **A line of shortcuts for a host,** under the greeting: Available now, Your calendar,
    Earnings, Settings, and the address of her public page. Shown to anyone who has hosting to
@@ -128,8 +130,9 @@ logging in.
     card, other hosts' notes about them, their calls with other hosts. The code names each field
     it reads about a customer.
 
-11. **A fixed number of questions to the database,** whatever the number of calls, and none at
-    all for a person who hosts nothing. The page asks Stripe nothing, as before.
+11. **A fixed number of questions to the database,** whatever the number of calls. A person who
+    hosts nothing costs one small question more than before (whether they have a host profile,
+    for the shortcuts), and none for the details. The page asks Stripe nothing, as before.
 
 12. **Where a host lands after logging in does not change:** the home page, which now is hers.
 
@@ -153,8 +156,9 @@ logging in.
    nowhere.
 7. The shortcuts appear for a host, also one whose profile waits for approval but who has a
    booked call, and never for someone who only books calls.
-8. A person who hosts nothing makes the page ask the database nothing more than before. For a
-   host, the number of questions is the same with one hosted call and with several.
+8. For a person who hosts nothing, the details ask the database nothing. For a host, the number
+   of questions is the same with one hosted call and with several. (Read in the code, not
+   counted by a check.)
 9. The home page of someone who only books calls is unchanged, and the requests page works as
    before (with the note folded).
 
