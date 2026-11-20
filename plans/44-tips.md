@@ -1,6 +1,7 @@
 # Plan 44: A tip after a call
 
-**Status:** a plan only; nothing is built. Written 20 November 2026 by the builder alone (no
+**Status:** built, 20 November 2026 (see "What building it added to this plan" at the end, and
+the record in `docs/module-record.md`). Written 20 November 2026 by the builder alone (no
 helper agents), from the code as it is on `main` after pull request 71. Astra (gpt-6.2-astra)
 checked the first draft against the code: "ready with changes", six must-fix points and a list of
 details. All are worked in below; the list is at the end. After that check the founder decided
@@ -559,3 +560,37 @@ Its smaller points, taken: both amount rules in the database are replaced, not o
 for a second tip looks at every earlier payment, not at the tip's own state; the $1,000 test at
 the line; and that a closed account cannot sign in, so what is kept after a closing is checked
 through the other person.
+
+## What building it added to this plan (20 November 2026)
+
+Built as written, with these differences and additions. Each came from building it or from
+Astra's four rounds on the code; the record (`docs/module-record.md`) has the full list.
+
+- **Three files, not two.** The plain rules are in `tip-rules.ts`, apart from `tips.ts` (the
+  reads), so that they can be tested without a database. `saveTipsSwitch` is in `switch.ts`,
+  beside the step that saves the projects switch, and shares its lock.
+- **A tip refuses a card that is saved for anything on Connect** (decision 7 said only that the
+  customer types their card again). A hold placed for a tip on a card that Stripe knows as a
+  booking's, or that our own lines know as a booking's, a membership's or a contribution's, is
+  not accepted and is let go, with a reason of its own ("saved_card") so that the person is not
+  told they were late.
+- **The card step that runs out.** Beside waiting while Stripe's answer is unfinished: the
+  payment is given up only if it still waits for a card when it is locked (a hold recorded in
+  that very moment stays); a payment that waits, or whose look at Stripe failed, goes to the end
+  of the helper's line; and the watch says so when a card step has no outcome a day after its
+  time. This is the contribution's code too.
+- **Nothing is said before it is known.** The tip's lines on the call's page, on its own page
+  and on the founder's page are read from what is recorded: the share, a problem, what went
+  back, a dispute. A disputed tip is not said to reach the host, and no day to collect it is
+  named.
+- **A host is told nothing of a tip that never had a hold**, also not by the tip's own two
+  buttons when a form names such a payment. (The project page's actions were left as they are:
+  they answer differently only to someone who sends the payment's id, which nothing shows her.)
+- **A refund form sent twice** is told the amount that is really owed, for tips, contributions
+  and the founder's refunds alike.
+- **The check script** (`scripts/tip-check.ts`) takes the main tip's money with the app's own
+  function for that one payment, not with a round of the helper three days ahead (which would
+  take every hold in the test database); it stops before changing anything unless the projects
+  switch is on for everyone and no tip of someone else is waiting or held; and it removes from
+  the founder's record only the lines of its own presses.
+- **Not tried:** a tip in a phone-size window; a real card.

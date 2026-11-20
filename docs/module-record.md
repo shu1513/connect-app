@@ -3616,3 +3616,113 @@ when there were none. *CodeRabbit* reviewed this pull request (74), the first of
 not answer with its limit: one point, taken. The line promised the calendar "once the page has
 finished loading", but in a browser with scripts switched off the page finishes loading and the
 calendar never comes; the line now says what it needs.
+
+## A tip after a call (plan 44, 20 November 2026)
+
+**What the founder asked for.** "should we have the tip feature? so after the customer's call,
+if the customer rates full 5 stars, the tip button shows up with the tip amount?" Then: "Yes,
+write the plan", and "after the plan, actually build this feature with the workflow". About the
+fee: "customer keeps 100% tip minus stripe fees", "because we need to have this feature in
+mobile", and, shown three ways to pay Stripe's card fee, "Customer pays it on top"; then
+"research about it to make sure" and "do what you think is the best, if that is
+customer-pays-fee-on-top, so be it." And: "tip feature and host project feature should be on a
+feature flag so I can turn them on and off... I want this flag works for mobile too."
+
+**What was decided** (`plans/44-tips.md`). The founder's, on the builder's advice: not "5 stars
+only". The box is there before the customer rates and after 4 or 5 stars, and gone after 1, 2 or
+3, so that a tip never gives a rating away and nobody rates lower to avoid being asked. The
+founder's: the host gets the whole tip, and what the card payment costs (2.9% plus 30 cents) is
+added on top for the customer ($5 costs $5.46); Connect keeps nothing. The builder's: $2, $5, $10
+and another amount, from $2; one tip for each call; one box on the page (the project's box wins);
+the customer types their card again; a hold for three days and then the money, as for a
+contribution made once; Connect carries the extra 1.5% of a card from outside the United States;
+the 25-cent collection charge stays; tips are not in the phone apps until a store has said yes.
+
+**What the research found** (decision 18 of the plan, with its sources). Apple and Google both
+ask that 100% of a money gift reach the receiver, and neither says whether a card fee may come
+off first; the two cases found (Clubhouse in 2021, Insight Timer) both gave the receiver the full
+amount. What Apple looks at most is what a tip is attached to: in 2024 it charged 30% on tips at
+classes although all of them went to the teachers, and left tips from a teacher's profile page,
+and one-to-one gifts, free. So "on top" is the proven way, and only a store's review can say yes.
+
+**What was built.** One change to the database (`drizzle/0047_tips.sql`): a contribution may have
+no project, and gets a call and a tip amount when it is a tip; the smallest amounts; at most one
+tip for a call that has not ended or was paid; the founder's tips switch.
+- A tip is kept in the contribution's books (kind `tip`), so the hold, the taking, letting go,
+  refunds, a dispute, the host's share and "Collect earnings" are the code that exists. Its
+  payment is written with fee terms of its own, so the host's share is the whole tip.
+- `src/lib/contributions/tip-rules.ts`: the plain rules, with tests: what a tip costs
+  (`chargeFor`), reading a typed tip, who may give one (`whyNoTip`), the sentences before paying.
+  `tips.ts`: what the pages and the start read, all through one reader, so the page can never
+  offer what the server refuses. `tip-start.ts`: `startTip`, in the app's one order of locks.
+- Widened: one question, `takingOnFor`, in place of the projects switch wherever the money code
+  asks "may anything new be done?"; `saveTipsSwitch` and the helper's own net; the project is
+  read only where there is one; a tip's own words in the four emails; the founder's lists.
+- Pages: the box and the tip's line on a call's results; `/tips/new`, the summary; the tip's own
+  page (`/contributions/[id]`, in a tip's words); "Tips you gave" on the account page; "Tip for
+  the call on ..." among a host's earnings; the tips switch and "Every tip" on the founder's
+  projects page.
+- Changed for contributions too, because the same code serves both: a card step whose time is
+  over is ended only if the payment still waits for a card when it is locked, and not while
+  Stripe's answer is unfinished; the watch says so when a card step has no outcome after a day; a
+  refund form sent twice is told the amount that is really owed; "Stop contributing" refuses what
+  is not monthly; the line about what is ready to collect names tips and contributions (it
+  called every share without a call "expired member time").
+
+**The switches, and the phone apps.** Tips have a switch on the founder's page, as projects have
+since plan 23. Both are kept on the server, so they work for the phone apps too: the rule for the
+app (it asks the server each time and never carries the answer inside the app) is in plans 44
+and 39.
+
+**What the reviewers found.**
+- *Astra (gpt-6.2-astra), on the plan, two rounds:* "ready with changes" both times. It agreed
+  with keeping a tip in the contribution's books. Taken from the first: the database rule alone
+  lets a second tip start while the first is still being cancelled; the start must ask
+  everything the box asks; the order of locks; switching off must reach an open card step and
+  the helper; five more places that read contributions. From the second, after the founder's
+  decision about the fee: it confirmed the sums for every tip from $2.00 to $97,099.70; the
+  card step that runs out while Stripe's answer is unfinished; what switching off means for a
+  card form that is already open; what a refund costs Connect before and after collecting.
+- *Astra, on the code, four rounds:* "not ready" each time, with fewer and smaller points each
+  round; none was money going to the wrong place on the ordinary path. Taken: the race when a
+  card step runs out; unfinished and failed looks at Stripe keeping others out of the helper's
+  batch; a tip accepting a card that is saved for a booking, now refused with a reason of its
+  own and asked of our own lines too; the call's page claiming outcomes before they were known;
+  a host's action confirming a tip that never had a hold; a refund form sent twice; and many
+  ways the check script proved less than it said or could touch what it had not made. Not taken,
+  and Astra agreed with the reason: the project page's actions still answer differently for a
+  host's own tip that never had a hold, but only to someone who sends its payment id, which
+  nothing ever shows her.
+- *The other check scripts* found three lists that had to learn of the new files (which pages
+  may reach the money code, which may reach the project code, how many actions the founder has).
+
+**How it was checked.** 743 automatic tests on the code, 18 of them new (what a tip costs, for
+every tip from $2.00 to $3,000.00 and the largest; reading a typed tip; who may give one; the
+sentences). On this computer, against the local database and Stripe's test mode: the new
+`scripts/tip-check.ts`, 139 checks, with collecting (`--payouts`): the box and every case
+without it; the server refusing what the page would not offer; one tip from the box to the
+host's collection ($5.46 paid, $5.00 hers, $4.75 sent after the collection charge); cancelling
+and letting go; one tip for each call, also when two start at once and when a cancelled tip's
+money was taken after all; the card step that runs out; a saved card refused; refunds; a block,
+a pause, a closed account and a suspended page; the $1,000 rule across tips and contributions; a
+dispute; ratings untouched; both switches; the founder's page. Every other check script of the
+app once, before Astra's rounds on the code: 25 scripts, about 3,300 checks. After Astra's
+fixes and after bringing in `main`, the real checks again: `tip-check` (139),
+`contribution-check --payouts` (292), `project-check` (312), `project-journey-check --payouts`
+(94), `home-check` (110), `journey-check` (63); and after the second round also
+`payments-check` (77). In a browser, before Astra's last small fixes, as a demo customer with a
+demo host: the box with its three amounts and totals, the summary, Stripe's own card form with
+a test card, "$5.46 held, taken on ...", the tip's line on the call's page, and "Tips you
+gave"; and, with the seeded test people, the project's box taking the tip box's place and an old
+report keeping both away.
+
+**What the automatic checks cannot test, and what was not tried.** A real card and a real bank;
+a real payout; what Stripe really charges Connect for a tip; how customers take the added fee
+and typing their card again. A tip was not tried in a narrow (phone-size) window.
+
+**Still open, for the founder.** Stripe's word should now cover tips. For the lawyer
+(`docs/for-the-lawyer.md`): the payment fee added on top (the United Kingdom, the European Union
+and US debit cards have rules against adding a charge for paying by card); and that the 25-cent
+collection charge can fall on a collection that holds only a tip. The builder's own choices
+listed above can each be changed. A refund of a tip after its money was taken costs Connect
+Stripe's fee (46 cents on $5), and all of it once the host has collected.
