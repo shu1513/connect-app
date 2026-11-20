@@ -5,6 +5,7 @@
   "dependencies": {
     "@better-auth/expo": "1.7.18",
     "@config-plugins/react-native-webrtc": "15.0.2",
+    "@expo/vector-icons": "15.1.1",
     "@livekit/react-native": "3.2.0",
     "@livekit/react-native-expo-plugin": "1.2.0",
     "@livekit/react-native-webrtc": "150.2.0",
@@ -13,6 +14,7 @@
     "expo": "58.0.26",
     "expo-constants": "58.0.16",
     "expo-dev-client": "58.0.21",
+    "expo-font": "58.0.12",
     "expo-image": "58.0.18",
     "expo-linking": "58.0.17",
     "expo-network": "58.0.5",
@@ -32,11 +34,14 @@
     "react-native-web": "0.21.4"
   },
   "devDependencies": {
+    "@types/jest": "30.0.0",
+    "@types/node": "22.20.5",
     "@types/react": "19.3.0",
-    "typescript": "6.0.3",
-    "jest-expo": "58.0.15",
+    "eslint": "9.39.5",
+    "eslint-config-expo": "58.0.4",
     "jest": "30.5.2",
-    "@types/jest": "30.0.0"
+    "jest-expo": "58.0.15",
+    "typescript": "6.0.3"
   },
   "scripts": {
     "start": "expo start --dev-client",
@@ -46,5 +51,8 @@
     "lint": "expo lint",
     "test": "jest"
   },
-  "private": true
+  "private": true,
+  "jest": {
+    "preset": "jest-expo"
+  }
 }

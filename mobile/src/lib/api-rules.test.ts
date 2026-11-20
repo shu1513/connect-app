@@ -1,4 +1,15 @@
-import { addressFor, appHeader, readAnswer, UNREACHABLE, whereNext } from "./api-rules";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { addressFor, APP_HEADER, appHeader, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
+
+describe("the names the app and the server share", () => {
+  it("are the same on both sides", () => {
+    // The app cannot load the server's code, so the two header names are written on each side; this keeps them one.
+    const server = readFileSync(join(__dirname, "../../../src/lib/app-door/rules.ts"), "utf8");
+    expect(server).toContain(`export const APP_HEADER = "${APP_HEADER}";`);
+    expect(server).toContain(`export const SIGN_IN_HEADER = "${SIGN_IN_HEADER}";`);
+  });
+});
 
 describe("what the app says about itself", () => {
   it("is the kind of phone and the version", () => {

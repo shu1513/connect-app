@@ -8,6 +8,13 @@ import type { Refusal, RefusalCode } from "../../../src/lib/app-door/types";
 /** The header every request carries: the kind of phone and the app's version ("android 1.0.0"). */
 export const APP_HEADER = "x-connect-app";
 
+/**
+ * The header in which the app hands over its sign-in to an address of the door. The server reads
+ * the sign-in from here and from nowhere else (see SIGN_IN_HEADER in src/lib/app-door/rules.ts on
+ * the server; a test keeps the two names the same).
+ */
+export const SIGN_IN_HEADER = "x-connect-signin";
+
 export function appHeader(platform: "android" | "ios", version: string): string {
   return `${platform} ${version}`;
 }

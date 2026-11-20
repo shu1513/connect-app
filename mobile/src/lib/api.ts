@@ -6,7 +6,7 @@
  * The app keeps nothing to send later. A request that cannot be sent now is told to the person
  * as such; a booking or a payment is never made "when the connection is back".
  */
-import { addressFor, APP_HEADER, appHeader, readAnswer, UNREACHABLE, type Answer } from "./api-rules";
+import { addressFor, APP_HEADER, appHeader, readAnswer, SIGN_IN_HEADER, UNREACHABLE, type Answer } from "./api-rules";
 import { APP_VERSION, PLATFORM, SERVER } from "./config";
 
 /** How long the app waits for the server before saying it cannot be reached. */
@@ -26,8 +26,9 @@ export async function ask<T>(path: string, options: { method?: "GET" | "POST"; b
   if (!address) return { ok: false, code: "unreachable", message: UNREACHABLE };
 
   const headers: Record<string, string> = { [APP_HEADER]: appHeader(PLATFORM, APP_VERSION), accept: "application/json" };
-  const cookie = await signIn().catch(() => null);
-  if (cookie) headers.cookie = cookie;
+  // The sign-in goes in the app's own header. The server never reads a cookie at these addresses.
+  const kept = await signIn().catch(() => null);
+  if (kept) headers[SIGN_IN_HEADER] = kept;
   if (options.body !== undefined) headers["content-type"] = "application/json";
 
   const stop = new AbortController();
