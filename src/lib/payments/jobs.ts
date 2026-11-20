@@ -26,6 +26,7 @@ import {
   applyTransferSent,
   captureAtStripe,
   markRefundFailed,
+  NoLongerUnpaidError,
   releasePayment,
   transferAtStripe,
   transferGroup,
@@ -391,7 +392,15 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordina
     // the bank is not "unpaid": that throws here, and this payment is looked at again on the next round.)
     const synced = await syncHold(payment.id, now, { closing: true });
     if (synced.status !== "awaiting_payment") return;
-    await releasePayment({ paymentId: payment.id, note: "The call ended without a payment." });
+    // "Unpaid" was Stripe's answer a moment ago. The payment is closed only if, under its lock, it is still
+    // waiting on the card step that was asked about: a hold recorded since then is not let go here (on a call
+    // stopped for safety it belongs to the review), and is looked at again on the next round.
+    try {
+      await releasePayment({ paymentId: payment.id, note: "The call ended without a payment.", unpaidWith: synced.stripePaymentIntentId ?? null });
+    } catch (error) {
+      if (error instanceof NoLongerUnpaidError) return;
+      throw error;
+    }
     log(`closed unpaid payment ${payment.id}`);
     return;
   }

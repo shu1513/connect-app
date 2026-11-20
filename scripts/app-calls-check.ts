@@ -543,6 +543,32 @@ async function main() {
       await db.update(schema.calls).set({ startsAt: new Date(Date.now() - MINUTE) }).where(eq(schema.calls.id, begun.call.id));
       const tooLate = await step(begun.call.id, "cancel", cust.jar, { shown: "free" });
       check("a hold found by a cancellation that is then refused for another reason stays written down", begunCard.status === "requires_capture" && sentence(tooLate) === "This call has started, so it can no longer be cancelled." && (await callRow(begun.call.id)).cancelledAt === null && (await paymentOf(begun.call.id)).status === "held", `${sentence(tooLate)} ${(await paymentOf(begun.call.id)).status}`);
+      // The helper that closes a finished call's payment as "never paid" asked Stripe a moment before. If a hold was
+      // written down in between, the payment is not closed and the hold is not let go (on a call stopped for safety
+      // it belongs to the review); if it really is still unpaid, it is closed.
+      const { releasePayment, NoLongerUnpaidError } = await import("../src/lib/payments/actions");
+      const paidLate = await newCall(host.id, cust.id, { startsIn: 40, price: 2000, minutes: 10 });
+      await step(paidLate.call.id, "pay", cust.jar);
+      const lateBefore = await paymentOf(paidLate.call.id);
+      await confirmAtStripe(paidLate.call.id, "pm_card_visa");
+      await syncHold(lateBefore.id, new Date());
+      const lateClose = await releasePayment({ paymentId: lateBefore.id, note: "The call ended without a payment.", unpaidWith: lateBefore.stripePaymentIntentId ?? null }).then(
+        () => "closed",
+        (error: Error) => (error instanceof NoLongerUnpaidError ? "no longer unpaid" : error.message),
+      );
+      const lateAfter = await paymentOf(paidLate.call.id);
+      const lateAtStripe = await stripe().paymentIntents.retrieve(lateAfter.stripePaymentIntentId!);
+      check("a hold written down after the helper's 'unpaid' answer is not let go by it", lateBefore.status === "awaiting_payment" && lateClose === "no longer unpaid" && lateAfter.status === "held" && lateAtStripe.status === "requires_capture", `${lateClose} ${lateAfter.status} ${lateAtStripe.status}`);
+      const never = await newCall(host.id, cust.id, { startsIn: 40, price: 2000, minutes: 10 });
+      await step(never.call.id, "pay", cust.jar);
+      const neverBefore = await paymentOf(never.call.id);
+      const otherStep = await releasePayment({ paymentId: neverBefore.id, note: "The call ended without a payment.", unpaidWith: "pi_another_card_step" }).then(
+        () => "closed",
+        (error: Error) => (error instanceof NoLongerUnpaidError ? "no longer unpaid" : error.message),
+      );
+      check("nor is a payment closed as unpaid when the answer was about another card step", otherStep === "no longer unpaid" && (await paymentOf(never.call.id)).status === "awaiting_payment", otherStep);
+      await releasePayment({ paymentId: neverBefore.id, note: "The call ended without a payment.", unpaidWith: neverBefore.stripePaymentIntentId ?? null });
+      check("a payment that is still unpaid on the same card step is closed", neverBefore.stripePaymentIntentId !== null && (await paymentOf(never.call.id)).status === "closed_uncharged");
       // Shown as charged, but free by now (the hold fell away): cancelling as shown or cheaper always goes through.
       const cheaper = await newCall(host.id, cust.id, { startsIn: 45, price: 2000, minutes: 10, freeCancel: 60 });
       const cheaperDone = await step(cheaper.call.id, "cancel", cust.jar, { shown: "late_charge" });

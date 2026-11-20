@@ -209,6 +209,28 @@ export function capturePlan(input: CaptureInput): OperationPlan<CaptureParams, {
 
 export type ReleaseParams = { note: string; lowered?: Lowered };
 
+/**
+ * A payment was to be closed as "never paid", but under its lock it is no longer the unpaid payment that was
+ * looked at: a hold has been recorded on it since, or the customer has started paying anew. Nothing was changed.
+ */
+export class NoLongerUnpaidError extends MoneyError {}
+
+/**
+ * For closing a payment because nothing was paid: the card step at Stripe that was asked about (null when there
+ * was none). The answer "unpaid" is only as fresh as that question, so the release goes ahead only if, under
+ * the payment's lock, it is still waiting for payment on that same card step. A hold recorded in between (by
+ * Stripe's message or by the customer's own page) is not let go here: it is looked at again on the next round,
+ * where a hold on a call stopped for safety stays with the person who reviews it.
+ */
+type OnlyUnpaid = { unpaidWith?: string | null };
+
+function stillUnpaid(payment: Payment, only: OnlyUnpaid): void {
+  if (only.unpaidWith === undefined) return;
+  if (payment.status !== "awaiting_payment" || (payment.stripePaymentIntentId ?? null) !== only.unpaidWith) {
+    throw new NoLongerUnpaidError("This payment is no longer unpaid.");
+  }
+}
+
 export async function applyReleased(payment: Payment, note: string, tx: Tx, lowered?: Lowered): Promise<void> {
   await tx
     .update(schema.payments)
@@ -225,7 +247,7 @@ export async function applyReleased(payment: Payment, note: string, tx: Tx, lowe
 }
 
 /** The steps of letting a hold at Stripe go. Used on its own where several payments of a call are written down together (take.ts). */
-export function releasePlan(input: { paymentId: string; note: string; lowered?: Lowered }): OperationPlan<ReleaseParams, null> {
+export function releasePlan(input: { paymentId: string; note: string; lowered?: Lowered } & OnlyUnpaid): OperationPlan<ReleaseParams, null> {
   return {
     paymentId: input.paymentId,
     kind: "release",
@@ -235,6 +257,7 @@ export function releasePlan(input: { paymentId: string; note: string; lowered?: 
       if (!canMovePayment(payment.status as never, "closed_uncharged")) {
         throw new MoneyError("This payment has already been charged or closed.");
       }
+      stillUnpaid(payment, input);
       return { note: input.note, ...(input.lowered ? { lowered: input.lowered } : {}) };
     },
     execute: async (_params, label) => {
@@ -253,8 +276,11 @@ export function releasePlan(input: { paymentId: string; note: string; lowered?: 
   };
 }
 
-/** Lets a hold go without charging anything. Also closes a payment that was never paid. */
-export async function releasePayment(input: { paymentId: string; note: string }): Promise<void> {
+/**
+ * Lets a hold go without charging anything. Also closes a payment that was never paid; with `unpaidWith` only
+ * if it is still unpaid under its lock (see OnlyUnpaid), and otherwise NoLongerUnpaidError and nothing changed.
+ */
+export async function releasePayment(input: { paymentId: string; note: string } & OnlyUnpaid): Promise<void> {
   const [before] = await paymentById(input.paymentId);
   if (!before) throw new MoneyError("Payment not found.");
   cardPayment(before);
@@ -265,6 +291,7 @@ export async function releasePayment(input: { paymentId: string; note: string })
     await db.transaction(async (tx) => {
       const [payment] = await tx.select().from(schema.payments).where(eq(schema.payments.id, input.paymentId)).for("update");
       if (payment.stripePaymentIntentId || !canMovePayment(payment.status as never, "closed_uncharged")) return;
+      stillUnpaid(payment, input);
       await applyReleased(payment, input.note, tx);
     });
     const [after] = await paymentById(input.paymentId);

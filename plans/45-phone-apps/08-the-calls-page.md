@@ -255,6 +255,29 @@ be made to happen on purpose here, so point 1 is proven by reading the code, not
 thing only a phone can show. It was walked in part 06 for saving a card (the same sheet and
 the same way back); for the hold it is on the founder's two-phone list in part 20.
 
+## Astra's fifth look at the code (20 November 2026): "not ready", now worked in
+
+The four points of the fourth look were found closed. One ordering was left, older than this
+part, in the helper that closes the payment of a finished call nobody paid for:
+
+1. *The helper asked Stripe, heard "unpaid", and then closed the payment.* If a hold was
+   written down in the short time between the two (by Stripe's message, or by the customer's
+   own page), the helper let that hold go. On a call that was stopped for safety, that took
+   the decision away from the person who reviews it. Now the helper closes the payment only
+   if, under the payment's lock, it is still waiting for payment on the very card step that
+   Stripe was asked about. Otherwise it changes nothing and looks again on its next round.
+   Three new checks: a hold written down in between stays; an answer about another card step
+   closes nothing; a payment that really is unpaid is closed (`scripts/app-calls-check.ts`,
+   77 checks).
+2. Two notes left as they are, on purpose. The helper that cancels an unpaid booking asks
+   Stripe twice (once before, once under lock): the first question is what writes down a hold
+   that is already there, so it stays. And a check script that moves the clock by hand could
+   get two different answers for a hold without a date; the real helper only looks at
+   bookings whose time to pay has passed on the real clock, so nothing changes for people.
+
+This part also moved onto the newer main (the legal changes of 20 November). Nothing of the
+money code met those changes.
+
 ## Astra's check (20 November 2026): "ready with changes", worked in
 
 1. *The Calls page is past calls; coming calls are on the home page.* Corrected; decision 6.
