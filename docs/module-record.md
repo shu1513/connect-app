@@ -4078,6 +4078,87 @@ without (no test screens; with a plain address in its settings it sends nothing)
 
 **Left for part 20:** two small things seen on the test phone, noted in that part's plan.
 
+## The phone apps, part 03: signing up and signing in (plan 45, 20 November 2026)
+
+**What this is.** A person installs the app and gets to the home page: by signing in to the
+account they already have, or by making one. It is the same account as on the website.
+
+**What was built.**
+- *The screens:* first opening ("Sign in", "Create account"); create account; "Check your
+  email" (remembered on the phone, so it is still there after the app was closed); sign in;
+  the two-step code or a backup code, for anyone who has it; forgot password; "18 or older and
+  terms" with the time zone; sign out on the Account page. A paused account is told why inside
+  the app. A closed account gets the ordinary "did not match" sentence.
+- *The "18 and terms" step for the app* (`/api/app/welcome`), on one function shared with the
+  website's form (`src/lib/welcome.ts`), which now also refuses to write for an account closed
+  in that very moment.
+- *The sign-in client* (`mobile/src/lib/auth.ts`): the login tool's own kit for phones, asked
+  as carefully as the door (only Connect's server, no redirect, a time limit, one request at a
+  time). The phone keeps the sign-in and nothing else.
+
+**What the building changed.** Twelve things, listed in the plan. Among them: the phone's own
+time zone is offered if the server accepts it, with a search otherwise; signing out shows the
+first screens at once, with or without a connection.
+
+**What the reviewers found.** Astra looked at the code five times. Its points were all about
+what happens at bad moments: signing out with no connection; a renewal answered late putting an
+old sign-in back; the phone's secure store failing or being unreadable (as after restoring a
+phone from a backup), which could have locked a person out; a sign-out shown as done before the
+phone had done its part. All taken. The fifth look said "ready with changes"; one point lies
+inside a library and is noted in part 20's plan.
+
+**How it was checked.** 778 automatic tests on the website, 41 on the app. `app-door-check`,
+119 checks, 24 of them new. The website's `accounts-check` passes unchanged. On the Android
+test phone, with pictures: a new account from first opening to Home; the app closed and opened
+again at "Check your email"; a wrong password; an unconfirmed account; "Send it again"; forgot
+password to a new sign-in; an admin's two-step code, a wrong code and a backup code; sign out
+(the server's session is gone), also with no connection, also with the app closed a second
+later; a paused account; a closed account; the sign-in renewed on opening (a session made to
+look two days old went from 20 days left to 30); the too-old screen.
+
+**What cannot be tried here.** A real email arriving on a real phone. The pages of the website
+opened from the app (the test phone's browser asks to agree to Google's terms first; that was
+not done). The iPhone.
+
+## The phone apps, part 04: the home page (plan 45, 20 November 2026)
+
+**What this is.** The first screen after signing in: the website's home page on a phone. The
+next call with its countdown, what is waiting for the person, their calendar, their own
+requests, the hosts they follow, and suggested hosts. One page for everyone; a host sees more
+on it. No diary, no project, no tip.
+
+**What was built.**
+- *One gathering for both.* What the home page is made of is now put together in
+  `src/lib/home/gather.ts`, and the website's page and the app's address both call it. The
+  website's page is unchanged for everyone who looks at it (its own check, 110 points, passes
+  untouched). The app never asks for the diary, and then nothing of one is read.
+- *The app's answer* (`GET /api/app/home`), built field by field: no customer's email, no
+  account's number, nothing about a customer except for the host of that call while it is not
+  over.
+- *Suggested hosts* in four small steps (make, seen, opened, hide), and *photos* through an
+  address of the door that asks the website's own "may this person see this photo?" each time.
+- *The screen:* a live countdown that follows the server's clock and never decides by itself
+  that a room is open; a three-day calendar laid out by the website's own rules in the phone's
+  time zone; pull down to refresh.
+
+**What the building changed.** Nine things, listed in the plan. Rows do not lead anywhere yet:
+each later part wires in the screen it builds.
+
+**What the reviewers found.** Astra looked at the code four times. Most serious: a host who has
+to accept the terms again was still handed a customer's photo; a photo kept for one person
+could be shown to the next person on the same phone, and stayed on a screen after its owner
+hid her page; when the server refused, the old home page stayed on the screen; the calendar
+said "No calls in these days" of days it had not loaded yet. All taken. The fourth look said
+"ready with changes".
+
+**How it was checked.** 778 tests on the website, 53 on the app (a call across midnight, phones
+in other time zones). `scripts/app-home-check.ts`, 75 checks: the nine rules the home page's
+builders left for a phone version, each by name. `home-check` and `suggestions-check` pass
+unchanged. On the Android test phone, with pictures, as a host and as a customer.
+
+**What cannot be tried here.** The iPhone (one measure, where the page ends above the bar at
+the bottom, is to be looked at on a real iPhone in part 20).
+
 ## The agreements in the app, and proof of who accepted what (plan 46, part 1, 20 November 2026)
 
 **Why.** The founder: "build the 14 changes so the agreements can go live. do what you think is
@@ -4131,4 +4212,33 @@ times; what each check changed is in the plan's last two sections. The largest: 
 from settings would have rewritten archived agreements, so a published version is frozen; the
 words beside the button had to fit the moment (an account exists before the last step); the
 stamp is asked for when it is needed, not kept from when the server started.
+
+*Astra then reviewed the code of this part* and said to hold the merge. The website's own
+acceptance was sound: the stamp and its three lines are written together or not at all. Taken:
+- **The phone app's sign-up step, which the phone-apps work had merged in the meantime, could
+  have let a person in with no line of proof.** It sent a plain "yes" and no versions. The two
+  sides now use one writer (`src/lib/welcome.ts` calls `acceptGeneralAgreements`): the app's
+  address tells the app which documents and versions to show, the app sends back the ones it
+  showed, and a request that names none writes nothing and is told to show the step again. The
+  app's own screen (`mobile/src/app/(welcome)/index.tsx`) was changed with it.
+- A second press, or two requests at once, no longer rewrite the first acceptance's moment or
+  time zone: everything is judged with the person's line locked.
+- The check for blanks in a published version missed a blank wrapped over two lines and a
+  number still to be settled ("[12]"); both are found now.
+- Closing an account at its owner's own wish no longer has to name a broken rule.
+- A host page suspended by a closing shows the closing's reason, not an older one. The Reports
+  page carries the same 30-day reminder as the People page. An application to host that was
+  under way when the account was closed writes nothing.
+- An identity check can no longer be started without the notice's version, and the request to
+  Stripe is tied to it.
+- `?version=` given twice is "not found", not today's text. A link inside a coming version
+  leads to the other document as it will stand on that version's day.
+- Three statements of the documents were corrected before they were merged: who has to take the
+  identity check (also for a call that costs nothing), where the consent to the face comparison
+  is given (on Connect's own page), and what closing an account does to booked calls (cancelled
+  at no charge).
+- Two check scripts removed people without first removing their new lines; both do now.
+Not taken: *closing an account must always have a reason, also in the code.* The founder's two
+buttons always give one. About twenty calls in check scripts close an account without, and
+giving each a reason would send an email into checks that count emails.
 

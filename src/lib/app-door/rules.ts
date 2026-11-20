@@ -105,3 +105,12 @@ export function whyNot(who: Who, person: Standing | null): RefusalCode | null {
   if (who === "active" && person.paused) return "paused";
   return null;
 }
+
+/**
+ * The header in which the server tells the app how many seconds it may keep a picture in its own
+ * memory. Only ever sent with a photo anyone may see. (The answer itself always says "do not
+ * store", so that nothing on the way, and nothing of the phone's own, keeps it.)
+ */
+export const KEEP_HEADER = "x-connect-keep";
+/** How long the app may keep a photo anyone may see: five minutes. */
+export const OPEN_PHOTO_SECONDS = 300;

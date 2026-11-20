@@ -402,7 +402,10 @@ async function main() {
       await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "", pricePer15Cents: 2500, languages: ["en"] });
       await profiles.setProfileHidden(host.id, false);
       check("suspended: not found, and the host cannot undo it", (await page(handle)).status === 404);
+      const reasonOf = async () => (await db.select({ decidedReason: schema.hostProfiles.decidedReason }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id)))[0]?.decidedReason;
+      const whileSuspended = await reasonOf();
       await approve(host.id);
+      check("a suspension keeps its reason, and approving the page again clears it (plans/46)", whileSuspended === "No scams. Made up for this check." && (await reasonOf()) === null, String(whileSuspended));
 
       check("a handle nobody has: not found", (await page(`nobody_${RUN}`)).status === 404);
     }

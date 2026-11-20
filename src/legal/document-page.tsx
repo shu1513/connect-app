@@ -21,21 +21,22 @@ export async function LegalDocumentPage({ name, searchParams }: { name: Document
   const asked = (await searchParams).version;
   const now = new Date();
   const current = currentVersion(name, now);
-  const shown = typeof asked === "string" ? findVersion(name, asked) : current;
+  // No version asked for: the one in effect. Asked for twice, or one that does not exist: not found, never today's text under another name.
+  const shown = asked === undefined ? current : typeof asked === "string" ? findVersion(name, asked) : null;
   const text = shown ? textOf(name, shown.version) : null;
   if (!shown || text === null) notFound();
   const coming = comingVersion(name, now);
   const { title, path } = DOCUMENTS[name];
   const isCurrent = shown.version === current.version;
   const isComing = dayOf(shown.effectiveFrom).getTime() > now.getTime();
-  // A link to another document leads, from the version in effect, to that document as it is in effect; from an
-  // earlier version, to the other document as it stood when this one took effect; from a coming version, to the
-  // other document's coming version if it has one. So nobody reading an old agreement lands on today's words.
+  // A link to another document leads, from the version in effect, to that document as it is in effect; from any
+  // other version, earlier or coming, to the other document as it stands on the day this one takes effect. So
+  // nobody reading an old agreement lands on today's words.
   const links: LinkFor = (target) => {
     const plain = linkFor(target);
     const other = target.replace(/\.md$/, "");
     if (!plain || plain.outside || isCurrent || !isDocumentName(other)) return plain;
-    const then = isComing ? (comingVersion(other, now) ?? currentVersion(other, now)) : currentVersion(other, dayOf(shown.effectiveFrom));
+    const then = currentVersion(other, dayOf(shown.effectiveFrom));
     return { href: versionHref(other, then.version), outside: false };
   };
   const { blocks } = parse(text, links);

@@ -6,7 +6,7 @@ import { SeenSuggestions, SuggestedLink } from "@/components/suggestions-watch";
 import { warm } from "@/components/warm-ui";
 import { formatMoney } from "@/lib/payments/access";
 import { languageNames } from "@/lib/profiles/languages";
-import { SUGGEST } from "@/lib/suggestions/rules";
+import { SUGGEST, SUGGEST_WHY } from "@/lib/suggestions/rules";
 import type { SuggestedHost } from "@/lib/suggestions/suggestions";
 
 /** One suggested host: what a search result shows, the next open time, and the X. */
@@ -83,9 +83,7 @@ export function SuggestedHosts({ day, hosts }: { day: string; hosts: SuggestedHo
       <details className="mt-2 text-sm text-[#57534e]" data-suggested-why>
         <summary className="inline-flex min-h-11 cursor-pointer items-center underline underline-offset-2">Why these hosts?</summary>
         <p className="mt-1">
-          These are hosts you do not follow and have not called, who have open times. Being free sooner adds points. Hosts followed by people who follow the same hosts as you get points too, more for more people. Good ratings count
-          a little. Two places are kept for hosts who have been shown less often. You get new suggestions each day. A host you have seen on two days without opening their page rests for about two weeks; one whose page you opened can be
-          suggested again. The X hides a host for good.
+          {SUGGEST_WHY}
         </p>
       </details>
       <SeenSuggestions key={day} day={day} places={hosts.filter((host) => !host.seen).map((host) => host.place)} />

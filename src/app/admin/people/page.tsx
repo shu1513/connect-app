@@ -408,6 +408,7 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
                   The rule
                   <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
                     <option value="">Choose a rule</option>
+                    <option value="own_request">At the person&apos;s own request (no rule)</option>
                     {ruleOptions}
                   </select>
                 </label>

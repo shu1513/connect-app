@@ -23,6 +23,11 @@ describe("the list of legal documents", () => {
     expect(blanksIn("Run by [COMPANY NAME] at [ADDRESS], and again [COMPANY NAME].")).toEqual(["[COMPANY NAME]", "[ADDRESS]"]);
     expect(blanksIn(textOf("terms-of-service", "2026-11-20")!)).toContain("[COMPANY NAME]");
     expect(blanksIn("An option [as shown] here.")).toEqual([]);
+    // A blank wrapped over two lines, and a number still to be settled: both must stop a version from being published.
+    expect(blanksIn("write to [LEGAL\nEMAIL] or [ADDRESS].")).toEqual(["[LEGAL EMAIL]", "[ADDRESS]"]);
+    expect(blanksIn("for [12] months")).toEqual(["[12]"]);
+    expect(blanksIn(textOf("terms-of-service", "2026-11-20")!)).toContain("[LEGAL EMAIL]");
+    expect(blanksIn(textOf("host-agreement", "2026-11-20")!)).toContain("[12]");
   });
 
   it("links between the documents lead to their pages", () => {

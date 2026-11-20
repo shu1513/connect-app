@@ -10,7 +10,8 @@ publish.
 ## 1. What happens
 
 Every host must pass an identity check before their page is shown. A customer does not have to,
-unless a host only takes calls from people who have, or the customer wants to.
+unless a host only takes calls from people who have, the call costs nothing, or the customer
+wants to.
 
 The check is done by Stripe, on Stripe's own pages. You take a photo of an identity document
 and a live picture of your face. Stripe reads the document and **compares your face with the
@@ -63,7 +64,7 @@ document, make and use measurements of your face to compare the two, and keep th
 time stated in section 5.**
 
 You do not have to do the check. If you choose not to, you can still use Connect as a customer
-with hosts who do not ask for it; you cannot host.
+for paid calls with hosts who do not ask for it; you cannot host.
 
 ## 7. If something is wrong
 

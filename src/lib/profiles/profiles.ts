@@ -121,6 +121,12 @@ export function sellerKindOf(profile: { sellerKind: string | null }): SellerKind
   return profile.sellerKind === "business" || profile.sellerKind === "private" ? profile.sellerKind : null;
 }
 
+/** Reads the person with their line locked and refuses a closed or paused account. For steps that write for a host. */
+async function openPersonIn(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], userId: string): Promise<void> {
+  const [person] = await tx.select({ closedAt: schema.user.closedAt, pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, userId)).for("update");
+  if (!person || person.closedAt || person.pausedAt) throw new ProfileError("Your account cannot do this at the moment.");
+}
+
 /**
  * What a host's page, and the pages where a call with her is asked for, say about how she offers calls: her own
  * statement, which Connect does not check. Null for a host who has not said; then the pages say nothing.
@@ -170,6 +176,8 @@ export async function createHostProfile(
   const now = new Date();
   try {
     await db.transaction(async (tx) => {
+      // The person first, locked (the order of locks everywhere): an account closed or paused a moment ago applies for nothing.
+      await openPersonIn(tx, userId);
       await acceptHostAgreementIn(tx, { userId, shown: agreements, occasion: "host_application", now });
       await tx.insert(schema.hostProfiles).values({ userId, handle, handleKey: handleKey(handle), ...details, country, sellerKind, usConfirmedAt: now });
     });
@@ -227,6 +235,7 @@ export async function answerHostBox(userId: string, input: { sellerKind: string;
   const now = new Date();
   try {
     await db.transaction(async (tx) => {
+      await openPersonIn(tx, userId);
       const [profile] = await tx.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
       if (!profile) throw new ProfileError("You do not have a host profile yet.");
       await acceptHostAgreementIn(tx, { userId, shown: agreements, occasion: "host_new_version", now });

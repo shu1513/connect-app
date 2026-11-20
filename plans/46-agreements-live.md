@@ -476,3 +476,19 @@ Answered differently from what was suggested, on purpose:
   pages, where the pictures are taken.
 
 The plan was not sent a third time. Each part's code goes to Astra, as always.
+
+## What building part 1 added (20 November 2026)
+
+- The phone-apps work merged its part 03 first, with the welcome step in `src/lib/welcome.ts`.
+  As agreed, this part adapted: `finishSigningUp` takes the versions shown instead of a "yes"
+  to the terms and answers "changed" when they are not the ones in effect; the app's address
+  (`src/app/api/app/welcome/route.ts`) gives the documents with GET and takes
+  `agreements: [{ name, version }]` with POST; the app's screen and its checks were changed in
+  the same pull request.
+- Closing an account can name "at the person's own request" instead of a rule.
+- `closeAccount` in the code can still be called without a reason (check scripts do); the two
+  buttons of the founder always give one.
+- The check scripts that log in as the seeded test people need those people stamped for the new
+  step: `npm run seed` does it. Until every open branch has this part, a seeded person fits
+  either the old step or the new one, not both.
+

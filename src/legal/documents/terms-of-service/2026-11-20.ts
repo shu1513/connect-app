@@ -625,8 +625,8 @@ stay under the version that applied when they were agreed.
 ## 24. Ending
 
 24.1 **You may stop at any time.** To close your account, write to [SUPPORT EMAIL] from the
-email address of the account. Calls you have booked are cancelled under the usual cancellation
-rules, and memberships and monthly contributions end, before the account is closed.
+email address of the account. When we close it, calls you have booked that have not started are
+cancelled at no charge, and your memberships and monthly contributions end.
 
 24.2 **We may pause or close your account** as section 9 says. We may also stop offering the
 Service altogether; if we do, we tell you at least 30 days ahead where we can, and calls that

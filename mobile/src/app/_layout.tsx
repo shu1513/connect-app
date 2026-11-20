@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { OpeningProvider, useOpening } from "@/lib/opening";
+import { whereFor } from "@/lib/where-rules";
 import { Loading, Problem } from "@/ui/pieces";
 import { useColors } from "@/ui/theme";
 
@@ -11,6 +12,11 @@ import { useColors } from "@/ui/theme";
  * shown the app asks the server its first question. Until the answer is in it says so; if the
  * server cannot be reached it says that and offers to try again; if this copy is too old it says
  * that and offers no way on.
+ *
+ * Once the answer is in, it decides which part of the app is open
+ * (plans/45-phone-apps/03-signing-in.md): the first screens for someone not signed in, the "18 or
+ * older and terms" step, or the app itself. The other parts are not there to go to, by a link
+ * either.
  */
 export default function RootLayout() {
   const dark = useColorScheme() === "dark";
@@ -29,7 +35,26 @@ export default function RootLayout() {
 function Opened() {
   const { opening, askAgain } = useOpening();
   const colors = useColors();
-  if (opening.kind === "ready") return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.page } }} />;
+  if (opening.kind === "ready") {
+    const where = whereFor(opening.start);
+    return (
+      // Every screen belongs to whoever is signed in. When that becomes someone else, every screen is made anew, so
+      // nothing one person was shown (calls, notes, photos) can still stand on the next person's screen.
+      <Stack key={opening.start.me?.id ?? "nobody"} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.page } }}>
+        <Stack.Protected guard={where === "home"}>
+          <Stack.Screen name="(tabs)" />
+        </Stack.Protected>
+        <Stack.Protected guard={where === "welcome"}>
+          <Stack.Screen name="(welcome)" />
+        </Stack.Protected>
+        <Stack.Protected guard={where === "front"}>
+          <Stack.Screen name="(front)" />
+        </Stack.Protected>
+        <Stack.Screen name="dev" />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+    );
+  }
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.page }}>
       {opening.kind === "asking" ? <Loading words="Opening Connect…" /> : null}

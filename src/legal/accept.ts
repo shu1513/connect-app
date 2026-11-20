@@ -57,15 +57,21 @@ async function writeLines(tx: Tx, userId: string, documents: { name: DocumentNam
 /**
  * Finishing sign-up, or accepting a new version of the general documents: the tick for "18 or
  * older", the three documents in the versions shown, and the person's time zone, in one database
- * step with one moment. Only for a person whose email address is confirmed and whose account is
- * not closed. Throws AgreementError when the versions shown are no longer the ones due.
+ * step with one moment. Everything is judged with the person's own line locked:
+ *
+ *   "gone"     the account is closed, or its email address is not confirmed: nothing is written;
+ *   "already"  the person holds the versions in effect (another request did the step a moment ago):
+ *              nothing is written a second time, so the first moment and time zone stay;
+ *   "changed"  the versions shown are not the ones in effect, or none were named: nothing is written;
+ *   "done"     the lines and the stamp are written, together.
  */
-export async function acceptGeneralAgreements(input: { userId: string; shown: Shown; timeZone: string; now: Date }): Promise<void> {
+export async function acceptGeneralAgreements(input: { userId: string; shown: Shown; timeZone: string; now: Date }): Promise<"done" | "already" | "changed" | "gone"> {
   const { userId, now } = input;
-  if (!shownIsCurrent("sign_up", input.shown, now)) throw new AgreementError(STALE_AGREEMENTS);
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [person] = await tx.select().from(schema.user).where(eq(schema.user.id, userId)).for("update");
-    if (!person || person.closedAt || !person.emailVerified) throw new AgreementError("This account cannot accept the terms right now.");
+    if (!person || person.closedAt || !person.emailVerified) return "gone";
+    if (person.adultConfirmedAt && person.termsAcceptedAt && person.termsVersion === generalStamp(now)) return "already";
+    if (!shownIsCurrent("sign_up", input.shown, now)) return "changed";
     // A person who has accepted general documents before is accepting a new version now.
     const occasion: AcceptanceOccasion = person.termsAcceptedAt ? "new_version" : "sign_up";
     await writeLines(tx, userId, agreementsToAccept("sign_up", now), occasion, now);
@@ -74,6 +80,7 @@ export async function acceptGeneralAgreements(input: { userId: string; shown: Sh
       // The day they first said "18 or older" stays; it is said again with every acceptance, and the first one is the proof.
       .set({ adultConfirmedAt: person.adultConfirmedAt ?? now, termsAcceptedAt: now, termsVersion: generalStamp(now), timeZone: input.timeZone, updatedAt: now })
       .where(eq(schema.user.id, userId));
+    return "done";
   });
 }
 

@@ -70,6 +70,7 @@ describe("reading a legal document", () => {
     const { blocks, problems } = read("Run by [COMPANY NAME] at [ADDRESS]. Kept for [PERIOD: we propose 2 years].");
     expect(problems).toEqual([]);
     expect(blocks[0]).toMatchObject({ c: [{ t: "text", v: "Run by " }, { t: "blank", v: "[COMPANY NAME]" }, { t: "text", v: " at " }, { t: "blank", v: "[ADDRESS]" }, { t: "text", v: ". Kept for " }, { t: "blank", v: "[PERIOD: we propose 2 years]" }, { t: "text", v: "." }] });
+    expect(read("not collected for [12] months").blocks[0]).toMatchObject({ c: [{ t: "text" }, { t: "blank", v: "[12]" }, { t: "text" }] });
     // Words in square brackets that are not a blank stay as they are.
     expect(read("An option [as shown] here.").blocks[0]).toEqual({ t: "paragraph", c: [{ t: "text", v: "An option [as shown] here." }] });
   });

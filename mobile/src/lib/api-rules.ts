@@ -15,8 +15,39 @@ export const APP_HEADER = "x-connect-app";
  */
 export const SIGN_IN_HEADER = "x-connect-signin";
 
+/**
+ * The header in which the server says how many seconds the app may keep a picture in its own
+ * memory (only ever for a photo anyone may see). The same name as KEEP_HEADER on the server.
+ */
+export const KEEP_HEADER = "x-connect-keep";
+
 export function appHeader(platform: "android" | "ios", version: string): string {
   return `${platform} ${version}`;
+}
+
+/**
+ * Whether the server's address in the app's settings is one the app may talk to: a bare, locked
+ * address (`https://name` or `https://name:port`), or a plain `http` one when `plain` is set,
+ * which only a test build does. The same rule for every request the app makes, to the door and to
+ * the login tool.
+ */
+export function isServer(server: string, options: { plain?: boolean } = {}): boolean {
+  const bare = /^(https?):\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.exec(server);
+  return bare !== null && (bare[1] === "https" || options.plain === true);
+}
+
+/**
+ * Whether a full address is one of the login tool's own on the given server: the only place,
+ * besides the door, a request with the sign-in may go.
+ */
+export function isLoginToolAddress(server: string, address: string): boolean {
+  try {
+    const url = new URL(address);
+    // Judged by what the address is once read, not by how it is written: "https://name:443" and "https://name" are one place.
+    return url.origin === new URL(server).origin && url.pathname.startsWith("/api/auth/") && url.username === "" && url.password === "";
+  } catch {
+    return false;
+  }
 }
 
 /** Every address of the app on the server starts with this. Nothing else is ever asked for. */
@@ -39,8 +70,7 @@ export const DOOR = "/api/app/";
  * nothing in it can turn into another path if something on the way reads it differently.
  */
 export function addressFor(server: string, path: string, options: { plain?: boolean } = {}): string | null {
-  const bare = /^(https?):\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.exec(server);
-  if (!bare || (bare[1] === "http" && !options.plain)) return null;
+  if (!isServer(server, options)) return null;
   const cut = path.indexOf("?");
   const steps = cut === -1 ? path : path.slice(0, cut);
   if (!/^\/api\/app\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(steps)) return null;

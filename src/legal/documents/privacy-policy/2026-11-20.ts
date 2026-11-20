@@ -61,8 +61,10 @@ call and in their own notes (section 6).
 - **Payments:** amounts, times, the last digits and the country of the card as Stripe reports
   them, holds, charges, refunds, bank disputes, and for hosts what was earned, collected and
   when.
-- **What you agreed to:** for each membership, contribution, tip and saved card, the wording
-  version you saw, the amount, and the moment.
+- **What you agreed to:** which version of the Terms of Service, the Payment Terms and the
+  Community Rules you accepted, and when; for a host, the same for the Host Agreement; for an
+  identity check, the same for the Identity Check Notice; and for each membership, contribution,
+  tip and saved card, the wording version you saw, the amount, and the moment.
 - **Follows:** which hosts you follow. A call with a host makes you follow that host; you can
   unfollow at any time, and a host you unfollowed is not followed again for you.
 - **Suggestions:** which hosts were suggested to you, which of them you were shown, whether
@@ -109,7 +111,7 @@ brackets.
 | Create and run your account, show hosts, arrange requests and calls, connect the video, send the emails about them | To perform our contract with you |
 | Take payments, place holds, give refunds, pay hosts, keep the books | To perform our contract; to meet tax and accounting law |
 | Check that hosts are real adults (identity check); confirm a host's social account | To perform our contract with the host; our legitimate interest in a safe service that hosts cannot fake |
-| Compare a selfie with an ID document (done by Stripe) | Your explicit consent, given on Stripe's own screen before the check |
+| Compare a selfie with an ID document (done by Stripe) | Your explicit consent, given on Connect's own page (the Identity Check Notice, and its button "I agree, continue to Stripe") before you are sent to Stripe; Stripe then shows its own notice too |
 | Check pictures by machine before they are shown; act on reports; warn, pause and close accounts; keep a record of what staff did | Our legitimate interest in keeping people safe; to meet the law on illegal content |
 | Report apparent child sexual abuse material to the authorities and keep the evidence | Legal obligation |
 | Keep connection grades and attendance for refund requests and disputes | Our legitimate interest in settling disputes fairly |

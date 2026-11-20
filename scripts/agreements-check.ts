@@ -53,11 +53,12 @@ async function main() {
     {
       const ann = await person("ann");
       const now = new Date();
-      check("a form that names no versions writes nothing", (await refusal(A.acceptGeneralAgreements({ userId: ann.id, shown: {}, timeZone: "UTC", now }))) === A.STALE_AGREEMENTS && (await linesOf(ann.id)).length === 0 && (await userNow(ann.id)).termsVersion === null);
-      check("nor does one that names an older version of one of the three", (await refusal(A.acceptGeneralAgreements({ userId: ann.id, shown: { ...shownNow("sign_up"), "payment-terms": "2020-01-01" }, timeZone: "UTC", now }))) === A.STALE_AGREEMENTS && (await linesOf(ann.id)).length === 0);
+      check("a form that names no versions writes nothing", (await A.acceptGeneralAgreements({ userId: ann.id, shown: {}, timeZone: "UTC", now })) === "changed" && (await linesOf(ann.id)).length === 0 && (await userNow(ann.id)).termsVersion === null);
+      check("nor does one that names an older version of one of the three", (await A.acceptGeneralAgreements({ userId: ann.id, shown: { ...shownNow("sign_up"), "payment-terms": "2020-01-01" }, timeZone: "UTC", now })) === "changed" && (await linesOf(ann.id)).length === 0);
       check("what a form carries is read back as it was written", JSON.stringify(A.readShown(A.shownValue(R.agreementsToAccept("sign_up", now)))) === JSON.stringify(shownNow("sign_up")) && JSON.stringify(A.readShown("nonsense@1|terms-of-service")) === "{}");
 
-      await A.acceptGeneralAgreements({ userId: ann.id, shown: shownNow("sign_up"), timeZone: "America/New_York", now });
+      const first = await A.acceptGeneralAgreements({ userId: ann.id, shown: shownNow("sign_up"), timeZone: "America/New_York", now });
+      check("with the versions in effect it answers that it is done", first === "done");
       const lines = await linesOf(ann.id);
       const after = await userNow(ann.id);
       check("finishing sign-up writes one line for each of the three documents, as a sign-up", lines.length === 3 && lines.every((line) => line.occasion === "sign_up" && line.version === "2026-11-20") && lines.map((line) => line.document).sort().join() === "community-rules,payment-terms,terms-of-service", JSON.stringify(lines.map((l) => [l.document, l.version, l.occasion])));
@@ -65,13 +66,14 @@ async function main() {
       check("every line carries the same moment", lines.every((line) => line.acceptedAt.getTime() === now.getTime()));
 
       const later = new Date(now.getTime() + 5_000);
-      await A.acceptGeneralAgreements({ userId: ann.id, shown: shownNow("sign_up"), timeZone: "America/New_York", now: later });
+      const second = await A.acceptGeneralAgreements({ userId: ann.id, shown: shownNow("sign_up"), timeZone: "Europe/London", now: later });
       const again = await linesOf(ann.id);
-      check("pressing a second time writes no new line and leaves the first moment as it was", again.length === 3 && again.every((line) => line.acceptedAt.getTime() === now.getTime()) && (await userNow(ann.id)).adultConfirmedAt?.getTime() === now.getTime());
+      const twice = await userNow(ann.id);
+      check("pressing a second time answers \"already\", writes no new line, and leaves the first moment and the first time zone as they were", second === "already" && again.length === 3 && again.every((line) => line.acceptedAt.getTime() === now.getTime()) && twice.adultConfirmedAt?.getTime() === now.getTime() && twice.termsAcceptedAt?.getTime() === now.getTime() && twice.timeZone === "America/New_York");
 
       const unverified = await person("unverified", { emailVerified: false });
       const closed = await person("closed", { closedAt: new Date() });
-      check("someone whose email address is not confirmed cannot accept, and neither can a closed account", (await refusal(A.acceptGeneralAgreements({ userId: unverified.id, shown: shownNow("sign_up"), timeZone: "UTC", now }))) !== null && (await refusal(A.acceptGeneralAgreements({ userId: closed.id, shown: shownNow("sign_up"), timeZone: "UTC", now }))) !== null && (await linesOf(unverified.id)).length + (await linesOf(closed.id)).length === 0);
+      check("someone whose email address is not confirmed cannot accept, and neither can a closed account", (await A.acceptGeneralAgreements({ userId: unverified.id, shown: shownNow("sign_up"), timeZone: "UTC", now })) === "gone" && (await A.acceptGeneralAgreements({ userId: closed.id, shown: shownNow("sign_up"), timeZone: "UTC", now })) === "gone" && (await linesOf(unverified.id)).length + (await linesOf(closed.id)).length === 0);
     }
 
     console.log("\n2. A new version");
@@ -92,7 +94,7 @@ async function main() {
         // Its day is today. (The first version's own day is the day these documents were written, so a day before that would not do.)
         next.effectiveFrom = day(0);
         check("from its day the stamp is another one, so the person is asked again", R.generalStamp(now) !== before && (await userNow(bob.id)).termsVersion === before);
-        check("the versions the old page showed are refused now", (await refusal(A.acceptGeneralAgreements({ userId: bob.id, shown: { "terms-of-service": "2026-11-20", "payment-terms": "2026-11-20", "community-rules": "2026-11-20" }, timeZone: "UTC", now }))) === A.STALE_AGREEMENTS);
+        check("the versions the old page showed are refused now", (await A.acceptGeneralAgreements({ userId: bob.id, shown: { "terms-of-service": "2026-11-20", "payment-terms": "2026-11-20", "community-rules": "2026-11-20" }, timeZone: "UTC", now })) === "changed");
         const later = new Date(now.getTime() + 60_000);
         await A.acceptGeneralAgreements({ userId: bob.id, shown: shownNow("sign_up", later), timeZone: "UTC", now: later });
         const lines = await linesOf(bob.id);
@@ -171,8 +173,11 @@ async function main() {
       await closing.closeAccount({ userId: eve.id, by: decider.id, reason: "No scams. Took payment outside Connect, three reports." });
       const mail = await mailTo("eve", "has been closed");
       check("the reason is saved, and the person is told it by email in the same step", (await userNow(eve.id)).closedReason === "No scams. Took payment outside Connect, three reports." && mail.length === 1 && mail[0].body.includes("The reason:\n\nNo scams. Took payment outside Connect, three reports."));
-      await closing.closeAccount({ userId: fay.id, by: decider.id });
-      check("a closing without a reason (only check scripts close that way) sends nothing", (await userNow(fay.id)).closedAt !== null && (await mailTo("fay", "has been closed")).length === 0);
+      // A host's page that a closing suspends carries the closing's reason, not an older one.
+      await db.insert(schema.hostProfiles).values({ userId: fay.id, handle: `ag${RUN}fay`, handleKey: `ag${RUN}fay`, displayName: "Fay Host", pricePer15Cents: 2000, status: "declined", decidedReason: "An older reason.", usConfirmedAt: new Date() });
+      await closing.closeAccount({ userId: fay.id, by: decider.id, reason: "You asked us to close your account." });
+      const fayPage = (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, fay.id)))[0];
+      check("a host page suspended by a closing shows the closing's reason, not an older one", fayPage.status === "suspended" && fayPage.decidedReason === "Your account was closed. You asked us to close your account.", String(fayPage.decidedReason));
     }
 
     if (APP) {
@@ -186,15 +191,18 @@ async function main() {
         const page = await get(path);
         // In the page's own source an apostrophe or an ampersand is written differently; the first words are enough.
         const firstWords = title.split(" ").slice(0, 2).join(" ");
-        check(`${path} shows the ${title}, says it is a draft, and names its version`, page.status === 200 && page.text.includes(firstWords) && page.text.includes("Draft. Not in force yet.") && page.text.includes('data-legal-version="2026-11-20"'), String(page.status));
+        const heading = /<h1[^>]*>([^<]*)<\/h1>/.exec(page.text)?.[1] ?? "";
+        check(`${path} shows the ${title} in its heading, says it is a draft, and names its version`, page.status === 200 && heading.startsWith(firstWords) && page.text.includes("Draft. Not in force yet.") && page.text.includes('data-legal-version="2026-11-20"'), `${page.status} "${heading}"`);
       }
       const pinned = await get("/terms?version=2026-11-20");
       const unknown = await get("/terms?version=1999-01-01");
-      check("a version can be asked for by its name, and one that does not exist is not found", pinned.status === 200 && unknown.status === 404, `${pinned.status} ${unknown.status}`);
+      const twice = await get("/terms?version=2026-11-20&version=1999-01-01");
+      check("a version can be asked for by its name; one that does not exist, or two at once, is not found", pinned.status === 200 && unknown.status === 404 && twice.status === 404, `${pinned.status} ${unknown.status} ${twice.status}`);
       const rules = await get("/rules");
       check("the footer leads to all seven", ["/rules", "/terms", "/payment-terms", "/privacy", "/host-agreement", "/copyright", "/identity-notice"].every((path) => rules.text.includes(`href="${path}"`)));
       const terms = await get("/terms");
-      check("a link from the Terms to the Payment Terms leads to their page", terms.text.includes('href="/payment-terms"'));
+      // Once in the footer, and at least once in the text itself.
+      check("a link inside the Terms leads to the Payment Terms' page", terms.text.split('href="/payment-terms"').length - 1 >= 2);
     } else {
       console.log("\n(The pages were not asked for: start the app and add --app=http://localhost:3000.)");
     }

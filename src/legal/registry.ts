@@ -34,9 +34,13 @@ export function textOf(name: DocumentName, version: string): string | null {
 
 const DAY_MS = 24 * 3_600_000;
 
-/** The blanks still in a text, each once, as written ("[COMPANY NAME]"). */
+/**
+ * The blanks still in a text, each once: "[COMPANY NAME]", "[PERIOD: we propose 2 years]", and a number that
+ * is still to be settled, "[12]". The text is wrapped, so a blank can run over two lines ("[LEGAL" / "EMAIL]");
+ * the lines are joined before looking. The same shape as the reader's own (parse.ts).
+ */
 export function blanksIn(text: string): string[] {
-  return [...new Set(text.match(/\[[A-Z][A-Z0-9 ,'-]{1,}(?::[^\]]*)?\]/g) ?? [])];
+  return [...new Set(text.replace(/\s+/g, " ").match(/\[(?:[A-Z][A-Z0-9 ,'-]+|[0-9]+)(?::[^\]]*)?\]/g) ?? [])];
 }
 
 /** Where a link inside a document leads: another document by its file name, a path of the site, or an address outside. */

@@ -68,9 +68,9 @@ export async function verifiedAmong(userIds: string[]): Promise<Set<string>> {
  * `noticeVersion` is the version of the Identity Check Notice the person agreed to just before (plans/46,
  * decision 9). It is written on this check's own line, so every attempt has its evidence, and that line exists
  * before the person is sent to Stripe's pages, where the pictures are taken. Asking Stripe for a check collects
- * nothing. (Check scripts start checks without it.)
+ * nothing.
  */
-export async function startIdentityCheck(user: { id: string; email: string }, returnUrl: string, noticeVersion: string | null = null): Promise<string> {
+export async function startIdentityCheck(user: { id: string; email: string }, returnUrl: string, noticeVersion: string): Promise<string> {
   const state = await identityState(user.id);
   if (state.passed) throw new IdentityError("You have already passed the identity check.");
   if (state.triesLeft === 0) throw new IdentityError("You have used all your tries. Please write to us.");
@@ -81,8 +81,9 @@ export async function startIdentityCheck(user: { id: string; email: string }, re
       metadata: { userId: user.id },
       return_url: returnUrl,
     },
-    // Numbered by every check ever started for this person, so a key is never used twice.
-    { idempotencyKey: `identity:${user.id}:${(await db.select({ n: sql<number>`count(*)::int` }).from(schema.identityChecks).where(eq(schema.identityChecks.userId, user.id)))[0].n + 1}` },
+    // Numbered by every check ever started for this person, so a key is never used twice; and tied to the notice's
+    // version, so two presses under different versions never share one check.
+    { idempotencyKey: `identity:${user.id}:${noticeVersion}:${(await db.select({ n: sql<number>`count(*)::int` }).from(schema.identityChecks).where(eq(schema.identityChecks.userId, user.id)))[0].n + 1}` },
   );
   await db.insert(schema.identityChecks).values({ userId: user.id, stripeSessionId: session.id, status: session.status === "requires_input" ? "started" : session.status, noticeVersion }).onConflictDoNothing();
   if (!session.url) throw new IdentityError("Stripe did not return a page to go to. Please try again.");

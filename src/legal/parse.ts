@@ -33,8 +33,8 @@ export type Parsed = { blocks: Block[]; problems: string[] };
 /** Where a link in a document leads: a path of the site, an address outside, or null for one that is not known. */
 export type LinkFor = (target: string) => { href: string; outside: boolean } | null;
 
-/** A blank: square brackets around capital letters, sometimes with a note after a colon ("[PERIOD: we propose 2 years]"). */
-const BLANK = /^\[[A-Z][A-Z0-9 ,'-]{1,}(?::[^\]]*)?\]/;
+/** A blank: square brackets around capital letters, sometimes with a note after a colon ("[PERIOD: we propose 2 years]"), or around a number still to be settled ("[12]"). */
+const BLANK = /^\[(?:[A-Z][A-Z0-9 ,'-]+|[0-9]+)(?::[^\]]*)?\]/;
 const LINK = /^\[([^\]]+)\]\(([^)\s]+)\)/;
 
 export function parseInline(text: string, linkFor: LinkFor, problems: string[]): Inline[] {

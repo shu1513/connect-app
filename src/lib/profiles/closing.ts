@@ -58,7 +58,7 @@ export async function closeAccount(input: {
     await tx.delete(schema.session).where(eq(schema.session.userId, input.userId));
     await tx
       .update(schema.hostProfiles)
-      .set({ status: "suspended", decidedBy: input.by, decidedAt: now, updatedAt: now })
+      .set({ status: "suspended", decidedBy: input.by, decidedAt: now, decidedReason: input.reason ? `Your account was closed. ${input.reason}` : null, updatedAt: now })
       .where(eq(schema.hostProfiles.userId, input.userId));
     // Their memberships, as a host and as a member, end at once and for good, in this same step
     // (after the person and the profile, which is the order of locks everywhere).
