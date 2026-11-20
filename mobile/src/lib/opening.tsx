@@ -16,10 +16,10 @@ type Value = {
   askAgain: () => void;
   /** Asks again quietly, after something changed who is signed in or what stands in the way. Gives back the server's answer. */
   refresh: () => Promise<Answer<AppStart>>;
-  /** Signs out. The app shows nobody signed in at once, whether or not the server can be reached. */
-  leave: () => Promise<void>;
+  /** Signs out. The app shows nobody signed in at once, whether or not the server can be reached. False, and nothing changed, in the rare case that this phone could not do its own part. */
+  leave: () => Promise<boolean>;
 };
-const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {}, refresh: async () => ({ ok: false, code: "unreachable", message: "" }), leave: async () => {} });
+const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {}, refresh: async () => ({ ok: false, code: "unreachable", message: "" }), leave: async () => false });
 
 export function OpeningProvider({ children }: { children: ReactNode }) {
   const [opening, setOpening] = useState<Opening>({ kind: "asking" });
@@ -63,10 +63,11 @@ export function OpeningProvider({ children }: { children: ReactNode }) {
     // An answer still on its way was asked as the person who is leaving: it no longer counts.
     newest.current++;
     // From here on the app asks as nobody, and the phone remembers that a sign-out is under way: first, before the screen changes.
-    await startLeaving();
+    if (!(await startLeaving())) return false;
     setOpening(signedOut);
     await signOut();
     await put();
+    return true;
   }, [put]);
 
   return <OpeningContext.Provider value={{ opening, askAgain, refresh, leave }}>{children}</OpeningContext.Provider>;

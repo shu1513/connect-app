@@ -225,6 +225,22 @@ fails at the wrong moment, all taken:
 5. *The step's screen could, in one rare order of events, wait after the step was done.* It
    then says so and offers to try again.
 
+## Astra's fourth look at the code (20 November 2026): "not ready", now worked in
+
+The five fixes were found sound. Four further points, all taken:
+
+1. *If the phone could neither note a sign-out nor wipe its kept sign-in, the screen still
+   showed the person as signed out.* Now, when the note cannot be written, the whole sign-out is
+   finished first and looked at; only then does the screen change. If it could not be done, the
+   person is told "Signing out did not work on this phone" and stays as they were.
+2. *The kit's own out-of-turn question could slip through while the app's renewal was asking.*
+   The app's renewal is now known by the very request it sends, not by the moment.
+3. *A kept sign-in, or the note, that can no longer be read* (as can happen on a phone restored
+   from a backup) *would have shut the person out of the app for good.* What cannot be read
+   after a second try is emptied, and the person signs in again.
+4. *An answer cut short by a dropped connection could still be taken for whole.* Every answer
+   of the login tool must read as a whole answer, or nothing of it is taken.
+
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Copying the website's sign-in call would open a browser in the app,* and the emailed links

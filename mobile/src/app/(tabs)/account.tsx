@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { APP_VERSION, SERVER, TEST_SCREENS } from "@/lib/config";
 import { useOpening } from "@/lib/opening";
-import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
+import { Button, Card, Heading, Notice, Page, Words } from "@/ui/pieces";
 
 /**
  * Account (plans/45-phone-apps/18-the-account-page.md). An empty page for now, with what the
@@ -13,11 +13,12 @@ export default function AccountPlace() {
   const { opening, askAgain, leave: signOutHere } = useOpening();
   const start = opening.kind === "ready" ? opening.start : null;
   const [leaving, setLeaving] = useState(false);
+  const [notOut, setNotOut] = useState(false);
 
   /** Ends this phone's session on the server and wipes what the phone kept. The first screens open at once. */
   async function leave() {
     setLeaving(true);
-    await signOutHere();
+    setNotOut(!(await signOutHere()));
     setLeaving(false);
   }
 
@@ -36,6 +37,7 @@ export default function AccountPlace() {
         <Button label="Ask again" kind="plain" onPress={askAgain} />
       </Card>
       <Button label="Sign out" kind="plain" busy={leaving} onPress={() => void leave()} />
+      {notOut ? <Notice>Signing out did not work on this phone. You are still signed in. Please try again.</Notice> : null}
       {TEST_SCREENS ? (
         <Card>
           <Heading>Test screens</Heading>

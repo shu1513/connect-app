@@ -151,7 +151,14 @@ export default function Welcome() {
       </Card>
       {problem ? <Notice>{problem}</Notice> : null}
       <Button label="Continue" busy={busy} disabled={!adult || !terms || !zone} onPress={() => void submit()} />
-      <TextLink label="Not you? Sign out" onPress={() => void leave()} />
+      <TextLink
+        label="Not you? Sign out"
+        onPress={() =>
+          void leave().then((out) => {
+            if (!out) setProblem("Signing out did not work on this phone. Please try again.");
+          })
+        }
+      />
     </Page>
   );
 }

@@ -44,7 +44,7 @@ const sender = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const path = new URL(address).pathname;
   // "Who is signed in?" renews the sign-in and writes it to the phone. Only the app's own renewal, in its turn, may
   // ask it: the kit also asks it by itself, out of turn, and such an answer could write a sign-in back after a sign-out.
-  if (path.endsWith("/get-session") && !renewing) throw new Error("Not asked for by the app.");
+  if (path.endsWith("/get-session") && (renewal === null || init?.signal !== renewal)) throw new Error("Not asked for by the app.");
   // While a sign-out is being finished, nothing but the sign-out itself goes to the login tool.
   if (leaving !== "no" && !path.endsWith("/sign-out")) throw new Error("A sign-out is under way.");
   const stop = new AbortController();
@@ -59,8 +59,17 @@ const sender = (async (input: RequestInfo | URL, init?: RequestInit) => {
     // Given up on while it was being read: on some phones the reading then ends quietly with what had arrived.
     // Half an answer is no answer.
     if (stop.signal.aborted) throw new Error("The answer did not arrive in time.");
-    // Handed on whole, with the same number and the same headers (the kit reads the sign-in from them).
     const empty = answer.status === 204 || answer.status === 205 || answer.status === 304;
+    // Every answer of the login tool is written as JSON. One that is not was cut short on the way (a dropped
+    // connection can end the reading quietly), and nothing of it is taken, the sign-in in its headers least of all.
+    if (!empty) {
+      try {
+        JSON.parse(words);
+      } catch {
+        throw new Error("The answer was not whole.");
+      }
+    }
+    // Handed on whole, with the same number and the same headers (the kit reads the sign-in from them).
     return new Response(empty ? null : words, { status: answer.status, statusText: answer.statusText, headers: answer.headers });
   } finally {
     clearTimeout(timer);
@@ -91,8 +100,11 @@ const LEAVING_KEY = "connect_leaving";
  * moment cannot bring the person back when it is opened again.
  */
 let leaving: "yes" | "no" | "unknown" = "unknown";
-/** True only while the app's own renewal is asking the login tool who is signed in (see the sender). */
-let renewing = false;
+/**
+ * The mark the app's own renewal carries, while it is asking the login tool who is signed in: the
+ * very signal it was sent with. The sender lets that one request through and no other like it.
+ */
+let renewal: AbortSignal | null = null;
 
 /**
  * Finds out, from the phone's store, whether a sign-out was left unfinished. Until the store has
@@ -101,16 +113,43 @@ let renewing = false;
  */
 async function knowLeaving(): Promise<void> {
   if (leaving !== "unknown") return;
-  const kept = await SecureStore.getItemAsync(LEAVING_KEY);
+  let kept: string | null;
+  try {
+    kept = await twice(() => SecureStore.getItemAsync(LEAVING_KEY));
+  } catch (unreadable) {
+    // The note cannot be read, twice running (a phone restored from a backup can leave it so). It is taken for
+    // "a sign-out was under way": the kept sign-in is emptied, the note is written afresh, and the person signs in
+    // again. If even that cannot be done, nothing is done as anybody, and it is tried again next time.
+    if (!(await wipeKept())) throw unreachableStore(unreadable);
+    await SecureStore.setItemAsync(LEAVING_KEY, "0");
+    kept = "0";
+  }
   if (leaving === "unknown") leaving = kept === "1" ? "yes" : "no";
 }
+
+/** One more try before giving something up as unreadable: a store that is busy for a moment answers the second time. */
+async function twice<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch {
+    return read();
+  }
+}
+const unreachableStore = (cause: unknown) => new Error("The phone's secure store could not be read.", { cause });
 
 // Every request to the door carries the kept sign-in, read fresh from the secure store. If the
 // store cannot say whether a sign-out is under way, this throws, and nothing is sent (src/lib/api.ts).
 signInComesFrom(async () => {
   await knowLeaving();
   if (leaving !== "no") return null;
-  return (await authClient.getCookie()) || null;
+  try {
+    return (await twice(() => authClient.getCookie())) || null;
+  } catch (unreadable) {
+    // A kept sign-in that cannot be read is of no use to anyone, and left in place it would shut the person out of
+    // the app for good. It is emptied, and the app carries on as nobody: the person signs in again.
+    if (await wipeKept()) return null;
+    throw unreachableStore(unreadable);
+  }
 });
 
 /** Makes the phone's kept sign-in empty and looks that it is. Whatever the kit did or could not do. */
@@ -275,13 +314,14 @@ export function renewSignIn(now = false): Promise<void> {
     if (!now && Date.now() - renewedAt < 6 * HOUR) return;
     try {
       if (!(await authClient.getCookie())) return;
-      renewing = true;
-      const asked = await authClient.getSession();
+      const mine = new AbortController();
+      renewal = mine.signal;
+      const asked = await authClient.getSession({ fetchOptions: { signal: mine.signal } });
       if (!asked.error) renewedAt = Date.now();
     } catch {
       // Not reached: tried again the next time.
     } finally {
-      renewing = false;
+      renewal = null;
     }
   });
 }
@@ -312,16 +352,22 @@ export async function forgetStep(): Promise<void> {
 
 /**
  * The first half of signing out, done at once, before the screen changes: from now on the app
- * asks as nobody, and the phone remembers that a sign-out is under way.
+ * asks as nobody, and the phone remembers that a sign-out is under way. False when the phone could
+ * neither note it nor be wiped: then nobody was signed out, and the screen must say so.
  */
-export async function startLeaving(): Promise<void> {
+export async function startLeaving(): Promise<boolean> {
   leaving = "yes";
   try {
     await SecureStore.setItemAsync(LEAVING_KEY, "1");
+    return true;
   } catch {
-    // The phone could not note it. Then the kept sign-in is wiped here and now, before the screen changes, so that
-    // closing the app in the next moment cannot bring the person back. (The server is still told, in turn.)
-    await wipeKept();
+    // The phone could not note it. Then the sign-out is finished here and now, in its turn, before the screen
+    // changes: the server is told, the phone's side is wiped and looked at. Only if that worked is the person
+    // shown as signed out. If it did not, they are told so and stay as they were, rather than be shown a
+    // sign-out that closing the app could undo.
+    const clean = await inTurn(finishLeaving).catch(() => false);
+    if (!clean) leaving = "no";
+    return clean;
   }
 }
 
