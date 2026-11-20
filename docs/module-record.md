@@ -4159,6 +4159,45 @@ unchanged. On the Android test phone, with pictures, as a host and as a customer
 **What cannot be tried here.** The iPhone (one measure, where the page ends above the bar at
 the bottom, is to be looked at on a real iPhone in part 20).
 
+## The phone apps, part 05: search, a host's page, following (plan 45, 20 November 2026)
+
+**What this is.** A customer finds a host and reads her page: photo, name, what she says about
+herself, her confirmed social accounts, her languages, her rating, her price, her cancellation
+rule, her open times in the phone's own time zone, whether she is available now, and what a
+member or an invited person sees. They can follow her. As on the website, all of it can be
+looked at without an account. Her project box and diary are left out.
+
+**What was built.**
+- *One gathering for both.* What a host's page is made of for whoever is looking is now put
+  together in `src/lib/profiles/host-page.ts`, and the website's page and the app's address
+  both call it. The page's own sentences are in one place.
+- *The app's addresses:* the search, a host's page, follow, unfollow, and the choices about
+  emails (which never touch the choice about diary emails).
+- *The screens:* Search (also for someone not signed in, from "Look for a host first"), and a
+  host's page with Follow, "Share this page", the lengths and the open times.
+
+**What the building changed.** Eight things, listed in the plan. Choosing a time, "available
+now", a membership's screens, "Confirm your ID" and "Report" do not lead on yet: each is wired
+in by the part that builds it.
+
+**What the reviewers found.**
+- *The automatic security review of the saved code, and Astra:* unfollowing answered a little
+  differently for a name that exists than for one that does not, which would have told which
+  hidden hosts exist. Answered to the letter the same now.
+- *Astra, on the code:* "available now" could stay on a page long after the host had left (the
+  page is now read again every minute while in front, and the words are taken away when they
+  are older than a minute and a half); with memberships switched off for the apps a member
+  could still open a hidden host's page. All taken.
+
+**How it was checked.** `scripts/app-hosts-check.ts`, 73 checks. The website's `follow-check`
+(90), `suggestions-check` (110), `journey-check` (51) and `home-check` (110) pass unchanged.
+On the Android test phone, with pictures: a search, a host's page signed in and as a guest,
+Follow and Unfollow, another length, "Available now".
+
+**Not tried here:** `verified-check`, `photo-check` and `membership-journey-check` (they need
+Stripe set up for the test host, or the shared server). A member whose month can be booked from
+(part 13 checks that).
+
 ## The agreements in the app, and proof of who accepted what (plan 46, part 1, 20 November 2026)
 
 **Why.** The founder: "build the 14 changes so the agreements can go live. do what you think is
@@ -4275,4 +4314,3 @@ the clock instead.
 
 **After this merges, every open branch needs `npm run seed` once**: the seeded test accounts hold
 the old stamp, and the app would send them to the last step of sign-up.
-

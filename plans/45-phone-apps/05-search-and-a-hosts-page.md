@@ -1,7 +1,9 @@
 # Phone apps, part 05: search, a host's page, following
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
+the end) and the code (the list is before it). What the building changed or added is under "What the building changed"; where that
+list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
 
@@ -82,7 +84,74 @@ host's page can be looked at without an account.
 The page shows a price and leads to booking a one-to-one call. Memberships are behind their
 switch. No project box, no "contribute", no tip, and the share link is a profile.
 
-## Astra's check (20 November 2026): "ready with changes", worked in
+## What the building changed (20 November 2026)
+
+1. **The putting-together of a host's page now lives in `src/lib/profiles/host-page.ts`,** and
+   the website's page and the app's address both call it. The website's page asks for the
+   project box; the app's address never does, and then nothing of a project is read. The page's
+   own sentences that both show (the price, the cancellation wording, "is not taking calls",
+   the lengths with their prices, the membership lines) are in one place each.
+2. **No account's number leaves the server.** The website's page hands the host's number to
+   its Follow button; the app follows and unfollows by the page's name instead. Unfollowing a
+   name that does not exist is answered exactly like one that does.
+3. **The choices about emails have their address here** (decision 4), and it never touches the
+   diary choice. **Their screen**, the list of followed hosts with its ticks and hours, is part
+   17's, as on the website, where they are on the list and not on a host's page.
+4. **Someone not signed in** gets "Look for a host first" on the first screen: the search, and
+   from it any host's page, without an account.
+5. **Memberships on the page follow the apps' switch** (decision 5): off, nothing about a
+   membership is sent; "use only", a member's time and times are sent, an invitation is not
+   (accepting one takes a monthly payment).
+6. **What does not lead on yet,** each wired in by the part that builds it: choosing a time
+   (part 06), "available now" (part 11), a membership's screens (part 13), "Confirm your ID"
+   (part 14b), "Report" (part 09). The times are shown to read. "Share this page" works.
+7. **On the home page, a followed host and a suggested host now lead to her page,** and
+   opening a suggested host's page is told to the server, as on the website.
+8. **Screens opened from another have a "Back" at the top.**
+
+**Not tried here:** `verified-check` (it needs the test host to have payouts set up with
+Stripe, which the checking database does not have), `photo-check` and
+`membership-journey-check` (they talk to the shared server). `follow-check`,
+`suggestions-check`, `journey-check` and `home-check` ran against the checking database
+and pass.
+
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+It found the website's page unchanged by the move, the search the same as the website's, and
+nothing of a project, no account's number and no way of paying in any answer. Two points it
+called "must", four smaller ones; all taken.
+
+1. *Two answers told whether a host's name exists, hidden hosts too:* unfollowing, and saving
+   the email choices. (The automatic security review of the saved code found the first as
+   well.) Both are now answered to the letter the same whether or not there is such a host.
+2. *"Available now" could stay on a host's page long after she had left:* the page was read
+   once and never again. While it is in front it is now read again every minute and on coming
+   back to the app, and the server says for how long "available now" may be believed (a
+   minute and a half); past that the words are taken away until the server says so again.
+3. *One host's page could stay on the screen while another's was loading in its place.* Each
+   host has a screen of her own.
+4. *With memberships switched off for the apps, a member could still open a hidden host's
+   page; and with "use only", a month whose money is only held still showed times to book,*
+   though the first booking of such a month takes the payment. Off: nobody is a member there.
+   Use only: such a month shows no times.
+5. *Several checks proved less than their labels said.* Rewritten; the switches for the apps
+   and a confirmed social account are now in the check.
+6. *On the night the clocks go back, two different times of a day read the same.* Each is then
+   written with its time zone.
+
+**Still not in the check:** a member whose month can be booked from (making such a month needs
+Stripe). Part 13 builds memberships in the app and checks it there.
+
+## Astra's second look at the code (20 November 2026): "ready with changes"
+
+Nothing it calls a "must" is left: the answers no longer tell which names exist, and a page
+left open no longer says "available now" for hours. Four small points, all taken: the words
+"available now" go at the very moment they may no longer be believed (not up to a minute
+later), and the heading under them changes with them; a "not found" counts even from a reading
+that a newer one overtook; with memberships switched off for the apps, nothing of a membership
+is read at all; a photo is off the screen at the latest a quarter of a minute after its end.
+
+## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *"A hidden, unapproved or closed host is not found" was wrong:* members and invited people
    can open more, and a blocked pair can still open a page. "What is there today", decision 1.

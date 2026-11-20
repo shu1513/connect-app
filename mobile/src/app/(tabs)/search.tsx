@@ -1,10 +1,6 @@
-import { Page, Words } from "@/ui/pieces";
+import { Search } from "@/hosts/search";
 
-/** Search (plans/45-phone-apps/05-search-and-a-hosts-page.md). An empty page for now: its part of the plan fills it. */
+/** Search (plans/45-phone-apps/05-search-and-a-hosts-page.md): finding a host. */
 export default function SearchPlace() {
-  return (
-    <Page title="Search">
-      <Words soft>Finding a host will be here.</Words>
-    </Page>
-  );
+  return <Search />;
 }
