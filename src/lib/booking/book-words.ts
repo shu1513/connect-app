@@ -19,6 +19,17 @@ const CANCEL_RULE: Record<number, string> = {
   1440: "You can cancel for free until 24 hours before the call starts. After that, cancelling costs the full booked price.",
 };
 
+/**
+ * What is being asked for, said on the phone app's summary in the words the app stores' rules
+ * turn on (plans/45-phone-apps/06-asking-for-a-call.md, "Keeping the 4.9%"): a live call between
+ * two people that nobody records (the terms forbid recording, and Connect records none). The
+ * cancelling rule beside it is the one that holds for this call: a free call can always be
+ * cancelled for free, whatever rule the host has set for her paid ones.
+ */
+export function whatIsAskedFor(paid: boolean, freeCancelMinutes: number): string {
+  return `A live, private one-to-one video call. It is not recorded. ${CANCEL_RULE[paid ? freeCancelMinutes : 0] ?? ""}`.trim();
+}
+
 export const BOOK_WORDS = {
   gone: "That time is no longer open",
   chooseAnother: "Choose another time",

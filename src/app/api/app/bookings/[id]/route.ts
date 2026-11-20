@@ -1,5 +1,6 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { bookingPageFor } from "@/lib/app-door/booking";
+import { switchesForApps } from "@/lib/app-door/start";
 
 /**
  * One request for a call, for the customer who made it
@@ -11,6 +12,6 @@ export async function GET(request: Request, ctx: RouteContext<"/api/app/bookings
   const asked = await appRequest(request, "member");
   if (asked instanceof Response) return asked;
   const { id } = await ctx.params;
-  const page = await bookingPageFor(asked.person!, id, new Date());
+  const page = await bookingPageFor(asked.person!, id, switchesForApps(asked.switches), new Date());
   return page ? answer(page) : refuse("not_found");
 }

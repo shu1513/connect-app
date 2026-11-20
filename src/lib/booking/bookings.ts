@@ -20,7 +20,7 @@ import { identityState } from "@/lib/safety/identity";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
-import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, PASSED_OVER, payCutoff, readLengths, takenUntil } from "./rules";
+import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, cardStepOpen, earliestStartFor, isUuid, LIMITS, PASSED_OVER, payCutoff, readLengths, takenUntil } from "./rules";
 import { stretchesFor, isOpenStart, openStarts, withOwnBreak, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -455,6 +455,15 @@ export async function askForCall(input: {
       const endsAt = new Date(input.startsAt.getTime() + input.lengthMinutes * 60_000);
       const taken = (await busyOf(tx, customer.id, input.startsAt)).some((b) => b.start < takenUntil(endsAt) && b.end > input.startsAt);
       if (taken) throw new BookingError(TAKEN_THEN);
+      if (paid) {
+        // A paid request stands at the card step until its card is saved: it takes nobody's time and is not a sent
+        // request, so none of the limits above counts it. These two do, whether or not a card is ever saved.
+        const drafts = and(eq(schema.bookings.customerId, customer.id), eq(schema.bookings.source, "customer"), gt(schema.bookings.totalCents, 0));
+        const [{ open }] = await tx.select({ open: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, eq(schema.bookings.stage, "card")));
+        if (open >= LIMITS.cardStepsOpen) throw new BookingError("You have several requests waiting for their card. Finish one of them first, or wait until they have ended.");
+        const [{ today }] = await tx.select({ today: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, gt(schema.bookings.createdAt, new Date(now.getTime() - DAY))));
+        if (today >= LIMITS.cardStepsPerDay) throw new BookingError("You have started a lot of requests today. Please try again tomorrow.");
+      }
       const [draft] = await tx
         .insert(schema.bookings)
         .values({
@@ -596,9 +605,11 @@ async function cardStepFor(found: Booking, customer: Person): Promise<{ booking:
  * answer then), it is made now. Null for anything that is not this person's own request at its
  * card step. Nothing is held or charged by this, and nothing about the request changes.
  */
-export async function cardStepOf(input: { bookingId: string; customer: Person }): Promise<{ booking: Booking; clientSecret: string } | null> {
+export async function cardStepOf(input: { bookingId: string; customer: Person; now: Date }): Promise<{ booking: Booking; clientSecret: string } | null> {
   const found = await bookingFor(input.bookingId, input.customer.id);
   if (!found || found.role !== "customer" || found.booking.stage !== "card") return null;
+  // Past its time the request is over, also in the moments before the helper has written that down.
+  if (!cardStepOpen(found.booking.createdAt, input.now)) return null;
   const step = await cardStepFor(found.booking, input.customer);
   return step.clientSecret ? { booking: step.booking, clientSecret: step.clientSecret } : null;
 }
@@ -634,6 +645,9 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
           .returning()
           .then((rows) => rows[0]);
       if (!mine) return end("that card is saved for a membership, so it cannot be used for a booking; please ask again with another card");
+      // The card step lasts as long as the customer was told, and no longer: past it the request ends here, in the
+      // helper's own words, whether or not the helper has been by. (The card is kept on the row so the helper removes it.)
+      if (!cardStepOpen(booking.createdAt, input.now)) return end("the card was not entered in time");
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
       // The deadlines come from the terms fixed on this request, so the time is checked against those
@@ -954,12 +968,23 @@ export async function endUnfinishedCardSteps(now: Date): Promise<number> {
 
 /** A booking, for one of its two people (or null). */
 export async function bookingFor(bookingId: string, userId: string): Promise<{ booking: Booking; role: "host" | "customer" } | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(bookingId)) return null;
+  // Only an id as the database makes them is ever asked for: anything else is nobody's booking.
+  if (!isUuid(bookingId)) return null;
   const [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId));
   if (!booking) return null;
   if (booking.hostId === userId) return { booking, role: "host" };
   if (booking.customerId === userId) return { booking, role: "customer" };
   return null;
+}
+
+/**
+ * The request this customer made with this once-only key, if there is one: so that a request whose
+ * answer was lost on the way is found again as it was made, whatever has changed since.
+ */
+export async function requestWithKey(customerId: string, requestKey: string): Promise<Booking | null> {
+  if (!isUuid(requestKey)) return null;
+  const [booking] = await db.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
+  return booking ?? null;
 }
 
 /** The requests a host has to answer, soonest call first, so requests for the same time sit together. */

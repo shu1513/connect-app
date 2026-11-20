@@ -1,7 +1,7 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { bookSummaryFor } from "@/lib/app-door/booking";
 import type { AppBookSent } from "@/lib/app-door/types";
-import { askForCall, BookingError } from "@/lib/booking/bookings";
+import { askForCall, BookingError, requestWithKey } from "@/lib/booking/bookings";
 import { publicProfile } from "@/lib/profiles/profiles";
 
 /**
@@ -39,6 +39,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
   if (given.note !== undefined && typeof given.note !== "string") return refuse("not_valid");
   if (given.cardTerms !== undefined && typeof given.cardTerms !== "boolean") return refuse("not_valid");
 
+  // A request this person already made with this key is answered as it was made, before anything is looked at
+    // as it stands now: the answer to the first sending may have been lost on the way, and since then the host may
+    // have changed her price, or hidden her page. The app then opens that request, which shows its own terms.
+  const again = await requestWithKey(me.id, given.requestKey);
+  if (again) {
+    const body: AppBookSent = { id: again.id };
+    return answer(body);
+  }
   const profile = await publicProfile(handle);
   if (!profile) return refuse("not_found");
   try {

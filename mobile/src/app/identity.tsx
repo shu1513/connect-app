@@ -6,10 +6,11 @@ import type { AppIdentity, AppIdentityStart } from "../../../src/lib/app-door/ty
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
 import { isIdentity, isStripeCheckPage } from "@/lib/book-rules";
+import { useHere } from "@/lib/here";
 import { useOpening } from "@/lib/opening";
 import { BackLink, Button, Loading, Notice, Page, Problem, Title, Words } from "@/ui/pieces";
 
-/** How often the app asks again while Stripe is still looking at a check. */
+/** How long the app waits, after one answer has come, before it asks again while Stripe is still looking at a check. */
 const PENDING_SECONDS = 5;
 
 /**
@@ -21,53 +22,77 @@ const PENDING_SECONDS = 5;
  */
 export default function IdentityScreen() {
   const { refresh: askOpening } = useOpening();
+  const here = useHere();
   const [state, setState] = useState<AppIdentity | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [pulling, setPulling] = useState(false);
-  const newest = useRef(0);
+  /** The question that is on its way, if one is: there is never a second one beside it. */
+  const flight = useRef<Promise<void> | null>(null);
   const busy = useRef(false);
   const pending = state?.pending === true && !state.passed;
 
-  const load = useCallback(async () => {
-    const mine = ++newest.current;
-    const answer = await ask<AppIdentity>("/api/app/identity");
-    if (mine !== newest.current) return;
-    if (answer.ok && isIdentity(answer.data)) {
-      setState(answer.data);
-      setProblem(null);
-    } else if (!answer.ok && answer.code !== "unreachable") {
-      setState(null);
-      setProblem(answer.message);
-      void askOpening();
-    } else {
-      setProblem(answer.ok ? UNREACHABLE : answer.message);
-    }
+  /** Asks where the check stands. While one question is on its way, asking again waits for that same answer. */
+  const load = useCallback((): Promise<void> => {
+    if (flight.current) return flight.current;
+    const run = (async () => {
+      const answer = await ask<AppIdentity>("/api/app/identity");
+      if (answer.ok && isIdentity(answer.data)) {
+        setState(answer.data);
+        setProblem(null);
+      } else if (!answer.ok && answer.code !== "unreachable") {
+        setState(null);
+        setProblem(answer.message);
+        void askOpening();
+      } else {
+        setProblem(answer.ok ? UNREACHABLE : answer.message);
+      }
+    })().finally(() => {
+      flight.current = null;
+    });
+    flight.current = run;
+    return run;
   }, [askOpening]);
 
+  /** Asks afresh: an answer that was already on its way may be older than what was just done. */
+  const loadFresh = useCallback(async () => {
+    if (flight.current) await flight.current.catch(() => {});
+    await load();
+  }, [load]);
+
   // While the screen is in front: now, on coming back to the app (the browser sheet was closed, or the link on
-  // Connect's page was pressed), and every few seconds while Stripe is still looking.
+  // Connect's page was pressed), and, while Stripe is still looking, again a few seconds after each answer.
   useFocusEffect(
     useCallback(() => {
+      let over = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
       void load();
       const listener = AppState.addEventListener("change", (now) => {
         if (now !== "active") return;
         // Back in the app: an iPhone's browser sheet is closed if it is still up (Android's closes with its own button).
         if (Platform.OS === "ios") void Promise.resolve(WebBrowser.dismissBrowser()).catch(() => {});
-        void load();
+        void loadFresh();
       });
-      const timer = pending ? setInterval(() => (AppState.currentState === "active" ? void load() : undefined), PENDING_SECONDS * 1000) : null;
-      return () => {
-        listener.remove();
-        if (timer) clearInterval(timer);
+      // One question after the other: the next is asked only once the one before has been answered.
+      const again = () => {
+        timer = setTimeout(async () => {
+          if (AppState.currentState === "active") await load().catch(() => {});
+          if (!over) again();
+        }, PENDING_SECONDS * 1000);
       };
-    }, [load, pending]),
+      if (pending) again();
+      return () => {
+        over = true;
+        listener.remove();
+        if (timer) clearTimeout(timer);
+      };
+    }, [load, loadFresh, pending]),
   );
 
   async function pull() {
     setPulling(true);
-    await load();
+    await loadFresh();
     setPulling(false);
   }
 
@@ -79,8 +104,10 @@ export default function IdentityScreen() {
     setSaid(null);
     const answer = await ask<AppIdentityStart>("/api/app/identity/start", { body: {} });
     if (answer.ok && isStripeCheckPage(answer.data.url)) {
-      // Only Stripe's own page is ever opened here, whatever the answer says.
-      await WebBrowser.openBrowserAsync(answer.data.url).catch(() => setSaid("The page for the check could not be opened on this phone. Please try again."));
+      // Only Stripe's own page is ever opened here, whatever the answer says. And only on the screen it was asked
+      // from, for the person who asked: an answer that comes after they have left this screen, or after somebody
+      // else has signed in, opens nothing (the check it started stays theirs, and can be started again).
+      if (here()) await WebBrowser.openBrowserAsync(answer.data.url).catch(() => setSaid("The page for the check could not be opened on this phone. Please try again."));
     } else if (!answer.ok && (answer.code === "not_valid" || answer.code === "paused" || answer.code === "unreachable")) {
       setSaid(answer.message);
     } else if (!answer.ok) {
@@ -89,7 +116,7 @@ export default function IdentityScreen() {
     } else {
       setSaid(UNREACHABLE);
     }
-    await load();
+    await loadFresh();
     busy.current = false;
     setStarting(false);
   }

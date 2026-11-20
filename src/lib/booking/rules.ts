@@ -60,6 +60,13 @@ export const LIMITS = {
   noteMax: 300,
   /** How long a customer has to enter their card before an unfinished request is dropped. */
   cardStepMinutes: 30,
+  /**
+   * Paid requests a customer may have standing at the card step at one time, and may start in 24 hours
+   * (sent or not). A request at the card step takes nobody's time and is not counted by the limits above,
+   * and each one makes a saved-card step at Stripe: without these, they could be made without end.
+   */
+  cardStepsOpen: 5,
+  cardStepsPerDay: 20,
 } as const;
 
 /**
@@ -86,6 +93,16 @@ export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b", "2026-11-
  */
 /** Under those wordings the card is removed this long after the call's end, when nothing more can be asked of it. */
 export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
+
+/** Whether a paid request made at this moment may still have its card entered, or be sent on: the card step lasts this long and no longer. */
+export function cardStepOpen(createdAt: Date, now: Date): boolean {
+  return createdAt.getTime() > now.getTime() - LIMITS.cardStepMinutes * 60_000;
+}
+
+/** Whether a text is an id as the database makes them. Anything else names nothing, and is never asked of the database. */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
 
 type Terms = { startsAt: Date; paid: boolean; freeCancelMinutes: number };
 

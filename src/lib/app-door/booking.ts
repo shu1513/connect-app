@@ -10,13 +10,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { gatherBookPage } from "@/lib/booking/book-page";
-import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST } from "@/lib/booking/book-words";
+import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST, whatIsAskedFor } from "@/lib/booking/book-words";
 import { gatherRequest } from "@/lib/booking/request-page";
 import { cardDeadlineWords, endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
-import { LIMITS } from "@/lib/booking/rules";
-import { callWords } from "@/lib/profiles/host-page-words";
+import { cardStepOpen, LIMITS } from "@/lib/booking/rules";
 import { publicProfile } from "@/lib/profiles/profiles";
-import type { AppBooking, AppBookSummary } from "./types";
+import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
 
 /** How often the app asks again about a request that waits for the host's answer, or for a month's payment. */
 const WAITING_REFRESH_SECONDS = 20;
@@ -41,7 +40,7 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
     minutes: page.minutes,
     hostTime: BOOK_WORDS.hostTime(name, page.hostZoneTime),
     price: BOOK_WORDS.price(page.totalCents, offer.pricePer15Cents),
-    what: callWords(offer.freeCancelMinutes),
+    what: whatIsAskedFor(page.paid, offer.freeCancelMinutes),
     pointsTitle: BOOK_WORDS.pointsTitle(name),
     points: bookPoints({ hostName: name, totalCents: page.totalCents, freeCancelMinutes: offer.freeCancelMinutes, answerBy: page.answerBy, payBy: page.payBy, hostToo: page.hostToo }),
     note: { label: BOOK_WORDS.note(name), max: LIMITS.noteMax },
@@ -54,23 +53,31 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
   };
 }
 
+/** Whether the card of this request may be entered from the app, as the founder's switches stand. */
+export function mayEnterCard(booking: { source: string }, switches: AppSwitches): boolean {
+  return booking.source !== "now" || switches.availableNow;
+}
+
 /**
  * One request, for the customer who made it; null for anyone else. (A host's side of a request
  * is not answered here yet: it comes with the screens on which she answers one.)
  */
-export async function bookingPageFor(person: { id: string }, bookingId: string, now: Date, notice: string | null = null): Promise<AppBooking | null> {
+export async function bookingPageFor(person: { id: string }, bookingId: string, switches: AppSwitches, now: Date, notice: string | null = null): Promise<AppBooking | null> {
   const found = await gatherRequest(person.id, bookingId, now);
   if (!found || found.role !== "customer") return null;
   const { booking, role, paid } = found;
   const waiting = booking.stage === "waiting";
-  const atCard = booking.stage === "card";
+  // The card can be entered from the app while the card step is open, and, for a call asked for "now" (begun on the
+  // website), only while "available now" is switched on for the apps. The request itself can always be read.
+  const atCard = booking.stage === "card" && cardStepOpen(booking.createdAt, now) && mayEnterCard(booking, switches);
   return {
     id: booking.id,
     title: requestTitle(booking, role, found.otherName),
     hostHandle: found.hostHandle,
     stage: booking.stage,
     stageWords: stageWords(booking, role),
-    reason: endedWords(booking, role),
+    // Past the card step's time, in the moments before the helper has ended the request: said as it is.
+    reason: booking.stage === "card" && !cardStepOpen(booking.createdAt, now) ? REQUEST_WORDS.cardTooLate : endedWords(booking, role),
     startsAt: booking.startsAt.toISOString(),
     minutes: booking.lengthMinutes,
     price: requestPrice(booking),
@@ -88,7 +95,9 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
       : null,
     waitingWords: waiting ? REQUEST_WORDS.waiting(paid) : null,
     takeBack: waiting ? REQUEST_WORDS.takeBack : null,
-    call: booking.callId ? { id: booking.callId, words: REQUEST_WORDS.callPageAlso(booking).trim() } : null,
+    takeBackSure: waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
+    // What else the call's own page is for is said once the app has that page (part 08).
+    call: booking.callId ? { id: booking.callId } : null,
     refreshSeconds: waiting || booking.stage === "paying" ? WAITING_REFRESH_SECONDS : null,
     notice,
   };

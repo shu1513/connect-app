@@ -1,8 +1,10 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
-import { bookingPageFor } from "@/lib/app-door/booking";
+import { bookingPageFor, mayEnterCard } from "@/lib/app-door/booking";
+import { switchesForApps } from "@/lib/app-door/start";
 import type { AppCardStep } from "@/lib/app-door/types";
 import { bookingFor, BookingError, cardStepOf, finishCardStep, takeBack } from "@/lib/booking/bookings";
 import { REQUEST_WORDS } from "@/lib/booking/request-words";
+import { cardStepOpen } from "@/lib/booking/rules";
 import { stripePublishableKey } from "@/lib/payments/stripe";
 
 /**
@@ -33,11 +35,17 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
   // Somebody else's request, a host's side of one, and one that does not exist: the same "not found".
   const found = await bookingFor(id, me.id);
   if (!found || found.role !== "customer") return refuse("not_found");
+  const switches = switchesForApps(asked.switches);
+  // A call asked for "now" (begun on the website) is not sent on from the app while "available now" is switched
+  // off for the apps. Reading the request, and taking it back, stay possible.
+  if (step !== "take-back" && found.booking.stage === "card" && !mayEnterCard(found.booking, switches)) return refuse("switched_off");
 
   if (step === "card") {
     try {
-      const card = await cardStepOf({ bookingId: id, customer: me });
-      if (!card) return refuse("not_valid", "This request does not need a card any more.");
+      const card = await cardStepOf({ bookingId: id, customer: me, now });
+      // Past its time the request is over, also before the helper has written that down. (Saying "the card is
+      // saved" then ends it, and the request's page says why.)
+      if (!card) return refuse("not_valid", found.booking.stage === "card" && !cardStepOpen(found.booking.createdAt, now) ? REQUEST_WORDS.cardTooLate : REQUEST_WORDS.cardNotNeeded);
       const body: AppCardStep = { clientSecret: card.clientSecret, publishableKey: stripePublishableKey(), merchant: "Connect" };
       return answer(body);
     } catch (error) {
@@ -53,7 +61,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
       if (!(error instanceof BookingError)) console.error("[bookings] could not finish the card step for the app", error);
       return refuse("not_valid", error instanceof BookingError ? error.message : "Could not check your card. Please try again.");
     }
-    const page = await bookingPageFor(me, id, now);
+    const page = await bookingPageFor(me, id, switches, now);
     return page ? answer(page) : refuse("not_found");
   }
 
@@ -63,6 +71,6 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
     if (!(error instanceof BookingError)) console.error("[bookings] could not take a request back for the app", error);
     return refuse("not_valid", error instanceof BookingError ? error.message : "Something went wrong. Nothing was changed. Please try again.");
   }
-  const page = await bookingPageFor(me, id, now, REQUEST_WORDS.takenBack);
+  const page = await bookingPageFor(me, id, switches, now, REQUEST_WORDS.takenBack);
   return page ? answer(page) : refuse("not_found");
 }

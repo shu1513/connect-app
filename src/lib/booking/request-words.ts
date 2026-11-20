@@ -90,6 +90,12 @@ export const REQUEST_WORDS = {
   /** Under a request that waits for the host's answer. */
   waiting: (paid: boolean) => `This is a request, not a reservation. Other people may ask for the same time, and the host chooses.${paid ? " Nothing is held on your card unless you are accepted." : ""}`,
   takeBack: "Take this request back",
+  /** The phone app asks once more before taking a request back. */
+  takeBackSure: "The host will no longer be able to accept it. This cannot be undone.",
+  takeBackYes: "Take it back",
+  takeBackNo: "Keep it",
+  cardTooLate: "The time to enter a card for this request has passed. Nothing was sent.",
+  cardNotNeeded: "This request does not need a card any more.",
   takenBack: "Your request was taken back. Nothing was held or charged.",
   callPage: "Open the call's page",
   /** What else the call's page is for, said beside its link to the customer of an accepted call; an empty string when nothing is. */

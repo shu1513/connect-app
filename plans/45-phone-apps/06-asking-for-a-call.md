@@ -144,7 +144,7 @@ call. The screen says what is being bought in those words. The ID check is not a
 
 ### How it was tried
 
-- `scripts/app-booking-check.ts`, 101 checks, with real test cards at Stripe (test mode): the
+- `scripts/app-booking-check.ts`, 116 checks, with real test cards at Stripe (test mode): the
   summary in the website's own sentences (and the website's page for the same time saying the
   same); a request from the app is the same row, deadlines and email as one made by the
   website's own function; sent twice it is one; every refusal; the card step, where only
@@ -153,6 +153,10 @@ call. The screen says what is being bought in those words. The ID check is not a
   return page for a browser that never signed in.
 - The earlier checks of the app's addresses (parts 01 to 05) pass unchanged: 119, 75, 73.
   The website's own unit tests pass (753).
+- The website's own checks the plan names pass on the scratch database, after the changes to
+  the booking functions: `booking-check` (144), `verified-check` (30), `payments-check` (77),
+  `safety-check` (60). (For this the scratch database's test host was pointed at the same
+  Stripe test account the test host has on the shared database.)
 - On the Android test phone, with pictures: a visitor picks a time, signs in, and is back on
   the host's page; the summary of a paid call; pressing on without the tick (nothing sent);
   Stripe's sheet closed without a card; a refused card; a card that needs the bank's approval,
@@ -170,9 +174,6 @@ call. The screen says what is being bought in those words. The ID check is not a
   shows what the server says. (The result itself was pretended in the database.)
 - On this Mac nobody passes the ID check for real: reading "18 or older" from Stripe needs the
   separate key `STRIPE_IDENTITY_KEY`, which is not set here. This is the website's own rule.
-- `booking-check`, `payments-check`, `verified-check` and `safety-check` need a test host
-  with payouts set up at Stripe, which the scratch database does not have. The booking
-  functions themselves were not changed (one small function was added).
 - The iPhone: the link that hands back from a bank's approval must be passed on to Stripe's
   kit there (written, cannot be run on this Mac). For part 20.
 
@@ -181,8 +182,62 @@ call. The screen says what is being bought in those words. The ID check is not a
 - **Every start of an ID check uses one of the three tries,** also when the person closes
   Stripe's page without finishing. This is the website's rule too. On a phone the page is
   closed more easily. Not changed here.
+- **Two new limits, the builder's numbers, on the website too:** a customer can have at most
+  5 paid requests standing at the card step at one time, and can start at most 20 paid
+  requests in 24 hours (sent or not). Before, these were not limited at all. Say if you want
+  other numbers (`cardStepsOpen` and `cardStepsPerDay` in `src/lib/booking/rules.ts`).
 
-## Astra's check (20 November 2026): "not ready", now worked in
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+It found the website's two moved pages unchanged in wording and behaviour, the card secret
+only ever handed to the request's own customer, and nothing sent on a mere say-so of the app.
+Its thirteen points, all taken:
+
+1. *A tick could outlive a change of price.* The tick now belongs to exactly what was on the
+   screen when it was given (the box's words, the price, the cancelling rule, the time, the
+   length). When any of them changes, the box is empty again. Tried on the phone.
+2. *An answer arriving late could act for somebody who had left.* Before the app opens the
+   browser, shows the card sheet, or moves to another screen, it checks that the screen that
+   asked is still there and in front (`mobile/src/lib/here.ts`). After another person signs in
+   every screen is made anew, so nothing of the first person's is acted on.
+3. *Paid requests at the card step were not counted by any limit,* on the website either, and
+   each one makes a saved-card step at Stripe. New limits in the booking function itself, for
+   both: at most 5 standing at the card step at one time, and 20 started in 24 hours.
+4. *An older reading could put back what a step had changed* (the number of a question was
+   taken after its answer came). Each question now takes its number before it is sent, and a
+   step takes one as it begins.
+5. *A request whose answer was lost could come back on other terms.* The app now sends the
+   very same request again while it does not know what became of the first. The server first
+   looks for a request this person already made with that key and answers with it as it was
+   made, before it looks at the host's page as it stands now (she may have hidden it since).
+6. *The check script.* It now refuses anything but Stripe's test key before it makes anything,
+   prints no secret and no address of Stripe's, and removes the test customers it made there.
+7. *A call asked for "now" (begun on the website) could have its card entered from the app
+   while "available now" is switched off for the apps.* Its page can still be read and it can
+   be taken back, but there is no card step, and both card addresses answer "switched off".
+8. *The 30 minutes for the card were shown but not enforced until the helper came by.* Now
+   enforced where it counts: no card step is handed out past the time, and a card saved after
+   it sends nothing (the request ends in the helper's own words; the helper removes the card).
+   This is in the website's function too.
+9. *A sentence about the card could stand under a request that had moved on.* What the app
+   says about a step now belongs to the stage it was said at, and is shown only while the
+   request is at that stage. After a card answer that brought no page, the page is read again.
+10. *The ID screen could ask again before the last answer was in, and two readings at Stripe
+    could cross.* The screen asks one question at a time, the next a few seconds after the
+    last answer. On the server, a check written down as passed is never written over by an
+    older reading (the website's function).
+11. *Thirty-six characters that only looked like an id reached the database* and came back as
+    an error. Only a real id is ever asked for now, on the server and in the app, and an id
+    written in capitals opens the same request.
+12. *A free call's summary named the host's rule for paid calls beside "cancel any time".* It
+    now names the rule that holds for this call. It also says what is asked for in the words
+    the stores' rules turn on: "A live, private one-to-one video call. It is not recorded."
+13. *Two sentences promised too much.* Before taking a request back the app now says "The
+    host will no longer be able to accept it" (she can still see that it was asked and taken
+    back). The line about paying by hand or cancelling on the call's page is left out until
+    the app has that page.
+
+## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *The consent was put too late and the card's lifetime was wrong.* The box is ticked before
    sending, and the card stays through the call for more time. Decision 2, "What is there".

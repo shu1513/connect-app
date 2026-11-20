@@ -4,7 +4,8 @@ import { StyleSheet, Text, View } from "react-native";
 import type { AppBookSent, AppBookSummary } from "../../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
-import { chosenTime, isBookSummary, isId } from "@/lib/book-rules";
+import { chosenTime, isBookSummary, isId, tickedFor } from "@/lib/book-rules";
+import { useHere } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 import { BackLink, Button, Card, Field, Heading, Loading, Notice, Page, Problem, Tick, Words } from "@/ui/pieces";
@@ -35,7 +36,17 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
   const [problem, setProblem] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
   const [note, setNote] = useState("");
-  const [ticked, setTicked] = useState(false);
+  // What the box about the card was ticked for (book-rules.ts): the tick holds only while exactly that is on the screen.
+  const [agreedTo, setAgreedTo] = useState<string | null>(null);
+  const terms = tickedFor(summary);
+  const ticked = terms !== null && agreedTo === terms;
+  const here = useHere();
+  /**
+   * A request that was sent without an answer coming back: what exactly was sent. It may have arrived. Pressing
+   * again sends this very request again, not the form as it stands now, so the two can only ever be one request,
+   * on the terms the person saw when they first pressed.
+   */
+  const unsure = useRef<Record<string, unknown> | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const newest = useRef(0);
@@ -92,11 +103,16 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
     setSending(true);
     setSaid(null);
     // What the summary showed goes back as it is: the time, the length, the price and the cancelling rule. The
-    // tick is sent only as the box stands; without it the server sends nothing on.
-    const answer = await ask<AppBookSent>(path, { body: { start: ready.startsAt, length: ready.minutes, note, requestKey: key.current, ...(ready.cardTerms ? { cardTerms: ticked } : {}), seen: ready.seen } });
+    // tick is sent only as the box stands for exactly these terms; without it the server sends nothing on.
+    const body = unsure.current ?? { start: ready.startsAt, length: ready.minutes, note, requestKey: key.current, ...(ready.cardTerms ? { cardTerms: ticked } : {}), seen: ready.seen };
+    const answer = await ask<AppBookSent>(path, { body });
+    // Any answer of the server's settles what became of it.
+    if (answer.ok || answer.code !== "unreachable") unsure.current = null;
     if (answer.ok && isId(answer.data.id)) {
-      // The request's own screen takes this one's place: "back" from there leads to the host's page, not to a form already sent.
-      router.replace(`/bookings/${answer.data.id}`);
+      // The request's own screen takes this one's place: "back" from there leads to the host's page, not to a form
+      // already sent. Only if this screen is still the one in front: an answer that comes after the person has left
+      // (or somebody else has signed in) moves nothing. The request is then on the home page.
+      if (here()) router.replace(`/bookings/${answer.data.id}`);
     } else if (!answer.ok && (answer.code === "not_valid" || answer.code === "paused")) {
       // The server's own sentence. What the summary shows may have changed (the price, the time): it is read again.
       setSaid(answer.message);
@@ -105,7 +121,8 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
       setSaid(answer.message);
       void askOpening();
     } else {
-      // It may or may not have arrived. Pressing again sends the same key, so it is one request either way.
+      // It may or may not have arrived. Pressing again sends the very same request, so it is one request either way.
+      unsure.current = body;
       setSaid(answer.ok ? UNREACHABLE : answer.message);
     }
     busy.current = false;
@@ -176,7 +193,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
       </Card>
 
       <Field label={summary.note.label} value={note} onChangeText={setNote} maxLength={summary.note.max} multiline numberOfLines={3} textAlignVertical="top" />
-      {summary.cardTerms ? <Tick label={summary.cardTerms} checked={ticked} onChange={(now) => { setTicked(now); setSaid(null); }} /> : null}
+      {summary.cardTerms ? <Tick label={summary.cardTerms} checked={ticked} onChange={(now) => { setAgreedTo(now ? terms : null); setSaid(null); }} /> : null}
       {summary.idLine ? <Words soft>{summary.idLine}</Words> : null}
       {said ? <Notice>{said}</Notice> : null}
       <Button label={summary.button} busy={sending} onPress={() => void send(summary)} />

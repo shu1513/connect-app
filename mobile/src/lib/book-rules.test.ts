@@ -1,4 +1,4 @@
-import { chosenTime, isBooking, isBookSummary, isCardStep, isId, isIdentity, isStripeCheckPage, requestScreen } from "./book-rules";
+import { chosenTime, isBooking, isBookSummary, isCardStep, isId, isIdentity, isStripeCheckPage, requestScreen, sameId, tickedFor } from "./book-rules";
 
 const ID = "157202f9-5fd5-49e8-a4b7-e80af19ab4e8";
 const summary = {
@@ -32,6 +32,7 @@ const booking = {
   card: { title: "Your card", words: "Nothing is held or charged now.", button: "Save card and send request", deadline: ["Enter your card by ", { time: "2026-11-20T14:48:03.800Z" }, "."], givenUp: "a", notSaved: "b", notConfirmed: "c" },
   waitingWords: null,
   takeBack: null,
+  takeBackSure: null,
   call: null,
   refreshSeconds: null,
   notice: null,
@@ -56,18 +57,42 @@ describe("what a customer reads before asking", () => {
   });
 });
 
+describe("what a tick of the card box was given for", () => {
+  it("is the same while nothing that was agreed to changes", () => {
+    expect(tickedFor(summary as never)).not.toBeNull();
+    expect(tickedFor({ ...summary, requestKey: "257202f9-5fd5-49e8-a4b7-e80af19ab4e8", points: [] } as never)).toBe(tickedFor(summary as never));
+  });
+  it("is another as soon as the price, the cancelling rule, the words, the time or the length does", () => {
+    const was = tickedFor(summary as never);
+    expect(tickedFor({ ...summary, seen: { price: 3000, freeCancel: 60 } } as never)).not.toBe(was);
+    expect(tickedFor({ ...summary, seen: { price: 2000, freeCancel: 1440 } } as never)).not.toBe(was);
+    expect(tickedFor({ ...summary, cardTerms: "I allow Connect to hold up to $60.00…" } as never)).not.toBe(was);
+    expect(tickedFor({ ...summary, price: "$60.00 at most ($30.00 per 15 minutes)" } as never)).not.toBe(was);
+    expect(tickedFor({ ...summary, startsAt: "2026-11-22T17:00:00.000Z" } as never)).not.toBe(was);
+    expect(tickedFor({ ...summary, minutes: 15 } as never)).not.toBe(was);
+  });
+  it("is nothing for a free call, and for anything that is not a summary to send", () => {
+    expect(tickedFor({ ...summary, cardTerms: null } as never)).toBeNull();
+    expect(tickedFor({ kind: "gone", title: "That time is no longer open", button: "Choose another time" })).toBeNull();
+    expect(tickedFor(null)).toBeNull();
+  });
+});
+
 describe("a request's page", () => {
   it("takes a page at the card step and one that waits", () => {
     expect(isBooking(booking)).toBe(true);
-    expect(isBooking({ ...booking, stage: "waiting", card: null, hearBy: "2026-11-21T14:18:00.913Z", takeBack: "Take this request back", refreshSeconds: 20, waitingWords: "…" })).toBe(true);
-    expect(isBooking({ ...booking, stage: "accepted", card: null, call: { id: ID, words: "" } })).toBe(true);
+    const sure = { words: "The host will no longer be able to accept it.", yes: "Take it back", no: "Keep it" };
+    expect(isBooking({ ...booking, stage: "waiting", card: null, hearBy: "2026-11-21T14:18:00.913Z", takeBack: "Take this request back", takeBackSure: sure, refreshSeconds: 20, waitingWords: "…" })).toBe(true);
+    expect(isBooking({ ...booking, stage: "accepted", card: null, call: { id: ID } })).toBe(true);
+    // A button to take it back without the question to ask first is not taken.
+    expect(isBooking({ ...booking, stage: "waiting", card: null, takeBack: "Take this request back", takeBackSure: null })).toBe(false);
   });
   it("refuses an answer with a part missing or of the wrong kind", () => {
     expect(isBooking({ ...booking, id: "../start" })).toBe(false);
     expect(isBooking({ ...booking, card: { ...booking.card, deadline: "soon" } })).toBe(false);
     expect(isBooking({ ...booking, card: { title: "Your card" } })).toBe(false);
     expect(isBooking({ ...booking, refreshSeconds: 0 })).toBe(false);
-    expect(isBooking({ ...booking, call: { id: "x", words: "" } })).toBe(false);
+    expect(isBooking({ ...booking, call: { id: "x" } })).toBe(false);
     expect(isBooking({ ...booking, price: "$40.00" })).toBe(false);
   });
 });
@@ -114,8 +139,12 @@ describe("the only page opened for an identity check", () => {
 });
 
 describe("addresses the app makes itself", () => {
-  it("an id is only ever letters, digits and dashes", () => {
+  it("an id has exactly the shape the server gives its ids", () => {
     expect(isId(ID)).toBe(true);
+    expect(isId("------------------------------------")).toBe(false);
+    expect(isId("157202f95fd549e8a4b7e80af19ab4e8----")).toBe(false);
+    expect(sameId(ID.toUpperCase())).toBe(ID);
+    expect(sameId("soon")).toBe("");
     expect(isId("157202f9-5fd5-49e8-a4b7-e80af19ab4e8/card")).toBe(false);
     expect(isId("../../start")).toBe(false);
     expect(isId(undefined)).toBe(false);

@@ -20,9 +20,24 @@ function isPart(value: unknown): value is AppPart {
 }
 const isSentence = (value: unknown): value is AppPart[] => Array.isArray(value) && value.every(isPart);
 
-/** An id of the server's, as it may stand in an address: letters, digits and "-" only. */
+/** An id of the server's, as it may stand in an address: exactly the shape the server's database gives its ids, and nothing else. */
 export function isId(value: unknown): value is string {
-  return isText(value) && /^[0-9a-f-]{36}$/i.test(value);
+  return isText(value) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** An id as the server writes it (in small letters), or an empty text for anything that is no id. A link may carry it in capitals. */
+export function sameId(value: unknown): string {
+  return isId(value) ? value.toLowerCase() : "";
+}
+
+/**
+ * What a tick of the box about the card was given for: the box's own words, the price and the
+ * cancelling rule shown, and the time and length. A tick counts only for exactly these. When any
+ * of them changes on the screen (the host changed her price, say), the box is empty again.
+ */
+export function tickedFor(summary: AppBookSummary | null): string | null {
+  if (!summary || summary.kind !== "ok" || summary.cardTerms === null) return null;
+  return JSON.stringify([summary.cardTerms, summary.seen.price, summary.seen.freeCancel, summary.startsAt, summary.minutes, summary.price]);
 }
 
 /** Whether an answer really is what a customer reads before asking for a call, with the parts the screen reads. */
@@ -44,8 +59,12 @@ export function isBooking(data: unknown): data is AppBooking {
   if (!isThing(data) || !isId(data.id) || !isText(data.title) || !isTextOrNull(data.hostHandle) || !isText(data.stage) || !isText(data.stageWords) || !isTextOrNull(data.reason)) return false;
   if (!isMoment(data.startsAt) || !isWhole(data.minutes) || !isThing(data.price) || !isText(data.price.label) || !isText(data.price.words)) return false;
   if (!(data.hearBy === null || isMoment(data.hearBy)) || !isTextOrNull(data.waitingWords) || !isTextOrNull(data.takeBack) || !isTextOrNull(data.notice)) return false;
+  const sure = data.takeBackSure;
+  if (sure !== null && !(isThing(sure) && isText(sure.words) && isText(sure.yes) && isText(sure.no))) return false;
+  // A request that can be taken back always comes with the question to ask first.
+  if (data.takeBack !== null && sure === null) return false;
   if (!(data.refreshSeconds === null || (typeof data.refreshSeconds === "number" && data.refreshSeconds > 0))) return false;
-  if (data.call !== null && !(isThing(data.call) && isId(data.call.id) && isText(data.call.words))) return false;
+  if (data.call !== null && !(isThing(data.call) && isId(data.call.id))) return false;
   const card = data.card;
   if (card === null) return true;
   return isThing(card) && isText(card.title) && isText(card.words) && isText(card.button) && isSentence(card.deadline) && isText(card.givenUp) && isText(card.notSaved) && isText(card.notConfirmed);

@@ -4,8 +4,9 @@ import { Alert, AppState, StyleSheet, Text, View } from "react-native";
 import type { AppBooking, AppCardStep } from "../../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
 import { UNREACHABLE, type Answer } from "@/lib/api-rules";
-import { isBooking, isCardStep, isId } from "@/lib/book-rules";
+import { isBooking, isCardStep, sameId } from "@/lib/book-rules";
 import { enterCard, type CardOutcome } from "@/lib/card";
+import { useHere } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Words } from "@/ui/pieces";
@@ -24,7 +25,8 @@ import { type, useColors } from "@/ui/theme";
  */
 export default function RequestScreen() {
   const { id: given } = useLocalSearchParams<{ id?: string | string[] }>();
-  const id = isId(given) ? given : "";
+  // The id as the server writes it; a link may carry it in capitals. Anything that is no id leads to "not found".
+  const id = sameId(given);
   // A screen of its own for each request.
   return <OneRequest key={id} id={id} />;
 }
@@ -32,40 +34,54 @@ export default function RequestScreen() {
 function OneRequest({ id }: { id: string }) {
   const colors = useColors();
   const { refresh: askOpening } = useOpening();
+  const here = useHere();
   const [page, setPage] = useState<AppBooking | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
-  /** What the app has to say about what was just tried: the card sheet, taking the request back. */
-  const [said, setSaid] = useState<string | null>(null);
+  /**
+   * What the app has to say about what was just tried (the card sheet, taking the request back), with the stage
+   * the request was at. It is shown only while the request is still at that stage: "your card could not be
+   * confirmed yet" never stands under a request that has since been sent.
+   */
+  const [said, setSaid] = useState<{ words: string; stage: string | null } | null>(null);
   const [busy, setBusy] = useState<"card" | "back" | null>(null);
   const [pulling, setPulling] = useState(false);
+  /**
+   * Every question to the server gets a number when it is asked, and only the answer to the newest question is
+   * used. A step (the card, taking back) takes a number as it begins, so a reading that was still on its way can
+   * never put back what the step changed.
+   */
   const newest = useRef(0);
-  /** A step is under way (the card sheet is up, a request is being taken back): nothing else is asked meanwhile. */
+  /** A step is under way: nothing else is asked meanwhile. */
   const acting = useRef(false);
+  /** The stage the screen shows, for words that belong to it. */
+  const stage = useRef<string | null>(null);
   const path = `/api/app/bookings/${id}`;
   const refreshSeconds = page?.refreshSeconds ?? null;
 
-  /** Takes an answer that should be the request's page. Gives the page back when it was one. */
+  /** Takes an answer that should be the request's page. Gives the page back when it was one, and was the newest. */
   const settle = useCallback(
     (answer: Answer<AppBooking>, mine: number): AppBooking | null => {
       if (mine !== newest.current) return null;
       if (answer.ok && isBooking(answer.data) && answer.data.id === id) {
+        stage.current = answer.data.stage;
         setPage(answer.data);
         setProblem(null);
         setGone(false);
-        // What a step just did ("your request was taken back") is kept on the screen: the page is read again by
-        // itself, and a later reading no longer carries it.
-        if (answer.data.notice) setSaid(answer.data.notice);
+        // What a step just did ("your request was taken back") belongs to the stage it led to.
+        if (answer.data.notice) setSaid({ words: answer.data.notice, stage: answer.data.stage });
         return answer.data;
       }
       if (!answer.ok && answer.code === "not_found") {
         // No such request, or not this person's: the same answer either way, and nothing of an earlier answer stays.
+        stage.current = null;
         setPage(null);
         setGone(true);
-      } else if (!answer.ok && (answer.code === "not_valid" || answer.code === "paused")) {
+      } else if (!answer.ok && (answer.code === "not_valid" || answer.code === "paused" || answer.code === "switched_off")) {
         // A step that was refused, in the server's own sentence. The page stays as it is.
-        setSaid(answer.message);
+        setSaid({ words: answer.message, stage: stage.current });
       } else if (!answer.ok && answer.code !== "unreachable") {
+        stage.current = null;
         setPage(null);
         setGone(false);
         setProblem(answer.message);
@@ -79,6 +95,16 @@ function OneRequest({ id }: { id: string }) {
     [id, askOpening],
   );
 
+  /** One question that is answered with the request's page. The number is taken before it is sent. */
+  const asked = useCallback(
+    async (step: "" | "/card-saved" | "/take-back"): Promise<AppBooking | null> => {
+      const mine = ++newest.current;
+      const answer = await ask<AppBooking>(`${path}${step}`, step === "" ? {} : { body: {} });
+      return settle(answer, mine);
+    },
+    [path, settle],
+  );
+
   /** Reads the page. With `andCard`, a request at its card step is also asked about at Stripe, by the server. */
   const look = useCallback(
     async (andCard: boolean) => {
@@ -87,10 +113,10 @@ function OneRequest({ id }: { id: string }) {
         setGone(true);
         return;
       }
-      const got = settle(await ask<AppBooking>(path), ++newest.current);
-      if (got?.stage === "card" && andCard && !acting.current) settle(await ask<AppBooking>(`${path}/card-saved`, { body: {} }), ++newest.current);
+      const got = await asked("");
+      if (got?.card && andCard && !acting.current) await asked("/card-saved");
     },
-    [id, path, settle],
+    [id, asked],
   );
 
   // While the screen is in front: now, on coming back to the app, and, while the request can still change by
@@ -119,28 +145,36 @@ function OneRequest({ id }: { id: string }) {
   async function card(words: NonNullable<AppBooking["card"]>) {
     if (acting.current) return;
     acting.current = true;
+    // From here on, a reading that was still on its way no longer counts.
+    newest.current++;
     setBusy("card");
     setSaid(null);
     const step = await ask<AppCardStep>(`${path}/card`, { body: {} });
     let outcome: CardOutcome | null = null;
-    if (step.ok && isCardStep(step.data)) outcome = await enterCard(step.data, id, words.button);
-    // Whatever the sheet said, and also when it could not be shown: the server is asked where the request stands.
-    const after = settle(await ask<AppBooking>(`${path}/card-saved`, { body: {} }), ++newest.current);
-    if (after?.stage === "card") {
-      if (outcome === null) setSaid(step.ok ? UNREACHABLE : step.message);
-      else setSaid(outcome === "given_up" ? words.givenUp : outcome === "failed" ? words.notSaved : words.notConfirmed);
+    // The sheet is shown only on the screen it was asked for, to the person who asked: not after they have left
+    // it, and not to somebody who has signed in since.
+    if (step.ok && isCardStep(step.data) && here()) outcome = await enterCard(step.data, id, words.button);
+    // Whatever the sheet said, and also when it was not shown: the server is asked where the request stands.
+    const after = await asked("/card-saved");
+    if (after?.card) {
+      if (outcome === null) setSaid({ words: step.ok ? UNREACHABLE : step.message, stage: after.stage });
+      else setSaid({ words: outcome === "given_up" ? words.givenUp : outcome === "failed" ? words.notSaved : words.notConfirmed, stage: after.stage });
     }
-    if (!step.ok && step.code !== "not_valid" && step.code !== "unreachable" && step.code !== "paused") void askOpening();
+    if (!step.ok && step.code !== "not_valid" && step.code !== "unreachable" && step.code !== "paused" && step.code !== "switched_off") void askOpening();
     acting.current = false;
     setBusy(null);
+    // No page came back (the question was refused, or could not be asked): read it, so the screen shows where the
+    // request really stands.
+    if (!after) void look(false);
   }
 
   async function takeBack() {
     if (acting.current) return;
     acting.current = true;
+    newest.current++;
     setBusy("back");
     setSaid(null);
-    const done = settle(await ask<AppBooking>(`${path}/take-back`, { body: {} }), ++newest.current);
+    const done = await asked("/take-back");
     acting.current = false;
     setBusy(null);
     // Refused (it was answered meanwhile, say): the page is read again, so it shows where the request stands now.
@@ -158,7 +192,10 @@ function OneRequest({ id }: { id: string }) {
   }
   if (!page) return problem ? <Problem words={problem} onRetry={() => void look(true)} /> : <Loading />;
   const takeBackLabel = page.takeBack;
+  const sure = page.takeBackSure;
   const hostHandle = page.hostHandle;
+  // Only what belongs to the stage on the screen is said.
+  const saying = said && said.stage === page.stage ? said.words : null;
   return (
     <Page refreshing={pulling} onRefresh={() => void pull()}>
       <BackLink onBack={back} />
@@ -202,24 +239,24 @@ function OneRequest({ id }: { id: string }) {
           <Heading>{page.card.title}</Heading>
           <Words soft>{page.card.words}</Words>
           <Sentence parts={page.card.deadline} soft />
-          {said ? <Notice>{said}</Notice> : null}
+          {saying ? <Notice>{saying}</Notice> : null}
           <Button label={page.card.button} busy={busy === "card"} onPress={() => void card(page.card!)} />
         </Card>
-      ) : said ? (
-        <Notice>{said}</Notice>
+      ) : saying ? (
+        <Notice>{saying}</Notice>
       ) : null}
 
       {page.waitingWords ? <Words soft>{page.waitingWords}</Words> : null}
-      {takeBackLabel ? (
+      {takeBackLabel && sure ? (
         <Button
           label={takeBackLabel}
           kind="plain"
           busy={busy === "back"}
           onPress={() =>
-            // A tap by accident must not take a request back: it is asked once more.
-            Alert.alert(takeBackLabel, "The host will no longer see it. This cannot be undone.", [
-              { text: "Keep it", style: "cancel" },
-              { text: "Take it back", style: "destructive", onPress: () => void takeBack() },
+            // A tap by accident must not take a request back: it is asked once more, in the server's words.
+            Alert.alert(takeBackLabel, sure.words, [
+              { text: sure.no, style: "cancel" },
+              { text: sure.yes, style: "destructive", onPress: () => void takeBack() },
             ])
           }
         />
@@ -227,7 +264,7 @@ function OneRequest({ id }: { id: string }) {
 
       {page.call ? (
         <Card>
-          <Words>Your call is on your Calls page{page.call.words ? ` ${page.call.words}` : ""}.</Words>
+          <Words>Your call is on your Calls page.</Words>
           <Button label="Open your calls" kind="plain" onPress={() => router.push("/calls")} />
         </Card>
       ) : null}

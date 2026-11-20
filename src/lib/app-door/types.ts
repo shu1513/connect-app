@@ -350,8 +350,10 @@ export type AppBooking = {
   waitingWords: string | null;
   /** The label of the button that takes the request back; null when it cannot be taken back. */
   takeBack: string | null;
-  /** The call, once there is one, and what else its page is for. */
-  call: { id: string; words: string } | null;
+  /** What the app asks before it takes the request back: the words, and the two answers. */
+  takeBackSure: { words: string; yes: string; no: string } | null;
+  /** The call, once there is one. */
+  call: { id: string } | null;
   /** While the request can still change by itself: how often the app asks again. */
   refreshSeconds: number | null;
   /** What was just done, in the answer to a step ("Your request was taken back…"); null otherwise. */
