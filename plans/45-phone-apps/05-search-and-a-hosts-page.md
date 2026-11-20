@@ -1,7 +1,9 @@
 # Phone apps, part 05: search, a host's page, following
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
+builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
+the end). What the building changed or added is under "What the building changed"; where that
+list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
 
@@ -81,6 +83,37 @@ host's page can be looked at without an account.
 
 The page shows a price and leads to booking a one-to-one call. Memberships are behind their
 switch. No project box, no "contribute", no tip, and the share link is a profile.
+
+## What the building changed (20 November 2026)
+
+1. **The putting-together of a host's page now lives in `src/lib/profiles/host-page.ts`,** and
+   the website's page and the app's address both call it. The website's page asks for the
+   project box; the app's address never does, and then nothing of a project is read. The page's
+   own sentences that both show (the price, the cancellation wording, "is not taking calls",
+   the lengths with their prices, the membership lines) are in one place each.
+2. **No account's number leaves the server.** The website's page hands the host's number to
+   its Follow button; the app follows and unfollows by the page's name instead. Unfollowing a
+   name that does not exist is answered exactly like one that does.
+3. **The choices about emails have their address here** (decision 4), and it never touches the
+   diary choice. **Their screen**, the list of followed hosts with its ticks and hours, is part
+   17's, as on the website, where they are on the list and not on a host's page.
+4. **Someone not signed in** gets "Look for a host first" on the first screen: the search, and
+   from it any host's page, without an account.
+5. **Memberships on the page follow the apps' switch** (decision 5): off, nothing about a
+   membership is sent; "use only", a member's time and times are sent, an invitation is not
+   (accepting one takes a monthly payment).
+6. **What does not lead on yet,** each wired in by the part that builds it: choosing a time
+   (part 06), "available now" (part 11), a membership's screens (part 13), "Confirm your ID"
+   (part 14b), "Report" (part 09). The times are shown to read. "Share this page" works.
+7. **On the home page, a followed host and a suggested host now lead to her page,** and
+   opening a suggested host's page is told to the server, as on the website.
+8. **Screens opened from another have a "Back" at the top.**
+
+**Not tried here:** `verified-check` (it needs the test host to have payouts set up with
+Stripe, which the checking database does not have), `photo-check` and
+`membership-journey-check` (they talk to the shared server). `follow-check`,
+`suggestions-check`, `journey-check` and `home-check` ran against the checking database
+and pass.
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 

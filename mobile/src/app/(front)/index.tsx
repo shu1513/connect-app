@@ -2,7 +2,7 @@ import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { checkEmailStep } from "@/lib/auth";
 import { frontStart } from "@/lib/where-rules";
-import { Button, Loading, Page, Words } from "@/ui/pieces";
+import { Button, Loading, Page, TextLink, Words } from "@/ui/pieces";
 
 /**
  * The first opening (plans/45-phone-apps/03-signing-in.md): Connect's name, one line of what it
@@ -22,6 +22,8 @@ export default function FirstOpening() {
       <Words soft>Private one-to-one video calls with the people you follow.</Words>
       <Button label="Sign in" onPress={() => router.push("/sign-in")} />
       <Button label="Create account" kind="plain" onPress={() => router.push("/sign-up")} />
+      {/* As on the website, hosts can be looked for, and their pages read, without an account (part 05). */}
+      <TextLink label="Look for a host first" onPress={() => router.push("/find")} />
     </Page>
   );
 }

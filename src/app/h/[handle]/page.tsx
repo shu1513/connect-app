@@ -5,28 +5,16 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SlotPicker } from "@/components/slot-picker";
 import { FollowButton } from "@/components/follow-button";
-import { followingOf, hasBlocked } from "@/lib/follows/follows";
 import { readNotice } from "@/lib/notice";
-import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
-import { hostForMemberByHandle, membershipsOf } from "@/lib/membership/access";
-import { memberBookingView, memberOpenTimes } from "@/lib/membership/book";
 import { timeWords } from "@/lib/membership/rules";
 import { NOW } from "@/lib/booking/now-rules";
 import { firstLength, lengthWords } from "@/lib/booking/rules";
 import { formatMoney } from "@/lib/payments/access";
-import { bookedTotalCents } from "@/lib/payments/pricing";
 import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
-import { languageNames } from "@/lib/profiles/languages";
-import { photosOf } from "@/lib/profiles/photo";
-import { publicProfile } from "@/lib/profiles/profiles";
-import { contributionOf } from "@/lib/projects/ask";
-import { postsOf } from "@/lib/projects/posts";
-import { diaryFor } from "@/lib/projects/projects";
+import { gatherHostPage, hostProfileFor } from "@/lib/profiles/host-page";
+import { ASK_WORDS, askTitle, callWords, lengthChoice, membershipStateWords, notTakingWords, priceWords } from "@/lib/profiles/host-page-words";
 import { firstLines } from "@/lib/projects/rules";
-import { averageFor } from "@/lib/ratings/ratings";
-import { isBlockedEitherWay } from "@/lib/safety/block-check";
-import { identityState } from "@/lib/safety/identity";
 import { getUser } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
@@ -36,27 +24,12 @@ export const dynamic = "force-dynamic";
 
 const lengthList = `${warm.input} mt-1 block`;
 
-const CANCEL_RULE: Record<number, string> = {
-  0: "Free to cancel any time before the call starts.",
-  60: "Free to cancel until 1 hour before the call starts.",
-  720: "Free to cancel until 12 hours before the call starts.",
-  1440: "Free to cancel until 24 hours before the call starts.",
-};
-
 /**
  * The page title and the page itself share one lookup per request. A page that is hidden from the
  * public still opens for a member of this host, and for someone she has invited, and for nobody
  * else: that is asked of the membership's own access rules, and the public reader is not loosened.
  */
-const loadProfile = cache(async (handle: string) => {
-  const open = await publicProfile(handle);
-  // The host's photo is shown only on a page that is open to everyone (plans/29): a member or an invited person
-  // who can open a hidden page sees the letter.
-  if (open) return { ...open, photoId: (await photosOf([open.userId])).get(open.userId) ?? null, openToAll: true };
-  const viewer = await getUser();
-  const forMember = viewer ? await hostForMemberByHandle(viewer.id, handle) : null;
-  return forMember ? { ...forMember, socials: [], photoId: null, openToAll: false } : null;
-});
+const loadProfile = cache(async (handle: string) => hostProfileFor(await getUser(), handle));
 
 export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise<Metadata> {
   const { handle } = await props.params;
@@ -72,41 +45,11 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const profile = await loadProfile(handle);
   if (!profile) notFound();
 
-  // What can be booked. Worked out fresh on every visit; nothing here says why a time is closed.
+  // Everything the page is made of is put together in one place, shared with the phone app (src/lib/profiles/host-page.ts).
   const viewer = await getUser();
-  const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
-  const offer = blocked ? null : await offerOf(profile.userId);
   const query = await props.searchParams;
-  const { length, mlength } = query;
   const notice = readNotice(`/h/${profile.handle}`, query);
-  // The Follow button: for everyone but the host themselves and someone who has blocked this host. Whether the
-  // host has blocked the viewer plays no part, so the button never gives a block away (plans/30, decision 3).
-  // A new follow is only offered on a page that is open to everyone: that is what can be followed. Someone who
-  // already follows keeps "Following / Unfollow" on a hidden page they can still open as a member.
-  const ownFollow = viewer && viewer.id !== profile.userId && !(await hasBlocked(viewer.id, profile.userId)) ? await followingOf(viewer.id, profile.userId) : null;
-  const follow = viewer?.id === profile.userId ? null : !viewer ? (profile.openToAll ? ("visitor" as const) : null) : ownFollow === "following" || profile.openToAll ? ownFollow : null;
-  // A member of this host: their time left and the times they can book with it, beside the ordinary way.
-  const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
-  // Their own membership with this host, whatever state it is in: an invitation, the card step, a failed payment or a pause each get a line and a link.
-  const own = viewer && viewer.id !== profile.userId && !blocked ? (await membershipsOf(viewer.id)).find((membership) => membership.hostId === profile.userId && membership.status !== "ended") : undefined;
-  const invitedUntil = own?.status === "invited" && own.inviteId && own.inviteExpiresAt && own.inviteExpiresAt > new Date() ? own.inviteExpiresAt : null;
-  const memberChosen = !memberView || memberView.lengths.length === 0 ? null : typeof mlength === "string" && memberView.lengths.includes(Number(mlength)) ? Number(mlength) : firstLength(memberView.lengths);
-  const memberTimes = memberView && memberChosen ? await memberOpenTimes(memberView, memberChosen, new Date()) : [];
-  // The length the customer chose stays chosen; before any choice, the offered length closest to 30 minutes is shown.
-  const chosen = offer && typeof length === "string" && offer.lengths.includes(Number(length)) ? Number(length) : offer ? firstLength(offer.lengths) : null;
-  const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
-  const now = offer ? await instantOffer(profile.userId, new Date()) : null;
-  const rating = await averageFor(profile.userId, "host", new Date());
-  const languages = languageNames(profile.languages);
-  // Her running project, with the newest post of its diary. Asked of the diary's own rule, which is "her page is
-  // open to everyone": a member or an invited person who can open a hidden page does not see the project here.
-  const diary = await diaryFor(profile.handle);
-  const project = diary?.project.status === "running" ? diary.project : null;
-  const [latestPost] = project ? (await postsOf(project.id)).posts : [];
-  // A signed-in visitor's own line beside it: what they contribute, a card step to finish, or the way to contribute.
-  const mine = project && viewer ? await contributionOf(viewer.id, project) : null;
-  // A signed-in visitor who would be stopped at the booking page is offered the ID check here already.
-  const offerIdCheck = Boolean(offer?.verifiedOnly && viewer && viewer.id !== profile.userId && !(await identityState(viewer.id)).passed);
+  const { offer, follow, memberView, own, invitedUntil, memberChosen, memberTimes, chosen, starts, now, rating, languages, project, latestPost, mine, offerIdCheck } = await gatherHostPage(viewer, profile, query, { project: true });
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
@@ -191,9 +134,9 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
 
       <section className={`${warm.card} mt-6`}>
         <p className="text-lg font-semibold">
-          {profile.pricePer15Cents === 0 ? "Free private video call" : `${formatMoney(profile.pricePer15Cents)} per 15 minutes`}
+          {priceWords(profile.pricePer15Cents)}
         </p>
-        <p className="mt-1 text-sm opacity-70">A private one-to-one video call. {CANCEL_RULE[profile.freeCancelMinutes] ?? ""}</p>
+        <p className="mt-1 text-sm opacity-70">{callWords(profile.freeCancelMinutes)}</p>
         {offer?.verifiedOnly && (
           <p className="mt-2 text-sm">
             {profile.displayName} only takes calls from people who have confirmed their ID.
@@ -226,11 +169,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
         <section className={`${warm.card} mt-6`}>
           <h2 className="text-lg font-semibold">Your membership</h2>
           <p className="mt-1 text-sm">
-            {own.status === "joining"
-              ? "You are at the card step: you are a member once your card is entered."
-              : own.status === "unpaid"
-                ? "Your monthly payment did not go through. Until it does you have no member time."
-                : "Your membership is paused. It costs nothing and gives no member time."}
+            {membershipStateWords(own.status)}
           </p>
           <p className="mt-3">
             <Link href={own.status === "unpaid" ? `/memberships/${own.id}/pay` : own.status === "paused" ? `/memberships/${own.id}` : `/h/${profile.handle}/membership`} className={warm.secondary}>
@@ -316,8 +255,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
               <select name="length" defaultValue={firstLength(now.lengths) ?? undefined} className={lengthList}>
                 {now.lengths.map((minutes) => (
                   <option key={minutes} value={minutes}>
-                    {lengthWords(minutes)}
-                    {now.offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(now.offer.pricePer15Cents, minutes * 60))}` : ""}
+                    {lengthChoice(minutes, now.offer.pricePer15Cents)}
                   </option>
                 ))}
               </select>
@@ -330,15 +268,13 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       )}
 
       <section id="ask" className={`${warm.card} mt-6 scroll-mt-4`}>
-        <h2 className="text-lg font-semibold">{memberView ? "Or ask the ordinary way, at the regular price" : now ? "Or ask for a call later" : "Ask for a call"}</h2>
-        {!offer || !chosen ? (
-          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls at the moment.</p>
-        ) : !offer.canTakePaid ? (
-          <p className="mt-2 text-sm opacity-70">{profile.displayName} is not taking calls yet.</p>
+        <h2 className="text-lg font-semibold">{askTitle(Boolean(memberView), Boolean(now))}</h2>
+        {!offer || !chosen || !offer.canTakePaid ? (
+          <p className="mt-2 text-sm opacity-70">{notTakingWords(profile.displayName, offer, chosen)}</p>
         ) : (
           <>
             <p className="mt-2 text-sm">
-              This sends a request. It does not reserve the time: others may ask for it too, and {profile.displayName} chooses.
+              {ASK_WORDS.notReserved(profile.displayName)}
             </p>
             <form method="get" action={`/h/${profile.handle}#ask`} className="mt-5 flex flex-wrap items-end gap-3 text-sm">
               <label className="block min-w-0 max-w-full">
@@ -346,8 +282,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
                 <select name="length" defaultValue={chosen} className={lengthList}>
                   {offer.lengths.map((minutes) => (
                     <option key={minutes} value={minutes}>
-                      {lengthWords(minutes)}
-                      {offer.pricePer15Cents > 0 ? `, ${formatMoney(bookedTotalCents(offer.pricePer15Cents, minutes * 60))}` : ""}
+                      {lengthChoice(minutes, offer.pricePer15Cents)}
                     </option>
                   ))}
                 </select>
@@ -357,7 +292,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
               </button>
             </form>
             {starts.length === 0 ? (
-              <p className="mt-4 text-sm opacity-70">There are no open times for this length right now. Please look again later.</p>
+              <p className="mt-4 text-sm opacity-70">{ASK_WORDS.noTimes}</p>
             ) : (
               <div className={warm.slots}>
                 <SlotPicker starts={starts.map((s) => s.toISOString())} hrefBase={`/h/${profile.handle}/book?length=${chosen}`} />
