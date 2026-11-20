@@ -261,8 +261,11 @@ export async function saveHostNote(input: { hostId: string; customerId: string; 
   // looks and writes, so neither can come in between "she may" and "it is saved".
   return db.transaction(async (tx) => {
     await lockCalendars(tx, [input.hostId, input.customerId]);
-    await tx.select({ id: schema.user.id }).from(schema.user).where(inArray(schema.user.id, [input.hostId, input.customerId])).for("share");
-    if (!(await mayNote(input.hostId, input.customerId, tx))) throw new NoteError("You can keep a note only about someone who has asked you for a call.");
+    const both = await tx.select({ id: schema.user.id, closedAt: schema.user.closedAt }).from(schema.user).where(inArray(schema.user.id, [input.hostId, input.customerId])).for("share");
+    // Both people must be there and neither account closed: the host's own too (hers may have been closed a moment
+    // after she pressed Save; a closed account keeps no notepad).
+    const open = both.length === 2 && both.every((person) => person.closedAt === null);
+    if (!open || !(await mayNote(input.hostId, input.customerId, tx))) throw new NoteError("You can keep a note only about someone who has asked you for a call.");
     return writeNote(tx, { ...input, text, shown });
   });
 }

@@ -19,34 +19,38 @@ type Note = NonNullable<NonNullable<AppBooking["host"]>["note"]>;
  *
  * It answers in place, and what was typed is never lost over a refusal. The same notepad can be
  * open in several places: a save goes through only if the stored note is still the one this box
- * was showing, so the box sends that along. When the note was changed elsewhere meanwhile, the
- * box offers to take the stored note in, and until then keeps what was typed.
+ * was showing, so the box sends that along.
+ *
+ * `reading` counts the readings of the page around the box, and `note.text` is the stored note
+ * as the latest of them found it. Each new reading is looked at once: if it shows another note
+ * than the box goes by, the box takes it in when nothing has been typed, and otherwise says that
+ * the note was changed elsewhere and offers to take it in; what was typed stays until then.
  */
-export function NoteBox({ path, note, onSettled }: { path: string; note: Note; onSettled?: () => void }) {
+export function NoteBox({ path, note, reading, onSettled }: { path: string; note: Note; reading: number; onSettled?: () => void }) {
   const colors = useColors();
-  /** The stored note as this box last knew it: what a save says it is replacing. */
+  /** The stored note as this box goes by it: what a save says it is replacing. */
   const [shown, setShown] = useState<string | null>(note.text);
   const [draft, setDraft] = useState(note.text ?? "");
+  /** The reading this box has looked at. */
+  const [looked, setLooked] = useState(reading);
+  /** A reading found another note than the box goes by, with something typed in the box. */
+  const [elsewhere, setElsewhere] = useState(false);
   const [saving, setSaving] = useState(false);
   const [said, setSaid] = useState<{ words: string; good: boolean } | null>(null);
   const busy = useRef(false);
   const left = note.max - draft.length;
-  /** The stored note as the page last handed it to this box and the box took it in. */
-  const [taken, setTaken] = useState<string | null>(note.text);
-  // The page reads the stored note again by itself. If what it hands in is new to this box, and is not what this
-  // box itself last saved, the note was changed somewhere else: a save from here would be refused. Say so, and
-  // offer to take the stored one in.
-  if (note.text !== taken) {
-    // What the page hands in is new to this box. If it is what this box itself saved, or if nothing has been typed
-    // here since the box last agreed with the stored note, the box simply takes it in.
-    if (note.text === shown) setTaken(note.text);
+
+  if (reading !== looked) {
+    // A new reading of the page. (Setting what the box knows while it is drawn: it is drawn again at once with it.)
+    setLooked(reading);
+    if (note.text === shown) setElsewhere(false);
     else if (draft === (shown ?? "")) {
-      setTaken(note.text);
+      // Nothing typed since the box last agreed with the stored note: it simply takes the stored one in.
       setShown(note.text);
       setDraft(note.text ?? "");
-    }
+      setElsewhere(false);
+    } else setElsewhere(true);
   }
-  const changedElsewhere = note.text !== taken && note.text !== shown;
 
   async function save() {
     if (busy.current) return;
@@ -57,16 +61,17 @@ export function NoteBox({ path, note, onSettled }: { path: string; note: Note; o
     if (answer.ok && isNoteSaved(answer.data)) {
       setShown(answer.data.text);
       setDraft(answer.data.text ?? "");
+      setElsewhere(false);
       setSaid({ words: answer.data.words, good: true });
     } else {
       // The server's own sentence (it ends with "nothing was saved, what you typed is still in the box").
       setSaid({ words: answer.ok ? UNREACHABLE : answer.message, good: false });
     }
+    busy.current = false;
+    setSaving(false);
     // Saved or refused, the page around this box reads the request again: what it knows of the note is then the
     // stored one, and after a refusal because the note was changed elsewhere, the box can offer that one.
     onSettled?.();
-    busy.current = false;
-    setSaving(false);
   }
 
   return (
@@ -91,16 +96,16 @@ export function NoteBox({ path, note, onSettled }: { path: string; note: Note; o
         </Text>
       ) : null}
       {said ? said.good ? <Words soft>{said.words}</Words> : <Notice>{said.words}</Notice> : null}
-      {changedElsewhere ? (
+      {elsewhere ? (
         <>
           <Notice>This note was changed somewhere else since this box was opened. What you typed here is still in the box.</Notice>
           <Button
             label="Show the note as it is stored now"
             kind="plain"
             onPress={() => {
-              setTaken(note.text);
               setShown(note.text);
               setDraft(note.text ?? "");
+              setElsewhere(false);
               setSaid(null);
             }}
           />

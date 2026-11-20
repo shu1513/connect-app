@@ -66,6 +66,10 @@ function OneRequest({ id }: { id: string }) {
   const newest = useRef(0);
   /** A step is under way: nothing else is asked meanwhile. */
   const acting = useRef(false);
+  /** A reading that must not be skipped was asked for while a step was under way: it is made when the step is through. */
+  const owed = useRef(false);
+  /** How many readings of the page have come in: the note box goes by it to tell a fresh reading from an old one. */
+  const [readings, setReadings] = useState(0);
   /** How many readings that also ask about the card are under way: the timer's plain reading does not cut in on them. */
   const checking = useRef(0);
   /** The stage the screen shows, for words that belong to it. */
@@ -84,6 +88,7 @@ function OneRequest({ id }: { id: string }) {
       if (answer.ok && isBooking(answer.data) && answer.data.id === id) {
         stage.current = answer.data.stage;
         setPage(answer.data);
+        setReadings((count) => count + 1);
         setProblem(null);
         setGone(false);
         // What a step just did ("your request was taken back") belongs to the stage it led to.
@@ -143,7 +148,10 @@ function OneRequest({ id }: { id: string }) {
    */
   const look = useCallback(
     async (andCard: boolean, now = false) => {
-      if (acting.current) return;
+      if (acting.current) {
+        if (now) owed.current = true;
+        return;
+      }
       if (!id) {
         setGone(true);
         return;
@@ -247,8 +255,11 @@ function OneRequest({ id }: { id: string }) {
     const done = await asked(step === "back" ? "/take-back" : `/${step}`);
     acting.current = false;
     setBusy(null);
-    // Refused (it was answered meanwhile, say): the page is read again, so it shows where the request stands now.
-    if (!done) void look(false, true);
+    // Refused (it was answered meanwhile, say), or a reading was asked for meanwhile (a note was saved): the page is
+    // read again, so it shows where the request stands now.
+    const wanted = owed.current;
+    owed.current = false;
+    if (!done || wanted) void look(false, true);
   }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/"));
@@ -329,7 +340,7 @@ function OneRequest({ id }: { id: string }) {
           ) : null}
         </Card>
       ) : null}
-      {host?.note ? <NoteBox path={path} note={host.note} onSettled={() => void look(false, true)} /> : null}
+      {host?.note ? <NoteBox path={path} note={host.note} reading={readings} onSettled={() => void look(false, true)} /> : null}
 
       {host ? null : page.card ? (
         <Card>

@@ -8,7 +8,7 @@
  * app: it shows the words it is given, and hands back the two numbers it was shown as they are.
  */
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST, whatIsAskedFor } from "@/lib/booking/book-words";
@@ -69,8 +69,12 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
  * (or became a call). A request that stopped at its card step never reached the host, also after it has
  * ended: neither of the two has anything of the other's through it.
  */
-export function mayBlockThrough(booking: { stage: string; requestedAt: Date | null; callId: string | null }): boolean {
-  return booking.stage !== "card" && (booking.requestedAt !== null || booking.callId !== null);
+export function mayBlockThrough(booking: { stage: string; source: string; requestedAt: Date | null; callId: string | null }): boolean {
+  if (booking.stage === "card") return false;
+  // A member's booking is not sent to anyone: it counts only once it has become a call (one whose month's payment
+  // did not go through never reached the host either).
+  if (booking.source === "member") return booking.callId !== null;
+  return booking.requestedAt !== null || booking.callId !== null;
 }
 
 /** Whether the card of this request may be entered from the app, as the founder's switches stand. */
@@ -125,6 +129,22 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
   // The button to block the other person is not offered again to someone who has blocked them already.
   const otherId = mine ? booking.hostId : booking.customerId;
   const [blockedByMe] = await db.select({ blockerId: schema.blocks.blockerId }).from(schema.blocks).where(and(eq(schema.blocks.blockerId, person.id), eq(schema.blocks.blockedId, otherId)));
+  // ...unless a call between the two is still standing: blocking could not cancel it at the time, and blocking again
+  // tries once more. Asked on every reading, so the way to try again stays for as long as it is needed.
+  const [stillBooked] = blockedByMe
+    ? await db
+        .select({ id: schema.calls.id })
+        .from(schema.calls)
+        .where(
+          and(
+            or(and(eq(schema.calls.hostId, person.id), eq(schema.calls.customerId, otherId)), and(eq(schema.calls.hostId, otherId), eq(schema.calls.customerId, person.id))),
+            isNull(schema.calls.cancelledAt),
+            isNull(schema.calls.safetyEndedAt),
+            gt(schema.calls.startsAt, now),
+          ),
+        )
+        .limit(1)
+    : [];
   return {
     id: booking.id,
     role,
@@ -155,7 +175,7 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     takeBackSure: mine && waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
     host: mine ? null : await hostPart(found),
     // As on the website's page: either of the two can block the other once the request was sent.
-    block: mayBlockThrough(booking) && otherName && (!blockedByMe || options.blockAgain) ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
+    block: mayBlockThrough(booking) && otherName && (!blockedByMe || stillBooked || options.blockAgain) ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
     // What else the call's own page is for is said once the app has that page (part 08).
     call: booking.callId ? { id: booking.callId } : null,
     // (Past the card step's time the helper ends the request within moments: the page asks again until it has.)
