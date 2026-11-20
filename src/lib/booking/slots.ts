@@ -15,6 +15,22 @@ export type WeeklyRange = { weekday: number; startMinute: number; endMinute: num
 export type Interval = { start: Date; end: Date };
 
 /**
+ * What a host is taken for, as her customers must see it. An entry for a call she hosts already
+ * holds her break. An entry for a call she booked herself (as a customer) holds only the time kept
+ * free after every call; here her break of today is counted after that call too, when it reaches
+ * further. `ownCallEnd` is the end of such a call, and null for a call she hosts.
+ *
+ * This only shapes what others can ask of her. What she chooses herself is limited by the stored
+ * entries alone (plans/42).
+ */
+export function withOwnBreak(entries: Array<Interval & { ownCallEnd: Date | null }>, breakMinutes: number): Interval[] {
+  return entries.map(({ start, end, ownCallEnd }) => {
+    if (!ownCallEnd) return { start, end };
+    return { start, end: new Date(Math.max(end.getTime(), ownCallEnd.getTime() + breakMinutes * MINUTE)) };
+  });
+}
+
+/**
  * The weekly stretches that count for the person who is looking. A member of the host, booking
  * with their membership time, gets every stretch; everyone else gets the general ones only, so a
  * stretch marked "members only" offers no time to the public.

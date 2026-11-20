@@ -167,7 +167,7 @@ async function main() {
       check("a free instant request goes straight to the host", booking.stage === "waiting" && booking.source === "now" && clientSecret === null);
       check("the host has 2 minutes to answer; no payment deadline yet", booking.respondBy?.getTime() === now.getTime() + 2 * MINUTE && booking.payBy === null);
       const annBusy = await busyOf(ann.id);
-      check("the customer is taken from now until the call could be over", annBusy.length === 1 && annBusy[0].startsAt.getTime() === now.getTime() && annBusy[0].endsAt.getTime() === now.getTime() + 33 * MINUTE);
+      check("the customer is taken from now until the call could be over, and the 2 minutes after it", annBusy.length === 1 && annBusy[0].startsAt.getTime() === now.getTime() && annBusy[0].endsAt.getTime() === now.getTime() + 35 * MINUTE);
       check("the host's live page shows it", (await N.liveForHost(host.id, now)).requests.some((r) => r.id === booking.id && r.customerName === ann.name));
       check("the customer's waiting page sees it waiting", (await N.liveForCustomer(booking.id, ann.id))?.stage === "waiting");
       check("someone else cannot read it", (await N.liveForCustomer(booking.id, host.id)) === null);
@@ -176,17 +176,36 @@ async function main() {
       check("the customer cannot have a second instant request outstanding", await refusedWith(askNow(ann, host.id, 15), "already have a request"));
       check("the customer is free of the 1-an-hour digest: the host was told at once", (await reload(booking.id)).hostNotifiedAt !== null);
 
+      // The customer is asked for a call herself, as a host, in the minutes her call now will take (plans/42): a request that waits, written by hand.
+      const asker = await person("asker2");
+      const [toTheCustomer] = await db
+        .insert(schema.bookings)
+        .values({ hostId: ann.id, customerId: asker.id, startsAt: new Date(now.getTime() + 10 * MINUTE), endsAt: new Date(now.getTime() + 25 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(now.getTime() + 5 * MINUTE) })
+        .returning();
+      await db.insert(schema.busyEntries).values({ bookingId: toTheCustomer.id, userId: asker.id, startsAt: toTheCustomer.startsAt, endsAt: toTheCustomer.endsAt });
+      // And one for 34 minutes from now. While her request waits she is taken until minute 35 (the latest the call could end, and
+      // 2 minutes). Accepted after 40 seconds, the real call ends at 31:40 and she is taken until 33:40: this request must stay.
+      const laterAsker = await person("asker3");
+      const [later] = await db
+        .insert(schema.bookings)
+        .values({ hostId: ann.id, customerId: laterAsker.id, startsAt: new Date(now.getTime() + 34 * MINUTE), endsAt: new Date(now.getTime() + 49 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(now.getTime() + 5 * MINUTE) })
+        .returning();
+      await db.insert(schema.busyEntries).values({ bookingId: later.id, userId: laterAsker.id, startsAt: later.startsAt, endsAt: later.endsAt });
+
       const acceptedAt = new Date(now.getTime() + 40 * 1000);
       await keptOpen(host.id, acceptedAt); // the host's page has been open all along
       const { callId } = await B.accept({ bookingId: booking.id, hostId: host.id, now: acceptedAt });
       const call = await callOf(callId);
+      const ownEnded = await reload(toTheCustomer.id);
+      check("a request to the customer herself, as a host, for those minutes ends when her call now is accepted", ownEnded.stage === "passed_over" && ownEnded.endedReason === "the host is no longer free at that time" && (await busyOf(asker.id)).length === 0, `${ownEnded.stage} ${ownEnded.endedReason}`);
+      check("a request to her for after the real call and its 2 minutes stays: the times of the accepted call count, not the ones kept while it waited", (await reload(later.id)).stage === "waiting", (await reload(later.id)).stage);
       check("accepting times the call 60 seconds from that moment", call.startsAt.getTime() === acceptedAt.getTime() + 60 * 1000 && call.endsAt.getTime() === call.startsAt.getTime() + 30 * MINUTE);
       check("an instant call charges the time together, and can be cancelled free until it starts", call.billing === "together" && call.freeCancelMinutes === 0);
       const after = await reload(booking.id);
       check("the booking carries the real time", after.stage === "accepted" && after.startsAt.getTime() === call.startsAt.getTime() && after.callId === callId);
       const hostBusy = await busyOf(host.id);
       const annAfter = await busyOf(ann.id);
-      check("both are taken for the real call (the host with the break)", hostBusy.length === 1 && hostBusy[0].startsAt.getTime() === call.startsAt.getTime() && hostBusy[0].endsAt.getTime() === call.endsAt.getTime() + 5 * MINUTE && annAfter[0].startsAt.getTime() === call.startsAt.getTime() && annAfter[0].endsAt.getTime() === call.endsAt.getTime());
+      check("both are taken for the real call (the host with the break, the customer with the 2 minutes after it)", hostBusy.length === 1 && hostBusy[0].startsAt.getTime() === call.startsAt.getTime() && hostBusy[0].endsAt.getTime() === call.endsAt.getTime() + 5 * MINUTE && annAfter[0].startsAt.getTime() === call.startsAt.getTime() && annAfter[0].endsAt.getTime() === call.endsAt.getTime() + 2 * MINUTE);
       check("accepting switched availability off", (await B.instantOffer(host.id, acceptedAt)) === null && !(await N.liveForHost(host.id, acceptedAt)).on);
       check("the customer's waiting page sees the call", (await N.liveForCustomer(booking.id, ann.id))?.callId === callId);
       check("the customer gets a \"ready for your call now\" email with the call's link", (await emailsTo(ann.email, "ready for your call now")).some((m) => m.body.includes(`/calls/${callId}`)));
@@ -308,7 +327,7 @@ async function main() {
       const sent = await B.finishCardStep({ bookingId: booking.id, customerId: dan.id, now: cardDone });
       check("once the card is saved the host is asked, with 2 minutes to answer from then", sent.stage === "waiting" && Boolean(sent.stripePaymentMethodId) && sent.respondBy!.getTime() === cardDone.getTime() + 2 * MINUTE);
       const danBusy = await busyOf(dan.id);
-      check("the customer is taken from that moment until the call could be over", danBusy.length === 1 && danBusy[0].startsAt.getTime() === cardDone.getTime() && danBusy[0].endsAt.getTime() === cardDone.getTime() + 18 * MINUTE);
+      check("the customer is taken from that moment until the call could be over, and the 2 minutes after it", danBusy.length === 1 && danBusy[0].startsAt.getTime() === cardDone.getTime() && danBusy[0].endsAt.getTime() === cardDone.getTime() + 20 * MINUTE);
 
       const acceptedAt = new Date(cardDone.getTime() + 30 * 1000);
       await keptOpen(hana.id, acceptedAt); // the host's page has been open all along

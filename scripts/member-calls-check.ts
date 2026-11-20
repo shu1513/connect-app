@@ -409,6 +409,13 @@ async function main() {
     const waiting = await askForCall({ customer: stranger, hostId: host.id, startsAt: forPublic[0], lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: true, seen: { pricePer15Cents: 1000, freeCancelMinutes: 0 }, now: new Date() });
     // (The stranger's request counts as sent once their card step is finished; here it is marked as waiting directly.)
     await db.update(schema.bookings).set({ stage: "waiting", requestedAt: new Date(), respondBy: new Date(Date.now() + DAY) }).where(eq(schema.bookings.id, waiting.booking.id));
+    // The member is asked for a call herself, as a host, at that same time (plans/42): booked by hand, as a request that waits.
+    const asker = await person("asker");
+    const [toTheMember] = await db
+      .insert(schema.bookings)
+      .values({ hostId: m.member.id, customerId: asker.id, startsAt: forPublic[0], endsAt: new Date(forPublic[0].getTime() + 15 * MIN), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: new Date(), respondBy: new Date(Date.now() + DAY) })
+      .returning();
+    await db.insert(schema.busyEntries).values({ bookingId: toTheMember.id, userId: asker.id, startsAt: toTheMember.startsAt, endsAt: toTheMember.endsAt });
     const key = randomUUID();
     const first = await book(m, forPublic[0], { key });
     const call = await callOf(first.booking);
@@ -419,10 +426,16 @@ async function main() {
     check("$15.00 went from free to set aside", (await places(m.monthId)) === "4500/1500/0/0/0/0", await places(m.monthId));
     check("the other person's waiting request for that time has ended, with its email", (await bookingById(waiting.booking.id)).stage === "passed_over" && /accepted another request/.test(await emailText(stranger.email, "accepted another request")), (await bookingById(waiting.booking.id)).stage);
     check("both people are told it is booked", /uses 30 minutes of your membership/.test(await emailText(m.member.email, "is booked")) && /confirmed at once/.test(await emailText(host.email, "booked a call with you")));
+    const ownEnded = await bookingById(toTheMember.id);
+    check(
+      "a request to the member herself, as a host, for that time ends too, and its customer is told only that she is no longer free",
+      ownEnded.stage === "passed_over" && ownEnded.endedReason === "the host is no longer free at that time" && /is no longer free at that time/.test(await emailText(asker.email, "is no longer free")) && (await db.select().from(schema.busyEntries).where(eq(schema.busyEntries.bookingId, toTheMember.id))).length === 0,
+      `${ownEnded.stage} ${ownEnded.endedReason}`,
+    );
     const again = await book(m, forPublic[0], { key });
     check("the same press twice books once and sets nothing aside again", again.booking.id === first.booking.id && (await places(m.monthId)) === "4500/1500/0/0/0/0");
     const hostBusy = (await db.select().from(schema.busyEntries).where(and(eq(schema.busyEntries.bookingId, first.booking.id), eq(schema.busyEntries.userId, host.id))))[0];
-    check("the host is taken for the call and the 5-minute break after it; the member for the call", hostBusy.endsAt.getTime() === call.endsAt.getTime() + 5 * MIN && (await db.select().from(schema.busyEntries).where(and(eq(schema.busyEntries.bookingId, first.booking.id), eq(schema.busyEntries.userId, m.member.id))))[0].endsAt.getTime() === call.endsAt.getTime());
+    check("the host is taken for the call and the 5-minute break after it; the member for the call and the 2 minutes after it", hostBusy.endsAt.getTime() === call.endsAt.getTime() + 5 * MIN && (await db.select().from(schema.busyEntries).where(and(eq(schema.busyEntries.bookingId, first.booking.id), eq(schema.busyEntries.userId, m.member.id))))[0].endsAt.getTime() === call.endsAt.getTime() + 2 * MIN);
     check("that time is no longer open to the member, and a call that would start inside the break is refused", !(await times(m)).some((at) => at.getTime() === forPublic[0].getTime()) && /no longer open/.test((await refused(book(m, new Date(call.endsAt.getTime())))) ?? ""));
     check("a booked member call is a call, not an open request, on the member's list", !(await requestsOfCustomer(m.member.id, new Date())).some((row) => row.booking.id === first.booking.id));
 

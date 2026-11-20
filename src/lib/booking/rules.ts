@@ -20,7 +20,28 @@ export const LENGTH_STEP_MINUTES = 5;
 export const LENGTH_CHOICES_MINUTES: readonly number[] = Array.from({ length: MAX_LENGTH_MINUTES / LENGTH_STEP_MINUTES }, (_, i) => (i + 1) * LENGTH_STEP_MINUTES);
 export const NOTICE_CHOICES_HOURS = [24, 48, 72] as const;
 export const HORIZON_CHOICES_WEEKS = [2, 4, 8] as const;
-export const BREAK_CHOICES_MINUTES = [1, 5, 10, 15, 30] as const;
+/**
+ * After every call, for everyone, this long is kept free (the founder's rule, plans/42). A call
+ * taken as a customer takes that person's time until this long after its end, and the shortest
+ * break a host can choose is the same. It is the least that always holds, not advice on how long
+ * a break should be.
+ */
+export const AFTER_CALL_MINUTES = 2;
+/** Until when a person is taken for a call they are in as the customer: its end and the time kept free after it. */
+export function takenUntil(callEndsAt: Date): Date {
+  return new Date(callEndsAt.getTime() + AFTER_CALL_MINUTES * MINUTE);
+}
+export const BREAK_CHOICES_MINUTES = [AFTER_CALL_MINUTES, 5, 10, 15, 30] as const;
+
+/**
+ * Why a waiting request ended as "passed over": the host took another request for that time, or
+ * a call the host booked for herself (as a customer) took it. The customer is told the first as
+ * it is, and of the second only that the host is no longer free.
+ */
+export const PASSED_OVER = {
+  anotherRequest: "the host accepted another request",
+  ownCall: "the host is no longer free at that time",
+} as const;
 
 export const LIMITS = {
   /** Requests a customer may have waiting with one host, and in total. */

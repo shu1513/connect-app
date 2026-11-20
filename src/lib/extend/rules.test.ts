@@ -44,8 +44,10 @@ describe("how many minutes fit", () => {
   it("leaves the host their break before their next call", () => {
     expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: after(30), customerNextAt: null })).toBe(25);
   });
-  it("lets the customer go right up to their next call", () => {
-    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: after(12) })).toBe(12);
+  it("leaves the customer the 2 minutes that are free after every call before their next one", () => {
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: after(12) })).toBe(10);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: after(2) })).toBe(0);
+    expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 5, hostNextAt: null, customerNextAt: after(1) })).toBe(0);
   });
   it("takes whichever of the two is tighter", () => {
     expect(minutesThatFit({ startsAt, endsAt, breakMinutes: 10, hostNextAt: after(30), customerNextAt: after(25) })).toBe(20);

@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { bookingFor } from "@/lib/booking/bookings";
+import { PASSED_OVER } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { stripe, stripePublishableKey } from "@/lib/payments/stripe";
@@ -54,6 +55,10 @@ const STAGE_FOR_HOST: Record<string, string> = {
   taken_back: "The customer took this request back.",
   cancelled: "This call was cancelled.",
 };
+
+/** A request that ended because a call the host booked for herself took its time (plans/42). The customer is not told why she is not free. */
+const OWN_CALL_FOR_CUSTOMER = "The host is no longer free at that time.";
+const OWN_CALL_FOR_HOST = "A call you booked yourself took this time.";
 
 /** One request, for the customer who sent it or the host it was sent to. */
 export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
@@ -120,7 +125,11 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
       )}
 
       <p className="mt-4 font-medium">
-        {(byMember ? (role === "host" ? MEMBER_STAGE_FOR_HOST : MEMBER_STAGE_FOR_CUSTOMER) : role === "host" ? STAGE_FOR_HOST : STAGE_FOR_CUSTOMER)[booking.stage] ?? booking.stage}
+        {booking.stage === "passed_over" && booking.endedReason === PASSED_OVER.ownCall
+          ? role === "host"
+            ? OWN_CALL_FOR_HOST
+            : OWN_CALL_FOR_CUSTOMER
+          : ((byMember ? (role === "host" ? MEMBER_STAGE_FOR_HOST : MEMBER_STAGE_FOR_CUSTOMER) : role === "host" ? STAGE_FOR_HOST : STAGE_FOR_CUSTOMER)[booking.stage] ?? booking.stage)}
       </p>
       {role === "customer" && booking.stage === "ran_out" && booking.endedReason && (
         <p className="mt-1 text-sm opacity-70">{byMember ? `${booking.endedReason} No membership time was used for it.` : `Reason: ${booking.endedReason.replace(/\.$/, "")}.`}</p>
