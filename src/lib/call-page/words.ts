@@ -39,23 +39,35 @@ export function payPoints(input: { pricePer15: string; bookedPrice: string; bill
 }
 
 /** What cancelling right now would mean, said above the button. */
-export function cancelWords(input: { member: boolean; outcome: "free" | "late_charge"; bookedPrice: string | null }): string {
+export function cancelWords(input: { member: boolean; outcome: "free" | "late_charge"; bookedPrice: string | null; frozen?: boolean }): string {
   if (input.member) {
+    // A month whose payment is disputed at the bank is frozen: nothing of it moves, whoever cancels and whenever.
+    if (input.frozen) return `${input.outcome === "free" ? "Cancelling now is free." : "Cancelling now is past the free period."} ${MEMBER_TIME_KEPT}`;
     return input.outcome === "free"
-      ? "Cancelling now is free. The time booked for this call goes back to the membership."
+      ? "Cancelling now is free. The membership time booked for this call is given back."
       : `Cancelling now is past the free period: all the membership time booked for this call (${input.bookedPrice}) is used. The host may choose to give time back.`;
   }
   return input.outcome === "free" ? "Cancelling now is free. Nothing is charged." : `Cancelling now is past the free period: the full ${input.bookedPrice} is charged. The host may choose to refund you.`;
 }
 
 /** What is said after a call was cancelled. */
-export function cancelledWords(input: { member: boolean; outcome: "free" | "late_charge" }): string {
-  if (input.outcome === "late_charge") {
-    // What became of the time is on the page this goes to (used; or kept as it is while the month's payment is disputed).
-    return input.member ? "The call was cancelled after the free period. The payment below says what became of the membership time booked for it." : "The call was cancelled after the free period, so the booked price is charged.";
+export function cancelledWords(input: { member: boolean; outcome: "free" | "late_charge"; memberMoney?: "free" | "card" | "used" | "kept" | null; holdLetGo?: boolean }): string {
+  const cancelled = input.outcome === "late_charge" ? "The call was cancelled after the free period" : "The call was cancelled";
+  if (input.member) {
+    // What really became of the membership time, as the step that cancelled the call settled it.
+    if (input.memberMoney === "kept") return `${cancelled}. ${MEMBER_TIME_KEPT}`;
+    if (input.memberMoney === "used") return `${cancelled}, so all the membership time booked for it is used.`;
+    if (input.memberMoney === "free") return `${cancelled}. The time booked for it is back in the membership and can be booked again.`;
+    if (input.memberMoney === "card") return `${cancelled}. What was set aside for it from the membership will be paid back to the card.`;
+    return `${cancelled}.`;
   }
-  return input.member ? "The call was cancelled. The payment below says what became of the membership time booked for it." : "The call was cancelled. Nothing is charged.";
+  if (input.outcome === "late_charge") return `${cancelled}, so the booked price is charged.`;
+  // A hold on the card is let go right away, but the bank decides when that shows: it is not said to be gone already.
+  return input.holdLetGo ? `${cancelled}. Nothing is charged, and the hold on the card is being let go.` : `${cancelled}. Nothing is charged.`;
 }
+
+/** Said of a member's call whose month is frozen. */
+const MEMBER_TIME_KEPT = "This month's membership payment is frozen because of a dispute at the bank, so the time set aside for this call stays where it is while that lasts.";
 
 export const CALL_WORDS = {
   title: (otherName: string) => `Call with ${otherName}`,
@@ -98,5 +110,7 @@ export const CALL_WORDS = {
   statusEnded: "Ended",
   aboutTitle: (customerName: string) => `About ${customerName}`,
   /** What cancelling means changed between the page being shown and the button being pressed. */
-  cancelChanged: "Cancelling this call is no longer free: its free period has just ended. Nothing was cancelled. Please read what cancelling means now.",
+  cancelChanged: "Cancelling this call is no longer free: it would now be charged in full. Nothing was cancelled. Please read what cancelling means now.",
+  /** The website's form was sent without saying what its page showed. */
+  cancelAskAgain: "Please read what cancelling means, and press the button again.",
 } as const;

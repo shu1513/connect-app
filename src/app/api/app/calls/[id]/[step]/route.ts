@@ -3,12 +3,22 @@ import { callPageFor } from "@/lib/app-door/calls";
 import type { AppPayStep } from "@/lib/app-door/types";
 import { cancelledWords } from "@/lib/call-page/words";
 import { callForParticipant } from "@/lib/payments/access";
-import { cancelCall } from "@/lib/payments/cancel";
+import { cancelCallWith } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { startPaymentFor, syncPaymentFor, type StepRefused } from "@/lib/payments/steps";
 
-/** A refusal of one of the shared pay steps, as the door says it: "not found" stays "not found", everything else carries its sentence. */
+/**
+ * "It cannot be told just now what became of this step": said as the server not being reached (no answer of the
+ * door's at all), never as a refusal. The app then reads the call's page again, which shows where things stand.
+ */
+function notKnown(): Response {
+  return new Response(null, { status: 503, headers: { "cache-control": "private, no-store" } });
+}
+
+/** A refusal of one of the shared pay steps, as the door says it: "not found" stays "not found", a refusal carries its sentence. */
 function refusalOf(step: StepRefused): Response {
+  // Stripe could not be asked: nothing was decided, so nothing is refused.
+  if (step.refused.status === 502) return notKnown();
   // "Only the customer can pay" is the other person's step: for the one asking there is no such thing here.
   return step.refused.status === 404 || step.refused.status === 403 ? refuse("not_found") : refuse("not_valid", step.refused.message);
 }
@@ -66,12 +76,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
   const access = await callForParticipant(id, me.id);
   if (!access) return refuse("not_found");
   try {
-    const outcome = await cancelCall({ call: access.call, payment: access.payment, by: access.role, now: new Date(), shown });
-    return page(cancelledWords({ member: access.payment?.kind === "member_call", outcome }));
+    const done = await cancelCallWith({ call: access.call, payment: access.payment, by: access.role, now: new Date(), shown });
+    return page(cancelledWords({ member: access.payment?.kind === "member_call", ...done }));
   } catch (error) {
+    // One of the money rules said no, in its own sentence: nothing was cancelled.
     if (error instanceof MoneyError) return refuse("not_valid", error.message);
-    if (error instanceof OutcomeUnknownError) return refuse("not_valid", "That is still being confirmed with Stripe. Please check again in a minute.");
-    console.error("[payments] could not cancel a call for the app", error);
-    return refuse("not_valid", "Something went wrong. Nothing was changed. Please try again.");
+    // Anything else (Stripe's answer not known yet, the database, the unforeseen): whether the call was cancelled
+    // cannot be told from here, so it is not said that it was not.
+    if (!(error instanceof OutcomeUnknownError)) console.error("[payments] could not cancel a call for the app", error);
+    return notKnown();
   }
 }

@@ -200,6 +200,13 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   // The same for a request for more time that has ended: its hold never counts, and the helper lets it go.
   const authorisedAt = details.authorisedAt ? new Date(details.authorisedAt * 1000) : now;
   if (await tooLateToHold(tx, payment, authorisedAt)) return;
+  // Nor does a card authorised for a call that was cancelled or stopped, or whose booked end had passed when the
+  // bank said yes (through a card form left open): the payment stays unpaid, and what closes such a call lets that
+  // hold go (the cancellation itself, or the helper). Time added to a call has its own rule, just above.
+  if (!payment.extensionId && payment.callId) {
+    const [call] = await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId));
+    if (!call || call.cancelledAt || call.safetyEndedAt || authorisedAt >= call.endsAt) return;
+  }
   const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
   await tx
     .update(schema.payments)

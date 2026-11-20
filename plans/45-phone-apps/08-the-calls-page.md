@@ -1,7 +1,7 @@
 # Phone apps, part 08: a call's page (paying, the countdown, cancelling) and past calls
 
 **Status:** built on 20 November 2026 (not merged yet: it waits, with parts 01 to 07, behind the
-tips pull request; Astra has not looked at the code yet). Written by the builder alone. Part of
+tips pull request). Astra looked at the code once ("not ready"); its points are worked in, below. Written by the builder alone. Part of
 plan 45. Astra checked the plan once ("ready with changes"); its points are worked in (the list
 is at the end). What the building changed is listed below.
 
@@ -105,7 +105,7 @@ website.
 
 ### How it was tried
 
-- `scripts/app-calls-check.ts`, 54 checks, with real holds at Stripe (test mode): coming and
+- `scripts/app-calls-check.ts`, 68 checks (54 before Astra's look at the code), with real holds at Stripe (test mode): coming and
   past calls (a call far ahead that the home page does not load, paging, a stranger); a call's
   page in each state, and the website's page for the same call saying the same; the hold
   (started twice and from the website: one hold; before a card, after a refused card, after a
@@ -127,6 +127,62 @@ website.
   is the same sheet as in part 06, where both were walked, and the check script does both
   against Stripe.
 - The iPhone.
+
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+Five things that mattered, and seven smaller ones. Several are in code the website shares, so
+the website is better for them too.
+
+1. *What cancelling means was decided before the step that cancels.* A "free" cancellation
+   that had to wait a moment (for a lock) could go through as free after the free period had
+   ended, or after a hold had just been placed. **It is now decided, compared with what the
+   person was shown, and written down in one step,** with the call and its payment locked and
+   the clock read at that moment. A check makes a cancellation wait across the end of the
+   free period: nothing is cancelled, and the person is told.
+2. *The website's cancel form could be sent without saying what its page showed,* and then
+   nothing was compared. Such a form now cancels nothing and goes back to the call's page. A
+   check presses the website's own button both ways.
+3. *The app's page of a call that was simply over kept asking the server without end.* A call
+   whose booked end has passed is now "ended" for the app whatever else was open about it
+   (unpaid, or its room simply empty): it says so, offers nothing, and does not ask again.
+   The countdown also never asks more than once every few seconds.
+4. *A card approved through a card form left open, after the call was cancelled or over,
+   could be written down as held.* It no longer counts; the cancellation (or the helper) lets
+   that approval go at Stripe, now at once and without waiting for the room to be closed.
+   The words after a free cancellation say the hold "is being let go", not that it is gone:
+   the bank decides when that shows.
+5. *A member's call in a month whose payment is disputed:* the page promised that the time
+   goes back (or is used), while such a month is frozen and nothing moves. The page now says
+   that. And after cancelling, the sentence says what really became of the time (back in the
+   membership, back to the card, used, or kept), instead of pointing at "the payment below",
+   which the app's screen does not have.
+
+Smaller:
+
+6. A host whose page is hidden or closed is still named in one's own calls, but **without her
+   photo**: before, the list gave away that she had one (the picture itself was never handed
+   out). On the website's home page too. And a customer is never shown a host's account name
+   in place of the name on her page.
+7. In the app, an answer that arrives after the person has left the page is no longer used,
+   and Stripe's sheet is only shown while the app itself is on the phone's screen.
+8. The sentence that says why a cancellation was refused now stays beside the cancel button
+   when the page is read again (the reason is often that the page has just changed). The
+   sentence itself no longer says "the free period has just ended" when the reason may be a
+   hold: "it would now be charged in full".
+9. When it cannot be told what became of a step (Stripe or the database could not be asked),
+   the app is no longer told "nothing was changed": it is told nothing certain, and reads the
+   page again.
+10. A late cancellation's charge shows in the host's past calls at once, not only after the
+    booked end.
+11. The website's "Past calls" describes each call through the same one function as the app
+    and the home page, in the same words.
+12. The check script proves more: the bank's own "declined"; a card waiting for the bank's
+    approval; the amount really taken for a late cancellation; 51 past calls over two pages;
+    the website's own cancel button.
+
+**Not done, said plainly:** coming back from a bank's approval after the app was closed is a
+thing only a phone can show. It was walked in part 06 for saving a card (the same sheet and
+the same way back); for the hold it is on the founder's two-phone list in part 20.
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 

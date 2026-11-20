@@ -19,7 +19,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
 import http from "node:http";
-import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
 import type { AppCallPage, AppCalls, AppHome, AppPayStep, Refusal } from "../src/lib/app-door/types";
@@ -101,6 +101,34 @@ function asBrowser(path: string, options: { body?: unknown; jar?: Jar } = {}): P
   return plain(path, { ...options, headers });
 }
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** The hidden fields of the website form that holds a field of this name, as the page was sent. */
+function formFields(html: string, holding: string): Record<string, string> | null {
+  for (const form of html.match(/<form[\s\S]*?<\/form>/g) ?? []) {
+    if (!form.includes(`name="${holding}"`)) continue;
+    const fields: Record<string, string> = {};
+    for (const input of form.match(/<input[^>]*>/g) ?? []) {
+      const name = /name="([^"]*)"/.exec(input)?.[1];
+      const value = /value="([^"]*)"/.exec(input)?.[1] ?? "";
+      if (name && /type="hidden"/.test(input)) fields[name] = value.replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+    }
+    return fields;
+  }
+  return null;
+}
+/** Sends a website form as a browser does when its button is pressed, and says where the website sends the person next. */
+function postForm(path: string, fields: Record<string, string>, jar: Jar): Promise<{ status: number; to: string }> {
+  const boundary = `----check${randomUUID()}`;
+  const body = Buffer.from(Object.entries(fields).map(([name, value]) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`).join("") + `--${boundary}--\r\n`);
+  const headers = { origin: BASE, "sec-fetch-site": "same-origin", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", cookie: asCookie(jar), "content-type": `multipart/form-data; boundary=${boundary}`, "content-length": String(body.length) };
+  return new Promise((resolve, reject) => {
+    const request = http.request(new URL(`${BASE}${path}`), { method: "POST", headers }, (response) => {
+      response.resume();
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, to: String(response.headers.location ?? "") }));
+    });
+    request.on("error", reject);
+    request.end(body);
+  });
+}
 const refusal = (reply: Reply) => (reply.json as Refusal | null)?.error?.code ?? `no code, status ${reply.status}`;
 const sentence = (reply: Reply) => (reply.json as Refusal | null)?.error?.message ?? `no sentence, status ${reply.status}`;
 const keys = (value: unknown) => Object.keys((value ?? {}) as object).sort().join(",");
@@ -179,8 +207,15 @@ async function main() {
   /** Confirms the hold of a call at Stripe with one of Stripe's test cards, as the card sheet would. */
   const confirmAtStripe = async (callId: string, testCard: string) => {
     const payment = await paymentOf(callId);
-    await stripe().paymentIntents.confirm(payment.stripePaymentIntentId!, { payment_method: testCard, return_url: "https://example.com/return" }).catch(() => undefined);
+    // What Stripe said, so a check can tell "the card was declined" from anything else that went wrong.
+    return stripe()
+      .paymentIntents.confirm(payment.stripePaymentIntentId!, { payment_method: testCard, return_url: "https://example.com/return" })
+      .then(
+        (intent) => ({ status: String(intent.status), code: "" }),
+        (error: { code?: string }) => ({ status: "", code: String(error?.code ?? "unknown") }),
+      );
   };
+  const CHANGED = "Cancelling this call is no longer free: it would now be charged in full. Nothing was cancelled. Please read what cancelling means now.";
 
   try {
     const host = await newPerson("host");
@@ -218,6 +253,26 @@ async function main() {
       check("the page after the last says there are no more", (await calls("past", cust.jar, "2")).body?.empty === "No more calls." && (await calls("past", stranger.jar)).body?.empty === "No past calls yet.");
       const web = await asBrowser("/calls", { jar: cust.jar });
       check("the website's Past calls lists the same two", web.status === 200 && web.text.includes(`data-call="${over.call.id}"`) && web.text.includes(`data-call="${called.call.id}"`) && !web.text.includes(`data-call="${soon.call.id}"`), `${web.status}`);
+      // A host whose page is hidden is still named in one's own calls, but without her photo: nothing says whether she has one.
+      const [{ id: photoId }] = await db.insert(schema.hostPhotos).values({ userId: host.id, network: "upload", width: 8, height: 8, byteLength: 5, sha256: randomUUID(), bytes: Buffer.from("photo"), takenAt: now, checkedBy: "appcallscheck", rulesVersion: "appcallscheck" }).returning({ id: schema.hostPhotos.id });
+      const withPhoto = (await calls("coming", cust.jar)).body?.calls[0];
+      await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, host.id));
+      const hiddenNow = (await calls("coming", cust.jar)).body?.calls[0];
+      const hiddenPast = (await calls("past", cust.jar)).body?.calls[0];
+      await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, host.id));
+      await db.delete(schema.hostPhotos).where(eq(schema.hostPhotos.userId, host.id));
+      check("a host's photo goes with her calls while her page is open, and not once it is hidden; her name stays", withPhoto?.photoId === photoId && hiddenNow?.photoId === null && hiddenNow.name === hostName && hiddenPast?.photoId === null, `${withPhoto?.photoId} ${hiddenNow?.photoId} ${hiddenPast?.photoId}`);
+      // One more than a page holds.
+      const many = await newPerson("many");
+      const base = Date.now() - 3 * DAY;
+      const rows = await db
+        .insert(schema.calls)
+        .values(Array.from({ length: 51 }, (_, i) => ({ hostId: host.id, customerId: many.id, startsAt: new Date(base - i * HOUR), endsAt: new Date(base - i * HOUR + 30 * MINUTE), roomName: `appcalls-${randomUUID()}`, pricePer15Cents: 0, freeCancelMinutes: 0 })))
+        .returning({ id: schema.calls.id });
+      callIds.push(...rows.map((row) => row.id));
+      const first = (await calls("past", many.jar)).body;
+      const second = (await calls("past", many.jar, "2")).body;
+      check("51 past calls: 50 on the first page with more to come, the oldest alone on the second", first?.calls.length === 50 && first.more === true && first.calls[0].id === rows[0].id && first.calls[49].id === rows[49].id && second?.calls.length === 1 && second.calls[0].id === rows[50].id && second.more === false && second.empty === null && second.page === 2, `${first?.calls.length} ${second?.calls.length}`);
     }
 
     // ----------------------------------------------------------------------
@@ -255,6 +310,14 @@ async function main() {
       const gone = await newCall(host.id, cust.id, { startsIn: 60, cancelled: true });
       const cancelled = (await callPage(gone.call.id, cust.jar)).body;
       check("a cancelled call says so, and offers nothing", cancelled?.state === "cancelled" && cancelled.words?.[0] === "This call was cancelled." && cancelled.cancel === null && cancelled.pay === null && cancelled.room === null && cancelled.refreshSeconds === null);
+      // Over by the clock: nothing is offered and nothing is asked again, whatever was still open about the call.
+      const done = await newCall(host.id, cust.id, { startsIn: -90, minutes: 30 });
+      const donePage = (await callPage(done.call.id, cust.jar)).body;
+      check("a call whose booked end has passed is over: it says so, offers nothing, and the page does not ask again", donePage?.state === "ended" && donePage.words?.[0] === "This call has ended." && donePage.room === null && donePage.cancel === null && donePage.pay === null && donePage.refreshSeconds === null, JSON.stringify(donePage).slice(0, 200));
+      const unpaidOver = await newCall(host.id, cust.id, { startsIn: -90, minutes: 30, price: 2000 });
+      const unpaidPage = (await callPage(unpaidOver.call.id, cust.jar)).body;
+      const unpaidHost = (await callPage(unpaidOver.call.id, host.jar)).body;
+      check("the same for one that was never paid: no pay step for the customer, no waiting for the host", unpaidPage?.state === "ended" && unpaidPage.pay === null && unpaidPage.refreshSeconds === null && unpaidHost?.state === "ended" && unpaidHost.words?.[0] === "This call has ended.", `${unpaidPage?.state} ${unpaidHost?.state}`);
     }
 
     // ----------------------------------------------------------------------
@@ -280,10 +343,11 @@ async function main() {
       check("started again, and started from the website, it is the same one hold", (again.json as AppPayStep).clientSecret === card.clientSecret && viaWeb.status === 200 && (viaWeb.json as { clientSecret?: string }).clientSecret === card.clientSecret && (await paymentOf(id)).stripePaymentIntentId === intentId && (await db.select().from(schema.payments).where(eq(schema.payments.callId, id))).length === 1);
       const early2 = await step(id, "pay-check", cust.jar);
       check("asking where the hold stands before a card is in changes nothing", early2.status === 200 && (early2.json as AppCallPage).state === "pay" && (await paymentOf(id)).status === "awaiting_payment");
-      await confirmAtStripe(id, "pm_card_chargeDeclined");
-      check("after a refused card, nothing is held", ((await step(id, "pay-check", cust.jar)).json as AppCallPage).state === "pay" && (await paymentOf(id)).status === "awaiting_payment");
+      const declined = await confirmAtStripe(id, "pm_card_chargeDeclined");
+      check("after a refused card (the bank's own no), nothing is held", declined.code === "card_declined" && ((await step(id, "pay-check", cust.jar)).json as AppCallPage).state === "pay" && (await paymentOf(id)).status === "awaiting_payment", declined.code);
       check("a stranger cannot ask about it", refusal(await step(id, "pay-check", stranger.jar)) === "not_found");
-      await confirmAtStripe(id, "pm_card_visa");
+      const approved = await confirmAtStripe(id, "pm_card_visa");
+      check("a good card is approved at Stripe as a hold to be taken later", approved.status === "requires_capture", `${approved.status} ${approved.code}`);
       const held = await step(id, "pay-check", cust.jar);
       const page = held.json as AppCallPage;
       check("once Stripe says the money is held, the page moves on to the room", held.status === 200 && page.state === "room" && page.pay === null && (await paymentOf(id)).status === "held", `${held.status} ${page.state}`);
@@ -291,6 +355,28 @@ async function main() {
       check("the host's page moves on too", (await callPage(id, host.jar)).body?.state === "room");
       const once = await step(id, "pay", cust.jar);
       check("starting it again when the money is held answers with the page, not a second hold", once.status === 200 && (once.json as AppCallPage).state === "room" && (await paymentOf(id)).stripePaymentIntentId === intentId);
+      // A card that waits for its bank's approval holds nothing yet.
+      const bank = await newCall(host.id, cust.id, { startsIn: 25, price: 2000, minutes: 10 });
+      await step(bank.call.id, "pay", cust.jar);
+      const waiting = await confirmAtStripe(bank.call.id, "pm_card_threeDSecure2Required");
+      check("a card waiting for its bank's approval holds nothing yet", waiting.status === "requires_action" && ((await step(bank.call.id, "pay-check", cust.jar)).json as AppCallPage).state === "pay" && (await paymentOf(bank.call.id)).status === "awaiting_payment", `${waiting.status} ${waiting.code}`);
+      // A card approved through a card form left open, after the call was cancelled or was over, does not count,
+      // and what tidies up after such a call lets that approval go at Stripe.
+      const { settleCancelledCall } = await import("../src/lib/payments/cancel");
+      const stale = await newCall(host.id, cust.id, { startsIn: 22, price: 2000, minutes: 10 });
+      await step(stale.call.id, "pay", cust.jar);
+      await db.update(schema.calls).set({ cancelledAt: new Date(), cancelledBy: "host" }).where(eq(schema.calls.id, stale.call.id));
+      const lateCard = await confirmAtStripe(stale.call.id, "pm_card_visa");
+      await step(stale.call.id, "pay-check", cust.jar);
+      check("a card approved after the call was cancelled does not count as held", lateCard.status === "requires_capture" && (await paymentOf(stale.call.id)).status === "awaiting_payment", `${lateCard.status} ${(await paymentOf(stale.call.id)).status}`);
+      await settleCancelledCall(await callRow(stale.call.id), await paymentOf(stale.call.id));
+      check("and that approval is let go at Stripe", (await stripe().paymentIntents.retrieve((await paymentOf(stale.call.id)).stripePaymentIntentId!)).status === "canceled" && (await paymentOf(stale.call.id)).status !== "held");
+      const overNow = await newCall(host.id, cust.id, { startsIn: 24, price: 2000, minutes: 10 });
+      await step(overNow.call.id, "pay", cust.jar);
+      await db.update(schema.calls).set({ startsAt: new Date(Date.now() - 40 * MINUTE), endsAt: new Date(Date.now() - 30 * MINUTE) }).where(eq(schema.calls.id, overNow.call.id));
+      const overCard = await confirmAtStripe(overNow.call.id, "pm_card_visa");
+      await step(overNow.call.id, "pay-check", cust.jar);
+      check("nor does one approved after the call's booked end", overCard.status === "requires_capture" && (await paymentOf(overNow.call.id)).status === "awaiting_payment", `${overCard.status} ${(await paymentOf(overNow.call.id)).status}`);
       // (A call paid from a membership has no card step: that refusal is in the one function both the website's
       // address and this one call, src/lib/payments/steps.ts. Making a member's call needs a whole membership with a
       // paid month, which the website's own member-calls-check sets up; it is not made again here.)
@@ -311,6 +397,7 @@ async function main() {
       const byHost = await step(payable.call.id, "cancel", host.jar, { shown: "free" });
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, host.id));
       check("the host cancels (a paused host too): free for the customer, and the hold is let go", byHost.status === 200 && (byHost.json as AppCallPage).state === "cancelled" && (await callRow(payable.call.id)).cancelledBy === "host" && (await callRow(payable.call.id)).cancelledLate === false && (await paymentOf(payable.call.id)).status !== "held", `${byHost.status} ${(await paymentOf(payable.call.id)).status}`);
+      check("it says that the hold is being let go, and at Stripe it is", (byHost.json as AppCallPage).notice === "The call was cancelled. Nothing is charged, and the hold on the card is being let go." && (await stripe().paymentIntents.retrieve((await paymentOf(payable.call.id)).stripePaymentIntentId!)).status === "canceled", String((byHost.json as AppCallPage).notice));
 
       // Late: inside the host's hour, with the money held.
       const late = await newCall(host.id, cust.id, { startsIn: 30, price: 2000, minutes: 10, freeCancel: 60 });
@@ -320,11 +407,34 @@ async function main() {
       await confirmAtStripe(late.call.id, "pm_card_visa");
       // The person was shown "free"; meanwhile the money was held, and the free hour is long over.
       const changed = await step(late.call.id, "cancel", cust.jar, { shown: "free" });
-      check("cancelling that has turned from free to charged while the person was looking cancels nothing, and says so", refusal(changed) === "not_valid" && sentence(changed) === "Cancelling this call is no longer free: its free period has just ended. Nothing was cancelled. Please read what cancelling means now." && (await callRow(late.call.id)).cancelledAt === null && (await paymentOf(late.call.id)).status === "held", sentence(changed));
+      check("cancelling that has turned from free to charged while the person was looking cancels nothing, and says so", refusal(changed) === "not_valid" && sentence(changed) === CHANGED && (await callRow(late.call.id)).cancelledAt === null && (await paymentOf(late.call.id)).status === "held", sentence(changed));
       const after = (await callPage(late.call.id, cust.jar)).body;
       check("the page then says what it means now", after?.cancel?.shown === "late_charge" && after.cancel.words === "Cancelling now is past the free period: the full $13.33 is charged. The host may choose to refund you.");
       const lateDone = await step(late.call.id, "cancel", cust.jar, { shown: "late_charge" });
       check("confirmed as shown, the late cancellation goes through, and says the price is charged", lateDone.status === 200 && (lateDone.json as AppCallPage).state === "cancelled" && (lateDone.json as AppCallPage).notice === "The call was cancelled after the free period, so the booked price is charged." && (await callRow(late.call.id)).cancelledLate === true, lateDone.text.slice(0, 160));
+      const charged = await paymentOf(late.call.id);
+      const taken = await stripe().paymentIntents.retrieve(charged.stripePaymentIntentId!);
+      check("the late charge is the booked price, taken once at Stripe", charged.status === "charged" && charged.bookedCents === 1333 && taken.status === "succeeded" && taken.amount_received === 1333, `${charged.status} ${taken.status} ${taken.amount_received}`);
+      // The free period ends while the cancelling waits its turn (here: for the call's own lock). What it means is
+      // decided when it happens, not when the button was pressed: nothing is cancelled, and the person is told.
+      const edge = await newCall(host.id, cust.id, { startsIn: 60 + 16 / 60, price: 2000, minutes: 10, freeCancel: 60 });
+      await step(edge.call.id, "pay", cust.jar);
+      await confirmAtStripe(edge.call.id, "pm_card_visa");
+      await step(edge.call.id, "pay-check", cust.jar);
+      const freeEnds = edge.call.startsAt.getTime() - 60 * MINUTE;
+      const edgeShown = (await callPage(edge.call.id, cust.jar)).body?.cancel?.shown;
+      let lockTaken = () => {};
+      const locked = new Promise<void>((done) => (lockTaken = done));
+      const holding = db.transaction(async (tx) => {
+        await tx.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.id, edge.call.id)).for("update");
+        lockTaken();
+        await pause(Math.max(0, freeEnds + 1_500 - Date.now()));
+      });
+      await locked;
+      const inTime = Date.now() < freeEnds - 300;
+      const waited = await step(edge.call.id, "cancel", cust.jar, { shown: "free" });
+      await holding;
+      check("a free cancellation that had to wait until the free period was over cancels nothing, and says so", edgeShown === "free" && inTime && refusal(waited) === "not_valid" && sentence(waited) === CHANGED && (await callRow(edge.call.id)).cancelledAt === null && (await paymentOf(edge.call.id)).status === "held", `shown ${edgeShown}, sent in time ${inTime}, ${waited.status} ${sentence(waited)}`);
       // Shown as charged, but free by now (the hold fell away): cancelling as shown or cheaper always goes through.
       const cheaper = await newCall(host.id, cust.id, { startsIn: 45, price: 2000, minutes: 10, freeCancel: 60 });
       const cheaperDone = await step(cheaper.call.id, "cancel", cust.jar, { shown: "late_charge" });
@@ -334,7 +444,15 @@ async function main() {
       check("a call that has started cannot be cancelled", sentence(await step(started.call.id, "cancel", cust.jar, { shown: "free" })) === "This call has started, so it can no longer be cancelled." && (await callRow(started.call.id)).cancelledAt === null);
       // The website's own form carries what it showed, too.
       const web = await asBrowser(`/calls/${soon.call.id}`, { jar: cust.jar });
-      check("the website's form carries what it showed", web.status === 200 && /name="shown"[^>]*value="free"|value="free"[^>]*name="shown"/.test(web.text));
+      const fields = formFields(web.text, "callId");
+      check("the website's form carries what it showed", web.status === 200 && fields?.shown === "free" && fields.callId === soon.call.id, JSON.stringify(Object.keys(fields ?? {})));
+      // The website's own button, pressed: once without saying what the page showed, once as the page sent it.
+      const { shown: _left, ...withoutShown } = fields ?? {};
+      void _left;
+      const notSaid = await postForm(`/calls/${soon.call.id}`, withoutShown, cust.jar);
+      check("the website's form sent without what it showed cancels nothing, and goes back to the call's page", notSaid.status === 303 && notSaid.to.startsWith(`/calls/${soon.call.id}?`) && (await callRow(soon.call.id)).cancelledAt === null, `${notSaid.status} ${notSaid.to}`);
+      const said = await postForm(`/calls/${soon.call.id}`, fields ?? {}, cust.jar);
+      check("sent as the page sent it, the call is cancelled, and the website goes on to its results", said.status === 303 && said.to.startsWith(`/calls/${soon.call.id}/results`) && (await callRow(soon.call.id)).cancelledBy === "customer", `${said.status} ${said.to}`);
     }
   } finally {
     const ids = made.length ? made : ["-"];
@@ -359,6 +477,7 @@ async function main() {
       if (!gone) check(`the test customer ${one.stripeCustomerId} was removed at Stripe`, false, "remove it by hand in Stripe's test dashboard");
     }
     await quietly(db.delete(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids)));
+    await quietly(db.delete(schema.hostPhotos).where(inArray(schema.hostPhotos.userId, ids)));
     await quietly(db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids)));
     await quietly(db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `appcalls-${RUN}-%`)));
     await quietly(db.delete(schema.user).where(inArray(schema.user.id, ids)));

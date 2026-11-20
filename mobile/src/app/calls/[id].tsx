@@ -45,6 +45,14 @@ function OneCall({ id }: { id: string }) {
   const [busy, setBusy] = useState<"pay" | "check" | "cancel" | null>(null);
   /** Stripe's sheet finished and the server has not yet said the money is held: the screen offers to ask again, without the card being entered twice. */
   const [unchecked, setUnchecked] = useState(false);
+  /**
+   * Why a cancellation was refused, in the server's sentence. It stays beside the cancel button whatever state the
+   * page is in when it is read again: the reason is often that the state has just changed (a hold was placed).
+   */
+  const [cancelSaid, setCancelSaid] = useState<string | null>(null);
+  /** When the countdown last asked the server whether the room is open, so it never asks in a tight loop. */
+  const dueAsked = useRef(0);
+  const dueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   /** Every question gets a number when it is asked; only the answer to the newest is used. A step takes one as it begins. */
@@ -107,17 +115,19 @@ function OneCall({ id }: { id: string }) {
         setGone(true);
         return;
       }
+      const still = watch();
       if (!andHold && !now && checking.current > 0) return;
       if (andHold) checking.current++;
       try {
         const got = await asked("");
         // The customer's hold is still open: a card may have been approved while the app was away.
-        if (got?.pay && andHold && !acting.current) await asked("/pay-check");
+        // (Only while this page is still the one in front: after the person has left it, nothing more is asked for them.)
+        if (got?.pay && andHold && !acting.current && still()) await asked("/pay-check");
       } finally {
         if (andHold) checking.current--;
       }
     },
-    [id, asked],
+    [id, asked, watch],
   );
 
   // While the screen is in front: now, and on coming back to the app.
@@ -127,9 +137,29 @@ function OneCall({ id }: { id: string }) {
       const listener = AppState.addEventListener("change", (now) => {
         if (now === "active") void look(true);
       });
-      return () => listener.remove();
+      return () => {
+        listener.remove();
+        // Leaving the page: an answer still on its way is no longer used (it would act for a page nobody is looking at).
+        newest.current++;
+        if (dueTimer.current) clearTimeout(dueTimer.current);
+      };
     }, [look]),
   );
+
+  /** The countdown says the room should be open by now: the server is asked, at most once every few seconds. */
+  const whenDue = useCallback(() => {
+    const wait = 3_000 - (Date.now() - dueAsked.current);
+    if (dueTimer.current) clearTimeout(dueTimer.current);
+    if (wait <= 0) {
+      dueAsked.current = Date.now();
+      void look(false, true);
+    } else {
+      dueTimer.current = setTimeout(() => {
+        dueAsked.current = Date.now();
+        void look(false, true);
+      }, wait);
+    }
+  }, [look]);
   // And, while the page can change by itself, as often as the server says.
   useFocusEffect(
     useCallback(() => {
@@ -192,10 +222,17 @@ function OneCall({ id }: { id: string }) {
   async function cancel(shown: "free" | "late_charge") {
     if (acting.current) return;
     acting.current = true;
-    newest.current++;
+    const mine = ++newest.current;
     setBusy("cancel");
     setSaid(null);
-    const done = await asked("/cancel", { shown });
+    setCancelSaid(null);
+    const answer = await ask<AppCallPage>(`${path}/cancel`, { body: { shown } });
+    const done = settle(answer, mine);
+    // Refused, in the server's sentence: it is kept beside the button, also once the page has been read again.
+    if (done === null && !answer.ok && (answer.code === "not_valid" || answer.code === "paused")) {
+      setSaid(null);
+      setCancelSaid(answer.message);
+    }
     acting.current = false;
     setBusy(null);
     if (!done) void look(false, true);
@@ -242,7 +279,7 @@ function OneCall({ id }: { id: string }) {
         </View>
       ) : null}
 
-      {page.room ? <Countdown key={page.serverNow} page={page} room={page.room} onDue={() => void look(false, true)} /> : null}
+      {page.room ? <Countdown key={page.serverNow} page={page} room={page.room} onDue={whenDue} /> : null}
 
       {page.pay ? (
         <Card>
@@ -275,8 +312,10 @@ function OneCall({ id }: { id: string }) {
         </Card>
       ) : null}
 
+      {cancelSaid && !cancelling ? <Notice>{cancelSaid}</Notice> : null}
       {cancelling ? (
         <View style={styles.cancel}>
+          {cancelSaid ? <Notice>{cancelSaid}</Notice> : null}
           <Words soft>{cancelling.words}</Words>
           <Button
             label={cancelling.button}

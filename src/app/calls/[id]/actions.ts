@@ -6,8 +6,8 @@ import { withNotice } from "@/lib/notice";
 import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
-import { cancelledWords } from "@/lib/call-page/words";
-import { cancelCall, CancelChangedError } from "@/lib/payments/cancel";
+import { CALL_WORDS, cancelledWords } from "@/lib/call-page/words";
+import { cancelCallWith, CancelChangedError } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { rateCall, RatingError } from "@/lib/ratings/ratings";
 import { answerRequest, askForRefund, closeRequest, declineRequest, MESSAGE_MAX, RequestError } from "@/lib/refunds/requests";
@@ -28,12 +28,13 @@ export async function cancelCallAction(formData: FormData) {
   if (!access) redirect("/");
 
   // What the page said cancelling would mean. If it has turned from free to charged since, nothing is cancelled.
-  const said = formData.get("shown");
-  const shown = said === "free" || said === "late_charge" ? said : undefined;
+  const shown = formData.get("shown");
+  // A form that does not say what its page showed cancels nothing: the page is shown again, to be confirmed there.
+  if (shown !== "free" && shown !== "late_charge") redirect(withNotice(`/calls/${callId}`, CALL_WORDS.cancelAskAgain));
   let notice: string;
   try {
-    const outcome = await cancelCall({ call: access.call, payment: access.payment, by: access.role, now: new Date(), shown });
-    notice = cancelledWords({ member: access.payment?.kind === "member_call", outcome });
+    const done = await cancelCallWith({ call: access.call, payment: access.payment, by: access.role, now: new Date(), shown });
+    notice = cancelledWords({ member: access.payment?.kind === "member_call", ...done });
   } catch (error) {
     // Back to the call's own page, which says what cancelling means now, to be confirmed again.
     if (error instanceof CancelChangedError) redirect(withNotice(`/calls/${callId}`, error.message));

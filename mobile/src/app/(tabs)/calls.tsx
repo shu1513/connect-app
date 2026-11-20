@@ -60,6 +60,8 @@ export default function CallsPlace() {
       return () => {
         listener.remove();
         clearInterval(timer);
+        // Leaving this place: an answer still on its way is no longer used.
+        newest.current++;
       };
     }, [load]),
   );

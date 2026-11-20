@@ -17,7 +17,7 @@ import { paymentLine, paymentsByCall } from "@/lib/home/payment-line";
 import { HOME, notOver } from "@/lib/home/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
-import { photosOf } from "@/lib/profiles/photo";
+import { openPhotosOf } from "@/lib/profiles/photo";
 
 /** What describing a call needs to know besides the call itself. */
 export type ListingContext = {
@@ -37,7 +37,8 @@ export type ListingContext = {
 export function listedCall(call: Call, context: ListingContext): ListedCall {
   const { userId, drawn, aboutOf } = context;
   const hosting = call.hostId === userId;
-  const finished = Boolean(call.safetyEndedAt) || call.endsAt.getTime() <= drawn.getTime();
+  // Over: stopped, cancelled (a late cancellation is charged at once, and that is the host's to see), or past its booked end.
+  const finished = Boolean(call.safetyEndedAt) || Boolean(call.cancelledAt) || call.endsAt.getTime() <= drawn.getTime();
   const paid = context.paymentsOf.get(call.id) ?? [];
   // What a finished call earned its host (plans/43, decision 8): her share of each charge, by the one rule for that.
   // Worked out here, and only for a call this person hosted.
@@ -76,7 +77,8 @@ export async function listCalls(userId: string, calls: Call[], now: Date): Promi
     db.select().from(schema.payments).where(inArray(schema.payments.callId, calls.map((c) => c.id))),
     // About the customers of the calls this person hosts that are not over, and of no other call (plans/38).
     customerDetailsFor(userId, calls.filter((call) => notOver(call, now)), now),
-    photosOf(myHostIds),
+    // Only of hosts whose page anyone may see now: this list names a host whatever has become of her page.
+    openPhotosOf(myHostIds),
   ]);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
@@ -87,7 +89,8 @@ export async function listCalls(userId: string, calls: Call[], now: Date): Promi
     paymentsOf: paymentsByCall(payments),
     photos,
     aboutOf,
-    otherOf: (call) => (call.hostId === userId ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown",
+    // A host is only ever named by the name on her page, never by her account name.
+    otherOf: (call) => (call.hostId === userId ? nameOf.get(call.customerId) : hostNameOf.get(call.hostId)) ?? "Unknown",
   };
   return calls.map((call) => listedCall(call, context));
 }

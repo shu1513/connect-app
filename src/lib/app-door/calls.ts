@@ -38,7 +38,10 @@ function stateWords(page: CallPage): Pick<AppCallPage, "words" | "small"> {
 export async function callPageFor(person: { id: string }, callId: string, now: Date, notice: string | null = null): Promise<AppCallPage | null> {
   const page = await gatherCallPage(person.id, callId, now, { sync: false });
   if (!page) return null;
-  const { call, role, payment, state } = page;
+  const { call, role, payment } = page;
+  // A call whose booked end has passed is over, whatever else was open about it (unpaid, or its room simply
+  // empty now): the page then says so and offers nothing more. (The website's page finds this out by its own clock.)
+  const state = page.state !== "cancelled" && roomState(call, now) === "closed" ? "ended" : page.state;
   const over = state === "cancelled" || state === "ended";
   return {
     id: call.id,
@@ -50,7 +53,7 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
     paidHow: paidHowWords({ kind: payment?.kind ?? null, role, pricePer15: page.pricePer15, upTo: page.upTo }),
     serverNow: now.toISOString(),
     state,
-    ...stateWords(page),
+    ...stateWords({ ...page, state }),
     pay:
       state === "pay" && page.bookedPrice && page.pricePer15
         ? {
@@ -68,7 +71,7 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
     about: role === "host" && !over && page.about?.text ? { title: CALL_WORDS.aboutTitle(page.otherName ?? "this customer"), text: page.about.text } : null,
     cancel:
       !over && page.cancel !== "not_allowed"
-        ? { words: cancelWords({ member: payment?.kind === "member_call", outcome: page.cancel, bookedPrice: page.bookedPrice }), button: CALL_WORDS.cancelButton, shown: page.cancel, yes: CALL_WORDS.cancelYes, no: CALL_WORDS.cancelNo }
+        ? { words: cancelWords({ member: payment?.kind === "member_call", outcome: page.cancel, bookedPrice: page.bookedPrice, frozen: page.memberFrozen }), button: CALL_WORDS.cancelButton, shown: page.cancel, yes: CALL_WORDS.cancelYes, no: CALL_WORDS.cancelNo }
         : null,
     refreshSeconds: over ? null : page.follows ? FOLLOW_SECONDS : WATCH_SECONDS,
     notice,

@@ -23,7 +23,7 @@ import { customerDetailsFor } from "@/lib/home/customer-details";
 import { listedCall } from "@/lib/home/list-calls";
 import { paymentsByCall } from "@/lib/home/payment-line";
 import { HOME, nextCall, notOver } from "@/lib/home/rules";
-import { photosOf } from "@/lib/profiles/photo";
+import { openPhotosOf } from "@/lib/profiles/photo";
 import { picturesOf } from "@/lib/projects/pictures";
 import { callsToRate } from "@/lib/ratings/ratings";
 import { todaysSuggestions } from "@/lib/suggestions/suggestions";
@@ -91,7 +91,8 @@ export async function gatherHome(user: { id: string; name: string; paused: boole
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
   const paymentsOf = paymentsByCall(payments);
-  const otherOf = (call: (typeof every)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown";
+  // A host is only ever named by the name on her page, never by her account name.
+  const otherOf = (call: (typeof every)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : hostNameOf.get(call.hostId)) ?? "Unknown";
 
   // "Hosts you follow": the first few in the list's own order (available now first). The rest are behind "See all".
   const shownHosts = followed.slice(0, HOME.hostsShown);
@@ -99,7 +100,8 @@ export async function gatherHome(user: { id: string; name: string; paused: boole
   const news = options.diary && followed.length > 0 ? await diaryNews(user.id, now) : [];
   const [photos, pictures, suggested] = await Promise.all([
     // A photo is fetched from its own address, which decides afresh who may see it; a followed host whose page is not open is shown by name only.
-    photosOf([...new Set([...myHostIds, ...shownHosts.filter((host) => host.handle).map((host) => host.hostId), ...news.map((post) => post.hostId)])]),
+    // (Only of hosts whose page anyone may see now: a host of one's own calls is named whatever has become of her page.)
+    openPhotosOf([...new Set([...myHostIds, ...shownHosts.filter((host) => host.handle).map((host) => host.hostId), ...news.map((post) => post.hostId)])]),
     // Only the pictures everyone may see. With no news (always so for the phone app) there is nothing to ask for, and nothing is read.
     picturesOf(news.map((post) => post.postId)),
     // "Suggested hosts" (plans/37): only read here. A paused person gets none.

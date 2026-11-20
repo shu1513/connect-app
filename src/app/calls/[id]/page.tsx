@@ -144,7 +144,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           <input type="hidden" name="callId" value={call.id} />
           {/* What this page says cancelling means. If it has turned from free to charged by the time the button is pressed, nothing is cancelled. */}
           <input type="hidden" name="shown" value={cancel} />
-          <p className="opacity-80">{cancelWords({ member: payment?.kind === "member_call", outcome: cancel, bookedPrice })}</p>
+          <p className="opacity-80">{cancelWords({ member: payment?.kind === "member_call", outcome: cancel, bookedPrice, frozen: page.memberFrozen })}</p>
           <button type="submit" className="mt-2 rounded border border-red-600 px-3 py-1.5 text-red-600">
             {CALL_WORDS.cancelButton}
           </button>

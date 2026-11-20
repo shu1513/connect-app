@@ -13,7 +13,7 @@
  */
 import { handleURLCallback, initPaymentSheet, initStripe, PaymentSheet, PaymentSheetError, presentPaymentSheet } from "@stripe/stripe-react-native";
 import { useEffect } from "react";
-import { Linking } from "react-native";
+import { AppState, Linking } from "react-native";
 import type { AppCardStep, AppPayStep } from "../../../src/lib/app-door/types";
 import { requestScreen } from "./book-rules";
 import { callScreen } from "./call-rules";
@@ -45,13 +45,16 @@ export async function placeHold(step: AppPayStep, callId: string, button: string
   return sheet({ paymentIntentClientSecret: step.clientSecret }, step, callScreen(APP_SCHEME, callId), button, still);
 }
 
+/** The screen that asked is still the one in front, and the app itself is on the phone's screen (not behind another app, not locked). */
+const inFront = (still: () => boolean): boolean => still() && AppState.currentState === "active";
+
 /** The sheet itself, for either step: cards only, nothing of Stripe's extras, no list of earlier cards. */
 async function sheet(secret: { setupIntentClientSecret: string } | { paymentIntentClientSecret: string }, step: { publishableKey: string; merchant: string }, back: string | null, button: string, still: () => boolean): Promise<CardOutcome> {
   // One sheet at a time, whatever was tapped twice.
   if (open) return "given_up";
   open = true;
   try {
-    if (!still()) return "not_shown";
+    if (!inFront(still)) return "not_shown";
     await initStripe({ publishableKey: step.publishableKey });
     const made = await initPaymentSheet({
       ...secret,
@@ -63,7 +66,8 @@ async function sheet(secret: { setupIntentClientSecret: string } | { paymentInte
       primaryButtonLabel: button,
     });
     if (made.error) return "failed";
-    if (!still()) return "not_shown";
+    // Getting the sheet ready takes a moment: the person may have left the screen, or the app, meanwhile.
+    if (!inFront(still)) return "not_shown";
     const shown = await presentPaymentSheet();
     if (!shown.error) return "finished";
     return shown.error.code === PaymentSheetError.Canceled ? "given_up" : "failed";

@@ -4,6 +4,7 @@
  * looking, where its payment stands, and what cancelling right now would mean.
  */
 import "server-only";
+import { monthIsFrozen } from "@/lib/membership/calls";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
@@ -45,6 +46,8 @@ export type CallPage = {
   upTo: string | null;
   /** What cancelling right now would mean for the person looking. */
   cancel: CancellationOutcome;
+  /** A member's call whose month is frozen (its payment disputed at the bank): cancelling moves none of its time. */
+  memberFrozen: boolean;
   state: CallPageState;
   /** The hold may land any second (an instant call's saved card, a booked call about to start). */
   follows: boolean;
@@ -98,12 +101,14 @@ export async function gatherCallPage(userId: string, callId: string, now: Date, 
     call,
     role,
     payment,
-    otherName: hostProfile?.displayName ?? person?.name ?? null,
+    // A customer knows the host by the name on her page, and by nothing else: never by her account name.
+    otherName: role === "customer" ? (hostProfile?.displayName ?? null) : (person?.name ?? null),
     about,
     bookedPrice,
     pricePer15: payment ? formatMoney(payment.pricePer15Cents) : null,
     upTo: payment ? formatMoney(booking?.totalCents ?? payment.bookedCents) : null,
     cancel,
+    memberFrozen: payment?.kind === "member_call" && payment.monthId !== null && (await monthIsFrozen(payment.monthId)),
     state,
     follows: unpaid && (call.billing === "together" || call.startsAt.getTime() - now.getTime() < FOLLOW_WITHIN_MS),
   };
