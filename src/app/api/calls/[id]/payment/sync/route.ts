@@ -1,5 +1,4 @@
-import { callForParticipant } from "@/lib/payments/access";
-import { syncHold } from "@/lib/payments/hold";
+import { syncPaymentFor } from "@/lib/payments/steps";
 import { getUser } from "@/lib/session";
 
 /**
@@ -10,18 +9,9 @@ import { getUser } from "@/lib/session";
 export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]/payment/sync">) {
   const user = await getUser();
   if (!user) return Response.json({ error: "Please log in." }, { status: 401 });
-
   const { id } = await ctx.params;
-  const access = await callForParticipant(id, user.id);
-  if (!access || !access.payment) return Response.json({ error: "Call not found." }, { status: 404 });
-  // A call booked with a membership has no hold at Stripe to ask about: its money is set aside in the member's month.
-  if (access.payment.kind === "member_call") return Response.json({ status: access.payment.status });
-
-  try {
-    const payment = await syncHold(access.payment.id, new Date());
-    return Response.json({ status: payment.status });
-  } catch (error) {
-    console.error("[payments] could not check a hold", error);
-    return Response.json({ error: "Could not check the payment. Please try again." }, { status: 502 });
-  }
+  // The work is in one function, which the phone app's address calls too (src/lib/payments/steps.ts).
+  const checked = await syncPaymentFor(user.id, id, new Date());
+  if ("refused" in checked) return Response.json({ error: checked.refused.message }, { status: checked.refused.status });
+  return Response.json(checked);
 }

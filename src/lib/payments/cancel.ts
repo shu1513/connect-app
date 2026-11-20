@@ -11,6 +11,7 @@ import { afterTheWait } from "@/lib/membership/rules";
 import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
 import { syncHold } from "./hold";
+import { CALL_WORDS } from "@/lib/call-page/words";
 import { MoneyError } from "./operations";
 import { cancellationOutcome } from "./rules";
 
@@ -18,6 +19,9 @@ import { cancellationOutcome } from "./rules";
  * Cancels a call on behalf of its host or its customer, or for the founder when an account is closed.
  * Free before the host's cut-off; after it, the customer is charged the booked price.
  */
+/** Cancelling would cost more than the person was shown: nothing was cancelled, and the page shows what it means now. */
+export class CancelChangedError extends MoneyError {}
+
 export async function cancelCall(input: {
   call: Call;
   /** The call's own payment (null for a free call). */
@@ -26,6 +30,13 @@ export async function cancelCall(input: {
   now: Date;
   /** Why, when it is not simply one of the two people cancelling. Shown to nobody; decides which email goes out. */
   reason?: string;
+  /**
+   * What the person was shown that cancelling would mean, when a person cancels from a page or a screen. If
+   * they were shown "free" and it would now cost the late charge (the free period ended between the page being
+   * shown and the button being pressed), nothing is cancelled: they are told, and shown what it means now.
+   * Left out by everything that cancels by itself (the helper, closing an account, a block).
+   */
+  shown?: "free" | "late_charge";
 }): Promise<"free" | "late_charge"> {
   const { call, by, now } = input;
   let { payment } = input;
@@ -56,6 +67,7 @@ export async function cancelCall(input: {
         held: payment?.status === "held",
       });
   if (outcome === "not_allowed") throw new MoneyError("This call has started, so it can no longer be cancelled.");
+  if (input.shown === "free" && outcome === "late_charge") throw new CancelChangedError(CALL_WORDS.cancelChanged);
 
   // Mark the call cancelled first, so nobody can join it. Only the first cancel wins.
   // In the same step the booking it came from ends and both people's time is free again.

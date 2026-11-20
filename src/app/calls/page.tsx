@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, lte, or } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
@@ -6,7 +6,7 @@ import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
 import { db, schema } from "@/db";
 import { paymentLine, paymentsByCall } from "@/lib/home/payment-line";
-import { HOME } from "@/lib/home/rules";
+import { pastCallRows } from "@/lib/home/list-calls";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Past calls" };
@@ -25,22 +25,8 @@ export default async function PastCallsPage(props: PageProps<"/calls">) {
   const page = typeof query.page === "string" && /^[1-9]\d{0,3}$/.test(query.page) ? Number(query.page) : 1;
   const now = new Date();
 
-  // One more than a page holds, to know whether there are older ones.
-  const found = await db
-    .select()
-    .from(schema.calls)
-    .where(
-      and(
-        or(eq(schema.calls.hostId, user.id), eq(schema.calls.customerId, user.id)),
-        // The opposite of the home page's "not over" (src/lib/home/rules.ts).
-        or(isNotNull(schema.calls.cancelledAt), isNotNull(schema.calls.safetyEndedAt), lte(schema.calls.endsAt, now)),
-      ),
-    )
-    .orderBy(desc(schema.calls.startsAt), desc(schema.calls.id))
-    .limit(HOME.pastPerPage + 1)
-    .offset((page - 1) * HOME.pastPerPage);
-  const calls = found.slice(0, HOME.pastPerPage);
-  const older = found.length > HOME.pastPerPage;
+  // Which calls, and whether there are older ones: asked in one place, for this page and the phone app (list-calls.ts).
+  const { calls, older } = await pastCallRows(user.id, page, now);
 
   // Only the names of the people this person has had calls with.
   const otherIds = [...new Set(calls.map((c) => (c.hostId === user.id ? c.customerId : c.hostId)))];

@@ -5,16 +5,24 @@ import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+/** A piece of a sentence: plain words, or words to stress (src/lib/booking/book-words.ts; this panel's points name no moments). */
+type Part = string | { bold: string } | { time: string };
+
+/**
+ * The words are handed in by the page: this file runs in the browser, and the sentences are kept in one place
+ * for the website and the phone app (src/lib/call-page/words.ts).
+ */
 type Props = {
   callId: string;
-  /** "$13.33" */
-  bookedPrice: string;
-  /** "$20.00" */
-  pricePer15: string;
-  /** Plain sentence describing the host's cancelling rule for this call. */
-  cancelRule: string;
-  /** What this call charges for: "host" (the host's time) or "together" (time both were in). */
-  billing: string;
+  title: string;
+  /** What it costs, that it is only held, what is paid for, and the cancelling rule. */
+  points: Part[][];
+  /** "Hold $13.33 and confirm the call" */
+  button: string;
+  busyWords: string;
+  notHeld: string;
+  notConfirmed: string;
+  notStarted: string;
 };
 
 /** The customer's confirm-and-pay step. The card is entered in Stripe's own form. */
@@ -30,7 +38,7 @@ export function PayPanel(props: Props) {
         const response = await fetch(`/api/calls/${props.callId}/payment/start`, { method: "POST" });
         const body = await response.json();
         if (cancelled) return;
-        if (!response.ok) return setError(body.error ?? "Payment could not be started.");
+        if (!response.ok) return setError(body.error ?? props.notStarted);
         if (body.alreadyHeld) return router.refresh();
         setSetup({ stripe: loadStripe(body.publishableKey), clientSecret: body.clientSecret });
       } catch {
@@ -40,34 +48,15 @@ export function PayPanel(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [props.callId, router]);
+  }, [props.callId, props.notStarted, router]);
 
   return (
     <section className="mt-6 max-w-xl rounded border border-neutral-400 p-4">
-      <h2 className="text-lg font-semibold">Confirm and pay</h2>
+      <h2 className="text-lg font-semibold">{props.title}</h2>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-        <li>
-          This call costs {props.pricePer15} per 15 minutes, up to <strong>{props.bookedPrice}</strong> in total.
-        </li>
-        <li>
-          {props.bookedPrice} is held on your card now. Nothing is charged until after the call, and you are never charged
-          more than that.
-        </li>
-        {props.billing === "together" ? (
-          <li>
-            You pay for the time <strong>you and the host are both in the call</strong> during the booked time. Time only one of you was in is
-            not charged.
-          </li>
-        ) : (
-          <>
-            <li>
-              You pay for the time the host is in the call during the booked time.{" "}
-              <strong>That includes time the host spends waiting if you are late or do not join.</strong>
-            </li>
-            <li>If the host is late, leaves early or does not show up, you do not pay for that time.</li>
-          </>
-        )}
-        <li>{props.cancelRule}</li>
+        {props.points.map((point, index) => (
+          <li key={index}>{point.map((part, at) => (typeof part === "string" ? part : "bold" in part ? <strong key={at}>{part.bold}</strong> : part.time))}</li>
+        ))}
       </ul>
 
       {error && (
@@ -79,7 +68,7 @@ export function PayPanel(props: Props) {
       {setup ? (
         <div className="mt-4 rounded bg-white p-4">
           <Elements stripe={setup.stripe} options={{ clientSecret: setup.clientSecret }}>
-            <PayForm callId={props.callId} bookedPrice={props.bookedPrice} />
+            <PayForm callId={props.callId} button={props.button} busyWords={props.busyWords} notHeld={props.notHeld} notConfirmed={props.notConfirmed} />
           </Elements>
         </div>
       ) : (
@@ -89,7 +78,7 @@ export function PayPanel(props: Props) {
   );
 }
 
-function PayForm({ callId, bookedPrice }: { callId: string; bookedPrice: string }) {
+function PayForm({ callId, button, busyWords, notHeld, notConfirmed }: { callId: string; button: string; busyWords: string; notHeld: string; notConfirmed: string }) {
   const stripe = useStripe();
   const elements = useElements();
   const router = useRouter();
@@ -108,7 +97,7 @@ function PayForm({ callId, bookedPrice }: { callId: string; bookedPrice: string 
       redirect: "if_required",
     });
     if (result.error) {
-      setError(result.error.message ?? "Your card could not be held. Please try another card.");
+      setError(result.error.message ?? notHeld);
       setBusy(false);
       return;
     }
@@ -119,7 +108,7 @@ function PayForm({ callId, bookedPrice }: { callId: string; bookedPrice: string 
     if (response.ok && body.status === "held") {
       router.refresh();
     } else {
-      setError("The hold could not be confirmed yet. Please reload the page in a moment.");
+      setError(notConfirmed);
       setBusy(false);
     }
   }
@@ -138,7 +127,7 @@ function PayForm({ callId, bookedPrice }: { callId: string; bookedPrice: string 
         disabled={!stripe || busy}
         className="mt-4 w-full rounded bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50"
       >
-        {busy ? "Placing the hold…" : `Hold ${bookedPrice} and confirm the call`}
+        {busy ? busyWords : button}
       </button>
     </form>
   );

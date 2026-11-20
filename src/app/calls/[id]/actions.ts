@@ -6,7 +6,8 @@ import { withNotice } from "@/lib/notice";
 import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
-import { cancelCall } from "@/lib/payments/cancel";
+import { cancelledWords } from "@/lib/call-page/words";
+import { cancelCall, CancelChangedError } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { rateCall, RatingError } from "@/lib/ratings/ratings";
 import { answerRequest, askForRefund, closeRequest, declineRequest, MESSAGE_MAX, RequestError } from "@/lib/refunds/requests";
@@ -26,20 +27,16 @@ export async function cancelCallAction(formData: FormData) {
   const access = await callForParticipant(callId, user.id);
   if (!access) redirect("/");
 
+  // What the page said cancelling would mean. If it has turned from free to charged since, nothing is cancelled.
+  const said = formData.get("shown");
+  const shown = said === "free" || said === "late_charge" ? said : undefined;
   let notice: string;
   try {
-    const outcome = await cancelCall({ call: access.call, payment: access.payment, by: access.role, now: new Date() });
-    const fromMembership = access.payment?.kind === "member_call";
-    notice =
-      outcome === "late_charge"
-        ? fromMembership
-          ? // What became of the time is on the page this goes to (used; or kept as it is while the month's payment is disputed).
-            "The call was cancelled after the free period. The payment below says what became of the membership time booked for it."
-          : "The call was cancelled after the free period, so the booked price is charged."
-        : fromMembership
-          ? "The call was cancelled. The payment below says what became of the membership time booked for it."
-          : "The call was cancelled. Nothing is charged.";
+    const outcome = await cancelCall({ call: access.call, payment: access.payment, by: access.role, now: new Date(), shown });
+    notice = cancelledWords({ member: access.payment?.kind === "member_call", outcome });
   } catch (error) {
+    // Back to the call's own page, which says what cancelling means now, to be confirmed again.
+    if (error instanceof CancelChangedError) redirect(withNotice(`/calls/${callId}`, error.message));
     notice = message(error);
   }
   redirect(withNotice(`/calls/${callId}/results`, notice));
