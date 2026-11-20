@@ -76,7 +76,7 @@ export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { ca
         {/* This list is only the coming days: the page loads the calls around the day in view, not every call. It is said
             here, for the moment before the calendar is drawn, and for a browser in which it never is. */}
         <p className="mt-2 text-sm text-[#57534e]" data-days-note>
-          These are your calls of the coming days. The calendar, which shows every week, appears here once the page has finished loading.
+          {coming.length > 0 && "These are your calls of the coming days. "}The calendar, which shows every week, appears here once the page has finished loading.
         </p>
       </>
     );
