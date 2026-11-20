@@ -206,6 +206,25 @@ The eleven fixes were found sound, with two gaps it called "must" and four small
    only what it shows. (That only one writes was read in the code: the second request finds the
    step done and changes nothing.)
 
+## Astra's third look at the code (20 November 2026): "not ready", now worked in
+
+The six fixes were found sound. What was left were cases where the phone's own secure store
+fails at the wrong moment, all taken:
+
+1. *If the phone could not note that a sign-out was under way, the screen changed all the
+   same.* Then the kept sign-in is wiped on the spot, before the screen changes. And when the
+   app opens and the store will not say whether a sign-out was left unfinished, the app does
+   nothing as anybody until it does.
+2. *The kit asks "who is signed in?" by itself, out of turn,* and such an answer could have
+   written a sign-in back after a sign-out. Only the app's own renewal may ask that now; and
+   while a sign-out is being finished nothing else goes to the login tool at all.
+3. *On Android an answer given up on half-way could still be handed on as a whole one.* It is
+   thrown away.
+4. *A kept sign-in that could not be read was never overwritten,* which could have locked the
+   phone out of signing in. It is overwritten without being read first.
+5. *The step's screen could, in one rare order of events, wait after the step was done.* It
+   then says so and offers to try again.
+
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Copying the website's sign-in call would open a browser in the app,* and the emailed links

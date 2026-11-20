@@ -41,6 +41,12 @@ const WAIT_MS = 15_000;
 const sender = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const address = String(input instanceof Request ? input.url : input);
   if (!SERVER_USABLE || !isLoginToolAddress(SERVER, address)) throw new Error("Not an address of Connect's login tool.");
+  const path = new URL(address).pathname;
+  // "Who is signed in?" renews the sign-in and writes it to the phone. Only the app's own renewal, in its turn, may
+  // ask it: the kit also asks it by itself, out of turn, and such an answer could write a sign-in back after a sign-out.
+  if (path.endsWith("/get-session") && !renewing) throw new Error("Not asked for by the app.");
+  // While a sign-out is being finished, nothing but the sign-out itself goes to the login tool.
+  if (leaving !== "no" && !path.endsWith("/sign-out")) throw new Error("A sign-out is under way.");
   const stop = new AbortController();
   const asked = init?.signal ?? null;
   const pass = () => stop.abort();
@@ -50,6 +56,9 @@ const sender = (async (input: RequestInfo | URL, init?: RequestInit) => {
   try {
     const answer = await expoFetch(address, { ...(init as object), redirect: "error", credentials: "omit", signal: stop.signal } as Parameters<typeof expoFetch>[1]);
     const words = await answer.text();
+    // Given up on while it was being read: on some phones the reading then ends quietly with what had arrived.
+    // Half an answer is no answer.
+    if (stop.signal.aborted) throw new Error("The answer did not arrive in time.");
     // Handed on whole, with the same number and the same headers (the kit reads the sign-in from them).
     const empty = answer.status === 204 || answer.status === 205 || answer.status === 304;
     return new Response(empty ? null : words, { status: answer.status, statusText: answer.statusText, headers: answer.headers });
@@ -81,20 +90,43 @@ const LEAVING_KEY = "connect_leaving";
  * before the wiping is finished. It is kept on the phone too, so that closing the app in that
  * moment cannot bring the person back when it is opened again.
  */
-let leaving = false;
-const leavingRead: Promise<void> = SecureStore.getItemAsync(LEAVING_KEY).then(
-  (kept) => {
-    leaving = leaving || kept === "1";
-  },
-  () => {},
-);
+let leaving: "yes" | "no" | "unknown" = "unknown";
+/** True only while the app's own renewal is asking the login tool who is signed in (see the sender). */
+let renewing = false;
 
-// Every request to the door carries the kept sign-in, read fresh from the secure store.
+/**
+ * Finds out, from the phone's store, whether a sign-out was left unfinished. Until the store has
+ * answered, it is not known, and nothing is done as anybody: it is asked again each time. Throws
+ * when the store cannot be read.
+ */
+async function knowLeaving(): Promise<void> {
+  if (leaving !== "unknown") return;
+  const kept = await SecureStore.getItemAsync(LEAVING_KEY);
+  if (leaving === "unknown") leaving = kept === "1" ? "yes" : "no";
+}
+
+// Every request to the door carries the kept sign-in, read fresh from the secure store. If the
+// store cannot say whether a sign-out is under way, this throws, and nothing is sent (src/lib/api.ts).
 signInComesFrom(async () => {
-  await leavingRead;
-  if (leaving) return null;
+  await knowLeaving();
+  if (leaving !== "no") return null;
   return (await authClient.getCookie()) || null;
 });
+
+/** Makes the phone's kept sign-in empty and looks that it is. Whatever the kit did or could not do. */
+async function wipeKept(): Promise<boolean> {
+  try {
+    if ((await authClient.getCookie()) === "") return true;
+  } catch {
+    // Not readable: it is overwritten below all the same.
+  }
+  try {
+    await SecureStore.setItemAsync(KEPT_KEY, "{}");
+    return (await authClient.getCookie()) === "";
+  } catch {
+    return false;
+  }
+}
 
 /** One request to the login tool at a time, in the order asked. */
 let turn: Promise<unknown> = Promise.resolve();
@@ -117,27 +149,29 @@ async function finishLeaving(): Promise<boolean> {
   }
   await forgetStep();
   renewedAt = 0;
-  let clean = false;
+  if (!(await wipeKept())) return false;
   try {
-    clean = (await authClient.getCookie()) === "";
-    if (!clean) {
-      await SecureStore.setItemAsync(KEPT_KEY, "{}");
-      clean = (await authClient.getCookie()) === "";
-    }
-    if (clean) {
-      await SecureStore.deleteItemAsync(LEAVING_KEY);
-      leaving = false;
-    }
+    await SecureStore.deleteItemAsync(LEAVING_KEY);
+    leaving = "no";
+    return true;
   } catch {
-    clean = false;
+    // The mark could not be taken away: the phone stays signed out, and the next request tries again.
+    return false;
   }
-  return clean && !leaving;
 }
 
-/** Before anything is asked of the login tool: a sign-out left unfinished (the app was closed in that moment) is finished first. */
+/**
+ * Before anything is asked of the login tool: a sign-out left unfinished (the app was closed in
+ * that moment) is finished first. False when the phone's store would not say, or the wiping could
+ * not be finished: then nothing is asked as anybody.
+ */
 async function cleanFirst(): Promise<boolean> {
-  await leavingRead;
-  return leaving ? finishLeaving() : true;
+  try {
+    await knowLeaving();
+  } catch {
+    return false;
+  }
+  return leaving === "yes" ? finishLeaving() : leaving === "no";
 }
 
 // When the app opens: an unfinished sign-out takes the first turn, before any renewal.
@@ -164,7 +198,8 @@ export function signIn(email: string, password: string): Promise<SignInOutcome> 
 /** Whether a second-step code is being waited for: the password was right a moment ago and the server asked for the code. */
 export async function codeIsPending(): Promise<boolean> {
   try {
-    return (await authClient.getCookie()).includes("two_factor");
+    await knowLeaving();
+    return leaving === "no" && (await authClient.getCookie()).includes("two_factor");
   } catch {
     return false;
   }
@@ -177,6 +212,7 @@ export async function codeIsPending(): Promise<boolean> {
  */
 export function verifyCode(typed: string): Promise<CodeProblem | null> {
   return inTurn(async () => {
+    if (!(await cleanFirst())) return { words: PHONE_PROBLEM, startOver: false };
     const { kind, code } = typedCode(typed);
     try {
       const result = kind === "app" ? await authClient.twoFactor.verifyTotp({ code, trustDevice: false }) : await authClient.twoFactor.verifyBackupCode({ code, trustDevice: false });
@@ -190,6 +226,7 @@ export function verifyCode(typed: string): Promise<CodeProblem | null> {
 /** Create an account. Null when the request was taken (whether or not the address is new), else the words to show. */
 export function signUp(name: string, email: string, password: string): Promise<string | null> {
   return inTurn(async () => {
+    if (!(await cleanFirst())) return PHONE_PROBLEM;
     try {
       const result = await authClient.signUp.email({ name, email, password, callbackURL: emailLinks(SERVER).afterConfirming });
       return failed(result.error) ? passwordProblem(result.error) : null;
@@ -202,6 +239,7 @@ export function signUp(name: string, email: string, password: string): Promise<s
 /** For the two requests that always answer the same, whether or not the address has an account: null, or why it could not be asked. */
 function sameAnswer(ask: () => Promise<{ error?: AuthError }>): Promise<string | null> {
   return inTurn(async () => {
+    if (!(await cleanFirst())) return PHONE_PROBLEM;
     try {
       const { error } = await ask();
       if (error?.status === 429) return TOO_MANY;
@@ -237,10 +275,13 @@ export function renewSignIn(now = false): Promise<void> {
     if (!now && Date.now() - renewedAt < 6 * HOUR) return;
     try {
       if (!(await authClient.getCookie())) return;
+      renewing = true;
       const asked = await authClient.getSession();
       if (!asked.error) renewedAt = Date.now();
     } catch {
       // Not reached: tried again the next time.
+    } finally {
+      renewing = false;
     }
   });
 }
@@ -274,8 +315,14 @@ export async function forgetStep(): Promise<void> {
  * asks as nobody, and the phone remembers that a sign-out is under way.
  */
 export async function startLeaving(): Promise<void> {
-  leaving = true;
-  await SecureStore.setItemAsync(LEAVING_KEY, "1").catch(() => {});
+  leaving = "yes";
+  try {
+    await SecureStore.setItemAsync(LEAVING_KEY, "1");
+  } catch {
+    // The phone could not note it. Then the kept sign-in is wiped here and now, before the screen changes, so that
+    // closing the app in the next moment cannot bring the person back. (The server is still told, in turn.)
+    await wipeKept();
+  }
 }
 
 /**
@@ -287,7 +334,7 @@ export async function startLeaving(): Promise<void> {
  */
 export function signOut(): Promise<void> {
   return inTurn(async () => {
-    leaving = true;
+    leaving = "yes";
     await finishLeaving();
   });
 }

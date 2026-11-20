@@ -8,6 +8,9 @@ import { openWebsite } from "@/lib/website";
 import { firstTimeZone, isWelcome, zonesMatching } from "@/lib/where-rules";
 import { Button, Card, Field, Heading, Loading, Notice, Page, Problem, TextLink, Tick, Words } from "@/ui/pieces";
 
+/** Said only if the step is done and the app, for once, did not move on by itself. */
+const STILL_HERE = "That is done. Press \"Try again\" to carry on.";
+
 /** The phone's own time zone, as the phone names it; null if it will not say. */
 function phoneTimeZone(): string | null {
   try {
@@ -65,7 +68,9 @@ export default function Welcome() {
       return;
     }
     if (answer.data.done) {
-      await sortOut();
+      // The step is done, so this screen is about to go. Should it still be here (a newer question got in between
+      // and did not get through), it says so and offers to try again, rather than wait for ever.
+      if (await sortOut()) setFailed(STILL_HERE);
       return;
     }
     const first = firstTimeZone(answer.data.timeZone, phoneTimeZone(), answer.data.timeZones);
@@ -87,8 +92,9 @@ export default function Welcome() {
     setProblem(null);
     try {
       const answer = await ask<AppWelcomeDone>("/api/app/welcome", { body: { adult, terms, timeZone: zone } });
-      if (answer.ok) await sortOut();
-      else if (answer.code === "not_valid" || answer.code === "unreachable") setProblem(answer.message);
+      if (answer.ok) {
+        if (await sortOut()) setFailed(STILL_HERE);
+      } else if (answer.code === "not_valid" || answer.code === "unreachable") setProblem(answer.message);
       // Any other refusal means she no longer belongs here: the opening question says where she does.
       else if (await sortOut()) setProblem(answer.message);
     } finally {
