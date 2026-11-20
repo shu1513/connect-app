@@ -13,6 +13,7 @@ import { MakeSuggestions } from "@/components/suggestions-watch";
 import { warm, warmFont } from "@/components/warm-ui";
 import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
+import { PASSED_OVER } from "@/lib/booking/rules";
 import { roomOpensAt, roomState } from "@/lib/calls";
 import { customerDetailsFor } from "@/lib/home/customer-details";
 import { diaryNews, followedHosts } from "@/lib/follows/follows";
@@ -360,7 +361,7 @@ export default async function HomePage(props: PageProps<"/">) {
                 <Link href={`/bookings/${booking.id}`} className={plainLink}>
                   {hostName}, <LocalTime iso={booking.startsAt.toISOString()} />
                 </Link>
-                : {(booking.source === "member" ? MEMBER_REQUEST_LABEL[booking.stage] : REQUEST_LABEL[booking.stage]) ?? booking.stage}
+                : {(booking.source === "member" ? MEMBER_REQUEST_LABEL[booking.stage] : booking.endedReason === PASSED_OVER.ownCall ? PASSED_OVER.ownCall : REQUEST_LABEL[booking.stage]) ?? booking.stage}
               </li>
             ))}
           </ul>

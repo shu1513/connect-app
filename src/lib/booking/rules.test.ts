@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerDeadline, canMoveBooking, cardReminderDue, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
+import { AFTER_CALL_MINUTES, BREAK_CHOICES_MINUTES, takenUntil, answerDeadline, canMoveBooking, cardReminderDue, DEFAULT_LENGTHS, earliestStartFor, firstLength, latestRequestAt, LENGTH_CHOICES_MINUTES, lengthRange, lengthWords, payCutoff, readLengths } from "./rules";
 
 const S = new Date("2026-11-10T20:00:00Z");
 const hoursBefore = (date: Date, hours: number) => new Date(date.getTime() - hours * 3_600_000);
@@ -170,5 +170,16 @@ describe("the lengths a host can offer", () => {
     expect(lengthWords(90)).toBe("1 hour 30 minutes");
     expect(lengthWords(120)).toBe("2 hours");
     expect(lengthWords(360)).toBe("6 hours");
+  });
+});
+
+describe("the time kept free after every call (plans/42)", () => {
+  it("is 2 minutes, and a customer is taken until then", () => {
+    expect(AFTER_CALL_MINUTES).toBe(2);
+    expect(takenUntil(S)).toEqual(new Date(S.getTime() + 2 * 60_000));
+  });
+  it("is the shortest break a host can choose: 1 minute is no longer offered", () => {
+    expect([...BREAK_CHOICES_MINUTES]).toEqual([2, 5, 10, 15, 30]);
+    expect(Math.min(...BREAK_CHOICES_MINUTES)).toBe(AFTER_CALL_MINUTES);
   });
 });

@@ -3347,3 +3347,91 @@ rating on booked calls are the builder's choices. Next, asked for by the founder
 a calendar on the home page that looks like a real calendar (a week across, the hours down the
 side, "‹ Today ›"), with the calls she hosts, the calls she booked, and the finished calls with
 what she earned. It gets a plan of its own.
+
+## One person who is a host and a customer, and 2 minutes after every call (plan 42, 20 November 2026)
+
+**What the founder asked.** "a person can be a host and a customer at the same time. So what
+happens then?", with the idea of one shared schedule. Then: "shouldn't there be a 2 minutes gap in
+between booked calls?" The builder advised 5 minutes; the founder turned that down, because the
+shortest call is 5 minutes and a forced pause as long as the call "seems unreasonable". Then:
+"Yes, build it".
+
+**What was already there.** The shared schedule (module 4): one list of taken times per person,
+whichever side of a call they are on, guarded by the database. Also: nobody can book, follow,
+invite or support themselves; ratings are kept by role; one ID check counts for both roles.
+
+**What was decided** (`plans/42-host-and-customer-in-one.md`). The founder's: 2 minutes after
+every call, for everyone. The builder's: her own break also follows a call she booked herself,
+but only for what customers can ask of her; requests to her that her own call makes impossible
+end at once, and their customers read only "no longer free at that time"; her own waiting
+request keeps closing her page; a list on her calendar page; one more sentence where she asks.
+
+**What was built.** No change to the database.
+- A call taken as a customer takes that person's time until 2 minutes after its end
+  (`AFTER_CALL_MINUTES`, `takenUntil`): written where a request is sent, where a call right now
+  is accepted, where a member books and where a call gets more time. More time leaves those 2
+  minutes before the customer's next call. The checks before a card is entered say "or within 2
+  minutes of it".
+- The shortest break a host can choose is 2 minutes. A host stored at 1 counts as 2 for every
+  new request (`offerOf`).
+- `takenAsHost`: what others may ask of a host. After a call she booked herself, her break of
+  today counts when it reaches past the 2 minutes. It reads her break itself.
+- When a call is fixed (accepted, booked by a member, made longer), waiting requests to its
+  *customer* as a host that it overlaps end as "passed over" with a reason of their own. The
+  booking's page, the home page and the email choose their sentence by that reason.
+- The calendar page: "Taken by your own bookings". The pages for asking: the 2 minutes, and
+  "You are a host too" for a person with an approved host profile.
+
+**What the reviewers found on the plan.** Astra, twice, "build with changes" both times; all in
+the plan. The ones that mattered: two decisions contradicted each other about a request for the
+minute her own call ends; her break must not be read from the offer that the card step hands
+on; a host stored at 1 minute would have kept giving 1 minute to new requests; and the reason
+plan 4 gave for a 1-minute least break (a room takes a minute to close) is out of date, since a
+room closes at the booked end. The builder had repeated that reason to the founder twice and
+corrected it.
+
+**What Astra found in the code.** "Ready with changes", no defect in the code itself. Two
+points about the checks, both taken: nothing looked at the minutes after her own call is over,
+when the stored 2 minutes have passed and her longer break still runs (now checked for what she
+is taken for and for her calendar list); and the call-now journey could not tell the times of
+the accepted call from the ones kept while the request waited (a second request, for after the
+real call, must now stay).
+
+**What CodeRabbit found.** One point, taken: the two places that read a host's break of today
+(`takenAsHost` and the calendar list) took a stored break of 1 minute as it is, where the offer
+already counts it as 2. With an old test call, written before the 2 minutes, such a host could
+have been offered a time 1 minute after her own call. Both now count at least 2. The body of its
+review had nothing further.
+
+**A check that failed for a reason of its own.** After that fix, one older check in
+`scripts/booking-check.ts` failed twice (journey 7, "a reminder written just before they paid is
+not sent"). Not this change: an email's "send from" time is the database's clock to the
+microsecond, and the script read the clock in whole milliseconds straight after writing it, which
+can be the earlier of the two, so the email was not picked up. The script now asks one second
+ahead in the two places that do this. Run twice more: 144 of 144 both times.
+
+**How it was checked.** 692 automatic tests after merging `main`, 7 of them new (the break after her own call, the
+2 minutes not counted twice, a request for a call right now, the times offered around her own
+call, more time, the break choices). On this computer against the local database:
+`scripts/booking-check.ts` (144 checks; 21 new: a customer and the 2 minutes on both sides of a
+call; a host with three requests waiting who books a call herself, before and after it is
+fixed; her page with a break of 5 and of 15 minutes, also in the minutes after her call is
+over; a break of 1 refused; a host stored at 1), `scripts/now-check.ts` (76),
+`scripts/extend-check.ts` (115) and `scripts/member-calls-check.ts` (244), each with a new
+journey for a request to the customer as a host. The booking and call-now scripts were run again
+after Astra's points, and all four after CodeRabbit's. In a browser, as the test host who books a temporary second host: the two sentences
+on the request page and on the call-now page; the list on her calendar page while her request
+waited and after it was accepted, with "booked again from" five minutes after her call; her own
+page offering nothing between her call and the end of her break; the passed-over request as she
+sees it ("A call you booked yourself took this time.") and as its customer sees it, on the
+request's page and on the home page ("no longer free at that time"); the break choices.
+Not tried in a browser: the sentence for a host who books as a member (read in the code only).
+
+**A mistake during the try.** A throwaway helper for the browser try removed, by a rule that was
+too wide, the booking records of five finished free test calls of 13 November between the two
+test accounts in the local test database. The calls are still there; the five records cannot
+be brought back. Nothing outside the local test database was touched. The founder was told.
+
+**Still open.** For the founder: the three choices above that are the builder's. Old test calls
+keep what was saved with them, so two of them may sit closer than 2 minutes. When the home page
+for hosts (plan 38) is built, it should show her own bookings too.

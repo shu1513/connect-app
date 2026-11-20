@@ -43,7 +43,7 @@ async function main() {
   const { queueBookingEmails } = await import("../src/lib/booking/emails");
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
   const { endBookingsOfSuspendedHost } = await import("../src/lib/booking/moderation");
-  const { answerDeadline, payCutoff, LIMITS } = await import("../src/lib/booking/rules");
+  const { answerDeadline, payCutoff, LIMITS, PASSED_OVER } = await import("../src/lib/booking/rules");
   const { startHold, syncHold } = await import("../src/lib/payments/hold");
   const { MoneyError } = await import("../src/lib/payments/operations");
   const { cancelCall } = await import("../src/lib/payments/cancel");
@@ -226,6 +226,117 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
+    console.log("\n3b. Two minutes after every call, and a host who is a customer too (plans/42)");
+    {
+      // A host's open times are laid out from the start of their hours. To ask for one exact minute, a
+      // host's hours are made to start at that minute (New York time, like every host here).
+      const nyMinute = (date: Date) => {
+        const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+        return Number(parts.find((part) => part.type === "hour")!.value) * 60 + Number(parts.find((part) => part.type === "minute")!.value);
+      };
+      const openFrom = async (hostId: string, minute: number) => {
+        await db.delete(schema.weeklyHours).where(eq(schema.weeklyHours.hostId, hostId));
+        await db.insert(schema.weeklyHours).values([1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ hostId, weekday, startMinute: minute, endMinute: 1440 })));
+      };
+      const midDay = (list: Date[]) => list.find((time) => nyMinute(time) >= 120 && nyMinute(time) <= 1200)!;
+      const failure = (work: Promise<unknown>) => work.then(() => null, (e: unknown) => e as Error);
+      const tooClose = (e: Error | null) => e instanceof BookingError && /within 2 minutes/.test(e.message);
+
+      // --- a person who is only a customer
+      const a = await freeHost("gapa");
+      const b = await freeHost("gapb");
+      const cara = await customer("cara");
+      const T = midDay(await times(a.id));
+      const m = nyMinute(T);
+      const plus = (base: Date, minutes: number) => new Date(base.getTime() + minutes * MINUTE);
+      await ask(cara, a.id, T);
+      const caraBusy = await busyOf(cara.id);
+      check("a customer is taken for the call and the 2 minutes after it", caraBusy.length === 1 && caraBusy[0].startsAt.getTime() === T.getTime() && caraBusy[0].endsAt.getTime() === plus(T, 32).getTime());
+      const caraAsks = async (offset: number) => {
+        await openFrom(b.id, m + offset);
+        return failure(ask(cara, b.id, plus(T, offset)));
+      };
+      const at30 = await caraAsks(30);
+      check("she cannot ask another host for the minute her call ends, and is told why", tooClose(at30), at30?.message);
+      check("nor for one minute later", tooClose(await caraAsks(31)));
+      const at32 = await caraAsks(32);
+      check("two minutes after the end she can", at32 === null, at32?.message);
+      check("a call that would end one minute before hers is refused", tooClose(await caraAsks(-31)));
+      const before = await caraAsks(-32);
+      check("one that ends two minutes before hers goes through", before === null, before?.message);
+
+      // --- a host who is a customer too, with a 5-minute break
+      const dual = await freeHost("dual");
+      const other = await freeHost("gapo");
+      const T2 = midDay((await times(other.id)).filter((time) => time.getTime() > T.getTime() + 24 * HOUR));
+      const m2 = nyMinute(T2);
+      // Three people ask her, before she books anything herself: for the middle of her coming call ("2:45"),
+      // for the minute it ends ("3:00"), and for two minutes after it ("3:02").
+      const askDual = async (who: { id: string; name: string; email: string }, offset: number) => {
+        await openFrom(dual.id, m2 + offset);
+        return ask(who, dual.id, plus(T2, offset), 15);
+      };
+      const [p1, p2, p3, p4] = [await customer("asker1"), await customer("asker2"), await customer("asker3"), await customer("asker4")];
+      const inTheCall = await askDual(p1, 15);
+      const atTheEnd = await askDual(p2, 30);
+      const twoAfter = await askDual(p3, 32);
+      // She asks another host for "2:30 to 3:00".
+      const own = await ask(dual, other.id, T2);
+      const stages = async () => (await Promise.all([inTheCall, atTheEnd, twoAfter].map((r) => reload(r.booking.id)))).map((r) => r.stage).join(" ");
+      check("while her own request only waits, the requests to her stay", (await stages()) === "waiting waiting waiting", await stages());
+      const cannot = await failure(B.accept({ bookingId: inTheCall.booking.id, hostId: dual.id, now }));
+      check("and accepting one that overlaps it is refused, with the reason", cannot instanceof BookingError && /of your own/.test(cannot.message), cannot?.message);
+      const inBreak = await failure(askDual(p4, 32));
+      check("a new request for two minutes after her own call is refused: for others her 5-minute break counts", inBreak instanceof BookingError && /no longer open/.test(inBreak.message), inBreak?.message);
+
+      // The other host accepts: her own call is fixed.
+      await B.accept({ bookingId: own.booking.id, hostId: other.id, now });
+      const [r1, r2, r3] = await Promise.all([inTheCall, atTheEnd, twoAfter].map((r) => reload(r.booking.id)));
+      check(
+        "when her own call is fixed, the requests it makes impossible end at once: the one inside it and the one for the minute it ends",
+        r1.stage === "passed_over" && r2.stage === "passed_over" && r1.endedReason === PASSED_OVER.ownCall && r2.endedReason === PASSED_OVER.ownCall,
+        `${r1.stage} ${r2.stage} ${r1.endedReason}`,
+      );
+      check("the one for two minutes after it stays", r3.stage === "waiting", r3.stage);
+      check(
+        "those customers are free again and are told only that she is no longer free",
+        (await busyOf(p1.id)).length === 0 && (await busyOf(p2.id)).length === 0 && (await emailsTo(p1.email, "is no longer free at that time")) === 1 && (await emailsTo(p2.email, "is no longer free at that time")) === 1 && (await emailsTo(p1.email, "accepted another request")) === 0,
+      );
+
+      // What her page offers now, with her usual hours.
+      await openFrom(dual.id, 0);
+      const offered = async () => (await B.openTimes((await B.offerOf(dual.id))!, 15, now)).map((time) => time.getTime());
+      const has = (list: number[], offset: number) => list.includes(plus(T2, offset).getTime());
+      const five = await offered();
+      check("her page offers nothing at the end of her own call or in her break after it, and offers the end of the break", !has(five, 30) && !has(five, 32) && has(five, 35), `${has(five, 30)} ${has(five, 32)} ${has(five, 35)}`);
+      // Her break of today counts: she changes it to 15 minutes.
+      await db.update(schema.hostCalendars).set({ breakMinutes: 15 }).where(eq(schema.hostCalendars.userId, dual.id));
+      const fifteen = await offered();
+      check("with a break of 15 minutes her page offers nothing before 15 minutes after her own call", !has(fifteen, 35) && !has(fifteen, 40) && has(fifteen, 45), `${has(fifteen, 35)} ${has(fifteen, 40)} ${has(fifteen, 45)}`);
+      // After her own call is over, the break still counts: the stored entry ends 2 minutes after the call, her break 15 minutes after it.
+      const during = plus(T2, 33);
+      const afterIt = plus(T2, 46);
+      const stillTaken = await B.takenAsHost(db, dual.id, during);
+      const listed = await B.ownBookingsTakingTime(dual.id, during);
+      check(
+        "3 minutes after her own call, with the stored 2 minutes over, she still counts as taken until her break ends, and her calendar list still shows it",
+        stillTaken.length === 1 && stillTaken[0].end.getTime() === plus(T2, 45).getTime() && listed.length === 1 && listed[0].bookingId === own.booking.id && listed[0].freeAgainAt.getTime() === plus(T2, 45).getTime(),
+        `${stillTaken.length} ${listed.length}`,
+      );
+      check("once the break is over she is free and the list is empty", (await B.takenAsHost(db, dual.id, afterIt)).length === 0 && (await B.ownBookingsTakingTime(dual.id, afterIt)).length === 0);
+      const longBreak = await failure(askDual(p4, 35));
+      check("and a request for a time inside the longer break is refused", longBreak instanceof BookingError && /no longer open/.test(longBreak.message), longBreak?.message);
+      await db.update(schema.hostCalendars).set({ breakMinutes: 5 }).where(eq(schema.hostCalendars.userId, dual.id));
+
+      // What she chooses herself is limited by the 2 minutes only.
+      const yes = await failure(B.accept({ bookingId: twoAfter.booking.id, hostId: dual.id, now }));
+      check("she may still accept the request for two minutes after her own call", yes === null && (await reload(twoAfter.booking.id)).stage === "accepted", yes?.message);
+      // Being passed over is not a decline: the same person can ask her again the same day.
+      const again = await failure(askDual(p1, 60));
+      check("a customer whose request ended this way can ask her again the same day", again === null, again?.message);
+    }
+
+    // ----------------------------------------------------------------------
     console.log("\n4. Limits, declining, and running out of time");
     {
       const host = await freeHost("host4");
@@ -385,7 +496,9 @@ async function main() {
       check("a customer who fixed the card is not reminded", !(await eventEmail(`card_reminder:${booking.id}:customer`)));
       // A reminder written a moment before they paid (written by hand here) is stopped when its turn to be sent comes.
       await queueBookingEmails(db, await reload(booking.id), "card_reminder");
-      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "booking-check" }), { toLike: yan.email });
+      // (One second ahead: the email's "send from" time is the database's clock to the microsecond, and a clock read here in
+      // whole milliseconds straight after can be the earlier of the two, which leaves the email unclaimed.)
+      await deliverEmails(new Date(Date.now() + 1000), async () => ({ ok: true, providerId: "booking-check" }), { toLike: yan.email });
       const [stopped] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
       check("and a reminder written just before they paid is not sent", stopped?.status === "failed" && Boolean(stopped.lastError?.includes("the money is held")), `${stopped?.status} ${stopped?.lastError}`);
       await runBookingJobs(new Date(after.payBy!.getTime() + MINUTE));
@@ -428,7 +541,7 @@ async function main() {
       const p = await payment();
       check("at the cut-off the call is cancelled, as a free cancellation", call.cancelledAt !== null && call.cancelledLate === false && (await reload(booking.id)).stage === "cancelled");
       check("nothing was charged", p.status === "closed_uncharged" && p.chargedCents === null, p.status);
-      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "booking-check" }), { toLike: xia.email });
+      await deliverEmails(new Date(Date.now() + 1000), async () => ({ ok: true, providerId: "booking-check" }), { toLike: xia.email });
       const [late] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
       check("a reminder still waiting when the call is cancelled is not sent", late?.status === "failed" && Boolean(late.lastError?.includes("no longer open")), `${late?.status} ${late?.lastError}`);
       check("both people are told, and the time is open again", (await eventEmail(`cancelled_unpaid:${booking.id}:customer`)) && (await eventEmail(`cancelled_unpaid:${booking.id}:host`)) && (await times(hana.id, 30, 96)).some((t) => t.getTime() === slot.getTime()));
@@ -544,17 +657,17 @@ async function main() {
     console.log("\n13. A 5-minute call");
     {
       const { saveCalendarChoices } = await import("../src/lib/booking/calendar");
-      const host = await freeHost("host13", 1);
+      const host = await freeHost("host13", 2);
       const eve = await customer("eve13");
       // First with 10 minutes offered as well, to have a time that is good for a 10-minute call.
-      await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 10, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 1 });
+      await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 10, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 2 });
       const [goodForTen] = await times(host.id, 10);
       // Then the host ticks 5 and 15 minutes only. (7 is not one of the choices: a made-up value is dropped.)
-      await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 7, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 1 });
+      await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 7, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 2 });
       const offer = (await B.offerOf(host.id))!;
       check("a host can offer 5-minute calls", offer.lengths.join(",") === "5,15", offer.lengths.join(","));
       const five = await times(host.id, 5);
-      check("the open times for 5 minutes come one call and one break apart", five.length > 3 && five[1].getTime() - five[0].getTime() === 6 * MINUTE, String(five.length));
+      check("the open times for 5 minutes come one call and one break apart", five.length > 3 && five[1].getTime() - five[0].getTime() === 7 * MINUTE, String(five.length));
       check("a length the host no longer ticks has no open times, and cannot be asked for even at a time that was good for it", Boolean(goodForTen) && (await times(host.id, 10)).length === 0 && (await refused(ask(eve, host.id, goodForTen, 10))));
       const { booking } = await ask(eve, host.id, five[0], 5);
       check("a 5-minute request is for exactly 5 minutes", booking.stage === "waiting" && booking.lengthMinutes === 5 && booking.endsAt.getTime() - booking.startsAt.getTime() === 5 * MINUTE);
@@ -562,6 +675,13 @@ async function main() {
       const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
       check("accepting it makes a 5-minute call", call.endsAt.getTime() - call.startsAt.getTime() === 5 * MINUTE);
       check("the next 5-minute time, right after the call and its break, is still open; the taken one is not", (await times(host.id, 5)).some((t) => t.getTime() === five[1].getTime()) && !(await times(host.id, 5)).some((t) => t.getTime() === five[0].getTime()));
+      // The shortest break is the 2 minutes that are kept free after every call (plans/42).
+      const oneMinute = await saveCalendarChoices(host.id, { timeZone: "America/New_York", lengths: [5, 15], noticeHours: 24, horizonWeeks: 2, breakMinutes: 1 }).then(() => null, (e: unknown) => e as Error);
+      check("a break of 1 minute can no longer be chosen", /listed breaks/.test(oneMinute?.message ?? ""), oneMinute?.message);
+      // A host whose stored break is 1 minute from before that rule counts as 2 for every new request, without saving anything.
+      await db.update(schema.hostCalendars).set({ breakMinutes: 1 }).where(eq(schema.hostCalendars.userId, host.id));
+      const old = await ask(await customer("old13"), host.id, (await times(host.id, 5))[3], 5);
+      check("a host stored at 1 minute offers, and gives a new request, a break of 2", (await B.offerOf(host.id))!.breakMinutes === 2 && old.booking.breakMinutes === 2, String(old.booking.breakMinutes));
     }
 
     // ----------------------------------------------------------------------

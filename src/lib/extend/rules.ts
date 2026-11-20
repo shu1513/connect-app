@@ -3,7 +3,7 @@
  * may ask, until when the host may accept, how many minutes fit, and what they
  * cost. No database, no Stripe, so they can be tested directly.
  */
-import { MAX_LENGTH_MINUTES } from "@/lib/booking/rules";
+import { AFTER_CALL_MINUTES, MAX_LENGTH_MINUTES } from "@/lib/booking/rules";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 
 /** The customer can ask from this long before the end. */
@@ -57,7 +57,8 @@ export function minutesThatFit(input: { startsAt: Date; endsAt: Date; breakMinut
   const end = input.endsAt.getTime();
   const untilLongest = Math.floor((input.startsAt.getTime() + MAX_CALL_MINUTES * MINUTE - end) / MINUTE);
   const forHost = input.hostNextAt ? Math.floor((input.hostNextAt.getTime() - end) / MINUTE) - input.breakMinutes : MAX_EXTENSION_MINUTES;
-  const forCustomer = input.customerNextAt ? Math.floor((input.customerNextAt.getTime() - end) / MINUTE) : MAX_EXTENSION_MINUTES;
+  // The customer keeps the time that is free after every call before whatever they have next.
+  const forCustomer = input.customerNextAt ? Math.floor((input.customerNextAt.getTime() - end) / MINUTE) - AFTER_CALL_MINUTES : MAX_EXTENSION_MINUTES;
   return Math.max(0, Math.min(MAX_EXTENSION_MINUTES, untilLongest, forHost, forCustomer));
 }
 

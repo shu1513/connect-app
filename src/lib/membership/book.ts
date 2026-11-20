@@ -16,9 +16,9 @@ import { randomUUID } from "node:crypto";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking, Membership, MembershipMonth } from "@/db/schema";
-import { BookingError, busyOf, endRequestsInTheWay, isOverlap, lockCalendars, offerOf, slotInput, type Offer } from "@/lib/booking/bookings";
+import { BookingError, busyOf, endRequestsInTheWay, isOverlap, lockCalendars, offerOf, slotInput, takenAsHost, TAKEN_THEN, type Offer } from "@/lib/booking/bookings";
 import { queueBookingEmails } from "@/lib/booking/emails";
-import { firstLength } from "@/lib/booking/rules";
+import { firstLength, PASSED_OVER, takenUntil } from "@/lib/booking/rules";
 import { isOpenStart, openStarts } from "@/lib/booking/slots";
 import type { Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
@@ -98,7 +98,7 @@ export async function memberBookingView(viewerId: string, hostId: string, now: D
  */
 export async function memberOpenTimes(view: MemberBookingView, lengthMinutes: number, now: Date): Promise<Array<{ startsAt: Date; membersOnly: boolean }>> {
   if (!view.lengths.includes(lengthMinutes)) return [];
-  const busy = await busyOf(db, view.offer.hostId, now);
+  const busy = await takenAsHost(db, view.offer.hostId, now);
   const starts = openStarts(slotInput(view.offer, busy, lengthMinutes, now, "member"));
   const general = new Set(openStarts(slotInput({ ...view.offer, weekly: view.offer.weekly.filter((stretch) => !stretch.membersOnly) }, busy, lengthMinutes, now, "member")).map((start) => start.getTime()));
   return starts.filter((start) => start.getTime() + lengthMinutes * MINUTE <= view.monthEndsAt.getTime()).map((startsAt) => ({ startsAt, membersOnly: !general.has(startsAt.getTime()) }));
@@ -113,7 +113,7 @@ export async function openTimesForInvited(hostId: string, now: Date, count = 8):
   const offer = await offerOf(hostId, db, { forMember: true });
   const length = offer ? firstLength(offer.lengths) : null;
   if (!offer || !length) return [];
-  return openStarts(slotInput(offer, await busyOf(db, hostId, now), length, now, "member")).slice(0, count);
+  return openStarts(slotInput(offer, await takenAsHost(db, hostId, now), length, now, "member")).slice(0, count);
 }
 
 /**
@@ -172,10 +172,10 @@ async function mustBeBookable(
     );
   if (undone.n >= UNDONE_BOOKINGS_PER_DAY) throw new BookingError("You have cancelled several bookings today. Please try again tomorrow.");
   // The time must be open for a member: general or member-only hours, the host's notice, how far ahead, time off, and nothing in the way.
-  if (!isOpenStart(startsAt, slotInput(offer, await busyOf(tx, hostId, now), lengthMinutes, now, "member"))) throw new BookingError(NOT_OPEN);
+  if (!isOpenStart(startsAt, slotInput(offer, await takenAsHost(tx, hostId, now), lengthMinutes, now, "member"))) throw new BookingError(NOT_OPEN);
   // And the member must be free then. Said now, before a month's money is taken for a booking that could never be made.
   // (The database still has the last word when the booking is written.)
-  if ((await busyOf(tx, customer.id, startsAt)).some((taken) => taken.start < endsAt && taken.end > startsAt)) throw new BookingError("You already have a request or a call at that time.");
+  if ((await busyOf(tx, customer.id, startsAt)).some((taken) => taken.start < takenUntil(endsAt) && taken.end > startsAt)) throw new BookingError(TAKEN_THEN);
   return { offer, cents };
 }
 
@@ -320,7 +320,7 @@ async function bookInOneStep(asked: Input, found: { membership: Membership; mont
 
     // Both people are now taken (the host for the call and the break after it). If either already is, the database refuses.
     await tx.insert(schema.busyEntries).values([
-      { bookingId: booking.id, userId: customer.id, startsAt: input.startsAt, endsAt },
+      { bookingId: booking.id, userId: customer.id, startsAt: input.startsAt, endsAt: takenUntil(endsAt) },
       { bookingId: booking.id, userId: hostId, startsAt: input.startsAt, endsAt: busyUntil },
     ]);
 
@@ -348,6 +348,8 @@ async function bookInOneStep(asked: Input, found: { membership: Membership; mont
 
     // Other people's waiting requests for that time end, as when a host accepts.
     await endRequestsInTheWay(tx, { hostId, exceptBookingId: booking.id, from: input.startsAt, until: busyUntil, now });
+    // The member may be a host too: requests to her that this call of her own makes impossible end as well (plans/42).
+    await endRequestsInTheWay(tx, { hostId: customer.id, exceptBookingId: booking.id, from: input.startsAt, until: takenUntil(endsAt), now, reason: PASSED_OVER.ownCall });
     await queueBookingEmails(tx, booking, "member_booked");
     return booking;
   });

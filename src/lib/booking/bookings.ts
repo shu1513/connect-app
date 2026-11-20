@@ -20,8 +20,8 @@ import { identityState } from "@/lib/safety/identity";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
-import { answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, payCutoff, readLengths } from "./rules";
-import { stretchesFor, isOpenStart, openStarts, type Interval } from "./slots";
+import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, PASSED_OVER, payCutoff, readLengths, takenUntil } from "./rules";
+import { stretchesFor, isOpenStart, openStarts, withOwnBreak, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -30,6 +30,9 @@ export class BookingError extends Error {}
 
 const DAY = 24 * 3_600_000;
 const DECLINED_BY_HOST = "declined by the host";
+/** Said to a customer who is already taken at the time they ask for, the time kept free after each call included. */
+export const TAKEN_THEN = `You already have a request or a call at that time, or within ${AFTER_CALL_MINUTES} minutes of it.`;
+const TAKEN_NOW = `You already have a request or a call at this time, or within ${AFTER_CALL_MINUTES} minutes of it.`;
 
 /** True when the database refused a row because the person is already taken at that time. */
 export function isOverlap(error: unknown): boolean {
@@ -107,7 +110,8 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
     lengths,
     pricePer15Cents: row.profile.pricePer15Cents,
     freeCancelMinutes: row.settings?.freeCancelMinutes ?? 0,
-    breakMinutes: row.calendar.breakMinutes,
+    // Never less than the time kept free after every call, also for a host whose stored break is older than that rule.
+    breakMinutes: Math.max(row.calendar.breakMinutes, AFTER_CALL_MINUTES),
     noticeHours: row.calendar.noticeHours,
     horizonWeeks: row.calendar.horizonWeeks,
     canTakePaid: !paid || (stripeConfigured() && Boolean(row.settings?.payoutsReady)),
@@ -117,6 +121,51 @@ export async function offerOf(hostId: string, reader: Pick<typeof db, "select"> 
     availableUntil: row.calendar.availableUntil,
     availableSeenAt: row.calendar.availableSeenAt,
   };
+}
+
+/** Whether this person has an approved host profile, hidden or not: the sentences "you are a host too" are for them (plans/42). */
+export async function isHostToo(userId: string): Promise<boolean> {
+  const [row] = await db.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId));
+  return row?.status === "approved";
+}
+
+export type OwnBooking = { bookingId: string; hostName: string; startsAt: Date; endsAt: Date; waiting: boolean; freeAgainAt: Date };
+
+/**
+ * For a host's calendar page: the calls and waiting requests she has as a customer that still
+ * close her own page (plans/42). Coming ones, one that is under way, and one that is over while
+ * her break after it still runs. `freeAgainAt` is the moment she can be booked again: the same
+ * arithmetic as takenAsHost, which is what her customers are held to.
+ */
+export async function ownBookingsTakingTime(userId: string, now: Date): Promise<OwnBooking[]> {
+  const [calendar] = await db.select({ breakMinutes: schema.hostCalendars.breakMinutes }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, userId));
+  const breakMs = (calendar ? Math.max(calendar.breakMinutes, AFTER_CALL_MINUTES) : 0) * 60_000;
+  const rows = await db
+    .select({
+      bookingId: schema.bookings.id,
+      stage: schema.bookings.stage,
+      startsAt: schema.bookings.startsAt,
+      endsAt: schema.bookings.endsAt,
+      takenUntil: schema.busyEntries.endsAt,
+      displayName: schema.hostProfiles.displayName,
+      name: schema.user.name,
+    })
+    .from(schema.busyEntries)
+    .innerJoin(schema.bookings, eq(schema.bookings.id, schema.busyEntries.bookingId))
+    .innerJoin(schema.user, eq(schema.user.id, schema.bookings.hostId))
+    .leftJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.bookings.hostId))
+    .where(and(eq(schema.busyEntries.userId, userId), eq(schema.bookings.customerId, userId), gt(schema.busyEntries.endsAt, new Date(now.getTime() - breakMs))))
+    .orderBy(asc(schema.busyEntries.startsAt));
+  return rows
+    .map((row) => ({
+      bookingId: row.bookingId,
+      hostName: row.displayName ?? row.name,
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
+      waiting: row.stage === "waiting",
+      freeAgainAt: new Date(Math.max(row.takenUntil.getTime(), row.endsAt.getTime() + breakMs)),
+    }))
+    .filter((row) => row.freeAgainAt > now);
 }
 
 /**
@@ -148,7 +197,7 @@ export async function instantOffer(hostId: string, now: Date, reader: Pick<typeo
     .from(schema.bookings)
     .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.source, "now"), eq(schema.bookings.stage, "waiting")));
   if (waiting >= NOW.waitingPerHost) return null;
-  const lengths = fittingLengths({ lengths: offer.lengths, breakMinutes: offer.breakMinutes, busy: await busyOf(reader, hostId, now), now, availableUntil: offer.availableUntil! });
+  const lengths = fittingLengths({ lengths: offer.lengths, breakMinutes: offer.breakMinutes, busy: await takenAsHost(reader, hostId, now), now, availableUntil: offer.availableUntil! });
   if (lengths.length === 0) return null;
   return { offer, lengths, availableUntil: offer.availableUntil! };
 }
@@ -159,6 +208,31 @@ export async function busyOf(reader: Pick<typeof db, "select">, userId: string, 
     .from(schema.busyEntries)
     .where(and(eq(schema.busyEntries.userId, userId), gt(schema.busyEntries.endsAt, from)));
   return rows;
+}
+
+/**
+ * What a host is taken for, as the people who want to book her must see it: everything on her list
+ * of taken times, and after a call she booked herself (as a customer) her break of today as well,
+ * where it reaches past the time kept free after every call (plans/42). Her break is read here, from
+ * her calendar as it is now, and never from an offer that is handed around: at the card step that
+ * offer carries the break saved on one request. A person without a calendar has no break.
+ *
+ * Only for what others may ask of her. What she does herself is checked against busyOf.
+ */
+export async function takenAsHost(reader: Pick<typeof db, "select">, hostId: string, from: Date): Promise<Interval[]> {
+  const [calendar] = await reader.select({ breakMinutes: schema.hostCalendars.breakMinutes }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
+  // As in offerOf: never less than the time kept free after every call, also for a break stored before that rule.
+  const breakMinutes = calendar ? Math.max(calendar.breakMinutes, AFTER_CALL_MINUTES) : 0;
+  const rows = await reader
+    .select({ start: schema.busyEntries.startsAt, end: schema.busyEntries.endsAt, customerId: schema.bookings.customerId, callEnd: schema.bookings.endsAt })
+    .from(schema.busyEntries)
+    .innerJoin(schema.bookings, eq(schema.bookings.id, schema.busyEntries.bookingId))
+    // An entry that is over can still count: her break after it may not be.
+    .where(and(eq(schema.busyEntries.userId, hostId), gt(schema.busyEntries.endsAt, new Date(from.getTime() - breakMinutes * 60_000))));
+  return withOwnBreak(
+    rows.map((row) => ({ start: row.start, end: row.end, ownCallEnd: row.customerId === hostId ? row.callEnd : null })),
+    breakMinutes,
+  ).filter((taken) => taken.end > from);
 }
 
 /**
@@ -191,7 +265,7 @@ export async function openTimes(offer: Offer, lengthMinutes: number, now: Date):
     .where(and(eq(schema.bookings.hostId, offer.hostId), eq(schema.bookings.stage, "waiting")));
   if (waiting >= LIMITS.perHost) return [];
   // Everything the host is taken for: calls they accepted (with the break), and their own requests elsewhere.
-  return openStarts(slotInput(offer, await busyOf(db, offer.hostId, now), lengthMinutes, now));
+  return openStarts(slotInput(offer, await takenAsHost(db, offer.hostId, now), lengthMinutes, now));
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +283,7 @@ async function checkMayAsk(tx: Tx, offer: Offer, booking: { id?: string; custome
   // A block either way looks, from here, exactly like a time that is no longer open.
   if (await isBlockedEitherWay(booking.customerId, offer.hostId, tx)) throw new BookingError(instant ? "This host is not available right now." : "That time is no longer open. Please choose another.");
   if (instant) await checkMayAskNow(tx, offer, booking, now);
-  else if (!isOpenStart(booking.startsAt, slotInput(offer, await busyOf(tx, offer.hostId, now), booking.lengthMinutes, now))) {
+  else if (!isOpenStart(booking.startsAt, slotInput(offer, await takenAsHost(tx, offer.hostId, now), booking.lengthMinutes, now))) {
     throw new BookingError("That time is no longer open. Please choose another.");
   }
   // Before a first free call, the customer confirms who they are (a paid call has a card behind it).
@@ -307,7 +381,7 @@ async function sendToHost(tx: Tx, booking: Booking, now: Date, paymentMethodId: 
   // taken a while, so the nominal time is worked out again here); the exact time is set when the host accepts.
   const nominalStart = instant ? latestInstantStart(now) : booking.startsAt;
   const nominalEnd = instant ? new Date(nominalStart.getTime() + booking.lengthMinutes * 60_000) : booking.endsAt;
-  await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.customerId, startsAt: instant ? now : booking.startsAt, endsAt: nominalEnd });
+  await tx.insert(schema.busyEntries).values({ bookingId: booking.id, userId: booking.customerId, startsAt: instant ? now : booking.startsAt, endsAt: takenUntil(nominalEnd) });
   const [sent] = await tx
     .update(schema.bookings)
     .set({
@@ -379,8 +453,8 @@ export async function askForCall(input: {
       // Say so now, before a card is entered, if the customer is already taken at that time.
       // (The database still has the last word when the request is finally sent.)
       const endsAt = new Date(input.startsAt.getTime() + input.lengthMinutes * 60_000);
-      const taken = (await busyOf(tx, customer.id, input.startsAt)).some((b) => b.start < endsAt && b.end > input.startsAt);
-      if (taken) throw new BookingError("You already have a request or a call at that time.");
+      const taken = (await busyOf(tx, customer.id, input.startsAt)).some((b) => b.start < takenUntil(endsAt) && b.end > input.startsAt);
+      if (taken) throw new BookingError(TAKEN_THEN);
       const [draft] = await tx
         .insert(schema.bookings)
         .values({
@@ -403,7 +477,7 @@ export async function askForCall(input: {
       return paid ? draft : sendToHost(tx, draft, now, null);
     });
   } catch (error) {
-    if (isOverlap(error)) throw new BookingError("You already have a request or a call at that time.");
+    if (isOverlap(error)) throw new BookingError(TAKEN_THEN);
     throw error;
   }
   return cardStepFor(booking, customer);
@@ -460,8 +534,8 @@ export async function askNow(input: {
       const startsAt = latestInstantStart(now);
       const endsAt = new Date(startsAt.getTime() + input.lengthMinutes * 60_000);
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt, lengthMinutes: input.lengthMinutes, totalCents, source: "now" }, now);
-      const taken = (await busyOf(tx, customer.id, now)).some((b) => b.start < endsAt && b.end > now);
-      if (taken) throw new BookingError("You already have a request or a call at this time.");
+      const taken = (await busyOf(tx, customer.id, now)).some((b) => b.start < takenUntil(endsAt) && b.end > now);
+      if (taken) throw new BookingError(TAKEN_NOW);
       const [draft] = await tx
         .insert(schema.bookings)
         .values({
@@ -486,7 +560,7 @@ export async function askNow(input: {
       return paid ? draft : sendToHost(tx, draft, now, null);
     });
   } catch (error) {
-    if (isOverlap(error)) throw new BookingError("You already have a request or a call at this time.");
+    if (isOverlap(error)) throw new BookingError(TAKEN_NOW);
     throw error;
   }
   return cardStepFor(booking, customer);
@@ -570,7 +644,7 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       const mine = await bookingCardSeen(tx, before.id, paymentMethodId);
       const [row] = await tx
         .update(schema.bookings)
-        .set({ stage: "ran_out", endedReason: "you already have a request or a call at that time", endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
+        .set({ stage: "ran_out", endedReason: `you already have a request or a call at that time, or within ${AFTER_CALL_MINUTES} minutes of it`, endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
         .where(and(eq(schema.bookings.id, before.id), eq(schema.bookings.stage, "card")))
         .returning();
       return row;
@@ -612,8 +686,16 @@ async function endWaiting(
  * gets in the way of, or that would run into it with its own break, can no longer be accepted.
  * They end with "the host accepted another request". Used when a host accepts a request, and
  * when a host adds time to a call that is under way.
+ *
+ * With the reason PASSED_OVER.ownCall it is used for the *customer* of a call that was just fixed:
+ * if that person is a host too, the requests to her that her own call (and the time kept free
+ * after it) makes impossible end at once, and their customers are told only that she is no longer
+ * free (plans/42). For a person nobody has asked for a call it finds nothing.
  */
-export async function endRequestsInTheWay(tx: Tx, input: { hostId: string; exceptBookingId: string; from: Date; until: Date; now: Date }): Promise<void> {
+export async function endRequestsInTheWay(
+  tx: Tx,
+  input: { hostId: string; exceptBookingId: string; from: Date; until: Date; now: Date; reason?: (typeof PASSED_OVER)[keyof typeof PASSED_OVER] },
+): Promise<void> {
   await endWaiting(
     tx,
     and(
@@ -622,7 +704,7 @@ export async function endRequestsInTheWay(tx: Tx, input: { hostId: string; excep
       sql`tstzrange(${schema.bookings.startsAt}, ${schema.bookings.endsAt} + make_interval(mins => ${schema.bookings.breakMinutes}), '[)') && tstzrange(${input.from.toISOString()}::timestamptz, ${input.until.toISOString()}::timestamptz, '[)')`,
     ),
     "passed_over",
-    "the host accepted another request",
+    input.reason ?? PASSED_OVER.anotherRequest,
     input.now,
   );
 }
@@ -684,7 +766,7 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
         if (!offer || !isAvailableNow(offer, input.now)) throw new BookingError("You are no longer available, so this request cannot be accepted.");
         startsAt = instantStart(input.now);
         endsAt = new Date(startsAt.getTime() + booking.lengthMinutes * 60_000);
-        await tx.update(schema.busyEntries).set({ startsAt, endsAt }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, booking.customerId)));
+        await tx.update(schema.busyEntries).set({ startsAt, endsAt: takenUntil(endsAt) }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, booking.customerId)));
         // One instant call at a time: being available ends with accepting. (And with it an announcement to followers that was still waiting, plans/31.)
         await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, announceAt: null, updatedAt: input.now }).where(eq(schema.hostCalendars.userId, booking.hostId));
       }
@@ -716,6 +798,8 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
       await queueBookingEmails(tx, accepted, "accepted");
 
       await endRequestsInTheWay(tx, { hostId: booking.hostId, exceptBookingId: booking.id, from: startsAt, until: busyUntil, now: input.now });
+      // The customer may be a host too: requests to her that this call of her own makes impossible end as well.
+      await endRequestsInTheWay(tx, { hostId: booking.customerId, exceptBookingId: booking.id, from: startsAt, until: takenUntil(endsAt), now: input.now, reason: PASSED_OVER.ownCall });
       return { callId: call.id };
     });
   } catch (error) {
@@ -763,7 +847,7 @@ export async function createTestCall(input: {
           startsAt: input.startsAt,
           endsAt: input.endsAt,
           lengthMinutes,
-          breakMinutes: 1,
+          breakMinutes: AFTER_CALL_MINUTES,
           pricePer15Cents: input.pricePer15Cents,
           totalCents: bookedTotalCents(input.pricePer15Cents, Math.floor((input.endsAt.getTime() - input.startsAt.getTime()) / 1000)),
           freeCancelMinutes: input.freeCancelMinutes,
@@ -775,8 +859,8 @@ export async function createTestCall(input: {
         })
         .returning();
       await tx.insert(schema.busyEntries).values([
-        { bookingId: booking.id, userId: input.hostId, startsAt: input.startsAt, endsAt: new Date(input.endsAt.getTime() + 60_000) },
-        { bookingId: booking.id, userId: input.customerId, startsAt: input.startsAt, endsAt: input.endsAt },
+        { bookingId: booking.id, userId: input.hostId, startsAt: input.startsAt, endsAt: takenUntil(input.endsAt) },
+        { bookingId: booking.id, userId: input.customerId, startsAt: input.startsAt, endsAt: takenUntil(input.endsAt) },
       ]);
       return { callId: call.id };
     });

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { calendarOf, clockText, hoursAndTimeOff, inZone, mayKeepMemberHours } from "@/lib/booking/calendar";
-import { BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, lengthWords, NOTICE_CHOICES_HOURS, readLengths } from "@/lib/booking/rules";
+import { AFTER_CALL_MINUTES, BREAK_CHOICES_MINUTES, DEFAULT_LENGTHS, HORIZON_CHOICES_WEEKS, LENGTH_CHOICES_MINUTES, lengthWords, NOTICE_CHOICES_HOURS, readLengths } from "@/lib/booking/rules";
+import { ownBookingsTakingTime } from "@/lib/booking/bookings";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
@@ -18,6 +19,8 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
   const notice = readNotice("/host/calendar", await props.searchParams);
   const calendar = await calendarOf(user.id, user.timeZone);
   const { hours, off } = await hoursAndTimeOff(user.id, new Date());
+  // Calls and requests she has as a customer close her own page too: shown, so a missing time explains itself (plans/42).
+  const ownBookings = await ownBookingsTakingTime(user.id, new Date());
   // The "Members only" tick is offered to a host who may offer a membership, or who already has such hours (one rule, also the action's).
   const forMembers = await mayKeepMemberHours(user.id);
   // A host sets a shortest and a longest call. A list saved before that (ticked lengths) shows as its two ends.
@@ -145,6 +148,27 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
         )}
       </section>
 
+      {ownBookings.length > 0 && (
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold">Taken by your own bookings</h2>
+          <p className="mt-1 text-sm opacity-70">
+            Calls you booked with other hosts, and requests of yours that wait for an answer. Nobody can book you at these times, or
+            in your break after them.
+          </p>
+          <ul className="mt-3 space-y-1 text-sm">
+            {ownBookings.map((own) => (
+              <li key={own.bookingId}>
+                <Link href={`/bookings/${own.bookingId}`} className="underline underline-offset-2">
+                  {inZone(calendar.timeZone, own.startsAt)} to {inZone(calendar.timeZone, own.endsAt)}
+                </Link>
+                : {own.waiting ? `your request to ${own.hostName}, waiting for an answer` : `your call with ${own.hostName}`}. You can be
+                booked again from {inZone(calendar.timeZone, own.freeAgainAt)}.
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Time off</h2>
         <p className="mt-1 text-sm opacity-70">A holiday or an afternoon when you cannot take calls, whatever your weekly hours say.</p>
@@ -244,10 +268,10 @@ export default async function HostCalendarPage(props: PageProps<"/host/calendar"
           </label>
           <label className="block">
             Break after each call
-            <select name="breakMinutes" defaultValue={calendar.breakMinutes} className={`${field} block`}>
+            <select name="breakMinutes" defaultValue={Math.max(calendar.breakMinutes, AFTER_CALL_MINUTES)} className={`${field} block`}>
               {BREAK_CHOICES_MINUTES.map((minutes) => (
                 <option key={minutes} value={minutes}>
-                  {minutes} {minutes === 1 ? "minute" : "minutes"}
+                  {minutes} minutes
                 </option>
               ))}
             </select>

@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
+import { PASSED_OVER } from "./rules";
 
 type Writer = Pick<typeof db, "insert" | "select">;
 type Person = { id: string; name: string; email: string; timeZone: string | null };
@@ -218,6 +219,14 @@ export async function queueBookingEmails(tx: Writer, booking: Booking, event: Bo
       ]);
       break;
     case "passed_over":
+      // The host took another request, or (plans/42) a call she booked for herself took the time. Of the second the customer is told only that she is no longer free.
+      if (booking.endedReason === PASSED_OVER.ownCall) {
+        await toCustomer(`${hostShown} is no longer free at that time`, [
+          `Your request for a ${length} call on ${whenC} cannot go ahead, because ${hostShown} is no longer free at that time. Nothing was held or charged, and your card details have been removed.`,
+          "You are welcome to ask for a different time.",
+        ]);
+        break;
+      }
       await toCustomer(`${hostShown} accepted another request for that time`, [
         `Your request for a ${length} call on ${whenC} cannot go ahead, because ${hostShown} accepted another request that takes that time. Nothing was held or charged, and your card details have been removed.`,
         "You are welcome to ask for a different time.",
