@@ -11,6 +11,8 @@ export const HOME = {
   pastPerPage: 50,
   /** A diary post's first lines in the news, in characters. */
   newsLetters: 280,
+  /** How many of the times people asked a host for are shown on the home page; the rest are on the requests page. */
+  requestTimesShown: 5,
 } as const;
 
 export type CallMoments = { startsAt: Date; endsAt: Date; cancelledAt: Date | null; safetyEndedAt: Date | null };
@@ -94,4 +96,30 @@ export function byDay<T extends { startsAt: Date }>(calls: T[], timeZone: string
     else groups.push({ day, is: day === today ? "today" : day === tomorrow ? "tomorrow" : "other", calls: [call] });
   }
   return groups;
+}
+
+/**
+ * What a host is shown about the customer of a call she hosts (plans/38-host-home-page.md). Made
+ * on the server for the host of that call only, and attached to that call before anything is sent
+ * to the browser: a call the person is the customer of never has one.
+ */
+export type CustomerDetails = {
+  /** What the customer wrote when asking for the call; empty when they wrote nothing. */
+  words: string;
+  /** Only a yes or no: never the ID or the name on it. */
+  idConfirmed: boolean;
+  /** The customer has an active membership with this host: a month is held or running. */
+  member: boolean;
+  /** How often the two have talked before, by the rule of "People you have talked to". */
+  callsBefore: number;
+  /** When the last of those calls started; null when there was none. */
+  lastCallAt: string | null;
+  /** The host's own private note about this customer, or null. */
+  note: string | null;
+};
+
+/** The words for the calls before. With one or more, a date follows: "1 call before, on …", "3 calls before, the last on …". */
+export function callsBeforeWords(calls: number): string {
+  if (calls <= 0) return "First call with you";
+  return calls === 1 ? "1 call before, on" : `${calls} calls before, the last on`;
 }

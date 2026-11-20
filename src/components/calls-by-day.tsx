@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
+import { CustomerDetailsLines } from "@/components/customer-details";
 import { HostPhoto } from "@/components/host-photo";
 import { LocalTime } from "@/components/local-time";
-import { byDay } from "@/lib/home/rules";
+import { byDay, type CustomerDetails } from "@/lib/home/rules";
 
 const subscribe = () => () => {};
 
@@ -14,7 +15,7 @@ export type ListedCall = {
   minutes: number;
   /** The other person, as this person knows them: a host by the name on their page. */
   name: string;
-  /** The other person's photo, when they are the host and have one. */
+  /** The other person's photo: a host's, or a customer's when this person hosts the call and is handed one (plans/38). */
   photoId: string | null;
   /** This person hosts the call. */
   hosting: boolean;
@@ -22,6 +23,11 @@ export type ListedCall = {
   open: boolean;
   /** What the list says about the call's money. */
   payment: string;
+  /**
+   * About the customer, for the host of the call only (plans/38). The server attaches it to the
+   * calls this person hosts and to no others; `hosting` above is only how the row reads.
+   */
+  about?: CustomerDetails;
 };
 
 /**
@@ -39,7 +45,7 @@ export function CallsByDay({ calls, serverNow }: { calls: ListedCall[]; serverNo
     () => null,
   );
   const line = (call: ListedCall, timeOnly: boolean) => (
-    <li key={call.id} className="flex items-center gap-3 border-t border-[#e7e5e4] py-3 first:border-t-0" data-call={call.id}>
+    <li key={call.id} className={`flex ${call.about ? "items-start" : "items-center"} gap-3 border-t border-[#e7e5e4] py-3 first:border-t-0`} data-call={call.id}>
       <HostPhoto photoId={call.photoId} name={call.name} small />
       <div className="min-w-0 flex-1 text-sm">
         <p className="text-base font-bold">
@@ -65,6 +71,7 @@ export function CallsByDay({ calls, serverNow }: { calls: ListedCall[]; serverNo
             </>
           )}
         </p>
+        {call.about && <CustomerDetailsLines callId={call.id} name={call.name} about={call.about} short />}
       </div>
       <Link href={`/calls/${call.id}`} className="inline-flex min-h-11 shrink-0 items-center underline underline-offset-2">
         Open
