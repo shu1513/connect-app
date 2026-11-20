@@ -326,7 +326,7 @@ function OneRequest({ id }: { id: string }) {
           ) : null}
         </Card>
       ) : null}
-      {host?.note ? <NoteBox path={path} note={host.note} /> : null}
+      {host?.note ? <NoteBox path={path} note={host.note} onSaved={() => void look(false)} /> : null}
 
       {host ? null : page.card ? (
         <Card>

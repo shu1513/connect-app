@@ -22,7 +22,7 @@ type Note = NonNullable<NonNullable<AppBooking["host"]>["note"]>;
  * was showing, so the box sends that along. When the note was changed elsewhere meanwhile, the
  * box offers to take the stored note in, and until then keeps what was typed.
  */
-export function NoteBox({ path, note }: { path: string; note: Note }) {
+export function NoteBox({ path, note, onSaved }: { path: string; note: Note; onSaved?: () => void }) {
   const colors = useColors();
   /** The stored note as this box last knew it: what a save says it is replacing. */
   const [shown, setShown] = useState<string | null>(note.text);
@@ -31,9 +31,22 @@ export function NoteBox({ path, note }: { path: string; note: Note }) {
   const [said, setSaid] = useState<{ words: string; good: boolean } | null>(null);
   const busy = useRef(false);
   const left = note.max - draft.length;
-  // The page reads the stored note again by itself. If it is no longer the one this box started from, a save from
-  // here would be refused: say so, and offer to take the stored one in.
-  const changedElsewhere = note.text !== shown;
+  /** The stored note as the page last handed it to this box and the box took it in. */
+  const [taken, setTaken] = useState<string | null>(note.text);
+  // The page reads the stored note again by itself. If what it hands in is new to this box, and is not what this
+  // box itself last saved, the note was changed somewhere else: a save from here would be refused. Say so, and
+  // offer to take the stored one in.
+  if (note.text !== taken) {
+    // What the page hands in is new to this box. If it is what this box itself saved, or if nothing has been typed
+    // here since the box last agreed with the stored note, the box simply takes it in.
+    if (note.text === shown) setTaken(note.text);
+    else if (draft === (shown ?? "")) {
+      setTaken(note.text);
+      setShown(note.text);
+      setDraft(note.text ?? "");
+    }
+  }
+  const changedElsewhere = note.text !== taken && note.text !== shown;
 
   async function save() {
     if (busy.current) return;
@@ -45,6 +58,8 @@ export function NoteBox({ path, note }: { path: string; note: Note }) {
       setShown(answer.data.text);
       setDraft(answer.data.text ?? "");
       setSaid({ words: answer.data.words, good: true });
+      // The page around this box reads the request again, so what it knows of the note is the stored one.
+      onSaved?.();
     } else {
       // The server's own sentence (it ends with "nothing was saved, what you typed is still in the box").
       setSaid({ words: answer.ok ? UNREACHABLE : answer.message, good: false });
@@ -82,6 +97,7 @@ export function NoteBox({ path, note }: { path: string; note: Note }) {
             label="Show the note as it is stored now"
             kind="plain"
             onPress={() => {
+              setTaken(note.text);
               setShown(note.text);
               setDraft(note.text ?? "");
               setSaid(null);
