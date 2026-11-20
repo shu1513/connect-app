@@ -1,4 +1,6 @@
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
 import { returnPath } from "@/lib/safe-next";
 import { refreshIdentity } from "@/lib/safety/identity";
@@ -11,8 +13,13 @@ export default async function IdentityReturnPage(props: PageProps<"/identity/ret
   // Someone who arrives logged out (the check can be finished on another device) logs in and lands here again.
   const user = await requireUser(`/identity/return${carry}`);
   let notice: string;
+  let pausedNow = false;
   try {
     const state = await refreshIdentity(user.id);
+    // A result of "under 18" pauses the account, here or a moment ago by the helper. Read now, not from before the
+    // look at Stripe: a paused person is shown the page that says why, whatever the notice below would be.
+    const [row] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, user.id));
+    pausedNow = Boolean(row?.pausedAt);
     notice = state.passed
       ? "Thank you. Your identity is confirmed."
       : state.pending
@@ -22,5 +29,6 @@ export default async function IdentityReturnPage(props: PageProps<"/identity/ret
     console.error("[identity] could not read the result", error);
     notice = "We could not read the result from Stripe just now. Please reload this page in a minute.";
   }
+  if (pausedNow) redirect("/paused");
   redirect(withNotice(`/identity${carry}`, notice));
 }

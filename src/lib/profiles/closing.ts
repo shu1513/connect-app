@@ -3,10 +3,11 @@
  */
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { endWaitingRequestsOf } from "@/lib/booking/bookings";
 import { cancelCall } from "@/lib/payments/cancel";
+import { roomState } from "@/lib/calls";
 import { removeFromRoom } from "@/lib/video/livekit";
 import { deletePhotoInStep, stopTriesInStep } from "./photo-steps";
 import { ProfileError } from "./profiles";
@@ -62,8 +63,11 @@ export async function closeAccount(input: { userId: string; by: string }): Promi
  * The two are tried separately: a problem with the requests must not leave the person in a call.
  * Never throws. Returns how many calls could not be ended, or -1 when the requests or the calls
  * could not be dealt with at all.
+ *
+ * `since` is the moment the account was closed or paused, when that was not just now (the helper finishing
+ * an interrupted pause): a call that had not started at that moment is still cancelled for free.
  */
-export async function endRequestsAndCallsOf(userId: string, now: Date): Promise<number> {
+export async function endRequestsAndCallsOf(userId: string, now: Date, since: Date = now): Promise<number> {
   let requestsEnded = true;
   try {
     await endWaitingRequestsOf(userId, { asHost: true, asCustomer: true }, now);
@@ -72,7 +76,7 @@ export async function endRequestsAndCallsOf(userId: string, now: Date): Promise<
     console.error(`[accounts] could not end the waiting requests of closed or paused account ${userId}`, error);
   }
   try {
-    const callsNotEnded = await endCallsOf(userId, now);
+    const callsNotEnded = await endCallsOf(userId, now, since);
     return requestsEnded ? callsNotEnded : -1;
   } catch (error) {
     console.error(`[accounts] could not look up the calls of closed or paused account ${userId}`, error);
@@ -86,7 +90,7 @@ export async function endRequestsAndCallsOf(userId: string, now: Date): Promise<
  * closed person is put out and their entry pass stops working; the call is
  * then settled by the usual rule for the time that counted.
  */
-async function endCallsOf(userId: string, now: Date): Promise<number> {
+async function endCallsOf(userId: string, now: Date, since: Date): Promise<number> {
   const open = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
@@ -103,8 +107,27 @@ async function endCallsOf(userId: string, now: Date): Promise<number> {
   for (const { call, payment } of open) {
     try {
       // (A call that was ended with "End call and report" before its start is over already: it cannot be cancelled, and its room is being closed.)
-      if (call.startsAt > now && !call.safetyEndedAt) await cancelCall({ call, payment, by: "admin", now });
-      else await removeFromRoom(call.roomName, userId);
+      // Not started yet: cancelled for free. So is a call that has reached its start since the account was closed or
+      // paused, when the helper finishes an interrupted pause a few minutes late, but only if its room was not
+      // even open at that moment: then nobody can have been in it with the person, and the other one has only been
+      // waiting for someone who may not join. It is cancelled as of that moment, so that nobody pays for the waiting.
+      // A call whose room was open already may really have been held: its record of who was there decides the money.
+      const ahead = call.startsAt > now;
+      const aheadWhenMarked = !ahead && call.startsAt > since && roomState(call, since) === "not_open_yet";
+      if ((ahead || aheadWhenMarked) && !call.safetyEndedAt) {
+        try {
+          await cancelCall({ call, payment, by: "admin", now: ahead ? now : since });
+        } catch (error) {
+          const [fresh] = await db.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
+          // Someone else cancelled it in the same moment (the founder's own step and the helper): it is ended.
+          if (fresh?.cancelledAt) continue;
+          if (ahead) throw error;
+          // Started meanwhile: the person is at least put out. A member's call cannot be cancelled once it has
+          // started, and that is expected; anything else that went wrong still counts as a call not ended.
+          await removeFromRoom(call.roomName, userId);
+          if (payment?.kind !== "member_call") throw error;
+        }
+      } else await removeFromRoom(call.roomName, userId);
     } catch (error) {
       // The account is closed or paused either way. The founder is told how many calls need a look.
       notEnded++;
@@ -112,6 +135,42 @@ async function endCallsOf(userId: string, now: Date): Promise<number> {
     }
   }
   return notEnded;
+}
+
+/** How long a pause or a closure is left to finish by itself before the helper looks for what it left. */
+const LEFT_ALONE_MS = 2 * 60_000;
+
+/**
+ * For the helper, about once a minute. A paused or closed account has no waiting request and no call ahead:
+ * pausing and closing end them. They do it after the account is marked, though, and a server that stops in
+ * between would leave them there (a customer waiting for a call the paused person may not join). So the helper
+ * looks for such leftovers and ends them with the same step. Normally it finds nothing.
+ *
+ * A call that is under way is found again each time until it ends; putting the person out again is harmless.
+ */
+export async function finishPausesAndClosures(now: Date, only?: string): Promise<void> {
+  const before = new Date(now.getTime() - LEFT_ALONE_MS);
+  // Paused or closed, and not just now: the pause or the closure itself may still be at work.
+  // (`only` is for the check script, which must not touch other people's accounts in the shared test database.)
+  const off = and(or(lt(schema.user.pausedAt, before), lt(schema.user.closedAt, before)), only ? eq(schema.user.id, only) : undefined);
+  const withCalls = await db
+    .selectDistinct({ id: schema.user.id })
+    .from(schema.user)
+    .innerJoin(schema.calls, or(eq(schema.calls.hostId, schema.user.id), eq(schema.calls.customerId, schema.user.id)))
+    .where(and(off, isNull(schema.calls.cancelledAt), isNull(schema.calls.closedAt), gt(schema.calls.endsAt, now)));
+  const withRequests = await db
+    .selectDistinct({ id: schema.user.id })
+    .from(schema.user)
+    .innerJoin(schema.bookings, or(eq(schema.bookings.hostId, schema.user.id), eq(schema.bookings.customerId, schema.user.id)))
+    .where(and(off, eq(schema.bookings.stage, "waiting")));
+  for (const id of new Set([...withCalls, ...withRequests].map((row) => row.id))) {
+    // Read again just before acting: the founder may have lifted the pause or opened the account a moment ago,
+    // and what the person asks for from then on is theirs to keep.
+    const [person] = await db.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, id));
+    const marked = [person?.pausedAt, person?.closedAt].filter((at): at is Date => Boolean(at));
+    if (marked.length === 0) continue;
+    await endRequestsAndCallsOf(id, now, new Date(Math.min(...marked.map((at) => at.getTime()))));
+  }
 }
 
 /** Undoes a closure made by mistake. A host profile stays suspended until the founder approves it again. */

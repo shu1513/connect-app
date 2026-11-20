@@ -83,7 +83,7 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
         <section id="contribute" className={`${own ? "mt-4" : "mt-8"} scroll-mt-4 rounded border border-neutral-300 p-4`} data-contribute>
           <h2 className="text-lg font-semibold">Contribute</h2>
           <p className="mt-1 text-sm opacity-80">
-            A contribution supports {profile.displayName}&apos;s project. It does not buy a call or any promised reward, and it is not a donation to a charity. The amount is first only held on your card and taken three days later; until then you can cancel and pay nothing.
+            A contribution supports {profile.displayName}&apos;s project. It does not buy a call or any promised reward, and it is not a donation to a charity. The amount is first only held on your card and normally taken three days later; until then you can cancel and pay nothing.
           </p>
           <div className="mt-3 grid gap-6 sm:grid-cols-2">
             {kinds.map((kind) => (

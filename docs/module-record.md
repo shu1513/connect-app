@@ -3732,3 +3732,168 @@ and US debit cards have rules against adding a charge for paying by card); and t
 collection charge can fall on a collection that holds only a tip. The builder's own choices
 listed above can each be changed. A refund of a tip after its money was taken costs Connect
 Stripe's fee (46 cents on $5), and all of it once the host has collected.
+
+## A legal review, and four small faults it found (20 November 2026)
+
+**Why.** The founder asked for the app to be read as a lawyer would, for the areas that still
+need covering, and for Astra to do the same. Both reads were of the whole app, not of one
+change. They agreed on the order: a company first, then who the seller is and who holds the
+money, then child safety.
+
+**What it produced.** `docs/for-the-lawyer.md` grew from eight sections to fifteen. Sections 9 to
+14 are the builder's 30 points; section 15 holds the 23 that Astra added, each checked against
+the code before it was written down. The file names the place in the code for each point. The
+review also found that the repository is public on GitHub, with the plans and that file in it;
+the founder said they will make it private later.
+
+**Four faults that were not questions for a lawyer, and were fixed** (the founder: "Yes, fix
+them"):
+
+1. *An identity check that came back "a real person, under 18" did nothing.* The result was
+   saved, but the gate looks only at the two boxes ticked at sign-up, so such a person could
+   still book any host who does not ask for ID. Now `refreshIdentity` calls the new
+   `pauseUnderage` (`src/lib/safety/reports.ts`): the account is paused exactly as by the
+   founder's own pause (requests ended, calls that have not started cancelled at no charge,
+   memberships and contributions ended, put out of a call in progress). The person is told why
+   and where to write. The founder is told by email and sees the account under "Paused accounts"
+   with the reason "Nobody under 18. An identity check gave an age under 18." If a call could
+   not be ended, a second email says so. The founder's pause and this one share one function,
+   `pause()`. Both identity pages send a paused person to the page that says why.
+2. *The booking form said "only the host sees" the customer's note.* A report copies the note
+   for the founder. It now says the host sees it, "and Connect only if one of you reports the
+   other".
+3. *The identity page said Stripe tells Connect "only" real person, 18 or older, and the name.*
+   The server reads the date of birth to work out the age and does not keep it. The page now
+   says so.
+4. *The tick box for a monthly contribution promised "three days later each time".* A bank can
+   shorten a hold. The box and the email that repeats it now add "or sooner if my bank shortens
+   the hold"; two summaries say "normally". The wording's version is now `2026-11-20`.
+
+**Four more, from Astra's review of those fixes** (the founder: "fix the four still open before
+launch too"):
+
+5. *The result of the check and the pause are written in one database step*
+   (`saveIdentityResult` in `src/lib/safety/identity.ts`, handed to `pauseUnderage`). Both are
+   there or neither. One check pauses at most once, so a pause the founder lifted is never made
+   again by the same check, and a slower look at Stripe never writes over a final answer.
+6. *A pause or a closure that was interrupted finishes by itself.* The account is marked first
+   and its requests and calls are ended after; a server that stopped in between left them
+   there. About once a minute the helper now looks for a paused or closed account that still has
+   a waiting request or a call ahead, and ends them with the same step
+   (`finishPausesAndClosures` in `src/lib/profiles/closing.ts`). It leaves alone an account
+   paused or closed in the last two minutes, whose own step may still be at work. This covers
+   the founder's pause and closing an account too, where the gap had always been.
+7. *No pass for a call after a pause.* The join step read "paused" before it took its lock, so a
+   join under way at the very moment of a pause could still get a pass. It now reads the person
+   again inside the step, holding their line (`src/app/api/calls/[id]/token/route.ts`). Either
+   the pass comes first and the pause that follows makes it stop working, or the pause comes
+   first and no pass is handed out. This too covers every pause and closure.
+8. *The email that confirms a monthly contribution quotes the box the person ticked*, word for
+   word, in the wording of their own agreement (`BOXES` in `src/lib/contributions/wording.ts`
+   keeps every version). Before, it retold today's wording in other words.
+
+**The builder's own choices** (each can be changed):
+- *A pause, not a closed account.* An ID can be misread, and a pause can be lifted by the
+  founder. **The founder's decision, not only the builder's:** asked on 20 November 2026 whether
+  such an account should be closed for good instead, the founder said "Keep the pause" (and,
+  just before: "no one under 18 is allowed in principle"). Whether a pause is enough in law is
+  still a question in the lawyer file.
+- *Not written in the admins' record.* That record needs an admin, and no admin did this. The
+  check's own line (verified, not an adult, when) is the record.
+- *An admin's own account is not paused by it* (as with the founder's pause); it is logged, and
+  the result is still written.
+- *A closed account is paused too*, so that opening it again does not give back the use of the
+  app (Astra's point).
+- *An account paused already for another reason keeps that pause and its reason*; the founder
+  is told about the result, so the pause is not lifted without knowing it.
+- *Two minutes* before the helper touches what a pause or closure left, and *about once a
+  minute* for its look.
+
+**What the reviewers found, round one.** *Astra* (GPT 6.2 Astra, effort high, read-only)
+reviewed the first commit. It found the founder's own pause unchanged for every caller, and no
+way to pause the wrong person. Taken at once: a closed account is paused too; the two identity
+pages read the pause after the look at Stripe and give it first place; "we use the date of
+birth once" promised an exact count and became "only to check whether you are 18 or older"; the
+founder's email no longer says the calls "are cancelled" before that has happened; three
+sentences of the lawyer file that said more than the code does. Four more were first left for
+later and then built at the founder's word: points 5 to 8 above. One was not taken: *people
+already recorded as under 18 are not paused afterwards.* The app has no real users; the only
+such lines are made by the check scripts, so before real users there is nothing to bring in.
+
+**What the reviewers found, round two.** Astra reviewed the second commit (points 5 to 8). It
+found the one-step write sound: a competing look at Stripe loses cleanly, a later failure takes
+back both writes, and the lock on the person's line does order a pass against a pause. Taken:
+- *The helper could have ended a call that should be free of charge too late.* A call that was
+  still ahead when the account was marked, but reached its start before the helper came by, was
+  only "a call under way": the paused person put out, the other person waiting, and waiting can
+  cost money. Such a call is now cancelled at no charge as of the moment the account was marked.
+- *A pass made in the same second as the removal kept working.* The video service cancels a pass
+  whose starting second lies before the given moment, and the app gave it the current second.
+  It now gives the next one (`passCutoff` in `src/lib/video/livekit.ts`), for every removal.
+- *The helper reads the account again just before it acts*, so a pause lifted a moment ago is
+  respected; and its check in the script looks only at the script's own person, not at every
+  account of the shared test database.
+- *Two endings of the same call at once* (the founder's step and the helper) no longer count as
+  "a call could not be ended": the one that lost looks again and sees it is cancelled.
+- *The join step reads other calls with its own connection* instead of asking for a second one
+  while it holds its locks.
+- *A closed account that is paused for its age gets no email* saying it "can still log in".
+- The checks: the result and the pause are now tried with a step that fails halfway; the test
+  admin's line is removed whatever happens; the check of the join step says it reads the code.
+  Three sentences of the lawyer file corrected.
+Not taken: *two accounts that each have a waiting request with the other, both being cleaned
+up in the same instant*, can make the database stop one of the two steps. It was there before
+(the founder's pause and closing), the helper works through accounts one at a time, and what
+was stopped is tried again a minute later. And one check Astra called optional (sending an old
+agreement through the email in the script; the automatic test covers the old sentence).
+The helper's re-read is not a lock: between it and the ending there are a few thousandths of a
+second in which a lifted pause could still lose a request made in that same instant.
+
+**What the reviewers found, round three.** Astra looked once more, at the third commit, and
+found one fault in it. *A call cancelled after the fact could have been a call that was really
+held.* A room opens five minutes before a call's start, so both people can be in it before the
+start; if the account was marked then, and the server stopped before putting the person out,
+the helper would have cancelled the call at no charge and the host would have lost the time.
+The helper now cancels after the fact only a call whose room was **not yet open** when the
+account was marked; any other call that has started keeps its record of who was there, and that
+record decides the money. Also taken: when a started call cannot be cancelled for a reason
+other than being a member's call, the person is put out and the call is still counted as "not
+ended", so the founder hears of it. Astra found the new cut-off for passes sound for ordinary
+joins, reconnects and connection tests. Not taken: *a call whose whole time has passed before
+the helper comes by* (the server down for longer than the call) is settled by the usual rule,
+which can charge a customer for the host's waiting. The founder can give that money back; a
+rule of its own for it would reach into how every call is settled. *CodeRabbit* answered with
+its review limit, as on other pull requests of this day, so the builder read the whole change
+line by line in its place and found nothing further.
+
+**How it was checked.** 746 automatic tests on the code, 3 of them new (the tick box of every
+version of the wording). On this computer, against the local database and Stripe's test mode,
+all on the final code unless said: `scripts/safety-check.ts`, 75 checks, 15 of them new (an
+under-18 result pauses and says why; the result is written with the pause, and neither is
+there when the step fails halfway; the call ahead is cancelled at no charge; the person and the
+founder are told once; one check never pauses twice, also after the founder lifted the pause;
+an account paused already keeps its reason; an admin's and a closed account; the helper leaves
+a fresh pause alone, finishes an interrupted one, cancels at no charge a call that reached its
+start meanwhile but not one whose room was open already, and leaves a lifted pause's calls
+alone); `contribution-check --payouts`, 292;
+`project-journey-check --payouts`, 94; `journey-check`, 63, which joins real calls through the
+changed join step (these three ran before the last small change to the helper, which they do
+not use). `membership-check`, 466, ran on the first commit only (it uses the founder's
+pause, whose behaviour did not change after that). In a browser, as the test customer: the
+booking form shows the new sentence about the note, and the identity page opens.
+
+**What the automatic checks cannot test, and what was not tried.** A real answer of "under 18"
+from Stripe: Stripe's test mode gives no such answer on request, so the step the app takes on
+it is called directly in the check. The new sentence on the identity page was not seen in a
+browser (the test customer has passed the check, and the page then shows "Done"). Two people
+joining and being paused in the same instant, and a pass made in the same second as a removal,
+cannot be made to happen on purpose; the code for them was read by Astra, not run. The helper
+itself (`worker/closer.ts`) was not run beside the check scripts, which share one database; its
+new step was called from the check.
+
+**Still open, for the founder.** The repository is public; the founder will make it private.
+Everything in `docs/for-the-lawyer.md`, sections 9 to 15, is a question for a lawyer; the first
+three are a company, who the seller is, and the report of child abuse to the authorities, which
+is still made by hand. The founder then asked for the agreements themselves to be drafted
+(terms, host agreement, privacy and the rest); that is a change of its own, in `docs/legal/`.
+

@@ -87,6 +87,16 @@ export async function readVideoEvent(rawBody: string, authHeader: string | null)
   };
 }
 
+/**
+ * The moment up to which entry passes stop working when someone is put out. LiveKit cancels a pass whose
+ * starting second lies BEFORE this value, and a pass's starting second is the second it was made in. So the
+ * value is the next second: a pass made in this very second, just before the person was put out, stops
+ * working too.
+ */
+function passCutoff(): bigint {
+  return BigInt(Math.floor(Date.now() / 1000) + 1);
+}
+
 function isNotFound(error: unknown): boolean {
   return (error as { code?: string })?.code === "not_found";
 }
@@ -107,7 +117,7 @@ export async function roomExists(roomName: string): Promise<boolean> {
  */
 export async function closeRoom(roomName: string, userIds: string[]): Promise<boolean> {
   const service = roomService();
-  const cutoff = BigInt(Math.floor(Date.now() / 1000));
+  const cutoff = passCutoff();
 
   // With an explicit cutoff LiveKit answers "success" even when the person or
   // the room is already gone, so any error here is a real failure.
@@ -128,7 +138,7 @@ export async function closeRoom(roomName: string, userIds: string[]): Promise<bo
  * room and the other person are left alone. Fine to call when they are not there.
  */
 export async function removeFromRoom(roomName: string, userId: string): Promise<void> {
-  const cutoff = BigInt(Math.floor(Date.now() / 1000));
+  const cutoff = passCutoff();
   try {
     await roomService().removeParticipant(roomName, userId, { revokeTokenTs: cutoff });
   } catch (error) {
