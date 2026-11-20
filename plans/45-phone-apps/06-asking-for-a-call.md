@@ -144,7 +144,7 @@ call. The screen says what is being bought in those words. The ID check is not a
 
 ### How it was tried
 
-- `scripts/app-booking-check.ts`, 121 checks, with real test cards at Stripe (test mode): the
+- `scripts/app-booking-check.ts`, 122 checks, with real test cards at Stripe (test mode): the
   summary in the website's own sentences (and the website's page for the same time saying the
   same); a request from the app is the same row, deadlines and email as one made by the
   website's own function; sent twice it is one; every refusal; the card step, where only
@@ -372,6 +372,21 @@ It found all five points of its fifth look fixed, and one race left of the same 
    moment. Before any such answer the server now looks for the request **with the customer's
    calendar locked**. A request is made with that lock held, so one that is on its way is
    waited for and then found. If the look cannot be made, the answer is "it cannot be told".
+
+## Astra's seventh look at the code (20 November 2026): the same family once more, now closed as a whole
+
+It found the sixth look's race fixed, and one more of its kind: a sending tried again could
+still get ahead of a first one that was waiting its turn for the host's calendar, and be
+refused while the first went on to be made.
+
+1. *Closed as a whole, not case by case:* **two sendings with the same key never run side by
+   side.** The second waits (a few seconds at most) until the first is through, whatever became
+   of it, and then finds what the first made. If the first is still not through, the answer is
+   "it cannot be told", and the app keeps what was sent. A check sends the same request twice at
+   the very same moment: one request, both told so.
+2. The length asked for is now looked at again with the calendars locked, like the price (the
+   host may have stopped offering it while the request waited).
+3. *The wait had no limit of its own.* It has one now (8 seconds).
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 

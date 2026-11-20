@@ -1,7 +1,7 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { bookSummaryFor } from "@/lib/app-door/booking";
 import type { AppBookSent } from "@/lib/app-door/types";
-import { askForCall, BookingError, requestWithKey, requestWithKeyForCertain } from "@/lib/booking/bookings";
+import { askForCall, BookingError, oneSendingAtATime, requestWithKey } from "@/lib/booking/bookings";
 import { publicProfile } from "@/lib/profiles/profiles";
 
 /**
@@ -35,16 +35,6 @@ function notKnown(): Response {
   return new Response(null, { status: 503, headers: { "cache-control": "private, no-store" } });
 }
 
-/** Whether this customer has made a request with this key, asked for certain; "unknown" when it cannot be asked just now. */
-async function certain(customerId: string, requestKey: string): Promise<Awaited<ReturnType<typeof requestWithKeyForCertain>> | "unknown"> {
-  try {
-    return await requestWithKeyForCertain(customerId, requestKey);
-  } catch (lookup) {
-    console.error("[bookings] could not look for a request after a failed sending", lookup);
-    return "unknown";
-  }
-}
-
 export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[handle]/book">) {
   const asked = await appRequest(request, "active");
   if (asked instanceof Response) return asked;
@@ -61,54 +51,67 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
   // A tick always says which words it was given for: a tick without them is no tick.
   if (given.cardTerms === true && typeof given.cardTermsVersion !== "string") return refuse("not_valid");
 
-  // A request this person already made with this key is answered as it was made, before anything is looked at
-    // as it stands now: the answer to the first sending may have been lost on the way, and since then the host may
-    // have changed her price, or hidden her page. The app then opens that request, which shows its own terms.
-  const again = await requestWithKey(me.id, given.requestKey);
-  if (again) {
-    const body: AppBookSent = { id: again.id };
-    return answer(body);
+  // Two sendings with the same key never run side by side: one that is tried again waits for the first to be
+  // through, and then finds what the first made. So what is answered below is always about the whole of it.
+  let outcome: Response | "busy";
+  try {
+    outcome = await oneSendingAtATime(given.requestKey, () => send(me, handle, { start: given.start as string, length: given.length as number, note: typeof given.note === "string" ? given.note : "", requestKey: given.requestKey as string, cardTerms: given.cardTerms === true, cardTermsVersion: typeof given.cardTermsVersion === "string" ? given.cardTermsVersion : null, seen: { price: seen.price as number, freeCancel: seen.freeCancel as number } }));
+  } catch (error) {
+    console.error("[bookings] a sending from the app could not be carried out", error);
+    return notKnown();
   }
+  // The first sending is still not through: what became of it cannot be told yet.
+  return outcome === "busy" ? notKnown() : outcome;
+}
+
+/** One sending, with no other for the same key under way. */
+async function send(
+  me: { id: string; name: string; email: string },
+  handle: string,
+  given: { start: string; length: number; note: string; requestKey: string; cardTerms: boolean; cardTermsVersion: string | null; seen: { price: number; freeCancel: number } },
+): Promise<Response> {
+  // A request this person already made with this key is answered as it was made, before anything is looked at as it
+  // stands now: the answer to the first sending may have been lost on the way, and since then the host may have
+  // changed her price, or hidden her page. The app then opens that request, which shows its own terms.
+  let again: Awaited<ReturnType<typeof requestWithKey>>;
+  try {
+    again = await requestWithKey(me.id, given.requestKey);
+  } catch (lookup) {
+    console.error("[bookings] could not look for a request with its key", lookup);
+    return notKnown();
+  }
+  if (again) return answer<AppBookSent>({ id: again.id });
   const profile = await publicProfile(handle);
-  if (!profile) {
-    // Her page is not there now. It may have been a moment ago, when an earlier sending with this key was let
-    // in, and that one may only now be on its way to being written down: it is looked for, for certain, before
-    // "not found" is said. (Hiding a page does not wait for a request that is being made.)
-    const settled = await certain(me.id, given.requestKey);
-    return settled === "unknown" ? notKnown() : settled ? answer<AppBookSent>({ id: settled.id }) : refuse("not_found");
-  }
+  if (!profile) return refuse("not_found");
   try {
     const { booking } = await askForCall({
       customer: me,
       hostId: profile.userId,
       startsAt: new Date(given.start),
       lengthMinutes: given.length,
-      note: given.note ?? "",
+      note: given.note,
       requestKey: given.requestKey,
       // Only the box itself, ticked: nothing else counts as a yes.
-      agreedToCardTerms: given.cardTerms === true,
-      seen: { pricePer15Cents: seen.price, freeCancelMinutes: seen.freeCancel, cardTermsVersion: given.cardTermsVersion ?? null },
+      agreedToCardTerms: given.cardTerms,
+      seen: { pricePer15Cents: given.seen.price, freeCancelMinutes: given.seen.freeCancel, cardTermsVersion: given.cardTermsVersion },
       now: new Date(),
     });
-    const body: AppBookSent = { id: booking.id };
-    return answer(body);
+    return answer<AppBookSent>({ id: booking.id });
   } catch (error) {
     if (!(error instanceof BookingError)) console.error("[bookings] request from the app failed", error);
     // A paid request is written down first, and its card step is made at Stripe after. If only the second failed
     // (whatever the kind of failure), the request exists: it is answered as made (its own screen makes the card step
     // when it is asked for), never as "nothing was sent".
-    // Looked for with the customer's calendar locked: a sending that is being written down right now is waited
-    // for. (Some refusals come before anything is locked: that the host cannot be booked just now, say.)
-    const made = await certain(me.id, given.requestKey);
-    if (made === "unknown") return notKnown();
-    if (made) {
-      const body: AppBookSent = { id: made.id };
-      return answer(body);
+    let made: Awaited<ReturnType<typeof requestWithKey>>;
+    try {
+      made = await requestWithKey(me.id, given.requestKey);
+    } catch (lookup) {
+      console.error("[bookings] could not look for a request after a failed sending", lookup);
+      return notKnown();
     }
-    // No request with this key is there to be seen. After one of the booking's own refusals that settles it:
-    // nothing was made, and the sentence says why. After anything else (the database, Stripe, the unforeseen) it
-    // does not: an earlier sending with the same key may still be on its way to being written down. Then, too, the
-    // answer is "it cannot be told", never "nothing was sent".
+    if (made) return answer<AppBookSent>({ id: made.id });
+    // No request with this key was made. After one of the booking's own refusals that is certain, and the sentence
+    // says why. After anything else (the database, Stripe, the unforeseen) the answer is "it cannot be told".
     if (!(error instanceof BookingError)) return notKnown();
     return refuse("not_valid", error.message);
   }

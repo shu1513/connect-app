@@ -452,7 +452,8 @@ export async function askForCall(input: {
       }
       // Read what the host offers again now that the calendars are locked.
       const current = await offerOf(input.hostId, tx);
-      if (!current || !current.canTakePaid) throw new BookingError("This host cannot be booked right now.");
+      // (The length too: she may have stopped offering it while this request waited for the calendars.)
+      if (!current || !current.canTakePaid || !current.lengths.includes(input.lengthMinutes)) throw new BookingError("This host cannot be booked right now.");
       if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.freeCancelMinutes !== input.seen.freeCancelMinutes || current.pricePer15Cents !== offer.pricePer15Cents) {
         throw new BookingError("This host's price or cancelling rule changed while you were looking. Please check the details again.");
       }
@@ -1017,17 +1018,28 @@ export async function requestWithKey(customerId: string, requestKey: string): Pr
 }
 
 /**
- * The same question, asked for certain: with this customer's calendar locked. A request is made
- * with that lock held, so one that is being written down at this very moment is waited for, and
- * then seen. This is what is asked before a customer is told "nothing was sent".
+ * Runs one sending of a request while no other sending with the same once-only key runs: a second
+ * one waits until the first is through, whatever became of it, and then sees what the first left
+ * behind. So a sending that is tried again (the answer to the first was lost on the way) can never
+ * overtake the first and be told "nothing was sent" while the first is still being written down.
+ *
+ * The wait is short. If the first is still not through by then, the answer is "busy": it cannot
+ * be told yet what became of it. Nothing of Connect's own is written in this step; it only holds
+ * the place in the queue.
  */
-export async function requestWithKeyForCertain(customerId: string, requestKey: string): Promise<Booking | null> {
-  if (!isUuid(requestKey)) return null;
-  return db.transaction(async (tx) => {
-    await lockCalendars(tx, [customerId]);
-    const [booking] = await tx.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
-    return booking ?? null;
-  });
+export async function oneSendingAtATime<T>(requestKey: string, work: () => Promise<T>): Promise<T | "busy"> {
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('lock_timeout', '8s', true)`);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`request-key:${requestKey}`}))`);
+      return work();
+    });
+  } catch (error) {
+    // The database's own word for "the lock was not free in time".
+    const code = (error as { code?: unknown; cause?: { code?: unknown } } | null)?.cause?.code ?? (error as { code?: unknown } | null)?.code;
+    if (code === "55P03") return "busy";
+    throw error;
+  }
 }
 
 /** The requests a host has to answer, soonest call first, so requests for the same time sit together. */

@@ -310,6 +310,11 @@ async function main() {
 
       const twice = await send(maya.handle, s, cust.jar, { note: "Something else" });
       check("sent again with the same key it is the same one request", twice.status === 200 && (twice.json as AppBookSent).id === freeId && (await db.select().from(schema.bookings).where(eq(schema.bookings.customerId, cust.id))).length === 1 && (await row(freeId)).note === "About my garden.");
+      // Two sendings with the same key at the very same moment (a second tap, a retry that crosses the first): they
+      // are taken one after the other, and both are answered with the one request.
+      const both = await okSummary(maya.handle, nextFree(), second.jar);
+      const [one, two] = await Promise.all([send(maya.handle, both, second.jar), send(maya.handle, both, second.jar)]);
+      check("two sendings with one key at the same moment make one request, and both are told so", one.status === 200 && two.status === 200 && (one.json as AppBookSent).id === (two.json as AppBookSent).id && (await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, both.requestKey))).length === 1, `${one.status} ${two.status}`);
       const stolen = await send(maya.handle, s, second.jar);
       check("somebody else's key is refused, and gives nothing away", refusal(stolen) === "not_valid" && sentence(stolen) === "This form is out of date. Please reload the page." && !stolen.text.includes(freeId));
       // The answer to a sending can be lost on the way. Sent again later, the request is found as it was made,
