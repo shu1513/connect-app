@@ -53,8 +53,8 @@ export default function PrivacyPage() {
       </p>
       <p className="mt-4 text-sm">
         Anyone with an account can upload a photo in the same way, on the Account page. The photo of a person who is not a host
-        is shown only to hosts that person has asked for a call, beside their name, and to nobody else; it stops being shown to a
-        host when either of the two blocks the other. A host&apos;s photo is shown to everyone while their page is open to
+        is shown only to hosts that person has asked for a call, beside their name; it stops being shown to a host when either
+        of the two blocks the other. Connect&apos;s own staff can see every photo, to keep the rules. Nobody else is shown it. A host&apos;s photo is shown to everyone while their page is open to
         everyone, and a host who asks another host for a call is shown there with the same photo. We keep our copy until the
         person removes it or their account is closed. If someone reports a person, we note which photo that person had at the
         time.

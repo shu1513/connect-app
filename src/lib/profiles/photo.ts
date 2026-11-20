@@ -728,6 +728,19 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
 }
 
 /**
+ * The ids of these people's photos, for a host's own pages (the requests, "Available now", one
+ * booking): only of the people this host is handed a photo of, by the very rule the photo's
+ * address goes by (hasAskedHost). Being on the host's list is never taken as proof: a host who
+ * was blocked, or whose booking was a test call, learns nothing here, not even whether the person
+ * has a photo or has changed it. Never the bytes.
+ */
+export async function photosForHost(hostId: string, customerIds: string[]): Promise<Map<string, string>> {
+  const all = [...(await photosOf([...new Set(customerIds)]))];
+  const handed = await Promise.all(all.map(([customerId]) => hasAskedHost(hostId, customerId)));
+  return new Map(all.filter((_, index) => handed[index]));
+}
+
+/**
  * What has become of these photos, for the founder's page of reports: "current" (still that host's
  * photo) or "locked" (removed and reported, and kept). One that is in neither was removed or
  * replaced, and is gone.

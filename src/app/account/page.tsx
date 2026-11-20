@@ -114,8 +114,8 @@ export default async function AccountPage(props: PageProps<"/account">) {
         ) : (
           <>
             <p className="mt-2 text-sm opacity-70">
-              You can add a photo. Hosts you ask for a call see it beside your name; nobody else does. If you become a host, it is
-              shown on your public page. The middle of your picture is shown, in a circle. We make our own copy and have it checked
+              You can add a photo. Hosts you ask for a call see it beside your name. Connect&apos;s own staff can see it too, to keep
+              the rules; nobody else does. If you become a host, it is shown on your public page. The middle of your picture is shown, in a circle. We make our own copy and have it checked
               automatically before anyone sees it; for the check, our copy is sent to a checking service, without your name. We keep
               our copy until you remove it (the privacy page says when we must keep one longer). You have one photo at a time, and{" "}
               {PHOTO.triesPerDay} tries in 24 hours.

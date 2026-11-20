@@ -1757,6 +1757,16 @@ async function main() {
     const forOther = await page2(`/host-photos/${askerPhoto.id}`, visitor.jar);
     const forNobody = await page2(`/host-photos/${askerPhoto.id}`, null);
     check("the photo's address hands it to the host who was asked, as a JPEG no browser may keep; another logged-in person and a visitor get \"not found\"", forHost.status === 200 && forHost.kind === "image/jpeg" && forHost.keep === "no-store" && forOther.status === 404 && forNobody.status === 404 && forOther.keep === "no-store", { host: forHost.status, keep: forHost.keep, other: forOther.status, nobody: forNobody.status });
+    const rightNow = await asks(asker.id, who.id, { source: "now", respondBy: new Date(Date.now() + 2 * MIN) });
+    const liveAnswer = await fetch(`${BASE}/api/host/now`, { headers: { cookie: cookieOf(who.jar) } });
+    const liveJson = (await liveAnswer.json()) as { requests?: Array<{ id: string; photoId: string | null }> };
+    check("what the \"Available now\" page asks for every few seconds carries the photo's id for that request, and is kept by nobody", liveAnswer.status === 200 && liveJson.requests?.find((one) => one.id === rightNow.id)?.photoId === askerPhoto.id && liveAnswer.headers.get("cache-control") === "no-store", liveJson.requests);
+    await db.insert(schema.blocks).values({ blockerId: asker.id, blockedId: who.id });
+    const afterBlock = await page2(`/bookings/${request.id}`, who.jar);
+    const addressAfterBlock = await page2(`/host-photos/${askerPhoto.id}`, who.jar);
+    const liveAfterBlock = (await (await fetch(`${BASE}/api/host/now`, { headers: { cookie: cookieOf(who.jar) } })).json()) as { requests?: Array<{ id: string; photoId: string | null }> };
+    check("the customer blocks the host: the page of the old request no longer names the photo, its address says \"not found\", and the live list has no id", !afterBlock.html.includes("/host-photos/") && addressAfterBlock.status === 404 && (liveAfterBlock.requests ?? []).every((one) => one.photoId === null), { page: afterBlock.status, address: addressAfterBlock.status });
+    await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, asker.id));
     const noPhoto = await person("customer");
     await asks(noPhoto.id, who.id);
     const withLetter = await page2("/host/requests", who.jar);
@@ -1803,21 +1813,24 @@ async function main() {
     check("a photo from a network stays a host's: a person without a host profile cannot take one", noNetwork.outcome === "cannot");
 
     const host = await newHost();
+    await press(host);
     const otherHost = await newHost();
     const otherCustomer = await person("customer");
+    const idFor = async (viewer: { id: string }, of: { id: string }) => (await Photo.photosForHost(viewer.id, [of.id])).get(of.id) ?? null;
     check("before the customer has asked anyone: only the customer and the founder are handed it, and no browser may keep it", (await handed(null, photo.id)) === "no" && (await handed(as(otherCustomer), photo.id)) === "no" && (await handed(as(host), photo.id)) === "no" && (await handed(as(customer), photo.id)) === "yes" && (await handed(founder, photo.id)) === "yes");
 
     const abandoned = await asks(customer.id, host.id, { stage: "card", requested: false });
-    check("a request left at the card step, never sent: the host is not handed it", (await handed(as(host), photo.id)) === "no");
+    check("a request left at the card step, never sent: the host is not handed it, and the host's pages are not even told its id", (await handed(as(host), photo.id)) === "no" && (await idFor(host, customer)) === null);
     await db.delete(schema.bookings).where(eq(schema.bookings.id, abandoned.id));
     const testCall = await asks(customer.id, host.id, { source: "admin", stage: "accepted", withCall: true });
-    check("a test call set up by the founder: not either", (await handed(as(host), photo.id)) === "no");
+    check("a test call set up by the founder: not either", (await handed(as(host), photo.id)) === "no" && (await idFor(host, customer)) === null);
     await db.delete(schema.bookings).where(eq(schema.bookings.id, testCall.id));
 
     const request = await asks(customer.id, host.id);
     check("the customer has sent this host a request: this host is handed it, not kept by a browser; another host, another customer and a visitor are not", (await handed(as(host), photo.id)) === "yes" && (await handed(as(otherHost), photo.id)) === "no" && (await handed(as(otherCustomer), photo.id)) === "no" && (await handed(null, photo.id)) === "no");
+    check("the host's pages are told the photo's id; another host's pages are not", (await idFor(host, customer)) === photo.id && (await idFor(otherHost, customer)) === null);
     await db.insert(schema.blocks).values({ blockerId: customer.id, blockedId: host.id });
-    check("the customer blocks the host: the host is no longer handed it", (await handed(as(host), photo.id)) === "no");
+    check("the customer blocks the host: the host is no longer handed it, and the host's page of the old request is not told its id any more", (await handed(as(host), photo.id)) === "no" && (await idFor(host, customer)) === null);
     await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, customer.id));
     await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: customer.id });
     check("the host blocks the customer: the same", (await handed(as(host), photo.id)) === "no");
@@ -1841,7 +1854,8 @@ async function main() {
     const nowRequest = await asks(customer.id, otherHost.id, { source: "now", respondBy: new Date(Date.now() + 2 * MIN) });
     const live = await liveForHost(otherHost.id, new Date());
     check("the \"Available now\" page's list carries the photo's id beside the request, never the picture", live.requests.find((one) => one.id === nowRequest.id)?.photoId === photo.id && !JSON.stringify(live).includes("bytes"), live.requests.map((one) => one.photoId));
-    check("the lists of ids have it for the requests page and the booking page", (await Photo.photosOf([customer.id, member.id])).get(customer.id) === photo.id);
+    const several = await Photo.photosForHost(host.id, [customer.id, member.id, otherCustomer.id, customer.id]);
+    check("the lookup for a host's pages answers for several people at once: those the host is handed a photo of, and nobody else", several.get(customer.id) === photo.id && several.get(member.id) === memberPhoto.id && several.size === 2, [...several.keys()]);
 
     // A person who is also a host: one photo.
     const hiddenHost = await newHost({ instagram: false });
@@ -1870,7 +1884,8 @@ async function main() {
     check("and reporting blocks: the reporting host is no longer handed the photo", (await handed(as(host), memberPhoto.id)) === "no" && (await handed(as(otherHost), photo.id)) === "no");
     const fromCustomer = await createReport({ reporterId: customer.id, context: "booking", contextId: request.id, reason, text: "", now: new Date() });
     const [customerReport] = await db.select().from(schema.reports).where(eq(schema.reports.reference, fromCustomer.reference));
-    check("a customer's report of a host keeps the id of the host's photo, or none when the host has none", customerReport.reportedId === host.id && (JSON.parse(customerReport.snapshot) as { photoId?: string | null }).photoId === ((await photoOf(host))?.id ?? null));
+    const hostsOwn = (await photoOf(host))?.id;
+    check("a customer's report of a host keeps the id of the host's photo", customerReport.reportedId === host.id && Boolean(hostsOwn) && (JSON.parse(customerReport.snapshot) as { photoId?: string | null }).photoId === hostsOwn);
 
     // The founder.
     const everyone = await Photo.photosForAdmin();

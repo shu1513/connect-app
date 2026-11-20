@@ -13,7 +13,7 @@ import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
 import { SitePage } from "@/components/site-page";
 import { HostPhoto } from "@/components/host-photo";
-import { photosOf } from "@/lib/profiles/photo";
+import { photosForHost } from "@/lib/profiles/photo";
 import { NOW } from "@/lib/booking/now-rules";
 
 export const metadata: Metadata = { title: "Requests for calls" };
@@ -29,8 +29,8 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   const idConfirmed = await verifiedAmong(customers);
   // The host's own notes about these customers (plans/32). The lookup asks every rule itself for each of them.
   const notes = await hostNotesAbout(user.id, customers);
-  // Their photos (plans/35): the ids only. The photo's own address decides, for each request, whether this host gets it.
-  const photoIds = await photosOf(customers);
+  // Their photos (plans/35): the ids only, and only of those this host is handed a photo of. The lookup asks the rule for each of them.
+  const photoIds = await photosForHost(user.id, customers);
 
   // Group by start time, so the host can compare people who asked for the same time.
   const groups = new Map<string, typeof waiting>();

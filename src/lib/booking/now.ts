@@ -9,7 +9,7 @@ import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { BookingError, endInstantRequestsOfAbsentHosts, lockCalendars, offerOf } from "./bookings";
 import { hostNotesAbout } from "@/lib/people/contacts";
-import { photosOf } from "@/lib/profiles/photo";
+import { photosForHost } from "@/lib/profiles/photo";
 import { averagesFor } from "@/lib/ratings/ratings";
 import { averageText } from "@/lib/ratings/rules";
 import { verifiedAmong } from "@/lib/safety/identity";
@@ -108,8 +108,8 @@ export async function liveForHost(hostId: string, now: Date) {
   const idConfirmed = await verifiedAmong(customers);
   // This host's own notes about them (plans/32). The lookup asks every rule itself for each customer.
   const notes = await hostNotesAbout(hostId, customers);
-  // Their photos (plans/35): the ids only. The photo's own address decides whether this host gets it.
-  const photoIds = await photosOf(customers);
+  // Their photos (plans/35): the ids only, and only of those this host is handed a photo of. The lookup asks the rule for each of them.
+  const photoIds = await photosForHost(hostId, customers);
   return {
     ...stateOf(calendar, now),
     requests: waiting.map(({ booking, customerName }) => ({
