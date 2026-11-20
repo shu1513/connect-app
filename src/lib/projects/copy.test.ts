@@ -132,3 +132,86 @@ describe("Connect's own copy of a picture", () => {
     expect(await refusal(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(PICTURE.uploadMaxBytes)]))).toMatch(/10 MB/);
   });
 });
+
+describe("the square copy of an uploaded photo (plans/35)", () => {
+  const SIDE = 512;
+  /** A wide picture whose left half is red and whose right half is blue. */
+  const twoHalves = async (width: number, height: number) => {
+    const data = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data[(y * width + x) * 3 + (x < width / 2 ? 0 : 2)] = 255;
+    return sharp(data, { raw: { width, height, channels: 3 } }).png().toBuffer();
+  };
+  const pixel = async (bytes: Buffer, x: number, y: number) => {
+    const { data, info } = await sharp(bytes).raw().toBuffer({ resolveWithObject: true });
+    const at = (y * info.width + x) * info.channels;
+    return [data[at], data[at + 1], data[at + 2]];
+  };
+
+  it("is a square of at most 512 points, from a wide picture and from a tall one", async () => {
+    for (const [width, height] of [[2000, 1000], [900, 2400], [512, 512], [4000, 3000]]) {
+      const copy = await makeCopy(await raw(width, height).jpeg().toBuffer(), { square: SIDE });
+      expect([copy.width, copy.height], `${width}x${height}`).toEqual([SIDE, SIDE]);
+      expect((await sharp(copy.bytes).metadata()).format).toBe("jpeg");
+      expect(copy.bytes.length).toBeLessThanOrEqual(PICTURE.maxBytes);
+    }
+  });
+
+  it("is cut from the middle: both halves of a wide picture are in it, each on its own side", async () => {
+    const copy = await makeCopy(await twoHalves(1600, 400), { square: SIDE });
+    expect([copy.width, copy.height]).toEqual([400, 400]);
+    const [leftRed, , leftBlue] = await pixel(copy.bytes, 20, 200);
+    const [rightRed, , rightBlue] = await pixel(copy.bytes, 380, 200);
+    expect(leftRed).toBeGreaterThan(200);
+    expect(leftBlue).toBeLessThan(60);
+    expect(rightBlue).toBeGreaterThan(200);
+    expect(rightRed).toBeLessThan(60);
+  });
+
+  it("does not make a small picture larger: the square is as large as the shorter side", async () => {
+    const copy = await makeCopy(await raw(300, 200).png().toBuffer(), { square: SIDE });
+    expect([copy.width, copy.height]).toEqual([200, 200]);
+    // A long, thin picture the diary could not keep (too small once shrunk to fit) still gives a square.
+    const thin = await makeCopy(await raw(4000, 120).jpeg().toBuffer(), { square: SIDE });
+    expect([thin.width, thin.height]).toEqual([120, 120]);
+  });
+
+  it("is turned the right way up before it is cut, and has white behind anything see-through", async () => {
+    // Stored lying on its side (1600 wide, 400 high) with a note that says "turn me": upright it is 400 wide.
+    const sideways = await sharp(await twoHalves(1600, 400)).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+    const turned = await makeCopy(sideways, { square: SIDE });
+    expect([turned.width, turned.height]).toEqual([400, 400]);
+    // Upright, red is at the top and blue at the bottom.
+    expect((await pixel(turned.bytes, 200, 20))[0]).toBeGreaterThan(200);
+    expect((await pixel(turned.bytes, 200, 380))[2]).toBeGreaterThan(200);
+    const clear = await sharp({ create: { width: 600, height: 600, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const white = await pixel((await makeCopy(clear, { square: SIDE })).bytes, 256, 256);
+    for (const part of white) expect(part).toBeGreaterThan(240);
+  });
+
+  it("refuses what the whole copy refuses: too small, moving, not a picture, over 10 MB", async () => {
+    const square = (file: Buffer) =>
+      makeCopy(file, { square: SIDE }).then(
+        () => "nothing refused it",
+        (error) => {
+          if (error instanceof ProjectError) return error.message;
+          throw error;
+        },
+      );
+    expect(await square(await raw(99, 400).png().toBuffer())).toContain("too small");
+    expect(await square(Buffer.from("just some words"))).toContain("JPEG, PNG or WebP");
+    const frames = await sharp(Buffer.concat([await raw(120, 120).raw().toBuffer(), await raw(120, 120, true).raw().toBuffer()]), { raw: { width: 120, height: 240, channels: 3, pageHeight: 120 } })
+      .webp({ loop: 0, delay: [100, 100] })
+      .toBuffer();
+    expect(await square(frames)).toMatch(/moves/);
+    expect(await square(Buffer.alloc(PICTURE.uploadMaxBytes + 1))).toContain("10 MB");
+  });
+
+  it("never has the fingerprint of the whole copy of the same file, and is the same every time", async () => {
+    const file = await raw(900, 600, true).jpeg().toBuffer();
+    const whole = await makeCopy(file);
+    const first = await makeCopy(file, { square: SIDE });
+    const second = await makeCopy(file, { square: SIDE });
+    expect(first.bytes.equals(second.bytes)).toBe(true);
+    expect(first.bytes.equals(whole.bytes)).toBe(false);
+  });
+});

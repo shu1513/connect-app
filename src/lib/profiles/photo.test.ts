@@ -303,5 +303,16 @@ describe("photoNotice: the sentence a host is told", () => {
     expect(photoNotice({ outcome: "unusable", detail: "That picture is too small." }, "instagram")).toBe("Your profile picture cannot be used. That picture is too small.");
     expect(photoNotice({ outcome: "limit" }, "instagram")).toContain(String(PHOTO.triesPerDay));
   });
+
+  it("after an upload, names no network and no profile picture in anything an upload can come to (plans/35)", () => {
+    // What "Upload a photo" can end with. ("running" is left out: the try under way may be one at TikTok, and the sentence says so.)
+    for (const outcome of ["shown", "not_accepted", "refused_before", "not_fetched", "unusable", "not_checked", "stopped", "cannot", "locked", "limit", "no_checker", "place_taken", "failed"] as const) {
+      const said = photoNotice({ outcome, detail: "A picture can be up to 10 MB." }, "upload");
+      expect(said.length, outcome).toBeGreaterThan(20);
+      for (const word of ["Instagram", "TikTok", "profile picture", "fetch"]) expect(said, outcome).not.toContain(word);
+    }
+    expect(photoNotice({ outcome: "unusable", detail: "A picture can be up to 10 MB." }, "upload")).toBe("That picture cannot be used. A picture can be up to 10 MB.");
+    expect(photoNotice({ outcome: "not_accepted", tookDown: true }, "upload")).toContain("that photo was taken down");
+  });
 });
 

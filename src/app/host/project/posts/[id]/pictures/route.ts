@@ -3,45 +3,16 @@ import { acceptUpload, givePlace, pictureCount, takePlace } from "@/lib/projects
 import { postForHost } from "@/lib/projects/posts";
 import { PROJECTS_OFF } from "@/lib/projects/projects";
 import { PICTURE, ProjectError } from "@/lib/projects/rules";
+import { readOnePicture, REQUEST_MAX } from "@/lib/projects/upload-body";
 import { fromThisSite } from "@/lib/same-site";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { getUser } from "@/lib/session";
 
-/** The whole request may be this large: the picture, and a little for the form around it. */
-const REQUEST_MAX = PICTURE.uploadMaxBytes + PICTURE.formOverheadBytes;
-const READ_WITHIN_MS = 30_000;
 const TOO_LARGE = "A picture can be up to 10 MB.";
 
 /** Sends the browser on with a sentence. The address is one of our own, written without a host, so nothing a request says about itself is used. */
 function goTo(path: string, text?: string): Response {
   return new Response(null, { status: 303, headers: { location: text ? withNotice(path, text) : path, "cache-control": "no-store" } });
-}
-
-/**
- * Reads the request piece by piece and stops the moment it is larger than allowed, whatever it
- * said about its own length, or when it takes too long. Null means: too large or too slow.
- */
-async function readWithin(request: Request, limit: number): Promise<Buffer | null> {
-  const reader = request.body?.getReader();
-  if (!reader) return Buffer.alloc(0);
-  const pieces: Uint8Array[] = [];
-  let size = 0;
-  let late: NodeJS.Timeout | undefined;
-  const tooLate = new Promise<"late">((resolve) => (late = setTimeout(() => resolve("late"), READ_WITHIN_MS)));
-  try {
-    for (;;) {
-      const next = await Promise.race([reader.read(), tooLate]);
-      if (next === "late") return null;
-      if (next.done) return Buffer.concat(pieces);
-      size += next.value.byteLength;
-      if (size > limit) return null;
-      pieces.push(next.value);
-    }
-  } finally {
-    clearTimeout(late);
-    // Whatever was not read is let go of.
-    void reader.cancel().catch(() => undefined);
-  }
 }
 
 /**
@@ -77,20 +48,12 @@ export async function POST(request: Request, ctx: RouteContext<"/host/project/po
   // 6. One picture is worked on at a time. A second upload is told to try again; it is not kept waiting in memory.
   if (!takePlace()) return goTo(page, "Another picture is being worked on right now. Please try again in a moment.");
   try {
-    const body = await readWithin(request, REQUEST_MAX);
-    if (!body) return goTo(page, TOO_LARGE);
-    // Only what was read within the limit is taken apart: exactly one file, and nothing else.
-    let parts: Array<[string, FormDataEntryValue]>;
-    try {
-      parts = [...(await new Response(new Uint8Array(body), { headers: { "content-type": kind } }).formData()).entries()];
-    } catch {
-      return goTo(page, "That upload could not be read. Please try again.");
-    }
-    const file = parts.length === 1 && parts[0][0] === "picture" && typeof parts[0][1] !== "string" ? parts[0][1] : null;
-    if (!file || file.size === 0) return goTo(page, "Please choose one picture.");
-    if (file.size > PICTURE.uploadMaxBytes) return goTo(page, TOO_LARGE);
+    const file = await readOnePicture(request, kind);
+    if (file === "too_large") return goTo(page, TOO_LARGE);
+    if (file === "unreadable") return goTo(page, "That upload could not be read. Please try again.");
+    if (file === "not_one") return goTo(page, "Please choose one picture.");
 
-    const picture = await acceptUpload({ hostId: user.id, postId: found.post.id, original: Buffer.from(await file.arrayBuffer()), now: new Date() });
+    const picture = await acceptUpload({ hostId: user.id, postId: found.post.id, original: file, now: new Date() });
     if (picture.state === "refused") return goTo(page, "This picture was not accepted before, so it was not added again.");
     if (picture.state === "locked") return goTo(page, "That picture cannot be used on Connect.");
     return goTo(page, "Your picture was added. It is being checked, which usually takes a few seconds.");
