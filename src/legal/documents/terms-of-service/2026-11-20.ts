@@ -1,9 +1,6 @@
-# Connect Terms of Service
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Terms of Service
 
 ## The short version
 
@@ -41,8 +38,8 @@ and of any Connect app, and everything you do there (together, the "Service").
 Our [Privacy Policy](privacy-policy.md) explains what we do with information about you. It is a
 notice, not a contract: you do not "agree" to it, you are told about it.
 
-1.4 You accept these Terms when you create your account: the sign-up screen names and links
-these documents right beside the button, and pressing it is your agreement. You accept them
+1.4 You accept these Terms when you finish signing up: the last step of sign-up names and links
+these documents right beside its button, and pressing it is your agreement. You accept them
 again whenever we ask you to accept a new version. We keep a record of the version you accepted
 and when. If you do not accept them, you may not use the Service.
 
@@ -628,8 +625,8 @@ stay under the version that applied when they were agreed.
 ## 24. Ending
 
 24.1 **You may stop at any time.** To close your account, write to [SUPPORT EMAIL] from the
-email address of the account. Calls you have booked are cancelled under the usual cancellation
-rules, and memberships and monthly contributions end, before the account is closed.
+email address of the account. When we close it, calls you have booked that have not started are
+cancelled at no charge, and your memberships and monthly contributions end.
 
 24.2 **We may pause or close your account** as section 9 says. We may also stop offering the
 Service altogether; if we do, we tell you at least 30 days ahead where we can, and calls that
@@ -685,3 +682,6 @@ by phone at (800) 952-5210. Connect is provided by the company named in section 
 - Legal notices: [LEGAL EMAIL]
 - Privacy: [PRIVACY EMAIL]
 - By post: [COMPANY NAME], [ADDRESS]
+`;
+
+export default text;

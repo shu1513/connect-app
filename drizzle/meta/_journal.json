@@ -344,6 +344,13 @@
       "when": 1795195873591,
       "tag": "0048_app_switches",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1795199106069,
+      "tag": "0049_agreements",
+      "breakpoints": true
     }
   ]
 }

@@ -43,6 +43,8 @@ export const user = pgTable("user", {
   termsVersion: text("terms_version"),
   /** Set when the founder closes the account. A closed account cannot log in. */
   closedAt: timestamp("closed_at", { withTimezone: true }),
+  /** Why the founder closed it, as the person was told by email (plans/46, decision 11). Empty for an account closed before that. */
+  closedReason: text("closed_reason"),
   /** Set when the founder pauses the account: it can log in and look, but not book, host or join calls. */
   pausedAt: timestamp("paused_at", { withTimezone: true }),
   pausedReason: text("paused_reason"),
@@ -187,6 +189,17 @@ export const hostProfiles = pgTable("host_profiles", {
   decidedBy: text("decided_by").references(() => user.id),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   /**
+   * Why the page was declined or suspended: the rule and the facts, as the host was told by email and is shown on
+   * her Hosting page (plans/46, decision 11). Empty while the page is waiting or approved.
+   */
+  decidedReason: text("decided_reason"),
+  /**
+   * Whether the host offers calls as a business or as a private person: her own statement, which Connect does not
+   * check (plans/46, decision 10). "business" or "private". Empty for a host who has not said yet: the app never
+   * makes it up, and her page shows neither until she answers.
+   */
+  sellerKind: text("seller_kind"),
+  /**
    * Where the host is based: one of the countries in profiles/countries.ts, as two capital letters.
    * (The database only makes sure it is never missing; that it is a country of the list is checked
    * where a host applies, the one place that writes it.) Said once, when they apply, and never changed by the host: their payout account at Stripe is
@@ -320,10 +333,39 @@ export const identityChecks = pgTable(
     status: text("status").notNull().default("started"),
     adult: boolean("adult"),
     verifiedName: text("verified_name"),
+    /** The version of the Identity Check Notice the person agreed to before this check was started (plans/46, decision 9). Empty for a check from before. */
+    noticeVersion: text("notice_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     checkedAt: timestamp("checked_at", { withTimezone: true }),
   },
   (t) => [index("identity_checks_user_idx").on(t.userId)],
+);
+
+/**
+ * Who accepted which legal document, in which version, and when (plans/46-agreements-live.md, decision 5).
+ * One line for each person, document and version, written once and not changed afterwards: pressing a button
+ * twice, or accepting a new version of one document, never touches the lines that are there. The texts of the
+ * versions are in src/legal. A person's own line keeps a short stamp of the three general documents
+ * (`user.termsVersion`) for the gate; this table is the proof.
+ */
+export const agreementAcceptances = pgTable(
+  "agreement_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    /** A name from src/legal/versions.ts, for example "terms-of-service". */
+    document: text("document").notNull(),
+    version: text("version").notNull(),
+    /** sign_up, new_version, host_application, host_new_version or identity_check. */
+    occasion: text("occasion").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("agreement_acceptances_one_uq").on(t.userId, t.document, t.version),
+    check("agreement_acceptances_occasion", sql`${t.occasion} in ('sign_up', 'new_version', 'host_application', 'host_new_version', 'identity_check')`),
+  ],
 );
 
 /** The founder's emergency switches. One row. */

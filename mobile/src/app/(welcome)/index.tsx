@@ -21,10 +21,16 @@ function phoneTimeZone(): string | null {
 }
 
 /**
- * The last step of signing up (plans/45-phone-apps/03-signing-in.md): "I am 18 or older", "I
- * accept the rules, the terms and the privacy policy", and the time zone. Shown once, and again
- * when the terms have changed. The server writes it, with its own clock, exactly as the
- * website's form does; the app only sends the two ticks and the time zone.
+ * The last step of signing up (plans/45-phone-apps/03-signing-in.md): "I am 18 or older", the
+ * time zone, and, by pressing the button, the general documents the server names
+ * (plans/46-agreements-live.md, decision 7). Shown once, and again when one of those documents
+ * has a new version. The server writes it, with its own clock, exactly as the website's form
+ * does. The app sends the tick, the time zone, and the name and version of each document it
+ * showed; if those are no longer the ones in effect the server says so, and the app asks for the
+ * step again and shows the new ones.
+ *
+ * The sentence that names the documents sits right above the button, and each name opens the
+ * exact version the button accepts. That is what makes pressing it an acceptance.
  *
  * Whenever the server says this person does not belong on this screen (the step is done, the
  * sign-in ran out, this copy is too old), the app asks the opening question again, and that
@@ -37,7 +43,6 @@ export default function Welcome() {
   const [step, setStep] = useState<AppWelcome | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [adult, setAdult] = useState(false);
-  const [terms, setTerms] = useState(false);
   const [zone, setZone] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [typed, setTyped] = useState("");
@@ -74,8 +79,11 @@ export default function Welcome() {
       return;
     }
     const first = firstTimeZone(answer.data.timeZone, phoneTimeZone(), answer.data.timeZones);
-    setZone(first);
-    setChoosing(first === null);
+    // A zone she chose by hand stays when the step is asked for again (after a refusal), as long as it is still on
+    // the list: the second press must not save a different zone from the one on the screen.
+    const zones = answer.data.timeZones;
+    setZone((chosen) => (chosen && zones.includes(chosen) ? chosen : first));
+    setChoosing((open) => (first === null ? true : open));
     setFailed(null);
     setStep(answer.data);
   }, [sortOut]);
@@ -86,15 +94,21 @@ export default function Welcome() {
   }, [load]);
 
   async function submit() {
-    if (sending.current || !adult || !terms || !zone) return;
+    if (sending.current || !step || !adult || !zone) return;
     sending.current = true;
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await ask<AppWelcomeDone>("/api/app/welcome", { body: { adult, terms, timeZone: zone } });
+      const agreements = step.agreements.map(({ name, version }) => ({ name, version }));
+      const answer = await ask<AppWelcomeDone>("/api/app/welcome", { body: { adult, agreements, timeZone: zone } });
       if (answer.ok) {
         if (await sortOut()) setFailed(STILL_HERE);
-      } else if (answer.code === "not_valid" || answer.code === "unreachable") setProblem(answer.message);
+      } else if (answer.code === "not_valid") {
+        setProblem(answer.message);
+        // The documents may have a new version since this screen was opened: ask for the step again, so the ones
+        // shown are the ones in effect. (A missing tick or time zone is said the same way and changes nothing here.)
+        await load();
+      } else if (answer.code === "unreachable") setProblem(answer.message);
       // Any other refusal means she no longer belongs here: the opening question says where she does.
       else if (await sortOut()) setProblem(answer.message);
     } finally {
@@ -117,13 +131,9 @@ export default function Welcome() {
   if (!step) return <Loading />;
   const found = zonesMatching(typed, step.timeZones);
   return (
-    <Page title={step.returning ? "We have updated the rules" : "One last step"}>
-      <Words soft>{step.returning ? `${name}, please read and accept the current rules to carry on.` : `Welcome, ${name}. Your email address is confirmed.`}</Words>
+    <Page title={step.returning ? "We have updated our terms" : "One last step"}>
+      <Words soft>{step.returning ? `${name}, please read the current terms and accept them to carry on.` : `Welcome, ${name}. Your email address is confirmed.`}</Words>
       <Tick label="I am 18 or older." checked={adult} onChange={setAdult} />
-      <Tick label="I accept the rules, the terms and the privacy policy." checked={terms} onChange={setTerms} />
-      <TextLink label="Read the rules" onPress={() => void openWebsite("/rules")} />
-      <TextLink label="Read the terms" onPress={() => void openWebsite("/terms")} />
-      <TextLink label="Read the privacy policy" onPress={() => void openWebsite("/privacy")} />
       <Card>
         <Heading>Your time zone</Heading>
         <Words soft>Used for the times in your emails.</Words>
@@ -150,7 +160,13 @@ export default function Welcome() {
         )}
       </Card>
       {problem ? <Notice>{problem}</Notice> : null}
-      <Button label="Continue" busy={busy} disabled={!adult || !terms || !zone} onPress={() => void submit()} />
+      <Words>{step.returning ? "By pressing the button you agree to the updated:" : "By finishing sign-up you agree to the:"}</Words>
+      {step.agreements.map((agreement) => (
+        <TextLink key={agreement.name} label={agreement.title} onPress={() => void openWebsite(agreement.href)} />
+      ))}
+      <Button label={step.returning ? "Accept the updated terms" : "Finish sign-up"} busy={busy} disabled={!adult || !zone} onPress={() => void submit()} />
+      <Words soft>Our Privacy Policy explains what we do with your information.</Words>
+      <TextLink label="Read the Privacy Policy" onPress={() => void openWebsite("/privacy")} />
       <TextLink
         label="Not you? Sign out"
         onPress={() =>

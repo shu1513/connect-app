@@ -14,6 +14,7 @@ import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
 import { gatherHostPage, hostProfileFor } from "@/lib/profiles/host-page";
 import { ASK_WORDS, askTitle, callWords, lengthChoice, membershipStateWords, notTakingWords, priceWords } from "@/lib/profiles/host-page-words";
+import { sellerLine } from "@/lib/profiles/profiles";
 import { firstLines } from "@/lib/projects/rules";
 import { getUser } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
@@ -50,6 +51,8 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const query = await props.searchParams;
   const notice = readNotice(`/h/${profile.handle}`, query);
   const { offer, follow, memberView, own, invitedUntil, memberChosen, memberTimes, chosen, starts, now, rating, languages, project, latestPost, mine, offerIdCheck } = await gatherHostPage(viewer, profile, query, { project: true });
+  // Whether she offers calls as a business or as a private person, by her own statement (plans/46, decision 10).
+  const seller = await sellerLine(profile.userId, profile.displayName);
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
@@ -83,6 +86,11 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       )}
 
       {profile.about && <p className="mt-6 whitespace-pre-line text-[#57534e]">{profile.about}</p>}
+      {seller && (
+        <p className="mt-3 text-sm text-[#78716c]" data-seller-kind>
+          {seller}
+        </p>
+      )}
 
       {viewer && viewer.id !== profile.userId && (
         <p className="mt-4 text-sm">

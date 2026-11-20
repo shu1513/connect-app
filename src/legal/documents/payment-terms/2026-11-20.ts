@@ -1,11 +1,8 @@
-# Connect Payment Terms
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Payment Terms
 
 **Holds, charges, cancelling, refunds, memberships, contributions and tips.**
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
 
 These Payment Terms are part of the [Terms of Service](terms-of-service.md). Words used there
 mean the same here. The numbers and times in this document are the ones in force on the
@@ -362,3 +359,6 @@ I give notice that I cancel my contract for the following service:
 - My name:
 - The email address of my Connect account:
 - Date:
+`;
+
+export default text;

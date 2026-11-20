@@ -69,12 +69,23 @@ export type AppStart = {
   supportEmail: string;
 };
 
+/** One legal document as the "18 or older and terms" step shows it. */
+export type AppAgreement = { name: string; title: string; version: string; href: string };
+
 /** The answer of GET /api/app/welcome: what the "18 or older and terms" step shows. */
 export type AppWelcome = {
   /** True when this person has done the step already (the app then goes on). */
   done: boolean;
-  /** True when she accepted an earlier version of the terms: the step says "we have updated the rules". */
+  /** True when she accepted an earlier version of the terms: the step says "we have updated our terms". */
   returning: boolean;
+  /**
+   * The documents this step accepts when it is finished, each in the version in effect now, with the path of that
+   * exact version on the website (plans/46-agreements-live.md, decision 7). The app shows their names beside its
+   * button, each opening that path, and sends their names and versions back. The server writes nothing for a
+   * request that does not name them, and answers "not_valid" when they are no longer the ones in effect: the app
+   * then asks for the step again.
+   */
+  agreements: AppAgreement[];
   /** Her saved time zone, if she has one. */
   timeZone: string | null;
   /** Every time zone name the server accepts. The app offers the phone's own if it is among them. */

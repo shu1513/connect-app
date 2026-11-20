@@ -1107,7 +1107,7 @@ async function main() {
     const hostThree = await newHost();
     const toHer = await held(hostTwo);
     const fromHer = await held(hostThree, { giver: hostTwo });
-    await decideProfile({ userId: hostTwo.id, decision: "suspended", by: admin.id });
+    await decideProfile({ userId: hostTwo.id, decision: "suspended", by: admin.id, reason: { ruleKey: "scam", note: "Made up for this check." } });
     check("a host's page is suspended: the contributions to her project end; what she contributes to another host goes on", (await endedFor(toHer, "suspended")) && (await goesOn(fromHer)));
     await closeAccount({ userId: hostTwo.id, by: admin.id });
     check("her account is closed: what she contributes to others ends too", await endedFor(fromHer, "closed"));

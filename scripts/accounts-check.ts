@@ -74,6 +74,8 @@ async function main() {
   const { sendEmail, EMAIL_LIMITS } = await import("../src/lib/email");
   const { withNotice } = await import("../src/lib/notice");
   const profiles = await import("../src/lib/profiles/profiles");
+  // What a person applying to host sends besides the profile (plans/46): business or private, and the Host Agreement as the form showed it.
+  const consent = { sellerKind: "private", agreements: (await import("../src/legal/accept")).hostAgreementShown(new Date()) };
   const closing = await import("../src/lib/profiles/closing");
   const { createPaymentForCall } = await import("../src/lib/payments/hold");
   const { ProfileError } = profiles;
@@ -306,7 +308,7 @@ async function main() {
       return problem instanceof ProfileError && problem.message.includes(words);
     };
     {
-      const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, country: "US", languages: ["en"] };
+      const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, country: "US", languages: ["en"], ...consent };
       check("a blocked handle is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "admin" })));
       check("a blocked handle with underscores is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "sup_port" })));
       check("a handle with other alphabets is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "jаne_doe" })));
@@ -396,11 +398,14 @@ async function main() {
       check("approving the old name (an admin page left open) does not approve the new one", (await refused(stale)) && (await page(handle)).status === 404);
       await approve(host.id);
 
-      await profiles.decideProfile({ userId: host.id, decision: "suspended", by: host.id });
+      await profiles.decideProfile({ userId: host.id, decision: "suspended", by: host.id, reason: { ruleKey: "scam", note: "Made up for this check." } });
       await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "", pricePer15Cents: 2500, languages: ["en"] });
       await profiles.setProfileHidden(host.id, false);
       check("suspended: not found, and the host cannot undo it", (await page(handle)).status === 404);
+      const reasonOf = async () => (await db.select({ decidedReason: schema.hostProfiles.decidedReason }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id)))[0]?.decidedReason;
+      const whileSuspended = await reasonOf();
       await approve(host.id);
+      check("a suspension keeps its reason, and approving the page again clears it (plans/46)", whileSuspended === "No scams. Made up for this check." && (await reasonOf()) === null, String(whileSuspended));
 
       check("a handle nobody has: not found", (await page(`nobody_${RUN}`)).status === 404);
     }
@@ -427,7 +432,7 @@ async function main() {
 
       // A second host claims the same name before anyone is confirmed.
       const rival = await newPerson("rival");
-      await profiles.createHostProfile(rival.id, { handle: `rival_${RUN}`, displayName: "Check Rival", about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+      await profiles.createHostProfile(rival.id, { handle: `rival_${RUN}`, displayName: "Check Rival", about: "", pricePer15Cents: 500, country: "US", languages: ["en"], ...consent });
       await freeFromBefore(rival.id);
       await profiles.addSocialName(rival.id, "instagram", name);
       const second = await claim(rival.id);
@@ -464,7 +469,7 @@ async function main() {
       const confirmedOf = async (userId: string) => (await accounts(userId)).filter((a) => a.confirmedAt !== null);
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"], ...consent });
         await freeFromBefore(person.id);
         return person;
       };
@@ -506,7 +511,7 @@ async function main() {
       await profiles.addSocialName(ana.id, toReplace.network, `fresh.${RUN}`.replace(/\./g, toReplace.network === "x" ? "_" : "."));
       check("with two confirmed accounts, one can be given a new name", (await confirmedOf(ana.id)).length === 1 && (await accounts(ana.id)).length === 2);
 
-      await profiles.decideProfile({ userId: ana.id, decision: "declined", by: host.id });
+      await profiles.decideProfile({ userId: ana.id, decision: "declined", by: host.id, reason: { ruleKey: "scam", note: "Made up for this check." } });
       const [lastOne] = await confirmedOf(ana.id);
       await profiles.removeSocialName(ana.id, lastOne.id);
       check("a host who is not approved can remove their last confirmed account", (await confirmedOf(ana.id)).length === 0);
@@ -560,7 +565,7 @@ async function main() {
       const checksOf = (userId: string) => db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId)).orderBy(schema.bioChecks.startedAt);
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"], ...consent });
         await freeFromBefore(person.id);
         return person;
       };
@@ -774,7 +779,7 @@ async function main() {
       const refusedRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === "tiktok" && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"], ...consent });
         await freeFromBefore(person.id);
         return person;
       };
@@ -961,7 +966,7 @@ async function main() {
       const signInRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === profiles.INSTAGRAM_SIGN_IN && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"] });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 500, country: "US", languages: ["en"], ...consent });
         await freeFromBefore(person.id);
         return person;
       };
@@ -1273,6 +1278,8 @@ async function main() {
     if (ids.length > 0) {
       await db.delete(schema.bioChecks).where(inArray(schema.bioChecks.userId, ids));
       await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
+      // The Host Agreement's line that applying to host writes (plans/46).
+      await db.delete(schema.agreementAcceptances).where(inArray(schema.agreementAcceptances.userId, ids));
       await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
     }
     for (const id of ids) {

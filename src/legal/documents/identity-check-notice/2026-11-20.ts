@@ -1,9 +1,6 @@
-# Connect Identity Check Notice
-
-**Draft of 20 November 2026. Written by the builder, not by a lawyer. Not in force. Words in
-[SQUARE BRACKETS] are blanks to fill in; they are listed in `README.md` in this folder.**
-
-Effective date: [EFFECTIVE DATE]
+// The text of this document as it stood in this version. A version that has been shown to people is never
+// edited: a change is a new file beside this one, named in ../../registry.ts (plans/46-agreements-live.md).
+const text = `# Connect Identity Check Notice
 
 This notice is shown to you right before an identity check, on the page with the button that
 takes you to Stripe. Please read it before you go on. It is also our written policy on face
@@ -13,7 +10,8 @@ publish.
 ## 1. What happens
 
 Every host must pass an identity check before their page is shown. A customer does not have to,
-unless a host only takes calls from people who have, or the customer wants to.
+unless a host only takes calls from people who have, the call costs nothing, or the customer
+wants to.
 
 The check is done by Stripe, on Stripe's own pages. You take a photo of an identity document
 and a live picture of your face. Stripe reads the document and **compares your face with the
@@ -66,7 +64,7 @@ document, make and use measurements of your face to compare the two, and keep th
 time stated in section 5.**
 
 You do not have to do the check. If you choose not to, you can still use Connect as a customer
-with hosts who do not ask for it; you cannot host.
+for paid calls with hosts who do not ask for it; you cannot host.
 
 ## 7. If something is wrong
 
@@ -79,3 +77,6 @@ with hosts who do not ask for it; you cannot host.
   have to keep the result.
 
 Please do not email us your document or a picture of yourself.
+`;
+
+export default text;

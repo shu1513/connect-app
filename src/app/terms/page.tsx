@@ -1,16 +1,9 @@
 import type { Metadata } from "next";
-import { SitePage } from "@/components/site-page";
-import { warm } from "@/components/warm-ui";
+import { LegalDocumentPage } from "@/legal/document-page";
 
-export const metadata: Metadata = { title: "Terms" };
-export default function TermsPage() {
-  return (
-    <SitePage className={warm.document}>
-      <h1 className={warm.title}>Terms of service</h1>
-      <p className="mt-4 text-sm">
-        This is a placeholder. The real text will be written by a lawyer before the app opens to the public. Until then
-        the app is for testing only.
-      </p>
-    </SitePage>
-  );
+export const metadata: Metadata = { title: "Terms of Service" };
+
+/** The text lives in src/legal/documents; this page only shows it (plans/46-agreements-live.md, part 1). */
+export default function TermsPage(props: PageProps<"/terms">) {
+  return <LegalDocumentPage name="terms-of-service" searchParams={props.searchParams} />;
 }

@@ -4,6 +4,17 @@ import { getUser } from "@/lib/session";
 import { SignOutButton } from "./sign-out-button";
 import { warm, warmFont } from "./warm-ui";
 
+/** The legal documents, as both footers of the site link them (this one and the front page's own). The texts are in src/legal. */
+export const LEGAL_LINKS = [
+  { href: "/rules", words: "Rules" },
+  { href: "/terms", words: "Terms" },
+  { href: "/payment-terms", words: "Payment terms" },
+  { href: "/privacy", words: "Privacy" },
+  { href: "/host-agreement", words: "Host agreement" },
+  { href: "/copyright", words: "Copyright and complaints" },
+  { href: "/identity-notice", words: "Identity check" },
+] as const;
+
 /**
  * The frame of every page: the top bar, then the page itself, in the site's warm look.
  *
@@ -23,15 +34,11 @@ export async function SitePage({ bare = false, className, children }: { bare?: b
       <main className={className}>{children}</main>
       <footer className={warm.footer}>
         <p className={warm.footerLinks}>
-          <Link href="/rules" className="underline-offset-2 hover:underline">
-            Rules
-          </Link>
-          <Link href="/terms" className="underline-offset-2 hover:underline">
-            Terms
-          </Link>
-          <Link href="/privacy" className="underline-offset-2 hover:underline">
-            Privacy
-          </Link>
+          {LEGAL_LINKS.map((link) => (
+            <Link key={link.href} href={link.href} className="underline-offset-2 hover:underline">
+              {link.words}
+            </Link>
+          ))}
         </p>
       </footer>
     </div>

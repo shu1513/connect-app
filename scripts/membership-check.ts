@@ -953,7 +953,7 @@ async function main() {
     const d = await running(host3);
     const own = await atCardStep(other, { member: host3 }); // the host is herself a member of another host
     await pay(own.monthId);
-    await decideProfile({ userId: host3.id, decision: "suspended", by: founder.id });
+    await decideProfile({ userId: host3.id, decision: "suspended", by: founder.id, reason: { ruleKey: "scam", note: "Made up for this check." } });
     check("suspending a host ends the memberships she offers", (await MS(d.membershipId)).status === "ended");
     check("her own membership with another host goes on", (await MS(own.membershipId)).status === "active" && (await M(own.monthId)).status === "held");
     await helper(new Date());

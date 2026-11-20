@@ -8,6 +8,7 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { publicProfile } from "@/lib/profiles/profiles";
+import { SellerLine } from "@/components/seller-line";
 import { ConfirmIdFirst } from "@/components/confirm-id-first";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
@@ -89,6 +90,7 @@ export default async function CallNowPage(props: PageProps<"/h/[handle]/now">) {
 
       <section className="mt-6 rounded border border-neutral-400 p-4 text-sm">
         <h2 className="font-semibold">How a call now works</h2>
+        <SellerLine hostId={profile.userId} name={profile.displayName} />
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>
             {profile.displayName} has <strong>{NOW.answerMinutes} minutes</strong> to accept. If they do not, the request ends by itself and

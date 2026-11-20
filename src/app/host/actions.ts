@@ -1,6 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { readShown } from "@/legal/accept";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
@@ -13,6 +14,7 @@ import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { isAutomatic } from "@/lib/profiles/bio-check";
 import {
   addSocialName,
+  answerHostBox,
   createHostProfile,
   ProfileError,
   removeSocialName,
@@ -125,6 +127,9 @@ export async function createProfile(formData: FormData) {
       pricePer15Cents: priceCents(formData),
       country: String(formData.get("country") ?? ""),
       languages: tickedLanguages(formData),
+      sellerKind: String(formData.get("sellerKind") ?? ""),
+      // The Host Agreement as the form showed it; nothing when its box was not ticked.
+      agreements: formData.get("hostAgreement") === "on" ? readShown(formData.get("shown")) : null,
     });
     notice = "Your host profile was sent for approval. It becomes public once it is approved.";
   } catch (error) {
@@ -142,8 +147,23 @@ export async function saveProfile(formData: FormData) {
       about: String(formData.get("about") ?? ""),
       pricePer15Cents: priceCents(formData),
       languages: tickedLanguages(formData),
+      // Business or private, when the form asked it (it always does; a form from before this existed does not).
+      sellerKind: formData.has("sellerKind") ? String(formData.get("sellerKind")) : undefined,
     });
     notice = "Your host profile was saved.";
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
+}
+
+/** The box at the top of the Hosting page: a host accepts the Host Agreement and says business or private (plans/46, decision 8). */
+export async function answerHostBoxAction(formData: FormData) {
+  const user = await requireActiveUser();
+  let notice: string;
+  try {
+    await answerHostBox(user.id, { sellerKind: String(formData.get("sellerKind") ?? ""), agreements: formData.get("hostAgreement") === "on" ? readShown(formData.get("shown")) : null });
+    notice = "Thank you. That is saved.";
   } catch (error) {
     notice = problem(error);
   }

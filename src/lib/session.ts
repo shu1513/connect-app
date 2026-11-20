@@ -8,7 +8,7 @@ import { countsAsAdminLogin } from "./admin-gate";
 import { auth } from "./auth";
 
 export { TERMS_VERSION } from "./terms";
-import { TERMS_VERSION } from "./terms";
+import { generalStamp } from "@/legal/versions";
 
 export type CurrentUser = {
   id: string;
@@ -52,8 +52,10 @@ export async function signedInFrom(requestHeaders: Headers, options: { renew?: b
     timeZone: row.timeZone,
     paused: Boolean(row.pausedAt),
     emailVerified: row.emailVerified,
-    // Accepting an old version of the terms does not count: when the rules change, everyone is asked again.
-    welcomed: Boolean(row.adultConfirmedAt && row.termsAcceptedAt && row.termsVersion === TERMS_VERSION),
+    // The stamp on the person's line names the versions of the three general documents they hold. Asked for at
+    // this moment, not when the server started: a new version can take effect while it runs, and from that
+    // day everyone is asked again (plans/46-agreements-live.md, decision 5).
+    welcomed: Boolean(row.adultConfirmedAt && row.termsAcceptedAt && row.termsVersion === generalStamp(new Date())),
     closed: Boolean(row.closedAt),
     twoFactorEnabled: row.twoFactorEnabled,
     sessionCreatedAt: session.session.createdAt,

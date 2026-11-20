@@ -246,17 +246,46 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                     </button>
                   </form>
                   {profile && profile.status === "approved" && (
-                    <form action={decideProfileAction}>
+                    <form action={decideProfileAction} className="space-y-1">
                       <input type="hidden" name="userId" value={report.reportedId} />
                       <input type="hidden" name="decision" value="suspended" />
+                <label className="block text-sm">
+                  To suspend: the rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
                       <button type="submit" className={button}>
                         Suspend their host profile
                       </button>
                     </form>
                   )}
                   {reported && !reported.closedAt && (
-                    <form action={closeAccountAction}>
+                    <form action={closeAccountAction} className="space-y-1">
+                      {/* The same reminder as beside the People page's button (the Host Agreement, 17.5). */}
+                      <p className="text-sm opacity-70">
+                        The person is emailed the reason. A host in the United Kingdom or Europe is owed 30 days&apos; written notice before a page is closed for good,
+                        unless the law requires it sooner, the host broke the agreement repeatedly, or the reason is illegal or harmful content, fraud or a risk to
+                        someone&apos;s safety. Suspend first when none of those applies.
+                      </p>
                       <input type="hidden" name="email" value={reported.email} />
+                <label className="block text-sm">
+                  To close: the rule
+                  <select name="ruleKey" defaultValue="" className="mt-1 block rounded border border-neutral-400 bg-transparent px-2 py-1">
+                    <option value="">Choose a rule</option>
+                    <option value="own_request">At the person&apos;s own request (no rule)</option>
+                    {ruleOptions}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  What happened, in a sentence (the person is told this)
+                  <input name="reasonNote" maxLength={500} className="mt-1 block w-72 rounded border border-neutral-400 bg-transparent px-2 py-1" />
+                </label>
                       <button type="submit" className={`${button} border-red-600 text-red-600`}>
                         Close their account
                       </button>

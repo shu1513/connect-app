@@ -28,7 +28,15 @@ export function isWelcome(data: unknown): data is AppWelcome {
   const step = data as Record<string, unknown>;
   if (typeof step.done !== "boolean" || typeof step.returning !== "boolean") return false;
   if (step.timeZone !== null && typeof step.timeZone !== "string") return false;
-  return Array.isArray(step.timeZones) && step.timeZones.every((zone) => typeof zone === "string");
+  if (!Array.isArray(step.timeZones) || !step.timeZones.every((zone) => typeof zone === "string")) return false;
+  // The documents the step accepts, each with the version shown: without them the step could not say what was agreed to.
+  return Array.isArray(step.agreements) && step.agreements.every(isAgreement);
+}
+
+function isAgreement(data: unknown): boolean {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return false;
+  const one = data as Record<string, unknown>;
+  return typeof one.name === "string" && typeof one.title === "string" && typeof one.version === "string" && typeof one.href === "string";
 }
 
 /**
