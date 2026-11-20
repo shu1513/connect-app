@@ -56,7 +56,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
 
   if (step === "card-saved") {
     try {
-      await finishCardStep({ bookingId: id, customerId: me.id, now });
+      await finishCardStep({ bookingId: id, customerId: me.id, now, live: true });
     } catch (error) {
       if (!(error instanceof BookingError)) console.error("[bookings] could not finish the card step for the app", error);
       return refuse("not_valid", error instanceof BookingError ? error.message : "Could not check your card. Please try again.");

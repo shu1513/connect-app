@@ -65,10 +65,14 @@ function OneRequest({ id }: { id: string }) {
   const path = `/api/app/bookings/${id}`;
   const refreshSeconds = page?.refreshSeconds ?? null;
 
-  /** Takes an answer that should be the request's page. Gives the page back when it was one, and was the newest. */
+  /**
+   * Takes an answer that should be the request's page. Gives the page back when it was one; null when it was
+   * not (refused, not reached); and nothing at all (undefined) when a newer question has been asked since, so
+   * that this answer no longer says anything.
+   */
   const settle = useCallback(
-    (answer: Answer<AppBooking>, mine: number): AppBooking | null => {
-      if (mine !== newest.current) return null;
+    (answer: Answer<AppBooking>, mine: number): AppBooking | null | undefined => {
+      if (mine !== newest.current) return undefined;
       if (answer.ok && isBooking(answer.data) && answer.data.id === id) {
         stage.current = answer.data.stage;
         setPage(answer.data);
@@ -103,7 +107,7 @@ function OneRequest({ id }: { id: string }) {
 
   /** One question that is answered with the request's page. The number is taken before it is sent. */
   const asked = useCallback(
-    async (step: "" | "/card-saved" | "/take-back"): Promise<AppBooking | null> => {
+    async (step: "" | "/card-saved" | "/take-back"): Promise<AppBooking | null | undefined> => {
       const mine = ++newest.current;
       const answer = await ask<AppBooking>(`${path}${step}`, step === "" ? {} : { body: {} });
       return settle(answer, mine);
@@ -122,26 +126,31 @@ function OneRequest({ id }: { id: string }) {
       const got = await asked("");
       if (got?.card && andCard && !acting.current) {
         // No page back: the server could not be asked, or could not tell. A card may be saved all the same (the app
-        // may have been closed in the middle of a bank's approval): the screen then offers to ask again.
-        if (!(await asked("/card-saved"))) setUnchecked(true);
+        // may have been closed in the middle of a bank's approval): the screen then offers to ask again. (An answer
+        // that a newer question has overtaken says nothing either way.)
+        if ((await asked("/card-saved")) === null) setUnchecked(true);
       }
     },
     [id, asked],
   );
 
-  // While the screen is in front: now, on coming back to the app, and, while the request can still change by
-  // itself, as often as the server says.
+  // While the screen is in front: now, and on coming back to the app.
   useFocusEffect(
     useCallback(() => {
       void look(true);
       const listener = AppState.addEventListener("change", (state) => {
         if (state === "active") void look(true);
       });
-      const timer = refreshSeconds ? setInterval(() => (AppState.currentState === "active" ? void look(false) : undefined), refreshSeconds * 1000) : null;
-      return () => {
-        listener.remove();
-        if (timer) clearInterval(timer);
-      };
+      return () => listener.remove();
+    }, [look]),
+  );
+  // And, while the request can still change by itself, as often as the server says. (Apart from the reading above,
+  // so that learning how often to ask does not ask everything a second time.)
+  useFocusEffect(
+    useCallback(() => {
+      if (!refreshSeconds) return undefined;
+      const timer = setInterval(() => (AppState.currentState === "active" ? void look(false) : undefined), refreshSeconds * 1000);
+      return () => clearInterval(timer);
     }, [look, refreshSeconds]),
   );
 

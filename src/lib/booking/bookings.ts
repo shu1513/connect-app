@@ -470,8 +470,8 @@ export async function askForCall(input: {
         // request, so none of the limits above counts it. These two do, whether or not a card is ever saved.
         const drafts = and(eq(schema.bookings.customerId, customer.id), eq(schema.bookings.source, "customer"), gt(schema.bookings.totalCents, 0));
         // Standing at the card step: only those whose time is not up (one past it is over, also before the helper has
-        // ended it), judged by the clock now that the calendars are locked.
-        const at = Math.max(now.getTime(), Date.now());
+        // ended it), judged by the real clock now that the calendars are locked (a request is always made at a real moment).
+        const at = Date.now();
         const [{ open }] = await tx
           .select({ open: sql<number>`count(*)::int` })
           .from(schema.bookings)
@@ -635,8 +635,15 @@ export async function cardStepOf(input: { bookingId: string; customer: Person; n
  * really saved, check everything again, and only then send the request to the
  * host. Safe to call again, and safe to call late: an unfinished request that
  * has ended is never brought back.
+ *
+ * `live` is set by the two addresses that people's browsers and phones call. Asking Stripe and
+ * waiting for the locks take time, so for them everything is judged and dated by the clock at the
+ * moment of deciding, with every lock held, not by `now` from when the question came in. A check
+ * script that works with a clock of its own leaves `live` out, and is judged by the `now` it
+ * hands in. One thing is measured by the real clock for everyone: whether the card step's time is
+ * up, since the moment the request was made is always a real one.
  */
-export async function finishCardStep(input: { bookingId: string; customerId: string; now: Date }): Promise<Booking> {
+export async function finishCardStep(input: { bookingId: string; customerId: string; now: Date; live?: boolean }): Promise<Booking> {
   const [before] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, input.bookingId));
   if (!before || before.customerId !== input.customerId) throw new BookingError("Request not found.");
   if (before.stage !== "card" || !before.stripeSetupIntentId) return before;
@@ -650,13 +657,13 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       await lockCalendars(tx, [before.hostId, before.customerId]);
       const [booking] = await tx.select().from(schema.bookings).where(eq(schema.bookings.id, before.id)).for("update");
       if (booking.stage !== "card") return booking;
-      // The moment of deciding: now that Stripe has been asked and the calendars are locked, not when the question
-      // came in (both can take a while). Everything below is judged and dated by it: whether the card step's time
-      // is up, whether the host is still there for a call asked for "now", and from when her time to answer runs.
-      // (Never earlier than the moment handed in.)
-      const at = new Date(Math.max(input.now.getTime(), Date.now()));
       // A card belongs to a booking or to a membership, never both. From here on it is remembered as a booking's.
       const mine = await bookingCardSeen(tx, booking.id, paymentMethodId);
+      // The moment of deciding: Stripe has been asked and every lock is held (the calendars', and the card's just
+      // above). Whether the host is still there for a call asked for "now", and from when her time to answer runs,
+      // are judged and dated by it.
+      const real = new Date();
+      const at = input.live ? real : input.now;
       const end = (reason: string) =>
         tx
           .update(schema.bookings)
@@ -668,7 +675,7 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       if (!mine) return end("that card is saved for a membership, so it cannot be used for a booking; please ask again with another card");
       // The card step lasts as long as the customer was told, and no longer: past it the request ends here, in the
       // helper's own words, whether or not the helper has been by. (The card is kept on the row so the helper removes it.)
-      if (!cardStepOpen(booking.createdAt, at)) return end("the card was not entered in time");
+      if (!cardStepOpen(booking.createdAt, real)) return end("the card was not entered in time");
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
       // The deadlines come from the terms fixed on this request, so the time is checked against those

@@ -154,10 +154,17 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
         setSummary(null);
         setAgreedTo(null);
         setGone(true);
-      } else {
+      } else if (answer.code === "not_valid") {
         // What the form shows is read again: the price or the time may have changed.
-        if (answer.code !== "not_valid" && answer.code !== "paused") void askOpening();
         await load();
+      } else {
+        // Not for this person as things stand (paused, signed out, this copy too old). Nothing of the form stays
+        // to be sent again: the sentence is shown, and the opening question says where the person belongs.
+        newest.current++;
+        setSummary(null);
+        setAgreedTo(null);
+        setProblem(answer.message);
+        if (answer.code !== "paused") void askOpening();
       }
     } else {
       // It may or may not have arrived.

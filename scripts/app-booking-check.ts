@@ -422,6 +422,7 @@ async function main() {
 
       const card = await step(id, "card", second.jar);
       const c = card.json as AppCardStep;
+      if (card.status !== 200) throw new Error("The app at " + BASE + " did not hand out a card step (" + card.status + "). Stopping: what it made at Stripe cannot be checked.");
       // The app this tool talks to must be on Stripe's test key too. Anything else: stop here, before more is made.
       // And on this tool's own test account: what this tool confirms and removes at Stripe must be what the app made there.
       if (card.status === 200 && (!String(c.publishableKey).startsWith("pk_test_") || c.publishableKey !== process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)) throw new Error("The app at " + BASE + " is not using this tool's Stripe test key (.env.local). Stopping.");

@@ -155,7 +155,8 @@ call. The screen says what is being bought in those words. The ID check is not a
   The website's own unit tests pass (753).
 - The website's own checks the plan names pass on the scratch database, after the changes to
   the booking functions: `booking-check` (144), `verified-check` (30), `payments-check` (77),
-  `safety-check` (60). (For this the scratch database's test host was pointed at the same
+  `safety-check` (60), and, since they also pass through the card step, `extend-check` (115),
+  `now-check` (76) and `journey-check` (63). (For this the scratch database's test host was pointed at the same
   Stripe test account the test host has on the shared database.)
 - On the Android test phone, with pictures: a visitor picks a time, signs in, and is back on
   the host's page; the summary of a paid call; pressing on without the tick (nothing sent);
@@ -314,6 +315,34 @@ and named nine narrower ones:
 9. *The read-only view of what was sent left out the rules the tick refers to, and the form
    could be changed while the first sending was on its way.* The view now shows everything
    (the points included), and it replaces the form from the moment the button is pressed.
+
+## Astra's fourth look at the code (20 November 2026): "not ready", now worked in
+
+It found the wording's version, the read-only view, the retry, the expired page and the open
+card page fixed, and named six points; two it wanted before merging:
+
+1. *(Before merging.) A made request could still be answered as refused* when the failure after
+   it was written down was of another kind, or when the server could not look. The address now
+   looks for the request after any failure. If it cannot look, it answers "not reached" rather
+   than a refusal, so the app keeps what was sent and sends the same again.
+2. *(Before merging.) The deciding clock was read just before the last lock was taken.* It is
+   read after every lock now. **And one thing changed back, for the website's older check
+   scripts:** those work with a clock of their own, and judging them by the real clock would
+   have broken two of them. So only the two addresses that people's browsers and phones call
+   are judged by the clock at the moment of deciding; a caller with its own clock is judged
+   by the clock it hands in. Whether the card step's 30 minutes are up is measured by the real
+   clock for everyone (a request is always made at a real moment).
+3. *The check script cannot prove which Stripe account the app it talks to used.* **Carried as
+   a note, not closed:** it stops unless the app hands out this tool's own test key and a card
+   step, but an app started with another account's secret key and this key would pass. Start
+   the app from the same `.env.local` as the script (as the README says).
+4. *A new request could show "Check again" before anyone had entered a card* (the page asked
+   twice when it learned how often to ask, and took an overtaken answer for a failed one).
+   The two are separated now, and an overtaken answer says nothing.
+5. *After a first sending was refused because the person is paused or signed out, the old
+   form could stay on the screen* if the page could not be read again. It is cleared at once.
+6. *Two of the website's check scripts would have failed* under the stricter clock. See 2.
+   All seven that pass through the card step were run and pass.
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
