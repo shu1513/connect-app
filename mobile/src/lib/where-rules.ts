@@ -2,7 +2,7 @@
  * Which part of the app a person is in, from what the server said on opening
  * (plans/45-phone-apps/03-signing-in.md). Plain logic, tested on its own.
  */
-import type { AppStart } from "../../../src/lib/app-door/types";
+import type { AppStart, AppWelcome } from "../../../src/lib/app-door/types";
 
 export type Where =
   /** Nobody is signed in: the first screens (sign in, create account). */
@@ -20,6 +20,15 @@ export function whereFor(start: AppStart): Where {
 /** The first screen for someone not signed in: "check your email" if this phone remembers that step, else the first opening. */
 export function frontStart(rememberedEmail: string | null): "check-email" | "first" {
   return rememberedEmail ? "check-email" : "first";
+}
+
+/** Whether an answer really is what the "18 and terms" step shows, with every part the screen reads. */
+export function isWelcome(data: unknown): data is AppWelcome {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return false;
+  const step = data as Record<string, unknown>;
+  if (typeof step.done !== "boolean" || typeof step.returning !== "boolean") return false;
+  if (step.timeZone !== null && typeof step.timeZone !== "string") return false;
+  return Array.isArray(step.timeZones) && step.timeZones.every((zone) => typeof zone === "string");
 }
 
 /**

@@ -260,15 +260,16 @@ async function main() {
       check("signing in sends the app nowhere", signIn.json?.redirect !== true && !signIn.location, JSON.stringify(signIn.json?.redirect));
       const { reply, body } = await start(one.jar);
       check("the opening address now knows the person", reply.status === 200 && body?.me?.email === one.email, `${reply.status}`);
+      check("it says where to write to Connect, and no pause reason for someone who is not paused", typeof body?.supportEmail === "string" && body.supportEmail.includes("@") && body?.me?.pausedReason === null);
       check("and that 18-and-terms is still to do", body?.me?.next === "welcome");
-      check("it sends exactly the fields the app needs", Object.keys(body?.me ?? {}).sort().join(",") === "email,host,id,name,next,paused,timeZone", Object.keys(body?.me ?? {}).join(","));
+      check("it sends exactly the fields the app needs", Object.keys(body?.me ?? {}).sort().join(",") === "email,host,id,name,next,paused,pausedReason,timeZone", Object.keys(body?.me ?? {}).join(","));
 
       // The "18 or older and terms" step, done from the app (plans/45-phone-apps/03-signing-in.md).
       const row = await userByEmail(one.email);
-      const untouched = async () => {
-        const now = await userByEmail(one.email);
-        return now.adultConfirmedAt === null && now.termsAcceptedAt === null && now.termsVersion === null;
-      };
+      // Nothing of the step, and nothing else of the row the step writes, may differ from before.
+      const stepFields = (u: typeof row) => JSON.stringify([u.adultConfirmedAt, u.termsAcceptedAt, u.termsVersion, u.timeZone, u.updatedAt.getTime()]);
+      const asItWas = stepFields(row);
+      const untouched = async () => stepFields(await userByEmail(one.email)) === asItWas && row.adultConfirmedAt === null && row.termsAcceptedAt === null && row.termsVersion === null;
       const shown = await asApp("/api/app/welcome", { jar: one.jar });
       const step = shown.json as AppWelcome | null;
       check("the step tells the app what to show", shown.status === 200 && step?.done === false && step.returning === false && Array.isArray(step.timeZones) && step.timeZones.includes("America/New_York") && step.timeZones.includes("UTC"), `${shown.status}`);
@@ -292,28 +293,39 @@ async function main() {
 
       // Someone signed in whose address is not confirmed (it cannot happen by signing in; made by hand here).
       await db.update(schema.user).set({ emailVerified: false }).where(eq(schema.user.id, row.id));
-      const unconfirmed = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "America/New_York" }, jar: one.jar });
-      check("the step is refused while the email address is not confirmed", unconfirmed.status === 403 && refusal(unconfirmed) === "confirm_email", `${unconfirmed.status} ${refusal(unconfirmed)}`);
-      check("and nothing was written", await untouched());
-      await db.update(schema.user).set({ emailVerified: true }).where(eq(schema.user.id, row.id));
+      try {
+        const unconfirmed = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "America/New_York" }, jar: one.jar });
+        check("the step is refused while the email address is not confirmed", unconfirmed.status === 403 && refusal(unconfirmed) === "confirm_email", `${unconfirmed.status} ${refusal(unconfirmed)}`);
+        check("and nothing was written", await untouched());
+      } finally {
+        await db.update(schema.user).set({ emailVerified: true }).where(eq(schema.user.id, row.id));
+      }
 
+      // Two requests at the same moment, with different time zones: the step is written once, by one of them.
       const before = Date.now();
-      const did = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "America/New_York" }, jar: one.jar });
+      const [did, twin] = await Promise.all([
+        asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "America/New_York" }, jar: one.jar }),
+        asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "Europe/London" }, jar: one.jar }),
+      ]);
+      check("two requests at the same moment are both answered as done", twin.status === 200 && (twin.json as AppWelcomeDone | null)?.done === true, `${twin.status}`);
       check("with both boxes and a time zone, the step is done", did.status === 200 && (did.json as AppWelcomeDone | null)?.done === true, `${did.status}`);
       const written = await userByEmail(one.email);
       const fresh = (at: Date | null) => at !== null && at.getTime() >= before - 2000 && at.getTime() <= Date.now() + 2000;
-      check("it wrote what the website's own form writes: both times, the terms in force, the time zone", fresh(written.adultConfirmedAt) && fresh(written.termsAcceptedAt) && written.termsVersion === TERMS_VERSION && written.timeZone === "America/New_York");
-      const again = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "Europe/London" }, jar: one.jar });
+      check("it wrote what the website's own form writes: both times, the terms in force, the time zone", fresh(written.adultConfirmedAt) && fresh(written.termsAcceptedAt) && written.termsVersion === TERMS_VERSION && (written.timeZone === "America/New_York" || written.timeZone === "Europe/London"), String(written.timeZone));
+      // Whichever of the two came first wrote; the other changed nothing.
+      const won = written.timeZone;
+      check("of the two, one wrote and the other changed nothing (one moment for both boxes)", written.adultConfirmedAt?.getTime() === written.termsAcceptedAt?.getTime());
+      const again = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "Asia/Tokyo" }, jar: one.jar });
       const second = await userByEmail(one.email);
-      check("doing it a second time answers the same and changes nothing", again.status === 200 && (again.json as AppWelcomeDone | null)?.done === true && second.timeZone === "America/New_York" && second.termsAcceptedAt?.getTime() === written.termsAcceptedAt?.getTime());
+      check("doing it a second time answers the same and changes nothing", again.status === 200 && (again.json as AppWelcomeDone | null)?.done === true && second.timeZone === won && second.termsAcceptedAt?.getTime() === written.termsAcceptedAt?.getTime());
       check("the step now says it is done", ((await asApp("/api/app/welcome", { jar: one.jar })).json as AppWelcome | null)?.done === true);
       const after = (await start(one.jar)).body;
-      check("once 18-and-terms is done, nothing stands before the home page", after?.me?.next === null && after?.me?.host === null && after?.me?.timeZone === "America/New_York");
+      check("once 18-and-terms is done, nothing stands before the home page", after?.me?.next === null && after?.me?.host === null && after?.me?.timeZone === won);
 
       // The terms changed since she accepted: the step comes back, and says so.
       await db.update(schema.user).set({ termsVersion: "an-older-version" }).where(eq(schema.user.id, row.id));
       const older = (await asApp("/api/app/welcome", { jar: one.jar })).json as AppWelcome | null;
-      check("after the terms change, the step is asked again and says she accepted before", (await start(one.jar)).body?.me?.next === "welcome" && older?.done === false && older.returning === true && older.timeZone === "America/New_York");
+      check("after the terms change, the step is asked again and says she accepted before", (await start(one.jar)).body?.me?.next === "welcome" && older?.done === false && older.returning === true && older.timeZone === won);
       const accepted = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "America/New_York" }, jar: one.jar });
       check("accepting again records the terms now in force", accepted.status === 200 && (await userByEmail(one.email)).termsVersion === TERMS_VERSION && (await start(one.jar)).body?.me?.next === null);
 
@@ -498,8 +510,11 @@ async function main() {
     await freshLimits();
     {
       const four = await newPerson("four");
-      await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, four.id));
-      check("a paused account is told so", (await start(four.jar)).body?.me?.paused === true);
+      await db.update(schema.user).set({ pausedAt: new Date(), pausedReason: "a reason, for the check" }).where(eq(schema.user.id, four.id));
+      const told = (await start(four.jar)).body?.me;
+      check("a paused account is told so, with the reason", told?.paused === true && told.pausedReason === "a reason, for the check");
+      await db.update(schema.user).set({ pausedReason: null }).where(eq(schema.user.id, four.id));
+      check("and with no reason when none was given", (await start(four.jar)).body?.me?.pausedReason === null);
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, four.id));
 
       // What a wrong password looks like on the wire: the measure for everything a closed account gets.

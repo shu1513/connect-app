@@ -34,6 +34,8 @@ export async function POST(request: Request) {
     timeZone: typeof given.timeZone === "string" ? given.timeZone : "",
   });
   if (result === "boxes" || result === "zone") return refuse("not_valid", WELCOME_PROBLEMS[result]);
+  // Closed, or no longer confirmed, since the gate let her in: answered as nobody. The app asks the opening address again, which says where she stands.
+  if (result === "gone") return refuse("not_signed_in");
   const body: AppWelcomeDone = { done: true };
   return answer(body);
 }

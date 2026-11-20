@@ -1,8 +1,8 @@
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { UNREACHABLE } from "./api-rules";
-import { isStart, openingAfter, openingFrom, PLEASE_UPDATE } from "./opening-rules";
+import { isStart, openingAfter, openingFrom, PLEASE_UPDATE, signedOut } from "./opening-rules";
 
-const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules" };
+const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules", supportEmail: "support@connect.example" };
 
 describe("what the app shows when it opens", () => {
   it("carries on with the server's answer", () => {
@@ -20,7 +20,7 @@ describe("what the app shows when it opens", () => {
   });
 
   it("does not open on an answer that lacks what the screens read", () => {
-    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null };
+    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null };
     expect(isStart(start)).toBe(true);
     expect(isStart({ ...start, me })).toBe(true);
     expect(isStart({ ...start, me: { ...me, timeZone: "Europe/London", next: "welcome", host: { status: "approved", hidden: false } } })).toBe(true);
@@ -38,10 +38,20 @@ describe("what the app shows when it opens", () => {
       { ...start, me: { ...me, next: "somewhere" } },
       { ...start, me: { ...me, host: { status: "approved" } } },
       { ...start, termsVersion: 3 },
+      { ...start, supportEmail: undefined },
+      { ...start, me: { ...me, pausedReason: 5 } },
     ]) {
       expect(isStart(bad)).toBe(false);
       expect(openingFrom({ ok: true, data: bad as never })).toEqual({ kind: "unreachable", message: UNREACHABLE });
     }
+  });
+
+  it("shows nobody signed in the moment someone signs out, and keeps it so when Connect cannot be reached", () => {
+    const signedInAs = { kind: "ready", start: { ...start, me: { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null } } } as const;
+    const out = signedOut(signedInAs);
+    expect(out).toEqual({ kind: "ready", start });
+    expect(openingAfter(out, { ok: false, code: "unreachable", message: UNREACHABLE })).toBe(out);
+    expect(signedOut({ kind: "asking" })).toEqual({ kind: "asking" });
   });
 
   it("keeps the screen the person was on when a quiet question does not get through", () => {

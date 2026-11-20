@@ -1,8 +1,6 @@
 import { router } from "expo-router";
-import { useState } from "react";
-import { authClient } from "@/lib/auth";
-import { emailLinks, NOT_REACHED, TOO_MANY } from "@/lib/auth-rules";
-import { SERVER } from "@/lib/config";
+import { useRef, useState } from "react";
+import { askForNewPassword } from "@/lib/auth";
 import { Button, Field, Notice, Page, TextLink, Words } from "@/ui/pieces";
 
 /**
@@ -15,18 +13,18 @@ export default function Forgot() {
   const [done, setDone] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
 
   async function submit() {
+    const address = email.trim();
+    if (sending.current || !address) return;
+    sending.current = true;
     setBusy(true);
     setProblem(null);
-    try {
-      const result = await authClient.requestPasswordReset({ email: email.trim(), redirectTo: emailLinks(SERVER).newPassword });
-      if (result.error?.status === 429) setProblem(TOO_MANY);
-      else if (result.error && result.error.status === undefined) setProblem(NOT_REACHED);
-      else setDone(true);
-    } catch {
-      setProblem(NOT_REACHED);
-    }
+    const wrong = await askForNewPassword(address);
+    if (wrong) setProblem(wrong);
+    else setDone(true);
+    sending.current = false;
     setBusy(false);
   }
 
@@ -44,7 +42,7 @@ export default function Forgot() {
       <Words>Enter your email address and we will send you a link to choose a new password.</Words>
       <Field label="Your email" value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" textContentType="username" problem={problem ?? undefined} onSubmitEditing={() => void submit()} />
       <Button label="Send me a link" busy={busy} disabled={!email.trim()} onPress={() => void submit()} />
-      <TextLink label="Back to sign in" onPress={() => router.back()} />
+      <TextLink label="Back to sign in" onPress={() => router.replace("/sign-in")} />
     </Page>
   );
 }

@@ -2,7 +2,7 @@
 
 **Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
 builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
-the end). What the building changed or added is under "What the building changed"; where that
+the end) and the code (the list is before it); every point was worked in. What the building changed or added is under "What the building changed"; where that
 list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
@@ -141,6 +141,49 @@ No money. The "18 and terms" screen links to the terms; it sells nothing.
    low on a page was hidden behind it.
 8. **The two-step code is asked at every sign-in.** The app never asks the server to remember
    the phone as trusted, as the website does not.
+9. **A paused account is told why inside the app** (the reason, and where to write), not on a
+   page of the website. That page shows whoever is signed in to the phone's browser, who need
+   not be the person in the app. The opening answer now carries the reason, for the paused
+   person only, and Connect's support address.
+10. **Signing out shows the first screens at once,** before the server has answered and whether
+    or not it can be reached.
+11. **The requests to the login tool take turns.** The kit writes each answer into the phone's
+    secure store, so two at once could leave the older one standing: a renewal answered late
+    could have put back a sign-in that a sign-out had just wiped.
+12. **The step's writing asks once more, as it writes,** that the account is still open, still
+    confirmed and still has the step to do (on the website's form too). Two requests at the
+    same moment write once.
+
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+Three points it called "must":
+
+1. *Signing out with no connection left the last person's screens open.* Point 10 above.
+2. *A renewal answered late could put an old sign-in back after a sign-out.* Point 11.
+3. *Two "18 and terms" requests at once could both write;* and an account closed in that
+   moment was still written to. Point 12.
+
+And eight smaller ones, all taken:
+
+4. *The step's screen could strand someone* whose sign-in had run out, or wait for ever when
+   the server could not be asked. Whenever the server says she does not belong on the screen,
+   the app now asks the opening question again; if that cannot be asked, it says so and offers
+   to try again.
+5. *A request to the login tool had no time limit,* so opening the app could wait without end.
+   Fifteen seconds, like the door.
+6. *The sender for the login tool trusted the address it was given.* It now sends only to the
+   login tool's own addresses on Connect's server.
+7. *The keyboard's own "done" could send a form a second time* while the first was on its way.
+   One at a time, whichever asked.
+8. *A link straight to the two-step screen showed it with no sign-in under way; a link with the
+   address given twice broke the sign-in screen.* The first leads to signing in; the second is
+   ignored.
+9. *The "why am I paused" link opened the website as whoever is signed in to the browser.*
+   Point 9.
+10. *Half an answer from the server could leave the step's screen loading for ever.* It is
+    checked, and half an answer counts as "cannot reach Connect".
+11. *"Nothing was written" was checked on three of the five things the step writes.* On all
+    five now.
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 

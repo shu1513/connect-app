@@ -1,6 +1,5 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { signOut } from "@/lib/auth";
 import { APP_VERSION, SERVER, TEST_SCREENS } from "@/lib/config";
 import { useOpening } from "@/lib/opening";
 import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
@@ -11,15 +10,14 @@ import { Button, Card, Heading, Page, Words } from "@/ui/pieces";
  * the two test screens.
  */
 export default function AccountPlace() {
-  const { opening, askAgain, refresh } = useOpening();
+  const { opening, askAgain, leave: signOutHere } = useOpening();
   const start = opening.kind === "ready" ? opening.start : null;
   const [leaving, setLeaving] = useState(false);
 
-  /** Ends this phone's session on the server, wipes what the phone kept, and asks the server again: the first screens then open. */
+  /** Ends this phone's session on the server and wipes what the phone kept. The first screens open at once. */
   async function leave() {
     setLeaving(true);
-    await signOut();
-    await refresh();
+    await signOutHere();
     setLeaving(false);
   }
 

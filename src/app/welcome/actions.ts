@@ -16,6 +16,7 @@ export async function finishSignUp(formData: FormData) {
     terms: formData.get("terms") === "on",
     timeZone: String(formData.get("timeZone") ?? ""),
   });
+  if (result === "gone") redirect("/login");
   if (result === "boxes" || result === "zone") redirect(`/welcome?problem=${result}${next === "/" ? "" : `&next=${encodeURIComponent(next)}`}`);
   redirect(next);
 }

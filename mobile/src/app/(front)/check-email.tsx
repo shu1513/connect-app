@@ -1,8 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { authClient, checkEmailStep, forgetStep } from "@/lib/auth";
-import { emailLinks, NOT_REACHED, TOO_MANY } from "@/lib/auth-rules";
-import { SERVER } from "@/lib/config";
+import { useEffect, useRef, useState } from "react";
+import { checkEmailStep, forgetStep, sendConfirmationAgain } from "@/lib/auth";
 import { Button, Loading, Notice, Page, TextLink, Words } from "@/ui/pieces";
 
 /**
@@ -12,25 +10,23 @@ import { Button, Loading, Notice, Page, TextLink, Words } from "@/ui/pieces";
  * were, and for which address, so the screen is still here after the app was closed.
  */
 export default function CheckEmail() {
-  const { unconfirmed } = useLocalSearchParams<{ unconfirmed?: string }>();
+  const { unconfirmed } = useLocalSearchParams<{ unconfirmed?: string | string[] }>();
   const [email, setEmail] = useState<string | null | undefined>(undefined);
   const [sent, setSent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
   useEffect(() => {
     void checkEmailStep().then(setEmail);
   }, []);
 
   async function sendAgain() {
-    if (!email) return;
+    if (sending.current || !email) return;
+    sending.current = true;
     setBusy(true);
     setSent(null);
-    try {
-      const result = await authClient.sendVerificationEmail({ email, callbackURL: emailLinks(SERVER).afterConfirming });
-      // The same words whether or not that address has an account waiting.
-      setSent(result.error?.status === 429 ? TOO_MANY : result.error && result.error.status === undefined ? NOT_REACHED : "If that address has an account waiting to be confirmed, we have sent a new link.");
-    } catch {
-      setSent(NOT_REACHED);
-    }
+    // The same words whether or not that address has an account waiting.
+    setSent((await sendConfirmationAgain(email)) ?? "If that address has an account waiting to be confirmed, we have sent a new link.");
+    sending.current = false;
     setBusy(false);
   }
 

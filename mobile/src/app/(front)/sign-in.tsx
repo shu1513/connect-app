@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
-import { authClient, forgetStep, rememberCheckEmail } from "@/lib/auth";
-import { GENERIC, NOT_REACHED, signInOutcome, type SignInOutcome } from "@/lib/auth-rules";
+import { useRef, useState } from "react";
+import { forgetStep, rememberCheckEmail, signIn } from "@/lib/auth";
+import { GENERIC, NOT_REACHED } from "@/lib/auth-rules";
 import { useOpening } from "@/lib/opening";
 import { Button, Field, Page, TextLink, Words } from "@/ui/pieces";
 
@@ -11,38 +11,39 @@ import { Button, Field, Page, TextLink, Words } from "@/ui/pieces";
  * decides that itself, from what the server says about the person.
  */
 export default function SignIn() {
-  const given = useLocalSearchParams<{ email?: string }>();
+  const given = useLocalSearchParams<{ email?: string | string[] }>();
   const { refresh } = useOpening();
-  const [email, setEmail] = useState(given.email ?? "");
+  // An address handed over by a link is taken only when it is one plain piece of text.
+  const [email, setEmail] = useState(typeof given.email === "string" ? given.email : "");
   const [password, setPassword] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** One sending at a time, whether it was the button or the keyboard's own "done" that asked. */
+  const sending = useRef(false);
 
   async function submit() {
+    const address = email.trim();
+    if (sending.current || !address || !password) return;
+    sending.current = true;
     setBusy(true);
     setProblem(null);
-    const address = email.trim();
-    let outcome: SignInOutcome;
     try {
-      outcome = signInOutcome(await authClient.signIn.email({ email: address, password }));
-    } catch {
-      outcome = { kind: "problem", words: NOT_REACHED };
-    }
-    if (outcome.kind === "in") {
-      await forgetStep();
-      // The server now knows the person: asking it again opens the app (or the "18 and terms" step),
-      // and this screen is gone. If it still knows nobody, that is said, never left as a dead screen.
-      const now = await refresh();
-      if (!(now.ok && now.data.me)) setProblem(now.ok ? GENERIC : now.message || NOT_REACHED);
+      const outcome = await signIn(address, password);
+      if (outcome.kind === "in") {
+        await forgetStep();
+        // The server now knows the person: asking it again opens the app (or the "18 and terms" step),
+        // and this screen is gone. If it still knows nobody, that is said, never left as a dead screen.
+        const now = await refresh();
+        if (!(now.ok && now.data.me)) setProblem(now.ok ? GENERIC : now.message || NOT_REACHED);
+      } else if (outcome.kind === "code") router.push("/code");
+      else if (outcome.kind === "confirm") {
+        await rememberCheckEmail(address);
+        router.replace({ pathname: "/check-email", params: { unconfirmed: "1" } });
+      } else setProblem(outcome.words);
+    } finally {
+      sending.current = false;
       setBusy(false);
-      return;
     }
-    setBusy(false);
-    if (outcome.kind === "code") router.push("/code");
-    else if (outcome.kind === "confirm") {
-      await rememberCheckEmail(address);
-      router.replace({ pathname: "/check-email", params: { unconfirmed: "1" } });
-    } else setProblem(outcome.words);
   }
 
   return (

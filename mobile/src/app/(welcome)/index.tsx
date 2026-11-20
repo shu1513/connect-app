@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppWelcome, AppWelcomeDone } from "../../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
-import { signOut } from "@/lib/auth";
+import { UNREACHABLE } from "@/lib/api-rules";
 import { useOpening } from "@/lib/opening";
 import { openWebsite } from "@/lib/website";
-import { firstTimeZone, zonesMatching } from "@/lib/where-rules";
+import { firstTimeZone, isWelcome, zonesMatching } from "@/lib/where-rules";
 import { Button, Card, Field, Heading, Loading, Notice, Page, Problem, TextLink, Tick, Words } from "@/ui/pieces";
 
 /** The phone's own time zone, as the phone names it; null if it will not say. */
@@ -21,9 +21,14 @@ function phoneTimeZone(): string | null {
  * accept the rules, the terms and the privacy policy", and the time zone. Shown once, and again
  * when the terms have changed. The server writes it, with its own clock, exactly as the
  * website's form does; the app only sends the two ticks and the time zone.
+ *
+ * Whenever the server says this person does not belong on this screen (the step is done, the
+ * sign-in ran out, this copy is too old), the app asks the opening question again, and that
+ * answer moves her to where she belongs. If that question cannot be asked, the screen says so
+ * and offers to try again; it is never left waiting with no way on.
  */
 export default function Welcome() {
-  const { opening, refresh } = useOpening();
+  const { opening, refresh, leave } = useOpening();
   const name = opening.kind === "ready" ? (opening.start.me?.name ?? "") : "";
   const [step, setStep] = useState<AppWelcome | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -34,17 +39,31 @@ export default function Welcome() {
   const [typed, setTyped] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+
+  /** The server decides where this person belongs. True when it was asked; false (and said on the screen) when it could not be. */
+  const sortOut = useCallback(async () => {
+    const now = await refresh();
+    if (now.ok || now.code !== "unreachable") return true;
+    setFailed(now.message || UNREACHABLE);
+    return false;
+  }, [refresh]);
 
   const load = useCallback(async () => {
     const answer = await ask<AppWelcome>("/api/app/welcome");
     if (!answer.ok) {
-      // No longer signed in, or no longer confirmed: the opening question sorts out where to go.
-      if (answer.code !== "unreachable") void refresh();
-      setFailed(answer.message);
+      if (answer.code === "unreachable") setFailed(answer.message);
+      // A refusal: no longer signed in, no longer confirmed, or this copy is too old.
+      else if (await sortOut()) setFailed(answer.message);
+      return;
+    }
+    // Half an answer is treated as not reaching Connect: say so, and offer to try again.
+    if (!isWelcome(answer.data)) {
+      setFailed(UNREACHABLE);
       return;
     }
     if (answer.data.done) {
-      void refresh();
+      await sortOut();
       return;
     }
     const first = firstTimeZone(answer.data.timeZone, phoneTimeZone(), answer.data.timeZones);
@@ -52,7 +71,7 @@ export default function Welcome() {
     setChoosing(first === null);
     setFailed(null);
     setStep(answer.data);
-  }, [refresh]);
+  }, [sortOut]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the screen's own first question to the server
@@ -60,20 +79,20 @@ export default function Welcome() {
   }, [load]);
 
   async function submit() {
+    if (sending.current || !adult || !terms || !zone) return;
+    sending.current = true;
     setBusy(true);
     setProblem(null);
-    const answer = await ask<AppWelcomeDone>("/api/app/welcome", { body: { adult, terms, timeZone: zone ?? "" } });
-    if (answer.ok) {
-      await refresh();
-    } else {
-      setProblem(answer.message);
+    try {
+      const answer = await ask<AppWelcomeDone>("/api/app/welcome", { body: { adult, terms, timeZone: zone } });
+      if (answer.ok) await sortOut();
+      else if (answer.code === "not_valid" || answer.code === "unreachable") setProblem(answer.message);
+      // Any other refusal means she no longer belongs here: the opening question says where she does.
+      else if (await sortOut()) setProblem(answer.message);
+    } finally {
+      sending.current = false;
+      setBusy(false);
     }
-    setBusy(false);
-  }
-
-  async function leave() {
-    await signOut();
-    await refresh();
   }
 
   if (failed) {

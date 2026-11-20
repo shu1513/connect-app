@@ -7,7 +7,8 @@ import * as WebBrowser from "expo-web-browser";
 import { SERVER_USABLE } from "./auth";
 import { SERVER } from "./config";
 
-export type WebsitePage = "/rules" | "/terms" | "/privacy" | "/paused";
+/** Only pages anyone may read: a page that needs the website's own sign-in would show the browser's person, not the app's. */
+export type WebsitePage = "/rules" | "/terms" | "/privacy";
 
 export async function openWebsite(page: WebsitePage): Promise<void> {
   if (!SERVER_USABLE) return;

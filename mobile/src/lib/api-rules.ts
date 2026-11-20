@@ -30,6 +30,19 @@ export function isServer(server: string, options: { plain?: boolean } = {}): boo
   return bare !== null && (bare[1] === "https" || options.plain === true);
 }
 
+/**
+ * Whether a full address is one of the login tool's own on the given server: the only place,
+ * besides the door, a request with the sign-in may go.
+ */
+export function isLoginToolAddress(server: string, address: string): boolean {
+  try {
+    const url = new URL(address);
+    return url.origin === new URL(server).origin && url.pathname.startsWith("/api/auth/") && url.username === "" && url.password === "" && address.startsWith(`${server}/api/auth/`);
+  } catch {
+    return false;
+  }
+}
+
 /** Every address of the app on the server starts with this. Nothing else is ever asked for. */
 export const DOOR = "/api/app/";
 

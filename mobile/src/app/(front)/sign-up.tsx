@@ -1,8 +1,7 @@
 import { router } from "expo-router";
-import { useState } from "react";
-import { authClient, rememberCheckEmail } from "@/lib/auth";
-import { emailLinks, NOT_REACHED, passwordProblem, signUpProblem } from "@/lib/auth-rules";
-import { SERVER } from "@/lib/config";
+import { useRef, useState } from "react";
+import { rememberCheckEmail, signUp } from "@/lib/auth";
+import { signUpProblem } from "@/lib/auth-rules";
 import { Button, Field, Page, TextLink, Words } from "@/ui/pieces";
 
 /**
@@ -19,31 +18,31 @@ export default function SignUp() {
   const [password, setPassword] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
 
   async function submit() {
+    if (sending.current) return;
     const address = email.trim();
     const first = signUpProblem({ name, email: address, password });
     if (first) {
       setProblem(first);
       return;
     }
+    sending.current = true;
     setBusy(true);
     setProblem(null);
     try {
-      const result = await authClient.signUp.email({ name: name.trim(), email: address, password, callbackURL: emailLinks(SERVER).afterConfirming });
-      if (result.error) {
-        setProblem(passwordProblem(result.error));
-        setBusy(false);
+      const wrong = await signUp(name.trim(), address, password);
+      if (wrong) {
+        setProblem(wrong);
         return;
       }
-    } catch {
-      setProblem(NOT_REACHED);
+      await rememberCheckEmail(address);
+      router.replace("/check-email");
+    } finally {
+      sending.current = false;
       setBusy(false);
-      return;
     }
-    await rememberCheckEmail(address);
-    setBusy(false);
-    router.replace("/check-email");
   }
 
   return (

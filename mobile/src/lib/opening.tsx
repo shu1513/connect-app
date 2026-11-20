@@ -7,8 +7,8 @@ import { AppState } from "react-native";
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { ask } from "./api";
 import type { Answer } from "./api-rules";
-import { RENEW_LOOK_MS, renewSignIn } from "./auth";
-import { openingAfter, type Opening } from "./opening-rules";
+import { RENEW_LOOK_MS, renewSignIn, signOut } from "./auth";
+import { openingAfter, signedOut, type Opening } from "./opening-rules";
 
 type Value = {
   opening: Opening;
@@ -16,8 +16,10 @@ type Value = {
   askAgain: () => void;
   /** Asks again quietly, after something changed who is signed in or what stands in the way. Gives back the server's answer. */
   refresh: () => Promise<Answer<AppStart>>;
+  /** Signs out. The app shows nobody signed in at once, whether or not the server can be reached. */
+  leave: () => Promise<void>;
 };
-const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {}, refresh: async () => ({ ok: false, code: "unreachable", message: "" }) });
+const OpeningContext = createContext<Value>({ opening: { kind: "asking" }, askAgain: () => {}, refresh: async () => ({ ok: false, code: "unreachable", message: "" }), leave: async () => {} });
 
 export function OpeningProvider({ children }: { children: ReactNode }) {
   const [opening, setOpening] = useState<Opening>({ kind: "asking" });
@@ -57,7 +59,15 @@ export function OpeningProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(() => put(), [put]);
 
-  return <OpeningContext.Provider value={{ opening, askAgain, refresh }}>{children}</OpeningContext.Provider>;
+  const leave = useCallback(async () => {
+    // An answer still on its way was asked as the person who is leaving: it no longer counts.
+    newest.current++;
+    setOpening(signedOut);
+    await signOut();
+    await put();
+  }, [put]);
+
+  return <OpeningContext.Provider value={{ opening, askAgain, refresh, leave }}>{children}</OpeningContext.Provider>;
 }
 
 export function useOpening(): Value {

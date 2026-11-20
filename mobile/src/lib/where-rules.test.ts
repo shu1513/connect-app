@@ -1,8 +1,8 @@
 import type { AppStart } from "../../../src/lib/app-door/types";
-import { firstTimeZone, frontStart, whereFor, zonesMatching } from "./where-rules";
+import { firstTimeZone, frontStart, isWelcome, whereFor, zonesMatching } from "./where-rules";
 
-const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules" };
-const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null };
+const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules", supportEmail: "support@connect.example" };
+const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null };
 
 describe("which part of the app a person is in", () => {
   it("is the first screens when nobody is signed in", () => {
@@ -36,6 +36,14 @@ describe("the time zone on the '18 and terms' step", () => {
   it("offers none when the phone's is not one the server accepts", () => {
     expect(firstTimeZone(null, "Asia/Calcutta", accepted)).toBeNull();
     expect(firstTimeZone(null, null, accepted)).toBeNull();
+  });
+
+  it("takes the server's answer for the step only when it has what the screen reads", () => {
+    expect(isWelcome({ done: false, returning: false, timeZone: null, timeZones: accepted })).toBe(true);
+    expect(isWelcome({ done: true, returning: true, timeZone: "UTC", timeZones: [] })).toBe(true);
+    for (const bad of [{}, null, [], { done: false, returning: false, timeZone: null }, { done: false, returning: false, timeZone: 3, timeZones: accepted }, { done: "no", returning: false, timeZone: null, timeZones: accepted }, { done: false, returning: false, timeZone: null, timeZones: ["UTC", 5] }]) {
+      expect(isWelcome(bad)).toBe(false);
+    }
   });
 
   it("finds zones by part of their name", () => {
