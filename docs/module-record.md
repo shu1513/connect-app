@@ -2798,6 +2798,11 @@ the founder's page with an uploaded photo (the check script covers all three).
   A file from a person's device is never byte for byte what a network's picture server sends,
   so a fingerprint would not match in practice.
 
+- *CodeRabbit did not review this one.* It answered that its review limit was reached for the
+  next 50 minutes, and the founder's rule for that case is not to wait. The builder read the
+  whole change once more, line by line, and found only comments in the code that still said a
+  host's photo comes from a social media account alone; they now name uploads too.
+
 **How it was checked:** 628 automatic tests on the code (new: the square copy, and the
 sentences after an upload); three new journeys of 70 checks in `scripts/photo-check.ts` (254 in
 all): each way an upload can end, a start that says "no" never reading the file, a refused

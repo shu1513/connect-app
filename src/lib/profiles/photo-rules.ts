@@ -1,5 +1,5 @@
 /**
- * The plain rules of a host's photo (plans/29): its limits, which addresses a picture may be
+ * The plain rules of a host's photo (plans/29, plans/35): its limits, which addresses a picture may be
  * fetched from, and which account a photo belongs to. Nothing in here touches the database or
  * the network.
  */

@@ -1196,7 +1196,7 @@ export const bioChecks = pgTable(
 
 /**
  * A host's photo: Connect's own copy of the profile picture of a social media account the host
- * has confirmed (plans/29). One line for each photo. A host has at most one that is not locked;
+ * has confirmed (plans/29), or of a picture the host uploaded (plans/35). One line for each photo. A host has at most one that is not locked;
  * a new photo is a new line with a new id, so an old address stops working.
  *
  * A locked photo ("Remove and report") is kept exactly as it is and never deleted: not by the
@@ -1250,7 +1250,7 @@ export const hostPhotos = pgTable(
 );
 
 /**
- * One line for each try at taking a host's photo (plans/29). Used for the limit of tries, for
+ * One line for each try at taking a host's photo (plans/29), an upload included (plans/35). Used for the limit of tries, for
  * "one at a time", for stopping a try that is under way, and to remember the fingerprint of a
  * copy a checking service refused. The picture of a try is never kept here.
  *
