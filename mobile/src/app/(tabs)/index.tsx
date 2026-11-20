@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { dayOf } from "../../../../src/lib/home/rules";
 import { Calendar } from "@/home/calendar";
 import { NextCall } from "@/home/next-call";
 import { HostsYouFollow, SuggestedHosts, WaitingForYou, YourRequests } from "@/home/sections";
 import { useHome } from "@/home/use-home";
+import { phoneZone } from "@/lib/home-rules";
 import { useStart } from "@/lib/opening";
 import { Card, Heading, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
+import { PhotosAsOf } from "@/ui/photo";
 
 /**
  * Home (plans/45-phone-apps/04-the-home-page.md): the website's home page on a phone. From top
@@ -19,11 +22,17 @@ export default function HomePlace() {
   const me = start?.me;
   // The day the calendar shows; null is today. It is part of the question to the server.
   const [day, setDay] = useState<string | null>(null);
-  const { home, problem, pulling, pull, reload } = useHome(day);
+  const { home, problem, pulling, pull, reload, asking, refused } = useHome(day);
 
   if (!home) return problem ? <Problem words={problem} onRetry={() => void reload()} /> : <Loading />;
   const nextCall = home.next ? (home.calls.find((call) => call.id === home.next!.id) ?? null) : null;
+  // Other days are on their way only while a question is under way and the days asked for are not the days shown.
+  // ("Today" and today's own date are the same days.)
+  const today = dayOf(new Date(home.serverNow), phoneZone());
+  const moving = asking && (day ?? today) !== (home.calendar.day ?? today);
   return (
+    // The photos on this page ask again, from time to time, whether they may still be shown: each new answer is the moment to.
+    <PhotosAsOf.Provider value={Date.parse(home.serverNow)}>
     <Page title={home.firstName ? `Hello, ${home.firstName}` : "Hello"} refreshing={pulling} onRefresh={() => void pull()}>
       {/* What is on the screen is the last answer that came. If a newer one did not come, that is said. */}
       {problem ? <Notice>{problem}</Notice> : null}
@@ -58,7 +67,7 @@ export default function HomePlace() {
             serverNow={home.serverNow}
             // The days shown are the days this answer is for. Other days asked for appear when their answer is in.
             day={home.calendar.day}
-            moving={day !== home.calendar.day && !problem}
+            moving={moving}
             cut={home.calendar.cut}
             most={home.calendar.most}
             nextId={home.next?.id ?? null}
@@ -70,7 +79,8 @@ export default function HomePlace() {
 
       <YourRequests requests={home.requests} />
       <HostsYouFollow followed={home.followed} />
-      {home.suggested ? <SuggestedHosts suggested={home.suggested} onChanged={() => void reload()} /> : null}
+      {home.suggested ? <SuggestedHosts suggested={home.suggested} onChanged={() => void reload()} refused={refused} /> : null}
     </Page>
+    </PhotosAsOf.Provider>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { photo } from "@/lib/photos";
 import { useColors } from "./theme";
@@ -21,11 +21,24 @@ export function Photo({ photoId, name, small = false }: { photoId: string | null
   return <OnePhoto key={photoId ?? "none"} photoId={photoId} name={name} small={small} />;
 }
 
+/**
+ * A page that asks the server again from time to time hands its photos the moment of its newest
+ * answer here. A photo that is on the screen then asks again whether it may still be shown, at
+ * most every five minutes (the time a photo anyone may see may be kept); a "no" takes it away. So
+ * a photo does not stay on a screen for hours after its owner hid it.
+ */
+export const PhotosAsOf = createContext(0);
+const RECHECK_MS = 300_000;
+
 function OnePhoto({ photoId, name, small }: { photoId: string | null; name: string; small: boolean }) {
   const colors = useColors();
+  const asOf = useContext(PhotosAsOf);
   const [picture, setPicture] = useState<string | null>(null);
+  const askedAt = useRef(0);
   useEffect(() => {
     if (!photoId) return;
+    if (askedAt.current > 0 && Date.now() - askedAt.current < RECHECK_MS) return;
+    askedAt.current = Date.now();
     let here = true;
     void photo(photoId).then((got) => {
       // Shown when there is one for this person; taken away again when the answer is "no".
@@ -34,7 +47,7 @@ function OnePhoto({ photoId, name, small }: { photoId: string | null; name: stri
     return () => {
       here = false;
     };
-  }, [photoId]);
+  }, [photoId, asOf]);
   const size = small ? 44 : 64;
   const round = { width: size, height: size, borderRadius: size / 2 };
   if (picture) return <Image source={{ uri: picture }} style={round} accessibilityIgnoresInvertColors accessibilityLabel={`Photo of ${name}`} />;

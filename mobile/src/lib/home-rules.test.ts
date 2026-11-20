@@ -65,6 +65,8 @@ describe("the server's answer for the home page", () => {
       { ...home, takeCalls: "yes" },
       // Inside the lists too: a part the screen reads that is not there would break the screen, not show an error.
       { ...home, calendar: { ...home.calendar, day: 5 } },
+      { ...home, calendar: { ...home.calendar, day: "tomorrow" } },
+      { ...home, calendar: { ...home.calendar, day: "2026-02-31" } },
       { ...home, calendar: { ...home.calendar, asks: [{ startsAt: "2026-11-20T20:00:00.000Z" }] } },
       { ...home, calls: [{ ...call("c1", "2026-11-20T20:00:00.000Z", 30), about: { words: "hello" } }] },
       { ...home, toAnswer: { count: 1, times: 1, shown: [{ id: "b1" }] } },

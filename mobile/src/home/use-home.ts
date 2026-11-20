@@ -27,39 +27,55 @@ export function useHome(day: string | null) {
   const [home, setHome] = useState<AppHome | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
+  /** How many questions are under way. */
+  const [asking, setAsking] = useState(0);
   /** Only the newest question counts. */
   const newest = useRef(0);
 
-  const load = useCallback(async () => {
-    const mine = ++newest.current;
-    const read = () => ask<AppHome>(`/api/app/home${day ? `?day=${day}` : ""}`);
-    /** True when the server refused: the page is emptied, and the opening question is asked. */
-    const refused = (answer: Answer<unknown>): boolean => {
+  /**
+   * What a refusal does, whichever request of the page met it (reading the page, a step of the
+   * suggestions): the page is emptied at once, any answer still on its way no longer counts, and
+   * the opening question is asked. True when the answer was a refusal.
+   */
+  const refused = useCallback(
+    (answer: Answer<unknown>): boolean => {
       if (answer.ok || answer.code === "unreachable") return false;
+      newest.current++;
       setHome(null);
       setProblem(answer.message);
       void askOpening();
       return true;
-    };
-    let answer = await read();
-    if (mine !== newest.current) return;
-    if (refused(answer)) return;
-    if (!(answer.ok && isHome(answer.data))) {
-      setProblem(answer.ok ? UNREACHABLE : answer.message);
-      return;
+    },
+    [askOpening],
+  );
+
+  const load = useCallback(async () => {
+    const mine = ++newest.current;
+    const read = () => ask<AppHome>(`/api/app/home${day ? `?day=${day}` : ""}`);
+    setAsking((count) => count + 1);
+    try {
+      let answer = await read();
+      if (mine !== newest.current) return;
+      if (refused(answer)) return;
+      if (!(answer.ok && isHome(answer.data))) {
+        setProblem(answer.ok ? UNREACHABLE : answer.message);
+        return;
+      }
+      setHome(answer.data);
+      setProblem(null);
+      // Today's suggestions have not been made: asked for in a step of its own, then read again. (Once made, the
+      // server says so from then on, so this happens once a day; if the step fails it is tried again with the next reading.)
+      const suggested = answer.data.suggested;
+      if (!suggested || suggested.made) return;
+      const made = await ask("/api/app/suggestions/make", { body: {} });
+      if (mine !== newest.current || refused(made) || !made.ok) return;
+      answer = await read();
+      if (mine !== newest.current || refused(answer)) return;
+      if (answer.ok && isHome(answer.data)) setHome(answer.data);
+    } finally {
+      setAsking((count) => count - 1);
     }
-    setHome(answer.data);
-    setProblem(null);
-    // Today's suggestions have not been made: asked for in a step of its own, then read again. (Once made, the
-    // server says so from then on, so this happens once a day; if the step fails it is tried again with the next reading.)
-    const suggested = answer.data.suggested;
-    if (!suggested || suggested.made) return;
-    const made = await ask("/api/app/suggestions/make", { body: {} });
-    if (mine !== newest.current || refused(made) || !made.ok) return;
-    answer = await read();
-    if (mine !== newest.current || refused(answer)) return;
-    if (answer.ok && isHome(answer.data)) setHome(answer.data);
-  }, [day, askOpening]);
+  }, [day, refused]);
 
   // While the page is in front: now, on coming back to the app, and every so often.
   const every = home?.refreshSeconds ?? 60;
@@ -88,5 +104,5 @@ export function useHome(day: string | null) {
     setPulling(false);
   }, [load]);
 
-  return { home, problem, pulling, pull, reload: load };
+  return { home, problem, pulling, pull, reload: load, asking: asking > 0, refused };
 }

@@ -8,7 +8,7 @@
  * everything here turns them into days and hours in the phone's own zone.
  */
 import type { AppAsk, AppCall, AppHome } from "../../../src/lib/app-door/types";
-import { CALENDAR, daysInView, hostedTotal, hoursToDraw, inLanes, minuteOfDay, segmentsOf } from "../../../src/lib/home/calendar";
+import { CALENDAR, daysInView, hostedTotal, hoursToDraw, inLanes, minuteOfDay, parseDay, segmentsOf } from "../../../src/lib/home/calendar";
 import { dayOf } from "../../../src/lib/home/rules";
 
 const isThing = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -37,7 +37,9 @@ export function isHome(data: unknown): data is AppHome {
   if (data.next !== null && !(isThing(data.next) && isText(data.next.id) && isMoment(data.next.opensAt) && typeof data.next.notPaid === "boolean")) return false;
   if (data.noCall !== null && !isText(data.noCall)) return false;
   const calendar = data.calendar;
-  if (!isThing(calendar) || typeof calendar.shown !== "boolean" || typeof calendar.cut !== "boolean" || typeof calendar.most !== "number" || !isTextOrNull(calendar.day)) return false;
+  if (!isThing(calendar) || typeof calendar.shown !== "boolean" || typeof calendar.cut !== "boolean" || typeof calendar.most !== "number") return false;
+  // The day in view is a real calendar day, or none (today): anything else would break the laying out.
+  if (calendar.day !== null && (!isText(calendar.day) || parseDay(calendar.day) !== calendar.day)) return false;
   if (!isListOf(calendar.asks, (ask) => isMoment(ask.startsAt) && isMoment(ask.endsAt) && typeof ask.count === "number")) return false;
   const toAnswer = data.toAnswer;
   if (!isThing(toAnswer) || typeof toAnswer.count !== "number" || typeof toAnswer.times !== "number") return false;
@@ -113,6 +115,15 @@ export function placeOf(piece: { from: number; to: number }, hours: { from: numb
     top: ((piece.from - hours.from * 60) / 60) * CALENDAR.hourPixels,
     height: (Math.max(piece.to - piece.from, CALENDAR.leastMinutes) / 60) * CALENDAR.hourPixels - 1,
   };
+}
+
+/** The phone's own time zone; the world's clock if the phone will not say. */
+export function phoneZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 /** A moment as the website writes one: "Nov 20, 5:00 PM PST", in the phone's own zone and language. */

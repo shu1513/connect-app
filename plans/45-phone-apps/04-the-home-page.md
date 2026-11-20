@@ -173,6 +173,28 @@ points it called "must", and seven smaller ones; all taken but the last, which i
     beside the calendar has full-size rows, and the shortcuts come with the parts that build
     the screens they lead to (point 4 above).
 
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+The ten fixes were found sound. Three further points it called "must", and four smaller ones; all
+taken.
+
+1. *One person signing in right after another on the same phone could, in one order of events,
+   leave the first person's home page standing for a moment.* Every screen now belongs to the
+   person signed in, and all of them are made anew when that person changes.
+2. *A photo already on the screen was never asked for again,* so it could stay for hours after
+   its owner hid her page. A photo on a page that keeps asking the server now asks again too,
+   at most every five minutes, and is taken away on a "no".
+3. *"Seen" and "hide" skipped what a refusal does on this page.* One piece of code now decides
+   that for every request of the page: the page is emptied and the opening question asked.
+4. *A "seen" that could not be sent was tried again at once, and again,* with no connection.
+   It is tried again the next time the page comes to rest. What waits to be sent belongs to its
+   day.
+5. *On an iPhone the page runs on behind the bar at the bottom,* so a card behind it could
+   count as seen. That strip is left out. (To be looked at on a real iPhone in part 20.)
+6. *The check of the answer took any text for the calendar's day.* It must be a real day.
+7. *"Loading other days…" was shown, or not shown, at the wrong moments.* It is shown exactly
+   while a question is under way for days other than the ones on the screen.
+
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Making suggestions was missing* (reading alone never makes them). Decision 2.

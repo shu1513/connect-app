@@ -7,8 +7,8 @@
  * text grows with the phone's text size.
  */
 import { createContext, useContext, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type TextInputProps } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { shape, type, useColors } from "./theme";
 
 /**
@@ -23,8 +23,17 @@ export function Page({ title, children, refreshing, onRefresh }: { title?: strin
   // Where the page's own window is on the screen: from under the title bar down to the bar of places at the bottom.
   const [view, setView] = useState({ top: 0, bottom: 0 });
   const frame = useRef<ComponentRef<typeof View>>(null);
+  const insets = useSafeAreaInsets();
+  const screen = useWindowDimensions();
+  // On an iPhone the page runs on behind the bar of places at the bottom (the phone lets it show through), so the
+  // page's own measure reaches too far down: what is behind the bar is not in sight. An iPhone's bar is 49 points
+  // tall above the home line. (To be looked at on a real iPhone in part 20.)
+  const lowest = screen.height - insets.bottom - (Platform.OS === "ios" ? 49 : 0);
   const moved = () => {
-    frame.current?.measureInWindow((_x, y, _width, height) => setView((was) => (was.top === y && was.bottom === y + height ? was : { top: y, bottom: y + height })));
+    frame.current?.measureInWindow((_x, y, _width, height) => {
+      const bottom = Math.min(y + height, lowest);
+      setView((was) => (was.top === y && was.bottom === bottom ? was : { top: y, bottom }));
+    });
     setSettled((count) => count + 1);
   };
   return (

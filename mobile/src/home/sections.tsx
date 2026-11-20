@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentRef } from "rea
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AppHome, AppSuggestedHost } from "../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
+import type { Answer } from "@/lib/api-rules";
 import { localTime, ratingWords } from "@/lib/home-rules";
 import { Button, Card, Heading, usePageView, Words } from "@/ui/pieces";
 import { Photo } from "@/ui/photo";
@@ -167,15 +168,23 @@ function SuggestedCard({ host, first, again, onSeen, onHide }: { host: AppSugges
  * seen until they are opened. The row never says why a host is there; the text under it is the
  * same for everyone, and comes from the server.
  */
-export function SuggestedHosts({ suggested, onChanged }: { suggested: NonNullable<AppHome["suggested"]>; onChanged: () => void }) {
+export function SuggestedHosts({ suggested, onChanged, refused }: { suggested: NonNullable<AppHome["suggested"]>; onChanged: () => void; refused: (answer: Answer<unknown>) => boolean }) {
   const colors = useColors();
   const [more, setMore] = useState(false);
   const [why, setWhy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  /** Counts up when a "seen" could not be passed on: the cards in sight then tell it again. */
+  /** Counts up when a "seen" that could not be passed on is to be told again: the cards in sight then say so once more. */
   const [again, setAgain] = useState(0);
-  /** Places seen and not yet told to the server; sent together a moment later. */
-  const waiting = useRef<number[]>([]);
+  /** A "seen" could not be passed on. It is told again the next time the page comes to rest (a scroll, a refresh), never by itself. */
+  const failed = useRef(false);
+  const { settled } = usePageView();
+  useEffect(() => {
+    if (!failed.current) return;
+    failed.current = false;
+    setAgain((count) => count + 1);
+  }, [settled]);
+  /** Places seen and not yet told to the server, each with the day it belongs to; sent together a moment later. */
+  const waiting = useRef<{ day: string; place: number }[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The newest "something changed" of the page: a step that finishes late asks the page as it is then, not as it was.
   const changed = useRef(onChanged);
@@ -191,19 +200,21 @@ export function SuggestedHosts({ suggested, onChanged }: { suggested: NonNullabl
   );
   const seen = useCallback(
     (place: number) => {
-      waiting.current.push(place);
+      waiting.current.push({ day, place });
       if (timer.current) return;
       timer.current = setTimeout(() => {
         timer.current = null;
-        const places = waiting.current.splice(0);
+        // Only the places of the day now shown: a place seen yesterday is not sent under today's date.
+        const places = waiting.current.splice(0).filter((one) => one.day === day).map((one) => one.place);
         if (places.length === 0) return;
         void ask("/api/app/suggestions/seen", { body: { day, places } }).then((done) => {
+          if (refused(done)) return;
           // Not passed on: the cards still in sight say so again the next time the page comes to rest.
-          if (!done.ok) setAgain((count) => count + 1);
+          if (!done.ok) failed.current = true;
         });
       }, 800);
     },
-    [day],
+    [day, refused],
   );
   if (suggested.hosts.length === 0) {
     return notice ? (
@@ -215,6 +226,7 @@ export function SuggestedHosts({ suggested, onChanged }: { suggested: NonNullabl
 
   const hide = async (host: AppSuggestedHost) => {
     const done = await ask("/api/app/suggestions/hide", { body: { handle: host.handle } });
+    if (refused(done)) return;
     setNotice(done.ok ? "Hidden. You will not be suggested this host again. You can still find them with the search." : done.code === "unreachable" ? done.message : "Something went wrong. Nothing was changed. Please try again.");
     if (done.ok) changed.current();
   };

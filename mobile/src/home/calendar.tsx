@@ -3,18 +3,9 @@ import { Pressable, StyleSheet, Text, View, type DimensionValue } from "react-na
 import type { AppAsk, AppCall } from "../../../src/lib/app-door/types";
 import { CALENDAR, dayToMoveTo } from "../../../src/lib/home/calendar";
 import { dayAfter, dayOf } from "../../../src/lib/home/rules";
-import { calendarView, dayName, dollars, firstNameOf, monthsOf, placeOf } from "@/lib/home-rules";
+import { calendarView, dayName, dollars, firstNameOf, monthsOf, phoneZone, placeOf } from "@/lib/home-rules";
 import { type, useColors } from "@/ui/theme";
 import { CallRow } from "./call-row";
-
-/** The phone's own time zone; the world's clock if the phone will not say. */
-function phoneZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 /** The look of a call's block: hosted, booked, finished. The same in light and dark, as on the website: light blocks, dark words. */
 const LOOK = {
