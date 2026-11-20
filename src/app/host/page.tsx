@@ -11,6 +11,7 @@ import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
 import { bioSettings, isAutomatic } from "@/lib/profiles/bio-check";
 import { ownPhotoState } from "@/lib/profiles/photo";
+import { languageNames } from "@/lib/profiles/languages";
 import { PHOTO } from "@/lib/profiles/photo-rules";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN } from "@/lib/profiles/profiles";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
@@ -37,6 +38,7 @@ import {
 import { HostPhoto } from "@/components/host-photo";
 import { SitePage } from "@/components/site-page";
 import { Earnings } from "./earnings";
+import { LanguagePicker } from "./language-picker";
 import { MembershipPart } from "./membership";
 
 export const metadata: Metadata = { title: "Hosting" };
@@ -218,6 +220,7 @@ export default async function HostPage(props: PageProps<"/host">) {
                 About you (up to {ABOUT_MAX} characters)
                 <textarea name="about" rows={3} maxLength={ABOUT_MAX} className={field} />
               </label>
+              <LanguagePicker chosen={[]} />
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5, or 0 for free calls)
                 <input name="price" type="number" min={0} step="0.01" defaultValue="20" required className={field} />
@@ -275,6 +278,14 @@ export default async function HostPage(props: PageProps<"/host">) {
                 About you (up to {ABOUT_MAX} characters)
                 <textarea name="about" rows={3} maxLength={ABOUT_MAX} defaultValue={profile.about} className={field} />
               </label>
+              <p className="text-sm" data-host-languages={languageNames(profile.languages).length}>
+                {languageNames(profile.languages).length > 0 ? (
+                  <span className="opacity-70">Saved languages: {languageNames(profile.languages).join(", ")}</span>
+                ) : (
+                  "You have not chosen your languages yet. Tick the ones you can hold a call in, so people know they can talk with you."
+                )}
+              </p>
+              <LanguagePicker chosen={profile.languages} />
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5, or 0 for free calls)
                 <input name="price" type="number" min={0} step="0.01" defaultValue={(profile.pricePer15Cents / 100).toFixed(2)} required className={field} />

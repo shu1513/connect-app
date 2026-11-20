@@ -107,6 +107,11 @@ function priceCents(formData: FormData): number {
   return Number.isFinite(dollars) ? Math.round(dollars * 100) : -1;
 }
 
+/** Every language box that was ticked, as the form sent it. What is allowed is decided where the profile is written. */
+function tickedLanguages(formData: FormData): string[] {
+  return formData.getAll("languages").map(String);
+}
+
 /** A person applies to host. The profile is not public until the founder approves it. */
 export async function createProfile(formData: FormData) {
   const user = await requireActiveUser();
@@ -118,6 +123,7 @@ export async function createProfile(formData: FormData) {
       about: String(formData.get("about") ?? ""),
       pricePer15Cents: priceCents(formData),
       country: String(formData.get("country") ?? ""),
+      languages: tickedLanguages(formData),
     });
     notice = "Your host profile was sent for approval. It becomes public once it is approved.";
   } catch (error) {
@@ -134,6 +140,7 @@ export async function saveProfile(formData: FormData) {
       displayName: String(formData.get("displayName") ?? ""),
       about: String(formData.get("about") ?? ""),
       pricePer15Cents: priceCents(formData),
+      languages: tickedLanguages(formData),
     });
     notice = "Your host profile was saved.";
   } catch (error) {

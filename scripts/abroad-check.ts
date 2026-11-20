@@ -108,7 +108,7 @@ async function main() {
   }
   /** Applies as a host through the app's own function. Pretended: the founder's approval. */
   async function applyFrom(who: Person, country: string): Promise<void> {
-    await createHostProfile(who.id, { handle: `ab${RUN}${made}`, displayName: `Host ${made}`, about: "", pricePer15Cents: 2000, country });
+    await createHostProfile(who.id, { handle: `ab${RUN}${made}`, displayName: `Host ${made}`, about: "", pricePer15Cents: 2000, country, languages: ["en"] });
     await db.update(schema.hostProfiles).set({ status: "approved" }).where(eq(schema.hostProfiles.userId, who.id));
   }
   const refusal = async (work: Promise<unknown>): Promise<string | null> => {

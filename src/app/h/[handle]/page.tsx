@@ -17,6 +17,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
+import { languageNames } from "@/lib/profiles/languages";
 import { photosOf } from "@/lib/profiles/photo";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { contributionOf } from "@/lib/projects/ask";
@@ -116,6 +117,12 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           <p className="text-sm">
             <Rating shown={rating} newText="New on Connect" />
           </p>
+          {/* Only for a host who has chosen: nothing is guessed for the others (plans/34-host-languages.md). */}
+          {languageNames(profile.languages).length > 0 && (
+            <p className="text-sm" data-host-languages>
+              {`Languages: ${languageNames(profile.languages).join(", ")}`}
+            </p>
+          )}
         </div>
       </div>
 

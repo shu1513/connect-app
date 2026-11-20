@@ -823,7 +823,7 @@ async function main() {
     check("the host is still found by the search, without a photo", inSearch !== undefined && inSearch.photoId === null, inSearch);
     check("it is in none of the lists a page draws from, and the Hosting page's facts say it was removed", !(await Photo.photosOf([host.id])).has(host.id) && (await Photo.ownPhotoState(host.id)).photo === null && (await Photo.ownPhotoState(host.id)).locked === true && !(await searchHosts(host.handle, null, new Date())).find((found) => found.handle === host.handle)?.photoId);
     const contextBefore = (await db.select({ context: photos.lockedContext }).from(photos).where(eq(photos.id, second.id)))[0].context ?? "";
-    await profiles.updateHostProfile(host.id, { displayName: "Someone Else Now", about: "Changed afterwards.", pricePer15Cents: 1000 });
+    await profiles.updateHostProfile(host.id, { displayName: "Someone Else Now", about: "Changed afterwards.", pricePer15Cents: 1000, languages: ["en"] });
     const contextAfter = (await db.select({ context: photos.lockedContext }).from(photos).where(eq(photos.id, second.id)))[0].context ?? "";
     check("what belonged to it is kept with it: the host's page and confirmed accounts as they were, also after the host changes them", contextBefore.includes(`Photo host ${RUN}`) && contextBefore.includes(host.handle) && contextBefore.includes(host.igName) && contextAfter === contextBefore && !contextAfter.includes("Someone Else Now"), contextBefore.slice(0, 200));
     forget();

@@ -304,7 +304,7 @@ async function main() {
       return problem instanceof ProfileError && problem.message.includes(words);
     };
     {
-      const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, country: "US" };
+      const details = { displayName: "Check Host", about: "Testing only.", pricePer15Cents: 2000, country: "US", languages: ["en"] };
       check("a blocked handle is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "admin" })));
       check("a blocked handle with underscores is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "sup_port" })));
       check("a handle with other alphabets is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle: "jаne_doe" })));
@@ -313,12 +313,20 @@ async function main() {
       check("a host in a country that cannot be paid (Australia) is refused", await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "AU" })));
       check("so is a host who gives no country, or one that is not written as its two capital letters", (await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "" }))) && (await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "gb" }))) && (await refused(profiles.createHostProfile(host.id, { ...details, handle, country: "United Kingdom" }))));
 
+      // The languages a host can hold a call in (plans/34-host-languages.md): one to five, from the list. Never guessed, never trimmed.
+      const six = ["en", "es", "fr", "de", "it", "pt"];
+      check("a host who ticks no language is refused", await refusedWith(profiles.createHostProfile(host.id, { ...details, handle, languages: [] }), "at least one language"));
+      check("so is one who ticks six", await refusedWith(profiles.createHostProfile(host.id, { ...details, handle, languages: six }), "at most 5 languages"));
+      check("and one who sends a language that is not in the list, also beside a good one", await refusedWith(profiles.createHostProfile(host.id, { ...details, handle, languages: ["en", "klingon"] }), "from the list"));
+      check("none of the three wrote a profile", (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id))).length === 0);
+
       await profiles.createHostProfile(host.id, { ...details, handle: `  @${handle.toUpperCase()} ` });
-      const [made] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
+      const [made] =await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
       check("the profile is saved, waiting for approval", made?.handle === handle && made.status === "pending", `${made?.handle} ${made?.status}`);
       const abroad = await newPerson("abroad");
-      await profiles.createHostProfile(abroad.id, { ...details, handle: `uk_${RUN}`, country: "GB" });
+      await profiles.createHostProfile(abroad.id, { ...details, handle: `uk_${RUN}`, country: "GB", languages: ["cy", "en", "cy"] });
       const [madeAbroad] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, abroad.id));
+      check("each profile keeps the languages its host ticked: each once, in the list's order", made?.languages.join() === "en" && madeAbroad?.languages.join() === "en,cy", `${made?.languages} / ${madeAbroad?.languages}`);
       check("a host in the United Kingdom is accepted, and each profile keeps the country its host gave", madeAbroad?.country === "GB" && made?.country === "US" && madeAbroad.usConfirmedAt !== null, `${madeAbroad?.country} ${made?.country}`);
       check("one profile per account", await refused(profiles.createHostProfile(host.id, { ...details, handle: `${handle}_two` })));
 
@@ -346,16 +354,47 @@ async function main() {
       check("hidden by the host: not found", (await page(handle)).status === 404);
       await profiles.setProfileHidden(host.id, false);
 
-      await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "A new about text.", pricePer15Cents: 2500 });
+      await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "A new about text.", pricePer15Cents: 2500, languages: ["en"] });
       check("editing the about text and price keeps it public", (await page(handle)).status === 200);
-      await profiles.updateHostProfile(host.id, { displayName: "A Famous Person", about: "A new about text.", pricePer15Cents: 2500 });
+
+      // Languages: changing them is saved at once and needs no new approval; a refused save changes nothing.
+      const edit = (languages: string[]) => profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "A new about text.", pricePer15Cents: 2500, languages });
+      const savedLanguages = async (userId: string) => (await db.select({ languages: schema.hostProfiles.languages }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)))[0]?.languages.join();
+      await edit(["es", "en"]);
+      const withLanguages = await page(handle);
+      check("changing the languages saves them, and the approved page stays public", (await savedLanguages(host.id)) === "en,es" && withLanguages.status === 200, await savedLanguages(host.id));
+      check("the page names them", withLanguages.text.includes("Languages: English, Spanish"));
+      // Each refusal is its own check, in its own words, and each is followed by a look at what is saved.
+      for (const [label, languages, words] of [
+        ["saving with no language is refused, and what was saved stays", [], "at least one language"],
+        ["so is saving with six", six, "at most 5 languages"],
+        ["and saving with one that is not in the list", ["es", "klingon"], "from the list"],
+      ] as const) {
+        const refusedInItsWords = await refusedWith(edit([...languages]), words);
+        check(label, refusedInItsWords && (await savedLanguages(host.id)) === "en,es", await savedLanguages(host.id));
+      }
+      const { searchHosts } = await import("../src/lib/profiles/search");
+      const found = await searchHosts(handle, null, new Date());
+      check("the public reader and the search give the host's languages", (await profiles.publicProfile(handle))?.languages.join() === "en,es" && found.find((h) => h.handle === handle)?.languages.join() === "en,es");
+      // A host from before languages existed, and every host a script writes straight into the database: no languages.
+      const earlier = await newPerson("earlier");
+      const earlierHandle = `old_${RUN}`;
+      await db.insert(schema.hostProfiles).values({ userId: earlier.id, handle: earlierHandle, handleKey: earlierHandle.replace(/_/g, ""), displayName: "Check Earlier", pricePer15Cents: 0, status: "approved", usConfirmedAt: new Date() });
+      const earlierPage = await page(earlierHandle);
+      const earlierFound = (await searchHosts(earlierHandle, null, new Date())).find((h) => h.handle === earlierHandle);
+      check(
+        "a host written without languages has none, and is still found and shown, with no line about languages",
+        (await savedLanguages(earlier.id)) === "" && (await profiles.publicProfile(earlierHandle))?.languages.length === 0 && earlierFound?.languages.length === 0 && earlierPage.status === 200 && !earlierPage.text.includes("Languages:"),
+        `${earlierPage.status} ${JSON.stringify(earlierFound?.languages)}`,
+      );
+      await profiles.updateHostProfile(host.id, { displayName: "A Famous Person", about: "A new about text.", pricePer15Cents: 2500, languages: ["en"] });
       check("a new display name must be approved again", (await page(handle)).status === 404);
       const stale = profiles.decideProfile({ userId: host.id, decision: "approved", by: host.id, seen: { displayName: "Check Host", about: "A new about text." } });
       check("approving the old name (an admin page left open) does not approve the new one", (await refused(stale)) && (await page(handle)).status === 404);
       await approve(host.id);
 
       await profiles.decideProfile({ userId: host.id, decision: "suspended", by: host.id });
-      await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "", pricePer15Cents: 2500 });
+      await profiles.updateHostProfile(host.id, { displayName: "Check Host", about: "", pricePer15Cents: 2500, languages: ["en"] });
       await profiles.setProfileHidden(host.id, false);
       check("suspended: not found, and the host cannot undo it", (await page(handle)).status === 404);
       await approve(host.id);
@@ -385,7 +424,7 @@ async function main() {
 
       // A second host claims the same name before anyone is confirmed.
       const rival = await newPerson("rival");
-      await profiles.createHostProfile(rival.id, { handle: `rival_${RUN}`, displayName: "Check Rival", about: "", pricePer15Cents: 0, country: "US" });
+      await profiles.createHostProfile(rival.id, { handle: `rival_${RUN}`, displayName: "Check Rival", about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
       await profiles.addSocialName(rival.id, "instagram", name);
       const second = await claim(rival.id);
       await profiles.markSocialNameReady(rival.id, second.id);
@@ -421,7 +460,7 @@ async function main() {
       const confirmedOf = async (userId: string) => (await accounts(userId)).filter((a) => a.confirmedAt !== null);
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US" });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
         return person;
       };
 
@@ -516,7 +555,7 @@ async function main() {
       const checksOf = (userId: string) => db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId)).orderBy(schema.bioChecks.startedAt);
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US" });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
         return person;
       };
       /** An answer that is held back until the script lets it go, to do something while a check is under way. */
@@ -729,7 +768,7 @@ async function main() {
       const refusedRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === "tiktok" && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US" });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
         return person;
       };
 
@@ -915,7 +954,7 @@ async function main() {
       const signInRows = async (userId: string) => (await db.select().from(schema.bioChecks).where(eq(schema.bioChecks.userId, userId))).filter((c) => c.network === profiles.INSTAGRAM_SIGN_IN && c.result === "refused").length;
       const newHost = async (label: string) => {
         const person = await newPerson(label);
-        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US" });
+        await profiles.createHostProfile(person.id, { handle: `${label}_${RUN}`, displayName: `Check ${label}`, about: "", pricePer15Cents: 0, country: "US", languages: ["en"] });
         return person;
       };
       /** The code way, with Meta's bio service pretended: the code is in the bio. */
