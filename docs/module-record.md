@@ -2385,3 +2385,33 @@ on.
   drops the emails that were still waiting.
 - Under each host on "Hosts you follow": the ticks, the hours and "Save". On the results of a
   call: "Email me when Anna is available now". On the account page: the switch.
+
+**What the reviewers found.**
+Astra, on the plan, three rounds (the first two "not ready", then "build as is"). Taken: no
+number for the host; "tell me when a time opens" into a plan of its own; one small locked step
+per follower, so the limits hold when two things happen at once; no calendar is held while many
+emails are written, and an announcement is known by its moment and emptied only if unchanged;
+the last look before sending asks everything again; a yes taken back drops what was waiting;
+the rules of "New in diaries" written down; built switched off, the switch being the postal
+address; and nothing about the time it was off is announced after switching on. Not taken, with
+the reasons in the plan: an exact count of five at the very moment of sending (it is exact where
+emails are written; the count at sending stops a pile of late ones); and treating an email that
+follows a yes given a second time as a problem.
+Astra, on the code: three points, all taken (they are listed at the end of the plan): an email a
+helper had already picked up is closed too when a yes is taken back; an announcement is kept for
+the next round when writing to one follower failed; a post is looked at again for each follower.
+
+**How it was checked.** Unit tests of the hours, the numbers and the switch (10 new, 589 in
+all). `scripts/follow-emails-check.ts`: about 100 checks against the local database, reading the
+outbox and sending through a pretend sending service, with the races made to happen (two hosts
+at the same moment for someone one short of five, two posts at once, a host switching off and on
+while a round is under way, a failure in the middle of a round). In the browser, with the switch
+on: the choices and the hours under a host on "Hosts you follow", phone-sized and wide; "New in
+diaries" on the home page; the account's switch; the page behind the stop link.
+
+**Still open.** For the founder: the postal address (the switch), and the lawyer's look at these
+emails before it is set. The sending account, as for every other email. Not tested: real
+delivery and its speed; how a mail program shows its own "unsubscribe" button; whether a
+follower finds an "available now" email useful at the speed it arrives. Later, as plans of
+their own: "tell me when a time opens", a number of followers for hosts once they have hundreds,
+and suggestions.

@@ -52,8 +52,10 @@ const NO_EMAILS = { tellOnline: false, tellPosts: false, hoursFrom: null, hoursT
 /**
  * Taking a yes back takes the waiting emails with it (plans/31, decision 6): the emails to this
  * follower that are still waiting to be sent are closed, about one host or all, of one kind or
- * both. Called inside the step that takes the yes back, under the follower's lock. An email that
- * is being sent at this very moment is caught by the last look before sending instead.
+ * both. Called inside the step that takes the yes back, under the follower's lock. An email a
+ * helper has already picked up is closed too, and its claim with it: the helper then finds that
+ * the email is no longer its to send (delivery.ts, `ownedBy`), also when it had stopped halfway
+ * and the email would otherwise have been picked up again later.
  */
 export async function dropWaiting(tx: Pick<typeof db, "update">, followerId: string, hostId?: string, kind?: "online" | "post"): Promise<void> {
   // The key is "follow-<kind>:<host>:<follower>:<what it is about>". IDs are matched as they are, never as patterns.
@@ -62,7 +64,7 @@ export async function dropWaiting(tx: Pick<typeof db, "update">, followerId: str
   await tx
     .update(schema.emailOutbox)
     .set({ status: "failed", lastError: "no longer wanted: the yes to this email was taken back", leaseUntil: null })
-    .where(and(eq(schema.emailOutbox.kind, "follow"), eq(schema.emailOutbox.status, "queued"), or(...keys.map((key) => like(schema.emailOutbox.dedupeKey, key)))));
+    .where(and(eq(schema.emailOutbox.kind, "follow"), inArray(schema.emailOutbox.status, ["queued", "sending"]), or(...keys.map((key) => like(schema.emailOutbox.dedupeKey, key)))));
 }
 
 /**

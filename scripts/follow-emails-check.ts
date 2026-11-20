@@ -510,6 +510,56 @@ async function main() {
       check("five at most", news.length === 5 && news[0].text === "Post 0");
       check("someone who follows nobody has none", (await F.diaryNews(hosts[0].id, T0)).length === 0);
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n10. Three cases from the review of the code");
+    {
+      /** Starts `work`, waits until it is waiting for this follower's lock (held here), does `meanwhile`, and lets go. */
+      const whileItWaits = async (followerId: string, work: () => Promise<number>, meanwhile: () => Promise<unknown>) => {
+        const waiting = async () => Number((await db.execute(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted and objid = (hashtext(${`follows:${followerId}`})::bigint & 4294967295)::oid`))[0].n);
+        let round: Promise<number> = Promise.resolve(-1);
+        let reached = false;
+        await db.transaction(async (tx) => {
+          await F.lockFollowers(tx, [followerId]);
+          round = work();
+          for (let i = 0; i < 200 && !(reached = (await waiting()) > 0); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+          await meanwhile();
+        });
+        return { wrote: await round, reached };
+      };
+
+      // An email a helper had already picked up when the yes was taken back.
+      const h = await host("claimed");
+      const f = await follower("claimedf", h.id, { online: true, posts: true });
+      const lease = new Date(Date.now() + 2 * MINUTE);
+      await db.insert(schema.emailOutbox).values({ to: f.email, kind: "follow", subject: "Picked up", body: "x", dedupeKey: `follow-online:${h.id}:${f.id}:7`, status: "sending", leaseUntil: lease });
+      await E.saveChoices({ followerId: f.id, hostId: h.id, tellOnline: false, now: T0 });
+      const [claimed] = await mail("claimedf");
+      check("taking a yes back also closes an email a helper had already picked up, and takes its claim away", claimed.status === "failed" && claimed.leaseUntil === null);
+
+      // Writing to one follower fails (here: the statement is cancelled while it waits). The announcement must stay.
+      const at = moment();
+      await db.update(schema.follows).set({ tellOnline: true }).where(eq(schema.follows.followerId, f.id));
+      await switchOn(h.id, at);
+      const announcement = (await calendar(h.id)).announceAt;
+      const later = new Date(at.getTime() + 61 * SECOND);
+      await keptOpen(h.id, later);
+      console.log("       (one error is written to the log below, on purpose)");
+      const broken = await whileItWaits(f.id, () => E.announceAvailable(later, [h.id]), async () => {
+        await db.execute(sql`select pg_cancel_backend(pid) from pg_locks where locktype = 'advisory' and not granted and objid = (hashtext(${`follows:${f.id}`})::bigint & 4294967295)::oid`);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      });
+      check("when writing to a follower fails, nothing is written and the announcement is kept for the next round", broken.reached && broken.wrote === 0 && (await calendar(h.id)).announceAt?.getTime() === announcement?.getTime() && (await mail("claimedf")).length === 1, broken);
+      check("which then makes it", (await E.announceAvailable(new Date(later.getTime() + SECOND), [h.id])) === 1 && (await calendar(h.id)).announceAt === null && (await mail("claimedf")).length === 2);
+      await switchOff(h.id, new Date(later.getTime() + MINUTE));
+
+      // A post removed while its round is under way.
+      const ripe = await post(h.projectId, 31);
+      const removed = await whileItWaits(f.id, () => E.announcePosts(T0, [ripe.id]), () => db.update(schema.projectPosts).set({ removedAt: T0 }).where(eq(schema.projectPosts.id, ripe.id)));
+      const after = await line(f.id, h.id);
+      check("a post removed while its round is under way is not written about, and uses up nobody's diary email", removed.reached && removed.wrote === 0 && after.toldPostAt === null && (await mail("claimedf")).length === 2, removed);
+      check("and is marked as dealt with", (await db.select().from(schema.projectPosts).where(eq(schema.projectPosts.id, ripe.id)))[0].announcedAt !== null);
+    }
   } finally {
     const ids = made.length ? made : ["-"];
     const projectIds = projects.length ? projects : [randomUUID()];

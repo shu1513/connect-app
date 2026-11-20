@@ -106,7 +106,7 @@ type Words = (to: { name: string; timeZone: string | null }, host: { displayName
  * host, the 5 in 24 hours for this follower, and for "available now" the follower's hours and
  * that the announcement is still the one this round began with. Returns whether it was written.
  */
-async function tellFollower(input: { kind: Kind; followerId: string; hostId: string; key: string; expiresAt: Date; now: Date; /** "available now" only: the announcement being made. */ announceAt?: Date; words: Words }): Promise<boolean> {
+async function tellFollower(input: { kind: Kind; followerId: string; hostId: string; key: string; expiresAt: Date; now: Date; /** "available now" only: the announcement being made. */ announceAt?: Date; /** The diary email only: the post it is about. */ postId?: string; words: Words }): Promise<boolean> {
   const { kind, followerId, hostId, now } = input;
   // The secret of the stop link is made before the step (its own small write), so the step only reads it.
   await unsubscribeTokenFor(followerId);
@@ -122,6 +122,15 @@ async function tellFollower(input: { kind: Kind; followerId: string; hostId: str
       // A host who switched off and on again meanwhile has a new announcement, with a minute's wait of its own.
       const [calendar] = await tx.select({ announceAt: schema.hostCalendars.announceAt }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
       if (!calendar?.announceAt || calendar.announceAt.getTime() !== input.announceAt?.getTime()) return false;
+    } else {
+      // The post is looked at again for each follower: one that was removed or hidden while the round was under way
+      // must not use up anyone's email of the day, or their one diary email about this host.
+      const [post] = await tx
+        .select({ removedAt: schema.projectPosts.removedAt, hiddenAt: schema.projectPosts.hiddenAt, status: schema.projects.status })
+        .from(schema.projectPosts)
+        .innerJoin(schema.projects, eq(schema.projects.id, schema.projectPosts.projectId))
+        .where(and(eq(schema.projectPosts.id, input.postId ?? ""), eq(schema.projects.hostId, hostId)));
+      if (!post || post.removedAt || post.hiddenAt || post.status !== "running") return false;
     }
     const [{ written }] = await tx
       .select({ written: sql<number>`count(*)::int` })
@@ -157,8 +166,9 @@ async function askedFor(hostId: string, kind: Kind): Promise<string[]> {
  * followers who asked, if their own page would still show them as available. The calendar is
  * read and never held (the host's page says "still here" every few seconds under its lock). At
  * the end the announcement is emptied only if it is still the one that was read, so one that a
- * host set meanwhile is not lost. A round that stops halfway is simply made again: whoever was
- * told is skipped by the 20 hours and by the email's key. `onlyHosts` is for the check script.
+ * host set meanwhile is not lost. A round that stops halfway, or in which writing to a follower
+ * failed, leaves the announcement as it is and is simply made again: whoever was told is skipped
+ * by the 20 hours and by the email's key. `onlyHosts` is for the check script.
  */
 export async function announceAvailable(now: Date, onlyHosts?: string[]): Promise<number> {
   if (!followEmailsOn() || (onlyHosts && onlyHosts.length === 0)) return 0;
@@ -171,6 +181,7 @@ export async function announceAvailable(now: Date, onlyHosts?: string[]): Promis
     if (!announceAt) continue;
     // The question the host's own page asks: there, with room for a request, and a length that fits.
     const offer = await instantOffer(hostId, now);
+    let failed = false;
     if (offer) {
       for (const followerId of await askedFor(hostId, "online")) {
         const done = await tellFollower({
@@ -194,11 +205,14 @@ export async function announceAvailable(now: Date, onlyHosts?: string[]): Promis
           }),
         }).catch((error) => {
           console.error(`[follows] could not write an "available now" email about host ${hostId}; the next round tries again`, error);
+          failed = true;
           return false;
         });
         if (done) written++;
       }
     }
+    // Kept for the next round if anyone could not be written to. (It ends by itself when the host is no longer available.)
+    if (failed) continue;
     await db.update(schema.hostCalendars).set({ announceAt: null }).where(and(eq(schema.hostCalendars.userId, hostId), eq(schema.hostCalendars.announceAt, announceAt)));
   }
   return written;
@@ -208,7 +222,8 @@ export async function announceAvailable(now: Date, onlyHosts?: string[]): Promis
  * The helper's round for diary posts: a post that is half an hour old and still there is told to
  * the followers who asked, once. A post that is removed, hidden, in a project that has ended, or
  * too old by now is marked as dealt with and nobody is told. (Whether the host's page is open,
- * and everything about each follower, is asked per email.) `onlyPosts` is for the check script.
+ * whether the post is still there, and everything about each follower, is asked per email.)
+ * `onlyPosts` is for the check script.
  */
 export async function announcePosts(now: Date, onlyPosts?: string[]): Promise<number> {
   if (!followEmailsOn() || (onlyPosts && onlyPosts.length === 0)) return 0;
@@ -222,6 +237,7 @@ export async function announcePosts(now: Date, onlyPosts?: string[]): Promise<nu
   let written = 0;
   for (const { post, hostId, projectId, projectStatus } of due) {
     const worthTelling = !post.removedAt && !post.hiddenAt && projectStatus === "running" && post.createdAt.getTime() > now.getTime() - EMAILS.postTooOldHours * HOUR;
+    let failed = false;
     if (worthTelling) {
       for (const followerId of await askedFor(hostId, "post")) {
         const done = await tellFollower({
@@ -231,6 +247,7 @@ export async function announcePosts(now: Date, onlyPosts?: string[]): Promise<nu
           key: `follow-post:${hostId}:${followerId}:${post.id}`,
           expiresAt: new Date(now.getTime() + EMAILS.postExpiresHours * HOUR),
           now,
+          postId: post.id,
           // Only the host's name: nothing a host wrote ever goes into an inbox under Connect's name.
           words: (_to, host) => ({
             subject: `${host.displayName} wrote in their diary`,
@@ -238,11 +255,14 @@ export async function announcePosts(now: Date, onlyPosts?: string[]): Promise<nu
           }),
         }).catch((error) => {
           console.error(`[follows] could not write a diary email about post ${post.id}; the next round tries again`, error);
+          failed = true;
           return false;
         });
         if (done) written++;
       }
     }
+    // Kept for the next round if anyone could not be written to. (It ends by itself once the post is a day old.)
+    if (failed) continue;
     await db.update(schema.projectPosts).set({ announcedAt: now }).where(and(eq(schema.projectPosts.id, post.id), isNull(schema.projectPosts.announcedAt)));
   }
   return written;
