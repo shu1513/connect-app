@@ -215,6 +215,15 @@ async function main() {
         (error: { code?: string }) => ({ status: "", code: String(error?.code ?? "unknown") }),
       );
   };
+  /** Waits until some step of the database is seen waiting for a lock on a call (up to ten seconds): the proof that a cancellation has reached the lock it is meant to wait for. */
+  const seenWaitingForACall = async () => {
+    for (let i = 0; i < 100; i++) {
+      const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query ilike '%from "calls"%for update%'`)) as unknown as { n: number }[];
+      if (n > 0) return true;
+      await pause(100);
+    }
+    return false;
+  };
   const CHANGED = "Cancelling this call is no longer free: it would now be charged in full. Nothing was cancelled. Please read what cancelling means now.";
 
   try {
@@ -474,24 +483,57 @@ async function main() {
       await gapHeld;
       const gapCancel = step(gap.call.id, "cancel", cust.jar, { shown: "free" });
       let gapCard = { status: "", code: "not tried" };
+      let gapWaited = false;
       try {
-        // Time for the cancelling to reach the lock; then the bank's yes, which our record does not hear of.
-        await pause(2_000);
+        // Only once the cancelling is seen waiting for the call's lock: the bank's yes, which our record does not hear of.
+        gapWaited = await seenWaitingForACall();
         gapCard = await confirmAtStripe(gap.call.id, "pm_card_visa");
       } finally {
         gapLetGo();
       }
       await gapHolding;
       const gapAnswer = await gapCancel;
-      check("a hold placed at the bank while the cancelling waited is found in the step that cancels: nothing is cancelled", gapCard.status === "requires_capture" && refusal(gapAnswer) === "not_valid" && sentence(gapAnswer) === CHANGED && (await callRow(gap.call.id)).cancelledAt === null && (await paymentOf(gap.call.id)).status === "held", `${gapCard.status} ${gapAnswer.status} ${sentence(gapAnswer)} ${(await paymentOf(gap.call.id)).status}`);
-      // The helper cancels a call as "unpaid" only if it still is: with the money held meanwhile, the call stands.
+      check("a hold placed at the bank while the cancelling waited is found in the step that cancels: nothing is cancelled", gapWaited && gapCard.status === "requires_capture" && refusal(gapAnswer) === "not_valid" && sentence(gapAnswer) === CHANGED && (await callRow(gap.call.id)).cancelledAt === null && (await paymentOf(gap.call.id)).status === "held", `${gapCard.status} ${gapAnswer.status} ${sentence(gapAnswer)} ${(await paymentOf(gap.call.id)).status}`);
+      // The helper cancels a call as "unpaid" only if it still is. Here the hold is written down while the helper's
+      // cancellation is already under way and waiting for the call's lock (after it had read the payment as unpaid):
+      // the call stands.
       const { cancelCall } = await import("../src/lib/payments/cancel");
-      const heldNow = await paymentOf(gap.call.id);
-      const asUnpaid = await cancelCall({ call: await callRow(gap.call.id), payment: { ...heldNow, status: "awaiting_payment" }, by: "admin", now: new Date(), reason: "unpaid" }).then(
+      const { syncHold } = await import("../src/lib/payments/hold");
+      const racing = await newCall(host.id, cust.id, { startsIn: 40, price: 2000, minutes: 10 });
+      await step(racing.call.id, "pay", cust.jar);
+      const racingCard = await confirmAtStripe(racing.call.id, "pm_card_visa");
+      let raceLocked = () => {};
+      let raceLetGo = () => {};
+      const raceHeld = new Promise<void>((done) => (raceLocked = done));
+      const raceUntil = new Promise<void>((done) => (raceLetGo = done));
+      const raceHolding = db.transaction(async (tx) => {
+        await tx.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.id, racing.call.id)).for("update");
+        raceLocked();
+        await raceUntil;
+      });
+      await raceHeld;
+      const unpaidBefore = await paymentOf(racing.call.id);
+      const asUnpaidRun = cancelCall({ call: await callRow(racing.call.id), payment: unpaidBefore, by: "admin", now: new Date(), reason: "unpaid" }).then(
         () => "cancelled",
         (error: Error) => error.message,
       );
-      check("a call that was paid for meanwhile is not cancelled as unpaid", asUnpaid === "This call has been paid for meanwhile, so it is not cancelled as unpaid." && (await callRow(gap.call.id)).cancelledAt === null && (await paymentOf(gap.call.id)).status === "held", asUnpaid);
+      let raceWaited = false;
+      try {
+        raceWaited = await seenWaitingForACall();
+        await syncHold(unpaidBefore.id, new Date());
+      } finally {
+        raceLetGo();
+      }
+      await raceHolding;
+      const asUnpaid = await asUnpaidRun;
+      check("a call that was paid for while the helper's 'unpaid' cancellation waited is not cancelled", racingCard.status === "requires_capture" && unpaidBefore.status === "awaiting_payment" && raceWaited && asUnpaid === "This call has been paid for meanwhile, so it is not cancelled as unpaid." && (await callRow(racing.call.id)).cancelledAt === null && (await paymentOf(racing.call.id)).status === "held", `${raceWaited} ${asUnpaid}`);
+      // A "no" for another reason (the call has started) does not undo a hold that the cancelling step itself found.
+      const begun = await newCall(host.id, cust.id, { startsIn: 2, price: 2000, minutes: 10 });
+      await step(begun.call.id, "pay", cust.jar);
+      const begunCard = await confirmAtStripe(begun.call.id, "pm_card_visa");
+      await db.update(schema.calls).set({ startsAt: new Date(Date.now() - MINUTE) }).where(eq(schema.calls.id, begun.call.id));
+      const tooLate = await step(begun.call.id, "cancel", cust.jar, { shown: "free" });
+      check("a hold found by a cancellation that is then refused for another reason stays written down", begunCard.status === "requires_capture" && sentence(tooLate) === "This call has started, so it can no longer be cancelled." && (await callRow(begun.call.id)).cancelledAt === null && (await paymentOf(begun.call.id)).status === "held", `${sentence(tooLate)} ${(await paymentOf(begun.call.id)).status}`);
       // Shown as charged, but free by now (the hold fell away): cancelling as shown or cheaper always goes through.
       const cheaper = await newCall(host.id, cust.id, { startsIn: 45, price: 2000, minutes: 10, freeCancel: 60 });
       const cheaperDone = await step(cheaper.call.id, "cancel", cust.jar, { shown: "late_charge" });

@@ -50,6 +50,8 @@ function OneCall({ id }: { id: string }) {
    * page is in when it is read again: the reason is often that the state has just changed (a hold was placed).
    */
   const [cancelSaid, setCancelSaid] = useState<string | null>(null);
+  /** The page came back to the front while a step was under way and could not be read then: it is read, hold included, when the step is through. */
+  const owedLook = useRef(false);
   /** When the countdown last asked the server whether the room is open, so it never asks in a tight loop. */
   const dueAsked = useRef(0);
   const dueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,7 +114,10 @@ function OneCall({ id }: { id: string }) {
   /** Reads the page. With `andHold`, a hold that is still open is also asked about at Stripe, by the server. */
   const look = useCallback(
     async (andHold: boolean, now = false) => {
-      if (acting.current) return;
+      if (acting.current) {
+        if (andHold) owedLook.current = true;
+        return;
+      }
       if (!id) {
         setGone(true);
         return;
@@ -177,6 +182,14 @@ function OneCall({ id }: { id: string }) {
     setPulling(false);
   }
 
+  /** When a step is through: the page is read if the step wants it, or (with the hold) if a reading was asked for while the step was under way. */
+  function afterStep(wanted: boolean) {
+    const owed = owedLook.current;
+    owedLook.current = false;
+    if (owed) void look(true);
+    else if (wanted) void look(false, true);
+  }
+
   /** Confirm and pay: Stripe's sheet places the hold, and then the server says whether the money is held. */
   async function pay(words: NonNullable<AppCallPage["pay"]>) {
     if (acting.current) return;
@@ -197,6 +210,11 @@ function OneCall({ id }: { id: string }) {
       // the page asks the server where the hold stands.
       acting.current = false;
       setBusy(null);
+      // (Unless they are back already, on this very page: then it is read now, as coming back to it would have.)
+      if (owedLook.current) {
+        owedLook.current = false;
+        void look(true);
+      }
       return;
     }
     // Whatever the sheet said, and also when it was not shown: the server is asked where the hold stands.
@@ -209,7 +227,7 @@ function OneCall({ id }: { id: string }) {
     if (!step.ok && step.code !== "not_valid" && step.code !== "unreachable" && step.code !== "paused" && step.code !== "not_found") void askOpening();
     acting.current = false;
     setBusy(null);
-    if (!after && still()) void look(false, true);
+    afterStep(!after && still());
   }
 
   /** Asks the server once more whether the money is held. Stripe's sheet is not opened again. */
@@ -226,7 +244,7 @@ function OneCall({ id }: { id: string }) {
     acting.current = false;
     setBusy(null);
     // (Only while this page is still in front: coming back to it reads it anyway.)
-    if (!after && still()) void look(false, true);
+    afterStep(!after && still());
   }
 
   /** Cancels the call, as it was shown to mean. If it means something else by now, nothing is cancelled and the page is read again. */
@@ -247,7 +265,7 @@ function OneCall({ id }: { id: string }) {
     }
     acting.current = false;
     setBusy(null);
-    if (!done && still()) void look(false, true);
+    afterStep(!done && still());
   }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/calls"));

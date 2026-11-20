@@ -105,7 +105,7 @@ website.
 
 ### How it was tried
 
-- `scripts/app-calls-check.ts`, 73 checks (54 before Astra's looks at the code), with real holds at Stripe (test mode): coming and
+- `scripts/app-calls-check.ts`, 74 checks (54 before Astra's looks at the code), with real holds at Stripe (test mode): coming and
   past calls (a call far ahead that the home page does not load, paging, a stranger); a call's
   page in each state, and the website's page for the same call saying the same; the hold
   (started twice and from the website: one hold; before a card, after a refused card, after a
@@ -208,6 +208,29 @@ website shares, and some small things.
    the background while it was being made ready, and "nothing was cancelled" goes away once
    the call is cancelled from somewhere else; the check script now lets the helper's own job
    close the unpaid payment of a call that is over, and looks at Stripe afterwards.
+
+## Astra's third look at the code (20 November 2026): "not ready", now worked in
+
+The second list was found closed except for what follows, all in the one step that cancels.
+
+1. *A "no" could undo a hold that the cancelling step had just found.* When the step found a
+   hold at Stripe and then refused for another reason (the call had started), the refusal
+   undid the whole step, the hold's record with it, and the customer could be kept out of a
+   call they had paid for until Stripe's own message arrived. **A refusal is now handed back
+   after the step is saved,** so nothing is cancelled and what was learned about the hold is
+   kept. A check does it.
+2. *A card being confirmed at that very moment* counted as "not paid". It now counts as "not
+   known yet": nothing is cancelled, and the person is told to look again in a moment.
+3. *A hold whose time Stripe does not give* is judged by the clock at the moment it is written
+   down (not by when the button was pressed), and for a call that was stopped with a report
+   it is kept for the founder's review instead of thrown away.
+4. Stripe gets 8 seconds to answer while a call and its payment are locked, and is not asked
+   twice, so a slow answer cannot hold others up for long.
+5. In the app: coming back to the call's page while a step is still under way is not lost;
+   the page reads itself, hold included, when the step is through.
+6. The two checks about cancellations that wait now look in the database until the
+   cancellation is really seen waiting, instead of sleeping a fixed time; and the "unpaid"
+   check now writes the hold down while the helper's cancellation is waiting.
 
 **Not done, said plainly:** coming back from a bank's approval after the app was closed is a
 thing only a phone can show. It was walked in part 06 for saving a card (the same sheet and

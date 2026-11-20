@@ -8,7 +8,7 @@ import type { Call, Payment } from "@/db/schema";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import type Stripe from "stripe";
-import { lockPayment, MoneyError, runMoneyOperation, type Tx } from "./operations";
+import { lockPayment, MoneyError, OutcomeUnknownError, runMoneyOperation, type Tx } from "./operations";
 import { cardPayment } from "./own";
 import { bookedTotalCents, DEFAULT_FEE_TERMS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
@@ -69,6 +69,8 @@ async function tooLateToHold(reader: Pick<typeof db, "select">, payment: Pick<Pa
  * Stripe gets 10 seconds to answer instead of the usual 80, and is not asked twice.
  */
 const IN_CALL_REQUEST = { timeout: 10_000, maxNetworkRetries: 0 } as const;
+/** The same for a question asked while a call and its payment are locked: others wait on those locks meanwhile. */
+const LOCKED_REQUEST = { timeout: 8_000, maxNetworkRetries: 0 } as const;
 
 /**
  * The one hold a payment has at Stripe: finds it, or creates it. Both the
@@ -201,19 +203,31 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   // A card authorised after the booking's cut-off (through a form left open, say) does not count:
   // the payment stays unpaid, and the helper cancels the booking and lets that hold go.
   // The same for a request for more time that has ended: its hold never counts, and the helper lets it go.
-  const authorisedAt = details.authorisedAt ? new Date(details.authorisedAt * 1000) : now;
-  if (await tooLateToHold(tx, payment, authorisedAt)) return;
-  // Nor does a card authorised for a call that was cancelled or stopped, or whose booked end had passed when the
-  // bank said yes (through a card form left open): the payment stays unpaid, and what closes such a call lets that
-  // hold go (the cancellation itself, or the helper). Time added to a call has its own rule, just above.
+  // When Stripe does not say when the bank approved, the moment this is being written down stands in for it:
+  // the latest it can have been.
+  const dated = details.authorisedAt !== null;
+  const authorisedAt = details.authorisedAt !== null ? new Date(details.authorisedAt * 1000) : now;
+  // The call itself (not for time added to a call, which has its own rule in `tooLateToHold`).
+  const [call] =
+    !payment.extensionId && payment.callId
+      ? await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId))
+      : [];
   if (!payment.extensionId && payment.callId) {
-    const [call] = await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId));
-    if (!call || call.cancelledAt || authorisedAt >= call.endsAt) return;
-    // A call that was stopped with "End call and report": a card the bank approved before the stop still counts
-    // (the stop put this payment up for the founder's review, and it stays there for the founder to decide). Only
-    // one approved after the stop, as Stripe itself dates it, does not. When Stripe gives no date, the hold is
-    // kept for the review rather than thrown away.
-    if (call.safetyEndedAt && details.authorisedAt !== null && authorisedAt >= call.safetyEndedAt) return;
+    // A card authorised for a call that was cancelled does not count: the payment stays unpaid, and the
+    // cancellation (or the helper) lets that hold go.
+    if (!call || call.cancelledAt) return;
+  }
+  if (call?.safetyEndedAt) {
+    // A call that was stopped with "End call and report": the stop put this payment up for the founder's review.
+    // A card the bank approved before the stop is kept for that review; so is one whose time Stripe does not give
+    // (it is not thrown away on a guess). Only one that Stripe itself dates at or after the stop, or after the
+    // booking's cut-off or the call's end, does not count.
+    if (dated && (authorisedAt >= call.safetyEndedAt || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt)))) return;
+  } else {
+    if (await tooLateToHold(tx, payment, authorisedAt)) return;
+    // Nor does a card authorised when the call's booked end had passed (through a card form left open): the
+    // payment stays unpaid, and the helper closes it and lets that hold go.
+    if (call && authorisedAt >= call.endsAt) return;
   }
   const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
   await tx
@@ -238,7 +252,11 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
  */
 export async function syncHoldLocked(tx: Tx, payment: Payment, now: Date): Promise<Payment> {
   if (payment.kind !== "card" || payment.status !== "awaiting_payment" || !payment.stripePaymentIntentId) return payment;
-  const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId, { expand: ["latest_charge"] });
+  // Locks are held while Stripe is asked, so Stripe gets a short time to answer and is not asked twice.
+  const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId, { expand: ["latest_charge"] }, LOCKED_REQUEST);
+  // A card that is being confirmed at this very moment: whether the money is held is not known yet, so nothing may
+  // be decided on it. (The helper treats this state the same way.)
+  if (intent.status === "processing") throw new OutcomeUnknownError("The bank's answer about this card is not known yet.");
   if (intent.status !== "requires_capture") return payment;
   await applyHeld(tx, payment, holdDetails(intent), now);
   const [after] = await tx.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
