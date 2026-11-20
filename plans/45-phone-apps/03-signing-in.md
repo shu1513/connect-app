@@ -185,7 +185,28 @@ And eight smaller ones, all taken:
 11. *"Nothing was written" was checked on three of the five things the step writes.* On all
     five now.
 
-## Astra's check (20 November 2026): "ready with changes", worked in
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+The eleven fixes were found sound, with two gaps it called "must" and four smaller points:
+
+1. *A sign-out could look finished before it would survive closing the app:* the screen changed
+   at once, but the phone's kept sign-in was only wiped when the request had its turn. Now the
+   phone first notes that a sign-out is under way; from that moment the app asks as nobody, and
+   if it is closed and opened again it finishes the wiping before anything else. The note is
+   only taken away once the phone's side is seen to be empty.
+2. *The time limit on a request to the login tool ended when the answer began,* not when it was
+   complete, so an answer that stopped half-way could hold up everything behind it. The whole
+   answer is now read inside the limit.
+3. *The step's screen could still wait for ever* on half an answer to the opening question.
+4. *A server address written with its usual port (":443") was refused* by the login tool's
+   sender, though it is the same place.
+5. *A two-step code typed after the wait had run out, or after too many wrong ones, was called
+   "wrong".* The app now says which it is and leads back to signing in.
+6. *The check of two requests at once could not tell one writing from two.* Its label now says
+   only what it shows. (That only one writes was read in the code: the second request finds the
+   step done and changes nothing.)
+
+## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Copying the website's sign-in call would open a browser in the app,* and the emailed links
    would have become app links. Decision 2.

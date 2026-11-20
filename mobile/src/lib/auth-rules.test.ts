@@ -1,4 +1,4 @@
-import { CODE_WRONG, codeProblem, emailLinks, GENERIC, NO_MATCH, NOT_REACHED, passwordProblem, signInOutcome, signUpProblem, TOO_MANY, typedCode } from "./auth-rules";
+import { CODE_RAN_OUT, CODE_TOO_MANY, CODE_WRONG, codeProblem, emailLinks, GENERIC, NO_MATCH, NOT_REACHED, passwordProblem, signInOutcome, signUpProblem, TOO_MANY, typedCode } from "./auth-rules";
 
 describe("what signing in led to", () => {
   it("is signed in when the login tool says so", () => {
@@ -38,9 +38,15 @@ describe("a typed second-step code", () => {
   });
 
   it("has the website's words when it is not taken", () => {
-    expect(codeProblem({ status: 401 })).toBe(CODE_WRONG);
-    expect(codeProblem({ status: 429 })).toBe(TOO_MANY);
-    expect(codeProblem({})).toBe(NOT_REACHED);
+    expect(codeProblem({ status: 401, code: "INVALID_CODE" })).toEqual({ words: CODE_WRONG, startOver: false });
+    expect(codeProblem({ status: 401, code: "INVALID_BACKUP_CODE" })).toEqual({ words: CODE_WRONG, startOver: false });
+    expect(codeProblem({ status: 429 })).toEqual({ words: TOO_MANY, startOver: false });
+    expect(codeProblem({})).toEqual({ words: NOT_REACHED, startOver: false });
+  });
+
+  it("sends the person back to sign in when the server no longer waits for a code", () => {
+    expect(codeProblem({ status: 401, code: "INVALID_TWO_FACTOR_COOKIE" })).toEqual({ words: CODE_RAN_OUT, startOver: true });
+    expect(codeProblem({ status: 400, code: "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE" })).toEqual({ words: CODE_TOO_MANY, startOver: true });
   });
 });
 

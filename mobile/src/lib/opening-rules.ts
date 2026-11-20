@@ -52,8 +52,13 @@ function saysUpdate(data: unknown): boolean {
  * refusals. Not getting through (no connection, some other site's page, half an answer) is the
  * other case.
  */
-function gotThrough(answer: Answer<AppStart>): boolean {
+export function gotThrough(answer: Answer<AppStart>): boolean {
   return answer.ok ? saysUpdate(answer.data) || isStart(answer.data) : answer.code !== "unreachable";
+}
+
+/** Whether an answer of the opening address says, as a whole answer, that somebody is signed in. */
+export function someoneSignedIn(answer: Answer<AppStart>): boolean {
+  return answer.ok && isStart(answer.data) && answer.data.me !== null;
 }
 
 /**

@@ -1,8 +1,9 @@
 import { Redirect, router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { codeIsPending, forgetStep, verifyCode } from "@/lib/auth";
-import { GENERIC, NOT_REACHED } from "@/lib/auth-rules";
+import { CODE_TOO_MANY, GENERIC, NOT_REACHED } from "@/lib/auth-rules";
 import { useOpening } from "@/lib/opening";
+import { someoneSignedIn } from "@/lib/opening-rules";
 import { Button, Field, Loading, Page, TextLink, Words } from "@/ui/pieces";
 
 /**
@@ -31,13 +32,18 @@ export default function Code() {
     setProblem(null);
     try {
       const wrong = await verifyCode(typed);
+      if (wrong?.startOver) {
+        // The server no longer waits for a code from this sign-in: back to signing in, with the reason.
+        router.replace({ pathname: "/sign-in", params: { again: wrong.words === CODE_TOO_MANY ? "many" : "late" } });
+        return;
+      }
       if (wrong) {
-        setProblem(wrong);
+        setProblem(wrong.words);
         return;
       }
       await forgetStep();
       const now = await refresh();
-      if (!(now.ok && now.data.me)) setProblem(now.ok ? GENERIC : now.message || NOT_REACHED);
+      if (!someoneSignedIn(now)) setProblem(now.ok ? GENERIC : now.message || NOT_REACHED);
     } finally {
       sending.current = false;
       setBusy(false);

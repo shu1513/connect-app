@@ -37,7 +37,8 @@ export function isServer(server: string, options: { plain?: boolean } = {}): boo
 export function isLoginToolAddress(server: string, address: string): boolean {
   try {
     const url = new URL(address);
-    return url.origin === new URL(server).origin && url.pathname.startsWith("/api/auth/") && url.username === "" && url.password === "" && address.startsWith(`${server}/api/auth/`);
+    // Judged by what the address is once read, not by how it is written: "https://name:443" and "https://name" are one place.
+    return url.origin === new URL(server).origin && url.pathname.startsWith("/api/auth/") && url.username === "" && url.password === "";
   } catch {
     return false;
   }

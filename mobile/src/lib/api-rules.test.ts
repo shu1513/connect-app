@@ -71,6 +71,9 @@ describe("where a request may go", () => {
     const here = "https://connect.example";
     expect(isLoginToolAddress(here, "https://connect.example/api/auth/sign-in/email")).toBe(true);
     expect(isLoginToolAddress(here, "https://connect.example/api/auth/get-session?x=1")).toBe(true);
+    // A server set with its usual port written out is the same place as the address without it.
+    expect(isLoginToolAddress("https://connect.example:443", "https://connect.example/api/auth/get-session")).toBe(true);
+    expect(isLoginToolAddress("https://connect.example:8443", "https://connect.example/api/auth/get-session")).toBe(false);
     for (const bad of [
       "https://evil.test/api/auth/sign-in/email",
       "https://connect.example.evil.test/api/auth/get-session",

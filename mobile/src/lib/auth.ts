@@ -20,7 +20,7 @@ import { fetch as expoFetch } from "expo/fetch";
 import * as SecureStore from "expo-secure-store";
 import { signInComesFrom } from "./api";
 import { isLoginToolAddress, isServer } from "./api-rules";
-import { codeProblem, emailLinks, NOT_REACHED, passwordProblem, signInOutcome, TOO_MANY, typedCode, type AuthError, type SignInOutcome } from "./auth-rules";
+import { codeProblem, emailLinks, NOT_REACHED, passwordProblem, signInOutcome, TOO_MANY, typedCode, type AuthError, type CodeProblem, type SignInOutcome } from "./auth-rules";
 import { PLAIN_HTTP_ALLOWED, SERVER } from "./config";
 
 /** Whether the server in the app's settings is one the app may talk to at all. */
@@ -33,8 +33,10 @@ const WAIT_MS = 15_000;
  * The one sender for everything the kit asks. Only ever to the login tool's own addresses on
  * the server in the app's settings (the kit has already added the sign-in when a request gets
  * here, so anything else is stopped here, before it is sent). Never follows a redirect: it would
- * carry the sign-in along. Gives up after a while, so that a server that never answers cannot
- * leave the app waiting.
+ * carry the sign-in along. Gives up after a while, so that a server that never answers, or
+ * stops half-way through its answer, cannot leave the app (and every request waiting its turn
+ * behind this one) waiting: the whole answer is read here, inside the time allowed, and handed
+ * on complete.
  */
 const sender = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const address = String(input instanceof Request ? input.url : input);
@@ -46,7 +48,11 @@ const sender = (async (input: RequestInfo | URL, init?: RequestInit) => {
   else asked?.addEventListener("abort", pass);
   const timer = setTimeout(pass, WAIT_MS);
   try {
-    return await expoFetch(address, { ...(init as object), redirect: "error", credentials: "omit", signal: stop.signal } as Parameters<typeof expoFetch>[1]);
+    const answer = await expoFetch(address, { ...(init as object), redirect: "error", credentials: "omit", signal: stop.signal } as Parameters<typeof expoFetch>[1]);
+    const words = await answer.text();
+    // Handed on whole, with the same number and the same headers (the kit reads the sign-in from them).
+    const empty = answer.status === 204 || answer.status === 205 || answer.status === 304;
+    return new Response(empty ? null : words, { status: answer.status, statusText: answer.statusText, headers: answer.headers });
   } finally {
     clearTimeout(timer);
     asked?.removeEventListener("abort", pass);
@@ -64,8 +70,31 @@ const authClient = createAuthClient({
   ],
 });
 
+/** Where the kit keeps the sign-in (its own name for it: the storage prefix, then "_cookie"). */
+const KEPT_KEY = "connect_cookie";
+/** Set on the phone while a sign-out is under way, until the phone's side is seen to be empty. */
+const LEAVING_KEY = "connect_leaving";
+
+/**
+ * True from the moment someone presses "Sign out" until the phone's kept sign-in is seen to be
+ * gone. While it is true the app asks the door as nobody, and no request to the login tool is made
+ * before the wiping is finished. It is kept on the phone too, so that closing the app in that
+ * moment cannot bring the person back when it is opened again.
+ */
+let leaving = false;
+const leavingRead: Promise<void> = SecureStore.getItemAsync(LEAVING_KEY).then(
+  (kept) => {
+    leaving = leaving || kept === "1";
+  },
+  () => {},
+);
+
 // Every request to the door carries the kept sign-in, read fresh from the secure store.
-signInComesFrom(async () => (await authClient.getCookie()) || null);
+signInComesFrom(async () => {
+  await leavingRead;
+  if (leaving) return null;
+  return (await authClient.getCookie()) || null;
+});
 
 /** One request to the login tool at a time, in the order asked. */
 let turn: Promise<unknown> = Promise.resolve();
@@ -75,12 +104,55 @@ function inTurn<T>(work: () => Promise<T>): Promise<T> {
   return mine;
 }
 
+/**
+ * Finishes a sign-out: tells the server, wipes the phone's side, and looks that it is really
+ * empty before the mark is taken away. Run in turn, never beside another request. Gives back
+ * whether the phone is now clean.
+ */
+async function finishLeaving(): Promise<boolean> {
+  try {
+    await authClient.signOut();
+  } catch {
+    // The server was not reached, or the phone's store did not answer: what follows makes sure of the phone's side.
+  }
+  await forgetStep();
+  renewedAt = 0;
+  let clean = false;
+  try {
+    clean = (await authClient.getCookie()) === "";
+    if (!clean) {
+      await SecureStore.setItemAsync(KEPT_KEY, "{}");
+      clean = (await authClient.getCookie()) === "";
+    }
+    if (clean) {
+      await SecureStore.deleteItemAsync(LEAVING_KEY);
+      leaving = false;
+    }
+  } catch {
+    clean = false;
+  }
+  return clean && !leaving;
+}
+
+/** Before anything is asked of the login tool: a sign-out left unfinished (the app was closed in that moment) is finished first. */
+async function cleanFirst(): Promise<boolean> {
+  await leavingRead;
+  return leaving ? finishLeaving() : true;
+}
+
+// When the app opens: an unfinished sign-out takes the first turn, before any renewal.
+void inTurn(cleanFirst);
+
+/** Said when the phone could not finish wiping an earlier sign-in. */
+const PHONE_PROBLEM = "Something went wrong on this phone. Please close the app, open it again, and try once more.";
+
 const failed = (error: AuthError): boolean => Boolean(error);
 const notReachedError: AuthError = {};
 
 /** Sign in with email and password. Hands over no "where to go afterwards": the app decides that itself. */
 export function signIn(email: string, password: string): Promise<SignInOutcome> {
   return inTurn(async () => {
+    if (!(await cleanFirst())) return { kind: "problem", words: PHONE_PROBLEM };
     try {
       return signInOutcome(await authClient.signIn.email({ email, password }));
     } catch {
@@ -98,8 +170,12 @@ export async function codeIsPending(): Promise<boolean> {
   }
 }
 
-/** The second step. Gives back null when the code was taken, else the words to show. This phone is never remembered as trusted. */
-export function verifyCode(typed: string): Promise<string | null> {
+/**
+ * The second step. Gives back null when the code was taken; else the words to show, and whether
+ * the person has to sign in afresh (the wait for the code ran out, or too many were wrong). This
+ * phone is never remembered as trusted.
+ */
+export function verifyCode(typed: string): Promise<CodeProblem | null> {
   return inTurn(async () => {
     const { kind, code } = typedCode(typed);
     try {
@@ -157,6 +233,7 @@ let renewedAt = 0;
  */
 export function renewSignIn(now = false): Promise<void> {
   return inTurn(async () => {
+    if (!(await cleanFirst())) return;
     if (!now && Date.now() - renewedAt < 6 * HOUR) return;
     try {
       if (!(await authClient.getCookie())) return;
@@ -193,19 +270,24 @@ export async function forgetStep(): Promise<void> {
 }
 
 /**
- * Signs out: ends this phone's session on the server and wipes what the phone kept. The phone's
- * side is wiped whether or not the server was reached (the kit does it before it asks), so a
- * phone handed to someone else never stays signed in. It takes its turn like every other request,
- * so nothing asked earlier can write a sign-in back after it.
+ * The first half of signing out, done at once, before the screen changes: from now on the app
+ * asks as nobody, and the phone remembers that a sign-out is under way.
+ */
+export async function startLeaving(): Promise<void> {
+  leaving = true;
+  await SecureStore.setItemAsync(LEAVING_KEY, "1").catch(() => {});
+}
+
+/**
+ * The second half: ends this phone's session on the server and wipes what the phone kept. The
+ * phone's side is wiped whether or not the server was reached, so a phone handed to someone else
+ * never stays signed in. It takes its turn like every other request, so nothing asked earlier can
+ * write a sign-in back after it; and until the phone's side is seen to be empty the app goes on
+ * asking as nobody, also after it was closed and opened again.
  */
 export function signOut(): Promise<void> {
   return inTurn(async () => {
-    try {
-      await authClient.signOut();
-    } catch {
-      // Not reached: the phone's own copy is gone all the same.
-    }
-    await forgetStep();
-    renewedAt = 0;
+    leaving = true;
+    await finishLeaving();
   });
 }

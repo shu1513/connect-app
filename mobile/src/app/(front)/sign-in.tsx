@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
 import { forgetStep, rememberCheckEmail, signIn } from "@/lib/auth";
-import { GENERIC, NOT_REACHED } from "@/lib/auth-rules";
+import { CODE_RAN_OUT, CODE_TOO_MANY, GENERIC, NOT_REACHED } from "@/lib/auth-rules";
 import { useOpening } from "@/lib/opening";
-import { Button, Field, Page, TextLink, Words } from "@/ui/pieces";
+import { someoneSignedIn } from "@/lib/opening-rules";
+import { Button, Field, Notice, Page, TextLink, Words } from "@/ui/pieces";
 
 /**
  * Sign in (plans/45-phone-apps/03-signing-in.md): email and password, by the login tool's own
@@ -11,7 +12,7 @@ import { Button, Field, Page, TextLink, Words } from "@/ui/pieces";
  * decides that itself, from what the server says about the person.
  */
 export default function SignIn() {
-  const given = useLocalSearchParams<{ email?: string | string[] }>();
+  const given = useLocalSearchParams<{ email?: string | string[]; again?: string | string[] }>();
   const { refresh } = useOpening();
   // An address handed over by a link is taken only when it is one plain piece of text.
   const [email, setEmail] = useState(typeof given.email === "string" ? given.email : "");
@@ -34,7 +35,7 @@ export default function SignIn() {
         // The server now knows the person: asking it again opens the app (or the "18 and terms" step),
         // and this screen is gone. If it still knows nobody, that is said, never left as a dead screen.
         const now = await refresh();
-        if (!(now.ok && now.data.me)) setProblem(now.ok ? GENERIC : now.message || NOT_REACHED);
+        if (!someoneSignedIn(now)) setProblem(now.ok ? GENERIC : now.message || NOT_REACHED);
       } else if (outcome.kind === "code") router.push("/code");
       else if (outcome.kind === "confirm") {
         await rememberCheckEmail(address);
@@ -48,6 +49,7 @@ export default function SignIn() {
 
   return (
     <Page title="Sign in">
+      {typeof given.again === "string" && given.again ? <Notice>{given.again === "many" ? CODE_TOO_MANY : CODE_RAN_OUT}</Notice> : null}
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" textContentType="username" />
       <Field
         label="Password"

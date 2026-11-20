@@ -314,7 +314,7 @@ async function main() {
       check("it wrote what the website's own form writes: both times, the terms in force, the time zone", fresh(written.adultConfirmedAt) && fresh(written.termsAcceptedAt) && written.termsVersion === TERMS_VERSION && (written.timeZone === "America/New_York" || written.timeZone === "Europe/London"), String(written.timeZone));
       // Whichever of the two came first wrote; the other changed nothing.
       const won = written.timeZone;
-      check("of the two, one wrote and the other changed nothing (one moment for both boxes)", written.adultConfirmedAt?.getTime() === written.termsAcceptedAt?.getTime());
+      check("the step stands as one piece: both boxes carry the same moment", written.adultConfirmedAt?.getTime() === written.termsAcceptedAt?.getTime());
       const again = await asApp("/api/app/welcome", { body: { adult: true, terms: true, timeZone: "Asia/Tokyo" }, jar: one.jar });
       const second = await userByEmail(one.email);
       check("doing it a second time answers the same and changes nothing", again.status === 200 && (again.json as AppWelcomeDone | null)?.done === true && second.timeZone === won && second.termsAcceptedAt?.getTime() === written.termsAcceptedAt?.getTime());

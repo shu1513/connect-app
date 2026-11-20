@@ -7,7 +7,7 @@ import { AppState } from "react-native";
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { ask } from "./api";
 import type { Answer } from "./api-rules";
-import { RENEW_LOOK_MS, renewSignIn, signOut } from "./auth";
+import { RENEW_LOOK_MS, renewSignIn, signOut, startLeaving } from "./auth";
 import { openingAfter, signedOut, type Opening } from "./opening-rules";
 
 type Value = {
@@ -62,6 +62,8 @@ export function OpeningProvider({ children }: { children: ReactNode }) {
   const leave = useCallback(async () => {
     // An answer still on its way was asked as the person who is leaving: it no longer counts.
     newest.current++;
+    // From here on the app asks as nobody, and the phone remembers that a sign-out is under way: first, before the screen changes.
+    await startLeaving();
     setOpening(signedOut);
     await signOut();
     await put();

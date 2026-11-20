@@ -69,10 +69,19 @@ export function typedCode(typed: string): { kind: "app" | "backup"; code: string
   return { kind: /^\d{6}$/.test(code) ? "app" : "backup", code };
 }
 
-/** Words for a second-step code that was not taken. */
-export function codeProblem(error: AuthError): string {
-  if (notReached(error)) return NOT_REACHED;
-  return error?.status === 429 ? TOO_MANY : CODE_WRONG;
+export const CODE_RAN_OUT = "That took too long. Please sign in again.";
+export const CODE_TOO_MANY = "Too many codes did not work. Please sign in again.";
+
+/** A second-step code that was not taken: the words to show, and whether the person has to sign in afresh. */
+export type CodeProblem = { words: string; startOver: boolean };
+
+export function codeProblem(error: AuthError): CodeProblem {
+  if (notReached(error)) return { words: NOT_REACHED, startOver: false };
+  if (error?.status === 429) return { words: TOO_MANY, startOver: false };
+  // The server no longer waits for a code from this sign-in: no code, however right, can be taken.
+  if (error?.code === "INVALID_TWO_FACTOR_COOKIE") return { words: CODE_RAN_OUT, startOver: true };
+  if (error?.code === "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE") return { words: CODE_TOO_MANY, startOver: true };
+  return { words: CODE_WRONG, startOver: false };
 }
 
 /**

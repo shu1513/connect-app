@@ -3,6 +3,7 @@ import type { AppWelcome, AppWelcomeDone } from "../../../../src/lib/app-door/ty
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
 import { useOpening } from "@/lib/opening";
+import { gotThrough } from "@/lib/opening-rules";
 import { openWebsite } from "@/lib/website";
 import { firstTimeZone, isWelcome, zonesMatching } from "@/lib/where-rules";
 import { Button, Card, Field, Heading, Loading, Notice, Page, Problem, TextLink, Tick, Words } from "@/ui/pieces";
@@ -44,8 +45,9 @@ export default function Welcome() {
   /** The server decides where this person belongs. True when it was asked; false (and said on the screen) when it could not be. */
   const sortOut = useCallback(async () => {
     const now = await refresh();
-    if (now.ok || now.code !== "unreachable") return true;
-    setFailed(now.message || UNREACHABLE);
+    // A whole answer, or a refusal of Connect's own, moves her on. Half an answer, or none, does not: say so.
+    if (gotThrough(now)) return true;
+    setFailed(now.ok ? UNREACHABLE : now.message || UNREACHABLE);
     return false;
   }, [refresh]);
 
