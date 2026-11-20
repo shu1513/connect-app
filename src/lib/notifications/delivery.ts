@@ -281,6 +281,11 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         .returning({ attempts: schema.emailOutbox.attempts });
       // The lease was taken over by another helper (this one was too slow): it sends, not us.
       if (!tried) continue;
+      // The very last look before the service is asked: writing the try down took a moment too.
+      if (email.expiresAt && email.expiresAt <= new Date()) {
+        await fail(email, "expired before it could be sent");
+        continue;
+      }
       const outcome = await transport({ id: email.id, to: email.to, subject: email.subject, text: email.body, headers: email.headers ? (JSON.parse(email.headers) as Record<string, string>) : {} });
       if (outcome.ok) {
         // Login links are not kept once the email is out.

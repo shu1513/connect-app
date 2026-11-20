@@ -93,6 +93,7 @@ describe("the email", () => {
     expect(email.text).toContain("takes effect on 15 April 2027, at 00:00 UTC.");
     expect(email.text).toContain("Section 4 says more about refunds.");
     expect(email.text).toContain("https://connect.example/payment-terms?version=2027-03-01");
+    expect(email.text).toContain("The version in effect today:");
     // The version held today is linked by its own name, so the link still shows that text after the change.
     expect(email.text).toContain("https://connect.example/payment-terms?version=2026-11-20\n");
     expect(email.text).toContain("From 15 April 2027 we ask you to accept the new version the next time you use Connect.");
@@ -128,11 +129,15 @@ describe("a notice that failed", () => {
     expect(failureIsOurs("no longer wanted: the account is closed")).toBe(false);
   });
 
-  it("is sent again only when the sending service refused it outright", () => {
-    expect(wasRefused("422 validation_error The address is not valid")).toBe(true);
-    expect(wasRefused("500 internal_server_error")).toBe(false);
-    expect(wasRefused("an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service")).toBe(false);
-    expect(wasRefused("gave up after 6 tries; the last one did not finish")).toBe(false);
-    expect(wasRefused(null)).toBe(false);
+  it("is sent again only when the sending service was asked once and refused outright", () => {
+    expect(wasRefused("422 validation_error The address is not valid", 1)).toBe(true);
+    // After several tries an earlier one may have been accepted with its answer lost.
+    expect(wasRefused("422 validation_error", 2)).toBe(false);
+    // "An earlier request with this key is still under way."
+    expect(wasRefused("409 concurrent_idempotent_requests", 1)).toBe(false);
+    expect(wasRefused("500 internal_server_error", 1)).toBe(false);
+    expect(wasRefused("an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service", 1)).toBe(false);
+    expect(wasRefused("gave up after 6 tries; the last one did not finish", 6)).toBe(false);
+    expect(wasRefused(null, 0)).toBe(false);
   });
 });

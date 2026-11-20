@@ -199,13 +199,20 @@ async function main() {
       const noticesTo = async (who: { email: string }) => db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, who.email), like(schema.emailOutbox.dedupeKey, "agreement-notice:%"))).orderBy(schema.emailOutbox.createdAt, schema.emailOutbox.dedupeKey);
       const asked: string[] = [];
       /** Sends what is waiting for this run's people, with a stand-in for the sending service that refuses some addresses and notes every email it is handed. */
-      const send = async (refuse: string[] = []) => {
+      const send = async (refuse: string[] = [], slowFor: string[] = []) => {
         asked.length = 0;
+        const standIn = async (email: { to: string; subject: string }) => {
+          asked.push(`${email.to} ${email.subject}`);
+          if (slowFor.includes(email.to)) await new Promise((resolve) => setTimeout(resolve, 900));
+          return refuse.includes(email.to) ? ({ ok: false, permanent: true, error: "422 made up for this check" } as const) : ({ ok: true, providerId: `agreecheck-${randomUUID()}` } as const);
+        };
         for (let round = 0; round < 5; round++) {
-          const sent = await delivery.deliverEmails(new Date(), async (email) => (asked.push(`${email.to} ${email.subject}`), refuse.includes(email.to) ? { ok: false, permanent: true, error: "422 made up for this check" } : { ok: true, providerId: `agreecheck-${randomUUID()}` }), { toLike: mine.emailLike });
+          const sent = await delivery.deliverEmails(new Date(), standIn, { toLike: mine.emailLike });
           if (sent === 0 && round > 0) break;
         }
       };
+      const madeUpOnly = (list: ReturnType<typeof N.comingVersions>) => list.filter((c) => c.version.version.startsWith("209"));
+      const comingBefore = JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.version.version, c.version.effectiveFrom]));
       const lines = async (people = mine) => (await N.noticeProblems(new Date(), people)).map((problem) => `${problem.kind} ${problem.coming.name} ${problem.coming.version.version}`).sort();
 
       // Made up, only inside this run. The Payment Terms: a published version in effect, and two more coming, one
@@ -223,7 +230,7 @@ async function main() {
       const madeUp = [["payment-terms", inForce], ["payment-terms", coming], ["payment-terms", later], ["host-agreement", comingHost]] as const;
       for (const [name, version] of madeUp) R.TEXTS[name][version.version] = "# Made up\n\nA version made up for this check.";
       try {
-        check("every coming version is found, also the second change behind the first; 30 days are owed for those, and not for a first published version", JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.version.version, c.owed])) === JSON.stringify([["payment-terms", "2099-01-01", true], ["payment-terms", "2099-02-01", true], ["host-agreement", "2099-01-01", false]]), JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.version.version, c.owed])));
+        check("every coming version is found, also the second change behind the first; 30 days are owed for those, and not for a first published version", JSON.stringify(madeUpOnly(N.comingVersions(now)).map((c) => [c.name, c.version.version, c.owed])) === JSON.stringify([["payment-terms", "2099-01-01", true], ["payment-terms", "2099-02-01", true], ["host-agreement", "2099-01-01", false]]), JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.version.version, c.owed])));
 
         // The helper's rounds, one person a round for each version, to see that a backlog drains.
         const rounds: number[] = [];
@@ -251,19 +258,22 @@ async function main() {
 
         // An account closed after its email was written: the email is not sent, and that alone is not a fault of ours.
         const leaving = await person("n-leaving", done);
-        await N.announceComingVersions(new Date(), mine);
-        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, leaving.id));
-        // An email whose time ran out a moment ago (as at the midnight its day begins) is not handed to the sending service.
+        // An email whose time runs out WHILE the emails are being sent (as at the midnight its day begins): the
+        // stand-in is slow with one person's emails, and another person's run out meanwhile.
+        const slow = await person("n-slow", done);
         const latecomer = await person("n-latecomer", done);
         await N.announceComingVersions(new Date(), mine);
-        await db.update(schema.emailOutbox).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.emailOutbox.to, latecomer.email));
-        await send();
+        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, leaving.id));
+        await db.update(schema.emailOutbox).set({ nextAttemptAt: new Date(Date.now() - 60_000) }).where(eq(schema.emailOutbox.to, slow.email));
+        await db.update(schema.emailOutbox).set({ nextAttemptAt: new Date(Date.now() - 1000), expiresAt: new Date(Date.now() + 700) }).where(eq(schema.emailOutbox.to, latecomer.email));
+        await send([], [slow.email]);
         const left = await noticesTo(leaving);
         const lateRows = await noticesTo(latecomer);
-        check("the emails go out; the ones to an account closed since do not, and that is not said as a problem", (await noticesTo(host)).every((row) => row.status === "sent") && left.length === 2 && left.every((row) => row.status === "failed" && row.lastError === "no longer wanted: the account is closed") && !asked.some((line) => line.startsWith(leaving.email)), `${left.map((row) => row.lastError)}`);
-        check("an email whose time has run out is never handed to the sending service", lateRows.length === 2 && lateRows.every((row) => row.status === "failed" && row.lastError === "expired before it could be sent") && !asked.some((line) => line.startsWith(latecomer.email)), `${lateRows.map((row) => `${row.status} ${row.lastError}`)}`);
+        check("the emails go out; the ones to an account closed since do not, and that is not said as a problem", (await noticesTo(host)).every((row) => row.status === "sent") && (await noticesTo(slow)).every((row) => row.status === "sent") && left.length === 2 && left.every((row) => row.status === "failed" && row.lastError === "no longer wanted: the account is closed") && !asked.some((line) => line.startsWith(leaving.email)), `${left.map((row) => row.lastError)}`);
+        check("an email whose time runs out while the emails are being sent is never handed to the sending service", lateRows.length === 2 && lateRows.every((row) => row.status === "failed" && row.lastError === "expired before it could be sent") && !asked.some((line) => line.startsWith(latecomer.email)) && asked.some((line) => line.startsWith(slow.email)), `${lateRows.map((row) => `${row.status} ${row.lastError}`)}`);
+        check("its failing is ours, and is said", JSON.stringify(await lines()) === JSON.stringify(["failed payment-terms 2099-01-01", "failed payment-terms 2099-02-01"]), (await lines()).join("; "));
         await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, latecomer.id));
-        check("so far nothing is said: everyone open was written to in time", (await lines()).length === 0, (await lines()).join("; "));
+        check("with that account closed, nothing is said: everyone open was written to in time", (await lines()).length === 0, (await lines()).join("; "));
 
         // The sending service refuses two people's emails outright.
         const refusedOne = await person("n-refused", done);
@@ -272,24 +282,44 @@ async function main() {
         await N.announceComingVersions(new Date(), mine);
         await send([refusedOne.email, refusedHost.email]);
         check("an email the sending service refused is said, for each version the 30 days are owed for; the Host Agreement's, for which none are owed, is not", JSON.stringify(await lines()) === JSON.stringify(["failed payment-terms 2099-01-01", "failed payment-terms 2099-02-01"]), (await lines()).join("; "));
+        check("the health address, which watches money, says nothing of it even now", !(await (await import("../src/lib/health")).healthProblems(new Date())).some((line) => /notice|new version/.test(line)));
         const report = await N.noticeReport(new Date(), mine);
-        const row = (name: string, version: string) => report.find((one) => one.name === name && one.version === version);
-        // Three for us to look at: the two refused ones, and the one whose time ran out before it was sent. One not ours: the closed account.
-        check("the founder's page counts them: for the Payment Terms, and for the Host Agreement too", row("payment-terms", "2099-01-01")?.failedOurs === 3 && row("payment-terms", "2099-01-01")?.notOurs === 1 && row("host-agreement", "2099-01-01")?.failedOurs === 1 && row("host-agreement", "2099-01-01")?.owed === false && row("payment-terms", "2099-01-01")?.sentInTime === 4, JSON.stringify(row("payment-terms", "2099-01-01")));
+        const row = (name: string, version: string) => report.find((one) => one.name === name && one.version === version && one.state === "coming");
+        // Nine written: five sent in time, one to the closed account (not ours), and three for us to look at: the two
+        // refused ones and the one whose time ran out before it was sent.
+        check("the founder's page counts them: for the Payment Terms, and for the Host Agreement too", JSON.stringify(row("payment-terms", "2099-01-01")) === JSON.stringify({ name: "payment-terms", title: "Payment Terms", version: "2099-01-01", effectiveFrom: day(40), state: "coming", owed: true, written: 9, sentInTime: 5, sentLate: 0, waiting: 0, failedOurs: 3, notOurs: 1 }) && row("host-agreement", "2099-01-01")?.failedOurs === 1 && row("host-agreement", "2099-01-01")?.owed === false, JSON.stringify(row("payment-terms", "2099-01-01")));
         const told = await N.tellFounderAboutNotices(new Date(), mine, [founder]);
         const founderMail = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.to, founder.email));
         check("the founder is written to once for each problem, and not again on the next round", told === 2 && founderMail.length === 2 && founderMail.every((one) => one.body.includes("could not be sent") && one.body.includes("/admin/outbox")) && (await N.tellFounderAboutNotices(new Date(), mine, [founder])) === 0, String(told));
+        // Two of the five refusals are not proof enough: one was tried twice (an earlier try may have gone through with
+        // its answer lost), and one says an earlier request is still under way.
+        const [twice] = (await noticesTo(refusedOne)).filter((one) => one.dedupeKey?.includes(":2099-02-01:"));
+        const [underWay] = (await noticesTo(refusedHost)).filter((one) => one.dedupeKey?.includes(":payment-terms:2099-01-01:"));
+        await db.update(schema.emailOutbox).set({ attempts: 2 }).where(eq(schema.emailOutbox.id, twice.id));
+        await db.update(schema.emailOutbox).set({ lastError: "409 concurrent_idempotent_requests made up for this check" }).where(eq(schema.emailOutbox.id, underWay.id));
         const back = await N.sendRefusedNoticesAgain(new Date(), mine);
-        check("the founder's button puts exactly the refused ones back in the queue, and not the ones given up for another reason", back === 5 && (await noticesTo(leaving)).every((one) => one.status === "failed") && (await noticesTo(latecomer)).every((one) => one.status === "failed"), String(back));
+        const stillFailed = (await db.select().from(schema.emailOutbox).where(inArray(schema.emailOutbox.id, [twice.id, underWay.id]))).every((one) => one.status === "failed");
+        check("the founder's button puts back exactly the emails that were asked once and refused outright: not one tried twice, not one still under way, not the ones given up for another reason", back === 3 && stillFailed && (await noticesTo(leaving)).every((one) => one.status === "failed") && (await noticesTo(latecomer)).every((one) => one.status === "failed"), String(back));
+        // (A person looks at the sending service for those two, sees they did not go, and puts them back by hand.)
+        await db.update(schema.emailOutbox).set({ status: "queued", attempts: 0, firstTriedAt: null, lastError: null, nextAttemptAt: new Date() }).where(inArray(schema.emailOutbox.id, [twice.id, underWay.id]));
         await send();
         check("sent again, they go out, and nothing is said any more", (await noticesTo(refusedHost)).every((one) => one.status === "sent") && (await noticesTo(refusedOne)).every((one) => one.status === "sent") && (await lines()).length === 0, (await lines()).join("; "));
 
         // A helper still running older code gives a good email up as "not coming on that day". The next round takes it up again.
-        const [given] = await noticesTo(early);
-        await db.update(schema.emailOutbox).set({ status: "failed", lastError: `no longer wanted: ${N.NOT_COMING}` }).where(eq(schema.emailOutbox.id, given.id));
+        const stale = await person("n-stale", done);
+        const lost = await person("n-lost", done);
+        await N.announceComingVersions(new Date(), mine);
+        // One was never handed to the sending service. The other was, two days ago, and the answer never came.
+        await db.update(schema.emailOutbox).set({ status: "failed", lastError: `no longer wanted: ${N.NOT_COMING}` }).where(eq(schema.emailOutbox.to, stale.email));
+        await db.update(schema.emailOutbox).set({ status: "failed", lastError: `no longer wanted: ${N.NOT_COMING}`, attempts: 1, firstTriedAt: new Date(Date.now() - 2 * DAY) }).where(eq(schema.emailOutbox.to, lost.email));
         const tookUp = await N.announceComingVersions(new Date(), mine);
-        check("an email wrongly given up while its version is still coming on that day is taken up again", tookUp === 1 && (await noticesTo(early)).find((one) => one.id === given.id)?.status === "queued", String(tookUp));
+        const lostNow = await noticesTo(lost);
+        check("emails wrongly given up while their version is still coming on that day are taken up again, with their tries kept as they were", tookUp === 4 && (await noticesTo(stale)).every((one) => one.status === "queued") && lostNow.every((one) => one.status === "queued" && one.attempts === 1 && one.firstTriedAt !== null), String(tookUp));
         await send();
+        check("the one never handed over goes out, once", (await noticesTo(stale)).every((one) => one.status === "sent") && asked.filter((line) => line.startsWith(stale.email)).length === 2);
+        const lostAfter = await noticesTo(lost);
+        check("the one whose earlier try may have gone through is not sent a second time: it waits for a person, and is said", lostAfter.every((one) => one.status === "failed" && /earlier try is more than a day old/.test(one.lastError ?? "")) && !asked.some((line) => line.startsWith(lost.email)) && (await lines()).length === 2, `${lostAfter.map((one) => one.lastError)}`);
+        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, lost.id));
 
         // The founder moves the day. Every key holds the day, so everyone is written to again by itself.
         const oldKey = (await noticesTo(unfinished)).find((one) => one.dedupeKey?.includes(":2099-01-01:"))!.dedupeKey!;
@@ -297,27 +327,35 @@ async function main() {
         check("an email for the day that was given up is no longer true", (await N.noticeEmailProblem(oldKey, new Date())) === N.NOT_COMING && (await N.noticeEmailProblem("reminder:1:2:3", new Date())) === undefined);
         // Two helpers at the same moment.
         const [one, two] = await Promise.all([N.announceComingVersions(new Date(), mine), N.announceComingVersions(new Date(), mine)]);
-        const replacements = await db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `agreement-notice:payment-terms:2099-01-01:${day(20)}:ag-${RUN}-n-%`));
-        check("a moved day is announced again to everyone it concerns, once each, also when two helpers run at the same moment", one + two === 6 && replacements.length === 6 && replacements.every((mail) => mail.status === "queued"), `${one}+${two} ${replacements.length}`);
+        const replacementsNow = () => db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `agreement-notice:payment-terms:2099-01-01:${day(20)}:ag-${RUN}-n-%`));
+        const replacements = await replacementsNow();
+        // Everyone open: early, host, applicant, unfinished, slow, the two who were refused, and the one given up by an old helper.
+        check("a moved day is announced again to everyone it concerns, once each, also when two helpers run at the same moment", one + two === 8 && replacements.length === 8 && replacements.every((mail) => mail.status === "queued"), `${one}+${two} ${replacements.length}`);
         // Now the day is 20 days off: fewer than 30 are left.
         check("fewer than 30 days before the day, an email that is still not out is said", JSON.stringify(await lines()) === JSON.stringify(["not_out payment-terms 2099-01-01"]), (await lines()).join("; "));
         check("someone who only finished signing up today is not counted: a shorter time is in the nature of it", (await lines({ emailLike: unfinished.email })).length === 0);
+        // Moved straight back before any of the new emails went out: nobody was told the other day, so nothing is said about that.
+        coming.effectiveFrom = day(40);
+        check("a day that was written about and never sent is not what people were last told", (await lines()).length === 0, (await lines()).join("; "));
+        coming.effectiveFrom = day(20);
+        await N.announceComingVersions(new Date(), mine);
         await send();
-        check("and one that went out with fewer than 30 days left is said too, until the day is moved", replacements.length === 6 && (await db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `agreement-notice:payment-terms:2099-01-01:${day(20)}:ag-${RUN}-n-%`))).every((mail) => mail.status === "sent") && JSON.stringify(await lines()) === JSON.stringify(["late payment-terms 2099-01-01"]), (await lines()).join("; "));
+        check("and one that went out with fewer than 30 days left is said too, until the day is moved", (await replacementsNow()).every((mail) => mail.status === "sent") && JSON.stringify(await lines()) === JSON.stringify(["late payment-terms 2099-01-01"]), (await lines()).join("; "));
         // Moved back to a day that was announced before: those emails went out earlier, and people were last told another day.
         coming.effectiveFrom = day(40);
-        check("a day moved back to one announced before is said: people were last told another day", (await N.announceComingVersions(new Date(), mine)) === 0 && JSON.stringify(await lines()) === JSON.stringify(["other_day payment-terms 2099-01-01"]), (await lines()).join("; "));
+        check("a day moved back to one that was sent before is said, also for someone who joined late: people were last told another day", (await N.announceComingVersions(new Date(), mine)) === 0 && JSON.stringify(await lines()) === JSON.stringify(["other_day payment-terms 2099-01-01"]) && JSON.stringify(await lines({ emailLike: unfinished.email })) === JSON.stringify(["other_day payment-terms 2099-01-01"]), (await lines()).join("; "));
         coming.effectiveFrom = day(45);
         await N.announceComingVersions(new Date(), mine);
         await send();
         check("after the day is moved to a new one, far enough off, and the emails are out, nothing is said again", (await lines()).length === 0, (await lines()).join("; "));
-        check("the health address, which watches money, says nothing about notices", !(await (await import("../src/lib/health")).healthProblems(new Date())).some((line) => line.includes("notice")));
+        const after = await N.noticeReport(new Date(), mine);
+        check("the founder's page keeps a line for each day that was announced and then given up", after.filter((one) => one.name === "payment-terms" && one.version === "2099-01-01" && one.state === "day_given_up").map((one) => one.effectiveFrom).sort().join() === [day(20), day(40)].sort().join() && after.some((one) => one.name === "payment-terms" && one.version === "2099-01-01" && one.state === "coming" && one.effectiveFrom === day(45)), JSON.stringify(after.map((one) => [one.version, one.effectiveFrom, one.state])));
       } finally {
         for (const version of [inForce, coming, later]) payments.splice(payments.indexOf(version), 1);
         hosting.splice(hosting.indexOf(comingHost), 1);
         for (const [name, version] of madeUp) delete R.TEXTS[name][version.version];
       }
-      check("(afterwards the list of documents is as it was, and nothing is coming)", R.registryProblems().length === 0 && N.comingVersions(new Date()).length === 0);
+      check("(afterwards the list of documents is as it was, and what is coming is what was coming before)", R.registryProblems().length === 0 && JSON.stringify(N.comingVersions(now).map((c) => [c.name, c.version.version, c.version.effectiveFrom])) === comingBefore);
     }
 
     if (APP) {

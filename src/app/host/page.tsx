@@ -15,8 +15,8 @@ import { languageNames } from "@/lib/profiles/languages";
 import { PHOTO } from "@/lib/profiles/photo-rules";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN, sellerKindOf } from "@/lib/profiles/profiles";
 import { acceptedHostAgreementBefore, holdsHostAgreement, shownValue } from "@/legal/accept";
-import { dayInWords } from "@/legal/notices";
-import { agreementsToAccept, comingVersion, versionHref } from "@/legal/versions";
+import { comingVersions, dayInWords } from "@/legal/notices";
+import { agreementsToAccept, versionHref } from "@/legal/versions";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { instagramSignInOn } from "@/lib/profiles/instagram";
 import { tiktokSignInOn } from "@/lib/profiles/tiktok";
@@ -76,7 +76,7 @@ export default async function HostPage(props: PageProps<"/host">) {
       : { title: "One thing we need from you", text: "Hosts on Connect accept the Host Agreement. Please read it and accept it below. Your answer about how you offer calls is kept; you can change it here." };
   // A version of the Host Agreement whose day has not come: said here ahead of its day, as the email says it, also
   // to someone who is about to apply, beside the form that accepts today's version.
-  const comingAgreement = comingVersion("host-agreement", new Date());
+  const comingAgreements = comingVersions(new Date()).filter((one) => one.name === "host-agreement");
   const sellerChoice = (chosen: string | null) => (
     <fieldset className="text-sm">
       <legend>Do you offer calls as a business, or as a private person?</legend>
@@ -255,15 +255,15 @@ export default async function HostPage(props: PageProps<"/host">) {
         )}
       </section>
 
-      {comingAgreement && (
-        <p role="note" className="mt-8 rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`host-agreement@${comingAgreement.version}`}>
-          <strong>A new version of the Host Agreement takes effect on {dayInWords(comingAgreement.effectiveFrom)}.</strong> {comingAgreement.summary}{" "}
-          <Link href={versionHref("host-agreement", comingAgreement.version)} target="_blank" className="underline underline-offset-2">
+      {comingAgreements.map(({ version }) => (
+        <p key={version.version} role="note" className="mt-8 rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`host-agreement@${version.version}`}>
+          <strong>A new version of the Host Agreement takes effect on {dayInWords(version.effectiveFrom)}.</strong> {version.summary}{" "}
+          <Link href={versionHref("host-agreement", version.version)} target="_blank" className="underline underline-offset-2">
             Read the new version
           </Link>
           . {profile ? "From that day this page asks you to accept it." : "If you apply before that day you accept today's version, and from that day this page asks you to accept the new one."}
         </p>
-      )}
+      ))}
 
       {boxNeeded && (
         <section className="mt-8 rounded border border-neutral-500 p-4" data-host-box>

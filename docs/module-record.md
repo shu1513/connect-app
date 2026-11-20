@@ -4338,21 +4338,25 @@ account is not counted as a failed notice; the warning goes to the founder by em
 Emails page, not into the health report that watches money (this changes a sentence of decision
 12, and the plan says why); the first published version after the draft owes no 30 days.
 
-**What the reviewer found.** Astra read the first build and said to hold it. Its points, and
-what was done about each, are in the plan ("What Astra's review of part 2 changed"). The largest:
-only the next version of a document was announced; a person joining in the last minute before
-the day could be missed; a helper running older code during a release could give a good email up
-for ever; the warning sat on the money alarm.
+**What the reviewer found.** Astra read the first build and said to hold it, and said the same of
+the rework. Its points, and what was done about each, are in the plan ("What Astra's review of
+part 2 changed"). The largest of the first round: only the next version of a document was
+announced; a person joining in the last minute before the day could be missed; a helper running
+older code during a release could give a good email up for ever; the warning sat on the money
+alarm. Of the second: taking an email up again, or sending a refused one again, could have sent
+an email twice when an earlier answer of the sending service was lost; "last told another day"
+was judged by emails written, not by emails sent.
 
 **How it was checked.** 15 tests of the rules (who is told, every future version, the key, the
 words for each kind of document, which failures can be sent again) and 2 new ones of the version
-list. `agreements-check` grew to 64 checks; its new part uses three made-up versions and a
+list. `agreements-check` grew to 69 checks; its new part uses three made-up versions and a
 stand-in for the sending service: everyone concerned is written to once over several rounds and
 with two helpers at once; nobody closed or unfinished; someone who signs up or applies to host
 meanwhile is written to in that step; an email whose time ran out, or to an account closed since,
-is never handed to the sending service; a refused email is said, the founder is written to once,
-the button sends exactly the refused ones again; an email wrongly given up is taken up again; a
-moved day is announced again; fewer than 30 days left is said for an email not out and for one
+is never handed to the sending service, also when the time runs out while emails are being sent;
+a refused email is said, the founder is written to once, the button sends again exactly the ones
+asked once and refused outright; an email wrongly given up is taken up again, and one whose
+earlier try may have gone through is not sent a second time; a moved day is announced again; fewer than 30 days left is said for an email not out and for one
 sent late, and not for a person who only signed up today; a day moved back to one announced
 before is said; the health address says nothing of it. `accounts-check` was run again. In a
 browser, with a temporary coming version that was taken out again: the note on the Payment

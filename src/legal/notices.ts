@@ -17,7 +17,7 @@
  * The rules are in the first half of this file, without the database, so that they can be tested
  * on their own.
  */
-import { and, eq, inArray, isNotNull, isNull, like, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, like, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
@@ -129,7 +129,7 @@ export function noticeEmail(coming: Pick<Coming, "name" | "version">, person: { 
     "The new version, in full:",
     `${site}${versionHref(name, version.version)}`,
     "",
-    "The version in effect until then:",
+    "The version in effect today:",
     `${site}${versionHref(name, inEffect.version)}`,
     "",
     ...whatToDo,
@@ -144,9 +144,13 @@ export function failureIsOurs(lastError: string | null): boolean {
   return !/^(address not written to:|no longer wanted:)/.test(lastError ?? "");
 }
 
-/** A failed notice the sending service refused outright (a 4xx answer): it certainly did not go, so sending it again is safe. */
-export function wasRefused(lastError: string | null): boolean {
-  return /^4\d\d\b/.test(lastError ?? "");
+/**
+ * A failed notice that certainly did not go out, so that sending it again cannot send it twice: the sending service
+ * was asked exactly once and refused outright (a 4xx answer). Not after several tries (an earlier one may have been
+ * accepted with its answer lost), and not a 409, which says an earlier request is still under way.
+ */
+export function wasRefused(lastError: string | null, attempts: number): boolean {
+  return attempts === 1 && /^4\d\d\b/.test(lastError ?? "") && !/^409\b/.test(lastError ?? "");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -210,10 +214,12 @@ export async function announceComingVersions(now: Date, people?: OnlyPeople, per
   for (const coming of comingVersions(now)) {
     const start = noticeKeyStart(coming.name, coming.version);
     // An email given up as "not coming on that day any more" while the version IS coming on that day: a helper still
-    // running older code gave it up during a release, or the day was moved away and back. It is wanted again.
+    // running older code gave it up during a release, or the day was moved away and back. It is wanted again. Its
+    // tries and the moment of its first try stay as they are: if the sending service was asked before and the answer
+    // was lost, the sending's own rules decide (a try older than a day is never repeated blindly), not this.
     const again = await db
       .update(mail)
-      .set({ status: "queued", lastError: null, attempts: 0, firstTriedAt: null, nextAttemptAt: now, leaseUntil: null })
+      .set({ status: "queued", lastError: null, nextAttemptAt: now, leaseUntil: null })
       .where(and(like(mail.dedupeKey, `${start}%`), eq(mail.status, "failed"), eq(mail.lastError, `no longer wanted: ${NOT_COMING}`), onlyMail(people)))
       .returning({ id: mail.id });
     written += again.length;
@@ -253,30 +259,38 @@ export type NoticeProblem = { kind: "late" | "failed" | "not_out" | "other_day";
 export async function noticeProblems(now: Date, people?: OnlyPeople): Promise<NoticeProblem[]> {
   const problems: NoticeProblem[] = [];
   for (const coming of comingVersions(now)) {
-    if (!coming.owed) continue;
     const deadline = noticeDeadline(coming.version);
     const start = noticeKeyStart(coming.name, coming.version);
     const { who, since } = concerned(coming.audience);
+    const what = `${DOCUMENTS[coming.name].title}, version ${coming.version.version}, in effect from ${coming.version.effectiveFrom}`;
+    const add = (kind: NoticeProblem["kind"], line: string) => problems.push({ kind, coming, line });
+    const anyOf = async (...conditions: SQL[]) => (await db.select({ id: schema.user.id }).from(schema.user).where(and(who, onlyPeople(people), ...conditions)).limit(1)).length > 0;
+
+    // The day was moved away and back again: the email for this day went out, and after it one that names another
+    // day. So the last thing the person was told is wrong. Asked for every coming version and everyone concerned,
+    // whether or not 30 days are owed: it is about what people were told, not about how early.
+    const lastToldAnotherDay = sql`exists (
+      select 1 from ${mail} as cur, ${mail} as other
+      where cur.dedupe_key = ${start} || ${schema.user.id} and cur.status = 'sent'
+        and other.dedupe_key like ${`agreement-notice:${coming.name}:${coming.version.version}:%`}
+        and right(other.dedupe_key, length(${schema.user.id}) + 1) = ':' || ${schema.user.id}
+        and other.dedupe_key <> cur.dedupe_key and other.status = 'sent' and other.sent_at > cur.sent_at)`;
+    if (await anyOf(lastToldAnotherDay)) {
+      add("other_day", `Somebody was last told another day for a new version than the one it now has (${what}). Choose a day that was not announced before.`);
+    }
+
+    if (!coming.owed) continue;
     const inTime = sql`${since} <= ${deadline.toISOString()}::timestamptz`;
     const theirs = sql`${mail.dedupeKey} = ${start} || ${schema.user.id}`;
-    const any = async (condition: SQL) => (await db.select({ id: schema.user.id }).from(schema.user).where(and(who, onlyPeople(people), inTime, condition)).limit(1)).length > 0;
-    const what = `${DOCUMENTS[coming.name].title}, version ${coming.version.version}, in effect from ${coming.version.effectiveFrom}`;
     const notOurs = sql`(coalesce(${mail.lastError}, '') like 'address not written to:%' or coalesce(${mail.lastError}, '') like 'no longer wanted:%')`;
-    const add = (kind: NoticeProblem["kind"], line: string) => problems.push({ kind, coming, line });
-
-    if (await any(sql`exists (select 1 from ${mail} where ${theirs} and ${mail.status} = 'sent' and ${mail.sentAt} > ${deadline.toISOString()}::timestamptz)`)) {
+    if (await anyOf(inTime, sql`exists (select 1 from ${mail} where ${theirs} and ${mail.status} = 'sent' and ${mail.sentAt} > ${deadline.toISOString()}::timestamptz)`)) {
       add("late", `The notice of a new version went out to somebody with fewer than ${NOTICE_DAYS} days left (${what}). Move its day.`);
     }
-    if (await any(sql`exists (select 1 from ${mail} where ${theirs} and ${mail.status} = 'failed' and not ${notOurs})`)) {
-      add("failed", `The notice of a new version could not be sent to somebody (${what}). See the Emails page: an email the sending service refused can be sent again there.`);
+    if (await anyOf(inTime, sql`exists (select 1 from ${mail} where ${theirs} and ${mail.status} = 'failed' and not ${notOurs})`)) {
+      add("failed", `The notice of a new version could not be sent to somebody (${what}). See the Emails page: an email the sending service refused outright can be sent again there.`);
     }
-    if (now.getTime() > deadline.getTime() && (await any(sql`not exists (select 1 from ${mail} where ${theirs} and ${mail.status} in ('sent', 'failed'))`))) {
+    if (now.getTime() > deadline.getTime() && (await anyOf(inTime, sql`not exists (select 1 from ${mail} where ${theirs} and ${mail.status} in ('sent', 'failed'))`))) {
       add("not_out", `The notice of a new version is still not out to somebody, with fewer than ${NOTICE_DAYS} days left (${what}). Move its day.`);
-    }
-    // The day was moved away and back again: the email for this day went out earlier, and the person was last told another day.
-    const otherDay = sql`exists (select 1 from ${mail} as other where other.dedupe_key like ${`agreement-notice:${coming.name}:${coming.version.version}:%`} and other.dedupe_key like '%:' || ${schema.user.id} and other.dedupe_key <> ${mail.dedupeKey} and other.created_at > ${mail.createdAt})`;
-    if (await any(sql`exists (select 1 from ${mail} where ${theirs} and ${mail.status} = 'sent' and ${otherDay})`)) {
-      add("other_day", `Somebody was last told another day for a new version than the one it now has (${what}). Choose a day that was not announced before.`);
     }
   }
   return problems;
@@ -313,7 +327,8 @@ export type NoticeCount = {
   title: string;
   version: string;
   effectiveFrom: string;
-  coming: boolean;
+  /** Coming on this day; in effect since this day; or a day that was announced and then given up (the version moved to another day). */
+  state: "coming" | "in_effect" | "day_given_up";
   owed: boolean;
   /** Emails written, and of those: sent with 30 days or more to go, sent later, waiting, refused or failed on our side, not sent for a reason that is not ours. */
   written: number;
@@ -325,55 +340,68 @@ export type NoticeCount = {
 };
 
 /**
- * For the founder's Emails page: every version that was announced and whose day is coming or came in the last
- * year, with what became of its emails. Counted from the emails themselves, so it also stands after the day.
+ * For the founder's Emails page: every announcement of the last year or so, with what became of its emails. Counted
+ * from the emails themselves, by the document, version and day their own keys name. So it stands after the day, and
+ * a day that was announced and then moved keeps its own line.
  */
 export async function noticeReport(now: Date, people?: OnlyPeople): Promise<NoticeCount[]> {
   const coming = comingVersions(now);
+  const name = sql<string>`split_part(${mail.dedupeKey}, ':', 2)`;
+  const version = sql<string>`split_part(${mail.dedupeKey}, ':', 3)`;
+  const day = sql<string>`split_part(${mail.dedupeKey}, ':', 4)`;
+  const deadline = sql`((split_part(${mail.dedupeKey}, ':', 4))::timestamp at time zone 'UTC') - interval '30 days'`;
+  const rows = await db
+    .select({
+      name,
+      version,
+      day,
+      written: sql<number>`count(*)::int`,
+      sentInTime: sql<number>`count(*) filter (where ${mail.status} = 'sent' and ${mail.sentAt} <= ${deadline})::int`,
+      sentLate: sql<number>`count(*) filter (where ${mail.status} = 'sent' and ${mail.sentAt} > ${deadline})::int`,
+      waiting: sql<number>`count(*) filter (where ${mail.status} in ('queued', 'sending'))::int`,
+      notOurs: sql<number>`count(*) filter (where ${mail.status} = 'failed' and (coalesce(${mail.lastError}, '') like 'address not written to:%' or coalesce(${mail.lastError}, '') like 'no longer wanted:%'))::int`,
+      failed: sql<number>`count(*) filter (where ${mail.status} = 'failed')::int`,
+    })
+    .from(mail)
+    .where(and(like(mail.dedupeKey, "agreement-notice:%"), sql`${mail.createdAt} > ${new Date(now.getTime() - 400 * DAY_MS).toISOString()}::timestamptz`, onlyMail(people)))
+    .groupBy(name, version, day);
   const report: NoticeCount[] = [];
-  for (const name of DOCUMENT_NAMES) {
-    if (!AUDIENCE[name]) continue;
-    for (const version of versionsOf(name)) {
-      const day = dayOf(version.effectiveFrom).getTime();
-      if (day <= now.getTime() - 365 * DAY_MS) continue;
-      const deadline = noticeDeadline(version).toISOString();
-      const [counts] = await db
-        .select({
-          written: sql<number>`count(*)::int`,
-          sentInTime: sql<number>`count(*) filter (where ${mail.status} = 'sent' and ${mail.sentAt} <= ${deadline}::timestamptz)::int`,
-          sentLate: sql<number>`count(*) filter (where ${mail.status} = 'sent' and ${mail.sentAt} > ${deadline}::timestamptz)::int`,
-          waiting: sql<number>`count(*) filter (where ${mail.status} in ('queued', 'sending'))::int`,
-          notOurs: sql<number>`count(*) filter (where ${mail.status} = 'failed' and (coalesce(${mail.lastError}, '') like 'address not written to:%' or coalesce(${mail.lastError}, '') like 'no longer wanted:%'))::int`,
-          failed: sql<number>`count(*) filter (where ${mail.status} = 'failed')::int`,
-        })
-        .from(mail)
-        .where(and(like(mail.dedupeKey, `${noticeKeyStart(name, version)}%`), onlyMail(people)));
-      const found = coming.find((c) => c.name === name && c.version === version);
-      if (!found && counts.written === 0) continue; // a version nobody was written to about (the first one, or one from before this was built)
-      report.push({ name, title: DOCUMENTS[name].title, version: version.version, effectiveFrom: version.effectiveFrom, coming: Boolean(found), owed: found?.owed ?? false, written: counts.written, sentInTime: counts.sentInTime, sentLate: counts.sentLate, waiting: counts.waiting, failedOurs: counts.failed - counts.notOurs, notOurs: counts.notOurs });
-    }
+  for (const row of rows) {
+    if (!(DOCUMENT_NAMES as readonly string[]).includes(row.name)) continue;
+    const document = row.name as DocumentName;
+    const found = coming.find((c) => c.name === document && c.version.version === row.version && c.version.effectiveFrom === row.day);
+    const listed = versionsOf(document).some((v) => v.version === row.version && v.effectiveFrom === row.day);
+    report.push({ name: document, title: DOCUMENTS[document].title, version: row.version, effectiveFrom: row.day, state: found ? "coming" : listed ? "in_effect" : "day_given_up", owed: found?.owed ?? false, written: row.written, sentInTime: row.sentInTime, sentLate: row.sentLate, waiting: row.waiting, failedOurs: row.failed - row.notOurs, notOurs: row.notOurs });
   }
-  return report;
+  // A coming version nobody has been written to about yet still has its line.
+  for (const c of coming) {
+    if (report.some((one) => one.name === c.name && one.version === c.version.version && one.effectiveFrom === c.version.effectiveFrom)) continue;
+    report.push({ name: c.name, title: DOCUMENTS[c.name].title, version: c.version.version, effectiveFrom: c.version.effectiveFrom, state: "coming", owed: c.owed, written: 0, sentInTime: 0, sentLate: 0, waiting: 0, failedOurs: 0, notOurs: 0 });
+  }
+  return report.sort((x, y) => `${x.effectiveFrom} ${x.name} ${x.version}`.localeCompare(`${y.effectiveFrom} ${y.name} ${y.version}`));
 }
 
 /**
  * Puts the notices the sending service refused outright back in the queue, for versions that are still coming.
- * Only those: a refusal certainly did not go out, so a second try cannot send twice. An email whose outcome is not
- * known (the service did not answer) is left for a person to look at. Returns how many were put back.
+ * Only those that certainly did not go out (`wasRefused`: asked once, a 4xx answer, not a 409), so a second try
+ * cannot send twice; an email whose outcome is not known is left for a person to look at. One statement, with that
+ * proof in its own condition, so that nothing can change between looking and writing. Returns how many were put back.
  */
 export async function sendRefusedNoticesAgain(now: Date, people?: OnlyPeople): Promise<number> {
   const starts = comingVersions(now).map((coming) => noticeKeyStart(coming.name, coming.version));
   if (starts.length === 0) return 0;
-  const refused = await db
-    .select({ id: mail.id, lastError: mail.lastError })
-    .from(mail)
-    .where(and(eq(mail.status, "failed"), sql`(${sql.join(starts.map((start) => sql`${mail.dedupeKey} like ${`${start}%`}`), sql` or `)})`, onlyMail(people)));
-  const ids = refused.filter((row) => wasRefused(row.lastError)).map((row) => row.id);
-  if (ids.length === 0) return 0;
   const back = await db
     .update(mail)
     .set({ status: "queued", lastError: null, attempts: 0, firstTriedAt: null, nextAttemptAt: now, leaseUntil: null })
-    .where(and(inArray(mail.id, ids), eq(mail.status, "failed")))
+    .where(
+      and(
+        eq(mail.status, "failed"),
+        eq(mail.attempts, 1),
+        sql`${mail.lastError} ~ '^4[0-9][0-9]([^0-9]|$)' and ${mail.lastError} !~ '^409([^0-9]|$)'`,
+        sql`(${sql.join(starts.map((start) => sql`${mail.dedupeKey} like ${`${start}%`}`), sql` or `)})`,
+        onlyMail(people),
+      ),
+    )
     .returning({ id: mail.id });
   return back.length;
 }

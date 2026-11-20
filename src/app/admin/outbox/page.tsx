@@ -33,7 +33,7 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
     .from(schema.emailOutbox);
   // Every version of a legal document people were written to about, and whether the 30 days were kept (plans/46, part 2).
   const notices = await noticeReport(new Date());
-  const noticeLines = notices.some((one) => one.coming) ? await noticeProblems(new Date()) : [];
+  const noticeLines = notices.some((one) => one.state === "coming") ? await noticeProblems(new Date()) : [];
 
   return (
     <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -69,18 +69,20 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
           ))}
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {notices.map((one) => (
-              <li key={`${one.name}:${one.version}:${one.effectiveFrom}`} data-notice={`${one.name}@${one.version}`}>
-                {one.title}, version {one.version}, {one.coming ? "takes effect on" : "in effect since"} {dayInWords(one.effectiveFrom)}: {one.written} written; {one.sentInTime} sent with 30 days or more to go;{" "}
-                {one.sentLate} sent later; {one.waiting} waiting; {one.failedOurs} not sent, for us to look at; {one.notOurs} not sent because the address does not work, the account was closed or the day was
-                moved.{one.coming && !one.owed ? " No 30 days are owed for this one (it follows a draft, or it is marked urgent)." : ""}
+              <li key={`${one.name}:${one.version}:${one.effectiveFrom}`} data-notice={`${one.name}@${one.version}@${one.effectiveFrom}`}>
+                {one.title}, version {one.version},{" "}
+                {one.state === "coming" ? "takes effect on" : one.state === "in_effect" ? "in effect since" : "announced for a day that was given up,"} {dayInWords(one.effectiveFrom)}: {one.written} written;{" "}
+                {one.sentInTime} sent with 30 days or more to go; {one.sentLate} sent later; {one.waiting} waiting; {one.failedOurs} not sent, for us to look at; {one.notOurs} not sent because the address does
+                not work, the account was closed or the day was moved.{one.state === "coming" && !one.owed ? " No 30 days are owed for this one (it follows a draft, or it is marked urgent)." : ""}
               </li>
             ))}
           </ul>
-          {notices.some((one) => one.coming && one.failedOurs > 0) && (
+          {notices.some((one) => one.state === "coming" && one.failedOurs > 0) && (
             <form action={sendRefusedAgain} className="mt-3">
               <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5">
                 Send the refused ones again
               </button>
+              <span className="ml-3 opacity-70">Only emails the sending service refused on their one and only try: those certainly did not go out.</span>
             </form>
           )}
         </section>

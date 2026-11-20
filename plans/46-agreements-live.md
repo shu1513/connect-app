@@ -544,13 +544,41 @@ Astra read the first build and said to hold it. Taken:
 - The check script's checks each prove what their label says (the exact moment an email runs
   out, a closed account apart from a refusal, two helpers at once, a backlog over several rounds).
 
+**Astra's second review** (of that rework) said to hold it once more, for three ways an email
+could have gone out twice or a warning could have been wrong. Taken:
+
+- An email taken up again keeps its count of tries and the moment of its first try. So if the
+  sending service was asked before and its answer was lost, the sending's own rule decides (a
+  try older than a day is never repeated blindly), and the email waits for a person.
+- The founder's button sends again only an email that was asked **once** and refused outright;
+  not one tried several times, and not one whose answer says an earlier request is still under
+  way. It is one statement, so nothing can change between looking and writing.
+- "People were last told another day" is judged by what was really sent, in the order it was
+  sent, for every coming version and everyone concerned. A day written about and never sent
+  does not count.
+- The notices have a loop of their own in the helper, beside the money work, not in front of it.
+- Applying to host reads the clock with the person's line locked, like finishing sign-up.
+- The email calls the version it links "the version in effect today" (with two changes planned,
+  "until then" would have been wrong for the second).
+- The founder's page counts by what the emails' own keys say, so a day that was announced and
+  then moved keeps its line.
+- Both pages show every coming version, and the last step of sign-up shows them above the
+  button.
+- The check script: an email whose time runs out while emails are being sent; an email given up
+  by an old helper whose earlier try may have gone through; the health address asked while a
+  problem is open.
+
 Not taken:
 - *Keep the sending service's own times for each email.* The app records when the service
   accepted an email. If that answer is lost and a second try succeeds later, the later time is
   kept, which can only make a notice look later than it was, never earlier.
 - *A record of who was never told, kept after the day.* The Emails page counts the emails of a
-  version for a year after its day; a person with no email at all is only counted while the
-  version is coming.
+  version for about a year; a person with no email at all is only counted while the version is
+  coming.
+- *A day moved back to one already sent sends a correction by itself.* It is said to the founder,
+  who chooses a day that was not announced before; that day is then announced to everyone.
+- *The last look before sending cannot be made in the same instant as the sending.* It is made
+  twice, the second time as the last thing before the service is asked.
 - **Not built:** the phone app's last step of sign-up does not show a coming version (the email
   and the website do). The phone-apps session is told.
 

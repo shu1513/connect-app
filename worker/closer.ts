@@ -88,17 +88,8 @@ async function main() {
    * slow money work can never keep a room open past its end.
    */
   let passes = 0;
-  let lastNoticeRound = 0;
   async function pass() {
     const now = new Date();
-    // About once a minute, and before everything else so that no failure further down can hold it up: everyone a coming
-    // version of a legal document concerns is written to, once, and the founder is told when the 30 days are at risk
-    // (plans/46, part 2). With nothing coming, this asks the database nothing.
-    // Timed by the clock, not by the count of finished passes: a pass that fails further down is not counted.
-    if (now.getTime() - lastNoticeRound >= 60_000) {
-      lastNoticeRound = now.getTime();
-      await runNoticeRound(now).catch((error) => console.error("[agreements] the round of notices of a coming version failed; will retry", error));
-    }
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     // If the payment work fails, the booking work waits for a pass in which it went through.
     try {
@@ -183,6 +174,17 @@ async function main() {
     followPasses++;
   }
 
+  /**
+   * The notices of a coming version of a legal document (plans/46, part 2), in a loop of their own, about once a
+   * minute: writing to many people must never delay a room or the money work, and a failure there must never hold up
+   * a notice that has a date. With nothing coming, this asks the database nothing.
+   */
+  let noticePasses = 0;
+  async function noticePass() {
+    if (noticePasses++ % 12 !== 0) return;
+    await runNoticeRound(new Date()).catch((error) => console.error("[agreements] the round of notices of a coming version failed; will retry", error));
+  }
+
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
   async function sendPass() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
@@ -206,6 +208,7 @@ async function main() {
     await testPass();
     await picturePass();
     await followPass();
+    await noticePass();
     process.exit(0);
   }
 
@@ -225,7 +228,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("notices", noticePass)]);
   process.exit(0);
 }
 
