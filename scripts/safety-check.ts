@@ -352,25 +352,60 @@ async function main() {
       await underage(already.id, alreadyCheck.id);
       check("an account paused already keeps its pause and its reason; the result is written and the founder is told", Boolean((await reloadUser(already.id)).pausedReason?.startsWith("No scams")) && (await checkNow(alreadyCheck.id)).adult === false && (await emails(already.email, "is paused")) === 1 && (await emails(adminUser.email, "age under 18")) === toldBefore + 2);
 
+      // The test admin is everyone's: the line this check makes about it is taken away again, whatever happens.
       const adminCheck = await openCheck(adminUser.id);
-      await underage(adminUser.id, adminCheck.id);
-      check("an admin's own account is not paused by it; the result is still written", (await reloadUser(adminUser.id)).pausedAt === null && (await checkNow(adminCheck.id)).adult === false);
-      // The test admin is everyone's: the line this check made about it is taken away again.
-      await db.delete(schema.identityChecks).where(eq(schema.identityChecks.id, adminCheck.id));
+      try {
+        await underage(adminUser.id, adminCheck.id);
+        check("an admin's own account is not paused by it; the result is still written", (await reloadUser(adminUser.id)).pausedAt === null && (await checkNow(adminCheck.id)).adult === false);
+      } finally {
+        await db.delete(schema.identityChecks).where(eq(schema.identityChecks.id, adminCheck.id));
+      }
+
+      // Both or neither: when the step fails after the result was written, neither the result nor the pause is there.
+      const half = await person("half6");
+      const halfCheck = await openCheck(half.id);
+      await R.pauseUnderage({
+        userId: half.id,
+        checkId: halfCheck.id,
+        save: async (writer) => {
+          await saveIdentityResult(writer, halfCheck.id, { status: "verified", adult: false, verifiedName: null, checkedAt: new Date() });
+          throw new Error("stopped in the middle, for the check");
+        },
+      }).catch(() => null);
+      check("a step that fails after writing the result leaves neither the result nor a pause", (await checkNow(halfCheck.id)).status === "processing" && (await checkNow(halfCheck.id)).adult === null && (await reloadUser(half.id)).pausedAt === null);
+
+      // A closed account is paused too, so that opening it again does not give back the use of the app. It is not written to.
+      const shut = await person("shut6");
+      const shutCheck = await openCheck(shut.id);
+      await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, shut.id));
+      await underage(shut.id, shutCheck.id);
+      check("a closed account is paused as well, and gets no email that says it can still log in", (await reloadUser(shut.id)).pausedAt !== null && (await emails(shut.email, "is paused")) === 0 && (await emails(adminUser.email, "age under 18")) === toldBefore + 3);
 
       // A pause that was interrupted: the account is marked, but the server stopped before the call ahead was
       // cancelled. The helper finds it and finishes the pause.
       const cut = await person("cut6");
       const cutCall = await aheadCall(cut.id, "cuthost6");
+      // A second call that was still ahead when the account was marked, and has reached its start since.
+      const cutOther = await person("cuthost6b");
+      const justStarted = new Date(Date.now() - 60_000);
+      const startedCall = await B.createTestCall({ hostId: cutOther.id, customerId: cut.id, startsAt: justStarted, endsAt: new Date(justStarted.getTime() + 15 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
       await db.update(schema.user).set({ pausedAt: new Date(Date.now() - 30_000), pausedReason: "Check." }).where(eq(schema.user.id, cut.id));
-      await finishPausesAndClosures(new Date());
+      // (Only this person: the helper's own look goes over every account, and the test database is shared.)
+      await finishPausesAndClosures(new Date(), cut.id);
       check("a pause made a moment ago is left alone: it may still be at work", (await callNow(cutCall.callId)).cancelledAt === null);
-      await db.update(schema.user).set({ pausedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(schema.user.id, cut.id));
-      await finishPausesAndClosures(new Date());
+      const markedAt = new Date(Date.now() - 5 * 60_000);
+      await db.update(schema.user).set({ pausedAt: markedAt }).where(eq(schema.user.id, cut.id));
+      await finishPausesAndClosures(new Date(), cut.id);
       check("the helper ends what an interrupted pause left behind: the call ahead is cancelled at no charge", (await callNow(cutCall.callId)).cancelledAt !== null && (await callNow(cutCall.callId)).cancelledLate === false);
+      const started = await callNow(startedCall.callId);
+      check("a call that reached its start in the meantime is cancelled at no charge too, as of the moment of the pause", started.cancelledAt?.getTime() === markedAt.getTime() && started.cancelledLate === false && started.cancelledBy === "admin", String(started.cancelledAt));
+      await db.update(schema.user).set({ pausedAt: null, pausedReason: null }).where(eq(schema.user.id, cut.id));
+      const afterLift = await aheadCall(cut.id, "cuthost6c");
+      await finishPausesAndClosures(new Date(), cut.id);
+      check("once the pause is lifted the helper leaves the person's calls alone", (await callNow(afterLift.callId)).cancelledAt === null);
 
       const joinStep = readFileSync("src/app/api/calls/[id]/token/route.ts", "utf8");
-      check("the join step reads the person again, holding their line, before it hands out a pass", /\.for\("share"\);[\s\S]*if \(me\.pausedAt\) throw[\s\S]*createEntryPass\(/.test(joinStep));
+      check("(read from the code) the join step reads the person again, holding their line, before it hands out a pass", /\.for\("share"\);[\s\S]*if \(me\.pausedAt\) throw[\s\S]*createEntryPass\(/.test(joinStep));
 
       const freeHost = await person("free6");
       await makeHost(freeHost, 0);

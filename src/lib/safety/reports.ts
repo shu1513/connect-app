@@ -245,6 +245,8 @@ async function pause(input: {
   /** How the email goes on after "Your account has been paused". */
   because: string;
   emailKey: string;
+  /** False when the person is not to be written to: a closed account, which was told when it was closed and cannot "still log in". */
+  tellPerson?: boolean;
   /** The admin who decided it, for the admins' record. Null when the app paused the account by itself. */
   adminId: string | null;
   /** When the app paused the account by itself: what the founder is told, in the same step. `alreadyText` when the account was paused already. */
@@ -271,7 +273,7 @@ async function pause(input: {
     endedMemberships = await endMembershipsOf(tx, person.id, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
     // So do their contributions, as a host and as a contributor; what was only held is let go below.
     givenUpPayments = await endContributionsOf(tx, person.id, "paused", new Date());
-    await queueEmail(tx, {
+    if (input.tellPerson !== false) await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
       text: `Hi ${person.name},\n\nYour account has been paused ${input.because}\n\nYou can still log in and see your past calls and receipts, but you cannot book, host or join calls until the pause is lifted. We are ending your requests that were waiting and cancelling your calls that have not started, at no charge to anyone. If you think this is a mistake, write to ${SUPPORT_EMAIL}.`,
@@ -334,6 +336,7 @@ export async function pauseUnderage(input: {
     reason: `${rule.title}. An identity check gave an age under 18.`,
     because: "because the identity check you took gave an age under 18, and Connect is for adults only.",
     emailKey: key,
+    tellPerson: !person.closedAt,
     adminId: null,
     tellFounder: {
       subject: "An identity check gave an age under 18",

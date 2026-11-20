@@ -17,8 +17,10 @@ import { createEntryPass, removeFromRoom, videoServerUrl } from "@/lib/video/liv
  * confirmed closed, including one that was cancelled or has just run out.
  * Throws if the video service cannot confirm it.
  */
-async function leaveOtherCalls(userId: string, thisCallId: string, now: Date): Promise<void> {
-  const others = await db
+async function leaveOtherCalls(reader: Pick<typeof db, "select">, userId: string, thisCallId: string, now: Date): Promise<void> {
+  // Read with the join step's own connection: a second one, asked for while the step holds its locks, could
+  // leave many joins at once waiting for each other.
+  const others = await reader
     .select()
     .from(schema.calls)
     .where(and(or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)), ne(schema.calls.id, thisCallId), isNull(schema.calls.closedAt)));
@@ -89,7 +91,7 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]
       // Read the call again under the lock: it may have been stopped or cancelled a moment ago.
       const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
       if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
-      await leaveOtherCalls(user.id, call.id, now);
+      await leaveOtherCalls(tx, user.id, call.id, now);
       return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: shownName });
     });
   } catch (error) {

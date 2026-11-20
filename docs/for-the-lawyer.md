@@ -343,7 +343,8 @@ written here.
   day:** the app now pauses the account by itself when it reads that result from Stripe
   (`pauseUnderage` in `src/lib/safety/reports.ts`). Their waiting requests end, their calls that
   have not started are cancelled at no charge, they are told why and where to write, and the
-  founder is told by email. Still to decide: is a pause enough, or must the account be closed and
+  founder is told by email. (Two cases apart: an admin's own account is not paused, only logged;
+  an account paused already keeps its pause and its reason, and the founder is told.) Still to decide: is a pause enough, or must the account be closed and
   its details removed? What must be done about calls that person already had, and about the hosts
   on them? If the check was wrong (a misread ID), is lifting the pause by the founder enough?
 - **"Remove and report" does not report.** The founder's button locks the picture and writes a
@@ -382,8 +383,8 @@ written here.
   and forbids payment outside the app. Tests such as California's, the UK's "worker" status and
   the EU's new platform-work law look at control like this, not at what the contract says. This
   needs its own look, country by country.
-- **Large sums and money laundering.** A single contribution can be up to $100,000, and the top
-  tip follows the same limit (`src/lib/contributions/rules.ts`). Two people working together
+- **Large sums and money laundering.** A single contribution can be up to $100,000, and a tip
+  with its payment fee has the same ceiling (`src/lib/contributions/rules.ts`). Two people working together
   could move money this way. Are lower limits needed, and does Connect have duties of its own
   beyond Stripe's checks? The sanctions question in section 14 also covers named persons, not
   only countries, and hosts already approved in a country later taken off the list.
@@ -407,7 +408,8 @@ written here.
   (`src/lib/membership/emails.ts`). Is it an advertisement in law, which needs the sender's
   postal address and a way to stop, like the follower emails in section 5?
 - **Someone who is not a user** (a person being impersonated, or shown in a picture without
-  consent) has no way to reach Connect: reports need an account. A manager or agency running a
+  consent) cannot use the report form: it needs an account. Such a person can only write to the
+  support address shown on the site, which is still a placeholder. A manager or agency running a
   star's account raises the question of who really has the right to sell calls under that name.
 - **Stars are not a safety mark.** Calls ended for safety cannot be rated, and a new host starts
   with an assumed rating when hosts are ordered (`src/lib/ratings/rules.ts`,

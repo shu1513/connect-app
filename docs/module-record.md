@@ -3769,37 +3769,83 @@ them"):
    shorten a hold. The box and the email that repeats it now add "or sooner if my bank shortens
    the hold"; two summaries say "normally". The wording's version is now `2026-11-20`.
 
+**Four more, from Astra's review of those fixes** (the founder: "fix the four still open before
+launch too"):
+
+5. *The result of the check and the pause are written in one database step*
+   (`saveIdentityResult` in `src/lib/safety/identity.ts`, handed to `pauseUnderage`). Both are
+   there or neither. One check pauses at most once, so a pause the founder lifted is never made
+   again by the same check, and a slower look at Stripe never writes over a final answer.
+6. *A pause or a closure that was interrupted finishes by itself.* The account is marked first
+   and its requests and calls are ended after; a server that stopped in between left them
+   there. About once a minute the helper now looks for a paused or closed account that still has
+   a waiting request or a call ahead, and ends them with the same step
+   (`finishPausesAndClosures` in `src/lib/profiles/closing.ts`). It leaves alone an account
+   paused or closed in the last two minutes, whose own step may still be at work. This covers
+   the founder's pause and closing an account too, where the gap had always been.
+7. *No pass for a call after a pause.* The join step read "paused" before it took its lock, so a
+   join under way at the very moment of a pause could still get a pass. It now reads the person
+   again inside the step, holding their line (`src/app/api/calls/[id]/token/route.ts`). Either
+   the pass comes first and the pause that follows makes it stop working, or the pause comes
+   first and no pass is handed out. This too covers every pause and closure.
+8. *The email that confirms a monthly contribution quotes the box the person ticked*, word for
+   word, in the wording of their own agreement (`BOXES` in `src/lib/contributions/wording.ts`
+   keeps every version). Before, it retold today's wording in other words.
+
 **The builder's own choices** (each can be changed):
 - *A pause, not a closed account.* An ID can be misread, and a pause can be lifted by the
-  founder. Whether a pause is enough is now a question in the lawyer file.
+  founder. **The founder's decision, not only the builder's:** asked on 20 November 2026 whether
+  such an account should be closed for good instead, the founder said "Keep the pause" (and,
+  just before: "no one under 18 is allowed in principle"). Whether a pause is enough in law is
+  still a question in the lawyer file.
 - *Not written in the admins' record.* That record needs an admin, and no admin did this. The
   check's own line (verified, not an adult, when) is the record.
-- *An admin's own account is not paused by it* (as with the founder's pause); it is logged.
+- *An admin's own account is not paused by it* (as with the founder's pause); it is logged, and
+  the result is still written.
 - *A closed account is paused too*, so that opening it again does not give back the use of the
   app (Astra's point).
-- *The pause is made before the result is saved*, so a pause that fails is tried again at the
-  next look.
+- *An account paused already for another reason keeps that pause and its reason*; the founder
+  is told about the result, so the pause is not lifted without knowing it.
+- *Two minutes* before the helper touches what a pause or closure left, and *about once a
+  minute* for its look.
 
-**What the reviewers found.** *Astra* (GPT 6.2 Astra, effort high, read-only) reviewed the
-commit. It found the founder's own pause unchanged for every caller, and no way to pause the
-wrong person. Taken: a closed account is paused too; the two identity pages read the pause
-after the look at Stripe and give it first place; "we use the date of birth once" promised an
-exact count and became "only to check whether you are 18 or older"; the founder's email no
-longer says the calls "are cancelled" before that has happened; three sentences of the lawyer
-file that said more than the code does. Not taken, with the reason:
-- *People already recorded as under 18 are not paused afterwards.* The app has no real users;
-  the only such lines are made by the check scripts. Before real users, nothing is there to
-  bring in.
-- *Saving the result and pausing in one database step.* It would guard against a second pause
-  after the founder lifted the first, which needs a failed write and a lift within the same
-  minutes. The cost is a wider change to the pause for a case that pauses, once more, an
-  account whose ID says under 18.
-- *A pause interrupted between its two halves* (the account paused, the calls not yet ended).
-  This gap is the same for the founder's pause and for closing an account, and was there
-  before. It deserves its own change, not a corner of this one.
-- *A join that is under way at the very moment of a pause* can still get its pass. Also there
-  before, for every pause, and in the middle of the call's join step.
-- *The email that confirms a monthly contribution quotes today's wording* to someone who agreed
-  to yesterday's and finished the card step after the change. With no real users, nobody is in
-  that state.
-The last four are worth doing before launch; they are listed under "Still open".
+**What the reviewers found, round one.** *Astra* (GPT 6.2 Astra, effort high, read-only)
+reviewed the first commit. It found the founder's own pause unchanged for every caller, and no
+way to pause the wrong person. Taken at once: a closed account is paused too; the two identity
+pages read the pause after the look at Stripe and give it first place; "we use the date of
+birth once" promised an exact count and became "only to check whether you are 18 or older"; the
+founder's email no longer says the calls "are cancelled" before that has happened; three
+sentences of the lawyer file that said more than the code does. Four more were first left for
+later and then built at the founder's word: points 5 to 8 above. One was not taken: *people
+already recorded as under 18 are not paused afterwards.* The app has no real users; the only
+such lines are made by the check scripts, so before real users there is nothing to bring in.
+
+**What the reviewers found, round two.** Astra reviewed the second commit (points 5 to 8). It
+found the one-step write sound: a competing look at Stripe loses cleanly, a later failure takes
+back both writes, and the lock on the person's line does order a pass against a pause. Taken:
+- *The helper could have ended a call that should be free of charge too late.* A call that was
+  still ahead when the account was marked, but reached its start before the helper came by, was
+  only "a call under way": the paused person put out, the other person waiting, and waiting can
+  cost money. Such a call is now cancelled at no charge as of the moment the account was marked.
+- *A pass made in the same second as the removal kept working.* The video service cancels a pass
+  whose starting second lies before the given moment, and the app gave it the current second.
+  It now gives the next one (`passCutoff` in `src/lib/video/livekit.ts`), for every removal.
+- *The helper reads the account again just before it acts*, so a pause lifted a moment ago is
+  respected; and its check in the script looks only at the script's own person, not at every
+  account of the shared test database.
+- *Two endings of the same call at once* (the founder's step and the helper) no longer count as
+  "a call could not be ended": the one that lost looks again and sees it is cancelled.
+- *The join step reads other calls with its own connection* instead of asking for a second one
+  while it holds its locks.
+- *A closed account that is paused for its age gets no email* saying it "can still log in".
+- The checks: the result and the pause are now tried with a step that fails halfway; the test
+  admin's line is removed whatever happens; the check of the join step says it reads the code.
+  Three sentences of the lawyer file corrected.
+Not taken: *two accounts that each have a waiting request with the other, both being cleaned
+up in the same instant*, can make the database stop one of the two steps. It was there before
+(the founder's pause and closing), the helper works through accounts one at a time, and what
+was stopped is tried again a minute later. And one check Astra called optional (sending an old
+agreement through the email in the script; the automatic test covers the old sentence).
+The helper's re-read is not a lock: between it and the ending there are a few thousandths of a
+second in which a lifted pause could still lose a request made in that same instant.
+
