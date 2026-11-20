@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  attendanceChargeCents,
-  bookedTotalCents,
-  collectionAmounts,
-  DEFAULT_FEE_TERMS,
-  reviewChargeLimitCents,
-  splitAfterRefunds,
-  splitCharge,
-} from "./pricing";
+import { attendanceChargeCents, bookedTotalCents, collectionAmounts, DEFAULT_FEE_TERMS, hostPriceProblem, reviewChargeLimitCents, splitAfterRefunds, splitCharge } from "./pricing";
 
 // The founder's example: $20 per 15 minutes.
 const PRICE = 2000;
@@ -213,5 +205,22 @@ describe("the most the founder may charge on one payment after a review", () => 
   it("for a call stopped before the added time, nothing can be charged for it", () => {
     expect(reviewChargeLimitCents({ ...own, safetyEndedAt: t("09:06:00") })).toBe(800);
     expect(reviewChargeLimitCents({ ...extra, safetyEndedAt: t("09:06:00") })).toBe(0);
+  });
+});
+
+describe("the price a host may set", () => {
+  it("is at least $5 per 15 minutes", () => {
+    expect(hostPriceProblem(500)).toBeNull();
+    expect(hostPriceProblem(2000)).toBeNull();
+    expect(hostPriceProblem(499)).toMatch(/at least \$5\.00/);
+    expect(hostPriceProblem(1)).toMatch(/at least \$5\.00/);
+  });
+  it("is never zero: a host cannot offer free calls", () => {
+    expect(hostPriceProblem(0)).toMatch(/at least \$5\.00/);
+  });
+  it("is a whole number of cents, and not below zero", () => {
+    expect(hostPriceProblem(500.5)).toMatch(/whole number/);
+    expect(hostPriceProblem(-500)).toMatch(/whole number/);
+    expect(hostPriceProblem(Number.NaN)).toMatch(/whole number/);
   });
 });

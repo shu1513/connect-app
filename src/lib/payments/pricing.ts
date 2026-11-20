@@ -22,8 +22,19 @@ export const DEFAULT_FEE_TERMS: FeeTerms = { percentBps: 490, fixedCents: 30, fo
 
 /** Stripe will not charge less than this in US dollars. */
 export const MIN_CHARGE_CENTS = 50;
-/** The lowest price a paid call may have. Zero means a free call. */
+/** The lowest price a host may set. (A call with a price of zero, from before 19 November 2026 or made by a check script, is a free call.) */
 export const MIN_PRICE_PER_15_CENTS = 500;
+
+/**
+ * Checks the price a host sets for their calls. Every host charges at least the minimum: a host
+ * cannot set a price of zero (the founder's decision of 19 November 2026, plans/40; until then zero
+ * meant "free calls"). Calls that already exist keep the price they were made with.
+ */
+export function hostPriceProblem(pricePer15Cents: number): string | null {
+  if (!Number.isInteger(pricePer15Cents) || pricePer15Cents < 0) return "The price must be a whole number of cents.";
+  if (pricePer15Cents < MIN_PRICE_PER_15_CENTS) return `Your price must be at least $${(MIN_PRICE_PER_15_CENTS / 100).toFixed(2)} per 15 minutes.`;
+  return null;
+}
 /** Our charge for one collection of earnings by a host. Covers Stripe's payout charge. */
 export const PAYOUT_FEE_CENTS = 25;
 

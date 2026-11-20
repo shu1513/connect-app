@@ -44,6 +44,7 @@ of keys, and hosts set up their payout accounts again there.
 7. **The host is paid out of money we actually collected.** If a call really happened and the money was lost through our own mistake, the company pays the host. That is handled by hand, and is not built in this module.
 8. **US dollars only, and hosts in the United States only, in this module.** Customers can be anywhere their card works.
 9. **A paid call costs at least $5 per 15 minutes.** A price of zero is a free call and skips payments entirely, which covers "the host invites a customer at no cost".
+   **Changed on 19 November 2026 (`plans/40-no-free-calls.md`):** a host can no longer set a price of zero. Every host charges at least $5 per 15 minutes.
 
 Other rules:
 

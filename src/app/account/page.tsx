@@ -118,7 +118,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
             <Link href="/identity" className="underline underline-offset-2">
               Confirm who you are
             </Link>{" "}
-            with a photo of your ID and a selfie. Hosts need it, so does anyone booking a free call, and some hosts only take calls from
+            with a photo of your ID and a selfie. Hosts need it, and some hosts only take calls from
             people who have done it.
           </p>
         )}
