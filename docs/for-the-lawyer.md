@@ -152,6 +152,14 @@ company yet.
   not built). The apps do not have projects, so the apps' version would leave out the parts
   that are only about projects and add what an app collects. The terms a person accepts stay
   the same everywhere. Is that acceptable, and what must the apps' version say?
+- **Saving a card, and the ID check, in the phone apps** (new, plan 45, part 06; built, not
+  live). Before a paid request is sent from the app, the customer ticks the same box, with the
+  same words and the same recorded version, as on the website. The card is then typed into
+  Stripe's own sheet, which adds a line of Stripe's own under the card ("By providing your card
+  information, you allow Connect to charge your card for future payments in accordance with
+  their terms"). Do the box's words and Connect's terms cover what that line says? The ID check
+  opens Stripe's page in the phone's browser over the app; Stripe asks there for its own yes
+  to the photo and the selfie. Is anything more needed from Connect before that page opens?
 - **Photos sent to checking companies from an app** (new, plan 45, part 14; not built). Apple
   asks for a person's plain yes before personal data goes to another company, a company that
   checks pictures by machine included. The app would ask before the first photo is sent.

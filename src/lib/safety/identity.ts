@@ -10,6 +10,7 @@ import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { db, schema } from "@/db";
 import { stripe } from "@/lib/payments/stripe";
+import { IDENTITY_TRIES } from "./identity-rules";
 
 /**
  * Reading the date of birth from a check needs a separate, restricted Stripe
@@ -28,7 +29,7 @@ function identityResults(): Stripe {
 
 export class IdentityError extends Error {}
 
-export const IDENTITY_TRIES = 3;
+export { IDENTITY_TRIES };
 
 export type IdentityState = { passed: boolean; adult: boolean | null; verifiedName: string | null; triesLeft: number; pending: boolean; checkId: string | null };
 

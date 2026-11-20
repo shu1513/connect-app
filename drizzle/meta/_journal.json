@@ -351,6 +351,13 @@
       "when": 1795199106069,
       "tag": "0049_agreements",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795202261025,
+      "tag": "0050_spent_request_keys",
+      "breakpoints": true
     }
   ]
 }

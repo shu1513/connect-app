@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { dayName, phoneZone, timeOnly } from "@/lib/home-rules";
 import { byDay } from "@/lib/host-rules";
 import { Button } from "@/ui/pieces";
@@ -12,10 +12,10 @@ import { type, useColors } from "@/ui/theme";
  * open times: a few days are shown, and more on request.
  *
  * `marked` times carry a star, with the words that say what the star means (a time for members
- * only). Choosing a time leads on to booking, which part 06 builds; until then the times are
- * shown to read.
+ * only). With `onChoose`, a time can be touched and leads on to asking for it
+ * (plans/45-phone-apps/06-asking-for-a-call.md); without it the times are shown to read.
  */
-export function Slots({ starts, marked, markedLabel }: { starts: string[]; marked?: string[]; markedLabel?: string }) {
+export function Slots({ starts, marked, markedLabel, onChoose }: { starts: string[]; marked?: string[]; markedLabel?: string; onChoose?: (iso: string) => void }) {
   const colors = useColors();
   const [daysShown, setDaysShown] = useState(4);
   const zone = phoneZone();
@@ -37,14 +37,24 @@ export function Slots({ starts, marked, markedLabel }: { starts: string[]; marke
             {dayName(day, true)}
           </Text>
           <View style={styles.times}>
-            {times.map((iso, index) => (
-              <View key={iso} style={[styles.time, { borderColor: colors.edge }]} accessible accessibilityLabel={`${label(iso, index)}${isMarked.has(iso) && markedLabel ? `, ${markedLabel}` : ""}`}>
+            {times.map((iso, index) => {
+              const said = `${label(iso, index)}${isMarked.has(iso) && markedLabel ? `, ${markedLabel}` : ""}`;
+              const words = (
                 <Text style={[styles.small, { color: colors.text }]}>
                   {label(iso, index)}
                   {isMarked.has(iso) ? " ★" : ""}
                 </Text>
-              </View>
-            ))}
+              );
+              return onChoose ? (
+                <Pressable key={iso} accessibilityRole="button" accessibilityLabel={`${dayName(day, true)}, ${said}`} onPress={() => onChoose(iso)} style={({ pressed }) => [styles.time, styles.touch, { borderColor: colors.edge, backgroundColor: pressed ? colors.notice : colors.surface }]}>
+                  {words}
+                </Pressable>
+              ) : (
+                <View key={iso} style={[styles.time, { borderColor: colors.edge }]} accessible accessibilityLabel={said}>
+                  {words}
+                </View>
+              );
+            })}
           </View>
         </View>
         );
@@ -59,6 +69,7 @@ const styles = StyleSheet.create({
   day: { gap: 8 },
   times: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   time: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  touch: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   small: { fontSize: type.small, lineHeight: 20 },
   bold: { fontWeight: "700" },
 });
