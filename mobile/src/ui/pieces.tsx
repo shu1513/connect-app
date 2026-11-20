@@ -7,7 +7,7 @@
  * text grows with the phone's text size.
  */
 import { createContext, useContext, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type TextInputProps } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type TextInputProps } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { shape, type, useColors } from "./theme";
 
@@ -26,9 +26,9 @@ export function Page({ title, children, refreshing, onRefresh }: { title?: strin
   const insets = useSafeAreaInsets();
   const screen = useWindowDimensions();
   // On an iPhone the page runs on behind the bar of places at the bottom (the phone lets it show through), so the
-  // page's own measure reaches too far down: what is behind the bar is not in sight. An iPhone's bar is 49 points
-  // tall above the home line. (To be looked at on a real iPhone in part 20.)
-  const lowest = screen.height - insets.bottom - (Platform.OS === "ios" ? 49 : 0);
+  // page's own measure can reach too far down. What is in sight ends at the bottom margin the phone gives this
+  // screen, which inside one of the places already reaches up to the bar. (To be looked at on a real iPhone in part 20.)
+  const lowest = screen.height - insets.bottom;
   const moved = () => {
     frame.current?.measureInWindow((_x, y, _width, height) => {
       const bottom = Math.min(y + height, lowest);
@@ -170,6 +170,19 @@ export function TextLink({ label, onPress }: { label: string; onPress: () => voi
   );
 }
 
+/**
+ * The way back, at the top of a screen that was opened from another: to where the person came
+ * from, or to the front page when the screen was opened by a link from outside.
+ */
+export function BackLink({ onBack }: { onBack: () => void }) {
+  const colors = useColors();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.back} hitSlop={4}>
+      <Text style={[styles.words, { color: colors.accent, fontWeight: "600" }]}>‹ Back</Text>
+    </Pressable>
+  );
+}
+
 /** Something the person should know: a result, a rule, what happens next. */
 export function Notice({ children }: { children: ReactNode }) {
   const colors = useColors();
@@ -224,6 +237,7 @@ const styles = StyleSheet.create({
   tickMark: { fontSize: 18, fontWeight: "800", lineHeight: 22 },
   tickWords: { flex: 1 },
   link: { minHeight: shape.touch, justifyContent: "center", alignSelf: "flex-start" },
+  back: { minHeight: shape.touch, justifyContent: "center", alignSelf: "flex-start", marginBottom: -8 },
   linkWords: { textDecorationLine: "underline", fontWeight: "600" },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", gap: shape.gap, padding: shape.pad },
 });
