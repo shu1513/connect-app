@@ -1,7 +1,9 @@
 # Phone apps, part 06: asking for a booked call, saving a card, and the ID check
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("not ready"); every point is worked in (the list is at the end).
+**Status:** built on 20 November 2026 (not merged yet: it waits, with parts 01 to 05, behind
+the tips pull request). Written by the builder alone. Part of plan 45. Astra checked the plan
+once ("not ready"); every point is worked in (the list is at the end). What the building
+changed is listed below.
 
 ## For the founder: what this is
 
@@ -99,6 +101,86 @@ Apple Pay and Google Pay. A real card. A real bank's approval app.
 
 This is the payment the stores allow outside their own systems: a live, one-to-one, unrecorded
 call. The screen says what is being bought in those words. The ID check is not a purchase.
+
+## What the building changed (20 November 2026)
+
+1. **One gathering and one set of sentences, for the website and the app.** What the booking
+   page shows is now put together in `src/lib/booking/book-page.ts` and worded in
+   `book-words.ts`; a request's page in `request-page.ts` and `request-words.ts`; the ID
+   check's sentences in `src/lib/safety/identity-words.ts`. The website's three pages were moved
+   onto them, word for word as before. So the box about the card has one wording, in one place,
+   for both (the wording's version is recorded with each request, as before).
+2. **Sentences travel in parts.** A sentence that stresses some words or names an exact moment
+   is sent as plain words, words to stress, and moments. The website writes a moment in the
+   browser's time zone, the phone in its own.
+3. **The once-only key is made by the server,** as the website's page makes it, and sent with
+   the summary. The app keeps the first one it was given for as long as the screen stands, so
+   a second tap, and trying again after a lost connection, are the same one request. (The plan
+   said the app makes it. This needs no extra kit in the app.)
+4. **The addresses:** `GET` and `POST /api/app/hosts/[handle]/book` (the summary; send),
+   `GET /api/app/bookings/[id]` (the request's page), `POST …/card` (what Stripe's sheet needs;
+   also makes the step when making it failed the first time), `POST …/card-saved` (the server
+   asks Stripe, then answers with the page as it stands), `POST …/take-back`,
+   `GET /api/app/identity`, `POST /api/app/identity/start`.
+   **Only the customer's side of a request is answered.** The host's side comes with part 07.
+5. **Stripe's key for the card sheet comes from the server** with the card step, so a copy of
+   the app can never be built with a key that does not match the server. The app only takes a
+   secret for saving a card (never one for a payment) and a key that may be shown.
+6. **Where the bank's approval hands back to.** The card sheet is given the address of the
+   request's own screen in the app. Whether the app was still open or not, that screen asks the
+   server, which asks Stripe. The same question is asked whenever the screen comes to the front
+   at the card step.
+7. **The return page for the ID check** is `/identity/done`: no top bar (it would show whoever
+   the browser knows), no result, nothing read from its address, and one fixed link back into
+   the app. The app opens only `https://verify.stripe.com/…` in the browser sheet, whatever
+   the server's answer says.
+8. **New, small:** someone who picks a time before signing in is taken back to that host's
+   page once they are in (kept in the app's memory only, for half an hour, a host's page only).
+   Taking a request back asks "are you sure" first (a tap by accident is easy on a phone).
+   "Your requests" on the home page now open the request. Account has "Confirm who you are".
+9. **Not wired yet, each waits for its own part:** a member's times (part 13), the call's page
+   from an accepted request (part 08; it leads to the Calls place for now), the waiting screen
+   of a call asked for "now" (part 11), "Report" and "Block" on a request (their own part).
+
+### How it was tried
+
+- `scripts/app-booking-check.ts`, 101 checks, with real test cards at Stripe (test mode): the
+  summary in the website's own sentences (and the website's page for the same time saying the
+  same); a request from the app is the same row, deadlines and email as one made by the
+  website's own function; sent twice it is one; every refusal; the card step, where only
+  Stripe's word counts (too early, a refused card, then a saved one); taking back, and after
+  the helper's clean-up the card is gone at Stripe too; the ID check started from the app, the
+  return page for a browser that never signed in.
+- The earlier checks of the app's addresses (parts 01 to 05) pass unchanged: 119, 75, 73.
+  The website's own unit tests pass (753).
+- On the Android test phone, with pictures: a visitor picks a time, signs in, and is back on
+  the host's page; the summary of a paid call; pressing on without the tick (nothing sent);
+  Stripe's sheet closed without a card; a refused card; a card that needs the bank's approval,
+  failed and then approved; **the app closed in the middle of the approval and opened again**
+  (the approval itself was then given through Stripe's test tools, standing in for the bank);
+  taking a request back; the ID check started, the link back into the app, and the result
+  shown; a free call sent.
+
+### What could not be tried here
+
+- **The ID check inside the phone's browser sheet.** The test phone's browser shows Google's
+  "agree to the terms" screen on first use, and that is the founder's to press, not the
+  builder's. So Stripe's own page was not walked inside the sheet. What is around it was:
+  the app asks the server, opens the browser at Stripe's address, comes back by the link, and
+  shows what the server says. (The result itself was pretended in the database.)
+- On this Mac nobody passes the ID check for real: reading "18 or older" from Stripe needs the
+  separate key `STRIPE_IDENTITY_KEY`, which is not set here. This is the website's own rule.
+- `booking-check`, `payments-check`, `verified-check` and `safety-check` need a test host
+  with payouts set up at Stripe, which the scratch database does not have. The booking
+  functions themselves were not changed (one small function was added).
+- The iPhone: the link that hands back from a bank's approval must be passed on to Stripe's
+  kit there (written, cannot be run on this Mac). For part 20.
+
+### Noticed, for the founder
+
+- **Every start of an ID check uses one of the three tries,** also when the person closes
+  Stripe's page without finishing. This is the website's rule too. On a phone the page is
+  closed more easily. Not changed here.
 
 ## Astra's check (20 November 2026): "not ready", now worked in
 

@@ -104,6 +104,19 @@ After changing a file, the everyday test build shows the change by itself, as lo
 server was started plainly (`npx expo start --dev-client`). Started with `CI=1` it does not watch
 the files, and the phone keeps showing the old code.
 
+## Trying a card and the ID check
+
+Both use Stripe in test mode, with the website's own test keys. Nothing is ever charged.
+
+- **A card.** Ask a host who charges for a call. Stripe's sheet takes Stripe's published test
+  cards: `4242 4242 4242 4242` is saved at once, `4000 0025 0000 3155` asks for the bank's
+  approval first (a test page with "Complete" and "Fail"), `4000 0000 0000 0002` is refused.
+  Any date in the future, any three digits, any ZIP code. A host on this Mac's test database can
+  only be asked for a paid call when she is marked as able to be paid (see
+  `scripts/app-booking-check.ts`, which does that for its own hosts).
+- **The ID check** opens Stripe's page in the phone's browser. The first time, the test
+  phone's browser shows Google's own first screen; press through it once by hand.
+
 ## The iPhone
 
 Building the iPhone app needs Xcode 26.4 or later. Until this Mac has it, only the Android app is
