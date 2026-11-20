@@ -7,6 +7,9 @@ import { UNREACHABLE, type Answer } from "@/lib/api-rules";
 import { isHome } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 
+/** The door's refusals that mean "this person may not see this": no sign-in, an address not confirmed, "18 and terms" to do, a copy too old, not the app. */
+const SHUT_OUT: readonly string[] = ["not_signed_in", "confirm_email", "welcome_needed", "update_needed", "not_the_app"];
+
 /**
  * The home page's data, and when it is asked for again
  * (plans/45-phone-apps/04-the-home-page.md, decisions 1, 2 and 5): when the page opens, when the
@@ -27,8 +30,10 @@ export function useHome(day: string | null) {
   const [home, setHome] = useState<AppHome | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
-  /** How many questions are under way. */
-  const [asking, setAsking] = useState(0);
+  /** The newest question, while it is under way (its number); null when it has been answered. */
+  const [asking, setAsking] = useState<number | null>(null);
+  /** The newest question that got a whole answer: an older question's refusal counts unless a newer one was let in since. */
+  const letIn = useRef(0);
   /** Only the newest question counts. */
   const newest = useRef(0);
 
@@ -39,7 +44,9 @@ export function useHome(day: string | null) {
    */
   const refused = useCallback(
     (answer: Answer<unknown>): boolean => {
-      if (answer.ok || answer.code === "unreachable") return false;
+      // Only the refusals that say "this person may not be here": a step that merely failed (a host could not be
+      // hidden, say) is that step's own to tell, beside what was pressed.
+      if (answer.ok || !SHUT_OUT.includes(answer.code)) return false;
       newest.current++;
       setHome(null);
       setProblem(answer.message);
@@ -52,15 +59,18 @@ export function useHome(day: string | null) {
   const load = useCallback(async () => {
     const mine = ++newest.current;
     const read = () => ask<AppHome>(`/api/app/home${day ? `?day=${day}` : ""}`);
-    setAsking((count) => count + 1);
+    setAsking(mine);
     try {
       let answer = await read();
+      // A refusal counts even from a question that a newer one has overtaken, unless a newer one was let in since:
+      // the server has said this person may not be here, whatever became of the newer question.
+      if (letIn.current < mine && refused(answer)) return;
       if (mine !== newest.current) return;
-      if (refused(answer)) return;
       if (!(answer.ok && isHome(answer.data))) {
         setProblem(answer.ok ? UNREACHABLE : answer.message);
         return;
       }
+      letIn.current = mine;
       setHome(answer.data);
       setProblem(null);
       // Today's suggestions have not been made: asked for in a step of its own, then read again. (Once made, the
@@ -73,7 +83,7 @@ export function useHome(day: string | null) {
       if (mine !== newest.current || refused(answer)) return;
       if (answer.ok && isHome(answer.data)) setHome(answer.data);
     } finally {
-      setAsking((count) => count - 1);
+      setAsking((now) => (now === mine ? null : now));
     }
   }, [day, refused]);
 
@@ -104,5 +114,5 @@ export function useHome(day: string | null) {
     setPulling(false);
   }, [load]);
 
-  return { home, problem, pulling, pull, reload: load, asking: asking > 0, refused };
+  return { home, problem, pulling, pull, reload: load, asking: asking !== null, refused };
 }

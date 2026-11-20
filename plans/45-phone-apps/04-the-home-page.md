@@ -195,6 +195,29 @@ taken.
 7. *"Loading other days…" was shown, or not shown, at the wrong moments.* It is shown exactly
    while a question is under way for days other than the ones on the screen.
 
+## Astra's third look at the code (20 November 2026): "not ready", now worked in
+
+The seven fixes were found sound. What it still found were orders of events on one phone used
+by two people within seconds, and photos staying on a screen. All taken; they sit in the first
+changes of part 05's branch, because part 05 was already being built in the same files.
+
+1. *A question to the server asked for one person could still open that person's screens
+   while another was signing in.* When someone starts to sign in, every question still on its
+   way no longer counts.
+2. *A photo's "no" could be lost when the page was refreshed at that moment; and a photo taken
+   from the app's memory got a fresh five minutes on the screen.* Simpler now: every photo has
+   an end, five minutes after the server said yes. When it is reached the photo asks again, and
+   a "no", or no answer, takes it off the screen, with or without a connection.
+3. *A refusal that reached the phone could be dropped* if a newer request had started and then
+   failed. A refusal now counts unless a newer request was let in since.
+4. *A host that could not be hidden emptied the whole page.* Only the refusals that mean "this
+   person may not be here" do that; a step that merely failed says so beside what was pressed.
+5. *"Seen" places waiting to be sent could go under the wrong day* around midnight. Each day's
+   go under their own.
+6. *On an iPhone the strip left out at the bottom could be counted twice.* It is the phone's
+   own bottom margin now, no more. (Still to be looked at on a real iPhone, part 20.)
+7. *"Loading other days…" could stay beside an error.* It follows the newest question only.
+
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Making suggestions was missing* (reading alone never makes them). Decision 2.
