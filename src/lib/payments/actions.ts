@@ -254,10 +254,11 @@ export function releasePlan(input: { paymentId: string; note: string; lowered?: 
     labelBase: `release:${input.paymentId}`,
     prepare: async (payment) => {
       cardPayment(payment);
+      // First: a payment that was charged or closed meanwhile is "no longer unpaid" for that caller too.
+      stillUnpaid(payment, input);
       if (!canMovePayment(payment.status as never, "closed_uncharged")) {
         throw new MoneyError("This payment has already been charged or closed.");
       }
-      stillUnpaid(payment, input);
       return { note: input.note, ...(input.lowered ? { lowered: input.lowered } : {}) };
     },
     execute: async (_params, label) => {
@@ -290,8 +291,9 @@ export async function releasePayment(input: { paymentId: string; note: string } 
     const { db } = await import("@/db");
     await db.transaction(async (tx) => {
       const [payment] = await tx.select().from(schema.payments).where(eq(schema.payments.id, input.paymentId)).for("update");
-      if (payment.stripePaymentIntentId || !canMovePayment(payment.status as never, "closed_uncharged")) return;
+      // First, so that a caller closing it as unpaid is told when somebody else got there before it.
       stillUnpaid(payment, input);
+      if (payment.stripePaymentIntentId || !canMovePayment(payment.status as never, "closed_uncharged")) return;
       await applyReleased(payment, input.note, tx);
     });
     const [after] = await paymentById(input.paymentId);

@@ -278,6 +278,28 @@ part, in the helper that closes the payment of a finished call nobody paid for:
 This part also moved onto the newer main (the legal changes of 20 November). Nothing of the
 money code met those changes.
 
+## Astra's sixth look at the code (20 November 2026): "not ready", now worked in
+
+The fifth look's point was found closed. One more ordering of the same kind:
+
+1. *The customer starts a new card step while Stripe is being asked about the old one.* The
+   helper then held the new card step in its hands, which nobody had asked Stripe about, and
+   could close it as "unpaid". Now, when the card step has changed during the question, the
+   helper is told "not known yet" and looks again on its next round.
+2. Smaller: if somebody else charged or closed the payment in between, the helper is now told
+   "no longer unpaid" in every case, and never writes "closed" in its log for a payment it
+   did not close. One new check (`scripts/app-calls-check.ts`, 78 checks).
+
+**Not checked by the script, said plainly:** point 1 needs a new card step to appear in the
+very moment Stripe is being asked. That cannot be made to happen on purpose here, so it is
+proven by reading the code.
+
+**What stays as it was before this part, said plainly:** once the helper has decided, under
+lock, to let an unpaid card step go, a hold that Stripe grants on that same card step in the
+second before Stripe is told to cancel it is cancelled with it. The call is over by then and
+nothing is charged; closing that last second would mean rebuilding how every money step is
+ordered, which is not this part's work.
+
 ## Astra's check (20 November 2026): "ready with changes", worked in
 
 1. *The Calls page is past calls; coming calls are on the home page.* Corrected; decision 6.

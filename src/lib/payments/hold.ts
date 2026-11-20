@@ -366,6 +366,10 @@ export async function syncHold(paymentId: string, now: Date, options: { closing?
   });
 
   const [after] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
+  // `closing`: "still waiting" is only an answer about the card step that Stripe was asked about. If the customer
+  // started a new card step while Stripe was being asked, nothing is known about that one: the caller is told so
+  // (it tries again later) instead of being handed a card step nobody has looked at.
+  if (options.closing && after.status === "awaiting_payment" && after.stripePaymentIntentId !== intent.id) throw new OutcomeUnknownError("The card step changed while Stripe was being asked.");
   return after;
 }
 

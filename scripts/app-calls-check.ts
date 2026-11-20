@@ -569,6 +569,18 @@ async function main() {
       check("nor is a payment closed as unpaid when the answer was about another card step", otherStep === "no longer unpaid" && (await paymentOf(never.call.id)).status === "awaiting_payment", otherStep);
       await releasePayment({ paymentId: neverBefore.id, note: "The call ended without a payment.", unpaidWith: neverBefore.stripePaymentIntentId ?? null });
       check("a payment that is still unpaid on the same card step is closed", neverBefore.stripePaymentIntentId !== null && (await paymentOf(never.call.id)).status === "closed_uncharged");
+      // The same for a payment nobody ever started paying (no card step at Stripe): closed once; and when somebody
+      // else has closed it meanwhile, the helper is told so instead of taking it for its own doing.
+      const bare = await newCall(host.id, cust.id, { startsIn: 40, price: 2000, minutes: 10 });
+      const bareBefore = await paymentOf(bare.call.id);
+      const closeBare = () =>
+        releasePayment({ paymentId: bareBefore.id, note: "The call ended without a payment.", unpaidWith: null }).then(
+          () => "closed",
+          (error: Error) => (error instanceof NoLongerUnpaidError ? "no longer unpaid" : error.message),
+        );
+      const bareOnce = await closeBare();
+      const bareTwice = await closeBare();
+      check("a payment without a card step is closed once, and a second helper is told it is no longer unpaid", bareBefore.stripePaymentIntentId === null && bareOnce === "closed" && bareTwice === "no longer unpaid" && (await paymentOf(bare.call.id)).status === "closed_uncharged", bareOnce + " " + bareTwice);
       // Shown as charged, but free by now (the hold fell away): cancelling as shown or cheaper always goes through.
       const cheaper = await newCall(host.id, cust.id, { startsIn: 45, price: 2000, minutes: 10, freeCancel: 60 });
       const cheaperDone = await step(cheaper.call.id, "cancel", cust.jar, { shown: "late_charge" });
