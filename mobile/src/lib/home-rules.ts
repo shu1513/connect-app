@@ -15,8 +15,16 @@ const isThing = (value: unknown): value is Record<string, unknown> => value !== 
 const isText = (value: unknown): value is string => typeof value === "string";
 const isMoment = (value: unknown): value is string => isText(value) && !Number.isNaN(Date.parse(value));
 
+const isTextOrNull = (value: unknown): value is string | null => value === null || typeof value === "string";
+const isListOf = (value: unknown, each: (item: Record<string, unknown>) => boolean): boolean => Array.isArray(value) && value.every((item) => isThing(item) && each(item));
+
 function isCall(value: unknown): value is AppCall {
-  return isThing(value) && isText(value.id) && isMoment(value.startsAt) && isMoment(value.endsAt) && typeof value.minutes === "number" && isText(value.name) && typeof value.hosting === "boolean" && typeof value.open === "boolean" && typeof value.finished === "boolean" && isText(value.payment);
+  if (!isThing(value) || !isText(value.id) || !isMoment(value.startsAt) || !isMoment(value.endsAt) || typeof value.minutes !== "number" || !isText(value.name)) return false;
+  if (!isTextOrNull(value.photoId) || typeof value.hosting !== "boolean" || typeof value.open !== "boolean" || typeof value.finished !== "boolean" || !isText(value.payment)) return false;
+  const earned = value.earned;
+  if (earned !== undefined && !(isThing(earned) && isText(earned.text) && typeof earned.cents === "number" && typeof earned.soFar === "boolean")) return false;
+  const about = value.about;
+  return about === undefined || (isThing(about) && isText(about.words) && typeof about.idConfirmed === "boolean" && typeof about.member === "boolean" && typeof about.callsBefore === "number" && isTextOrNull(about.lastCallAt) && isTextOrNull(about.note));
 }
 
 /**
@@ -29,12 +37,24 @@ export function isHome(data: unknown): data is AppHome {
   if (data.next !== null && !(isThing(data.next) && isText(data.next.id) && isMoment(data.next.opensAt) && typeof data.next.notPaid === "boolean")) return false;
   if (data.noCall !== null && !isText(data.noCall)) return false;
   const calendar = data.calendar;
-  if (!isThing(calendar) || typeof calendar.shown !== "boolean" || typeof calendar.cut !== "boolean" || !Array.isArray(calendar.asks)) return false;
-  if (!isThing(data.toAnswer) || typeof data.toAnswer.count !== "number" || !Array.isArray(data.toAnswer.shown)) return false;
-  if (!Array.isArray(data.toRate) || !Array.isArray(data.requests)) return false;
-  if (!isThing(data.followed) || typeof data.followed.total !== "number" || !Array.isArray(data.followed.hosts)) return false;
-  if (data.suggested !== null && !(isThing(data.suggested) && isText(data.suggested.day) && typeof data.suggested.made === "boolean" && Array.isArray(data.suggested.hosts))) return false;
-  return data.hosting === null || isThing(data.hosting);
+  if (!isThing(calendar) || typeof calendar.shown !== "boolean" || typeof calendar.cut !== "boolean" || typeof calendar.most !== "number" || !isTextOrNull(calendar.day)) return false;
+  if (!isListOf(calendar.asks, (ask) => isMoment(ask.startsAt) && isMoment(ask.endsAt) && typeof ask.count === "number")) return false;
+  const toAnswer = data.toAnswer;
+  if (!isThing(toAnswer) || typeof toAnswer.count !== "number" || typeof toAnswer.times !== "number") return false;
+  if (!isListOf(toAnswer.shown, (r) => isText(r.id) && isMoment(r.startsAt) && typeof r.minutes === "number" && isText(r.price) && isText(r.name) && (r.respondBy === null || isMoment(r.respondBy)))) return false;
+  if (!isListOf(data.toRate, (c) => isText(c.callId) && isText(c.otherName) && isMoment(c.endsAt))) return false;
+  if (!isListOf(data.requests, (r) => isText(r.id) && isText(r.hostName) && isMoment(r.startsAt) && isText(r.words))) return false;
+  const followed = data.followed;
+  if (!isThing(followed) || typeof followed.total !== "number") return false;
+  if (!isListOf(followed.hosts, (h) => isText(h.name) && isTextOrNull(h.handle) && typeof h.available === "boolean" && isTextOrNull(h.photoId))) return false;
+  const suggested = data.suggested;
+  if (suggested !== null) {
+    if (!isThing(suggested) || !isText(suggested.day) || typeof suggested.made !== "boolean" || typeof suggested.shownFirst !== "number" || !isText(suggested.why)) return false;
+    const isHost = (h: Record<string, unknown>) =>
+      typeof h.place === "number" && isText(h.handle) && isText(h.name) && isText(h.price) && Array.isArray(h.languages) && h.languages.every(isText) && typeof h.seen === "boolean" && isTextOrNull(h.photoId) && typeof h.availableNow === "boolean" && (h.nextOpen === null || isMoment(h.nextOpen)) && (h.rating === null || (isThing(h.rating) && typeof h.rating.average === "number" && typeof h.rating.count === "number"));
+    if (!isListOf(suggested.hosts, isHost)) return false;
+  }
+  return data.hosting === null || (isThing(data.hosting) && isTextOrNull(data.hosting.page));
 }
 
 export type Piece = { key: string; day: string; from: number; to: number; lane: number; lanes: number; call: AppCall | null; ask: AppAsk | null };

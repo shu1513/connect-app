@@ -15,6 +15,12 @@ export const APP_HEADER = "x-connect-app";
  */
 export const SIGN_IN_HEADER = "x-connect-signin";
 
+/**
+ * The header in which the server says how many seconds the app may keep a picture in its own
+ * memory (only ever for a photo anyone may see). The same name as KEEP_HEADER on the server.
+ */
+export const KEEP_HEADER = "x-connect-keep";
+
 export function appHeader(platform: "android" | "ios", version: string): string {
   return `${platform} ${version}`;
 }

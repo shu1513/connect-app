@@ -36,6 +36,17 @@ describe("the server's answer for the home page", () => {
   it("is taken when it has what the screen reads", () => {
     expect(isHome(home)).toBe(true);
     expect(isHome({ ...home, calls: [call("c1", "2026-11-20T20:00:00.000Z", 30)], next: { id: "c1", opensAt: "2026-11-20T19:50:00.000Z", notPaid: false }, noCall: null })).toBe(true);
+    expect(
+      isHome({
+        ...home,
+        hosting: { page: "ada" },
+        calls: [call("c1", "2026-11-20T20:00:00.000Z", 30, { hosting: true, about: { words: "", idConfirmed: true, member: false, callsBefore: 2, lastCallAt: "2026-11-01T20:00:00.000Z", note: null } })],
+        calendar: { shown: true, day: "2026-11-20", asks: [{ startsAt: "2026-11-21T20:00:00.000Z", endsAt: "2026-11-21T20:30:00.000Z", count: 2 }], cut: false, most: 500 },
+        toAnswer: { count: 1, times: 1, shown: [{ id: "b1", startsAt: "2026-11-21T20:00:00.000Z", endsAt: "2026-11-21T20:30:00.000Z", minutes: 30, price: "free", name: "Ben", respondBy: null }] },
+        followed: { total: 1, hosts: [{ name: "Maya", handle: null, available: false, photoId: null }] },
+        suggested: { day: "2026-11-20", made: true, shownFirst: 3, why: "…", hosts: [{ place: 1, handle: "maya", name: "Maya", price: "Free calls", languages: ["English"], seen: false, rating: { average: 4.8, count: 21 }, photoId: null, availableNow: false, nextOpen: null }] },
+      }),
+    ).toBe(true);
   });
 
   it("is not taken when a part is missing or is not what it should be", () => {
@@ -52,6 +63,14 @@ describe("the server's answer for the home page", () => {
       { ...home, followed: { total: 1 } },
       { ...home, suggested: { day: "2026-11-20" } },
       { ...home, takeCalls: "yes" },
+      // Inside the lists too: a part the screen reads that is not there would break the screen, not show an error.
+      { ...home, calendar: { ...home.calendar, day: 5 } },
+      { ...home, calendar: { ...home.calendar, asks: [{ startsAt: "2026-11-20T20:00:00.000Z" }] } },
+      { ...home, calls: [{ ...call("c1", "2026-11-20T20:00:00.000Z", 30), about: { words: "hello" } }] },
+      { ...home, toAnswer: { count: 1, times: 1, shown: [{ id: "b1" }] } },
+      { ...home, followed: { total: 1, hosts: [{ name: "Maya" }] } },
+      { ...home, suggested: { day: "2026-11-20", made: true, shownFirst: 3, why: "…", hosts: [{ place: 1, handle: "maya", name: "Maya", price: "Free calls", seen: false, rating: null, photoId: null, availableNow: false, nextOpen: null }] } },
+      { ...home, hosting: { page: 7 } },
     ]) {
       expect(isHome(bad)).toBe(false);
     }

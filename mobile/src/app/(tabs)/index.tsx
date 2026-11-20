@@ -52,7 +52,19 @@ export default function HomePlace() {
       {home.calendar.shown ? (
         <Card>
           <Heading>Your calendar</Heading>
-          <Calendar calls={home.calls} asks={home.calendar.asks} serverNow={home.serverNow} day={day} cut={home.calendar.cut} most={home.calendar.most} nextId={home.next?.id ?? null} onDay={setDay} />
+          <Calendar
+            calls={home.calls}
+            asks={home.calendar.asks}
+            serverNow={home.serverNow}
+            // The days shown are the days this answer is for. Other days asked for appear when their answer is in.
+            day={home.calendar.day}
+            moving={day !== home.calendar.day && !problem}
+            cut={home.calendar.cut}
+            most={home.calendar.most}
+            nextId={home.next?.id ?? null}
+            // Asking for the same days again (after they did not come) asks the server again.
+            onDay={(next) => (next === day ? void reload() : setDay(next))}
+          />
         </Card>
       ) : null}
 

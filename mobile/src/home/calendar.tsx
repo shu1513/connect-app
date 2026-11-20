@@ -34,9 +34,14 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hou
  * never who. A line says what the calls she hosted in these days earned together; a red line marks
  * "now" in today's column.
  *
+ * `day` is the day the server's answer is for, and the calendar shows those days and no others:
+ * the calls it has are the calls around that day. While other days have been asked for and have
+ * not come yet (`moving`), it says so, and still shows the days it has, so that it never says
+ * "no calls" of days it has not been told about.
+ *
  * It draws what it is given and decides nothing about who may see what.
  */
-export function Calendar({ calls, asks, serverNow, day, cut, most, nextId, onDay }: { calls: AppCall[]; asks: AppAsk[]; serverNow: string; day: string | null; cut: boolean; most: number; nextId: string | null; onDay: (day: string | null) => void }) {
+export function Calendar({ calls, asks, serverNow, day, moving, cut, most, nextId, onDay }: { calls: AppCall[]; asks: AppAsk[]; serverNow: string; day: string | null; moving: boolean; cut: boolean; most: number; nextId: string | null; onDay: (day: string | null) => void }) {
   const colors = useColors();
   const [chosen, setChosen] = useState<string | null>(null);
   const [view, setView] = useState<"calendar" | "list">("calendar");
@@ -68,6 +73,7 @@ export function Calendar({ calls, asks, serverNow, day, cut, most, nextId, onDay
           </Pressable>
         </View>
       </View>
+      {moving ? <Text style={[styles.small, { color: colors.accentDeep }]}>Loading other days…</Text> : null}
       {total ? (
         <Text style={[styles.small, { color: colors.soft }]}>
           {total.calls} {total.calls === 1 ? "call" : "calls"} hosted in these days · earned <Text style={styles.bold}>{dollars(total.cents)}</Text>
@@ -170,7 +176,7 @@ export function Calendar({ calls, asks, serverNow, day, cut, most, nextId, onDay
           <View style={[styles.chosen, { borderTopColor: colors.line }]}>
             {chosenCall ? (
               // The details of the next call are in the card above, once: its row here goes without them.
-              <CallRow call={chosenCall} plain={chosenCall.id === nextId} alone />
+              <CallRow key={chosenCall.id} call={chosenCall} plain={chosenCall.id === nextId} alone />
             ) : (
               <Text style={[styles.small, { color: colors.soft }]}>{inView.length > 0 ? "Tap a call to see it." : "No calls in these days."}</Text>
             )}

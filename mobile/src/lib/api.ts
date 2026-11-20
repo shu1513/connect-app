@@ -8,7 +8,7 @@
  */
 // Expo's own fetch, named outright: it is the one that can be told not to follow a redirect, on both kinds of phone.
 import { fetch } from "expo/fetch";
-import { addressFor, APP_HEADER, appHeader, readAnswer, SIGN_IN_HEADER, UNREACHABLE, type Answer } from "./api-rules";
+import { addressFor, APP_HEADER, appHeader, KEEP_HEADER, readAnswer, SIGN_IN_HEADER, UNREACHABLE, type Answer } from "./api-rules";
 import { APP_VERSION, PLAIN_HTTP_ALLOWED, PLATFORM, SERVER } from "./config";
 
 /** Said when the phone could not read its own kept sign-in. Nothing was sent. */
@@ -85,8 +85,8 @@ export async function ask<T>(path: string, options: { method?: "GET" | "POST"; b
 }
 
 /**
- * A picture from the door (a person's photo), as its bytes, with how long the phone may keep it
- * (0: not at all). Null for every "no", whatever the reason: the door answers them all the same.
+ * A picture from the door (a person's photo), as its bytes, with how long the app may keep it in
+ * its memory (0: not at all). Null for every "no", whatever the reason: the door answers them all the same.
  */
 export async function askForPicture(path: string): Promise<{ bytes: Uint8Array; keepSeconds: number } | null> {
   const sent = await send(path, { accept: "image/jpeg" });
@@ -94,8 +94,10 @@ export async function askForPicture(path: string): Promise<{ bytes: Uint8Array; 
   try {
     if (sent.response.status !== 200 || !String(sent.response.headers.get("content-type")).startsWith("image/jpeg")) return null;
     const bytes = new Uint8Array(await sent.response.arrayBuffer());
-    const kept = /(?:^|,)\s*max-age=(\d+)/.exec(String(sent.response.headers.get("cache-control") ?? ""));
-    return { bytes, keepSeconds: kept ? Number(kept[1]) : 0 };
+    // How long the app itself may keep it, in its memory: said by the server in a header of its own. (The answer
+    // always says "do not store", so nothing on the way and nothing of the phone's own keeps it.)
+    const keep = Number(sent.response.headers.get(KEEP_HEADER) ?? 0);
+    return { bytes, keepSeconds: Number.isFinite(keep) && keep > 0 ? keep : 0 };
   } catch {
     return null;
   } finally {

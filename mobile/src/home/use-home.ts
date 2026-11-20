@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import type { AppHome } from "../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
-import { UNREACHABLE } from "@/lib/api-rules";
+import { UNREACHABLE, type Answer } from "@/lib/api-rules";
 import { isHome } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 
@@ -11,8 +11,13 @@ import { useOpening } from "@/lib/opening";
  * The home page's data, and when it is asked for again
  * (plans/45-phone-apps/04-the-home-page.md, decisions 1, 2 and 5): when the page opens, when the
  * day in view changes, when the page is pulled down, when the app comes back to the front, and
- * every minute while the page is in front. Whatever is on the screen stays until the new answer
- * is in; if it does not come, the old one stays, with a line saying so.
+ * every minute while the page is in front.
+ *
+ * When a newer answer does not come because Connect cannot be reached, what is on the screen
+ * stays, with a line saying so. When the server refuses (the sign-in ran out, "18 and terms" is
+ * to do again, this copy is too old), everything is taken off the screen at once: it was shown to
+ * someone the server no longer takes for that person. The opening question then says where they
+ * belong.
  *
  * Reading the home page never makes suggestions. When the answer says today's have not been made,
  * the app asks for that in a step of its own, and then reads again.
@@ -28,29 +33,32 @@ export function useHome(day: string | null) {
   const load = useCallback(async () => {
     const mine = ++newest.current;
     const read = () => ask<AppHome>(`/api/app/home${day ? `?day=${day}` : ""}`);
+    /** True when the server refused: the page is emptied, and the opening question is asked. */
+    const refused = (answer: Answer<unknown>): boolean => {
+      if (answer.ok || answer.code === "unreachable") return false;
+      setHome(null);
+      setProblem(answer.message);
+      void askOpening();
+      return true;
+    };
     let answer = await read();
     if (mine !== newest.current) return;
-    if (answer.ok && isHome(answer.data)) {
-      setHome(answer.data);
-      setProblem(null);
-      // Today's suggestions have not been made: asked for in a step of its own, then read again. (Once made, the
-      // server says so from then on, so this happens once a day; if the step fails it is tried again with the next reading.)
-      const suggested = answer.data.suggested;
-      if (!suggested || suggested.made) return;
-      const made = await ask("/api/app/suggestions/make", { body: {} });
-      if (!made.ok || mine !== newest.current) return;
-      answer = await read();
-      if (mine === newest.current && answer.ok && isHome(answer.data)) setHome(answer.data);
+    if (refused(answer)) return;
+    if (!(answer.ok && isHome(answer.data))) {
+      setProblem(answer.ok ? UNREACHABLE : answer.message);
       return;
     }
-    if (!answer.ok && answer.code !== "unreachable") {
-      // A refusal: no longer signed in, "18 and terms" to do again, or this copy too old.
-      // The opening question says where this person belongs now.
-      void askOpening();
-      setProblem(answer.message);
-      return;
-    }
-    setProblem(answer.ok ? UNREACHABLE : answer.message);
+    setHome(answer.data);
+    setProblem(null);
+    // Today's suggestions have not been made: asked for in a step of its own, then read again. (Once made, the
+    // server says so from then on, so this happens once a day; if the step fails it is tried again with the next reading.)
+    const suggested = answer.data.suggested;
+    if (!suggested || suggested.made) return;
+    const made = await ask("/api/app/suggestions/make", { body: {} });
+    if (mine !== newest.current || refused(made) || !made.ok) return;
+    answer = await read();
+    if (mine !== newest.current || refused(answer)) return;
+    if (answer.ok && isHome(answer.data)) setHome(answer.data);
   }, [day, askOpening]);
 
   // While the page is in front: now, on coming back to the app, and every so often.

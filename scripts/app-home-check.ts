@@ -241,7 +241,7 @@ async function main() {
       check("with the host's photo, by its id", one?.photoId === hostAPhoto);
       check("it is the next call, with when its room opens", body?.next?.id === booked.id && typeof body.next.opensAt === "string" && body.noCall === null);
       check("rule 1: nothing about a customer on a call they booked", one !== undefined && !("about" in one));
-      check("rule 3: a call they booked says what they pay, never what a host earned", typeof one?.payment === "string" && one.payment.length > 0 && !("earned" in one) && !("moneyOpen" in one), one?.payment);
+      check("rule 3: a call they booked says what they pay, never what a host earned", one?.payment === "$40.00, not paid yet" && !("earned" in one) && !("moneyOpen" in one), one?.payment);
       check("the calendar is shown, for today", body?.calendar.shown === true && body.calendar.day === null && body.calendar.cut === false);
       const mine = body?.requests.find((r) => r.id === asked.id);
       check("their own request, with the host's name and how it stands", mine?.hostName === hostB.displayName && mine.words === "waiting for the host's answer", mine?.words);
@@ -264,7 +264,13 @@ async function main() {
       { hostId: hostC.id, customerId: cust.id, text: "My own note about this customer" },
       { hostId: hostA.id, customerId: cust.id, text: "Another host's private note" },
     ]);
-    const asks = [await waitingRequest(hostC.id, other.id, 2 * 24 * 60, "First asker"), await waitingRequest(hostC.id, cust.id, 2 * 24 * 60, "Second asker, same time")];
+    // Two people ask for the very same time.
+    const first = await waitingRequest(hostC.id, other.id, 2 * 24 * 60, "First asker");
+    const [second] = await db
+      .insert(schema.bookings)
+      .values({ hostId: hostC.id, customerId: cust.id, startsAt: first.startsAt, endsAt: first.endsAt, lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, note: "Second asker, same time", stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + 2 * 60 * MINUTE) })
+      .returning();
+    const asks = [first, second];
     {
       const { reply, body } = await home(hostC.jar);
       const text = reply.text;
@@ -352,11 +358,19 @@ async function main() {
         const opened = await asApp("/api/app/suggestions/opened", { body: { day, place: shown.place }, jar: fresh.jar });
         const [lineAfter] = await db.select().from(schema.suggestionShows).where(and(eq(schema.suggestionShows.viewerId, fresh.id), eq(schema.suggestionShows.hostId, sug.id)));
         check("'opened' is recorded on the person's own line", opened.status === 200 && line.openedAt === null && lineAfter.openedAt !== null);
-        // Another person's "seen" and "opened" cannot touch this person's line.
+        // Another person's steps cannot touch someone else's lines: a second person with an untouched line of her own,
+        // and a stranger who sends "seen", "opened" and "hide" for every place and for that very host.
+        const victim = await newPerson("victim");
+        await asApp("/api/app/suggestions/make", { body: {}, jar: victim.jar });
+        const hers = async () => (await db.select().from(schema.suggestionShows).where(and(eq(schema.suggestionShows.viewerId, victim.id), eq(schema.suggestionShows.hostId, sug.id))))[0];
+        const untouched = await hers();
         const stranger = await newPerson("stranger");
         await asApp("/api/app/suggestions/seen", { body: { day, places: [1, 2, 3, 4, 5, 6] }, jar: stranger.jar });
-        const mineStill = await db.select().from(schema.suggestionShows).where(eq(schema.suggestionShows.viewerId, stranger.id));
-        check("a step can only touch the asker's own lines", mineStill.length === 0);
+        for (const place of [1, 2, 3, 4, 5, 6]) await asApp("/api/app/suggestions/opened", { body: { day, place }, jar: stranger.jar });
+        await asApp("/api/app/suggestions/hide", { body: { handle: sug.handle }, jar: stranger.jar });
+        const after2 = await hers();
+        check("the second person has a line for that host, not seen and not opened", untouched !== undefined && untouched.seenAt === null && untouched.openedAt === null);
+        check("a stranger's steps leave it exactly as it was, and the host is still suggested to her", after2 !== undefined && after2.seenAt === null && after2.openedAt === null && (await home(victim.jar)).body?.suggested?.hosts.some((h) => h.handle === sug.handle) === true);
         check("'hide' needs a handle", refusal(await asApp("/api/app/suggestions/hide", { body: {}, jar: fresh.jar })) === "not_valid");
         const hide = await asApp("/api/app/suggestions/hide", { body: { handle: sug.handle }, jar: fresh.jar });
         check("'hide' takes the host out of the row", hide.status === 200 && (await home(fresh.jar)).body?.suggested?.hosts.some((h) => h.handle === sug.handle) === false);
@@ -377,13 +391,18 @@ async function main() {
       const stranger = await newPerson("looker");
       const open = await asApp(`/api/app/photos/${hostAPhoto}`);
       check("an approved, visible host's photo is open to anyone, signed in or not", open.status === 200 && open.headers["content-type"] === "image/jpeg" && open.bytes.toString() === "photo");
-      check("it may be kept by that person's phone for five minutes, and by nothing in between", open.headers["cache-control"] === "private, max-age=300");
+      check("nothing on the way, and nothing of the phone's own, may store it; the app may keep it in memory for five minutes", open.headers["cache-control"] === "private, no-store" && open.headers["x-connect-keep"] === "300");
       check("nothing in it may run", open.headers["x-content-type-options"] === "nosniff" && String(open.headers["content-security-policy"]).includes("sandbox"));
       const hidden = await asApp(`/api/app/photos/${custPhoto}`);
       check("a customer's photo is not for someone not signed in", hidden.status === 404 && refusal(hidden) === "not_found" && String(hidden.headers["cache-control"]).includes("no-store"));
       check("nor for a signed-in stranger", refusal(await asApp(`/api/app/photos/${custPhoto}`, { jar: stranger.jar })) === "not_found");
       const forHost = await asApp(`/api/app/photos/${custPhoto}`, { jar: hostC.jar });
-      check("it is for a host the customer has asked, and is never kept", forHost.status === 200 && forHost.bytes.toString() === "photo" && String(forHost.headers["cache-control"]).includes("no-store"));
+      check("it is for a host the customer has asked, and is never kept, not even in the app's memory", forHost.status === 200 && forHost.bytes.toString() === "photo" && forHost.headers["cache-control"] === "private, no-store" && forHost.headers["x-connect-keep"] === undefined);
+      // A host who has to accept the terms again is a guest to the photos, as on the website, until she has.
+      await db.update(schema.user).set({ termsVersion: "older" }).where(eq(schema.user.id, hostC.id));
+      check("a host with '18 and terms' to do again is not handed a customer's photo", refusal(await asApp(`/api/app/photos/${custPhoto}`, { jar: hostC.jar })) === "not_found");
+      check("but still gets a photo anyone may see", (await asApp(`/api/app/photos/${hostAPhoto}`, { jar: hostC.jar })).status === 200);
+      await db.update(schema.user).set({ termsVersion: TERMS_VERSION }).where(eq(schema.user.id, hostC.id));
       check("and for the customer themselves", (await asApp(`/api/app/photos/${custPhoto}`, { jar: cust.jar })).status === 200);
       // Rule from the plan: the founder's wider view is never given through the app.
       await db.insert(schema.admins).values({ userId: stranger.id });

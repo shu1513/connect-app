@@ -30,7 +30,8 @@ function callFor(call: ListedCall): AppCall {
     name: call.name,
     photoId: call.photoId,
     hosting: call.hosting,
-    open: call.open,
+    // A call that is over is never "open", also when it was ended early and its booked time still runs.
+    open: call.open && !call.finished,
     finished: call.finished,
     payment: call.payment,
     ...(call.earned ? { earned: { text: call.earned.text, cents: call.earned.cents, soFar: call.earned.soFar } } : {}),

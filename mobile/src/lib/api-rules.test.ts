@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { addressFor, APP_HEADER, appHeader, isLoginToolAddress, isServer, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
+import { addressFor, APP_HEADER, appHeader, isLoginToolAddress, isServer, KEEP_HEADER, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
 
 describe("the names the app and the server share", () => {
   it("are the same on both sides", () => {
@@ -8,6 +8,7 @@ describe("the names the app and the server share", () => {
     const server = readFileSync(join(__dirname, "../../../src/lib/app-door/rules.ts"), "utf8");
     expect(server).toContain(`export const APP_HEADER = "${APP_HEADER}";`);
     expect(server).toContain(`export const SIGN_IN_HEADER = "${SIGN_IN_HEADER}";`);
+    expect(server).toContain(`export const KEEP_HEADER = "${KEEP_HEADER}";`);
   });
 });
 

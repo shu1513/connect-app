@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type ComponentRef } from "react";
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AppHome, AppSuggestedHost } from "../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
 import { localTime, ratingWords } from "@/lib/home-rules";
-import { Button, Card, Heading, usePageSettled, Words } from "@/ui/pieces";
+import { Button, Card, Heading, usePageView, Words } from "@/ui/pieces";
 import { Photo } from "@/ui/photo";
 import { type, useColors } from "@/ui/theme";
 
@@ -113,26 +113,27 @@ export function HostsYouFollow({ followed }: { followed: AppHome["followed"] }) 
 }
 
 /**
- * One suggested host: what a search result shows, the next open time, and the X. When half the
- * card has been on the screen it tells the list, once (`onSeen`): that is what "seen" means.
+ * One suggested host: what a search result shows, the next open time, and the X. When the middle
+ * of the card is in sight (inside the page's own window, not under the bar at the bottom) once the
+ * page has come to rest, it tells the list (`onSeen`): that is what "seen" means. It tells it once;
+ * if the list could not pass that on to the server (`again` changes), it tells it again.
  */
-function SuggestedCard({ host, first, onSeen, onHide }: { host: AppSuggestedHost; first: boolean; onSeen: (place: number) => void; onHide: (host: AppSuggestedHost) => void }) {
+function SuggestedCard({ host, first, again, onSeen, onHide }: { host: AppSuggestedHost; first: boolean; again: number; onSeen: (place: number) => void; onHide: (host: AppSuggestedHost) => void }) {
   const colors = useColors();
-  const settled = usePageSettled();
-  const window = useWindowDimensions();
+  const view = usePageView();
   const box = useRef<ComponentRef<typeof View>>(null);
-  const told = useRef(host.seen);
+  /** For which round of telling this card has already spoken; -1: not yet. */
+  const told = useRef(-1);
   useEffect(() => {
-    if (told.current) return;
-    // Where the card is on the screen now that the page has come to rest: seen when its middle is on it.
+    if (host.seen || told.current === again || view.bottom <= view.top) return;
     box.current?.measureInWindow((_x, y, _width, height) => {
       const middle = y + height / 2;
-      if (!told.current && height > 0 && middle > 0 && middle < window.height) {
-        told.current = true;
+      if (told.current !== again && height > 0 && middle > view.top && middle < view.bottom) {
+        told.current = again;
         onSeen(host.place);
       }
     });
-  }, [settled, window.height, host.place, onSeen]);
+  }, [view.settled, view.top, view.bottom, again, host.seen, host.place, onSeen]);
   return (
     <View ref={box} style={[styles.person, { borderTopColor: colors.line }, first ? styles.first : null]} collapsable={false}>
       <Photo photoId={host.photoId} name={host.name} small />
@@ -171,9 +172,16 @@ export function SuggestedHosts({ suggested, onChanged }: { suggested: NonNullabl
   const [more, setMore] = useState(false);
   const [why, setWhy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Counts up when a "seen" could not be passed on: the cards in sight then tell it again. */
+  const [again, setAgain] = useState(0);
   /** Places seen and not yet told to the server; sent together a moment later. */
   const waiting = useRef<number[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The newest "something changed" of the page: a step that finishes late asks the page as it is then, not as it was.
+  const changed = useRef(onChanged);
+  useEffect(() => {
+    changed.current = onChanged;
+  }, [onChanged]);
   const day = suggested.day;
   useEffect(
     () => () => {
@@ -181,21 +189,34 @@ export function SuggestedHosts({ suggested, onChanged }: { suggested: NonNullabl
     },
     [],
   );
-  if (suggested.hosts.length === 0) return notice ? <Card><Words soft>{notice}</Words></Card> : null;
+  const seen = useCallback(
+    (place: number) => {
+      waiting.current.push(place);
+      if (timer.current) return;
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        const places = waiting.current.splice(0);
+        if (places.length === 0) return;
+        void ask("/api/app/suggestions/seen", { body: { day, places } }).then((done) => {
+          // Not passed on: the cards still in sight say so again the next time the page comes to rest.
+          if (!done.ok) setAgain((count) => count + 1);
+        });
+      }, 800);
+    },
+    [day],
+  );
+  if (suggested.hosts.length === 0) {
+    return notice ? (
+      <Card>
+        <Words soft>{notice}</Words>
+      </Card>
+    ) : null;
+  }
 
-  const seen = (place: number) => {
-    waiting.current.push(place);
-    if (timer.current) return;
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      const places = waiting.current.splice(0);
-      if (places.length > 0) void ask("/api/app/suggestions/seen", { body: { day, places } });
-    }, 800);
-  };
   const hide = async (host: AppSuggestedHost) => {
     const done = await ask("/api/app/suggestions/hide", { body: { handle: host.handle } });
-    setNotice(done.ok ? "Hidden. You will not be suggested this host again. You can still find them with the search." : "Something went wrong. Nothing was changed. Please try again.");
-    if (done.ok) onChanged();
+    setNotice(done.ok ? "Hidden. You will not be suggested this host again. You can still find them with the search." : done.code === "unreachable" ? done.message : "Something went wrong. Nothing was changed. Please try again.");
+    if (done.ok) changed.current();
   };
   const first = suggested.hosts.slice(0, suggested.shownFirst);
   const rest = suggested.hosts.slice(suggested.shownFirst);
@@ -204,10 +225,10 @@ export function SuggestedHosts({ suggested, onChanged }: { suggested: NonNullabl
       <Heading>Suggested hosts</Heading>
       {notice ? <Words soft>{notice}</Words> : null}
       {first.map((host, index) => (
-        <SuggestedCard key={`${day}:${host.place}`} host={host} first={index === 0} onSeen={seen} onHide={(one) => void hide(one)} />
+        <SuggestedCard key={`${day}:${host.place}`} host={host} first={index === 0} again={again} onSeen={seen} onHide={(one) => void hide(one)} />
       ))}
       {rest.length > 0 && !more ? <Button label={`Show ${rest.length} more`} kind="plain" onPress={() => setMore(true)} /> : null}
-      {more ? rest.map((host) => <SuggestedCard key={`${day}:${host.place}`} host={host} first={false} onSeen={seen} onHide={(one) => void hide(one)} />) : null}
+      {more ? rest.map((host) => <SuggestedCard key={`${day}:${host.place}`} host={host} first={false} again={again} onSeen={seen} onHide={(one) => void hide(one)} />) : null}
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: why }} onPress={() => setWhy(!why)} style={styles.whyHead}>
         <Text style={[styles.small, { color: colors.soft, textDecorationLine: "underline" }]}>{why ? "▾" : "▸"} Why these hosts?</Text>
       </Pressable>

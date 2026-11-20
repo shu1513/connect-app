@@ -20,16 +20,15 @@ export function NextCall({ call, next, serverNow, onDue }: { call: AppCall; next
   const colors = useColors();
   const drawnAt = Date.parse(serverNow);
   // How much time has passed since the answer came, by a steady counter that does not jump when the phone's clock is changed.
-  const [passed, setPassed] = useState(0);
+  // It is kept together with the answer it was counted from: when a newer answer comes, the time counted on the
+  // older one is not added to it, not even for a moment.
+  const [counted, setCounted] = useState({ from: drawnAt, passed: 0 });
   useEffect(() => {
     const startedAt = performance.now();
-    const timer = setInterval(() => setPassed(performance.now() - startedAt), 1000);
-    return () => {
-      clearInterval(timer);
-      setPassed(0);
-    };
+    const timer = setInterval(() => setCounted({ from: drawnAt, passed: performance.now() - startedAt }), 1000);
+    return () => clearInterval(timer);
   }, [drawnAt]);
-  const now = drawnAt + passed;
+  const now = drawnAt + (counted.from === drawnAt ? counted.passed : 0);
 
   const opensAt = Date.parse(next.opensAt);
   const startsAt = Date.parse(call.startsAt);
@@ -65,7 +64,8 @@ export function NextCall({ call, next, serverNow, onDue }: { call: AppCall; next
           </Text>
         </View>
       </View>
-      {call.about ? <AboutLines name={call.name} about={call.about} /> : null}
+      {/* A piece of its own for each call: a note that was opened for one call is closed again when another call takes this place. */}
+      {call.about ? <AboutLines key={call.id} name={call.name} about={call.about} /> : null}
       {due === "ended" ? (
         <Text style={[styles.small, { color: colors.soft }]}>Checking…</Text>
       ) : call.open ? (

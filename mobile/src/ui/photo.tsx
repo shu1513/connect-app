@@ -13,15 +13,23 @@ export function initialsOf(name: string): string {
  * A person's photo in a circle, or their initials when there is none, or none for whoever is
  * looking (plans/45-phone-apps/04-the-home-page.md, decision 4). It asks the server for the photo
  * by its id; a "no" looks exactly like having no photo.
+ *
+ * Each photo id gets a piece of its own: when the id changes, or goes and comes back, nothing of
+ * the picture before is left to show.
  */
 export function Photo({ photoId, name, small = false }: { photoId: string | null; name: string; small?: boolean }) {
+  return <OnePhoto key={photoId ?? "none"} photoId={photoId} name={name} small={small} />;
+}
+
+function OnePhoto({ photoId, name, small }: { photoId: string | null; name: string; small: boolean }) {
   const colors = useColors();
-  const [shown, setShown] = useState<{ id: string; picture: string } | null>(null);
+  const [picture, setPicture] = useState<string | null>(null);
   useEffect(() => {
     if (!photoId) return;
     let here = true;
-    void photo(photoId).then((picture) => {
-      if (here && picture) setShown({ id: photoId, picture });
+    void photo(photoId).then((got) => {
+      // Shown when there is one for this person; taken away again when the answer is "no".
+      if (here) setPicture(got);
     });
     return () => {
       here = false;
@@ -29,8 +37,7 @@ export function Photo({ photoId, name, small = false }: { photoId: string | null
   }, [photoId]);
   const size = small ? 44 : 64;
   const round = { width: size, height: size, borderRadius: size / 2 };
-  // Only ever the picture that belongs to the id now asked for: never the one before it.
-  if (photoId && shown?.id === photoId) return <Image source={{ uri: shown.picture }} style={round} accessibilityIgnoresInvertColors accessibilityLabel={`Photo of ${name}`} />;
+  if (picture) return <Image source={{ uri: picture }} style={round} accessibilityIgnoresInvertColors accessibilityLabel={`Photo of ${name}`} />;
   return (
     <View style={[round, styles.initials, { backgroundColor: colors.notice, borderColor: colors.noticeLine }]} accessibilityElementsHidden importantForAccessibility="no">
       <Text style={[styles.letters, { color: colors.accentDeep, fontSize: small ? 15 : 20 }]}>{initialsOf(name)}</Text>

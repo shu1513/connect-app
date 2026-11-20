@@ -38,7 +38,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/suggest
   }
   if (step === "hide") {
     if (typeof given.handle !== "string" || !given.handle) return refuse("not_valid");
-    await hideSuggestion(person.id, given.handle.slice(0, 100), now);
+    try {
+      await hideSuggestion(person.id, given.handle.slice(0, 100), now);
+    } catch (error) {
+      // As on the website: said plainly, and nothing was changed.
+      console.error("[suggestions] could not hide a suggestion", error);
+      return refuse("not_valid", "Something went wrong. Nothing was changed. Please try again.");
+    }
     return answer({ done: true });
   }
   return refuse("not_found");

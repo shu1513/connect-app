@@ -66,7 +66,7 @@ export function CallRow({ call, withTimeOnly = false, plain = false, alone = fal
             {call.earned.soFar ? " so far" : ""}
           </Text>
         ) : null}
-        {call.about && !plain ? <AboutLines name={call.name} about={call.about} short /> : null}
+        {call.about && !plain ? <AboutLines key={call.id} name={call.name} about={call.about} short /> : null}
       </View>
     </View>
   );
