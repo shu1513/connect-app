@@ -154,6 +154,21 @@ describe("readAccountAnswer", () => {
     expect(readAccountAnswer(answer({ open_id: "723f", username: "Jane.Doe_1", display_name: "Jane", avatar_url: "x" }), "723f")).toEqual({ kind: "account", openId: "723f", username: "Jane.Doe_1" });
   });
 
+  it("hands on the large picture's address when TikTok sent one, and only that one", () => {
+    const large = "https://p19-sign.tiktokcdn-us.com/tos-avt-0068-tx/b17f~c5_1080x1080.jpeg?x-expires=1";
+    expect(readAccountAnswer(answer({ open_id: "723f", username: "jane", avatar_large_url: large, avatar_url: "https://small.example/a.jpeg" }), "723f")).toEqual({ kind: "account", openId: "723f", username: "jane", pictureAddress: large });
+    // The address is only handed on here. Whether it may be fetched is decided where the picture is fetched.
+    expect(readAccountAnswer(answer({ open_id: "723f", username: "jane", avatar_large_url: "http://anywhere.example/x" }), "723f")).toEqual({ kind: "account", openId: "723f", username: "jane", pictureAddress: "http://anywhere.example/x" });
+  });
+
+  it("a missing picture, or one that is not text, is no reason to fail: the account is what was asked about", () => {
+    for (const avatar_large_url of [undefined, null, "", 7, ["x"], { url: "x" }, "x".repeat(2001)]) {
+      const read = readAccountAnswer(answer({ open_id: "723f", username: "jane", avatar_large_url }), "723f");
+      expect(read).toEqual({ kind: "account", openId: "723f", username: "jane" });
+      expect("pictureAddress" in read).toBe(false);
+    }
+  });
+
   it("the number must be the same text as in the token answer", () => {
     expect(readAccountAnswer(answer({ open_id: "other", username: "jane" }), "723f")).toEqual({ kind: "failed", reason: "account numbers differ" });
     expect(readAccountAnswer(answer({ username: "jane" }), "723f")).toEqual({ kind: "failed", reason: "no account number" });
@@ -203,6 +218,25 @@ describe("tiktokAccountFor (with a pretended connection)", () => {
     expect(sent[0].headers).toEqual({ "content-type": "application/x-www-form-urlencoded" });
     expect(sent[2].headers).toEqual({ "content-type": "application/x-www-form-urlencoded" });
     expect(sent[2].body).toEqual({ client_key: "our-key", client_secret: "our-secret", token: "act.key" });
+  });
+
+  it("asked \"with the picture\", the one question also asks for the large picture, and nothing else changes", async () => {
+    const withPicture = JSON.stringify({ data: { user: { open_id: "723f", username: "jane.doe", avatar_large_url: "https://p16-sign-va.tiktokcdn.com/a.jpeg" } }, error: { code: "ok" } });
+    const { sent, send } = connection([token, withPicture, "{}"]);
+    expect(await tiktokAccountFor("the-code", SETTINGS, send, { withPicture: true })).toEqual({ kind: "account", openId: "723f", username: "jane.doe", pictureAddress: "https://p16-sign-va.tiktokcdn.com/a.jpeg" });
+    expect(sent.map((s) => `${s.method} ${s.url}`)).toEqual([
+      "POST https://open.tiktokapis.com/v2/oauth/token/",
+      "GET https://open.tiktokapis.com/v2/user/info/?fields=open_id,username,avatar_large_url",
+      "POST https://open.tiktokapis.com/v2/oauth/revoke/",
+    ]);
+    expect(sent[1].headers).toEqual({ authorization: "Bearer act.key" });
+    // The key is handed back also when the account has no picture, or the answer fails.
+    const none = connection([token, account, "{}"]);
+    expect(await tiktokAccountFor("c", SETTINGS, none.send, { withPicture: true })).toEqual({ kind: "account", openId: "723f", username: "jane.doe" });
+    expect(none.sent.at(-1)?.url).toBe("https://open.tiktokapis.com/v2/oauth/revoke/");
+    const failed = connection([token, null, "{}"]);
+    expect(await tiktokAccountFor("c", SETTINGS, failed.send, { withPicture: true })).toEqual({ kind: "failed", reason: "no answer" });
+    expect(failed.sent.at(-1)?.url).toBe("https://open.tiktokapis.com/v2/oauth/revoke/");
   });
 
   it("never puts the secret, the code or the key in an address", async () => {

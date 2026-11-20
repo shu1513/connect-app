@@ -1,5 +1,5 @@
 {
-  "id": "43946559-d5ab-496c-a70b-2e99aa0aceae",
+  "id": "9318def1-88b5-443a-aa59-dfd02ddf0678",
   "prevId": "5676ac3f-974d-4a19-b611-62659e0a3bca",
   "version": "7",
   "dialect": "postgresql",
@@ -3306,6 +3306,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "returned_at": {
+          "name": "returned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -3669,13 +3675,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'US'"
-        },
-        "languages": {
-          "name": "languages",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
         },
         "us_confirmed_at": {
           "name": "us_confirmed_at",
