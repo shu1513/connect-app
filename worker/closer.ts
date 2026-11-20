@@ -45,6 +45,7 @@ async function main() {
   const { catchUpFromStripe, lookAtOpenDisputes } = await import("../src/lib/disputes/record");
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
   const { runNoticeRound } = await import("../src/legal/notices");
+  const { runRetention } = await import("../src/lib/retention");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -133,6 +134,9 @@ async function main() {
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.
     if (passes % 720 === 0) await forgetOldRequests(now).catch((error) => console.error("[refunds] forgetting old requests failed; will retry", error));
+    // About once an hour: emails are emptied two years after they were sent, and login records deleted twelve months
+    // after they ran out (plans/46, part 4). It catches its own failures.
+    if (passes % 720 === 0) await runRetention(now);
     // What was suggested to whom is kept for 90 days (plans/37).
     if (passes % 720 === 0) await removeOldSuggestions(now).catch((error) => console.error("[suggestions] removing old suggestions failed; will retry", error));
     passes++;

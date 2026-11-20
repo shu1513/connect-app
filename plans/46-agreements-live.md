@@ -625,3 +625,17 @@ Astra said to hold it for one point. Taken:
   other host, and has two more cases: a collection that was refused and went through later, and
   a contribution refunded after collection.
 
+## What building part 4 added (20 November 2026)
+
+- `src/lib/retention.ts`, run by the helper about once an hour, at most 2,000 emails a round.
+  No migration: an emptied email is one with nothing left to remove, so no mark is needed.
+- "Two years" and "twelve months" are counted on the calendar, not in days.
+- **The login library's one-time codes and links** (confirming an address, a new password) are
+  deleted twelve months after they ran out too. They can hold an email address, and nothing reads
+  one that has run out.
+- **Changed against this plan: no new version of the Privacy Policy.** The draft's two lines say
+  "[PERIOD: we propose 2 years]" and "[PERIOD: we propose 12 months]". What is built is exactly
+  what they propose, so the draft is true as it stands, and the numbers are written in as fact
+  in the first published version, with the others the lawyer settles. (A second draft would also
+  need a name: a version is named by its day, and today's is taken.)
+

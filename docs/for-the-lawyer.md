@@ -528,3 +528,16 @@ founder can let one host charge up to $2,500, and take that away again. This is 
   give up (section 11 above), or a limit under consumer credit rules where the card is a credit
   card? Stripe does the payment checks today; is that enough?
 
+## 19. Two end dates that are now built (new, plan 46 part 4, 20 November 2026)
+
+- **Emails:** two years after an email was sent, the app removes its text, its subject, the
+  address it went to, its extra headers, the note of an error and the sending service's number.
+  It keeps that an email of that kind was sent, and when. Is two years right, or should the proof
+  that a legal notice was sent (new terms, a payment reminder, a decision about an account) be
+  kept longer, with its text? Today the notice of new terms is emptied like any other email.
+- **Login records** (with the internet address and the kind of browser) are deleted twelve
+  months after they ran out. Is that long enough for looking into fraud, and short enough?
+- Every other period in the Privacy Policy's table is still a proposal and nothing deletes those
+  records: payments, what a person agreed to, reports and blocks, identity-check results,
+  backups.
+
