@@ -87,7 +87,7 @@ export default async function PastCallsPage(props: PageProps<"/calls">) {
               {calls.map((call) => (
                 <tr key={call.id} className="border-b border-neutral-300/40" data-call={call.id}>
                   <td className="py-2 pr-4">
-                    <LocalTime iso={call.startsAt.toISOString()} />
+                    <LocalTime iso={call.startsAt.toISOString()} year />
                   </td>
                   <td className="py-2 pr-4">{otherOf(call)}</td>
                   <td className="py-2 pr-4">{call.hostId === user.id ? "Host" : "Customer"}</td>

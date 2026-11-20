@@ -156,6 +156,9 @@ export default async function HomePage(props: PageProps<"/">) {
     picturesOf(news.map((post) => post.postId)),
   ]);
 
+  // The time the countdown counts from, and by which a room counts as open: taken here, after everything was read,
+  // so the time the reads took is not lost. (Which calls are not over was asked at `now`, a moment earlier.)
+  const drawn = new Date();
   const listed: ListedCall[] = calls.map((call) => ({
     id: call.id,
     startsAt: call.startsAt.toISOString(),
@@ -163,10 +166,10 @@ export default async function HomePage(props: PageProps<"/">) {
     name: otherOf(call),
     photoId: call.customerId === user.id ? (photos.get(call.hostId) ?? null) : null,
     hosting: call.hostId === user.id,
-    open: roomState(call, now) === "open",
+    open: roomState(call, drawn) === "open",
     payment: paymentLine(paymentsOf.get(call.id) ?? []),
   }));
-  const next = nextCall(calls, now);
+  const next = nextCall(calls, drawn);
   const nextListed = next ? listed.find((call) => call.id === next.id)! : null;
   const firstName = user.name.trim().split(/\s+/)[0] ?? "";
   const sectionTitle = "text-lg font-bold";
@@ -197,7 +200,7 @@ export default async function HomePage(props: PageProps<"/">) {
       )}
 
       {next && nextListed ? (
-        <section className={`${roomState(next, now) === "open" ? warm.available : warm.card} mt-6`} data-next-call={next.id}>
+        <section className={`${roomState(next, drawn) === "open" ? warm.available : warm.card} mt-6`} data-next-call={next.id}>
           <h2 className="text-sm font-bold text-[#9a3412]">Your next call</h2>
           <div className="mt-3 flex items-center gap-3">
             <HostPhoto photoId={nextListed.photoId} name={nextListed.name} />
@@ -214,11 +217,11 @@ export default async function HomePage(props: PageProps<"/">) {
           </div>
           <Countdown
             callId={next.id}
-            serverNow={now.toISOString()}
+            serverNow={drawn.toISOString()}
             opensAt={roomOpensAt(next).toISOString()}
             startsAt={next.startsAt.toISOString()}
             endsAt={next.endsAt.toISOString()}
-            open={roomState(next, now) === "open"}
+            open={roomState(next, drawn) === "open"}
             notPaid={notPaidYet(paymentsOf.get(next.id) ?? [])}
           />
         </section>
@@ -278,7 +281,7 @@ export default async function HomePage(props: PageProps<"/">) {
         <section className={`${warm.card} mt-6`} data-calls="coming-up">
           <h2 className={sectionTitle}>Your next calls</h2>
           <div className="mt-2">
-            <CallsByDay calls={listed} serverNow={now.toISOString()} />
+            <CallsByDay calls={listed} serverNow={drawn.toISOString()} />
           </div>
         </section>
       )}

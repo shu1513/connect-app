@@ -2777,6 +2777,12 @@ says "in 1 day 4 hours"; the page greets the person by first name.
   Second round, on the fixes: nothing that must be fixed; one more check made exact (the news
   excerpt is compared letter for letter).
 
+- *CodeRabbit, on the code's pull request (61).* Two points, both taken. Past calls showed their
+  date without the year, so two calls a year apart could look alike: the year is shown there
+  now. And the countdown counted from a time taken before the page had read its data, so it ran
+  behind by however long the reading took: the time is now taken after the reading. After these
+  two fixes `scripts/home-check.ts` (44) and `scripts/journey-check.ts` were run again; both pass.
+
 **How it was checked.** 642 automatic tests on the code, 21 of them new (which call is next, the
 countdown's words, how long ago a start was, days on both sides of midnight and on the day the
 clocks change). On this computer, against the local database, after Astra's fixes:
