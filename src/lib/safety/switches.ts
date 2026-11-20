@@ -1,6 +1,7 @@
 /**
  * The founder's switches: "no new requests", "nobody can join a call", memberships and projects
- * (each of the last two: off, on for the hosts the founder names, or on for everyone).
+ * (each of these two: off, on for the hosts the founder names, or on for everyone), and tips
+ * (on or off).
  *
  * Memberships are ON FOR EVERYONE unless the founder turns them off or names hosts (the founder's
  * decision, 18 November 2026). The switch is there to stop them, not to start them. Projects work
@@ -10,7 +11,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 export type MembershipsSwitch = "off" | "named" | "everyone";
-export type Switches = { requestsOff: boolean; joiningOff: boolean; memberships: MembershipsSwitch; membershipsHosts: string[]; projects: MembershipsSwitch; projectsHosts: string[] };
+export type Switches = { requestsOff: boolean; joiningOff: boolean; memberships: MembershipsSwitch; membershipsHosts: string[]; projects: MembershipsSwitch; projectsHosts: string[]; tipsOff: boolean };
 
 /** A saved position, read strictly: anything that is not one of the three words counts as "off", the safe side. */
 const asPosition = (value: string | undefined): MembershipsSwitch => (value === "named" || value === "everyone" ? value : "off");
@@ -31,6 +32,8 @@ export async function switches(reader: Pick<typeof db, "select"> = db): Promise<
     // The same for projects: no row yet means on for everyone, like the column's own default.
     projects: row ? asPosition(row.projects) : "everyone",
     projectsHosts: (row?.projectsHosts ?? "").split(",").filter(Boolean),
+    // Tips are on unless the founder switched them off (plans/44, decision 12): no row yet means on.
+    tipsOff: row?.tipsOff ?? false,
   };
 }
 
@@ -47,6 +50,7 @@ export async function setSwitches(values: Partial<Switches>, writer: Pick<typeof
     ...(values.membershipsHosts !== undefined ? { membershipsHosts: [...new Set(values.membershipsHosts)].join(",") } : {}),
     ...(values.projects !== undefined ? { projects: asPosition(values.projects) } : {}),
     ...(values.projectsHosts !== undefined ? { projectsHosts: [...new Set(values.projectsHosts)].join(",") } : {}),
+    ...(values.tipsOff !== undefined ? { tipsOff: values.tipsOff } : {}),
     updatedAt: new Date(),
   };
   await writer
@@ -74,4 +78,19 @@ export async function membershipsOnFor(hostId: string, reader: Pick<typeof db, "
 export async function projectsOnFor(hostId: string, reader: Pick<typeof db, "select"> = db): Promise<boolean> {
   const { projects, projectsHosts } = await switches(reader);
   return projects === "everyone" || (projects === "named" && projectsHosts.includes(hostId));
+}
+
+/** Are tips after a call switched on? One switch for every host (plans/44, decision 12). */
+export async function tipsOn(reader: Pick<typeof db, "select"> = db): Promise<boolean> {
+  return !(await switches(reader)).tipsOff;
+}
+
+/**
+ * May anything new be done for a payment of this contribution: a hold placed, money taken, a card
+ * form handed out? A tip follows the tips switch; everything else follows the projects switch for
+ * its host. Every place in the contribution's money code that used to ask the projects switch
+ * asks this, so a tip is never stopped by the projects switch, nor a contribution by the tips one.
+ */
+export async function takingOnFor(contribution: { kind: string; hostId: string }, reader: Pick<typeof db, "select"> = db): Promise<boolean> {
+  return contribution.kind === "tip" ? tipsOn(reader) : projectsOnFor(contribution.hostId, reader);
 }

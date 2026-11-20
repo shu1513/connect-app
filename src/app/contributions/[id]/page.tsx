@@ -31,6 +31,9 @@ const smallButton = "rounded border border-neutral-500 px-3 py-1.5 text-sm";
  *
  * Nothing is claimed before it is known: "nothing was charged" is said only once the hold is
  * certainly gone. Until then: "We are cancelling this payment."
+ *
+ * A tip after a call (plans/44) lives on this page too, in a tip's words: it is a contribution of
+ * kind "tip", with a call and no project, and its one payment moves as one made once does.
  */
 export default async function ContributionPage(props: PageProps<"/contributions/[id]">) {
   const { id } = await props.params;
@@ -45,6 +48,9 @@ export default async function ContributionPage(props: PageProps<"/contributions/
   const [profile] = await db.select({ displayName: schema.hostProfiles.displayName, handle: schema.hostProfiles.handle }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, contribution.hostId));
   const hostName = profile?.displayName ?? "the host";
   const monthly = contribution.kind === "monthly";
+  const tip = contribution.kind === "tip";
+  const tipCents = contribution.tipCents ?? contribution.amountCents;
+  const projectName = project?.name ?? "the project";
 
   // The one payment that waits for this person's card, if any: at the card step, after a failure, or for the bank's confirmation.
   const waiting = rows.map((row) => row.payment).find((payment) => payment.status === "to_pay" && !payment.endedHow && !payment.problem) ?? null;
@@ -61,19 +67,33 @@ export default async function ContributionPage(props: PageProps<"/contributions/
           ← Your account
         </Link>
       </p>
-      <h1 className="mt-2 text-2xl font-semibold">Your contribution to {project.name}</h1>
-      <p className="mt-1 text-sm">
-        {formatMoney(contribution.amountCents)}
-        {monthly ? " every month" : ", once"}, to{" "}
-        {profile ? (
-          <Link href={`/h/${profile.handle}/project`} className="underline underline-offset-2">
-            {hostName}&apos;s project
-          </Link>
-        ) : (
-          `${hostName}'s project`
-        )}
-        . It supports the project; it does not buy a call or any promised reward.
-      </p>
+      <h1 className="mt-2 text-2xl font-semibold">{tip ? `Your tip for ${hostName}` : `Your contribution to ${projectName}`}</h1>
+      {tip ? (
+        <p className="mt-1 text-sm" data-tip-lead>
+          {formatMoney(contribution.amountCents)}, once: a tip of {formatMoney(tipCents)} for{" "}
+          {contribution.callId ? (
+            <Link href={`/calls/${contribution.callId}/results`} className="underline underline-offset-2">
+              your call with {hostName}
+            </Link>
+          ) : (
+            `your call with ${hostName}`
+          )}
+          , and a payment fee of {formatMoney(contribution.amountCents - tipCents)}. All of a tip is meant for the host; Connect keeps nothing of it. It is a thank-you; it does not buy a call or any promised reward.
+        </p>
+      ) : (
+        <p className="mt-1 text-sm">
+          {formatMoney(contribution.amountCents)}
+          {monthly ? " every month" : ", once"}, to{" "}
+          {profile ? (
+            <Link href={`/h/${profile.handle}/project`} className="underline underline-offset-2">
+              {hostName}&apos;s project
+            </Link>
+          ) : (
+            `${hostName}'s project`
+          )}
+          . It supports the project; it does not buy a call or any promised reward.
+        </p>
+      )}
 
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
@@ -83,7 +103,7 @@ export default async function ContributionPage(props: PageProps<"/contributions/
 
       {contribution.status === "ended" && (
         <p className="mt-4 rounded border border-neutral-400 p-3 text-sm" data-ended>
-          {monthly ? "This monthly contribution has ended." : contribution.endedHow === "paid" ? "This contribution is complete." : "This contribution has ended."} {endedWords(contribution.endedHow)}
+          {monthly ? "This monthly contribution has ended." : contribution.endedHow === "paid" ? `This ${tip ? "tip" : "contribution"} is complete.` : `This ${tip ? "tip" : "contribution"} has ended.`} {endedWords(contribution.endedHow)}
           {monthly && " No further month is held or taken."}
         </p>
       )}
@@ -105,7 +125,7 @@ export default async function ContributionPage(props: PageProps<"/contributions/
               </p>
               {waiting.cardStepExpiresAt && (
                 <p className="mt-2 opacity-80">
-                  You can pay until <LocalTime iso={waiting.cardStepExpiresAt.toISOString()} />. After that nothing is charged and this contribution is undone.
+                  You can pay until <LocalTime iso={waiting.cardStepExpiresAt.toISOString()} />. After that nothing is charged and this {tip ? "tip" : "contribution"} is undone.
                 </p>
               )}
               {waiting.giveUpAt && (
@@ -216,7 +236,8 @@ function PaymentLine({ row, contributionId, monthly, hostName }: { row: PaymentR
           </p>
           {payment.refundedCents > 0 && <p className="mt-1">{formatMoney(payment.refundedCents)} of it was paid back to your card.</p>}
           {row.refundUnderWayCents > 0 && <p className="mt-1">{formatMoney(row.refundUnderWayCents)} is on its way back to your card.</p>}
-          {payment.refundedCents === 0 && row.refundUnderWayCents === 0 && <p className="mt-1 opacity-70">Giving it back is {hostName}&apos;s decision.</p>}
+          {/* (Not while its charge is disputed at the bank: nothing can be given back from it then.) */}
+          {payment.refundedCents === 0 && row.refundUnderWayCents === 0 && payment.dispute !== "open" && payment.dispute !== "lost" && <p className="mt-1 opacity-70">Giving it back is {hostName}&apos;s decision.</p>}
         </>
       )}
     </li>

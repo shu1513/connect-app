@@ -1496,7 +1496,8 @@ async function main() {
     // Both ways of saving the switch go through the one function that saves it, its line in the record, and what it means for contributions, together.
     const switchStep = readFileSync("src/lib/contributions/switch.ts", "utf8");
     check("the founder's switch and its line in the record are saved in one step", (adminActions?.text.match(/await saveProjectsSwitch\(\{ adminId: admin\.id, /g) ?? []).length === 2 && !/setSwitches\(/.test(adminActions?.text ?? "x") && /await db\.transaction\(async \(tx\) => \{\n[^}]*await setSwitches\(input\.values, tx\);\n\s+await recordAdminAction\(\{[^}]*\}, tx\);/.test(switchStep));
-    check("each of the founder's actions asks for the founder's login first", admin.length === 8 && admin.every((a) => /^\w+\(formData: FormData\) \{\n  const admin = await requireAdmin\(\);/.test(a)), admin.map((a) => a.split("(")[0]));
+    // (Nine since plans/44: the tips switch is saved from the same page.)
+    check("each of the founder's actions asks for the founder's login first", admin.length === 9 && admin.every((a) => /^\w+\(formData: FormData\) \{\n  const admin = await requireAdmin\(\);/.test(a)), admin.map((a) => a.split("(")[0]));
     // "Starting is an action; loading is only reading": nothing that is drawn on opening a page may write.
     const writing = /import \{[^}]*\b(startProject|changeProject|endProject|endProjectInStep|writePost|changePost|removePost|hidePost|showPost|acceptUpload|removePicture|removePictureAsFounder|lockAndReport|setSuspected|recordReportMade)\b[^}]*\} from "@\/lib\/projects/;
     // An address that only answers a form that was sent (POST) is an action, not a page being opened.

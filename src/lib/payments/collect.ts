@@ -12,6 +12,7 @@
  * that share is ready again for the host's next collection.
  */
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lte, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import type { Call, MembershipMonth, Payment } from "@/db/schema";
 import { isFrozen } from "@/lib/membership/rules";
@@ -420,14 +421,19 @@ export async function collectForClosedHost(input: { collectionId: string; hostId
 /**
  * A share that was earned and not yet sent. `call` is the call it is for; expired member time has
  * none, and `month` is then the membership month it expired from; a contribution's share has
- * neither, and `project` is then the name of the project it was given to. `hostId` is whose money it is.
+ * neither, and `project` is then the name of the project it was given to. A tip's share (plans/44)
+ * is kept like a contribution's, with no call on its own line: `tip` then names the call the tip was
+ * given for. `hostId` is whose money it is.
  */
-export type Earning = { payment: Payment; call: Call | null; month: MembershipMonth | null; project: string | null; hostId: string; shareCents: number; heldBack: HeldBack | null };
+export type Earning = { payment: Payment; call: Call | null; month: MembershipMonth | null; project: string | null; tip: { callId: string; callStartsAt: Date | null } | null; hostId: string; shareCents: number; heldBack: HeldBack | null };
+
+/** The call a tip was given for: a second look at `calls`, beside the call a payment itself is for. */
+const tipCalls = alias(schema.calls, "tip_calls");
 
 /** Every share that was charged and not yet sent: one host's, or everybody's for the founder. */
 export async function unsentEarnings(now: Date, hostId?: string): Promise<Earning[]> {
   const rows = await db
-    .select({ payment: schema.payments, call: schema.calls, month: schema.membershipMonths, project: schema.projects.name, contributorId: schema.contributions.contributorId, hostId: hostOfPayment })
+    .select({ payment: schema.payments, call: schema.calls, month: schema.membershipMonths, project: schema.projects.name, contributorId: schema.contributions.contributorId, hostId: hostOfPayment, kind: schema.contributions.kind, tipCallId: schema.contributions.callId, tipCallStartsAt: tipCalls.startsAt })
     .from(schema.payments)
     .leftJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
     .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
@@ -435,6 +441,7 @@ export async function unsentEarnings(now: Date, hostId?: string): Promise<Earnin
     .leftJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.payments.contributionPaymentId))
     .leftJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
     .leftJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
+    .leftJoin(tipCalls, eq(tipCalls.id, schema.contributions.callId))
     .where(hostId ? and(sql`${hostOfPayment} = ${hostId}`, UNSENT) : UNSENT)
     .orderBy(schema.payments.transferDueAt);
   // The same barrier a collection uses: while a payment of the pair has an outcome that is not known, the pair's shares wait.
@@ -447,7 +454,16 @@ export async function unsentEarnings(now: Date, hostId?: string): Promise<Earnin
     if (unknownFor.get(pair)) waitingPairs.add(row.payment.id);
   }
   const judged = await heldBackNow(db, rows.map((row) => row.payment), now, waitingPairs);
-  return rows.map(({ payment, call, month, project, hostId: owner }) => ({ payment, call, month, project, hostId: owner, shareCents: currentSplit(payment).hostShareCents, heldBack: judged.get(payment.id) ?? null }));
+  return rows.map(({ payment, call, month, project, hostId: owner, kind, tipCallId, tipCallStartsAt }) => ({
+    payment,
+    call,
+    month,
+    project,
+    tip: kind === "tip" && tipCallId ? { callId: tipCallId, callStartsAt: tipCallStartsAt } : null,
+    hostId: owner,
+    shareCents: currentSplit(payment).hostShareCents,
+    heldBack: judged.get(payment.id) ?? null,
+  }));
 }
 
 /** What pressing the button now would send, after the collection charge. Null when there would be no collection. */

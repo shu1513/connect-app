@@ -15,6 +15,8 @@ export const LETTING_GO_LATE_MS = 10 * MINUTE_MS;
 export const REFUND_IDLE_MS = 10 * MINUTE_MS;
 /** A month's 7 days, and one more day. */
 export const LATE_MONTH_UNDECIDED_MS = 8 * 24 * 60 * MINUTE_MS;
+/** A card step whose time is over is ended at once; one that still waits a day later is said. */
+export const CARD_STEP_UNDECIDED_MS = 24 * 60 * MINUTE_MS;
 
 const nothingUnderWay = sql`not exists (select 1 from ${schema.moneyOperations} where ${schema.moneyOperations.contributionPaymentId} = ${pays.id} and ${schema.moneyOperations.status} = 'started')`;
 
@@ -71,6 +73,12 @@ export async function contributionHealthProblems(now: Date): Promise<string[]> {
     )
     .limit(1);
   if (stillWaiting) problems.push("a contribution's late month has had no outcome for more than a day after its 7 days were over");
+
+  // A card step is ended when its time is over, unless Stripe is still working on its payment (jobs.ts, job 3). One
+  // that still waits a day after its time must not wait unseen: until it has an outcome, a tip keeps its call.
+  if (await any(and(eq(pays.status, "to_pay"), isNull(pays.endedHow), isNull(pays.problem), lt(pays.cardStepExpiresAt, new Date(now.getTime() - CARD_STEP_UNDECIDED_MS))))) {
+    problems.push("a contribution's or a tip's card step has had no outcome for more than a day after its time was over");
+  }
 
   if (await any(isNotNull(pays.problem))) problems.push("a contribution's payment needs the founder (see the projects page)");
   return problems;

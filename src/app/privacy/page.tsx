@@ -64,7 +64,7 @@ export default function PrivacyPage() {
         when you began. Your card is entered on our payment company&apos;s form (Stripe) and we never see its number. For a monthly
         contribution the card is kept at Stripe for that contribution only, and removed when it ends. We keep what you agreed
         to, with the amount and the moment, and a record of every payment and refund. We send you an email for each payment,
-        and when a payment fails, a refund is made or a monthly contribution ends.
+        and when a payment fails, a refund is made or a monthly contribution ends. A tip you give a host after a call is handled the same way: paid by card through Stripe, with no card kept for it.
       </p>
       <p className="mt-4 text-sm">
         When you follow a host, by pressing &quot;Follow&quot; or by having a call with them, we keep that you follow them, so that we

@@ -14,14 +14,15 @@ import { runningProjectOf } from "./projects";
 import { mayAsk } from "./rules";
 
 const pays = schema.contributionPayments;
+type Reader = Pick<typeof db, "select">;
 
 /**
  * "Already contributes" (plans/23): a monthly contribution of theirs to this project that is
  * being set up or running, or a payment of theirs to it that was ever held or taken. So someone
  * who gave once, who stopped, or who was refunded is not asked again for the same project.
  */
-async function alreadyContributes(contributorId: string, projectId: string): Promise<boolean> {
-  const [found] = await db
+async function alreadyContributes(contributorId: string, projectId: string, reader: Reader): Promise<boolean> {
+  const [found] = await reader
     .select({ id: schema.contributions.id })
     .from(schema.contributions)
     .leftJoin(pays, eq(pays.contributionId, schema.contributions.id))
@@ -39,6 +40,8 @@ async function alreadyContributes(contributorId: string, projectId: string): Pro
 /**
  * The box after a call: the host's project, or null when the box is not shown. The page hands
  * over what it has already loaded; the rest is read here, and `mayAsk` decides from all of it.
+ * Code inside a database step of its own passes that step as the reader (a tip's start asks
+ * whether this box would be shown: plans/44, decision 3).
  */
 export async function askAfterCall(input: {
   /** Who is looking at the call's results. */
@@ -48,13 +51,13 @@ export async function askAfterCall(input: {
   attendance: Pick<LoadedAttendance, "final" | "result">;
   /** The host's page as everyone may open it (`publicProfile`), or null when it cannot be opened like that. */
   hostPage: { handle: string; displayName: string } | null;
-}): Promise<{ project: Project; hostName: string; href: string } | null> {
+}, reader: Reader = db): Promise<{ project: Project; hostName: string; href: string } | null> {
   const { call, attendance, hostPage } = input;
   // Only the customer of the call is ever asked: for the host and the founder nothing more is read.
   if (input.role !== "customer") return null;
-  const project = hostPage ? await runningProjectOf(call.hostId) : null;
+  const project = hostPage ? await runningProjectOf(call.hostId, reader) : null;
   const [report, blocked, refund, cannot, already] = await Promise.all([
-    db
+    reader
       .select({ id: schema.reports.id })
       .from(schema.reports)
       .where(
@@ -64,10 +67,10 @@ export async function askAfterCall(input: {
         ),
       )
       .limit(1),
-    isBlockedEitherWay(call.customerId, call.hostId),
-    db.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id)).limit(1),
-    project ? whyNotContribute(db, { contributorId: call.customerId, project }) : null,
-    project ? alreadyContributes(call.customerId, project.id) : false,
+    isBlockedEitherWay(call.customerId, call.hostId, reader),
+    reader.select({ id: schema.refundRequests.id }).from(schema.refundRequests).where(eq(schema.refundRequests.callId, call.id)).limit(1),
+    project ? whyNotContribute(reader, { contributorId: call.customerId, project }) : null,
+    project ? alreadyContributes(call.customerId, project.id, reader) : false,
   ]);
   const shown = mayAsk({
     role: input.role,

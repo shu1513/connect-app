@@ -20,10 +20,13 @@ export class RatingError extends Error {}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Reader = Pick<typeof db, "select">;
 
-/** Where a call stands for rating right now, worked out from the same record the charge uses. */
-export async function ratingStateOf(call: Call, now: Date): Promise<RateState> {
-  const [booking] = await db.select({ source: schema.bookings.source }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
-  const attendance = await loadAttendance(call, now);
+/**
+ * Where a call stands for rating right now, worked out from the same record the charge uses.
+ * Code inside a database step of its own passes that step as the reader (a tip's start does).
+ */
+export async function ratingStateOf(call: Call, now: Date, reader: Reader = db): Promise<RateState> {
+  const [booking] = await reader.select({ source: schema.bookings.source }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
+  const attendance = await loadAttendance(call, now, undefined, reader);
   return rateState({
     source: booking?.source ?? null,
     cancelled: Boolean(call.cancelledAt),
@@ -37,8 +40,8 @@ export async function ratingStateOf(call: Call, now: Date): Promise<RateState> {
 }
 
 /** The stars this person gave for this call, or null. Only ever their own. */
-export async function myRating(callId: string, raterId: string): Promise<number | null> {
-  const [row] = await db.select({ stars: schema.ratings.stars }).from(schema.ratings).where(and(eq(schema.ratings.callId, callId), eq(schema.ratings.raterId, raterId)));
+export async function myRating(callId: string, raterId: string, reader: Reader = db): Promise<number | null> {
+  const [row] = await reader.select({ stars: schema.ratings.stars }).from(schema.ratings).where(and(eq(schema.ratings.callId, callId), eq(schema.ratings.raterId, raterId)));
   return row?.stars ?? null;
 }
 

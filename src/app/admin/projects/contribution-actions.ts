@@ -74,8 +74,8 @@ export async function refundAsFounderAction(formData: FormData) {
     const reason = noteOf(formData).replace(/\s+/g, " ").trim().slice(0, 300);
     if (!reason) throw new ContributionError("Please give a reason. It is kept.");
     const amountCents = readSum(String(formData.get("amount") ?? ""));
-    await refundContribution({ paymentId: paymentOf(formData), amountCents, by: "founder", deciderId: admin.id, reason, requestKey: request.toLowerCase() });
-    notice = `The refund of ${formatMoney(amountCents)} is on its way to the contributor's card.`;
+    const refund = await refundContribution({ paymentId: paymentOf(formData), amountCents, by: "founder", deciderId: admin.id, reason, requestKey: request.toLowerCase() });
+    notice = `The refund of ${formatMoney(refund.amountCents)} is on its way to the contributor's card.`;
   } catch (error) {
     notice = problem(error);
   }

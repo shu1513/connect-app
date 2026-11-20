@@ -32,11 +32,13 @@ import { myRating, ratingStateOf } from "@/lib/ratings/ratings";
 import { RATING } from "@/lib/ratings/rules";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { askAfterCall } from "@/lib/projects/ask";
+import { tipAfterCall } from "@/lib/contributions/tips";
 import { firstLines } from "@/lib/projects/rules";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { rateCallAction, refundAction } from "../actions";
 import { SitePage } from "@/components/site-page";
 import { RefundRequest } from "./refund-request";
+import { TipAsk, TipLine } from "./tip";
 
 export const metadata: Metadata = { title: "Call results" };
 
@@ -126,6 +128,9 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // The host's project, for a customer after a call that took place (plans/23, "After a call"). Asked of its own
   // function, which asks more than "Book another call" does. Only read: showing the box writes nothing.
   const ask = await askAfterCall({ role, call, attendance, hostPage: openPage });
+  // A tip (plans/44): the box that asks the customer, when the rule says so, and the tip of this call for whoever may
+  // see it. Asked of its own function, which reads everything itself. Only read: showing the box writes nothing.
+  const tips = await tipAfterCall({ viewerId: user.id, role, call, now });
   // Following (plans/30), for the customer of the call only. Nothing here depends on whether the host has blocked
   // the customer, so the box never gives a block away; only the customer's own block takes it away.
   let follow: { state: "following" | "ended" | "none"; toCome: boolean; askEmail: boolean } | null = null;
@@ -274,6 +279,10 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           </p>
         </section>
       )}
+
+      {/* Never beside the project's box (decision 3): asked of the box this page really drew, should the project end between the two reads. */}
+      {tips.ask && !ask && <TipAsk callId={call.id} hostName={otherName} />}
+      {tips.tip && <TipLine view={tips.tip} role={role} otherName={otherName} />}
 
       {call.safetyEndedAt && (
         <p className="mt-4 rounded border border-red-600 p-3 text-sm">

@@ -42,6 +42,26 @@ company yet.
   (never "donate"); the monthly agreement, and whether a yearly reminder is needed; that the email
   at the hold cannot always come three days before the money is taken, because a bank can shorten
   a hold. (Plans 23, 25.)
+- **Tips after a call** (new, plan 44). A customer can give the host a tip after a call, from $2,
+  paid by card, held for three days and then taken. The host gets the whole tip and Connect keeps
+  nothing of it. What the card payment costs (2.9% plus 30 cents) is added on top for the
+  customer as a "payment fee": a $5 tip costs $5.46. The total is shown before they pay.
+  - **The added payment fee.** In the United Kingdom and the European Union a business may not
+    add a charge for paying by card, also not under another name; in the United States card rules
+    do not allow one on debit cards, and some states have rules of their own. A fee that every
+    payment carries, whatever it is paid with, is not such a charge, and Connect takes cards only.
+    Is that enough? Must the fee be named or shown differently, or must Connect pay it itself for
+    customers in some countries?
+  - In some places the law says a tip must reach the worker in full (for example the United
+    Kingdom's law on tips of 2023, and rules for employees in several US states). Hosts are not
+    Connect's employees, and Connect keeps nothing of a tip. But the 25-cent charge when a host
+    collects her earnings can fall on a collection that holds only a tip. Is that allowed?
+  - Is the wording right: a tip is a thank-you for a call that took place, it buys nothing, and it
+    is not a donation to a charity?
+  - What is a tip for tax: the host's income like a call's price? Does sales tax or VAT apply to
+    it in any of the 33 countries a host can be in?
+  - Refunds of a tip are the host's decision once the money is taken. Is that allowed for
+    customers outside the United States?
 - **Money when someone deletes their own account** (new, plan 39; not built). A customer who
   deletes their account with a call booked would be treated as cancelling it themselves, so a
   late cancellation would be charged as usual. A host who deletes theirs would still be paid
