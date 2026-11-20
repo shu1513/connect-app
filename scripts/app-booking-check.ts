@@ -204,7 +204,7 @@ async function main() {
   const busyOf = async (userId: string) => db.select().from(schema.busyEntries).where(eq(schema.busyEntries.userId, userId));
   const emailsTo = async (to: string, subjectPart: string) => (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, to), like(schema.emailOutbox.subject, `%${subjectPart}%`)))).length;
   const CARD_TERMS = (total: string) =>
-    `I allow Connect to save my card for this booking only and, if my request is accepted, to hold up to ${total} on it without my being present, and to charge it after the call as described above. If I ask for more time during the call, the price of that extra time is held on the same card and charged in the same way. The card is removed once the call is over.`;
+    `I allow Connect to save my card for this booking only and, if my request is accepted, to hold up to ${total} on it without my being present, and to charge it after the call as described above. If I ask for more time during the call, the price of that extra time is held on the same card and charged in the same way. The card is removed once the call is over. Where a 14-day right to cancel applies to me (in the United Kingdom and Europe): I ask for this call to take place as booked, also within those 14 days, and I understand that the right ends once the call has taken place.`;
 
   try {
     const cust = await newPerson("cust");
@@ -251,7 +251,7 @@ async function main() {
       const said = f?.points.flat().find((part): part is { time: string } => typeof part === "object" && "time" in part);
       check("the points are the website's, with the moment the answer comes by as a moment for the phone to write", f?.points.length === 5 && typeof f.points[0][0] === "object" && "bold" in f.points[0][0] && f.points[0][0].bold === "This is a request, not a reservation." && said !== undefined && Math.abs(new Date(said.time).getTime() - answerBy) < 5000, JSON.stringify(f?.points[1]));
       check("it says that her ID is seen as confirmed, and nothing more", f?.idLine === `${maya.displayName} can see that your ID is confirmed, never your ID or the name on it.`);
-      check("the note can hold what the website allows", f?.note.max === LIMITS.noteMax && f.note.label.includes(`only ${maya.displayName} sees it`));
+      check("the note can hold what the website allows", f?.note.max === LIMITS.noteMax && f.note.label.includes(`${maya.displayName} sees it, and Connect only if one of you reports the other`));
       const again = await summary(maya.handle, slot, cust.jar);
       check("each summary brings a key of its own, the kind the server takes", /^[0-9a-f-]{36}$/.test(f?.requestKey ?? "") && again.body?.kind === "ok" && again.body.requestKey !== f?.requestKey);
       check("it may not be kept by anything on the way", String(free.reply.headers["cache-control"]).includes("no-store"));
@@ -694,6 +694,11 @@ async function main() {
       const out = await read(spent.jar);
       check("out of tries: it says to write to us, and offers no button", out.body?.passed === false && out.body.button === null && out.body.tries === null && out.body.words.includes("You have used all 3 tries. Please write to us."), JSON.stringify(out.body).slice(0, 200));
       check("and none can be started", sentence(await asApp("/api/app/identity/start", { jar: spent.jar, body: {} })) === "You have used all your tries. Please write to us.");
+      // A paused account (an "under 18" result pauses it) is told so, and is offered no check.
+      await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, spent.id));
+      check("a paused account is told that it is paused, not where the check stands", refusal((await read(spent.jar)).reply) === "paused");
+      check("and a paused account starts no check", refusal(await asApp("/api/app/identity/start", { jar: spent.jar, body: {} })) === "paused");
+      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, spent.id));
       // Cancel the open check at Stripe, so nothing of this run stays open there.
       await stripe().identity.verificationSessions.cancel(checks[0].stripeSessionId).catch(() => undefined);
     }

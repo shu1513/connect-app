@@ -5,6 +5,8 @@
  * signed in to the app, never taken from the sheet.
  */
 import "server-only";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { publicAppUrl } from "@/lib/payments/hosts";
 import { identityState, refreshIdentity, startIdentityCheck } from "@/lib/safety/identity";
 import { IDENTITY_TRIES } from "@/lib/safety/identity-rules";
@@ -17,10 +19,17 @@ import type { AppIdentity } from "./types";
  */
 export const IDENTITY_DONE_PATH = "/identity/done";
 
-/** Where this person's check stands. Asks Stripe first when a check was started, as the website's page does. */
-export async function identityFor(person: { id: string }): Promise<AppIdentity> {
+/**
+ * Where this person's check stands. Asks Stripe first when a check was started, as the website's page does.
+ *
+ * Null when the account is paused. A result of "under 18" pauses the account, and this may be the very question
+ * that read it; as on the website's page, a paused person is told so and is not offered "Start the check".
+ */
+export async function identityFor(person: { id: string }): Promise<AppIdentity | null> {
   let state = await identityState(person.id);
   if (!state.passed && (state.pending || state.triesLeft < IDENTITY_TRIES)) state = await refreshIdentity(person.id).catch(() => state);
+  const [now] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, person.id));
+  if (now?.pausedAt) return null;
   const canStart = !state.passed && state.triesLeft > 0;
   return {
     passed: state.passed,
