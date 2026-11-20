@@ -3397,6 +3397,19 @@ is taken for and for her calendar list); and the call-now journey could not tell
 the accepted call from the ones kept while the request waited (a second request, for after the
 real call, must now stay).
 
+**What CodeRabbit found.** One point, taken: the two places that read a host's break of today
+(`takenAsHost` and the calendar list) took a stored break of 1 minute as it is, where the offer
+already counts it as 2. With an old test call, written before the 2 minutes, such a host could
+have been offered a time 1 minute after her own call. Both now count at least 2. The body of its
+review had nothing further.
+
+**A check that failed for a reason of its own.** After that fix, one older check in
+`scripts/booking-check.ts` failed twice (journey 7, "a reminder written just before they paid is
+not sent"). Not this change: an email's "send from" time is the database's clock to the
+microsecond, and the script read the clock in whole milliseconds straight after writing it, which
+can be the earlier of the two, so the email was not picked up. The script now asks one second
+ahead in the two places that do this. Run twice more: 144 of 144 both times.
+
 **How it was checked.** 692 automatic tests after merging `main`, 7 of them new (the break after her own call, the
 2 minutes not counted twice, a request for a call right now, the times offered around her own
 call, more time, the break choices). On this computer against the local database:
@@ -3406,7 +3419,7 @@ fixed; her page with a break of 5 and of 15 minutes, also in the minutes after h
 over; a break of 1 refused; a host stored at 1), `scripts/now-check.ts` (76),
 `scripts/extend-check.ts` (115) and `scripts/member-calls-check.ts` (244), each with a new
 journey for a request to the customer as a host. The booking and call-now scripts were run again
-after Astra's points. In a browser, as the test host who books a temporary second host: the two sentences
+after Astra's points, and all four after CodeRabbit's. In a browser, as the test host who books a temporary second host: the two sentences
 on the request page and on the call-now page; the list on her calendar page while her request
 waited and after it was accepted, with "booked again from" five minutes after her call; her own
 page offering nothing between her call and the end of her break; the passed-over request as she

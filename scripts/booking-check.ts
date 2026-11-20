@@ -496,7 +496,9 @@ async function main() {
       check("a customer who fixed the card is not reminded", !(await eventEmail(`card_reminder:${booking.id}:customer`)));
       // A reminder written a moment before they paid (written by hand here) is stopped when its turn to be sent comes.
       await queueBookingEmails(db, await reload(booking.id), "card_reminder");
-      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "booking-check" }), { toLike: yan.email });
+      // (One second ahead: the email's "send from" time is the database's clock to the microsecond, and a clock read here in
+      // whole milliseconds straight after can be the earlier of the two, which leaves the email unclaimed.)
+      await deliverEmails(new Date(Date.now() + 1000), async () => ({ ok: true, providerId: "booking-check" }), { toLike: yan.email });
       const [stopped] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
       check("and a reminder written just before they paid is not sent", stopped?.status === "failed" && Boolean(stopped.lastError?.includes("the money is held")), `${stopped?.status} ${stopped?.lastError}`);
       await runBookingJobs(new Date(after.payBy!.getTime() + MINUTE));
@@ -539,7 +541,7 @@ async function main() {
       const p = await payment();
       check("at the cut-off the call is cancelled, as a free cancellation", call.cancelledAt !== null && call.cancelledLate === false && (await reload(booking.id)).stage === "cancelled");
       check("nothing was charged", p.status === "closed_uncharged" && p.chargedCents === null, p.status);
-      await deliverEmails(new Date(), async () => ({ ok: true, providerId: "booking-check" }), { toLike: xia.email });
+      await deliverEmails(new Date(Date.now() + 1000), async () => ({ ok: true, providerId: "booking-check" }), { toLike: xia.email });
       const [late] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, `card_reminder:${booking.id}:customer`));
       check("a reminder still waiting when the call is cancelled is not sent", late?.status === "failed" && Boolean(late.lastError?.includes("no longer open")), `${late?.status} ${late?.lastError}`);
       check("both people are told, and the time is open again", (await eventEmail(`cancelled_unpaid:${booking.id}:customer`)) && (await eventEmail(`cancelled_unpaid:${booking.id}:host`)) && (await times(hana.id, 30, 96)).some((t) => t.getTime() === slot.getTime()));

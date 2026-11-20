@@ -139,7 +139,7 @@ export type OwnBooking = { bookingId: string; hostName: string; startsAt: Date; 
  */
 export async function ownBookingsTakingTime(userId: string, now: Date): Promise<OwnBooking[]> {
   const [calendar] = await db.select({ breakMinutes: schema.hostCalendars.breakMinutes }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, userId));
-  const breakMs = (calendar?.breakMinutes ?? 0) * 60_000;
+  const breakMs = (calendar ? Math.max(calendar.breakMinutes, AFTER_CALL_MINUTES) : 0) * 60_000;
   const rows = await db
     .select({
       bookingId: schema.bookings.id,
@@ -221,7 +221,8 @@ export async function busyOf(reader: Pick<typeof db, "select">, userId: string, 
  */
 export async function takenAsHost(reader: Pick<typeof db, "select">, hostId: string, from: Date): Promise<Interval[]> {
   const [calendar] = await reader.select({ breakMinutes: schema.hostCalendars.breakMinutes }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
-  const breakMinutes = calendar?.breakMinutes ?? 0;
+  // As in offerOf: never less than the time kept free after every call, also for a break stored before that rule.
+  const breakMinutes = calendar ? Math.max(calendar.breakMinutes, AFTER_CALL_MINUTES) : 0;
   const rows = await reader
     .select({ start: schema.busyEntries.startsAt, end: schema.busyEntries.endsAt, customerId: schema.bookings.customerId, callEnd: schema.bookings.endsAt })
     .from(schema.busyEntries)
