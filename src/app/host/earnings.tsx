@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { formatMoney } from "@/lib/payments/access";
+import { disputePagesOf } from "@/lib/disputes/pages";
 import { DISPUTE_MESSAGE_WAITING, disputeMessageWaiting, lastCollectionOf, unsentEarnings, wouldCollect, type Earning } from "@/lib/payments/collect";
 import { collectEarningsAction } from "./actions";
 
@@ -28,6 +29,8 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
   ];
   // A press would be refused for this reason, so the button is not offered while it lasts (minutes).
   const waitForStripe = would !== null && payoutsReady && !tooSoon && (await disputeMessageWaiting());
+  // Where the host can read about each disputed payment (plans/47). A dispute the app has no record of yet has no page.
+  const disputePage = await disputePagesOf(waiting.filter((e) => e.heldBack === "dispute").map((e) => e.payment));
 
   return (
     <div className="mt-5 rounded border border-neutral-400 p-4 text-sm" data-earnings>
@@ -91,7 +94,13 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                 )}
                 {payment.extensionId ? " (added time)" : ""}, {formatMoney(shareCents)}:{" "}
                 {heldBack === "dispute" ? (
-                  "the customer's bank is disputing this charge"
+                  disputePage.has(payment.id) ? (
+                    <Link href={disputePage.get(payment.id)!} className="underline underline-offset-2" data-dispute-link>
+                      the customer&apos;s bank is disputing this charge
+                    </Link>
+                  ) : (
+                    "the customer's bank is disputing this charge"
+                  )
                 ) : heldBack === "refund" ? (
                   "a refund is on its way"
                 ) : heldBack === "founder" ? (

@@ -4,6 +4,8 @@ import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
+import { disputesForFounder } from "@/lib/disputes/record";
+import { reasonWords, standingOf } from "@/lib/disputes/status";
 import { memberDecisionDeadline } from "@/lib/membership/calls";
 import { readNotice } from "@/lib/notice";
 import { membershipsToLookAt } from "@/lib/membership/health";
@@ -88,6 +90,8 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   // Memberships: only what went wrong and a person has to look at. (The full pages come with the membership pages.)
   const members = await membershipsToLookAt(new Date());
   const membersCount = members.withProblem.length + members.disputed.length + members.payBacks.length;
+  // Bank disputes (plans/47): those that have not ended, and the latest that have.
+  const bank = await disputesForFounder();
 
   return (
     <SitePage className="mx-auto w-full max-w-5xl px-4 py-10">
@@ -189,6 +193,39 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                 {payment.flaggedAfterCharge ? "the record changed after the charge." : ""}
               </li>
             ))}
+          </ul>
+        </>
+      )}
+
+      {bank.open.length + bank.ended.length > 0 && (
+        <>
+          <h2 className="mt-10 text-lg font-semibold">Bank disputes ({bank.open.length} open)</h2>
+          <p className="mt-1 text-sm opacity-70">
+            A customer&apos;s bank is asking about a payment, or has taken it back until it decides. The money for a disputed payment stays where it is. The app does not answer
+            the bank yet: an open one still has to be answered in Stripe by hand.
+          </p>
+          <ul className="mt-2 list-disc pl-5 text-sm" data-bank-disputes>
+            {[...bank.open, ...bank.ended].map((dispute) => {
+              const standing = standingOf(dispute.status);
+              return (
+                <li key={dispute.id} data-standing={standing}>
+                  <Link href={`/disputes/${dispute.id}`} className="underline underline-offset-2">
+                    {nameOf.get(dispute.customerId)} (customer) and {nameOf.get(dispute.hostId)} (host), {formatMoney(dispute.amountCents)}
+                  </Link>
+                  : {dispute.stage === "question" ? "a bank's question" : "a dispute"}, {reasonWords(dispute.reason)}.{" "}
+                  {standing === "waiting" && (
+                    <strong>
+                      The bank waits for an answer{dispute.dueBy ? <> by <LocalTime iso={dispute.dueBy.toISOString()} /></> : null}.
+                    </strong>
+                  )}
+                  {standing === "with_bank" && "The bank is deciding."}
+                  {standing === "won" && "Ended: the payment stands."}
+                  {standing === "lost" && "Ended: the bank returned the money to the customer."}
+                  {standing === "closed" && "The bank closed its question."}
+                  {dispute.compliance ? " A compliance dispute: fighting it costs 500 dollars." : ""}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}

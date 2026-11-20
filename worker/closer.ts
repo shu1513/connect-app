@@ -42,6 +42,7 @@ async function main() {
   const { endOldTests } = await import("../src/lib/connection/tests");
   const { runPictureRound } = await import("../src/lib/projects/queue");
   const { followAfterCalls } = await import("../src/lib/follows/follows");
+  const { catchUpFromStripe, lookAtOpenDisputes } = await import("../src/lib/disputes/record");
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
@@ -127,6 +128,13 @@ async function main() {
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
     // About once a minute: what a pause or a closure left behind when the server stopped in the middle of it.
     if (passes % 12 === 0) await finishPausesAndClosures(now).catch((error) => console.error("[accounts] finishing pauses and closures failed; will retry", error));
+    // Bank disputes (plans/47). Every pass: those not asked about for an hour are asked about again (the look takes
+    // a few each time). About once an hour: Stripe's own list of the last 7 days, for any the app does not have or has
+    // out of date. About once a day: the same for the last 130 days, which is as long as a dispute can stay open.
+    if (stripeConfigured()) {
+      await lookAtOpenDisputes(now).catch((error) => console.error("[disputes] the look at open disputes failed; will retry", error));
+      if (passes % 720 === 0) await catchUpFromStripe(now, passes % 17_280 === 0 ? 130 : 7).catch((error) => console.error("[disputes] catching up from Stripe failed; will retry", error));
+    }
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.

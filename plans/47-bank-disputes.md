@@ -38,9 +38,9 @@ Stripe. After this plan:
 
 **What still reaches you** (each is rare, and each is said plainly here and in the app):
 
-- One kind of dispute the app does not fight, because fighting it costs 500 dollars of your
-  money each time (decision 7). You are told, with the bank's deadline, and can fight it in
-  Stripe yourself. **Say so if you want the app to fight these too.**
+- One kind of dispute costs 500 dollars of your money to fight (decision 7). **Your decision of
+  20 November 2026: the app fights these only from 5,000 dollars.** Below that it leaves them
+  alone; you are told, with the bank's deadline, and can fight one in Stripe yourself.
 - A fault: the app could not send its answer to the bank, or could not take a share back.
 - A host or a customer who writes to support because they think a decision is wrong.
 - Two leftovers named under "Not in this plan".
@@ -247,10 +247,13 @@ The founder's are marked. All others are the builder's own.
    if the dispute is large enough, then we fight right? what's the right amount? (given we get
    only a 2% fee)". The builder's answer: on Connect's own 2% it never pays; counting the host's
    money too it pays from about 2,000 dollars at one chance in five of winning. So part 2 builds
-   the rule with an amount: a setting, "fight compliance disputes from this amount", empty to
-   begin with (never). At or above it, a compliance dispute is handled like any other (the host
-   is asked, the app answers) and the request acknowledges the 500 dollars. The founder had not
-   yet said which amount when this was written; nothing is fought until they do.
+   the rule with an amount: a setting, "fight compliance disputes from this amount". At or
+   above it, a compliance dispute is handled like any other (the host is asked, the app
+   answers) and the request acknowledges the 500 dollars. Asked whether 2,000 was still right
+   "leaning towards the safe side so we don't take a loss", the builder answered that the safe
+   number for Connect's own money is "never", and that 5,000 dollars is the careful line for
+   standing behind hosts (it assumes only one in ten is won). **The founder: "do the $5,000
+   line".** So the setting starts at 5,000 dollars, and this is the founder's decision.
    (A charge the app has flagged because the call's record changed after the money was taken,
    `flaggedAfterCharge`, is handled like any other: the proof gives the record as it stands
    now, beside what was charged. Decision 8.)

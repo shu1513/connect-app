@@ -2218,6 +2218,103 @@ export const suggestionHides = pgTable(
   (t) => [primaryKey({ columns: [t.viewerId, t.hostId] }), check("suggestion_hides_not_self", sql`${t.viewerId} <> ${t.hostId}`)],
 );
 
+// ---------------------------------------------------------------------------
+// Messages from Connect to a person, kept in the app (plans/47-bank-disputes.md).
+// ---------------------------------------------------------------------------
+
+/**
+ * A short text Connect wrote to one person, shown on their "Messages" page. Each is written in
+ * the same database step as the email with the same words, under the same key (see `tell` in
+ * src/lib/messages/messages.ts), so the two never differ and neither is written twice.
+ */
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    /** Where in the app the person can read more or act, such as "/disputes/du_123". Empty when there is nowhere. */
+    path: text("path"),
+    /** Names the event and the person, so the message is written once. The email carries the same key. */
+    key: text("key").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Set once the person's Messages page has shown it. */
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [index("messages_user_idx").on(t.userId, t.createdAt), index("messages_unread_idx").on(t.userId).where(sql`${t.readAt} is null`)],
+);
+
+// ---------------------------------------------------------------------------
+// Bank disputes (plans/47-bank-disputes.md).
+// ---------------------------------------------------------------------------
+
+/**
+ * What the app knows about one dispute at a customer's bank. The key is Stripe's own id for it.
+ *
+ * It belongs to exactly one of: a call's card payment, a membership's month, a contribution's
+ * payment (the three owners a money action has). This row is for the people (who is told what)
+ * and, in later parts of the plan, for the answer to the bank. It is NOT what the money code looks
+ * at: that stays `payments.disputeOpen` and the `dispute` fields of a month and of a
+ * contribution's payment.
+ *
+ * `stage` is "question" (a bank's question, Stripe: an inquiry) or "chargeback". A question can
+ * become a chargeback on the same dispute. `outcome` is empty while the bank has not decided:
+ * "won", "lost", or "closed" (ended with no decision: a question that stayed quiet).
+ */
+export const disputes = pgTable(
+  "disputes",
+  {
+    id: text("id").primaryKey(),
+    paymentId: uuid("payment_id").references(() => payments.id),
+    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
+    contributionPaymentId: uuid("contribution_payment_id").references((): AnyPgColumn => contributionPayments.id),
+    /** Whose money it is, and who paid. Fixed when the row is first written. */
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull().default("usd"),
+    /** The bank's reason, in Stripe's word ("fraudulent", "product_not_received", ...). */
+    reason: text("reason").notNull(),
+    /** A dispute about a card network's rules. Fighting one costs 500 dollars, so the app never does by itself. */
+    compliance: boolean("compliance").notNull().default(false),
+    /** question or chargeback. */
+    stage: text("stage").notNull(),
+    /** Stripe's status as last read. */
+    status: text("status").notNull(),
+    /** When Stripe opened it. */
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+    /** The bank's deadline for an answer, when Stripe gives one. */
+    dueBy: timestamp("due_by", { withTimezone: true }),
+    /** won, lost or closed. Empty while it is open. */
+    outcome: text("outcome"),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("disputes_payment_idx").on(t.paymentId),
+    index("disputes_month_idx").on(t.monthId),
+    index("disputes_contribution_payment_idx").on(t.contributionPaymentId),
+    index("disputes_host_idx").on(t.hostId),
+    index("disputes_customer_idx").on(t.customerId),
+    // The few that have not ended: what the helper's hourly look asks about.
+    index("disputes_open_idx").on(t.updatedAt).where(sql`${t.outcome} is null`),
+    check("disputes_one_owner", sql`num_nonnulls(${t.paymentId}, ${t.monthId}, ${t.contributionPaymentId}) = 1`),
+    check("disputes_stage", sql`${t.stage} in ('question', 'chargeback')`),
+    check("disputes_outcome", sql`${t.outcome} is null or ${t.outcome} in ('won', 'lost', 'closed')`),
+    check("disputes_ended_shape", sql`(${t.outcome} is null) = (${t.endedAt} is null)`),
+  ],
+);
+
+export type Message = typeof messages.$inferSelect;
+export type Dispute = typeof disputes.$inferSelect;
 export type Call = typeof calls.$inferSelect;
 export type Follow = typeof follows.$inferSelect;
 export type Contribution = typeof contributions.$inferSelect;

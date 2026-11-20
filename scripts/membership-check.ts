@@ -854,6 +854,10 @@ async function main() {
     let month = await M(m.monthId);
     const membership = await MS(m.membershipId);
     check("the dispute is recorded on the month", month.dispute === "open");
+    const [recorded] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId));
+    check("the dispute has a record of its own, as the month's, for this host and this member (plans/47)", recorded?.monthId === m.monthId && recorded.paymentId === null && recorded.contributionPaymentId === null && recorded.hostId === host.id && recorded.customerId === m.member.id && recorded.outcome === null, JSON.stringify(recorded ?? null).slice(0, 160));
+    const toldAbout = await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:%`));
+    check("the host and the member are each told about the dispute once, in words about a membership", toldAbout.filter((one) => one.userId === host.id).length === 1 && toldAbout.filter((one) => one.userId === m.member.id).length === 1 && toldAbout.some((one) => one.userId === host.id && one.body.includes("membership with you")) && toldAbout.some((one) => one.userId === m.member.id && one.body.includes("your membership with")), `${toldAbout.length}`);
     check("the membership ends at once and for good, and both are told once", membership.status === "ended" && membership.endedBy === "connect" && (await emails(m.member.email, "has ended")) === 1 && (await emails(host.email, "membership has ended")) === 1, membership.status);
     await helper(new Date());
     month = await M(m.monthId);
@@ -868,6 +872,7 @@ async function main() {
     month = await M(m.monthId);
     check("lost: the month stays frozen past its end. Nothing expires to the host, nothing is paid back, nothing renews", month.dispute === "lost" && month.status === "closed" && month.freeCents === 6000 && (await expiredPayment(m.monthId)) === undefined && (await monthsOf(m.membershipId)).length === 1, month);
     check("the founder sees the disputed month", (await membershipsToLookAt(new Date())).disputed.some((row) => row.month.id === m.monthId));
+    check("the dispute's own record says how it ended, and both are told that once (plans/47)", (await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId)))[0]?.outcome === "lost" && (await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:ended:lost:%`))).filter((one) => one.userId === host.id || one.userId === m.member.id).length === 2);
     await audit("after a lost dispute", m);
   });
 
@@ -884,6 +889,7 @@ async function main() {
       await handleStripeEvent({ type: "charge.dispute.closed", data: { object: { id: disputeId } } });
       let month = await M(m.monthId);
       check("opened and won before we handled a single message: the membership is ended all the same", month.dispute === "won" && (await MS(m.membershipId)).status === "ended");
+      check("a dispute first seen when it had already ended is recorded, and nobody is told old news about it (plans/47)", (await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId)))[0]?.outcome === "won" && (await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:%`))).length === 0);
       check("won: the month is not frozen, and the money that is still free is owed back, because the membership has ended", month.toPayBackCents === 6000 && month.freeCents === 0 && (await refundsOf(m.monthId))[0]?.sourceKey === `won:${m.monthId}`, month);
       await helper(new Date());
       month = await M(m.monthId);
