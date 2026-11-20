@@ -76,16 +76,18 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
     const [fresh] = await tx.select().from(schema.calls).where(eq(schema.calls.id, call.id)).for("update");
     if (!fresh || fresh.cancelledAt) throw new MoneyError("This call can no longer be cancelled.");
     let own = paymentId ? await lockPayment(tx, paymentId) : null;
-    // The locks can make this step wait. When a person cancels from a page (`shown`), and always for a member's
-    // call, the clock is read now: a free period that ended, or a call that started, while it waited counts.
-    // (Everything else keeps the moment it was handed: the helper, and the check scripts with their own clocks.)
-    const at = input.shown !== undefined || fromMembership ? afterTheWait(now) : now;
     // The customer may have paid a moment ago without our record knowing yet (the bank can say yes while this step
     // waits for its locks). Stripe is asked here, with the payment locked, so a late cancellation can never slip
-    // through as a free one, and the host never loses a charge that was hers. If Stripe cannot be asked, or its
-    // answer is not final yet, this throws and nothing is cancelled. (Only a customer's cancellation can be late;
-    // for a host or for Connect it is free whatever Stripe says.)
-    if (by === "customer" && own) own = await syncHoldLocked(tx, own, at);
+    // through as a free one, and the host never loses a charge that was hers. The same when the helper cancels a
+    // call as "unpaid": a hold that is there, or still being confirmed, must not be missed. If Stripe cannot be
+    // asked, or its answer is not final yet, this throws and nothing is cancelled. (A host's cancellation, and any
+    // other of Connect's, is free whatever Stripe says, and does not ask.)
+    if ((by === "customer" || input.reason === "unpaid") && own) own = await syncHoldLocked(tx, own);
+    // The locks, and Stripe's answer, can make this step wait. So the clock is read only now, with everything
+    // else known: when a person cancels from a page (`shown`), and always for a member's call, a free period that
+    // ended, or a call that started, while this step waited counts. (Everything else keeps the moment it was
+    // handed: the helper, and the check scripts with their own clocks.)
+    const at = input.shown !== undefined || fromMembership ? afterTheWait(now) : now;
 
     // From here on a "no" is handed back, not thrown: a hold that was just found and written down above must stay
     // written down when nothing is cancelled, and a thrown error would undo it with the rest of this step.

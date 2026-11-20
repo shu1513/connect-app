@@ -215,10 +215,15 @@ async function main() {
         (error: { code?: string }) => ({ status: "", code: String(error?.code ?? "unknown") }),
       );
   };
-  /** Waits until some step of the database is seen waiting for a lock on a call (up to ten seconds): the proof that a cancellation has reached the lock it is meant to wait for. */
-  const seenWaitingForACall = async () => {
+  /** The database's own number of the step that holds a lock: handed to `seenWaitingBehind`. */
+  const stepNumber = async (tx: { execute: typeof db.execute }) => ((await tx.execute(sql`select pg_backend_pid() as pid`)) as unknown as { pid: number }[])[0].pid;
+  /**
+   * Waits (up to ten seconds) until another step of the database is seen waiting for a lock that THIS step holds:
+   * the proof that the cancellation under test has reached the very lock it is meant to wait for.
+   */
+  const seenWaitingBehind = async (holder: number) => {
     for (let i = 0; i < 100; i++) {
-      const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query ilike '%from "calls"%for update%'`)) as unknown as { n: number }[];
+      const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity a where a.wait_event_type = 'Lock' and ${holder} = any(pg_blocking_pids(a.pid))`)) as unknown as { n: number }[];
       if (n > 0) return true;
       await pause(100);
     }
@@ -471,12 +476,14 @@ async function main() {
       // the hold is written down (the host does not lose a charge that was hers).
       const gap = await newCall(host.id, cust.id, { startsIn: 35, price: 2000, minutes: 10, freeCancel: 60 });
       await step(gap.call.id, "pay", cust.jar);
+      let gapHolder = 0;
       let gapLocked = () => {};
       let gapLetGo = () => {};
       const gapHeld = new Promise<void>((done) => (gapLocked = done));
       const gapUntil = new Promise<void>((done) => (gapLetGo = done));
       const gapHolding = db.transaction(async (tx) => {
         await tx.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.id, gap.call.id)).for("update");
+        gapHolder = await stepNumber(tx);
         gapLocked();
         await gapUntil;
       });
@@ -486,7 +493,7 @@ async function main() {
       let gapWaited = false;
       try {
         // Only once the cancelling is seen waiting for the call's lock: the bank's yes, which our record does not hear of.
-        gapWaited = await seenWaitingForACall();
+        gapWaited = await seenWaitingBehind(gapHolder);
         gapCard = await confirmAtStripe(gap.call.id, "pm_card_visa");
       } finally {
         gapLetGo();
@@ -502,12 +509,14 @@ async function main() {
       const racing = await newCall(host.id, cust.id, { startsIn: 40, price: 2000, minutes: 10 });
       await step(racing.call.id, "pay", cust.jar);
       const racingCard = await confirmAtStripe(racing.call.id, "pm_card_visa");
+      let raceHolder = 0;
       let raceLocked = () => {};
       let raceLetGo = () => {};
       const raceHeld = new Promise<void>((done) => (raceLocked = done));
       const raceUntil = new Promise<void>((done) => (raceLetGo = done));
       const raceHolding = db.transaction(async (tx) => {
         await tx.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.id, racing.call.id)).for("update");
+        raceHolder = await stepNumber(tx);
         raceLocked();
         await raceUntil;
       });
@@ -519,7 +528,7 @@ async function main() {
       );
       let raceWaited = false;
       try {
-        raceWaited = await seenWaitingForACall();
+        raceWaited = await seenWaitingBehind(raceHolder);
         await syncHold(unpaidBefore.id, new Date());
       } finally {
         raceLetGo();

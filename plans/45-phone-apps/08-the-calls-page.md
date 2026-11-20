@@ -232,6 +232,25 @@ The second list was found closed except for what follows, all in the one step th
    cancellation is really seen waiting, instead of sleeping a fixed time; and the "unpaid"
    check now writes the hold down while the helper's cancellation is waiting.
 
+## Astra's fourth look at the code (20 November 2026): "not ready", now worked in
+
+Two orderings were left, both about the exact moment something is read.
+
+1. *The clock was read before Stripe was asked.* If Stripe took two seconds to answer, a
+   cancellation begun one second before the free period ended could still go through as free.
+   The clock is now read after Stripe has answered, with everything else known.
+2. *The helper that cancels an unpaid call* could cancel while the bank was still confirming
+   the card (it asked Stripe, heard "being confirmed", and took that for "unpaid"). Now "being
+   confirmed" means "not known yet" there too: the helper leaves the call alone and looks
+   again on its next round. And the step that cancels asks Stripe itself, under lock, also
+   when the reason is "unpaid".
+3. Smaller: a reading of the page that was owed to one visit is not made after the person has
+   left again; the two checks about waiting now make sure that the one seen waiting is the
+   very cancellation under test.
+
+**Not checked by the script, said plainly:** an answer from Stripe that arrives slowly cannot
+be made to happen on purpose here, so point 1 is proven by reading the code, not by a check.
+
 **Not done, said plainly:** coming back from a bank's approval after the app was closed is a
 thing only a phone can show. It was walked in part 06 for saving a card (the same sheet and
 the same way back); for the hold it is on the founder's two-phone list in part 20.

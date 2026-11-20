@@ -250,7 +250,7 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
  * moment, not on what our own record had heard of so far). Only for a card payment still waiting for its hold;
  * anything else is handed back as it is. Throws if Stripe cannot be asked: nothing is then decided.
  */
-export async function syncHoldLocked(tx: Tx, payment: Payment, now: Date): Promise<Payment> {
+export async function syncHoldLocked(tx: Tx, payment: Payment): Promise<Payment> {
   if (payment.kind !== "card" || payment.status !== "awaiting_payment" || !payment.stripePaymentIntentId) return payment;
   // Locks are held while Stripe is asked, so Stripe gets a short time to answer and is not asked twice.
   const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId, { expand: ["latest_charge"] }, LOCKED_REQUEST);
@@ -258,7 +258,8 @@ export async function syncHoldLocked(tx: Tx, payment: Payment, now: Date): Promi
   // be decided on it. (The helper treats this state the same way.)
   if (intent.status === "processing") throw new OutcomeUnknownError("The bank's answer about this card is not known yet.");
   if (intent.status !== "requires_capture") return payment;
-  await applyHeld(tx, payment, holdDetails(intent), now);
+  // (A hold whose time Stripe does not give is dated by the clock now, after Stripe has answered: the latest it can have been.)
+  await applyHeld(tx, payment, holdDetails(intent), new Date());
   const [after] = await tx.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
   return after;
 }
@@ -336,13 +337,17 @@ async function paymentStatus(paymentId: string): Promise<string | undefined> {
  * Asks Stripe for the real state of a payment's hold and records it.
  * This, not anything the browser says, is what marks a payment as held.
  */
-export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
+export async function syncHold(paymentId: string, now: Date, options: { closing?: boolean } = {}): Promise<Payment> {
   const [before] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
   if (!before) throw new MoneyError("Payment not found.");
   if (before.kind !== "card") return before; // a membership's payment has no hold at Stripe to ask about
   if (!before.stripePaymentIntentId || (before.status !== "awaiting_payment" && before.status !== "held")) return before;
 
   const intent = await stripe().paymentIntents.retrieve(before.stripePaymentIntentId, { expand: ["latest_charge"] });
+  // `closing`: the caller is about to close this payment as unpaid if it is still waiting. A card that is being
+  // confirmed at this very moment is not "unpaid": whether the money is held is not known yet, so the caller is
+  // told so (it tries again later) instead of being handed "still waiting".
+  if (options.closing && before.status === "awaiting_payment" && intent.status === "processing") throw new OutcomeUnknownError("The bank's answer about this card is not known yet.");
   const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
 
   await db.transaction(async (tx) => {

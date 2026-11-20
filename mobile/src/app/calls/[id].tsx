@@ -146,8 +146,10 @@ function OneCall({ id }: { id: string }) {
       });
       return () => {
         listener.remove();
-        // Leaving the page: an answer still on its way is no longer used (it would act for a page nobody is looking at).
+        // Leaving the page: an answer still on its way is no longer used (it would act for a page nobody is looking at),
+        // and a reading that was owed to this visit is not made after it (coming back asks for its own).
         newest.current++;
+        owedLook.current = false;
         if (dueTimer.current) clearTimeout(dueTimer.current);
       };
     }, [look]),

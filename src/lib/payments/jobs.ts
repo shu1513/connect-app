@@ -387,8 +387,9 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordina
   if (payment.status !== "awaiting_payment" && payment.status !== "held") return;
 
   if (payment.status === "awaiting_payment") {
-    // The customer may have paid in the last moments: ask Stripe before closing.
-    const synced = await syncHold(payment.id, now);
+    // The customer may have paid in the last moments: ask Stripe before closing. (A card still being confirmed at
+    // the bank is not "unpaid": that throws here, and this payment is looked at again on the next round.)
+    const synced = await syncHold(payment.id, now, { closing: true });
     if (synced.status !== "awaiting_payment") return;
     await releasePayment({ paymentId: payment.id, note: "The call ended without a payment." });
     log(`closed unpaid payment ${payment.id}`);
