@@ -9,7 +9,7 @@ and the take-back). Its third look, at the third draft: "ready with changes", fi
 settle before the part they belong to is merged. They are worked in here; what was taken and
 what was not is at the end.
 
-(Number 46 is taken by another session's plan, "agreements live", which is not merged yet.)
+(Number 46 is another session's plan, "agreements live", merged the same day.)
 
 **Its size, said plainly:** about one module, built in three parts. No second payment system is
 built. The careful money code that exists (written-down money actions, the helper, "Collect
