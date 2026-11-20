@@ -46,6 +46,12 @@ export default function PrivacyPage() {
         kept; we keep only a fingerprint of it, so that the same picture is not accepted later.
       </p>
       <p className="mt-4 text-sm">
+        A host can also upload a picture as their photo. We make our own copy in the same way, keep only a square cut from the
+        middle of it, and do not keep the file as it was sent. Our copy goes to one of the same checking services before anyone
+        sees it, without the host&apos;s name. We keep it until the host removes it or their Connect account is closed; it does
+        not depend on any social media account. The rest is as for a photo from Instagram or TikTok.
+      </p>
+      <p className="mt-4 text-sm">
         When you contribute to a host&apos;s project, the host sees your name, the amount, whether it is once or every month, and
         when you began. Your card is entered on our payment company&apos;s form (Stripe) and we never see its number. For a monthly
         contribution the card is kept at Stripe for that contribution only, and removed when it ends. We keep what you agreed

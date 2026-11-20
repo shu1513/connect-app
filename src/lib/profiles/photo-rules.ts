@@ -13,9 +13,13 @@ export const PHOTO = {
   fetchMaxBytes: 5 * 1024 * 1024,
   /** Fetching a picture may take this long in all, reading included. */
   fetchWithinMs: 8_000,
+  /** An uploaded photo is kept as a square cut from the middle, at most this many points on each side (plans/35). */
+  uploadSide: 512,
 } as const;
 
 export type PhotoNetwork = "instagram" | "tiktok";
+/** Where a photo came from: a confirmed account on a network, or the person's own file (plans/35). */
+export type PhotoSource = PhotoNetwork | "upload";
 
 /**
  * The servers a network's pictures are fetched from: a server's name must end in one of these,

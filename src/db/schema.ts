@@ -1213,11 +1213,11 @@ export const hostPhotos = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id),
-    /** instagram or tiktok. */
+    /** Where the picture came from: instagram, tiktok, or upload (the person's own file, plans/35). */
     network: text("network").notNull(),
-    /** The account's name and the network's own number for it, as they were in the answer that gave the picture. */
-    sourceNameKey: text("source_name_key").notNull(),
-    sourceAccountId: text("source_account_id").notNull(),
+    /** The account's name and the network's own number for it, as they were in the answer that gave the picture. Both empty for an upload, and only then. */
+    sourceNameKey: text("source_name_key"),
+    sourceAccountId: text("source_account_id"),
     width: integer("width").notNull(),
     height: integer("height").notNull(),
     byteLength: integer("byte_length").notNull(),
@@ -1241,7 +1241,11 @@ export const hostPhotos = pgTable(
     // The database itself guarantees one photo that is not locked for each host.
     uniqueIndex("host_photos_current_uq").on(t.userId).where(sql`${t.lockedAt} is null`),
     index("host_photos_user_idx").on(t.userId),
-    check("host_photos_network", sql`${t.network} in ('instagram', 'tiktok')`),
+    check("host_photos_network", sql`${t.network} in ('instagram', 'tiktok', 'upload')`),
+    check(
+      "host_photos_source",
+      sql`(${t.network} = 'upload' and ${t.sourceNameKey} is null and ${t.sourceAccountId} is null) or (${t.network} <> 'upload' and ${t.sourceNameKey} is not null and ${t.sourceAccountId} is not null)`,
+    ),
   ],
 );
 
@@ -1269,8 +1273,8 @@ export const hostPhotoTries = pgTable(
       .references(() => user.id),
     network: text("network").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-    /** The host's confirmed entry on that network as it was when the try started. The number is empty for an entry proven with the code. */
-    entryNameKey: text("entry_name_key").notNull(),
+    /** The host's confirmed entry on that network as it was when the try started. The number is empty for an entry proven with the code. Both empty for an upload, and only then. */
+    entryNameKey: text("entry_name_key"),
     entryAccountId: text("entry_account_id"),
     result: text("result"),
     /** The fingerprint of Connect's copy, once one was made. */
@@ -1290,7 +1294,11 @@ export const hostPhotoTries = pgTable(
     index("host_photo_tries_user_idx").on(t.userId, t.startedAt),
     index("host_photo_tries_bytes_idx").on(t.userId, t.sha256),
     index("host_photo_tries_network_idx").on(t.network, t.startedAt),
-    check("host_photo_tries_network", sql`${t.network} in ('instagram', 'tiktok')`),
+    check("host_photo_tries_network", sql`${t.network} in ('instagram', 'tiktok', 'upload')`),
+    check(
+      "host_photo_tries_entry",
+      sql`(${t.network} = 'upload' and ${t.entryNameKey} is null and ${t.entryAccountId} is null) or (${t.network} <> 'upload' and ${t.entryNameKey} is not null)`,
+    ),
     check(
       "host_photo_tries_result",
       sql`${t.result} is null or ${t.result} in ('shown', 'not_accepted', 'refused_before', 'no_picture', 'not_fetched', 'unusable', 'not_checked', 'stopped')`,
