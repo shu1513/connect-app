@@ -2344,3 +2344,44 @@ extends, and was updated to the line as it now reads. The database change is num
 watching it appear within a minute. Whether the home page's new order reads well to a real
 customer. Part two (emails), then "tell me when a time opens" and suggestions as plans of their
 own.
+
+## A later change: following hosts, part two: emails to followers (plan 31, 19 November 2026)
+
+**What it is.** A follower can ask, for each host separately, for two emails: "Anna is available
+now" (with hours of their own choosing, "only between 6 pm and 10 pm") and "Anna wrote in her
+diary". The home page also gets "New in diaries", the latest posts of the hosts a person follows.
+Plan: `plans/31-following-part-2-emails.md`.
+
+**It is built switched off.** These emails are advertising in the eyes of the law, and US law
+asks that such an email carries the sender's postal address. There is no registered company
+yet. So the switch is that address: the setting `FOLLOW_EMAILS_ADDRESS`. While it is empty the
+choices are not shown and nothing is written or sent. "New in diaries" is not an email and is
+on.
+
+**What was decided differently from what was first discussed, and why.**
+- **"Tell me when a time opens" is not built**, although the founder liked it. It needs a waiting
+  state of its own that can be cancelled and asked for again, and "an open time" is not one
+  thing (a 15-minute time is no use to someone who wants an hour). It gets a plan of its own.
+  "Notify me if a host is available at a certain time" is covered by the hours.
+- **The host is not shown how many followers will be told**, for the reason in part one.
+- **The emails never carry what a host wrote**, only the host's name: otherwise a host could put
+  any text or link into every follower's inbox under Connect's name.
+
+**What was built.**
+- For each follow: the two ticks, the hours, and when the last email of each kind was written.
+  For each account: one switch for all of these emails, which the stop link in every such email
+  turns off with one press, without logging in. It never turns anything on, and it leaves
+  reminder emails alone (and the other way round).
+- A host who switches "Available now" on is announced a minute later, if their page still shows
+  them as available. Switching off inside the minute, or accepting a call, announces nothing;
+  extending announces nothing new.
+- A diary post is announced half an hour after it was written, if it is still there.
+- Every email is written by one small step for one follower, under that follower's lock: at
+  most one per host and kind in 20 hours, at most 5 in 24 hours. Never across a block, never to
+  a closed or paused account, never about a host who is paused or whose page is not open.
+- Right before an email is sent, everything is asked again; an email that no longer holds (the
+  host has gone, the hours are over, the post was removed) is dropped, not kept for later.
+- Taking a yes back (unfollowing, clearing a tick, the account's switch, the stop link, a block)
+  drops the emails that were still waiting.
+- Under each host on "Hosts you follow": the ticks, the hours and "Save". On the results of a
+  call: "Email me when Anna is available now". On the account page: the switch.
