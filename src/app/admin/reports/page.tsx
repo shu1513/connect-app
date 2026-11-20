@@ -12,7 +12,7 @@ import { switches } from "@/lib/safety/switches";
 import { RULES } from "@/lib/terms";
 import { requireAdmin } from "@/lib/session";
 import { decideProfileAction, closeAccountAction } from "../people/actions";
-import { closeReportAction, liftPauseAction, membershipsSwitchAction, pauseAction, switchesAction, warnAction } from "./actions";
+import { appSwitchesAction, closeReportAction, liftPauseAction, membershipsSwitchAction, pauseAction, switchesAction, warnAction } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Reports and safety" };
@@ -331,6 +331,42 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         </label>
         <button type="submit" className={button}>
           Save memberships switch
+        </button>
+      </form>
+
+      <h2 className="mt-10 text-lg font-semibold">The phone apps</h2>
+      <p className="mt-1 text-sm opacity-70">
+        These are for the iPhone and Android apps only; the website does not read them. A thing switched off here is also
+        refused by the server, so an old copy of the app cannot reach it. The switches above still rule first: memberships
+        that are off for everyone are off in the apps too.
+      </p>
+      <form action={appSwitchesAction} className="mt-2 space-y-2 text-sm">
+        <label className="block">
+          Memberships in the apps are
+          <select name="appMemberships" defaultValue={current.appMemberships} className={`${field} ml-2`}>
+            <option value="on">on</option>
+            <option value="use_only">on, but nothing is bought in the app</option>
+            <option value="off">off</option>
+          </select>
+        </label>
+        <p className="opacity-70">
+          In the middle position members can spend time they have already paid for, and nothing in the app can take a
+          monthly payment. A member can always see and cancel their own membership, in every position.
+        </p>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="appTips" defaultChecked={current.appTips} /> Tips in the apps (keep this off until
+          Apple&apos;s rule about a tip after a call is clear)
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="appAvailableNow" defaultChecked={current.appAvailableNow} /> &quot;Available now&quot; in the
+          apps
+        </label>
+        <label className="block">
+          The oldest version of the app still allowed, such as 1.2.0 (empty: every version)
+          <input name="appOldestVersion" defaultValue={current.appOldestVersion} className={`${field} block w-40`} />
+        </label>
+        <button type="submit" className={button}>
+          Save the phone apps&apos; switches
         </button>
       </form>
 

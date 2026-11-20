@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The phone app (plans/45) is a project of its own, with its own lint and type check.
+    "mobile/**",
   ]),
 ]);
 

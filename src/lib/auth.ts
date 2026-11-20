@@ -4,8 +4,9 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { outsideLoginProblem, UNUSED_LOGIN_PATHS } from "./auth-rules";
+import { APP_ORIGIN, leadsToTheWebsite, outsideLoginProblem, UNUSED_LOGIN_PATHS } from "./auth-rules";
 import { sendEmailInBackground } from "./email";
+import { ownOrigins } from "./same-site";
 
 const APP_NAME = "Connect";
 const ONE_HOUR = 3600;
@@ -22,6 +23,28 @@ function developmentOrigins(): string[] {
     return [];
   }
 }
+
+/**
+ * The phone app's requests (plans/45-phone-apps/01-the-door.md). An app has no web address, so its
+ * requests carry no "where from" of their own; the login tool's kit for phones sends the app's
+ * name in a header of its own instead. When a request has no "where from" and names exactly our
+ * app there, that name is taken as where it comes from, and the login tool then checks it against
+ * what it trusts like any other. A browser's own "where from" is never replaced: a browser always
+ * sends one with the requests that matter, and a page cannot change it.
+ *
+ * These few lines stand in for the server half of that kit (@better-auth/expo). The kit lists a
+ * phone's libraries as things it needs, and it also adds an address and a way of handing a login
+ * to an app link, for outside logins the app does not use. None of that belongs on the website.
+ */
+const phoneApp = {
+  id: "connect-phone-app",
+  async onRequest(request: Request) {
+    if (request.headers.get("origin") || request.headers.get("expo-origin") !== APP_ORIGIN) return;
+    const headers = new Headers(request.headers);
+    headers.set("origin", APP_ORIGIN);
+    return { request: new Request(request, { headers }) };
+  },
+};
 
 /**
  * Login setup.
@@ -45,7 +68,8 @@ export const auth = betterAuth({
       twoFactor: schema.twoFactor,
     },
   }),
-  trustedOrigins: developmentOrigins(),
+  // The phone app is trusted under its own name, beside the website's own addresses.
+  trustedOrigins: [...developmentOrigins(), APP_ORIGIN],
 
   emailAndPassword: {
     enabled: true,
@@ -165,6 +189,14 @@ export const auth = betterAuth({
     before: createAuthMiddleware(async (ctx) => {
       // Parts of the login tool this app does not use are switched off.
       if (UNUSED_LOGIN_PATHS.some((path) => ctx.path === path || ctx.path.startsWith(`${path}/`))) throw new APIError("NOT_FOUND");
+      // Wherever the login tool is asked to send someone on to, it must be the website: when an email
+      // is asked for, and again when its link is opened. (See leadsToTheWebsite: trusting the phone
+      // app's name must not let a confirmation or reset link lead into an app.)
+      const destinations = [ctx.body?.callbackURL, ctx.body?.redirectTo, ctx.body?.errorCallbackURL, ctx.body?.newUserCallbackURL, ctx.query?.callbackURL].flat();
+      const own = ownOrigins();
+      if (destinations.some((destination) => destination !== undefined && destination !== null && !leadsToTheWebsite(destination, own))) {
+        throw new APIError("FORBIDDEN", { message: "Invalid callbackURL" });
+      }
       if (ctx.path === "/change-password") {
         return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };
       }
@@ -179,6 +211,7 @@ export const auth = betterAuth({
     // The second login step: a 6-digit code from an authenticator app. "Trust this device" is off,
     // so the code is asked for at every login.
     twoFactor({ issuer: "Connect", trustDeviceMaxAge: 0 }),
+    phoneApp,
   ],
 
   // Problems during Google sign-in come back to the login page, which explains them.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outsideLoginProblem } from "./auth-rules";
+import { leadsToTheWebsite, outsideLoginProblem } from "./auth-rules";
 
 const google = (profile?: Record<string, unknown>) => ({ method: "oauth", oauth: { providerId: "google", profile } });
 
@@ -23,5 +23,41 @@ describe("outsideLoginProblem", () => {
 
   it("does not get in the way of password sign-up", () => {
     expect(outsideLoginProblem({ emailVerified: false }, { method: "email-password" })).toBeUndefined();
+  });
+});
+
+describe("leadsToTheWebsite", () => {
+  const own = ["https://connect.example", "http://localhost:3000"];
+
+  it("accepts a path on this site", () => {
+    for (const path of ["/", "/welcome", "/reset-password", "/welcome?next=%2Fh%2Fmaria"]) expect(leadsToTheWebsite(path, own), path).toBe(true);
+  });
+
+  it("accepts a full address on one of the website's own sites", () => {
+    expect(leadsToTheWebsite("https://connect.example/welcome", own)).toBe(true);
+    expect(leadsToTheWebsite("http://localhost:3000/reset-password", own)).toBe(true);
+  });
+
+  it("refuses the phone app's own name, and anything else that is not the website", () => {
+    for (const elsewhere of [
+      "connect://",
+      "connect://welcome",
+      "connect:///welcome",
+      "exp://127.0.0.1:8081",
+      "https://connect.example.evil.test/welcome",
+      "https://evil.test/?https://connect.example",
+      "http://connect.example/welcome",
+      "//evil.test/welcome",
+      "/\\evil.test",
+      "javascript:alert(1)",
+      "welcome",
+      "",
+    ]) {
+      expect(leadsToTheWebsite(elsewhere, own), elsewhere).toBe(false);
+    }
+  });
+
+  it("refuses what is not a piece of text", () => {
+    for (const value of [undefined, null, 1, {}, ["/welcome"]]) expect(leadsToTheWebsite(value, own)).toBe(false);
   });
 });
