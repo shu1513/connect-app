@@ -2344,3 +2344,62 @@ extends, and was updated to the line as it now reads. The database change is num
 watching it appear within a minute. Whether the home page's new order reads well to a real
 customer. Part two (emails), then "tell me when a time opens" and suggestions as plans of their
 own.
+
+## A later change: a host's photo from TikTok (plan 32, part two of plan 29, 19 November 2026)
+
+**Why.** Plan 29 promised two sources for a host's photo. Instagram came first; this is TikTok.
+
+**What it is.**
+- **For a host:** a second button under "Your photo" on the Hosting page, "Use my TikTok photo",
+  for a host with a confirmed TikTok account. Connect keeps no key from TikTok, so the button
+  sends the host through TikTok's sign-in once more, and the picture comes back with it.
+  "Update" does the same. TikTok asks for nothing new: the same screen as "Connect your TikTok".
+- **A sign-in for the photo never changes the account on the host's page.** The account the host
+  signs in with must be the confirmed one (by TikTok's number when the page's entry has one,
+  otherwise by its name), and must not be another host's.
+- **Everything else is plan 29's:** one photo at a time, checked by an outside service before
+  anyone sees it, a refused picture stays refused, five tries in any 24 hours, the founder's
+  "Remove" and "Remove and report".
+- **The picture is asked for only at a photo's sign-in.** An ordinary "Connect your TikTok"
+  reads the account's number and name and nothing else, exactly as before.
+- **How a try survives the trip to TikTok:** it is written down at the press and its id travels
+  inside the signed note in the host's browser. One return takes the try up before anything is
+  asked of TikTok, so the same return arriving twice does the work once. Whatever removes the
+  photo or changes the account while the host is away stops the try.
+- **Database:** one new field, `host_photo_tries.returned_at` (migration
+  `0041_host_photo_try_return`).
+- **Small:** the sentences a host is told after a photo button now live in one file
+  (`photo-words.ts`), for both networks.
+
+**Said plainly: until TikTok approves the live site, only the founder can use it,** as with
+"Connect your TikTok" itself. At launch the photo will in practice come from Instagram.
+
+**Tried for real (19 November 2026),** in TikTok's test mode with the founder's own account, as
+the local test host: "Connect your TikTok", then "Use my TikTok photo". TikTok showed the same
+screen both times. The photo was saved 2.6 seconds after the host came back, fetched after the
+key had been handed back to TikTok. On the way the five-a-day limit was met for real (the test
+host had used its five on Instagram) and answered as it should. Details at the end of plan 32.
+
+**What the reviewers found.** Astra checked the plan once and the code once, "ready with
+changes" both times, and asked for nothing to be removed.
+- *The plan:* the same return arriving twice (now one return takes the try up); and a genuine
+  note that belongs to another browser tab, which must not end that tab's try (a try is ended
+  only after the note, the value TikTok sent along and the person all fit, and only by the
+  return that took it up).
+- *The code:* something of ours breaking after a return had taken its try up left the try
+  hanging and the host with an error page; and the account becoming another host's while the
+  picture was being checked. Both fixed.
+- *Not taken:* keeping a newer note when an older tab's return does not fit (a host who
+  overlaps two sign-ins presses the button again); a lock against two hosts signing in to the
+  very same TikTok account in the same instant.
+
+**How it was checked:** 589 automatic tests on the code with following merged in; a new journey
+of 50 checks in `scripts/photo-check.ts` with TikTok pretended (184 in all);
+`scripts/accounts-check.ts` unchanged and passing (the ordinary sign-in is as it was); the real
+try above.
+
+**Still open.** TikTok's approval of the live site, and the return address at TikTok set to the
+live site's (it holds a temporary address now). Not seen for real: a custom TikTok picture, a
+different account signing in, "Cancel" during a photo's sign-in. Everything plan 29 left open
+stays open.
+
