@@ -1,7 +1,8 @@
 /**
  * The rules of the home page that are plain logic (plans/36-customer-home-page.md): which calls
- * are "not over", which one is "the next call", what the countdown says, and how calls are
- * grouped into days. No database, and nothing that only a browser or only a server has.
+ * are "not over", which one is "the next call", what the countdown says, and which day a moment
+ * falls on. (How calls are laid out in days is in calendar.ts, plans/43.) No database, and
+ * nothing that only a browser or only a server has.
  */
 
 export const HOME = {
@@ -76,26 +77,6 @@ export function dayOf(moment: Date, timeZone: string): string {
 export function dayAfter(day: string): string {
   const [year, month, date] = day.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, date + 1)).toISOString().slice(0, 10);
-}
-
-export type DayGroup<T> = { day: string; is: "today" | "tomorrow" | "other"; calls: T[] };
-
-/**
- * Calls grouped by the calendar day they start on in the person's time zone, in the order given
- * (the soonest first). Always the day the call really starts on: a call that began late yesterday
- * and is still running stands under yesterday's date, not under "Today" with last night's time.
- */
-export function byDay<T extends { startsAt: Date }>(calls: T[], timeZone: string, now: Date): DayGroup<T>[] {
-  const today = dayOf(now, timeZone);
-  const tomorrow = dayAfter(today);
-  const groups: DayGroup<T>[] = [];
-  for (const call of calls) {
-    const day = dayOf(call.startsAt, timeZone);
-    const last = groups[groups.length - 1];
-    if (last && last.day === day) last.calls.push(call);
-    else groups.push({ day, is: day === today ? "today" : day === tomorrow ? "tomorrow" : "other", calls: [call] });
-  }
-  return groups;
 }
 
 /**

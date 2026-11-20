@@ -1,6 +1,7 @@
-import { and, asc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import Link from "next/link";
-import { CallsByDay, type ListedCall } from "@/components/calls-by-day";
+import type { ListedCall } from "@/components/call-row";
+import { CallsCalendar } from "@/components/calls-calendar";
 import { Countdown } from "@/components/countdown";
 import { CustomerDetailsLines } from "@/components/customer-details";
 import { DiaryPicture } from "@/components/diary-picture";
@@ -14,12 +15,16 @@ import { warm, warmFont } from "@/components/warm-ui";
 import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomOpensAt, roomState } from "@/lib/calls";
+import { CALENDAR, parseDay, viewRange } from "@/lib/home/calendar";
 import { customerDetailsFor } from "@/lib/home/customer-details";
+import { earnedFrom } from "@/lib/home/earned";
 import { diaryNews, followedHosts } from "@/lib/follows/follows";
 import { FOLLOW } from "@/lib/follows/rules";
 import { notPaidYet, paymentLine, paymentsByCall } from "@/lib/home/payment-line";
 import { HOME, nextCall } from "@/lib/home/rules";
 import { readNotice } from "@/lib/notice";
+import { formatMoney } from "@/lib/payments/access";
+import { currentSplit } from "@/lib/payments/actions";
 import { photosOf } from "@/lib/profiles/photo";
 import { picturesOf } from "@/lib/projects/pictures";
 import { firstLines } from "@/lib/projects/rules";
@@ -109,7 +114,7 @@ function FrontPage() {
 
 /**
  * The home page of someone who is logged in (plans/36-customer-home-page.md), from top to bottom:
- * the next call with its countdown, what is waiting for them, their next calls by day, the hosts
+ * the next call with its countdown, what is waiting for them, their calendar (plans/43), the hosts
  * they follow, news from those hosts, and suggested hosts (plans/37). Calls that are over are on /calls.
  *
  * One page for everyone: a person can be a customer and a host with the same account, so the
@@ -125,21 +130,41 @@ export default async function HomePage(props: PageProps<"/">) {
   // Nobody logged in: the front page. Someone part-way through signing up is still sent to their next step.
   if (!(await getSignedIn())) return <FrontPage />;
   const user = await requireUser();
-  const notice = readNotice("/", await props.searchParams);
+  const query = await props.searchParams;
+  const notice = readNotice("/", query);
   const now = new Date();
+  // The day the calendar is asked to show (plans/43); anything that is not a real day is read as today.
+  const day = parseDay(query.day);
+  const around = viewRange(day, now);
+  const mine = or(eq(schema.calls.hostId, user.id), eq(schema.calls.customerId, user.id));
 
-  // Only this person's calls that are not over (rules.ts, `notOver`, said here to the database), the soonest first.
-  const calls = await db
-    .select()
-    .from(schema.calls)
-    .where(and(or(eq(schema.calls.hostId, user.id), eq(schema.calls.customerId, user.id)), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), gt(schema.calls.endsAt, now)))
-    .orderBy(asc(schema.calls.startsAt), asc(schema.calls.endsAt));
+  const [calls, nearby] = await Promise.all([
+    // Only this person's calls that are not over (rules.ts, `notOver`, said here to the database), the soonest first.
+    db
+      .select()
+      .from(schema.calls)
+      .where(and(mine, isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), gt(schema.calls.endsAt, now)))
+      .orderBy(asc(schema.calls.startsAt), asc(schema.calls.endsAt)),
+    // For the calendar: this person's calls that touch the days around the day asked for, also the ones that are over.
+    // Never a cancelled one. One more than is shown, to know whether some are left out.
+    db
+      .select()
+      .from(schema.calls)
+      .where(and(mine, isNull(schema.calls.cancelledAt), lt(schema.calls.startsAt, around.to), gt(schema.calls.endsAt, around.from)))
+      .orderBy(asc(schema.calls.startsAt), asc(schema.calls.endsAt))
+      .limit(CALENDAR.most + 1),
+  ]);
+  const cut = nearby.length > CALENDAR.most;
+  // Every call the page speaks of, each once: the ones that are not over, and the ones around the day in view.
+  const every = [...new Map([...calls, ...nearby.slice(0, CALENDAR.most)].map((call) => [call.id, call])).values()].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.endsAt.getTime() - b.endsAt.getTime());
+  // Someone with no call at all, past or coming, gets no calendar. Asked only when none is in sight.
+  const hasCalls = every.length > 0 || (await db.select({ id: schema.calls.id }).from(schema.calls).where(and(mine, isNull(schema.calls.cancelledAt))).limit(1)).length > 0;
 
   // Only the names of the people this person has calls with.
-  const otherIds = [...new Set(calls.map((c) => (c.hostId === user.id ? c.customerId : c.hostId)))];
+  const otherIds = [...new Set(every.map((c) => (c.hostId === user.id ? c.customerId : c.hostId)))];
   // A customer knows their host by the display name on the host's page, never by the host's account name.
-  const myHostIds = [...new Set(calls.filter((c) => c.customerId === user.id).map((c) => c.hostId))];
-  const callIds = calls.map((c) => c.id);
+  const myHostIds = [...new Set(every.filter((c) => c.customerId === user.id).map((c) => c.hostId))];
+  const callIds = every.map((c) => c.id);
   const [people, hostProfiles, payments, requests, toAnswer, toRate, followed, aboutOf, ownProfiles] = await Promise.all([
     otherIds.length > 0 ? db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, otherIds)) : [],
     myHostIds.length > 0 ? db.select({ userId: schema.hostProfiles.userId, displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, myHostIds)) : [],
@@ -148,7 +173,8 @@ export default async function HomePage(props: PageProps<"/">) {
     waitingForHost(user.id),
     callsToRate(user.id, now),
     followedHosts(user.id, now),
-    // About the customers of the calls this person hosts, and of no other call (plans/38). Nothing is asked for someone who hosts none.
+    // About the customers of the calls this person hosts, and of no other call (plans/38). Nothing is asked for someone who
+    // hosts none. Only for calls that are not over: beside a finished call, "calls before" would count that call itself.
     customerDetailsFor(user.id, calls, now),
     // This person's own host profile, for the shortcuts: only whether there is one, where it is, and how it stands.
     db.select({ handle: schema.hostProfiles.handle, status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id)),
@@ -161,7 +187,7 @@ export default async function HomePage(props: PageProps<"/">) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
   const paymentsOf = paymentsByCall(payments);
-  const otherOf = (call: (typeof calls)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown";
+  const otherOf = (call: (typeof every)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown";
 
   // "Hosts you follow": the first few in the list's own order (available now first). The rest are behind "See all".
   const shownHosts = followed.slice(0, HOME.hostsShown);
@@ -179,19 +205,31 @@ export default async function HomePage(props: PageProps<"/">) {
   // The time the countdown counts from, and by which a room counts as open: taken here, after everything was read,
   // so the time the reads took is not lost. (Which calls are not over was asked at `now`, a moment earlier.)
   const drawn = new Date();
-  const listed: ListedCall[] = calls.map((call) => ({
-    id: call.id,
-    startsAt: call.startsAt.toISOString(),
-    minutes: Math.round((call.endsAt.getTime() - call.startsAt.getTime()) / 60_000),
-    name: otherOf(call),
-    // The host's photo for a call this person booked; the customer's for a call they host, when they are handed one.
-    photoId: call.customerId === user.id ? (photos.get(call.hostId) ?? null) : (aboutOf.get(call.id)?.photoId ?? null),
-    hosting: call.hostId === user.id,
-    open: roomState(call, drawn) === "open",
-    payment: paymentLine(paymentsOf.get(call.id) ?? []),
-    // Only ever set for a call this person hosts: `customerDetailsFor` answers for no other.
-    about: aboutOf.get(call.id)?.details,
-  }));
+  // Each call as the page draws it: the words and numbers only, never a whole record (plans/43, decision 18).
+  const listed: ListedCall[] = every.map((call) => {
+    const hosting = call.hostId === user.id;
+    const finished = Boolean(call.safetyEndedAt) || call.endsAt.getTime() <= drawn.getTime();
+    const paid = paymentsOf.get(call.id) ?? [];
+    // What a finished call earned its host (plans/43, decision 8): her share of each charge, by the one rule for that.
+    // Worked out here, and only for a call this person hosted.
+    const earned = hosting && finished ? earnedFrom(paid.map((payment) => ({ status: payment.status, needsReview: payment.needsReview, shareCents: payment.status === "charged" ? currentSplit(payment).hostShareCents : 0 }))) : null;
+    return {
+      id: call.id,
+      startsAt: call.startsAt.toISOString(),
+      endsAt: call.endsAt.toISOString(),
+      minutes: Math.round((call.endsAt.getTime() - call.startsAt.getTime()) / 60_000),
+      name: otherOf(call),
+      // The host's photo for a call this person booked; the customer's for a call they host, when they are handed one.
+      photoId: call.customerId === user.id ? (photos.get(call.hostId) ?? null) : (aboutOf.get(call.id)?.photoId ?? null),
+      hosting,
+      open: roomState(call, drawn) === "open",
+      finished,
+      payment: paymentLine(paid),
+      ...(earned ? { earned: { text: formatMoney(earned.cents), soFar: earned.soFar } } : {}),
+      // Only ever set for a call this person hosts that is not over: `customerDetailsFor` answers for no other.
+      ...(finished ? {} : { about: aboutOf.get(call.id)?.details }),
+    };
+  });
   const next = nextCall(calls, drawn);
   const nextListed = next ? listed.find((call) => call.id === next.id)! : null;
   const firstName = user.name.trim().split(/\s+/)[0] ?? "";
@@ -340,13 +378,12 @@ export default async function HomePage(props: PageProps<"/">) {
         </section>
       )}
 
-      {/* One call is already in the card above; the list is for seeing several together. */}
-      {listed.length > 1 && (
-        <section className={`${warm.card} mt-6`} data-calls="coming-up">
-          <h2 className={sectionTitle}>Your next calls</h2>
+      {/* The calendar (plans/43): the calls of the days in view, also the ones that are over. Not for someone who never had a call. */}
+      {hasCalls && (
+        <section className={`${warm.card} mt-6`} data-calendar>
+          <h2 className={sectionTitle}>Your calendar</h2>
           <div className="mt-2">
-            {/* The details of the next call are in the card above, once: its row here goes without them. */}
-            <CallsByDay calls={listed.map((call) => (call.id === next?.id ? { ...call, about: undefined } : call))} serverNow={drawn.toISOString()} />
+            <CallsCalendar calls={listed} serverNow={drawn.toISOString()} day={day} nextId={next?.id ?? null} cut={cut} />
           </div>
         </section>
       )}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agoWords, byDay, callsBeforeWords, countdownWords, dayAfter, dayOf, nextCall, notOver } from "./rules";
+import { agoWords, callsBeforeWords, countdownWords, dayAfter, dayOf, nextCall, notOver } from "./rules";
 
 const at = (iso: string) => new Date(iso);
 const call = (startsAt: string, endsAt: string, more: { cancelledAt?: Date; safetyEndedAt?: Date } = {}) => ({
@@ -107,42 +107,6 @@ describe("days", () => {
     expect(dayAfter("2026-01-31")).toBe("2026-02-01");
     expect(dayAfter("2026-12-31")).toBe("2027-01-01");
     expect(dayAfter("2028-02-28")).toBe("2028-02-29");
-  });
-});
-
-describe("calls grouped by day", () => {
-  const zone = "America/New_York";
-  // Sunday 8 March 2026 is the day the clocks go forward in New York: it has 23 hours.
-  const now = at("2026-03-07T15:00:00Z"); // Saturday 10:00 in New York
-  const start = (iso: string) => ({ startsAt: at(iso) });
-  it("puts today, tomorrow and later days apart, in the order given", () => {
-    const today = start("2026-03-07T20:00:00Z");
-    const tonight = start("2026-03-08T04:30:00Z"); // 23:30 on Saturday
-    const tomorrow = start("2026-03-08T16:00:00Z"); // Sunday noon, after the clocks changed
-    const lateTomorrow = start("2026-03-09T03:30:00Z"); // 23:30 on Sunday
-    const monday = start("2026-03-09T04:30:00Z"); // 00:30 on Monday
-    const groups = byDay([today, tonight, tomorrow, lateTomorrow, monday], zone, now);
-    expect(groups.map((g) => [g.day, g.is, g.calls.length])).toEqual([
-      ["2026-03-07", "today", 2],
-      ["2026-03-08", "tomorrow", 2],
-      ["2026-03-09", "other", 1],
-    ]);
-    expect(groups[0].calls).toEqual([today, tonight]);
-  });
-  it("keeps a call that began yesterday and is still running under yesterday's date, apart from today's", () => {
-    const running = start("2026-03-07T04:50:00Z"); // 23:50 on Friday; it is 00:05 on Saturday
-    const later = start("2026-03-07T15:00:00Z");
-    expect(byDay([running, later], zone, at("2026-03-07T05:05:00Z")).map((g) => [g.day, g.is, g.calls.length])).toEqual([
-      ["2026-03-06", "other", 1],
-      ["2026-03-07", "today", 1],
-    ]);
-  });
-  it("groups the same calls differently for someone in another zone", () => {
-    const groups = byDay([start("2026-03-08T04:30:00Z")], "Asia/Tokyo", now);
-    expect(groups.map((g) => [g.day, g.is])).toEqual([["2026-03-08", "today"]]);
-  });
-  it("gives nothing for no calls", () => {
-    expect(byDay([], zone, now)).toEqual([]);
   });
 });
 

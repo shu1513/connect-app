@@ -78,11 +78,13 @@ Nothing new is stored, the database does not change, and no rule about money or 
 4. **No month view now.** On a phone a month can only show dots, and "›" already gets to any
    week. Easy to add later.
 
-5. **Only the hours that matter are drawn.** From 8 in the morning to 8 at night, stretched when
-   a call in view is earlier or later. Not all 24 hours.
+5. **Only the hours that matter are drawn.** From 9 in the morning to 6 in the evening,
+   stretched when a call in view is earlier or later. Not all 24 hours. (First planned as 8 to
+   8; in the browser that was taller than a phone's screen with nothing in it.)
 
 6. **Short calls stay readable.** Calls can be 5 minutes long. An hour is drawn tall enough that
    a 15-minute call has room for a time and a name, and no block is drawn smaller than one line.
+   A block that small is a small thing to tap; the list has full-size rows for every call.
 
 7. **Tapping a call shows it under the calendar,** in the row the list uses: the time, the
    name, the length, the money, and "Open", which leads to the call, or to its results when it
