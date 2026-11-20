@@ -295,6 +295,13 @@
       "when": 1795137087979,
       "tag": "0041_follow_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795139693897,
+      "tag": "0042_host_photo_try_return",
+      "breakpoints": true
     }
   ]
 }

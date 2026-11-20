@@ -2529,7 +2529,7 @@ was not part of this try. Not built: writing or reading notes during the call.
   asked of TikTok, so the same return arriving twice does the work once. Whatever removes the
   photo or changes the account while the host is away stops the try.
 - **Database:** one new field, `host_photo_tries.returned_at` (migration
-  `0041_host_photo_try_return`).
+  `0042_host_photo_try_return`).
 - **Small:** the sentences a host is told after a photo button now live in one file
   (`photo-words.ts`), for both networks.
 
