@@ -67,11 +67,18 @@ export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { ca
     // The details of the next call are in the card above, once: its row here goes without them.
     const coming = calls.filter((call) => !call.finished).map((call) => (call.id === nextId ? { ...call, about: undefined } : call));
     return (
-      <ul data-days="plain">
-        {coming.map((call) => (
-          <CallRow key={call.id} call={call} timeOnly={false} />
-        ))}
-      </ul>
+      <>
+        <ul data-days="plain">
+          {coming.map((call) => (
+            <CallRow key={call.id} call={call} timeOnly={false} />
+          ))}
+        </ul>
+        {/* This list is only the coming days: the page loads the calls around the day in view, not every call. It is said
+            here, for the moment before the calendar is drawn, and for a browser in which it never is. */}
+        <p className="mt-2 text-sm text-[#57534e]" data-days-note>
+          {coming.length > 0 && "These are your calls of the coming days. "}The calendar, which shows every week, appears here in a moment. If it does not, scripts (JavaScript) are switched off in your browser, and the calendar needs them.
+        </p>
+      </>
     );
   }
 
