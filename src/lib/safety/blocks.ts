@@ -10,6 +10,7 @@ import { cancelCall } from "@/lib/payments/cancel";
 import { ownPaymentOn } from "@/lib/payments/own";
 import { cleanUpEndedMemberships, endMembershipsBetween } from "@/lib/membership/state";
 import { endContributionsBetween, letGoAll } from "@/lib/contributions/ending";
+import { endFollowInBlock } from "@/lib/follows/follows";
 
 export class BlockError extends Error {}
 
@@ -47,6 +48,9 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
         ),
       );
     }
+    // The blocker no longer follows the blocked person (plans/30). The other direction is left as it is: removing it
+    // would tell them. Last in this step, because it takes the followers' locks, after which no other lock is taken.
+    await endFollowInBlock(tx, blockerId, blockedId, now);
   });
 
   // Future calls between the two are cancelled for free. (Settlement and the room are handled as usual.)
