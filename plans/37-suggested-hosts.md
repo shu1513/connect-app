@@ -284,6 +284,14 @@ That needs real hosts and customers, and then a look at what was shown and what 
   there, and the other parts of the score and the daily order blur it, but it is not proof
   against a determined guess. Astra advised ten. The founder chose the first day; the bar is one
   number and can be raised.
+- **Made-up accounts lower the bar, and this risk is accepted for now.** Someone who makes two
+  accounts of their own, lets both follow one of their hosts and a second host, and then watches
+  whether that second host moves up in their own suggestions, can learn that at least one more
+  person follows both hosts. Not who it is. They would have to look day after day (suggestions
+  are made once a day), and open times, ratings and the daily order move the row too. An
+  automatic security review of the code raised this on 19 November 2026. It stays as it is with
+  the bar of three, which is the founder's decision. Two ways to tighten it later, each a small
+  change to the rule: count only people whose account is some days old, or raise the bar.
 - **On the first look of a day the row appears a moment after the rest of the page.**
 
 ## Not built

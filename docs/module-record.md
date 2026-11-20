@@ -2888,6 +2888,12 @@ by chance, hosts whose accounts a check script deleted meanwhile disappearing fr
 Not tried: a failure of the request that makes the day (the three tries), and a tab left open
 over midnight.
 
+**An automatic security review of the pushed code** raised one point: with two made-up accounts
+a person can supply two of the three people behind a host, and then learn from their own
+suggestions that at least one more person follows the same two hosts (not who). Nothing in the
+code was changed for it: the bar of three is the founder's decision. It is written into the plan
+as an accepted risk, with two small ways to tighten it later, and into the lawyer's file.
+
 **Still open.** For the founder: every number of the rule is a starting value in
 `src/lib/suggestions/rules.ts`, to be adjusted when there is something to learn from; the bar
 of three is the founder's to raise. With few people the row is mostly open times, ratings and
