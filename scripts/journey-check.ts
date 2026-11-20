@@ -192,7 +192,7 @@ async function main() {
     {
       const start = await page("/host", host.jar);
       check("the Hosting page opens with a \"Getting started\" list", start.status === 200 && start.words.includes("Getting started") && start.words.includes("1. Fill in your profile and send it for approval."), String(start.status));
-      await profiles.createHostProfile(host.id, { handle, displayName: `Jo Journey ${RUN}`, about: "Here to talk.", pricePer15Cents: 0, country: "US" });
+      await profiles.createHostProfile(host.id, { handle, displayName: `Jo Journey ${RUN}`, about: "Here to talk.", pricePer15Cents: 0, country: "US", languages: ["en"] });
       const sent = await page("/host", host.jar);
       check("with the profile sent, the list says the ID check and a proven account come before approval", sent.words.includes("3. Prove one social media account: Instagram, TikTok, YouTube or X. Your social media accounts") && sent.words.includes("We look at your profile once you have confirmed who you are (step 2) and proven one social media account (step 3)."));
       check("a free host is not asked to set up payouts", !sent.words.includes("Set up payouts, so you can be paid for calls."));

@@ -17,6 +17,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { bookedTotalCents } from "@/lib/payments/pricing";
 import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
+import { languageNames } from "@/lib/profiles/languages";
 import { photosOf } from "@/lib/profiles/photo";
 import { publicProfile } from "@/lib/profiles/profiles";
 import { contributionOf } from "@/lib/projects/ask";
@@ -96,6 +97,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const starts = offer && chosen ? await openTimes(offer, chosen, new Date()) : [];
   const now = offer ? await instantOffer(profile.userId, new Date()) : null;
   const rating = await averageFor(profile.userId, "host", new Date());
+  const languages = languageNames(profile.languages);
   // Her running project, with the newest post of its diary. Asked of the diary's own rule, which is "her page is
   // open to everyone": a member or an invited person who can open a hidden page does not see the project here.
   const diary = await diaryFor(profile.handle);
@@ -116,6 +118,12 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           <p className="text-sm">
             <Rating shown={rating} newText="New on Connect" />
           </p>
+          {/* Only for a host who has chosen: nothing is guessed for the others (plans/34-host-languages.md). */}
+          {languages.length > 0 && (
+            <p className="text-sm" data-host-languages>
+              {`Languages: ${languages.join(", ")}`}
+            </p>
+          )}
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type Bi
 import { queueProfileDecisionEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { chooseAccount, type SharedAccount } from "./instagram";
+import { chosenLanguages } from "./languages";
 import { dropPhotoIfSourceGone } from "./photo-steps";
 import { isNetwork, NETWORKS, readSocialName, type Network } from "./social";
 import { tiktokSignInOn } from "./tiktok";
@@ -95,18 +96,27 @@ function checkedDetails(input: { displayName: string; about: string; pricePer15C
   return { displayName, about, pricePer15Cents: input.pricePer15Cents };
 }
 
+/** The languages a host ticked, as they are saved (languages.ts): one to five, all from the list. Never guessed, never trimmed. */
+function checkedLanguages(sent: readonly string[]): string[] {
+  const chosen = chosenLanguages(sent);
+  if ("problem" in chosen) throw new ProfileError(chosen.problem);
+  return chosen.codes;
+}
+
 /**
  * A person applies to host. The profile waits for the founder's approval before anyone can see it.
  *
  * `country` is where they say they are based: it must be given, and be one of the countries a
  * host can be paid in (countries.ts). It is never guessed, and the host cannot change it later:
  * their payout account at Stripe is opened for it (plans/27-hosts-abroad.md).
+ *
+ * `languages` are the ones they can hold a call in (plans/34-host-languages.md).
  */
 export async function createHostProfile(
   userId: string,
-  input: { handle: string; displayName: string; about: string; pricePer15Cents: number; country: string },
+  input: { handle: string; displayName: string; about: string; pricePer15Cents: number; country: string; languages: readonly string[] },
 ): Promise<void> {
-  const details = checkedDetails(input);
+  const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages) };
   const handle = tidyHandle(input.handle);
   const problem = handleProblem(handle);
   if (problem) throw new ProfileError(problem);
@@ -128,12 +138,15 @@ export async function createHostProfile(
   }
 }
 
-/** The host edits their profile. The handle cannot be changed here. */
+/**
+ * The host edits their profile. The handle cannot be changed here. The languages are replaced by
+ * what was ticked this time; changing them never sends an approved profile for approval again.
+ */
 export async function updateHostProfile(
   userId: string,
-  input: { displayName: string; about: string; pricePer15Cents: number },
+  input: { displayName: string; about: string; pricePer15Cents: number; languages: readonly string[] },
 ): Promise<void> {
-  const details = checkedDetails(input);
+  const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages) };
   await db.transaction(async (tx) => {
     // The host's calendar lock first: a membership month is written down under the same lock while it
     // reads this price, so a month can never start at a price above the regular one.
@@ -231,6 +244,8 @@ export type PublicProfile = {
   about: string;
   pricePer15Cents: number;
   freeCancelMinutes: number;
+  /** The codes of the languages the host can hold a call in (languages.ts). Empty for a host who has not chosen yet. */
+  languages: string[];
   socials: Array<{ network: Network; label: string; name: string; url: string }>;
 };
 
@@ -250,6 +265,7 @@ export async function publicProfile(typedHandle: string): Promise<PublicProfile 
       displayName: schema.hostProfiles.displayName,
       about: schema.hostProfiles.about,
       pricePer15Cents: schema.hostProfiles.pricePer15Cents,
+      languages: schema.hostProfiles.languages,
       freeCancelMinutes: schema.hostSettings.freeCancelMinutes,
     })
     .from(schema.hostProfiles)
@@ -275,6 +291,7 @@ export async function publicProfile(typedHandle: string): Promise<PublicProfile 
     about: row.about,
     pricePer15Cents: row.pricePer15Cents,
     freeCancelMinutes: row.freeCancelMinutes ?? 0,
+    languages: row.languages,
     socials: socials
       .filter((s) => isNetwork(s.network))
       .map((s) => ({ network: s.network as Network, label: NETWORKS[s.network as Network].label, name: s.nameKey, url: s.url })),

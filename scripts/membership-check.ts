@@ -1046,7 +1046,7 @@ async function main() {
     const host = await newHost();
     const m = await held(host);
     const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, host.id));
-    const price = (cents: number) => updateHostProfile(host.id, { displayName: profile.displayName, about: profile.about, pricePer15Cents: cents }).then(() => null, (error: unknown) => error as Error);
+    const price = (cents: number) => updateHostProfile(host.id, { displayName: profile.displayName, about: profile.about, pricePer15Cents: cents, languages: ["en"] }).then(() => null, (error: unknown) => error as Error);
     const below = await price(700);
     check("the regular price cannot go below the member price", below instanceof ProfileError && /member price/.test(below.message), below?.message);
     check("and a host who offers a membership cannot make her calls free", (await price(0)) instanceof ProfileError);
@@ -1912,9 +1912,10 @@ async function main() {
     const hidden = await newHost();
     const member = await joined(hidden);
     const stranger = await person("stranger");
-    await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, hidden.id));
+    await db.update(schema.hostProfiles).set({ hidden: true, languages: ["en", "es"] }).where(eq(schema.hostProfiles.userId, hidden.id));
     const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hidden.id));
     check("a hidden page stays closed to the public", (await publicProfile(profile.handle)) === null);
+    check("her member is given her languages with the hidden page, and a stranger is given nothing (plans/34)", (await A.hostForMember(member.member.id, hidden.id))?.languages.join() === "en,es" && (await A.hostForMember(stranger.id, hidden.id)) === null);
     const asked = await invited(hidden);
     check("an invited person reaches the hidden page too, but only for the invitation's 24 hours, also when the helper is late", (await A.hostForMember(asked.member.id, hidden.id)) !== null && (await A.hostForMember(asked.member.id, hidden.id, new Date(Date.now() + DAY + MIN))) === null && (await A.invitationFor(asked.member.id, asked.inviteId, new Date(Date.now() + DAY + MIN)))?.expired === true);
     const unfinished = await joined(hidden, { pay: false });

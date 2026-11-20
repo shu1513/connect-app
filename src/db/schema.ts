@@ -193,6 +193,14 @@ export const hostProfiles = pgTable("host_profiles", {
    * before hosts abroad existed is in the United States.
    */
   country: text("country").notNull().default("US"),
+  /**
+   * The languages the host can hold a call in: codes from profiles/languages.ts, in that list's order
+   * (plans/34-host-languages.md). The database only makes sure the list is there, empty when nothing
+   * was given; that there are one to five, all from the list, is checked where a host applies or
+   * saves their profile, the two places that write it. Empty for a host from before languages
+   * existed, until they next save their profile.
+   */
+  languages: text("languages").array().notNull().default(sql`'{}'::text[]`),
   /** When the host said where they are based. (The name is from the time when that could only be the United States.) */
   usConfirmedAt: timestamp("us_confirmed_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

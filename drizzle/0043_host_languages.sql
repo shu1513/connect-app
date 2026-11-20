@@ -1,0 +1,1 @@
+ALTER TABLE "host_profiles" ADD COLUMN "languages" text[] DEFAULT '{}'::text[] NOT NULL;

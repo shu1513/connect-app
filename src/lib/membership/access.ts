@@ -24,6 +24,8 @@ export type HostForMember = {
   canBook: boolean;
   /** The host's cancelling rule, shown on her page. */
   freeCancelMinutes: number;
+  /** The codes of the languages she can hold a call in, as on her public page (plans/34-host-languages.md). */
+  languages: string[];
 };
 
 /**
@@ -44,13 +46,13 @@ export async function hostForMember(viewerId: string, hostId: string, now: Date 
   if (link.status === "invited" && !(link.inviteExpiresAt && link.inviteExpiresAt > now)) return null;
   if (link.status === "joining" && !link.since && !(link.cardStepExpiresAt && link.cardStepExpiresAt > now)) return null;
   const [row] = await db
-    .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status, freeCancelMinutes: schema.hostSettings.freeCancelMinutes })
+    .select({ userId: schema.hostProfiles.userId, handle: schema.hostProfiles.handle, displayName: schema.hostProfiles.displayName, about: schema.hostProfiles.about, pricePer15Cents: schema.hostProfiles.pricePer15Cents, status: schema.hostProfiles.status, languages: schema.hostProfiles.languages, freeCancelMinutes: schema.hostSettings.freeCancelMinutes })
     .from(schema.hostProfiles)
     .innerJoin(schema.user, eq(schema.user.id, schema.hostProfiles.userId))
     .leftJoin(schema.hostSettings, eq(schema.hostSettings.userId, schema.hostProfiles.userId))
     .where(and(eq(schema.hostProfiles.userId, hostId), inArray(schema.hostProfiles.status, ["approved", "pending"]), isNull(schema.user.closedAt), isNull(schema.user.pausedAt)));
   if (!row) return null;
-  return { userId: row.userId, handle: row.handle, displayName: row.displayName, about: row.about, pricePer15Cents: row.pricePer15Cents, canBook: row.status === "approved", freeCancelMinutes: row.freeCancelMinutes ?? 0 };
+  return { userId: row.userId, handle: row.handle, displayName: row.displayName, about: row.about, pricePer15Cents: row.pricePer15Cents, canBook: row.status === "approved", freeCancelMinutes: row.freeCancelMinutes ?? 0, languages: row.languages };
 }
 
 /**

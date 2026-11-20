@@ -18,6 +18,8 @@ export type SearchResult = {
   displayName: string;
   about: string;
   pricePer15Cents: number;
+  /** The codes of the languages the host can hold a call in (languages.ts). Empty for a host who has not chosen yet. */
+  languages: string[];
   socials: Array<{ network: Network; label: string; name: string }>;
   rating: ShownAverage | null;
   /** The host's photo, if they have one (plans/29). Everyone listed here has a page that is open to everyone. */
@@ -79,6 +81,7 @@ export async function searchHosts(typed: string, viewerId: string | null, now: D
       displayName: schema.hostProfiles.displayName,
       about: schema.hostProfiles.about,
       pricePer15Cents: schema.hostProfiles.pricePer15Cents,
+      languages: schema.hostProfiles.languages,
     })
     .from(schema.hostProfiles)
     .innerJoin(schema.user, eq(schema.user.id, hostId))
@@ -109,6 +112,7 @@ export async function searchHosts(typed: string, viewerId: string | null, now: D
     displayName: host.displayName,
     about: host.about,
     pricePer15Cents: host.pricePer15Cents,
+    languages: host.languages,
     socials: host.shownSocials,
     rating: ratings.get(host.userId) ?? null,
     photoId: photos.get(host.userId) ?? null,

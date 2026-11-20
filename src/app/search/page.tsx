@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { HostPhoto } from "@/components/host-photo";
 import { Rating } from "@/components/rating";
+import { languageNames } from "@/lib/profiles/languages";
 import { formatMoney } from "@/lib/payments/access";
 import { searchHosts } from "@/lib/profiles/search";
 import { SEARCH, searchTerms } from "@/lib/profiles/search-rules";
@@ -59,6 +60,7 @@ export default async function SearchPage(props: PageProps<"/search">) {
               <p className="mt-1">
                 <Rating shown={host.rating} newText="New on Connect" /> · {host.pricePer15Cents === 0 ? "Free calls" : `${formatMoney(host.pricePer15Cents)} per 15 minutes`}
               </p>
+              {languageNames(host.languages).length > 0 && <p className="mt-1">{`Languages: ${languageNames(host.languages).join(", ")}`}</p>}
               {host.socials.length > 0 && (
                 <p className="mt-3 text-[#57534e]">
                   {host.socials.map((s) => `${s.label}: @${s.name}`).join(" · ")} <span>(confirmed)</span>
