@@ -1,10 +1,13 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
+import { RefreshEvery } from "@/components/refresh-every";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomState } from "@/lib/calls";
+import { followedHosts } from "@/lib/follows/follows";
+import { FOLLOW } from "@/lib/follows/rules";
 import { readNotice } from "@/lib/notice";
 import { callsToRate } from "@/lib/ratings/ratings";
 import { formatMoney } from "@/lib/payments/access";
@@ -155,16 +158,101 @@ export default async function HomePage(props: PageProps<"/">) {
     if (p.callId) paymentsOf.set(p.callId, [...(paymentsOf.get(p.callId) ?? []), p]);
   }
   const now = new Date();
-  const [requests, toAnswer, toRate] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now)]);
+  const [requests, toAnswer, toRate, followed] = await Promise.all([requestsOfCustomer(user.id, now), waitingForHost(user.id), callsToRate(user.id, now), followedHosts(user.id, now)]);
+  // "Coming up": calls that are not over, the soonest first. Everything else is "Earlier calls", the newest first (as loaded).
+  const stillOn = (call: (typeof calls)[number]) => !call.cancelledAt && !call.safetyEndedAt && roomState(call, now) !== "closed";
+  const comingUp = calls.filter(stillOn).reverse();
+  const earlier = calls.filter((call) => !stillOn(call));
+  // "Talk now" (plans/30): the rooms that are open at this moment, and the followed hosts who are available now.
+  const openNow = comingUp.filter((call) => roomState(call, now) === "open");
+  const availableNow = followed.filter((host) => host.available && host.handle);
+  // Right after a call the follow that comes by itself is still to be decided (about two minutes after the room closes):
+  // the page stays fresh for a quarter of an hour, so the host appears here without a reload.
+  const followToCome = calls.some((call) => call.customerId === user.id && !call.followCheckedAt && !call.cancelledAt && !call.safetyEndedAt && call.endsAt.getTime() > now.getTime() - 15 * 60_000);
+  const otherOf = (call: (typeof calls)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown";
+  const callsTable = (list: typeof calls) => (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-neutral-400">
+          <tr>
+            <th className="py-2 pr-4 font-medium">Starts</th>
+            <th className="py-2 pr-4 font-medium">With</th>
+            <th className="py-2 pr-4 font-medium">You are</th>
+            <th className="py-2 pr-4 font-medium">Status</th>
+            <th className="py-2 pr-4 font-medium">Payment</th>
+            <th className="py-2 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((call) => {
+            const isHost = call.hostId === user.id;
+            const state = roomState(call, now);
+            const paymentText = paymentLine(paymentsOf.get(call.id) ?? []);
+            return (
+              <tr key={call.id} className="border-b border-neutral-300/40">
+                <td className="py-2 pr-4">
+                  <LocalTime iso={call.startsAt.toISOString()} />
+                </td>
+                <td className="py-2 pr-4">{otherOf(call)}</td>
+                <td className="py-2 pr-4">{isHost ? "Host" : "Customer"}</td>
+                <td className="py-2 pr-4">{call.cancelledAt ? "Cancelled" : call.safetyEndedAt ? "Ended" : STATE_LABEL[state]}</td>
+                <td className="py-2 pr-4">{paymentText}</td>
+                <td className="py-2 whitespace-nowrap">
+                  {state !== "closed" && !call.cancelledAt && !call.safetyEndedAt && (
+                    <Link href={`/calls/${call.id}`} className="mr-4 underline underline-offset-2">
+                      Open
+                    </Link>
+                  )}
+                  <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
+                    Results
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
+      {/* Who is available, and which room is open, changes by the minute: someone with a reason to look gets a fresh page. */}
+      {(followed.length > 0 || comingUp.length > 0 || followToCome) && <RefreshEvery seconds={FOLLOW.refreshSeconds} />}
       <h1 className="text-2xl font-semibold">Your calls</h1>
-      <p className="mt-2 text-sm">
+      <p className="mt-2 flex flex-wrap gap-x-6 text-sm">
+        <Link href="/following" className="inline-flex min-h-11 items-center underline underline-offset-2">
+          Hosts you follow
+        </Link>
         <Link href="/contacts" className="inline-flex min-h-11 items-center underline underline-offset-2">
           People you have talked to
         </Link>
       </p>
+
+      {(openNow.length > 0 || availableNow.length > 0) && (
+        <section className="mt-4 rounded border border-blue-600 p-3 text-sm" data-talk-now>
+          <h2 className="font-semibold">Talk now</h2>
+          <ul className="mt-1 space-y-1">
+            {openNow.map((call) => (
+              <li key={call.id} data-talk-now-item="call">
+                Your call with {otherOf(call)} (<LocalTime iso={call.startsAt.toISOString()} />): the room is open.{" "}
+                <Link href={`/calls/${call.id}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                  Go to the call
+                </Link>
+              </li>
+            ))}
+            {availableNow.map((host) => (
+              <li key={host.hostId} data-talk-now-item="host">
+                <span aria-hidden className="mr-2 inline-block h-3 w-3 rounded-full bg-green-600" />
+                {host.name} is available now.{" "}
+                <Link href={`/h/${host.handle}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                  Call now
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <form action="/search" method="get" className="mt-6 flex max-w-md gap-2">
         <label className="flex-1 text-sm">
@@ -243,48 +331,20 @@ export default async function HomePage(props: PageProps<"/">) {
           .
         </p>
       ) : (
-        <div className="mt-8 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-neutral-400">
-              <tr>
-                <th className="py-2 pr-4 font-medium">Starts</th>
-                <th className="py-2 pr-4 font-medium">With</th>
-                <th className="py-2 pr-4 font-medium">You are</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Payment</th>
-                <th className="py-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {calls.map((call) => {
-                const isHost = call.hostId === user.id;
-                const state = roomState(call, now);
-                const paymentText = paymentLine(paymentsOf.get(call.id) ?? []);
-                return (
-                  <tr key={call.id} className="border-b border-neutral-300/40">
-                    <td className="py-2 pr-4">
-                      <LocalTime iso={call.startsAt.toISOString()} />
-                    </td>
-                    <td className="py-2 pr-4">{(isHost ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown"}</td>
-                    <td className="py-2 pr-4">{isHost ? "Host" : "Customer"}</td>
-                    <td className="py-2 pr-4">{call.cancelledAt ? "Cancelled" : call.safetyEndedAt ? "Ended" : STATE_LABEL[state]}</td>
-                    <td className="py-2 pr-4">{paymentText}</td>
-                    <td className="py-2 whitespace-nowrap">
-                      {state !== "closed" && !call.cancelledAt && !call.safetyEndedAt && (
-                        <Link href={`/calls/${call.id}`} className="mr-4 underline underline-offset-2">
-                          Open
-                        </Link>
-                      )}
-                      <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
-                        Results
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {comingUp.length > 0 && (
+            <section className="mt-8" data-calls="coming-up">
+              <h2 className="text-lg font-semibold">Coming up</h2>
+              {callsTable(comingUp)}
+            </section>
+          )}
+          {earlier.length > 0 && (
+            <section className="mt-8" data-calls="earlier">
+              <h2 className="text-lg font-semibold">Earlier calls</h2>
+              {callsTable(earlier)}
+            </section>
+          )}
+        </>
       )}
     </SitePage>
   );

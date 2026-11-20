@@ -60,6 +60,9 @@ async function SiteHeader({ bare }: { bare: boolean }) {
             </Link>
             {user ? (
               <>
+                <Link href="/following" className={warm.navLink}>
+                  Following
+                </Link>
                 <Link href="/host" className={warm.navLink}>
                   Hosting
                 </Link>

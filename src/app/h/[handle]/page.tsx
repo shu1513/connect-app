@@ -4,6 +4,9 @@ import { cache } from "react";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SlotPicker } from "@/components/slot-picker";
+import { FollowButton } from "@/components/follow-button";
+import { followingOf, hasBlocked } from "@/lib/follows/follows";
+import { readNotice } from "@/lib/notice";
 import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
 import { hostForMemberByHandle, membershipsOf } from "@/lib/membership/access";
 import { memberBookingView, memberOpenTimes } from "@/lib/membership/book";
@@ -48,10 +51,10 @@ const loadProfile = cache(async (handle: string) => {
   const open = await publicProfile(handle);
   // The host's photo is shown only on a page that is open to everyone (plans/29): a member or an invited person
   // who can open a hidden page sees the letter.
-  if (open) return { ...open, photoId: (await photosOf([open.userId])).get(open.userId) ?? null };
+  if (open) return { ...open, photoId: (await photosOf([open.userId])).get(open.userId) ?? null, openToAll: true };
   const viewer = await getUser();
   const forMember = viewer ? await hostForMemberByHandle(viewer.id, handle) : null;
-  return forMember ? { ...forMember, socials: [], photoId: null } : null;
+  return forMember ? { ...forMember, socials: [], photoId: null, openToAll: false } : null;
 });
 
 export async function generateMetadata(props: PageProps<"/h/[handle]">): Promise<Metadata> {
@@ -72,7 +75,15 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
   const viewer = await getUser();
   const blocked = viewer ? await isBlockedEitherWay(viewer.id, profile.userId) : false;
   const offer = blocked ? null : await offerOf(profile.userId);
-  const { length, mlength } = await props.searchParams;
+  const query = await props.searchParams;
+  const { length, mlength } = query;
+  const notice = readNotice(`/h/${profile.handle}`, query);
+  // The Follow button: for everyone but the host themselves and someone who has blocked this host. Whether the
+  // host has blocked the viewer plays no part, so the button never gives a block away (plans/30, decision 3).
+  // A new follow is only offered on a page that is open to everyone: that is what can be followed. Someone who
+  // already follows keeps "Following / Unfollow" on a hidden page they can still open as a member.
+  const ownFollow = viewer && viewer.id !== profile.userId && !(await hasBlocked(viewer.id, profile.userId)) ? await followingOf(viewer.id, profile.userId) : null;
+  const follow = viewer?.id === profile.userId ? null : !viewer ? (profile.openToAll ? ("visitor" as const) : null) : ownFollow === "following" || profile.openToAll ? ownFollow : null;
   // A member of this host: their time left and the times they can book with it, beside the ordinary way.
   const memberView = viewer && viewer.id !== profile.userId && !blocked ? await memberBookingView(viewer.id, profile.userId, new Date()) : null;
   // Their own membership with this host, whatever state it is in: an invitation, the card step, a failed payment or a pause each get a line and a link.
@@ -107,6 +118,18 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           </p>
         </div>
       </div>
+
+      {notice && (
+        <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
+          {notice}
+        </p>
+      )}
+
+      {follow && (
+        <div className="mt-4" data-follow={follow}>
+          <FollowButton state={follow} hostId={profile.userId} handle={profile.handle} name={profile.displayName} back={`/h/${profile.handle}`} />
+        </div>
+      )}
 
       {profile.about && <p className="mt-6 whitespace-pre-line text-[#57534e]">{profile.about}</p>}
 

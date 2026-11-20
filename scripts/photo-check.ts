@@ -769,7 +769,7 @@ async function main() {
     const route = readFileSync("src/app/host-photos/[id]/route.ts", "utf8");
     const hostPage = readFileSync("src/app/h/[handle]/page.tsx", "utf8");
     check("the photo's address counts a founder only with the second login step, as the diary's does, and asks photoFor and nothing else", route.includes("admin = Boolean(row) && (await isAdminSession(await getSignedIn()));") && route.includes("const found = await photoFor(user ? { id: user.id, admin } : null, id);") && !route.includes("hostPhotos"));
-    check("the host's page hands a member's view of a hidden page no photo", hostPage.includes("return forMember ? { ...forMember, socials: [], photoId: null } : null;"));
+    check("the host's page hands a member's view of a hidden page no photo", hostPage.includes("return forMember ? { ...forMember, socials: [], photoId: null, openToAll: false } : null;"));
 
     // Through the running app, as a browser would.
     const shownHost = await newHost();

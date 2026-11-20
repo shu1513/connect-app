@@ -530,9 +530,19 @@ export const calls = pgTable(
     cancelledBy: text("cancelled_by"),
     /** True when the customer cancelled after the free period, so the booked price is charged. */
     cancelledLate: boolean("cancelled_late").notNull().default(false),
+    /**
+     * When it was decided whether the customer follows the host after this call (plans/30), whatever
+     * the decision. Empty until then. Decided once: a call is never looked at again.
+     */
+    followCheckedAt: timestamp("follow_checked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("calls_host_idx").on(t.hostId), index("calls_customer_idx").on(t.customerId)],
+  (t) => [
+    index("calls_host_idx").on(t.hostId),
+    index("calls_customer_idx").on(t.customerId),
+    // The few calls whose room is closed and whose follow has not been decided yet: what the helper asks for each round.
+    index("calls_follow_due_idx").on(t.endsAt).where(sql`${t.followCheckedAt} is null and ${t.closedAt} is not null`),
+  ],
 );
 
 /**
@@ -626,6 +636,36 @@ export const hostNotes = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.hostId, t.customerId] })],
+);
+
+/**
+ * One person follows a host (plans/30). One line per pair, for good: unfollowing fills
+ * `unfollowedAt`, following again empties it. A line that is ended also means "never follow this
+ * host for me by yourself": the automatic follow after a call only ever writes a new line.
+ * Only the follower ever sees their lines. The host is told nothing, not even a number.
+ */
+export const follows = pgTable(
+  "follows",
+  {
+    followerId: text("follower_id")
+      .notNull()
+      .references(() => user.id),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    /** How it began: "self" (the button) or "call" (by itself after a call). */
+    how: text("how").notNull(),
+    /** The call an automatic follow came from. */
+    callId: uuid("call_id").references(() => calls.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Set while the follow is ended: by "Unfollow", by "Don't follow" after a call, or because the follower blocked the host. */
+    unfollowedAt: timestamp("unfollowed_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.followerId, t.hostId] }),
+    check("follows_how", sql`${t.how} in ('self', 'call')`),
+    check("follows_not_self", sql`${t.followerId} <> ${t.hostId}`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -1984,6 +2024,7 @@ export const contributionRefunds = pgTable(
 );
 
 export type Call = typeof calls.$inferSelect;
+export type Follow = typeof follows.$inferSelect;
 export type Contribution = typeof contributions.$inferSelect;
 export type ContributionPayment = typeof contributionPayments.$inferSelect;
 export type ContributionRefund = typeof contributionRefunds.$inferSelect;

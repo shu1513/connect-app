@@ -52,6 +52,11 @@ export default function PrivacyPage() {
         to, with the amount and the moment, and a record of every payment and refund. We send you an email for each payment,
         and when a payment fails, a refund is made or a monthly contribution ends.
       </p>
+      <p className="mt-4 text-sm">
+        When you follow a host, by pressing &quot;Follow&quot; or by having a call with them, we keep that you follow them, so that we
+        can show you when they are available. Only you see who you follow. The host is not told who follows them, or how many
+        people do. You can unfollow at any time, and a host you unfollowed is not followed again for you after a later call.
+      </p>
     </SitePage>
   );
 }
