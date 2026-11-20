@@ -275,7 +275,8 @@ async function main() {
       check(`at most ${FOLLOW.newsPosts} posts, the newest first`, ids.join() === normal.slice(0, FOLLOW.newsPosts).map((p) => p.id).join(), `${ids.length} posts`);
       check("with the host's name, the project and the way to the diary", words(section).includes(anna.displayName) && words(section).includes(`Album ${RUN}`) && section.includes(`href="/h/${anna.handle}/project/${project.id}"`));
       const excerpt = firstLines(normal[0].text, HOME.newsLetters);
-      check(`the first ${HOME.newsLetters} letters of a long post, and no more`, excerpt.length > 200 && excerpt.length <= HOME.newsLetters + 1 && words(section).includes(excerpt) && !words(section).includes(`${excerpt.slice(0, -1)} More`), String(excerpt.length));
+      const shownText = words(section.match(new RegExp(`data-news-post="${normal[0].id}"[\\s\\S]*?<p[^>]*data-news-text[^>]*>([\\s\\S]*?)</p>`))?.[1] ?? "").trim();
+      check(`the first ${HOME.newsLetters} letters of a long post, and no more`, excerpt.length > 200 && excerpt.length <= HOME.newsLetters + 1 && shownText === excerpt, `${shownText.length} shown, ${excerpt.length} expected`);
       // The pictures here have no file behind them: these two look at what the page asks for, not at what the picture address answers (scripts/project-check.ts does that).
       check("the page asks for the post's first picture that everyone may see, and only that one", section.includes(`/pictures/${shown.id}"`) && !section.includes(`/pictures/${second.id}"`));
       check("and never for a picture that is still being checked", !section.includes(`/pictures/${waiting.id}"`));

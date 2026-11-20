@@ -360,7 +360,7 @@ export default async function HomePage(props: PageProps<"/">) {
                       <DiaryPicture id={picture.id} width={picture.width} height={picture.height} />
                     </p>
                   )}
-                  <p className="mt-3 text-[#44403c]">{firstLines(post.text, HOME.newsLetters)}</p>
+                  <p className="mt-3 text-[#44403c]" data-news-text>{firstLines(post.text, HOME.newsLetters)}</p>
                   <p className="text-sm">
                     <Link href={`/h/${post.handle}/project/${post.projectId}`} className={plainLink}>
                       Read the diary
