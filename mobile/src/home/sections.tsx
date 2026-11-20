@@ -77,12 +77,15 @@ export function YourRequests({ requests }: { requests: AppHome["requests"] }) {
     <Card>
       <Heading>Your requests</Heading>
       {requests.map((request) => (
-        <Text key={request.id} style={[styles.small, { color: colors.text }]}>
-          <Text style={styles.bold}>
-            {request.hostName}, {localTime(request.startsAt)}
+        <Pressable key={request.id} accessibilityRole="link" accessibilityLabel={`${request.hostName}, ${localTime(request.startsAt)}: ${request.words}`} onPress={() => router.push({ pathname: "/bookings/[id]", params: { id: request.id } })} style={styles.requestRow}>
+          <Text style={[styles.small, { color: colors.text }]}>
+            <Text style={styles.bold}>
+              {request.hostName}, {localTime(request.startsAt)}
+            </Text>
+            : {request.words}
           </Text>
-          : {request.words}
-        </Text>
+          <Text style={[styles.small, { color: colors.accent }]}>›</Text>
+        </Pressable>
       ))}
     </Card>
   );
@@ -268,6 +271,7 @@ export function SuggestedHosts({ suggested, onChanged, refused }: { suggested: N
 }
 
 const styles = StyleSheet.create({
+  requestRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   waiting: { borderWidth: 1, borderRadius: 24, padding: 20, gap: 12 },
   gap: { gap: 6 },
   line: { borderTopWidth: 1, paddingTop: 8, gap: 2 },

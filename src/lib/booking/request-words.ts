@@ -3,6 +3,7 @@
  * page and the phone app say the same (plans/45-phone-apps/06-asking-for-a-call.md).
  */
 import { formatMoney } from "@/lib/payments/access";
+import type { Part } from "./book-words";
 import { PASSED_OVER } from "./rules";
 
 const STAGE_FOR_CUSTOMER: Record<string, string> = {
@@ -70,6 +71,11 @@ export function requestPrice(booking: Told): { label: string; words: string } {
   };
 }
 
+/** By when the card must be entered: an unfinished request is dropped after that. */
+export function cardDeadlineWords(until: Date): Part[] {
+  return ["Enter your card by ", { time: until.toISOString() }, ". After that this unsent request ends by itself."];
+}
+
 export const REQUEST_WORDS = {
   hearBy: (role: "host" | "customer") => (role === "host" ? "Answer by" : "You will hear by"),
   cardTitle: "Your card",
@@ -77,6 +83,10 @@ export const REQUEST_WORDS = {
   cardNotLoaded: "The card form could not be loaded just now. Nothing was sent and nothing is held.",
   cardNotLoadedAfter: "An unfinished request disappears by itself.",
   cardButton: "Save card and send request",
+  /** For the phone app, whose card form is a sheet that can be closed: what it says after the sheet, when the request is still not sent. */
+  cardGivenUp: "You closed the card form before a card was saved. Nothing was sent.",
+  cardNotSaved: "Your card could not be saved. Nothing was sent. Please try again, or try another card.",
+  cardNotConfirmed: "Your card could not be confirmed yet. Please try again in a moment.",
   /** Under a request that waits for the host's answer. */
   waiting: (paid: boolean) => `This is a request, not a reservation. Other people may ask for the same time, and the host chooses.${paid ? " Nothing is held on your card unless you are accepted." : ""}`,
   takeBack: "Take this request back",

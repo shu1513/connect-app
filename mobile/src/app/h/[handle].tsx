@@ -4,6 +4,7 @@ import { AppState, Linking, Pressable, Share, StyleSheet, Text, View } from "rea
 import type { AppFollowDone, AppHostPage } from "../../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
+import { rememberHostPage } from "@/lib/after-sign-in";
 import { localTime, ratingWords } from "@/lib/home-rules";
 import { isHostPage } from "@/lib/host-rules";
 import { useOpening } from "@/lib/opening";
@@ -17,10 +18,11 @@ import { type, useColors } from "@/ui/theme";
  * costs, when she is free, and, for a member or someone she invited, what their membership gives.
  * Open to anyone, signed in or not, like the website's page. No project box, no diary.
  *
- * The server decides what is on the page for whoever is looking; this shows it. The ways on from
- * here arrive with their own parts: choosing a time leads to booking (part 06), "available now"
- * to calling at once (part 11), a membership to its screens (part 13), "confirm your ID" and
- * "report" to theirs.
+ * The server decides what is on the page for whoever is looking; this shows it. Choosing a time
+ * leads on to asking for it, and "confirm who you are" to the ID check
+ * (plans/45-phone-apps/06-asking-for-a-call.md). The other ways on arrive with their own parts:
+ * "available now" to calling at once (part 11), a membership and its times to its screens
+ * (part 13), "report" to its own.
  */
 export default function HostPage() {
   const { handle: given } = useLocalSearchParams<{ handle?: string | string[] }>();
@@ -150,6 +152,17 @@ function OneHostPage({ handle }: { handle: string }) {
     setFollowing(false);
   }
 
+  /** A time was chosen: on to what is read before asking for it. Someone only looking signs in first, and comes back to this page. */
+  function choose(start: string, minutes: number | null) {
+    if (!minutes) return;
+    if (!signedIn) {
+      rememberHostPage(handle);
+      router.push("/sign-in");
+      return;
+    }
+    router.push({ pathname: "/book/[handle]", params: { handle, start, length: String(minutes) } });
+  }
+
   const back = () => (router.canGoBack() ? router.back() : router.replace("/"));
   if (gone) {
     return (
@@ -214,6 +227,7 @@ function OneHostPage({ handle }: { handle: string }) {
           <Heading>{page.price}</Heading>
           <Words soft>{page.callWords}</Words>
           {page.verifiedOnly ? <Words>{page.name} only takes calls from people who have confirmed their ID.</Words> : null}
+          {page.confirmId && signedIn ? <Button label="Confirm who I am" kind="plain" onPress={() => router.push("/identity")} /> : null}
         </Card>
 
         {page.membership?.invitedUntil ? (
@@ -274,7 +288,7 @@ function OneHostPage({ handle }: { handle: string }) {
             <>
               {page.ask.words ? <Words>{page.ask.words}</Words> : null}
               <Lengths lengths={page.ask.lengths} chosen={page.ask.chosen} onChoose={setLength} />
-              {page.ask.noTimes ? <Words soft>{page.ask.noTimes}</Words> : <Slots starts={page.ask.starts} />}
+              {page.ask.noTimes ? <Words soft>{page.ask.noTimes}</Words> : <Slots starts={page.ask.starts} onChoose={page.own ? undefined : (start) => choose(start, page.ask.chosen)} />}
             </>
           )}
         </Card>

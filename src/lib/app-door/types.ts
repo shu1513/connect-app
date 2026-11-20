@@ -340,8 +340,12 @@ export type AppBooking = {
   price: { label: string; words: string };
   /** While it waits for the host: by when the answer comes. */
   hearBy: string | null;
-  /** At the card step: the words about the card, and by when it must be entered. Null at every other stage. */
-  card: { title: string; words: string; button: string; until: string } | null;
+  /**
+   * At the card step: the words about the card and by when it must be entered, and what to say when the
+   * card sheet was closed and the request is still not sent (closed without a card, a card that was not
+   * saved, a card not confirmed yet). Null at every other stage.
+   */
+  card: { title: string; words: string; button: string; deadline: AppPart[]; givenUp: string; notSaved: string; notConfirmed: string } | null;
   /** Under a request that waits for the host's answer. */
   waitingWords: string | null;
   /** The label of the button that takes the request back; null when it cannot be taken back. */

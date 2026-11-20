@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST } from "@/lib/booking/book-words";
 import { gatherRequest } from "@/lib/booking/request-page";
-import { endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
+import { cardDeadlineWords, endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
 import { LIMITS } from "@/lib/booking/rules";
 import { callWords } from "@/lib/profiles/host-page-words";
 import { publicProfile } from "@/lib/profiles/profiles";
@@ -75,7 +75,17 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     minutes: booking.lengthMinutes,
     price: requestPrice(booking),
     hearBy: waiting && booking.respondBy ? booking.respondBy.toISOString() : null,
-    card: atCard ? { title: REQUEST_WORDS.cardTitle, words: REQUEST_WORDS.card, button: REQUEST_WORDS.cardButton, until: new Date(booking.createdAt.getTime() + LIMITS.cardStepMinutes * 60_000).toISOString() } : null,
+    card: atCard
+      ? {
+          title: REQUEST_WORDS.cardTitle,
+          words: REQUEST_WORDS.card,
+          button: REQUEST_WORDS.cardButton,
+          deadline: cardDeadlineWords(new Date(booking.createdAt.getTime() + LIMITS.cardStepMinutes * 60_000)),
+          givenUp: REQUEST_WORDS.cardGivenUp,
+          notSaved: REQUEST_WORDS.cardNotSaved,
+          notConfirmed: REQUEST_WORDS.cardNotConfirmed,
+        }
+      : null,
     waitingWords: waiting ? REQUEST_WORDS.waiting(paid) : null,
     takeBack: waiting ? REQUEST_WORDS.takeBack : null,
     call: booking.callId ? { id: booking.callId, words: REQUEST_WORDS.callPageAlso(booking).trim() } : null,
