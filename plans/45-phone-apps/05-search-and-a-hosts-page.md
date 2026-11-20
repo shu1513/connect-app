@@ -2,7 +2,7 @@
 
 **Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
 builder alone. Part of plan 45. Astra checked the plan once ("ready with changes"; the list is at
-the end). What the building changed or added is under "What the building changed"; where that
+the end) and the code (the list is before it). What the building changed or added is under "What the building changed"; where that
 list and a decision differ, the list is what was built.
 
 ## For the founder: what this is
@@ -115,7 +115,34 @@ Stripe, which the checking database does not have), `photo-check` and
 `suggestions-check`, `journey-check` and `home-check` ran against the checking database
 and pass.
 
-## Astra's check (20 November 2026): "ready with changes", worked in
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+It found the website's page unchanged by the move, the search the same as the website's, and
+nothing of a project, no account's number and no way of paying in any answer. Two points it
+called "must", four smaller ones; all taken.
+
+1. *Two answers told whether a host's name exists, hidden hosts too:* unfollowing, and saving
+   the email choices. (The automatic security review of the saved code found the first as
+   well.) Both are now answered to the letter the same whether or not there is such a host.
+2. *"Available now" could stay on a host's page long after she had left:* the page was read
+   once and never again. While it is in front it is now read again every minute and on coming
+   back to the app, and the server says for how long "available now" may be believed (a
+   minute and a half); past that the words are taken away until the server says so again.
+3. *One host's page could stay on the screen while another's was loading in its place.* Each
+   host has a screen of her own.
+4. *With memberships switched off for the apps, a member could still open a hidden host's
+   page; and with "use only", a month whose money is only held still showed times to book,*
+   though the first booking of such a month takes the payment. Off: nobody is a member there.
+   Use only: such a month shows no times.
+5. *Several checks proved less than their labels said.* Rewritten; the switches for the apps
+   and a confirmed social account are now in the check.
+6. *On the night the clocks go back, two different times of a day read the same.* Each is then
+   written with its time zone.
+
+**Still not in the check:** a member whose month can be booked from (making such a month needs
+Stripe). Part 13 builds memberships in the app and checks it there.
+
+## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *"A hidden, unapproved or closed host is not found" was wrong:* members and invited people
    can open more, and a blocked pair can still open a page. "What is there today", decision 1.

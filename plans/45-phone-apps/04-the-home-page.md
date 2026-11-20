@@ -218,6 +218,13 @@ changes of part 05's branch, because part 05 was already being built in the same
    own bottom margin now, no more. (Still to be looked at on a real iPhone, part 20.)
 7. *"Loading other days…" could stay beside an error.* It follows the newest question only.
 
+## Astra's fourth look at the code (20 November 2026): "ready with changes"
+
+The eight fixes hold, and nothing it calls a "must" is left. Two small points, taken: a refusal
+counts for each of the page's three requests in the same way; and a photo well past its end is
+taken off the screen before the server is asked again, while one that could not be asked for is
+tried again when the app comes back to the front.
+
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 
 1. *Making suggestions was missing* (reading alone never makes them). Decision 2.

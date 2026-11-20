@@ -232,8 +232,11 @@ export type AppHostPage = {
   /** She only takes calls from people who have confirmed their ID. `confirmId`: this viewer has not, and is offered the check. */
   verifiedOnly: boolean;
   confirmId: boolean;
-  /** She can take a call right away: the lengths to choose from, and how soon she answers. Null when she cannot. */
-  now: { lengths: AppLength[]; answerMinutes: number; paid: boolean } | null;
+  /**
+   * She can take a call right away: the lengths to choose from, and how soon she answers. Null when she
+   * cannot. `freshSeconds`: for how long this may be shown without asking again; after that it is not known.
+   */
+  now: { lengths: AppLength[]; answerMinutes: number; paid: boolean; freshSeconds: number } | null;
   /** Asking for a call at a time: the heading, why nothing can be asked (or null), the lengths, the one chosen, and its open times. */
   ask: { title: string; closed: string | null; words: string | null; lengths: AppLength[]; chosen: number | null; starts: string[]; noTimes: string | null };
   /**
@@ -254,6 +257,8 @@ export type AppHostPage = {
       held: string | null;
       /** The time left does not cover a call. */
       tooLittle: boolean;
+      /** Whether times can be booked with this month from the app. False where the apps may not take the month's payment and it is only held so far. */
+      canBook: boolean;
       lengths: AppLength[];
       chosen: number | null;
       times: Array<{ startsAt: string; membersOnly: boolean }>;

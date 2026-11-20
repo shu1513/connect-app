@@ -31,7 +31,7 @@ export function isHostPage(data: unknown): data is AppHostPage {
   if (!Array.isArray(data.languages) || !data.languages.every(isText) || !isListOf(data.socials, (social) => isText(social.label) && isText(social.name) && isText(social.url))) return false;
   if (typeof data.own !== "boolean" || !isTextOrNull(data.shareUrl) || !isText(data.price) || !isText(data.callWords) || typeof data.verifiedOnly !== "boolean" || typeof data.confirmId !== "boolean") return false;
   if (data.follow !== null && data.follow !== "following" && data.follow !== "ended" && data.follow !== "none" && data.follow !== "visitor") return false;
-  if (data.now !== null && !(isThing(data.now) && isLengths(data.now.lengths) && typeof data.now.answerMinutes === "number" && typeof data.now.paid === "boolean")) return false;
+  if (data.now !== null && !(isThing(data.now) && isLengths(data.now.lengths) && typeof data.now.answerMinutes === "number" && typeof data.now.paid === "boolean" && typeof data.now.freshSeconds === "number")) return false;
   const ask = data.ask;
   if (!isThing(ask) || !isText(ask.title) || !isTextOrNull(ask.closed) || !isTextOrNull(ask.words) || !isLengths(ask.lengths) || !isNumberOrNull(ask.chosen) || !isTextOrNull(ask.noTimes)) return false;
   if (!Array.isArray(ask.starts) || !ask.starts.every(isMoment)) return false;
@@ -41,7 +41,7 @@ export function isHostPage(data: unknown): data is AppHostPage {
   if (membership.state !== null && !(isThing(membership.state) && isText(membership.state.status) && isText(membership.state.words))) return false;
   const member = membership.member;
   if (member === null) return true;
-  return isThing(member) && isText(member.left) && isMoment(member.until) && isText(member.price) && isTextOrNull(member.held) && typeof member.tooLittle === "boolean" && isLengths(member.lengths) && isNumberOrNull(member.chosen) && isListOf(member.times, (time) => isMoment(time.startsAt) && typeof time.membersOnly === "boolean");
+  return isThing(member) && isText(member.left) && isMoment(member.until) && isText(member.price) && isTextOrNull(member.held) && typeof member.tooLittle === "boolean" && typeof member.canBook === "boolean" && isLengths(member.lengths) && isNumberOrNull(member.chosen) && isListOf(member.times, (time) => isMoment(time.startsAt) && typeof time.membersOnly === "boolean");
 }
 
 /**

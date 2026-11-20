@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { dayName, phoneZone } from "@/lib/home-rules";
+import { dayName, phoneZone, timeOnly } from "@/lib/home-rules";
 import { byDay } from "@/lib/host-rules";
 import { Button } from "@/ui/pieces";
 import { type, useColors } from "@/ui/theme";
@@ -26,23 +26,29 @@ export function Slots({ starts, marked, markedLabel }: { starts: string[]; marke
       <Text style={[styles.small, { color: colors.soft }]}>
         Times are shown in your time zone ({zone.replace(/_/g, " ")}).{isMarked.size > 0 && markedLabel ? ` ★ ${markedLabel}` : ""}
       </Text>
-      {days.slice(0, daysShown).map(({ day, starts: times }) => (
+      {days.slice(0, daysShown).map(({ day, starts: times }) => {
+        // On the night the clocks go back, two different moments have the same time of day: then each says which it is.
+        const plain = times.map((iso) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
+        const twice = new Set(plain).size < plain.length;
+        const label = (iso: string, index: number) => (twice ? timeOnly(iso) : plain[index]);
+        return (
         <View key={day} style={styles.day}>
           <Text accessibilityRole="header" style={[styles.small, styles.bold, { color: colors.text }]}>
             {dayName(day, true)}
           </Text>
           <View style={styles.times}>
-            {times.map((iso) => (
-              <View key={iso} style={[styles.time, { borderColor: colors.edge }]} accessible accessibilityLabel={`${new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}${isMarked.has(iso) && markedLabel ? `, ${markedLabel}` : ""}`}>
+            {times.map((iso, index) => (
+              <View key={iso} style={[styles.time, { borderColor: colors.edge }]} accessible accessibilityLabel={`${label(iso, index)}${isMarked.has(iso) && markedLabel ? `, ${markedLabel}` : ""}`}>
                 <Text style={[styles.small, { color: colors.text }]}>
-                  {new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  {label(iso, index)}
                   {isMarked.has(iso) ? " ★" : ""}
                 </Text>
               </View>
             ))}
           </View>
         </View>
-      ))}
+        );
+      })}
       {days.length > daysShown ? <Button label="Show more days" kind="plain" onPress={() => setDaysShown(daysShown + 7)} /> : null}
     </View>
   );

@@ -20,6 +20,13 @@ import { searchHosts } from "@/lib/profiles/search";
 import { SEARCH, searchTerms } from "@/lib/profiles/search-rules";
 import type { AppHostPage, AppSearch, AppSwitches } from "./types";
 
+/**
+ * For how long the app may go on saying "available now" without asking again. A host is available
+ * only while her own screen keeps saying so every few seconds; a page read a while ago knows nothing
+ * of now. The app asks again well within this, and takes the words away when it could not.
+ */
+const NOW_FRESH_SECONDS = 90;
+
 /** The website's own address, as the emails write it: a shared link leads to a host's page on the web. */
 function site(): string {
   return (process.env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -53,7 +60,9 @@ export async function searchFor(viewer: { id: string } | null, q: unknown): Prom
  * that does not exist and one this person may not open). `asked` carries the lengths chosen.
  */
 export async function hostPageFor(viewer: { id: string } | null, handle: string, asked: { length?: unknown; mlength?: unknown }, switches: AppSwitches): Promise<AppHostPage | null> {
-  const profile = await hostProfileFor(viewer, handle);
+  // With memberships switched off for the apps, nobody is a member here: a page that only a member or an invited
+  // person may open is then not opened for them either.
+  const profile = await hostProfileFor(switches.memberships === "off" ? null : viewer, handle);
   if (!profile) return null;
   // Never the project: projects are not in the apps, and nothing of one is read for them.
   const page = await gatherHostPage(viewer, profile, asked, { project: false });
@@ -62,6 +71,9 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
   const now = switches.availableNow ? page.now : null;
   const memberships = switches.memberships !== "off";
   const member = memberships ? memberView : null;
+  // Where the apps may not take a monthly payment ("use only"), a month whose money is only held cannot be booked
+  // from: the first booking of such a month takes the payment. Its times are then not offered here.
+  const memberCanBook = Boolean(member) && (switches.memberships === "on" || member!.month.status !== "held");
   const closed = notTakingWords(profile.displayName, offer, page.chosen);
   const state = memberships && page.own && (page.own.status === "joining" || page.own.status === "unpaid" || page.own.status === "paused") ? page.own.status : null;
   // An invitation leads to joining, which takes a monthly payment: only where the apps may take one.
@@ -81,7 +93,7 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
     callWords: callWords(profile.freeCancelMinutes),
     verifiedOnly: Boolean(offer?.verifiedOnly),
     confirmId: page.offerIdCheck,
-    now: now ? { lengths: now.lengths.map((minutes) => ({ minutes, words: lengthChoice(minutes, now.offer.pricePer15Cents) })), answerMinutes: NOW.answerMinutes, paid: now.offer.pricePer15Cents > 0 } : null,
+    now: now ? { lengths: now.lengths.map((minutes) => ({ minutes, words: lengthChoice(minutes, now.offer.pricePer15Cents) })), answerMinutes: NOW.answerMinutes, paid: now.offer.pricePer15Cents > 0, freshSeconds: NOW_FRESH_SECONDS } : null,
     ask: {
       title: askTitle(Boolean(member), Boolean(now)),
       closed,
@@ -101,11 +113,17 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
                   left: `${timeWords(member.minutesLeft)} left`,
                   until: member.monthEndsAt.toISOString(),
                   price: `${formatMoney(member.month.pricePer15Cents)} per 15 minutes`,
-                  held: member.month.status === "held" ? `This month's ${formatMoney(member.month.totalCents)} is only held on your card so far. It is taken when you make your first booking of the month.` : null,
-                  tooLittle: !page.memberChosen,
-                  lengths: member.lengths.map((minutes) => ({ minutes, words: lengthWords(minutes) })),
-                  chosen: page.memberChosen,
-                  times: page.memberTimes.map((time) => ({ startsAt: time.startsAt.toISOString(), membersOnly: time.membersOnly })),
+                  held:
+                    member.month.status !== "held"
+                      ? null
+                      : memberCanBook
+                        ? `This month's ${formatMoney(member.month.totalCents)} is only held on your card so far. It is taken when you make your first booking of the month.`
+                        : `This month's ${formatMoney(member.month.totalCents)} is only held on your card so far.`,
+                  tooLittle: memberCanBook && !page.memberChosen,
+                  canBook: memberCanBook,
+                  lengths: memberCanBook ? member.lengths.map((minutes) => ({ minutes, words: lengthWords(minutes) })) : [],
+                  chosen: memberCanBook ? page.memberChosen : null,
+                  times: memberCanBook ? page.memberTimes.map((time) => ({ startsAt: time.startsAt.toISOString(), membersOnly: time.membersOnly })) : [],
                 }
               : null,
           }

@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Linking, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useRef, useState } from "react";
+import { AppState, Linking, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import type { AppFollowDone, AppHostPage } from "../../../../src/lib/app-door/types";
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
@@ -23,9 +23,15 @@ import { type, useColors } from "@/ui/theme";
  * "report" to theirs.
  */
 export default function HostPage() {
-  const colors = useColors();
   const { handle: given } = useLocalSearchParams<{ handle?: string | string[] }>();
   const handle = typeof given === "string" ? given : "";
+  // A screen of its own for each host: when another host's page is opened in this place, nothing of the first
+  // one's page, price or buttons is left standing.
+  return <OneHostPage key={handle} handle={handle} />;
+}
+
+function OneHostPage({ handle }: { handle: string }) {
+  const colors = useColors();
   const { opening, refresh: askOpening } = useOpening();
   const signedIn = opening.kind === "ready" && opening.start.me !== null;
   const [page, setPage] = useState<AppHostPage | null>(null);
@@ -36,6 +42,10 @@ export default function HostPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
   const [following, setFollowing] = useState(false);
+  // Until when "available now" may be believed: a host is available only while her own screen keeps saying so, and
+  // a page read a while ago knows nothing of now. Past this, the words are taken away until the server says so again.
+  const [nowUntil, setNowUntil] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
   const newest = useRef(0);
   const sending = useRef(false);
 
@@ -50,6 +60,8 @@ export default function HostPage() {
     const answer = await ask<AppHostPage>(`/api/app/hosts/${handle}${chosen ? `?${chosen}` : ""}`);
     if (mine !== newest.current) return;
     if (answer.ok && isHostPage(answer.data)) {
+      setNowUntil(answer.data.now ? Date.now() + answer.data.now.freshSeconds * 1000 : 0);
+      setClock(Date.now());
       setPage(answer.data);
       setProblem(null);
       setGone(false);
@@ -65,10 +77,27 @@ export default function HostPage() {
     } else setProblem(answer.ok ? UNREACHABLE : answer.message);
   }, [handle, length, memberLength, askOpening]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the screen's own question to the server, asked again when a length is chosen
-    void load();
-  }, [load]);
+  // While the page is in front: now, when a length is chosen, on coming back to the app, and every minute. So what
+  // it says about "available now", an invitation, or whether the page is open at all, is never old for long.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      const listener = AppState.addEventListener("change", (state) => {
+        if (state === "active") {
+          setClock(Date.now());
+          void load();
+        }
+      });
+      const timer = setInterval(() => {
+        setClock(Date.now());
+        if (AppState.currentState === "active") void load();
+      }, 60_000);
+      return () => {
+        listener.remove();
+        clearInterval(timer);
+      };
+    }, [load]),
+  );
 
   async function pull() {
     setPulling(true);
@@ -104,6 +133,7 @@ export default function HostPage() {
   }
   if (!page) return problem ? <Problem words={problem} onRetry={() => void load()} /> : <Loading />;
   const member = page.membership?.member ?? null;
+  const availableNow = page.now !== null && clock < nowUntil ? page.now : null;
   return (
       <Page refreshing={pulling} onRefresh={() => void pull()}>
         <BackLink onBack={back} />
@@ -177,7 +207,7 @@ export default function HostPage() {
               <Text style={styles.bold}>{member.left}</Text>, until {localTime(member.until)}. Your price is {member.price}.
             </Words>
             {member.held ? <Words soft>{member.held}</Words> : null}
-            {member.tooLittle ? (
+            {!member.canBook ? null : member.tooLittle ? (
               <Words>The time you have left does not cover a call with {page.name}. You can still ask for one the ordinary way below, at the regular price.</Words>
             ) : (
               <>
@@ -193,15 +223,15 @@ export default function HostPage() {
           </Card>
         ) : null}
 
-        {page.now ? (
+        {availableNow ? (
           <View style={[styles.available, { backgroundColor: colors.notice, borderColor: colors.noticeLine }]}>
             <View style={styles.availableHead}>
               <View style={styles.dot} />
               <Heading>Available now</Heading>
             </View>
             <Words>
-              {page.name} can take a call right away. They answer within {page.now.answerMinutes} minutes and the call starts a minute after they accept.
-              {page.now.paid ? " You pay for the time you are both in the call." : ""}
+              {page.name} can take a call right away. They answer within {availableNow.answerMinutes} minutes and the call starts a minute after they accept.
+              {availableNow.paid ? " You pay for the time you are both in the call." : ""}
             </Words>
           </View>
         ) : null}

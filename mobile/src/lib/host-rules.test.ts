@@ -34,11 +34,11 @@ describe("the server's answers for search and a host's page", () => {
     expect(isSearch(found)).toBe(true);
     expect(isSearch({ ...found, hosts: [], hint: "Nobody found." })).toBe(true);
     expect(isHostPage(page)).toBe(true);
-    expect(isHostPage({ ...page, follow: null, now: { lengths: [{ minutes: 15, words: "15 minutes" }], answerMinutes: 2, paid: false } })).toBe(true);
+    expect(isHostPage({ ...page, follow: null, now: { lengths: [{ minutes: 15, words: "15 minutes" }], answerMinutes: 2, paid: false, freshSeconds: 90 } })).toBe(true);
     expect(
       isHostPage({
         ...page,
-        membership: { invitedUntil: "2026-12-01T00:00:00.000Z", state: { status: "paused", words: "Your membership is paused." }, member: { left: "1 hour left", until: "2026-12-01T00:00:00.000Z", price: "$15.00 per 15 minutes", held: null, tooLittle: false, lengths: [{ minutes: 30, words: "30 minutes" }], chosen: 30, times: [{ startsAt: "2026-11-21T20:00:00.000Z", membersOnly: true }] } },
+        membership: { invitedUntil: "2026-12-01T00:00:00.000Z", state: { status: "paused", words: "Your membership is paused." }, member: { left: "1 hour left", until: "2026-12-01T00:00:00.000Z", price: "$15.00 per 15 minutes", held: null, tooLittle: false, canBook: true, lengths: [{ minutes: 30, words: "30 minutes" }], chosen: 30, times: [{ startsAt: "2026-11-21T20:00:00.000Z", membersOnly: true }] } },
       }),
     ).toBe(true);
   });

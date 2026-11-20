@@ -83,10 +83,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
   }
   if (given.tellOnline === undefined && hours === undefined) return refuse("not_valid");
   try {
-    // No such host is answered exactly like a host this person does not follow (the sentence is the function's own).
-    if (!hostId) throw new FollowError("You do not follow this host. Nothing was changed.");
+    // A name that is no host's is handed on as a host nobody can follow, so that it is answered by the very same
+    // steps, in the same order and with the same sentences, as a host this person does not follow.
     // Only what was sent is handed on. The diary choice is never among it.
-    await saveChoices({ followerId: me.id, hostId, ...(given.tellOnline === undefined ? {} : { tellOnline: given.tellOnline }), ...(hours === undefined ? {} : { hours }), now });
+    await saveChoices({ followerId: me.id, hostId: hostId ?? "no-such-host", ...(given.tellOnline === undefined ? {} : { tellOnline: given.tellOnline }), ...(hours === undefined ? {} : { hours }), now });
   } catch (error) {
     if (!(error instanceof FollowError)) console.error("[follows] could not save the choice of emails", error);
     return refuse("not_valid", error instanceof FollowError ? error.message : WRONG);

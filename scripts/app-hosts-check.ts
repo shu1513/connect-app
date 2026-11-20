@@ -124,6 +124,16 @@ async function main() {
   if (!up || up.status !== 200) throw new Error(`The app is not running at ${BASE}. Start it first.`);
   await db.delete(schema.rateLimit);
 
+  const { setSwitches } = await import("../src/lib/safety/switches");
+  // The founder's switches exactly as they were, to put back at the end.
+  const [saved] = (await db.execute(sql`select row_to_json(s)::text as row from site_switches s where id = 1`)) as unknown as { row: string }[];
+  async function restoreSwitches() {
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.siteSwitches).where(eq(schema.siteSwitches.id, 1));
+      if (saved) await tx.execute(sql`insert into site_switches select * from json_populate_record(null::site_switches, ${saved.row}::json)`);
+    });
+  }
+
   const now = new Date();
   const made: string[] = [];
   const projects: string[] = [];
@@ -186,6 +196,11 @@ async function main() {
     await goOnline(maya.id);
     const mayaPhoto = await photoOf(maya.id);
     await db.update(schema.hostProfiles).set({ about: "I make things by hand." }).where(eq(schema.hostProfiles.userId, maya.id));
+    // One social account she has confirmed, and one she only claimed.
+    await db.insert(schema.socialAccounts).values([
+      { userId: maya.id, network: "instagram", nameTyped: `@maya${RUN}`, nameKey: `maya${RUN}`, url: `https://www.instagram.com/maya${RUN}/`, code: "check", codeExpiresAt: new Date(Date.now() + DAY), claimedAt: now, confirmedAt: now },
+      { userId: maya.id, network: "tiktok", nameTyped: `@unproven${RUN}`, nameKey: `unproven${RUN}`, url: `https://www.tiktok.com/@unproven${RUN}`, code: "check", codeExpiresAt: new Date(Date.now() + DAY), claimedAt: now },
+    ]);
     {
       const one = await search("m");
       check("one letter is too little, and says so", one.body?.searched === false && one.body.hosts.length === 0 && one.body.hint === "Type at least 2 letters or numbers.", one.body?.hint ?? "");
@@ -194,6 +209,8 @@ async function main() {
       const byName = await search(`Maya Makes ${RUN}`);
       const found = byName.body?.hosts.find((h) => h.handle === maya.handle);
       check("someone not signed in finds a host by her name", byName.reply.status === 200 && found !== undefined, `${byName.reply.status}`);
+      check("she is found by her confirmed social media name, and never by one she only claimed", (await search(`maya${RUN}`)).body?.hosts.some((h) => h.handle === maya.handle) === true && (await search(`unproven${RUN}`)).body?.hosts.length === 0);
+      check("a result shows the confirmed account and not the other", found?.socials.length === 1 && found.socials[0].name === `maya${RUN}` && !byName.reply.text.includes(`unproven${RUN}`), JSON.stringify(found?.socials));
       check("a result is what a search result shows, and no account id", found !== undefined && Object.keys(found).sort().join(",") === "about,handle,languages,name,photoId,price,rating,socials" && found.photoId === mayaPhoto && found.price === "Free calls" && found.about === "I make things by hand.");
       check("by her Connect handle too, with or without the @", (await search(maya.handle)).body?.hosts.some((h) => h.handle === maya.handle) === true && (await search(`@${maya.handle}`)).body?.hosts.some((h) => h.handle === maya.handle) === true);
       check("signed in, the same", (await search(maya.handle, cust.jar)).body?.hosts.some((h) => h.handle === maya.handle) === true);
@@ -207,8 +224,9 @@ async function main() {
       // A hidden host, and one waiting for approval, are not found.
       await db.update(schema.hostProfiles).set({ hidden: true }).where(eq(schema.hostProfiles.userId, many[0].id));
       await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, many[1].id));
-      const afterwards = (await search(`Crowd ${RUN}`)).body?.hosts.map((h) => h.handle) ?? [];
-      check("a hidden host and one waiting for approval are not found", !afterwards.includes(many[0].handle) && !afterwards.includes(many[1].handle));
+      const afterSearch = await search(`Crowd ${RUN}`);
+      const afterwards = afterSearch.body?.hosts.map((h) => h.handle) ?? [];
+      check("a hidden host and one waiting for approval are not found, while the others still are", afterSearch.reply.status === 200 && afterwards.length === 20 && afterwards.includes(many[2].handle) && !afterwards.includes(many[0].handle) && !afterwards.includes(many[1].handle), `${afterSearch.reply.status} ${afterwards.length}`);
       // A block, either way: the pair never find each other. Anyone else still finds her.
       await db.insert(schema.blocks).values({ blockerId: maya.id, blockedId: cust.id });
       check("a host who blocked someone is not found by them", (await search(maya.handle, cust.jar)).body?.hosts.some((h) => h.handle === maya.handle) === false);
@@ -230,11 +248,17 @@ async function main() {
         Object.keys(p ?? {}).sort().join(",") === "about,ask,callWords,confirmId,follow,handle,languages,membership,name,now,own,photoId,price,rating,shareUrl,socials,verifiedOnly" && !guest.reply.text.includes(maya.id),
         Object.keys(p ?? {}).sort().join(","),
       );
+      check("with her confirmed social account as a link, and not the one she only claimed", p?.socials.length === 1 && p.socials[0].label === "Instagram" && p.socials[0].url.startsWith("https://") && !guest.reply.text.includes(`unproven${RUN}`), JSON.stringify(p?.socials));
       check("with her photo, her price and what a call is", p?.photoId === mayaPhoto && p.price === "Free private video call" && p.callWords === "A private one-to-one video call. Free to cancel any time before the call starts.");
       check("a visitor is offered to sign in to follow", p?.follow === "visitor" && p.own === false);
       check("she can be shared, by her page's address on the web", p?.shareUrl === `${BASE}/h/${maya.handle}`);
       check("she can be asked for a call: the lengths, the one shown first, and its open times as moments on the world's clock", p?.ask.closed === null && p.ask.title === "Or ask for a call later" && p.ask.lengths.map((l) => l.minutes).join(",") === "15,30" && p.ask.chosen === 30 && p.ask.starts.length > 0 && p.ask.starts.every((s) => /Z$/.test(s)), JSON.stringify(p?.ask).slice(0, 160));
-      check("she is available now, with the lengths for that", p?.now !== null && p?.now?.answerMinutes === 2 && p.now.paid === false && p.now.lengths.length > 0, JSON.stringify(p?.now));
+      check("she is available now, with the lengths for that, and for how long that may be believed", p?.now !== null && p?.now?.answerMinutes === 2 && p.now.paid === false && p.now.lengths.length > 0 && p.now.freshSeconds > 0 && p.now.freshSeconds <= 120, JSON.stringify(p?.now));
+      // The apps' own switch for "available now".
+      await setSwitches({ appAvailableNow: false });
+      const off = (await page(maya.handle)).body;
+      check("with 'available now' switched off for the apps, nobody is shown as available, and she can still be asked for a time", off !== null && off.now === null && off.ask.closed === null && off.ask.title === "Ask for a call");
+      await restoreSwitches();
       const fifteen = (await page(maya.handle, undefined, "?length=15")).body;
       check("choosing another length shows that length's times", fifteen?.ask.chosen === 15 && fifteen.ask.starts.length >= (p?.ask.starts.length ?? 0));
       check("a length she does not offer is read as none chosen", (await page(maya.handle, undefined, "?length=47")).body?.ask.chosen === 30);
@@ -275,6 +299,19 @@ async function main() {
       const waiting = await page(hidden.handle, member.jar);
       check("while she waits for approval her member can open the page", waiting.reply.status === 200);
       check("and a stranger cannot", refusal((await page(hidden.handle, cust.jar)).reply) === "not_found");
+      // Memberships switched off for the apps: nobody is a member there, so a page only a member may open is not opened.
+      await db.update(schema.hostProfiles).set({ status: "approved", hidden: true }).where(eq(schema.hostProfiles.userId, hidden.id));
+      await setSwitches({ appMemberships: "off" });
+      check("with memberships switched off for the apps, her member cannot open the hidden page there either", refusal((await page(hidden.handle, member.jar)).reply) === "not_found");
+      await setSwitches({ appMemberships: "use_only" });
+      const useOnly = await page(hidden.handle, member.jar);
+      check("with 'use only', her member can open it again", useOnly.reply.status === 200);
+      // An invitation leads to a monthly payment: it is only told of where the apps may take one.
+      await db.update(schema.memberships).set({ inviteExpiresAt: new Date(Date.now() + DAY) }).where(and(eq(schema.memberships.hostId, hidden.id), eq(schema.memberships.customerId, invited.id)));
+      const invitedUseOnly = await page(hidden.handle, invited.jar);
+      check("with 'use only', an invited person is not told of the invitation in the app", invitedUseOnly.reply.status === 200 && (invitedUseOnly.body?.membership?.invitedUntil ?? null) === null, JSON.stringify(invitedUseOnly.body?.membership));
+      await db.update(schema.memberships).set({ inviteExpiresAt: new Date(Date.now() - 1000) }).where(and(eq(schema.memberships.hostId, hidden.id), eq(schema.memberships.customerId, invited.id)));
+      await restoreSwitches();
       // Approved again, and hidden as at first.
       await db.update(schema.hostProfiles).set({ status: "approved", hidden: true }).where(eq(schema.hostProfiles.userId, hidden.id));
     }
@@ -306,7 +343,7 @@ async function main() {
       check("a host with a running project and a diary: her page for the app names none of it", withProject.reply.status === 200 && !names.some((name) => /project|diary|post|contribut|tip/i.test(name)), names.filter((name) => /project|diary|post|contribut|tip/i.test(name)).join(","));
       check("and carries none of its words", !withProject.reply.text.includes(`Album ${RUN}`) && !withProject.reply.text.includes(`A diary post ${RUN}`) && !/diary|contribut/i.test(withProject.reply.text));
       const inSearch = await search(maya.handle, cust.jar);
-      check("nor does the search", !inSearch.reply.text.includes(`Album ${RUN}`) && ![...namesIn(inSearch.body)].some((name) => /project|diary|post|contribut|tip/i.test(name)));
+      check("nor does the search, which still finds her", inSearch.reply.status === 200 && inSearch.body?.hosts.some((h) => h.handle === maya.handle) === true && !inSearch.reply.text.includes(`Album ${RUN}`) && ![...namesIn(inSearch.body)].some((name) => /project|diary|post|contribut|tip/i.test(name)));
     }
 
     // ----------------------------------------------------------------------
@@ -371,7 +408,9 @@ async function main() {
       check("a browser cannot follow through the app's address", refusal(await asBrowser(`/api/app/hosts/${maya.handle}/follow`, { body: {}, jar: cust.jar })) === "not_the_app");
     }
   } finally {
+    await restoreSwitches();
     const ids = made.length ? made : ["-"];
+    await db.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.userId, ids));
     const projectIds = projects.length ? projects : [randomUUID()];
     await db.delete(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds));
     await db.delete(schema.projects).where(inArray(schema.projects.id, projectIds));
