@@ -189,6 +189,9 @@ async function main() {
     (await db.insert(schema.hostPhotos).values({ userId, network: "upload", width: 8, height: 8, byteLength: 5, sha256: randomUUID(), bytes: Buffer.from("photo"), takenAt: now, checkedBy: "apphomecheck", rulesVersion: "apphomecheck" }).returning({ id: schema.hostPhotos.id }))[0].id;
 
   try {
+    // What the apps are shown is the founder's to switch. The checks below start from "everything shown", whatever
+    // was saved before (it is put back at the end); the checks of a switch turn it off themselves.
+    await setSwitches({ appAvailableNow: true, appMemberships: "on" });
     // ----------------------------------------------------------------------
     console.log("\n1. The search");
     const cust = await newPerson("cust");

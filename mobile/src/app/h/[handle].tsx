@@ -87,6 +87,13 @@ function OneHostPage({ handle }: { handle: string }) {
     }
   }, [handle, length, memberLength, askOpening]);
 
+  // The reading for what is chosen now. Something that began earlier (following, pulling down) and reads the page
+  // again when it is done asks through this, so a length chosen meanwhile is not put back to the one before.
+  const latestLoad = useRef(load);
+  useEffect(() => {
+    latestLoad.current = load;
+  }, [load]);
+
   // At the very moment "available now" may no longer be believed, the clock is looked at, and the server asked again.
   useEffect(() => {
     if (nowUntil <= 0) return;
@@ -122,7 +129,7 @@ function OneHostPage({ handle }: { handle: string }) {
 
   async function pull() {
     setPulling(true);
-    await load();
+    await latestLoad.current();
     setPulling(false);
   }
 
@@ -138,7 +145,7 @@ function OneHostPage({ handle }: { handle: string }) {
       setNotice(answer.message);
       void askOpening();
     }
-    await load();
+    await latestLoad.current();
     sending.current = false;
     setFollowing(false);
   }
