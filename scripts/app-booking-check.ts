@@ -409,6 +409,8 @@ async function main() {
       // Used-up keys are limited for each person and kept for a day. With the list full, a "no" cannot be written
       // down, so it is not said for good either: the answer is "it cannot be told".
       const full = await okSummary(maya.handle, s.startsAt, second.jar);
+      // (This person's list starts empty here: a key used up earlier in this run is still alive, and would rightly be kept.)
+      await db.delete(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id));
       await db.insert(schema.spentRequestKeys).values(Array.from({ length: B.SPENT_KEYS_MAX }, () => ({ customerId: second.id, requestKey: randomUUID() })));
       const notSaid = await send(maya.handle, full, second.jar, { seen: { price: 500, freeCancel: 1440 } });
       check("with a person's list of used-up keys full, a refusal is not said for good", notSaid.status === 503 && notSaid.text === "" && (await spentKeys(second.id, full.requestKey)) === 0, `${notSaid.status}`);
@@ -431,12 +433,28 @@ async function main() {
       const tooOld = await send(maya.handle, fresh2, cust.jar, { requestKey: oldKey });
       const notOurs = await send(maya.handle, fresh2, cust.jar, { requestKey: randomUUID() });
       check("a key older than half a day makes nothing, and neither does one the server did not make for the app", sentence(tooOld) === B.KEY_TOO_OLD && sentence(notOurs) === B.KEY_TOO_OLD && (await withKey(oldKey)) === 0 && requestKeyMadeAt(fresh2.requestKey) !== null && Math.abs(requestKeyMadeAt(fresh2.requestKey)!.getTime() - Date.now()) < 60_000, `${sentence(tooOld)} | ${sentence(notOurs)}`);
-      // A request that was made is still found by its key, however old the key has become.
-      const agedKey = newRequestKey(new Date(Date.now() - REQUEST_KEY_LIFE_MS - 60_000));
+      // A request that was made is still found by its key, however old the key has become. (The key is aged in the
+      // database: no request can be made with an old key any more.)
       const agedTime = nextFree();
-      const { booking: aged } = await B.askForCall({ customer: { id: cust.id, name: cust.name, email: cust.email }, hostId: maya.id, startsAt: new Date(agedTime), lengthMinutes: 30, note: "", requestKey: agedKey, agreedToCardTerms: false, seen: { pricePer15Cents: 0, freeCancelMinutes: 1440 }, now: new Date() });
-      const agedAgain = await send(maya.handle, { ...fresh2, startsAt: agedTime }, cust.jar, { requestKey: agedKey });
-      check("a request that was made is still found by its key, however old the key", agedAgain.status === 200 && (agedAgain.json as AppBookSent).id === aged.id);
+      const agedSummary = await okSummary(maya.handle, agedTime, cust.jar);
+      const agedMade = await send(maya.handle, agedSummary, cust.jar);
+      const agedKey = newRequestKey(new Date(Date.now() - REQUEST_KEY_LIFE_MS - 60_000));
+      await db.update(schema.bookings).set({ requestKey: agedKey }).where(eq(schema.bookings.requestKey, agedSummary.requestKey));
+      const agedAgain = await send(maya.handle, agedSummary, cust.jar, { requestKey: agedKey });
+      check("a request that was made is still found by its key, however old the key", agedMade.status === 200 && agedAgain.status === 200 && (agedAgain.json as AppBookSent).id === (agedMade.json as AppBookSent).id);
+      // The website's own form does not take a key of the app's kind for a new request: an old app key cannot get in that way.
+      let throughForm = "made a request";
+      const appKind = newRequestKey(new Date());
+      await B.askForCall({ customer: { id: cust.id, name: cust.name, email: cust.email }, hostId: maya.id, startsAt: new Date(s.startsAt), lengthMinutes: 30, note: "", requestKey: appKind, agreedToCardTerms: false, seen: { pricePer15Cents: 0, freeCancelMinutes: 1440 }, now: new Date() }).catch((error: Error) => (throughForm = error.message));
+      check("the website's form does not make a request with a key of the app's kind", throughForm === "This form is out of date. Please reload the page." && (await withKey(appKind)) === 0, throughForm);
+      // A used-up key that names a moment still to come is not forgotten after a day: it is kept until it can make nothing.
+      const future = newRequestKey(new Date(Date.now() + 3 * 24 * 3_600_000));
+      await db.insert(schema.spentRequestKeys).values([{ customerId: second.id, requestKey: future, at: new Date(Date.now() - 30 * 3_600_000) }, { customerId: second.id, requestKey: newRequestKey(new Date(Date.now() - 40 * 3_600_000)), at: new Date(Date.now() - 30 * 3_600_000) }]);
+      const tidying = await okSummary(maya.handle, s.startsAt, second.jar);
+      await send(maya.handle, tidying, second.jar, { seen: { price: 500, freeCancel: 1440 } });
+      const leftKeys = (await db.select().from(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id))).map((row) => row.requestKey);
+      check("a used-up key that could still make a request later is kept past the day; a dead one is forgotten", leftKeys.includes(future) && leftKeys.includes(tidying.requestKey) && leftKeys.length === 2, String(leftKeys.length));
+      await db.delete(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id));
       // The limit is for the wait for the key only: what was in force before is put back.
       const limits = await db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('lock_timeout', '5s', true)`);

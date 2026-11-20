@@ -20,7 +20,7 @@ import { identityState } from "@/lib/safety/identity";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
-import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, cardStepOpen, earliestStartFor, isUuid, LIMITS, PASSED_OVER, payCutoff, readLengths, REQUEST_KEY_LIFE_MS, requestKeyLives, takenUntil } from "./rules";
+import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, cardStepOpen, earliestStartFor, isUuid, LIMITS, PASSED_OVER, payCutoff, readLengths, REQUEST_KEY_LIFE_MS, requestKeyLives, requestKeyMadeAt, takenUntil } from "./rules";
 import { stretchesFor, isOpenStart, openStarts, withOwnBreak, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -502,6 +502,9 @@ export async function askForCall(input: {
         .from(schema.spentRequestKeys)
         .where(and(eq(schema.spentRequestKeys.customerId, customer.id), eq(schema.spentRequestKeys.requestKey, input.requestKey)));
       if (spent) throw new BookingError(KEY_SPENT);
+      // The website's form never makes a request with a key of the app's kind (its own keys are of another kind):
+      // an app's key that has grown too old must not find a way in through the form.
+      if (!input.fromApp && requestKeyMadeAt(input.requestKey) !== null) throw new BookingError("This form is out of date. Please reload the page.");
       await lockCalendars(tx, [input.hostId, customer.id]);
       // What the host offers, read with the calendars locked: nothing about it can change under this request now.
       const current = await offerOf(input.hostId, tx);
@@ -1104,7 +1107,15 @@ async function spendKey(tx: Tx, customerId: string, requestKey: string): Promise
   await tx.execute(sql`select pg_advisory_xact_lock(${KEY_SPACE}::int, hashtext(${`used-up-keys:${customerId}`}))`);
   const [known] = await tx.select({ at: schema.spentRequestKeys.at }).from(schema.spentRequestKeys).where(and(mine, eq(schema.spentRequestKeys.requestKey, requestKey)));
   if (known) return;
-  await tx.delete(schema.spentRequestKeys).where(and(mine, lt(schema.spentRequestKeys.at, new Date(Date.now() - SPENT_KEYS_KEPT_MS))));
+  // Forgotten: what was written down more than a day ago by the database's own clock (the clock that dated it),
+  // unless the key could still make a request, now or later (a key that names a moment still to come is kept
+  // until that moment is long past).
+  const old = await tx
+    .select({ requestKey: schema.spentRequestKeys.requestKey })
+    .from(schema.spentRequestKeys)
+    .where(and(mine, lt(schema.spentRequestKeys.at, sql`now() - make_interval(secs => ${SPENT_KEYS_KEPT_MS / 1000})`)));
+  const dead = old.map((row) => row.requestKey).filter((key) => (requestKeyMadeAt(key)?.getTime() ?? 0) + REQUEST_KEY_LIFE_MS < Date.now());
+  if (dead.length > 0) await tx.delete(schema.spentRequestKeys).where(and(mine, inArray(schema.spentRequestKeys.requestKey, dead)));
   const [{ kept }] = await tx.select({ kept: sql<number>`count(*)::int` }).from(schema.spentRequestKeys).where(mine);
   if (kept >= SPENT_KEYS_MAX) throw new Error(`too many used-up request keys for one person (${kept}): this refusal cannot be written down`);
   await tx.insert(schema.spentRequestKeys).values({ customerId, requestKey }).onConflictDoNothing();

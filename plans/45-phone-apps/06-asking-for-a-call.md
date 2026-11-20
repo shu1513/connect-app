@@ -463,6 +463,18 @@ Astra found the app's retry gap closed in every ordering. What was left:
 4. *(Note.)* The check of the wait limit could hang if the limit were ever lost. It now gives
    up after 40 seconds and lets go either way.
 
+## Astra's eleventh look at the code (20 November 2026): "ready with changes", worked in
+
+Astra found the gap closed for an honest app. Three small points, all taken:
+
+1. A key that names a moment still to come (only a tampered app could send one) could be
+   refused, forgotten after a day, and then be used when its moment came. A used-up key is
+   now kept for as long as it could still make a request.
+2. The day after which a used-up key is forgotten is now counted by the database's own clock,
+   the clock that dated it, so two servers whose clocks differ cannot disagree about it.
+3. The website's form no longer makes a new request with a key of the app's kind, so an app
+   key that has grown too old cannot get in through the form.
+
 **The database gets one small new table with this part** (`spent_request_keys`). Its change
 file is made when this part's pull request is opened, so its number comes after whatever has
 been merged by then.
