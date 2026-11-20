@@ -5,7 +5,7 @@ import { NoteForm } from "@/components/note-form";
 import type { Membership as MembershipRow } from "@/db/schema";
 import { invitingFor } from "@/lib/membership/access";
 import { readNotice } from "@/lib/notice";
-import { contactsOf } from "@/lib/people/contacts";
+import { contactsOf, NOTE_MAX } from "@/lib/people/contacts";
 import { requireUser } from "@/lib/session";
 import { SitePage } from "@/components/site-page";
 import { inviteAction, takeBackInviteAction } from "./actions";
@@ -52,7 +52,7 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
                 </p>
               )}
               {contact.wasMyCustomer && <Membership link={inviting.byCustomer.get(contact.userId) ?? null} canInvite={inviting.canInvite} customerId={contact.userId} name={contact.name} now={now} />}
-              {contact.wasMyCustomer && <NoteForm customerId={contact.userId} name={contact.name} text={contact.note} back="/contacts" />}
+              {contact.wasMyCustomer && <NoteForm customerId={contact.userId} name={contact.name} text={contact.note} max={NOTE_MAX} />}
             </li>
           ))}
         </ul>

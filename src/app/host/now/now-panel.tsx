@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AboutCustomer } from "@/components/about-customer";
 
-type Request = { id: string; customerName: string; customerRating: string; idConfirmed: boolean; lengthMinutes: number; totalCents: number; respondBy: string };
+type Request = { id: string; customerName: string; customerRating: string; idConfirmed: boolean; about: string | null; lengthMinutes: number; totalCents: number; respondBy: string };
 type Live = { on: boolean; availableUntil: string | null; requests: Request[] };
 
 const POLL_MS = 3_000;
@@ -252,6 +253,7 @@ export function NowPanel(props: { initial: Live; durations: readonly number[] })
                     As a customer: {request.customerRating === "New" ? "New: not enough ratings yet" : `★ ${request.customerRating}`}
                     {request.idConfirmed && <span className="text-green-700"> · ID confirmed</span>}
                   </p>
+                  {request.about && <AboutCustomer name={request.customerName} text={request.about} />}
                   <p className="mt-1 text-sm opacity-80">
                     {seconds === null ? "" : seconds > 0 ? `Answer within ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}. ` : "Time is up; this request is ending. "}
                     Accepting starts the call in about a minute and takes you to it.

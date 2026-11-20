@@ -15,7 +15,7 @@ import { NowWaiting } from "./now-waiting";
 import { BlockButton } from "@/components/block-button";
 import { NoteForm } from "@/components/note-form";
 import { Rating } from "@/components/rating";
-import { hostNoteAbout } from "@/lib/people/contacts";
+import { hostNoteAbout, NOTE_MAX } from "@/lib/people/contacts";
 import { averageFor } from "@/lib/ratings/ratings";
 import { identityState } from "@/lib/safety/identity";
 import { SitePage } from "@/components/site-page";
@@ -232,7 +232,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
         </div>
       )}
 
-      {note?.allowed && <NoteForm customerId={booking.customerId} name={otherName ?? "this customer"} text={note.text} back={`/bookings/${booking.id}`} />}
+      {note?.allowed && <NoteForm customerId={booking.customerId} name={otherName ?? "this customer"} text={note.text} max={NOTE_MAX} />}
 
       {booking.stage !== "card" && (
         <div className="mt-8 text-sm opacity-70">
