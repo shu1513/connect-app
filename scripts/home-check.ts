@@ -505,7 +505,7 @@ async function main() {
         const rowOf = (id: string) => html.slice(html.indexOf(`data-request="${id}"`), html.indexOf("Decline", html.indexOf(`data-request="${id}"`)));
         const [closedRow, blockedRow, openRow] = [rowOf(sameTime[1].id), rowOf(fromRegular.id), rowOf(sameTime[0].id)];
         const bare = (row: string) => row !== "" && !row.includes("ratings") && !row.includes("ID confirmed") && !row.includes("data-host-note") && !row.includes("&ldquo;") && !row.includes("“") && !row.includes("/host-photos/");
-        check(`${where}: a request of a closed account, and one across a block, show the time, length and price only`, bare(closedRow) && bare(blockedRow) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`), `${words(closedRow).slice(0, 90)} | ${words(blockedRow).slice(0, 90)}`);
+        check(`${where}: a request of a closed account, and one across a block, show the name, time, length and price, and nothing else about the customer`, bare(closedRow) && bare(blockedRow) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`), `${words(closedRow).slice(0, 90)} | ${words(blockedRow).slice(0, 90)}`);
         check("  and the request beside them keeps its details", words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
       }
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, asking[1].id));

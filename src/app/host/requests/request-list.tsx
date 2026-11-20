@@ -38,7 +38,9 @@ export function timesAskedFor(waiting: Waiting): number {
  *
  * Nothing about a customer whose account is closed, or while either has blocked the other
  * (plans/38, decision 7): closing an account or blocking ends the waiting requests, but that step
- * can fail, and a request that is still here is then shown with its time, length and price only.
+ * can fail, and a request that is still here is then shown with the name, its time, length and
+ * price, and nothing else about the customer. The name stays, as it does for a call across a
+ * block: the host has to know whose request she is declining.
  *
  * `from` names the page the buttons are on, so the answer comes back to it. `times` shows only the
  * first few times asked for; a time several people asked for counts as one.

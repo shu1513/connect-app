@@ -102,8 +102,9 @@ logging in.
    Decline she is back on the home page with the usual message. A request for a call right now
    is in the list too, as on the requests page today; the "Available now" page stays the place
    that shows it the moment it arrives. Decision 7 holds in this list as well, on both pages: a
-   request that is still waiting from a closed account, or across a block, shows its time,
-   length and price only.
+   request that is still waiting from a closed account, or across a block, shows who asked,
+   the time, the length and the price, and nothing else about the customer. The name stays, as
+   it does for a call: she has to know whose request she is declining.
 
 6. **A line of shortcuts for a host,** under the greeting: Available now, Your calendar,
    Earnings, Settings, and the address of her public page. Shown to anyone who has hosting to

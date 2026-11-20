@@ -3302,7 +3302,10 @@ home page; a line of shortcuts; nothing at all across a block or for a closed ac
   sent as a plan: it is the first shape with these points worked in.
 - *Astra, on the code (two rounds).* "Ready with changes", four points. Taken: a request that
   was still waiting from a closed account or across a block showed the rating, "ID confirmed"
-  and the customer's words, so the list now shows nothing about such a customer, on both pages.
+  and the customer's words, so the list now shows nothing about such a customer but the name,
+  on both pages. (The second round asked whether the name should go too. It stays, as it does
+  for a call across a block: the host has to know whose request she is declining. The plan said
+  "time, length and price only" in one place; that was corrected.)
   Taken: the check script compared the new check for several people with the single check,
   which is now the same code; it now compares both with the old single check written out in the
   script, and covers a test call of a real customer, a customer's photo, an empty list, a
