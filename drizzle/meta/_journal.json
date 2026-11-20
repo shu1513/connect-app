@@ -292,8 +292,15 @@
     {
       "idx": 41,
       "version": "7",
-      "when": 1795137590459,
-      "tag": "0041_host_languages",
+      "when": 1795137087979,
+      "tag": "0041_follow_emails",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795139779194,
+      "tag": "0042_host_languages",
       "breakpoints": true
     }
   ]

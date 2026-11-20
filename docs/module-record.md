@@ -2345,6 +2345,84 @@ watching it appear within a minute. Whether the home page's new order reads well
 customer. Part two (emails), then "tell me when a time opens" and suggestions as plans of their
 own.
 
+## A later change: following hosts, part two: emails to followers (plan 31, 19 November 2026)
+
+**What it is.** A follower can ask, for each host separately, for two emails: "Anna is available
+now" (with hours of their own choosing, "only between 6 pm and 10 pm") and "Anna wrote in her
+diary". The home page also gets "New in diaries", the latest posts of the hosts a person follows.
+Plan: `plans/31-following-part-2-emails.md`.
+
+**It is built switched off.** These emails are advertising in the eyes of the law, and US law
+asks that such an email carries the sender's postal address. There is no registered company
+yet. So the switch is that address: the setting `FOLLOW_EMAILS_ADDRESS`. While it is empty the
+choices are not shown and nothing is written or sent. "New in diaries" is not an email and is
+on.
+
+**What was decided differently from what was first discussed, and why.**
+- **"Tell me when a time opens" is not built**, although the founder liked it. It needs a waiting
+  state of its own that can be cancelled and asked for again, and "an open time" is not one
+  thing (a 15-minute time is no use to someone who wants an hour). It gets a plan of its own.
+  "Notify me if a host is available at a certain time" is covered by the hours.
+- **The host is not shown how many followers will be told**, for the reason in part one.
+- **The emails never carry what a host wrote**, only the host's name: otherwise a host could put
+  any text or link into every follower's inbox under Connect's name.
+
+**What was built.**
+- For each follow: the two ticks, the hours, and when the last email of each kind was written.
+  For each account: one switch for all of these emails, which the stop link in every such email
+  turns off with one press, without logging in. It never turns anything on, and it leaves
+  reminder emails alone (and the other way round).
+- A host who switches "Available now" on is announced a minute later, if their page still shows
+  them as available. Switching off inside the minute, or accepting a call, announces nothing;
+  extending announces nothing new.
+- A diary post is announced half an hour after it was written, if it is still there.
+- Every email is written by one small step for one follower, under that follower's lock: at
+  most one per host and kind in 20 hours, at most 5 in 24 hours. Never across a block, never to
+  a closed or paused account, never about a host who is paused or whose page is not open.
+- Right before an email is sent, everything is asked again; an email that no longer holds (the
+  host has gone, the hours are over, the post was removed) is dropped, not kept for later.
+- Taking a yes back (unfollowing, clearing a tick, the account's switch, the stop link, a block)
+  drops the emails that were still waiting.
+- Under each host on "Hosts you follow": the ticks, the hours and "Save". On the results of a
+  call: "Email me when Anna is available now". On the account page: the switch.
+
+**What the reviewers found.**
+Astra, on the plan, three rounds (the first two "not ready", then "build as is"). Taken: no
+number for the host; "tell me when a time opens" into a plan of its own; one small locked step
+per follower, so the limits hold when two things happen at once; no calendar is held while many
+emails are written, and an announcement is known by its moment and emptied only if unchanged;
+the last look before sending asks everything again; a yes taken back drops what was waiting;
+the rules of "New in diaries" written down; built switched off, the switch being the postal
+address; and nothing about the time it was off is announced after switching on. Not taken, with
+the reasons in the plan: an exact count of five at the very moment of sending (it is exact where
+emails are written; the count at sending stops a pile of late ones); and treating an email that
+follows a yes given a second time as a problem.
+Astra, on the code: three points, all taken (they are listed at the end of the plan): an email a
+helper had already picked up is closed too when a yes is taken back; an announcement is kept for
+the next round when writing to one follower failed; a post is looked at again for each follower.
+CodeRabbit, on pull request 54: nine comments, seven taken (an email that was already written
+does not start a follower's 20 hours again; the question after a call is not asked of someone
+who switched these emails off, and names the real limit; a host who extends is announced with
+the new end; an email to an address the follower no longer has is not sent; an index; two
+stricter tests). Not taken, with the reasons at the end of the plan: a lock on the outbox while
+the sending service is asked, and the 20 hours per host again at the moment of sending.
+
+**How it was checked.** Unit tests of the hours, the numbers and the switch (10 new). The
+database change is number 41 (`0041_follow_emails`). All 22 check scripts on the final code,
+with a host's notes (pull request 55) merged in. `scripts/follow-emails-check.ts`: about 100 checks against the local database, reading the
+outbox and sending through a pretend sending service, with the races made to happen (two hosts
+at the same moment for someone one short of five, two posts at once, a host switching off and on
+while a round is under way, a failure in the middle of a round). In the browser, with the switch
+on: the choices and the hours under a host on "Hosts you follow", phone-sized and wide; "New in
+diaries" on the home page; the account's switch; the page behind the stop link.
+
+**Still open.** For the founder: the postal address (the switch), and the lawyer's look at these
+emails before it is set. The sending account, as for every other email. Not tested: real
+delivery and its speed; how a mail program shows its own "unsubscribe" button; whether a
+follower finds an "available now" email useful at the speed it arrives. Later, as plans of
+their own: "tell me when a time opens", a number of followers for hosts once they have hundreds,
+and suggestions.
+
 ## A later change: a host's notes, after and before each call (plan 32, 19 November 2026)
 
 **Why.** The founder asked whether a host, after rating a customer, gets a notepad to write down
@@ -2452,7 +2530,7 @@ countries (plan 27) it is no longer obvious which language that call will be in.
   reworded without touching any host. A language taken out of the list later is no longer shown
   and drops from a profile at its next save.
 - **Database:** one new column, `host_profiles.languages` (a list of text, empty by default),
-  migration `0041_host_languages`. The codes are checked where a profile is written, as the
+  migration `0042_host_languages`. The codes are checked where a profile is written, as the
   country is.
 
 **Decided by the builder** (the founder can change any of it). That it is required, not

@@ -1,9 +1,10 @@
 # Plan 31: Following, part 2: emails to followers
 
-**Status:** a plan, not built. Written 19 November 2026 by the builder alone (no helper agents),
-from the code as it is on `main` after pull request 49 and from plan 30, which it builds on. It
-is built after part 1 is merged. Astra checked the first draft: "not ready". It was rewritten;
-what was taken and what was not is at the end.
+**Status:** built on branch `module/following-2`, switched off (see "It is built switched
+off"). Written 19 November 2026 by the builder alone (no helper agents), from the code as it is
+on `main` after pull request 49 and from plan 30, which it builds on; built after part 1 was
+merged (pull request 52). Astra checked the first draft: "not ready". It was rewritten; what was
+taken and what was not is at the end, with what building changed.
 
 ## For the founder: what this is
 
@@ -354,3 +355,38 @@ Verdict on the first draft: "not ready". Its points on this plan, and what was d
 **Third check, the same day:** no must-change problems found. The changes that were taken fit the
 code, with no new way for two steps to wait for each other, and the points that were not taken
 are "bounded imperfections". Verdict: "build as is".
+
+## What building changed
+
+- **Hours are whole hours**, chosen from two lists ("6 pm" and "10 pm"), as decision 2 says;
+  half hours are not offered.
+- **`dropWaiting` is in `src/lib/follows/follows.ts`**, beside the lock it is called under, so
+  that unfollowing and blocking can use it without the two files needing each other.
+- **Astra's review of the code, three points, all taken:**
+  - Taking a yes back now also closes an email a helper had already picked up, and takes the
+    helper's claim on it away. Before, only emails still waiting were closed; one picked up by a
+    helper that then stopped could have gone out later, after a new yes.
+  - If writing to one follower fails, the announcement (or the post) is kept for the next
+    round instead of being marked as done; before, that follower was never told. Those already
+    told are skipped by the 20 hours and by the email's key.
+  - A diary post is looked at again for each follower, inside the step. Before, a post removed
+    while its round was under way was still written about for the remaining followers; those
+    emails would not have been sent, but each used up that follower's one diary email about the
+    host for 20 hours and one of their five for the day.
+- **CodeRabbit's review of the code, nine comments, seven taken:**
+  - When a round is made a second time, an email that was already written no longer starts
+    that follower's 20 hours again.
+  - The question after a call is not asked of someone who has switched these emails off for
+    their whole account, and it says "at most one in 20 hours", which is the rule, not "once a
+    day".
+  - A host who extends their time while a round is under way is announced with the new end.
+  - An email written to an address the follower no longer has is not sent.
+  - An index for the announcements that are waiting, and the two "at the same moment" tests now
+    really make the two meet.
+  - Not taken: holding a lock on the outbox while the sending service is being asked, so that a
+    yes taken back in that very instant could still stop the email. The gap is a few
+    milliseconds; it is written down where the code is (`dropWaiting`).
+  - Not taken: the 20 hours per host also at the moment of sending (Astra had raised it too).
+    Each of these emails runs out within hours of being written, so two about one host can only
+    arrive close together if sending was down for most of a day.
+

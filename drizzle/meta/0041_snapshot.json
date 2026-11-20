@@ -1,5 +1,5 @@
 {
-  "id": "54c09b75-a7e7-4642-b10a-263ea2f2a53c",
+  "id": "5676ac3f-974d-4a19-b611-62659e0a3bca",
   "prevId": "afa38fae-e955-4e10-a135-4bb634d865eb",
   "version": "7",
   "dialect": "postgresql",
@@ -2903,9 +2903,64 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "tell_online": {
+          "name": "tell_online",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "tell_posts": {
+          "name": "tell_posts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "hours_from": {
+          "name": "hours_from",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hours_to": {
+          "name": "hours_to",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "told_online_at": {
+          "name": "told_online_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "told_post_at": {
+          "name": "told_post_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "follows_host_idx": {
+          "name": "follows_host_idx",
+          "columns": [
+            {
+              "expression": "host_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"follows\".\"unfollowed_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "follows_follower_id_user_id_fk": {
           "name": "follows_follower_id_user_id_fk",
@@ -2959,6 +3014,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "follows_hours": {
+          "name": "follows_hours",
+          "value": "(\"follows\".\"hours_from\" is null) = (\"follows\".\"hours_to\" is null)"
+        },
         "follows_how": {
           "name": "follows_how",
           "value": "\"follows\".\"how\" in ('self', 'call')"
@@ -3051,6 +3110,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "announce_at": {
+          "name": "announce_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -3059,7 +3124,24 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "host_calendars_announce_idx": {
+          "name": "host_calendars_announce_idx",
+          "columns": [
+            {
+              "expression": "announce_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"host_calendars\".\"announce_at\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "host_calendars_user_id_user_id_fk": {
           "name": "host_calendars_user_id_user_id_fk",
@@ -3587,13 +3669,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'US'"
-        },
-        "languages": {
-          "name": "languages",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
         },
         "us_confirmed_at": {
           "name": "us_confirmed_at",
@@ -6625,6 +6700,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "announced_at": {
+          "name": "announced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6658,6 +6739,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "project_posts_to_announce_idx": {
+          "name": "project_posts_to_announce_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"project_posts\".\"announced_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -8388,6 +8485,13 @@
         },
         "reminder_emails": {
           "name": "reminder_emails",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "follow_emails": {
+          "name": "follow_emails",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,

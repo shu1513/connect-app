@@ -685,8 +685,8 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
         startsAt = instantStart(input.now);
         endsAt = new Date(startsAt.getTime() + booking.lengthMinutes * 60_000);
         await tx.update(schema.busyEntries).set({ startsAt, endsAt }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, booking.customerId)));
-        // One instant call at a time: being available ends with accepting.
-        await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, updatedAt: input.now }).where(eq(schema.hostCalendars.userId, booking.hostId));
+        // One instant call at a time: being available ends with accepting. (And with it an announcement to followers that was still waiting, plans/31.)
+        await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, announceAt: null, updatedAt: input.now }).where(eq(schema.hostCalendars.userId, booking.hostId));
       }
 
       // The host is now taken for the call and the break after it. If they already are, the database refuses.

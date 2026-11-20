@@ -40,6 +40,7 @@ async function main() {
   const { endOldTests } = await import("../src/lib/connection/tests");
   const { runPictureRound } = await import("../src/lib/projects/queue");
   const { followAfterCalls } = await import("../src/lib/follows/follows");
+  const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -156,8 +157,14 @@ async function main() {
    * loop of its own: each decision waits for the follower's lock, and that wait must never hold up closing a
    * room or the money work.
    */
+  let followPasses = 0;
   async function followPass() {
     await followAfterCalls(new Date()).catch((error) => console.error("[follows] deciding the follows after calls failed; will retry", error));
+    // The emails to followers (plans/31), in this loop too: writing to many followers must never delay a room or the money work.
+    // A host who is available now is told about a minute after switching on; a new diary post is looked for about once a minute.
+    await announceAvailable(new Date()).catch((error) => console.error("[follows] telling followers who is available failed; will retry", error));
+    if (followPasses % 12 === 0) await announcePosts(new Date()).catch((error) => console.error("[follows] telling followers about diary posts failed; will retry", error));
+    followPasses++;
   }
 
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */

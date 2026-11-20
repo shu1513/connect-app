@@ -49,7 +49,12 @@ export const user = pgTable("user", {
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   /** Reminder emails before calls and about requests. Emails about things that happened are always sent. */
   reminderEmails: boolean("reminder_emails").notNull().default(true),
-  /** The secret in this person's unsubscribe link. Only ever switches reminders off. */
+  /**
+   * Emails about hosts this person follows (plans/31). On to begin with, and still nothing is sent without a yes
+   * for that host (follows.tellOnline, tellPosts). The stop link in those emails switches this off.
+   */
+  followEmails: boolean("follow_emails").notNull().default(true),
+  /** The secret in this person's unsubscribe link. Only ever switches emails off: reminders, or those about hosts they follow. */
   unsubscribeToken: text("unsubscribe_token").unique(),
 });
 
@@ -370,8 +375,16 @@ export const hostCalendars = pgTable("host_calendars", {
   /** "Available now": until when the host takes instant calls, and when their page last said they were there. */
   availableUntil: timestamp("available_until", { withTimezone: true }),
   availableSeenAt: timestamp("available_seen_at", { withTimezone: true }),
+  /**
+   * When this "available now" is to be told to the followers who asked (plans/31): a minute after a host who
+   * was off switches on. Empty while off, and once it has been told. Its value also names the announcement.
+   */
+  announceAt: timestamp("announce_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  // The few calendars with an announcement waiting: what the helper asks for every few seconds.
+  index("host_calendars_announce_idx").on(t.announceAt).where(sql`${t.announceAt} is not null`),
+]);
 
 /** A stretch of a weekday the host is free, in the calendar's time zone. */
 export const weeklyHours = pgTable(
@@ -668,9 +681,21 @@ export const follows = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Set while the follow is ended: by "Unfollow", by "Don't follow" after a call, or because the follower blocked the host. */
     unfollowedAt: timestamp("unfollowed_at", { withTimezone: true }),
+    /** The follower's yes to emails about this host (plans/31). Both off to begin with, and off again after an unfollow. */
+    tellOnline: boolean("tell_online").notNull().default(false),
+    tellPosts: boolean("tell_posts").notNull().default(false),
+    /** The hours for "available now" emails, in minutes of the day in the follower's own time zone. Both empty: any time. */
+    hoursFrom: integer("hours_from"),
+    hoursTo: integer("hours_to"),
+    /** When the last email of each kind about this host was written, for "at most one in 20 hours". */
+    toldOnlineAt: timestamp("told_online_at", { withTimezone: true }),
+    toldPostAt: timestamp("told_post_at", { withTimezone: true }),
   },
   (t) => [
     primaryKey({ columns: [t.followerId, t.hostId] }),
+    // A host's followers who are to be told: what an announcement reads.
+    index("follows_host_idx").on(t.hostId).where(sql`${t.unfollowedAt} is null`),
+    check("follows_hours", sql`(${t.hoursFrom} is null) = (${t.hoursTo} is null)`),
     check("follows_how", sql`${t.how} in ('self', 'call')`),
     check("follows_not_self", sql`${t.followerId} <> ${t.hostId}`),
   ],
@@ -1696,10 +1721,19 @@ export const projectPosts = pgTable(
     hiddenAt: timestamp("hidden_at", { withTimezone: true }),
     hiddenBy: text("hidden_by").references(() => user.id),
     hiddenNote: text("hidden_note"),
+    /**
+     * When the post was told to the followers who asked, or decided not to be (plans/31). Empty until then.
+     * A post written while those emails are switched off is marked at once, so nothing about it is ever sent.
+     */
+    announcedAt: timestamp("announced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("project_posts_project_idx").on(t.projectId, t.createdAt)],
+  (t) => [
+    index("project_posts_project_idx").on(t.projectId, t.createdAt),
+    // The few posts that are still to be announced.
+    index("project_posts_to_announce_idx").on(t.createdAt).where(sql`${t.announcedAt} is null`),
+  ],
 );
 
 /**
