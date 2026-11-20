@@ -363,6 +363,7 @@ async function main() {
       // A card approved through a card form left open, after the call was cancelled or was over, does not count,
       // and what tidies up after such a call lets that approval go at Stripe.
       const { settleCancelledCall } = await import("../src/lib/payments/cancel");
+      const { settleFinishedCalls } = await import("../src/lib/payments/jobs");
       const stale = await newCall(host.id, cust.id, { startsIn: 22, price: 2000, minutes: 10 });
       await step(stale.call.id, "pay", cust.jar);
       await db.update(schema.calls).set({ cancelledAt: new Date(), cancelledBy: "host" }).where(eq(schema.calls.id, stale.call.id));
@@ -377,6 +378,27 @@ async function main() {
       const overCard = await confirmAtStripe(overNow.call.id, "pm_card_visa");
       await step(overNow.call.id, "pay-check", cust.jar);
       check("nor does one approved after the call's booked end", overCard.status === "requires_capture" && (await paymentOf(overNow.call.id)).status === "awaiting_payment", `${overCard.status} ${(await paymentOf(overNow.call.id)).status}`);
+      // The helper's own job for calls that are over then closes that payment and lets the approval go at Stripe.
+      await settleFinishedCalls(new Date());
+      const closed = await paymentOf(overNow.call.id);
+      check("and the helper closes it unpaid and lets the approval go at Stripe", closed.status === "closed_uncharged" && (await stripe().paymentIntents.retrieve(closed.stripePaymentIntentId!)).status === "canceled", closed.status);
+      // "End call and report": a card the bank approved before the stop still counts, and waits for the founder's
+      // review; one approved after the stop does not.
+      const stopLater = await newCall(host.id, cust.id, { startsIn: 3, price: 2000, minutes: 10 });
+      await step(stopLater.call.id, "pay", cust.jar);
+      const beforeStop = await confirmAtStripe(stopLater.call.id, "pm_card_visa");
+      await pause(1_500);
+      const stopped = await asBrowser(`/api/calls/${stopLater.call.id}/end-for-safety`, { jar: host.jar, body: {} });
+      await step(stopLater.call.id, "pay-check", cust.jar);
+      const reviewed = await paymentOf(stopLater.call.id);
+      check("a card approved before the call was stopped with a report is kept, for the founder's review", beforeStop.status === "requires_capture" && stopped.status === 200 && reviewed.status === "held" && reviewed.needsReview === true, `${stopped.status} ${reviewed.status} ${reviewed.needsReview}`);
+      const stopFirst = await newCall(host.id, cust.id, { startsIn: 3, price: 2000, minutes: 10 });
+      await step(stopFirst.call.id, "pay", cust.jar);
+      const stoppedFirst = await asBrowser(`/api/calls/${stopFirst.call.id}/end-for-safety`, { jar: host.jar, body: {} });
+      await pause(1_500);
+      const afterStop = await confirmAtStripe(stopFirst.call.id, "pm_card_visa");
+      await step(stopFirst.call.id, "pay-check", cust.jar);
+      check("one approved after the stop does not count", stoppedFirst.status === 200 && afterStop.status === "requires_capture" && (await paymentOf(stopFirst.call.id)).status === "awaiting_payment", `${stoppedFirst.status} ${(await paymentOf(stopFirst.call.id)).status}`);
       // (A call paid from a membership has no card step: that refusal is in the one function both the website's
       // address and this one call, src/lib/payments/steps.ts. Making a member's call needs a whole membership with a
       // paid month, which the website's own member-calls-check sets up; it is not made again here.)
@@ -435,6 +457,41 @@ async function main() {
       const waited = await step(edge.call.id, "cancel", cust.jar, { shown: "free" });
       await holding;
       check("a free cancellation that had to wait until the free period was over cancels nothing, and says so", edgeShown === "free" && inTime && refusal(waited) === "not_valid" && sentence(waited) === CHANGED && (await callRow(edge.call.id)).cancelledAt === null && (await paymentOf(edge.call.id)).status === "held", `shown ${edgeShown}, sent in time ${inTime}, ${waited.status} ${sentence(waited)}`);
+      // The bank says yes while the cancelling waits its turn, and our own record has not heard of it yet. Stripe
+      // is asked in the very step that cancels: the cancellation is not free any more, nothing is cancelled, and
+      // the hold is written down (the host does not lose a charge that was hers).
+      const gap = await newCall(host.id, cust.id, { startsIn: 35, price: 2000, minutes: 10, freeCancel: 60 });
+      await step(gap.call.id, "pay", cust.jar);
+      let gapLocked = () => {};
+      let gapLetGo = () => {};
+      const gapHeld = new Promise<void>((done) => (gapLocked = done));
+      const gapUntil = new Promise<void>((done) => (gapLetGo = done));
+      const gapHolding = db.transaction(async (tx) => {
+        await tx.select({ id: schema.calls.id }).from(schema.calls).where(eq(schema.calls.id, gap.call.id)).for("update");
+        gapLocked();
+        await gapUntil;
+      });
+      await gapHeld;
+      const gapCancel = step(gap.call.id, "cancel", cust.jar, { shown: "free" });
+      let gapCard = { status: "", code: "not tried" };
+      try {
+        // Time for the cancelling to reach the lock; then the bank's yes, which our record does not hear of.
+        await pause(2_000);
+        gapCard = await confirmAtStripe(gap.call.id, "pm_card_visa");
+      } finally {
+        gapLetGo();
+      }
+      await gapHolding;
+      const gapAnswer = await gapCancel;
+      check("a hold placed at the bank while the cancelling waited is found in the step that cancels: nothing is cancelled", gapCard.status === "requires_capture" && refusal(gapAnswer) === "not_valid" && sentence(gapAnswer) === CHANGED && (await callRow(gap.call.id)).cancelledAt === null && (await paymentOf(gap.call.id)).status === "held", `${gapCard.status} ${gapAnswer.status} ${sentence(gapAnswer)} ${(await paymentOf(gap.call.id)).status}`);
+      // The helper cancels a call as "unpaid" only if it still is: with the money held meanwhile, the call stands.
+      const { cancelCall } = await import("../src/lib/payments/cancel");
+      const heldNow = await paymentOf(gap.call.id);
+      const asUnpaid = await cancelCall({ call: await callRow(gap.call.id), payment: { ...heldNow, status: "awaiting_payment" }, by: "admin", now: new Date(), reason: "unpaid" }).then(
+        () => "cancelled",
+        (error: Error) => error.message,
+      );
+      check("a call that was paid for meanwhile is not cancelled as unpaid", asUnpaid === "This call has been paid for meanwhile, so it is not cancelled as unpaid." && (await callRow(gap.call.id)).cancelledAt === null && (await paymentOf(gap.call.id)).status === "held", asUnpaid);
       // Shown as charged, but free by now (the hold fell away): cancelling as shown or cheaper always goes through.
       const cheaper = await newCall(host.id, cust.id, { startsIn: 45, price: 2000, minutes: 10, freeCancel: 60 });
       const cheaperDone = await step(cheaper.call.id, "cancel", cust.jar, { shown: "late_charge" });

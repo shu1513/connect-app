@@ -56,6 +56,7 @@ async function sheet(secret: { setupIntentClientSecret: string } | { paymentInte
   try {
     if (!inFront(still)) return "not_shown";
     await initStripe({ publishableKey: step.publishableKey });
+    if (!inFront(still)) return "not_shown";
     const made = await initPaymentSheet({
       ...secret,
       merchantDisplayName: step.merchant,

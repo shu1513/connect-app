@@ -12,14 +12,17 @@ describe("what cancelling would mean, said before it", () => {
     expect(cancelWords({ member: true, outcome: "late_charge", bookedPrice: "$40.00" })).toContain("all the membership time booked for this call ($40.00) is used");
   });
 
-  it("a member's call in a frozen month promises nothing about the time: it stays where it is", () => {
+  it("a member's call in a frozen month: the time stays where it is, and what becomes of it afterwards is said", () => {
     for (const outcome of ["free", "late_charge"] as const) {
       const words = cancelWords({ member: true, outcome, bookedPrice: "$40.00", frozen: true });
       expect(words).toContain("frozen because of a dispute at the bank");
       expect(words).toContain("stays where it is");
-      expect(words).not.toContain("given back");
-      expect(words).not.toContain("is used");
+      expect(words).toContain("If the month is freed again");
     }
+    // What is agreed to, with its amount, for the day the month is freed again.
+    expect(cancelWords({ member: true, outcome: "late_charge", bookedPrice: "$40.00", frozen: true })).toContain("all the membership time booked for this call ($40.00) is used");
+    expect(cancelWords({ member: true, outcome: "free", bookedPrice: "$40.00", frozen: true })).toContain("the time booked for this call is given back");
+    expect(cancelWords({ member: true, outcome: "free", bookedPrice: "$40.00", frozen: true })).not.toContain("is used");
   });
 });
 

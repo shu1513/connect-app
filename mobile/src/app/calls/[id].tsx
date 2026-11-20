@@ -69,6 +69,8 @@ function OneCall({ id }: { id: string }) {
       if (mine !== newest.current) return undefined;
       if (answer.ok && isCallPage(answer.data) && answer.data.id === id) {
         state.current = answer.data.state;
+        // "Nothing was cancelled" is no longer true once the call is cancelled (from another phone, say).
+        if (answer.data.state === "cancelled") setCancelSaid(null);
         setPage(answer.data);
         setProblem(null);
         setGone(false);
@@ -190,6 +192,13 @@ function OneCall({ id }: { id: string }) {
     const usable = step.ok && isPayStep(step.data);
     if (step.ok && isPayStep(step.data)) outcome = await placeHold(step.data, id, words.button, still);
     if (outcome === "not_shown") outcome = null;
+    if (!still()) {
+      // The person has left this page meanwhile: nothing more is asked for them now. When they come back to it,
+      // the page asks the server where the hold stands.
+      acting.current = false;
+      setBusy(null);
+      return;
+    }
     // Whatever the sheet said, and also when it was not shown: the server is asked where the hold stands.
     const after = await asked("/pay-check");
     if (after?.pay) {
@@ -200,13 +209,14 @@ function OneCall({ id }: { id: string }) {
     if (!step.ok && step.code !== "not_valid" && step.code !== "unreachable" && step.code !== "paused" && step.code !== "not_found") void askOpening();
     acting.current = false;
     setBusy(null);
-    if (!after) void look(false, true);
+    if (!after && still()) void look(false, true);
   }
 
   /** Asks the server once more whether the money is held. Stripe's sheet is not opened again. */
   async function checkAgain(words: NonNullable<AppCallPage["pay"]>) {
     if (acting.current) return;
     acting.current = true;
+    const still = watch();
     newest.current++;
     setBusy("check");
     setSaid(null);
@@ -215,13 +225,15 @@ function OneCall({ id }: { id: string }) {
     if (after && !after.pay) setUnchecked(false);
     acting.current = false;
     setBusy(null);
-    if (!after) void look(false, true);
+    // (Only while this page is still in front: coming back to it reads it anyway.)
+    if (!after && still()) void look(false, true);
   }
 
   /** Cancels the call, as it was shown to mean. If it means something else by now, nothing is cancelled and the page is read again. */
   async function cancel(shown: "free" | "late_charge") {
     if (acting.current) return;
     acting.current = true;
+    const still = watch();
     const mine = ++newest.current;
     setBusy("cancel");
     setSaid(null);
@@ -235,7 +247,7 @@ function OneCall({ id }: { id: string }) {
     }
     acting.current = false;
     setBusy(null);
-    if (!done) void look(false, true);
+    if (!done && still()) void look(false, true);
   }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/calls"));

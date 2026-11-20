@@ -11,7 +11,7 @@ import { lockMonthsOfCall } from "@/lib/membership/locks";
 import { afterTheWait } from "@/lib/membership/rules";
 import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
-import { syncHold } from "./hold";
+import { syncHold, syncHoldLocked } from "./hold";
 import { CALL_WORDS } from "@/lib/call-page/words";
 import { lockPayment, MoneyError } from "./operations";
 import { cancellationOutcome } from "./rules";
@@ -62,13 +62,6 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
   // Work from the payment as it is right now, not as it was when the page was loaded.
   if (payment) [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
 
-  // The customer may have paid a moment ago without our record knowing yet.
-  // Ask Stripe first, so a late cancellation cannot slip through as a free one.
-  // (Only a customer's cancellation can be late; for a host or for Connect the outcome is free whatever Stripe says.)
-  if (by === "customer" && payment?.status === "awaiting_payment" && payment.stripePaymentIntentId) {
-    payment = await syncHold(payment.id, now);
-  }
-
   // What cancelling means is decided, compared with what the person was shown, and written down in one step,
   // with the call and its own payment locked and read again: nothing can change between the decision and the
   // cancelling (a hold landing, the free period ending while this step waited for a lock).
@@ -77,12 +70,18 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
   // so there is nothing to ask Stripe), and the email says where it went.
   const fromMembership = payment?.kind === "member_call";
   const paymentId = payment?.id ?? null;
-  const done = await db.transaction(async (tx) => {
+  const done = await db
+    .transaction(async (tx) => {
     // A month comes before a call, and a call before its payment, in the order of locks.
     if (fromMembership) await lockMonthsOfCall(tx, call.id);
     const [fresh] = await tx.select().from(schema.calls).where(eq(schema.calls.id, call.id)).for("update");
     if (!fresh || fresh.cancelledAt) throw new MoneyError("This call can no longer be cancelled.");
-    const own = paymentId ? await lockPayment(tx, paymentId) : null;
+    let own = paymentId ? await lockPayment(tx, paymentId) : null;
+    // The customer may have paid a moment ago without our record knowing yet (the bank can say yes while this step
+    // waits for its locks). Stripe is asked here, with the payment locked, so a late cancellation can never slip
+    // through as a free one, and the host never loses a charge that was hers. If Stripe cannot be asked, nothing is
+    // cancelled. (Only a customer's cancellation can be late; for a host or for Connect it is free whatever Stripe says.)
+    if (by === "customer" && own) own = await syncHoldLocked(tx, own, now);
     // The locks can make this step wait. When a person cancels from a page (`shown`), and always for a member's
     // call, the clock is read now: a free period that ended, or a call that started, while it waited counts.
     // (Everything else keeps the moment it was handed: the helper, and the check scripts with their own clocks.)
@@ -93,6 +92,9 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
     // is a minute after its start). Always free. This only ever works for the call's own payment:
     // the unpaid payment of a request for more time must never cancel a call that is under way.
     const neverPaid = by === "admin" && input.reason === "unpaid" && own?.status === "awaiting_payment" && own.extensionId === null;
+    // "Unpaid" is the helper's reason for cancelling a call whose money was not held in time, and for nothing else:
+    // if the money has been held meanwhile, the call stands.
+    if (input.reason === "unpaid" && !neverPaid) throw new MoneyError("This call has been paid for meanwhile, so it is not cancelled as unpaid.");
     const outcome = neverPaid ? "free" : cancellationOutcome({ by, now: at, startsAt: fresh.startsAt, freeCancelMinutes: fresh.freeCancelMinutes, held: own?.status === "held" });
     if (outcome === "not_allowed") throw new MoneyError("This call has started, so it can no longer be cancelled.");
     if (input.shown === "free" && outcome === "late_charge") throw new CancelChangedError(CALL_WORDS.cancelChanged);
@@ -100,16 +102,26 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
     // Mark the call cancelled, so nobody can join it. Only the first cancel wins.
     const marked = await tx
       .update(schema.calls)
-      .set({ cancelledAt: now, cancelledBy: by, cancelledLate: outcome === "late_charge" })
+      // Dated by the same clock the decision was made by, so the record never shows a late charge inside the free period.
+      .set({ cancelledAt: at, cancelledBy: by, cancelledLate: outcome === "late_charge" })
       // Not a call that was ended with "End call and report" (possible from 5 minutes before the start): it is over,
       // and its money waits for the founder's review. A cancellation must never decide it instead.
       .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), neverPaid ? isNull(schema.calls.closedAt) : gt(schema.calls.startsAt, at)))
       .returning();
     if (marked.length === 0) throw new MoneyError("This call can no longer be cancelled.");
-    const memberMoney = fromMembership ? await settleCancelledMemberIn(tx, marked[0], now) : null;
+    const memberMoney = fromMembership ? await settleCancelledMemberIn(tx, marked[0], at) : null;
     await releaseBookingOfCall(tx, call.id, by, input.reason, memberMoney);
-    return { outcome, memberMoney, own };
-  });
+    return { outcome, memberMoney, own, at };
+    })
+    .catch(async (error) => {
+      // Nothing was cancelled because a hold was found that the person had not been shown. With the step undone,
+      // what it wrote is undone too, so the hold is written down now, by itself: the page the person reads next
+      // then says what cancelling really means.
+      if (error instanceof CancelChangedError && paymentId) {
+        await syncHold(paymentId, now).catch((failed) => console.error(`[payments] could not write down the hold of payment ${paymentId} after a refused cancellation`, failed));
+      }
+      throw error;
+    });
 
   // Two things follow, side by side, and neither waits for the other:
   // people may already be in the room (it opens 5 minutes early), so they are put out and their entry passes
@@ -120,7 +132,7 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
       console.error(`[calls] could not close the room of cancelled call ${call.id} yet; the helper will retry`, error);
     }),
     done.own && !fromMembership
-      ? settleCancelledCall({ ...call, cancelledAt: now, cancelledLate: done.outcome === "late_charge" }, done.own).catch((error) => {
+      ? settleCancelledCall({ ...call, cancelledAt: done.at, cancelledLate: done.outcome === "late_charge" }, done.own).catch((error) => {
           // The call is cancelled either way.
           console.error(`[payments] could not settle cancelled call ${call.id} yet; the helper will retry`, error);
         })

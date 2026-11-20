@@ -42,7 +42,12 @@ export function payPoints(input: { pricePer15: string; bookedPrice: string; bill
 export function cancelWords(input: { member: boolean; outcome: "free" | "late_charge"; bookedPrice: string | null; frozen?: boolean }): string {
   if (input.member) {
     // A month whose payment is disputed at the bank is frozen: nothing of it moves, whoever cancels and whenever.
-    if (input.frozen) return `${input.outcome === "free" ? "Cancelling now is free." : "Cancelling now is past the free period."} ${MEMBER_TIME_KEPT}`;
+    // What becomes of the time once the month is no longer frozen is said too, with the amount: that is what is agreed to.
+    if (input.frozen) {
+      return input.outcome === "free"
+        ? `Cancelling now is free. ${MEMBER_TIME_KEPT} If the month is freed again, the time booked for this call is given back.`
+        : `Cancelling now is past the free period. ${MEMBER_TIME_KEPT} If the month is freed again, all the membership time booked for this call (${input.bookedPrice}) is used. The host may choose to give time back.`;
+    }
     return input.outcome === "free"
       ? "Cancelling now is free. The membership time booked for this call is given back."
       : `Cancelling now is past the free period: all the membership time booked for this call (${input.bookedPrice}) is used. The host may choose to give time back.`;

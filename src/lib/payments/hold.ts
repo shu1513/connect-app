@@ -111,7 +111,10 @@ async function holdIntentFor(input: {
   if (payment.stripePaymentIntentId) {
     const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId);
     if (intent.status === "requires_capture") {
-      await syncHold(payment.id, now);
+      // Stripe has the money on hold. Whether it counts is decided where a hold is written down (a call that was
+      // cancelled or stopped a moment ago takes no hold any more): only then is it said to be held.
+      const synced = await syncHold(payment.id, now);
+      if (synced.status !== "held") throw new MoneyError("This call can no longer be paid for.");
       return { held: true };
     }
     if (intent.status !== "canceled" && intent.client_secret) return { held: false, intentId: intent.id, clientSecret: intent.client_secret };
@@ -205,7 +208,12 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   // hold go (the cancellation itself, or the helper). Time added to a call has its own rule, just above.
   if (!payment.extensionId && payment.callId) {
     const [call] = await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId));
-    if (!call || call.cancelledAt || call.safetyEndedAt || authorisedAt >= call.endsAt) return;
+    if (!call || call.cancelledAt || authorisedAt >= call.endsAt) return;
+    // A call that was stopped with "End call and report": a card the bank approved before the stop still counts
+    // (the stop put this payment up for the founder's review, and it stays there for the founder to decide). Only
+    // one approved after the stop, as Stripe itself dates it, does not. When Stripe gives no date, the hold is
+    // kept for the review rather than thrown away.
+    if (call.safetyEndedAt && details.authorisedAt !== null && authorisedAt >= call.safetyEndedAt) return;
   }
   const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
   await tx
@@ -220,6 +228,21 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
       updatedAt: new Date(),
     })
     .where(eq(schema.payments.id, payment.id));
+}
+
+/**
+ * Asks Stripe where the hold of a payment stands and writes a hold down, inside a step that already has the
+ * payment locked (cancelling a call does: what cancelling costs depends on whether the money is held at that very
+ * moment, not on what our own record had heard of so far). Only for a card payment still waiting for its hold;
+ * anything else is handed back as it is. Throws if Stripe cannot be asked: nothing is then decided.
+ */
+export async function syncHoldLocked(tx: Tx, payment: Payment, now: Date): Promise<Payment> {
+  if (payment.kind !== "card" || payment.status !== "awaiting_payment" || !payment.stripePaymentIntentId) return payment;
+  const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId, { expand: ["latest_charge"] });
+  if (intent.status !== "requires_capture") return payment;
+  await applyHeld(tx, payment, holdDetails(intent), now);
+  const [after] = await tx.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
+  return after;
 }
 
 /**

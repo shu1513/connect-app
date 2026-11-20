@@ -105,7 +105,7 @@ website.
 
 ### How it was tried
 
-- `scripts/app-calls-check.ts`, 68 checks (54 before Astra's look at the code), with real holds at Stripe (test mode): coming and
+- `scripts/app-calls-check.ts`, 73 checks (54 before Astra's looks at the code), with real holds at Stripe (test mode): coming and
   past calls (a call far ahead that the home page does not load, paging, a stranger); a call's
   page in each state, and the website's page for the same call saying the same; the hold
   (started twice and from the website: one hold; before a card, after a refused card, after a
@@ -179,6 +179,35 @@ Smaller:
 12. The check script proves more: the bank's own "declined"; a card waiting for the bank's
     approval; the amount really taken for a late cancellation; 51 past calls over two pages;
     the website's own cancel button.
+
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+Astra found the first list closed except for four rare orderings in the money code that the
+website shares, and some small things.
+
+1. *The bank says yes while the cancelling waits its turn, and our record has not heard of it
+   yet.* The call was then cancelled for free and the host lost a charge that was hers.
+   **Stripe is now asked in the very step that cancels,** with the payment locked. If a hold
+   is found that the person was not shown, nothing is cancelled, the hold is written down,
+   and the page says what cancelling means now. If Stripe cannot be asked, nothing is
+   cancelled. A check makes the bank say yes while a cancellation waits.
+2. *A call stopped with "End call and report":* a card the bank approved **before** the stop
+   was thrown away with the ones approved after it. It is now kept, for the founder's review
+   (where the stop had put that payment). Only one approved after the stop does not count.
+   Both are checked.
+3. *A member's call in a frozen month, cancelled late:* the page now also says what happens
+   when the month is freed again, with the amount (all the booked time is used), since that
+   is what the member agrees to. For a free cancellation: that the time is then given back.
+4. *The helper that cancels a call "because it was not paid in time"* could cancel one whose
+   money had been held a moment before. It now only cancels a call that is still unpaid at
+   the moment it cancels. A check does it.
+5. Smaller: a hold that Stripe has but that no longer counts is not answered as "already
+   held"; a cancellation is dated by the same clock its price was decided by; the home page's
+   "calls to rate" never names a host by her account name either; in the app, nothing more is
+   asked for someone who has left the page, the card sheet is not shown after the app went to
+   the background while it was being made ready, and "nothing was cancelled" goes away once
+   the call is cancelled from somewhere else; the check script now lets the helper's own job
+   close the unpaid payment of a call that is over, and looks at Stripe afterwards.
 
 **Not done, said plainly:** coming back from a bank's approval after the app was closed is a
 thing only a phone can show. It was walked in part 06 for saving a card (the same sheet and
