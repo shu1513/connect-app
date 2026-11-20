@@ -1,7 +1,7 @@
 # Plan 37: Suggested hosts
 
-**Status:** plan, not built. Written 19 November 2026 by the builder alone, from the code as it
-is on `main` after pull request 58. It is part two of the home page (`plans/36`). Before it was
+**Status:** built, 19 November 2026 (pull request 63; see `docs/module-record.md`). Written
+19 November 2026 by the builder alone, from the code as it is on `main` after pull request 58. It is part two of the home page (`plans/36`). Before it was
 written, the builder and Astra each researched, separately, how TikTok, Instagram, YouTube and
 Facebook choose what to suggest, and how marketplaces closer to Connect do it (Airbnb, Etsy,
 Fiverr). What was taken from that is under "Where the rule comes from". Astra checked this plan

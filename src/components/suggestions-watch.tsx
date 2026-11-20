@@ -21,18 +21,28 @@ export function MakeSuggestions() {
   const router = useRouter();
   const [tries, setTries] = useState(0);
   const asked = useRef(-1);
+  // Whether this part is still on the page when an answer comes, and the one timer it may have running.
+  const here = useRef(false);
+  const again = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    here.current = true;
+    return () => {
+      here.current = false;
+      clearTimeout(again.current);
+    };
+  }, []);
   useEffect(() => {
     // Asked once for each try, also when the effect is run twice (as it is while developing).
     if (asked.current === tries) return;
     asked.current = tries;
-    let again: ReturnType<typeof setTimeout> | undefined;
     makeSuggestionsAction().then(
-      () => router.refresh(),
       () => {
-        if (tries + 1 < TRIES) again = setTimeout(() => setTries(tries + 1), RETRY_MS);
+        if (here.current) router.refresh();
+      },
+      () => {
+        if (here.current && tries + 1 < TRIES) again.current = setTimeout(() => setTries(tries + 1), RETRY_MS);
       },
     );
-    return () => clearTimeout(again);
   }, [router, tries]);
   return null;
 }

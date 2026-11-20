@@ -2862,3 +2862,35 @@ are deleted, because the test database is shared.
   now use a person for whom the day's own order would give the opposite result on equal points.
   Also taken: "available now" is only asked of a host who says so, which saves about a third of
   the reads for a row. Astra found no leak of names or counts and no half-written day.
+- *Astra, on the code, second round.* All six points resolved, nothing that must be fixed. One
+  tidy-up taken: the part that asks for the day's suggestions now notes whether it is still on
+  the page when the answer comes, and clears its one timer when it leaves.
+
+**How it was checked.** 661 automatic tests on the code, 19 of them new (the points from people
+below and above the bar and at the cap, the rating pulled toward 4, the three steps of open
+time, the six places with few, exactly six and many hosts, the same order for the same person
+on the same day and another one the next day). On this computer, against the local database,
+after Astra's fixes: `scripts/suggestions-check.ts` (new), 87 checks: the plan's example; who
+counts as a person behind a host (once, not with an ended follow, a closed or paused account,
+or a block, also the viewer's own); fifteen kinds of host that must never be suggested; the
+kept places and what "seen" counts; once a day, also with three requests at the same moment;
+what changes during the day; marking cards as seen; what is deleted when; and the real page
+(drawing writes nothing; no name or count of the people behind a suggestion).
+`scripts/home-check.ts` (44), `scripts/journey-check.ts` and `scripts/accounts-check.ts` again
+with the row in place: all pass (the founder's pages in the journey are skipped here, as
+before).
+
+In a browser, as a test person, at phone size: the row appearing by itself a moment after the
+page; six cards with photo letter, name, "New on Connect", price and next open time; after
+scrolling so that two cards were at least half on the screen, exactly those two marked as seen
+in the database; the X removing a host, with a short notice, and its place staying empty; and,
+by chance, hosts whose accounts a check script deleted meanwhile disappearing from the row.
+Not tried: a failure of the request that makes the day (the three tries), and a tab left open
+over midnight.
+
+**Still open.** For the founder: every number of the rule is a starting value in
+`src/lib/suggestions/rules.ts`, to be adjusted when there is something to learn from; the bar
+of three is the founder's to raise. With few people the row is mostly open times, ratings and
+the kept places. For the lawyer (`docs/for-the-lawyer.md`, sections 4 and 7): the two EU rules
+about explaining suggestions and ranking, and using follows for suggestions. Not built:
+bringing a hidden suggestion back, a switch to turn personal suggestions off, and filters.
