@@ -228,8 +228,8 @@ export default async function HostPage(props: PageProps<"/host">) {
               </label>
               <LanguagePicker chosen={[]} />
               <label className="block text-sm">
-                Price per 15 minutes, in US dollars (at least $5, or 0 for free calls)
-                <input name="price" type="number" min={0} step="0.01" defaultValue="20" required className={field} />
+                Price per 15 minutes, in US dollars (at least $5)
+                <input name="price" type="number" min={5} step="0.01" defaultValue="20" required className={field} />
               </label>
               <label className="block text-sm">
                 Where are you based?
@@ -293,8 +293,14 @@ export default async function HostPage(props: PageProps<"/host">) {
               </p>
               <LanguagePicker chosen={profile.languages} />
               <label className="block text-sm">
-                Price per 15 minutes, in US dollars (at least $5, or 0 for free calls)
-                <input name="price" type="number" min={0} step="0.01" defaultValue={(profile.pricePer15Cents / 100).toFixed(2)} required className={field} />
+                Price per 15 minutes, in US dollars (at least $5)
+                {/* A host from before free calls were taken away is shown the lowest price, and must save one. */}
+                <input name="price" type="number" min={5} step="0.01" defaultValue={(Math.max(profile.pricePer15Cents, 500) / 100).toFixed(2)} required className={field} />
+                {profile.pricePer15Cents === 0 && (
+                  <span className="mt-1 block text-sm" data-free-no-more>
+                    You can no longer set a price of zero. Saving this form sets your price for new requests to at least $5 per 15 minutes. Requests and calls already made keep their price.
+                  </span>
+                )}
               </label>
               <button type="submit" className={smallButton}>
                 Save profile

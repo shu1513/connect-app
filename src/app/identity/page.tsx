@@ -49,7 +49,7 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
       ) : (
         <>
           <p className="mt-4 text-sm">
-            This confirms that you are a real adult. Hosts need it, so does anyone booking a free call, and some hosts only take calls from
+            This confirms that you are a real adult. Hosts need it, and some hosts only take calls from
             people who have done it. You take a photo of your ID and a selfie on Stripe&apos;s own pages. We never see or keep the photos:
             Stripe tells us only that you are a real person, 18 or older, and the name on the ID.
           </p>

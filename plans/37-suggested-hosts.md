@@ -1,7 +1,7 @@
 # Plan 37: Suggested hosts
 
-**Status:** plan, not built. Written 19 November 2026 by the builder alone, from the code as it
-is on `main` after pull request 58. It is part two of the home page (`plans/36`). Before it was
+**Status:** built, 19 November 2026 (pull request 63; see `docs/module-record.md`). Written
+19 November 2026 by the builder alone, from the code as it is on `main` after pull request 58. It is part two of the home page (`plans/36`). Before it was
 written, the builder and Astra each researched, separately, how TikTok, Instagram, YouTube and
 Facebook choose what to suggest, and how marketplaces closer to Connect do it (Airbnb, Etsy,
 Fiverr). What was taken from that is under "Where the rule comes from". Astra checked this plan
@@ -58,6 +58,8 @@ with you. I would build this idea from day one."
    - Each person counts once for a host, however often they called.
    - A person only counts while their account is open and not paused, and a follow only counts
      while there is no block between that person and that host.
+   - A person only counts once their account is at least three days old (added on 19 November 2026, on
+     the founder's word, against the trick with made-up accounts under "Limits to know about").
    - **Changed after Astra's check:** the first draft gave 4 points for a person who had also
      had a call with the host and 2 for one who only follows. That is dropped. Telling "a call
      that really took place" from a booking nobody came to needs the full attendance record of
@@ -83,8 +85,9 @@ with you. I would build this idea from day one."
    each time. An empty place is not filled again that day.
 9. **Fewer than six** fitting hosts: fewer are shown. None: the row is not shown.
 10. **The X** hides that host from this person's suggestions for good. The host is not told and
-    nothing else changes: they can still be found by search and followed. (Bringing a hidden
-    suggestion back is not built.)
+    nothing else changes: they can still be found by search and followed. Only a host who was
+    really suggested to the person can be hidden by them. (Bringing a hidden suggestion back is
+    not built.)
 11. **Never shown or said:** who else follows or called anyone, how many people point at a host,
     follower numbers (your earlier rule), or why one host was suggested. The row says only
     "Suggested hosts".
@@ -171,11 +174,11 @@ least this week.
 - **The always-on helper** (`worker/closer.ts`) runs the cleaning jobs (for example
   `removeOldNotes`, every 720th pass).
 - **The newest database change** on `main` is `drizzle/0043_host_languages.sql`; this plan's is
-  0044, unless another session takes that number first.
+  0045 (it was first made as 0044; the photo uploads of plan 35 were merged first and took that number).
 
 ## The changes
 
-**The database** (`drizzle/0044_suggestions.sql`, `src/db/schema.ts`), three small tables. Each
+**The database** (`drizzle/0045_suggestions.sql`, `src/db/schema.ts`), three small tables. Each
 is removed with the account it belongs to (the person's, or the host's).
 
 - `suggestion_days`: one line per person and day (UTC): that suggestions were made, with which
@@ -211,15 +214,22 @@ for people, open times and ratings; the six places; the order for equal scores.
   score and the places.
 - `markSeen(viewerId, day, places)`: sets "seen" on those of the person's own lines of that day
   that are not marked yet. It can touch nothing else.
-- `hide(viewerId, handle, now)`: writes the X.
+- `hideSuggestion(viewerId, handle, now)`: writes the X, for a host who was suggested to that
+  person.
 - `removeOldSuggestions(now)`: deletes day and show lines older than 90 days; called by the
   helper with its other cleaning jobs.
+- Two openings for the check script only, because the test database is shared with other work:
+  `makeSuggestions` can be told which hosts to look at, and `removeOldSuggestions` whose lines to
+  delete. The two counts the order is made from (`peopleBehind`, `seenBy`) can be read by it;
+  no page reads them.
 
 **The page:** `src/app/page.tsx` reads `todaysSuggestions` and draws the row with
 `src/components/suggested-hosts.tsx` (the cards and the "Why these hosts?" text). A small part
-that runs in the browser does two things through actions on the server: when today's line does
-not exist yet, it asks for it to be made and then for the page again; and it reports each card
-that has really come into view. The X is a form with an action, as the follow button is.
+that runs in the browser (`src/components/suggestions-watch.tsx`) does two things through the
+actions in `src/app/suggestions/actions.ts`: when today's line does not exist yet, it asks for it
+to be made and then for the page again (if that fails, again a minute later, three tries in
+all); and it reports each card of which at least half has really come into view. The X is a form
+with an action, as the follow button is.
 
 **The lawyer's file** (`docs/for-the-lawyer.md`, sections 4 and 7) holds the points this plan
 raises. `docs/module-record.md` gets what was built.
@@ -271,11 +281,29 @@ That needs real hosts and customers, and then a look at what was shown and what 
   one is missed that day. When there are regularly more fitting hosts than that, each host's
   next open time should be kept in the database and refreshed by the helper. Not needed at the
   start.
+- **What the row costs.** Once a day's suggestions exist, a look at the home page asks the
+  database about 35 to 65 more questions for the row (the open time of up to six hosts, worked
+  out fresh), and the page looks again every minute while it is open. Making a day asks 250 to
+  300. That is fine with few people. It is the first thing to lighten when there are many, by
+  keeping each host's next open time in the database, as said above.
 - **Three people is a low bar.** In a very small community, a person who knows exactly who else
   follows their host could guess something from a suggestion. The row never says why a host is
   there, and the other parts of the score and the daily order blur it, but it is not proof
   against a determined guess. Astra advised ten. The founder chose the first day; the bar is one
   number and can be raised.
+- **Made-up accounts lower the bar; tightened a little, and the rest is accepted for now.**
+  Someone who makes two
+  accounts of their own, lets both follow one of their hosts and a second host, and then watches
+  whether that second host moves up in their own suggestions, can learn that at least one more
+  person follows both hosts. Not who it is. They would have to look day after day (suggestions
+  are made once a day), and open times, ratings and the daily order move the row too. An
+  automatic security review of the code raised this on 19 November 2026. The founder then said:
+  "we can tighten it a bit now if it has no harm". So an account counts as one of the people
+  only once it is at least three days old: accounts made for the purpose are worth nothing at first, and the
+  trick takes days of waiting on top of the looking. It is not closed: someone patient can still
+  do it. The cost of the rule is small: a new person's follows start to count three days after
+  they joined, so in the first three days after the app opens this part gives no points at all.
+  The bar stays at three, the founder's decision; raising it is the other way to tighten this.
 - **On the first look of a day the row appears a moment after the rest of the page.**
 
 ## Not built
@@ -319,3 +347,11 @@ before the locked database step, not inside it (Astra proposed handing the step'
 to every helper; doing the reads first needs no change to the booking code and keeps the locked
 step short). Taken: the check of what the page must never show is worded to mean the people
 behind a suggestion, not hosts' names or rating counts.
+
+## The review of the pull request (19 November 2026)
+
+CodeRabbit answered that its review limit was reached, so, by the founder's rule for that case,
+the builder reviewed the pull request line by line himself. Found and changed: the request that
+makes a day's suggestions wrote an empty day for a paused person, who would then have had none
+on the day their pause ended; it now writes nothing for them. And this plan did not say what the
+row costs in questions to the database; it does now, under "Limits to know about".

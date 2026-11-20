@@ -36,6 +36,7 @@ async function main() {
   const { deliverEmails } = await import("../src/lib/notifications/delivery");
   const { recordBeat } = await import("../src/lib/health");
   const { removeOldNotes } = await import("../src/lib/quality/notes");
+  const { removeOldSuggestions } = await import("../src/lib/suggestions/suggestions");
   const { forgetOldRequests, writeAnswerReminders } = await import("../src/lib/refunds/requests");
   const { endOldTests } = await import("../src/lib/connection/tests");
   const { runPictureRound } = await import("../src/lib/projects/queue");
@@ -127,6 +128,8 @@ async function main() {
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.
     if (passes % 720 === 0) await forgetOldRequests(now).catch((error) => console.error("[refunds] forgetting old requests failed; will retry", error));
+    // What was suggested to whom is kept for 90 days (plans/37).
+    if (passes % 720 === 0) await removeOldSuggestions(now).catch((error) => console.error("[suggestions] removing old suggestions failed; will retry", error));
     passes++;
   }
 

@@ -2911,6 +2911,160 @@ more, taking turns with another session on the shared test database; the real tr
 privacy page's new words. Before the child-safety tool is switched on, uploaded photos have to
 be brought under it with the others (plan 29's list).
 
+## A later change: suggested hosts (plan 37, 19 November 2026)
+
+**What the founder asked for.** "Also possibly some hosts suggestions - the suggestions should
+have an algorithm, not sure what's the best algorithm for that, maybe if other people who also
+talk with the hosts existing user talked to, some other hosts these other users talk to, we can
+use those as a suggestion?" The founder asked for research into how TikTok, Instagram, YouTube
+and Facebook do it; the builder and Astra each did that separately before the plan was written.
+
+**What was decided** (in `plans/37-suggested-hosts.md`).
+- *The founder's:* the "people who follow the same hosts" idea is built in from the first day,
+  with a bar of three different people. Astra had advised ten and switched off at the start.
+- *The builder's:* up to six hosts the person does not know yet, who have open times. The order
+  comes from three kinds of points: being free sooner (20 now, 10 within a week), people behind
+  the host (3 each from three people on, 20 at most), and ratings (1 to 5, a new host counts as
+  4). Places 3 and 6 are kept for the hosts whose card was seen by the fewest different people
+  that week. A person's suggestions are made once a day and stay the same that day. An X hides a
+  host for good. The row never says why a host is there.
+- Changed on the way, and told to the founder: a call does not count for more than a follow.
+  Telling a call that took place from a booking nobody came to needs the whole attendance
+  record, and one person's call would have moved a host up or down.
+
+**What was built.** Three small tables (`suggestion_days`, `suggestion_shows`,
+`suggestion_hides`; database change 0045). The plain rule in `src/lib/suggestions/rules.ts`.
+Reading and writing in `src/lib/suggestions/suggestions.ts`. The row
+(`src/components/suggested-hosts.tsx`) on the home page. A small part that runs in the browser
+(`src/components/suggestions-watch.tsx`) asks for the day's suggestions to be made a moment after
+the page is there, and reports each card that is at least half on the screen; drawing the page
+never writes. The helper deletes what was suggested after 90 days; an X is kept.
+
+Different from the plan as first written, and said in the plan since: only a host who was
+really suggested to a person can be hidden by them; a host for whom the person once hosted a
+call is left out too; the check script can limit which hosts are looked at and whose old lines
+are deleted, because the test database is shared.
+
+**What the reviewers found.**
+- *Astra, on the plan (two rounds, "ready with changes" both times).* Taken: equal points for
+  every person instead of more for a call; a day's suggestions are made by a request from the
+  browser and written in one step under a lock, never while a page is drawn; "seen" is kept per
+  card; closed and paused accounts and blocked follows do not count; the working out happens
+  before the locked step, so it cannot wait for a database connection that other locked steps
+  hold. Not taken: checking each customer's own limits for every suggested host.
+- *Astra, on the code, first round ("ready with changes", six points), all taken.* A host who
+  had blocked the viewer still counted as one of "your hosts", because a block leaves the follow
+  standing: left out now. The check script deleted old lines of everybody and said it touched
+  nobody else's data: it now deletes only its own. The X accepted any handle, so made-up
+  requests could pile up lines: only a suggested host can be hidden now. The part that asks for
+  the day's suggestions could get stuck after midnight or after a failure: it starts afresh
+  each day and tries three times. A card that only touched the edge of the screen counted as
+  seen: half of it must be there now. Three checks proved less than their labels said: they
+  now use a person for whom the day's own order would give the opposite result on equal points.
+  Also taken: "available now" is only asked of a host who says so, which saves about a third of
+  the reads for a row. Astra found no leak of names or counts and no half-written day.
+- *Astra, on the code, second round.* All six points resolved, nothing that must be fixed. One
+  tidy-up taken: the part that asks for the day's suggestions now notes whether it is still on
+  the page when the answer comes, and clears its one timer when it leaves.
+
+- *CodeRabbit, on the pull request (63).* Its review limit was reached, so the builder reviewed
+  the pull request line by line himself, by the founder's rule for that case. Two things found
+  and changed: a paused person no longer gets an empty day written (they would have had no
+  suggestions on the day their pause ended), and the plan now says what the row costs in
+  questions to the database.
+
+**How it was checked.** 661 automatic tests on the code, 19 of them new (the points from people
+below and above the bar and at the cap, the rating pulled toward 4, the three steps of open
+time, the six places with few, exactly six and many hosts, the same order for the same person
+on the same day and another one the next day). On this computer, against the local database,
+after Astra's fixes: `scripts/suggestions-check.ts` (new), 87 checks: the plan's example; who
+counts as a person behind a host (once, not with an ended follow, a closed or paused account,
+or a block, also the viewer's own); fifteen kinds of host that must never be suggested; the
+kept places and what "seen" counts; once a day, also with three requests at the same moment;
+what changes during the day; marking cards as seen; what is deleted when; and the real page
+(drawing writes nothing; no name or count of the people behind a suggestion).
+`scripts/home-check.ts` (44), `scripts/journey-check.ts` and `scripts/accounts-check.ts` again
+with the row in place: all pass (the founder's pages in the journey are skipped here, as
+before).
+
+In a browser, as a test person, at phone size: the row appearing by itself a moment after the
+page; six cards with photo letter, name, "New on Connect", price and next open time; after
+scrolling so that two cards were at least half on the screen, exactly those two marked as seen
+in the database; the X removing a host, with a short notice, and its place staying empty; and,
+by chance, hosts whose accounts a check script deleted meanwhile disappearing from the row.
+Not tried: a failure of the request that makes the day (the three tries), and a tab left open
+over midnight.
+
+**An automatic security review of the pushed code** raised one point: with two made-up accounts
+a person can supply two of the three people behind a host, and then learn from their own
+suggestions that at least one more person follows the same two hosts (not who). Nothing in the
+code was changed for it: the bar of three is the founder's decision. It is written into the plan
+as an accepted risk, with two small ways to tighten it later, and into the lawyer's file.
+
+**Tightened the same day.** Told of that point in plain words, the founder said: "we can tighten
+it a bit now if it has no harm". An account now counts as one of the people behind a host only
+once it is at least three days old (`SUGGEST.minAccountDays`; the rule's version is 2 from here), so accounts made for the purpose are worth nothing
+at first. The cost: a new person's follows start to count three days after they joined, and in
+the first three days after the app opens this part gives no points. The trick is slower, not
+impossible; the bar of three is unchanged. `scripts/suggestions-check.ts` has four more checks
+for it (91 in all), one of them to the millisecond. Its first run failed: a date was handed to the
+database in a form it does not take inside a hand-written question, so the count could not be
+asked at all; fixed before anything was merged. Astra reviewed the change ("ready with changes"):
+taken, the rule's version goes from 1 to 2, the exact boundary is checked, and the documents say
+"at least three days old"; Astra confirmed that nothing in the app can reset or backdate when
+an account was made, and that "tightened a little, not closed" is an honest description.
+
+**Still open.** For the founder: every number of the rule is a starting value in
+`src/lib/suggestions/rules.ts`, to be adjusted when there is something to learn from; the bar
+of three is the founder's to raise. With few people the row is mostly open times, ratings and
+the kept places. For the lawyer (`docs/for-the-lawyer.md`, sections 4 and 7): the two EU rules
+about explaining suggestions and ranking, and using follows for suggestions. Not built:
+bringing a hidden suggestion back, a switch to turn personal suggestions off, and filters.
+
+## A later change: hosts cannot set free calls (plan 40, 19 November 2026)
+
+**What the founder decided.** Asked whether hosts could be free, and told that a host could set a
+price of zero: "no. hosts must charge something, and that something should cover our expenses
+with livekit." Then, with the numbers below: "we keep $5 per 15 minutes as the minimum for now,
+hosts can't set free calls." This changes decision 9 of `plans/02-payments.md`.
+
+**The numbers the founder was given** (LiveKit's own pricing page on that day; Stripe's standard
+US fees as in plan 2). A 15-minute call at $5: Connect's fee about 55 cents (4.9% and 30 cents),
+Stripe's card fee about 45 cents, Stripe's share of the payout about 1 cent, the video about 6 to
+9 cents once LiveKit's monthly allowance is used up (the $50 plan includes 150,000 minutes and
+250 GB a month; then $0.0005 a minute for each person and $0.12 a GB). About 0 to 3 cents are
+left. The video figure is the builder's estimate of the data a call uses, not a measurement.
+Nothing is left for the monthly costs: LiveKit's plan, hosting, and Stripe's $2 in a month in
+which a host is paid (an inactive host costs nothing). Two ways to make every call cover its
+video were offered, a small video charge in the fee or a higher minimum; the founder chose
+neither for now.
+
+**What was built.** The two places where a host's price is set (applying, and saving the
+profile) refuse a price under $5, zero included (`hostPriceProblem` in
+`src/lib/payments/pricing.ts`). The Hosting form says "at least $5" and its field takes no less.
+Two sentences for customers no longer speak of "booking a free call". No change to the database.
+The rules for a call without a price stay in the code: a call keeps the price it was made with,
+and the check scripts use them to try calls without Stripe; no new host can reach them.
+
+**What the reviewers found.** *Astra* (plan and code together, one round): "ready", nothing that
+must be fixed. It went through every way a price is set or copied and found each closed for a
+new host, found no check script that was missed, and judged it sound to leave the rules for
+calls without a price in place while the live database starts empty. One point taken: the
+sentence for a host at zero says more clearly what changes.
+
+**How it was checked.** 671 automatic tests, 3 of them new (the lowest price, zero, not a whole
+number of cents). On this computer, against the local database: `scripts/accounts-check.ts`, 218
+checks, one of them new (a price of zero is refused, with its sentence); `scripts/journey-check.ts`,
+60 checks (the founder's pages skipped here, as before); journey 17 of
+`scripts/membership-check.ts` (a host with a membership cannot go to zero either). In a browser,
+as the test host: the form says "at least $5" and refuses 0. Not seen in a browser: the sentence
+for a host who is at zero, because no test host that can be logged in as is at zero. That
+sentence was reworded after the scripts ran; they do not read it.
+
+**Still open.** Before launch: test hosts and their requests must never be copied into the live
+database. For the founder: whether a $5 call should later carry a small video charge, once real
+calls show what the video costs.
+
 ## A later change: uploading a photo, part two: customers (plan 35, 19 November 2026)
 
 **Why.** The second half of plan 35. The founder: "Customers also can upload photos yes? I
