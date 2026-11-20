@@ -69,14 +69,20 @@ export const LIMITS = {
  * with the request when that box is sent. Other pages must not restate it in a way that only
  * holds for one version.
  */
-export const CARD_CONSENT_VERSION = "2026-11-b";
+export const CARD_CONSENT_VERSION = "2026-11-c";
 /**
  * The wording versions that say the card is kept until the call is over, so it
  * can also pay for more time the customer asks for during the call. A booking
  * made under an earlier wording ("for this booking only", removed as soon as
  * the money is held) is still treated as its customer was told.
  */
-export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b"];
+export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b", "2026-11-c"];
+/*
+ * "2026-11-c" (20 November 2026, the legal agreements, docs/legal/payment-terms.md, section 12) adds one sentence
+ * to the tick box and changes nothing about the card: where a 14-day right to cancel applies to the customer (the
+ * United Kingdom and Europe), they ask for the call to take place as booked and understand that the right ends
+ * once the call has taken place. It is said to everyone, so the app does not have to ask where a person lives.
+ */
 /** Under those wordings the card is removed this long after the call's end, when nothing more can be asked of it. */
 export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
 
