@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasOpenTime, inPlaces, mix, openPoints, peoplePoints, ratingPoints, shortlist, SUGGEST, suggestionDay } from "./rules";
+import { hasOpenTime, inPlaces, mix, mostPointsFirst, openPoints, peoplePoints, ratingPoints, rests, shortlist, SUGGEST, suggestionDay } from "./rules";
 
 const at = (iso: string) => new Date(iso);
 const host = (hostId: string, points: number, seenBy = 0) => ({ hostId, points, seenBy });
@@ -10,14 +10,70 @@ describe("points from people", () => {
     expect(peoplePoints(1)).toBe(0);
     expect(peoplePoints(2)).toBe(0);
   });
-  it("start with the third person, three points each", () => {
+  it("start at nine with the third person, and add six each time the number doubles", () => {
     expect(peoplePoints(3)).toBe(9);
-    expect(peoplePoints(4)).toBe(12);
-    expect(peoplePoints(6)).toBe(18);
+    expect(peoplePoints(6)).toBe(15);
+    expect(peoplePoints(12)).toBe(21);
+    expect(peoplePoints(24)).toBe(27);
+    expect(peoplePoints(4)).toBeCloseTo(11.49, 2);
   });
-  it("stop at twenty", () => {
-    expect(peoplePoints(7)).toBe(20);
-    expect(peoplePoints(500)).toBe(20);
+  it("have no ceiling: more people is always more points, however many there are", () => {
+    for (let people = 3; people < 5000; people++) expect(peoplePoints(people + 1)).toBeGreaterThan(peoplePoints(people));
+    expect(peoplePoints(895)).toBeGreaterThan(peoplePoints(894));
+    expect(peoplePoints(10)).toBeGreaterThan(peoplePoints(7));
+    expect(peoplePoints(70)).toBeGreaterThan(peoplePoints(7));
+  });
+  it("grow by less for each further person", () => {
+    expect(peoplePoints(5) - peoplePoints(4)).toBeLessThan(peoplePoints(4) - peoplePoints(3));
+    expect(peoplePoints(101) - peoplePoints(100)).toBeLessThan(0.1);
+  });
+  it("make ten times as many people worth about as much as being available now", () => {
+    // What the numbers mean side by side: a host needs ten times the people to make up for another host's "available now".
+    expect(Math.abs(peoplePoints(30) - peoplePoints(3) - SUGGEST.availableNow)).toBeLessThan(0.5);
+    expect(Math.abs(peoplePoints(300) - peoplePoints(30) - SUGGEST.availableNow)).toBeLessThan(0.5);
+  });
+});
+
+describe("a host who rests", () => {
+  const today = "2026-03-20";
+  const saw = (day: string) => ({ day, seen: true, openedOn: null });
+  const opened = (day: string) => ({ day, seen: true, openedOn: day });
+  const notSeen = (day: string) => ({ day, seen: false, openedOn: null });
+  it("is one whose card was seen on two different days without being opened", () => {
+    expect(rests([], today)).toBe(false);
+    expect(rests([saw("2026-03-19")], today)).toBe(false);
+    expect(rests([saw("2026-03-18"), saw("2026-03-19")], today)).toBe(true);
+    expect(rests([saw("2026-03-10"), saw("2026-03-19")], today)).toBe(true);
+  });
+  it("does not rest because of cards that never came into view", () => {
+    expect(rests([notSeen("2026-03-17"), notSeen("2026-03-18"), saw("2026-03-19")], today)).toBe(false);
+  });
+  it("comes back when the person opened their page, every time", () => {
+    // Seen twice, then opened: the count starts afresh.
+    expect(rests([saw("2026-03-16"), saw("2026-03-17"), opened("2026-03-18")], today)).toBe(false);
+    expect(rests([saw("2026-03-16"), saw("2026-03-17"), opened("2026-03-18"), saw("2026-03-19")], today)).toBe(false);
+    // Opened again and again: never rests.
+    expect(rests([opened("2026-03-15"), opened("2026-03-16"), opened("2026-03-17"), opened("2026-03-18"), opened("2026-03-19")], today)).toBe(false);
+    // Opened once, then seen twice without opening: rests again.
+    expect(rests([opened("2026-03-16"), saw("2026-03-18"), saw("2026-03-19")], today)).toBe(true);
+  });
+  it("counts an opening on the day it happened, also when the card pressed was an older one", () => {
+    // The card of the 16th stayed open in a tab and was pressed on the 19th: the sightings of the 17th and 18th are answered.
+    expect(rests([{ day: "2026-03-16", seen: true, openedOn: "2026-03-19" }, saw("2026-03-17"), saw("2026-03-18")], today)).toBe(false);
+    // Pressed on the 17th: the sightings of the 18th and 19th came after it, and count.
+    expect(rests([{ day: "2026-03-16", seen: true, openedOn: "2026-03-17" }, saw("2026-03-18"), saw("2026-03-19")], today)).toBe(true);
+    // A card from long ago, pressed yesterday, answers everything before yesterday.
+    expect(rests([{ day: "2026-02-01", seen: true, openedOn: "2026-03-19" }, saw("2026-03-17"), saw("2026-03-18")], today)).toBe(false);
+  });
+  it("rests for two weeks: a sighting counts for fourteen days, to the day", () => {
+    expect(rests([saw("2026-03-06"), saw("2026-03-07")], today)).toBe(true);
+    // The older of the two is fifteen days old today: one sighting is left.
+    expect(rests([saw("2026-03-05"), saw("2026-03-07")], today)).toBe(false);
+    expect(rests([saw("2026-03-01"), saw("2026-03-02")], today)).toBe(false);
+  });
+  it("does not count today itself, or the same day twice", () => {
+    expect(rests([saw("2026-03-19"), saw(today)], today)).toBe(false);
+    expect(rests([saw("2026-03-19"), saw("2026-03-19")], today)).toBe(false);
   });
 });
 
@@ -115,6 +171,14 @@ describe("the six places", () => {
   it("hold exactly six when there are many", () => {
     const hosts = Array.from({ length: 40 }, (_, i) => host(`h${i}`, i, i));
     expect(inPlaces(hosts, "viewer", day)).toHaveLength(SUGGEST.places);
+  });
+});
+
+describe("filling a thin row", () => {
+  it("takes the most points first, and keeps no place for the least seen", () => {
+    // The host seen the least has the fewest points: among fillers that earns no place ahead of the others.
+    const hosts = [host("d", 10, 0), host("a", 40, 9), host("c", 20, 9), host("b", 30, 9)];
+    expect(mostPointsFirst(hosts, "viewer", "2026-01-01").map((h) => h.hostId)).toEqual(["a", "b", "c", "d"]);
   });
 });
 

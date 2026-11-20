@@ -95,6 +95,19 @@ async function main() {
     await S.makeSuggestions(viewerId, new Date(), among.map((h) => h.id));
     return written(viewerId);
   }
+  /** What this person did with a host's card so many days ago: saw it, opened it, or never had it come into view. Written straight to the database. */
+  async function history(viewerId: string, hostId: string, daysAgo: number, did: "saw" | "opened" | "missed", place = 1) {
+    const at = new Date(now.getTime() - daysAgo * DAY);
+    const on = suggestionDay(at);
+    await db.insert(schema.suggestionDays).values({ viewerId, day: on, ruleVersion: SUGGEST.ruleVersion, madeAt: at }).onConflictDoNothing();
+    await db.insert(schema.suggestionShows).values({ viewerId, day: on, place, hostId, seenAt: did === "missed" ? null : at, openedAt: did === "opened" ? at : null });
+  }
+  /** Makes today's suggestions afresh among these hosts, keeping what the person saw on earlier days. */
+  async function suggestToday(viewerId: string, among: Array<{ id: string }>) {
+    await db.delete(schema.suggestionDays).where(and(eq(schema.suggestionDays.viewerId, viewerId), eq(schema.suggestionDays.day, day)));
+    await S.makeSuggestions(viewerId, new Date(), among.map((h) => h.id));
+    return written(viewerId);
+  }
   /** Another person really saw this host's suggestion, so many days ago. */
   async function sawIt(viewerId: string, hostId: string, daysAgo = 1, place = 1) {
     const at = new Date(now.getTime() - daysAgo * DAY);
@@ -415,10 +428,115 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
+    console.log("\n9. A host who was seen and not opened rests; interest brings them back");
+    {
+      const looker = await person("looker");
+      const [a, b, c, d, e] = [await host("ra", "now"), await host("rb"), await host("rc"), await host("rd"), await host("re")];
+      const all = [a, b, c, d, e];
+      // a: seen on two days, never opened. b: seen once. c: seen twice, then opened. d: on the list twice, but its card never came into view. e: nothing.
+      await history(looker.id, a.id, 3, "saw");
+      await history(looker.id, a.id, 2, "saw");
+      await history(looker.id, b.id, 2, "saw", 2);
+      await history(looker.id, c.id, 5, "saw");
+      await history(looker.id, c.id, 4, "saw");
+      await history(looker.id, c.id, 1, "opened");
+      await history(looker.id, d.id, 3, "missed", 2);
+      await history(looker.id, d.id, 1, "missed", 2);
+      let result = await suggestToday(looker.id, all);
+      check("a host seen on two days and not opened is not suggested, though they have the most points", !result.hosts.includes(a.id) && result.hosts.length === 4, result.hosts.length.toString());
+      check("a host seen once, one whose card never came into view, and one never suggested are", [b, d, e].every((h) => result.hosts.includes(h.id)));
+      check("a host seen twice and then opened is suggested again: interest brings them back", result.hosts.includes(c.id));
+
+      // Today: c's card is opened again; b's is seen a second time and not opened. Then the next day's suggestions are made.
+      const placeToday = (h: { id: string }) => result.shows.find((s) => s.hostId === h.id)!.place;
+      await S.markOpened(looker.id, day, placeToday(c), new Date());
+      await S.markSeen(looker.id, day, [placeToday(b)], new Date());
+      const tomorrow = new Date(now.getTime() + DAY);
+      await S.makeSuggestions(looker.id, tomorrow, all.map((h) => h.id));
+      const next = await written(looker.id, suggestionDay(tomorrow));
+      check("interest again, suggested again; seen a second time without opening, resting from then on", next.hosts.includes(c.id) && !next.hosts.includes(b.id) && !next.hosts.includes(a.id), next.hosts.join());
+      await db.delete(schema.suggestionDays).where(and(eq(schema.suggestionDays.viewerId, looker.id), eq(schema.suggestionDays.day, suggestionDay(tomorrow))));
+
+      // Two weeks: a's sightings are 3 and 2 days old. In 11 days both still count; in 12 days the older one is 15 days old, and a is back.
+      // (Among all five, so that three fresh hosts are there and no resting host is needed to fill the row.)
+      const inElevenDays = new Date(now.getTime() + 11 * DAY);
+      await S.makeSuggestions(looker.id, inElevenDays, all.map((h) => h.id));
+      const eleven = await written(looker.id, suggestionDay(inElevenDays));
+      check("a resting host is still resting when the older sighting is fourteen days old", !eleven.hosts.includes(a.id) && eleven.hosts.length === 3, eleven.hosts.length.toString());
+      await db.delete(schema.suggestionDays).where(and(eq(schema.suggestionDays.viewerId, looker.id), eq(schema.suggestionDays.day, suggestionDay(inElevenDays))));
+      const inTwelveDays = new Date(now.getTime() + 12 * DAY);
+      await S.makeSuggestions(looker.id, inTwelveDays, all.map((h) => h.id));
+      check("after two weeks the rest is over", (await written(looker.id, suggestionDay(inTwelveDays))).hosts.includes(a.id));
+      await db.delete(schema.suggestionDays).where(and(eq(schema.suggestionDays.viewerId, looker.id), eq(schema.suggestionDays.day, suggestionDay(inTwelveDays))));
+
+      // Too few fresh hosts: the row shows three at first, so resting hosts fill it up to three, and no further.
+      const thin = await person("thin");
+      const [f1, r1, r2, r3] = [await host("f1"), await host("q1", "now"), await host("q2"), await host("q3")];
+      for (const [i, h] of [r1, r2, r3].entries()) {
+        await history(thin.id, h.id, 3, "saw", i + 1);
+        await history(thin.id, h.id, 2, "saw", i + 1);
+      }
+      result = await suggestToday(thin.id, [f1, r1, r2, r3]);
+      check(`with one fresh host, resting hosts fill the row up to the ${SUGGEST.shown} it shows, the fresh one first`, result.hosts.length === SUGGEST.shown && result.hosts[0] === f1.id && result.hosts[1] === r1.id, result.hosts.length.toString());
+      check("the filled places are not kept places", result.shows.slice(1).every((s) => !s.kept));
+      // No fresh host at all, four resting ones: the three with the most points fill the row, in that order.
+      // (The one available now has the most points; the other three are equal, so the day's own order decides among them, and none gets a kept place.)
+      const allResting = await person("allresting");
+      const r4 = await host("q4");
+      for (const [i, h] of [r1, r2, r3, r4].entries()) {
+        await history(allResting.id, h.id, 3, "saw", i + 1);
+        await history(allResting.id, h.id, 2, "saw", i + 1);
+      }
+      result = await suggestToday(allResting.id, [r1, r2, r3, r4]);
+      const equalOnes = [r2, r3, r4].sort((x, y) => mix(allResting.id, x.id, day) - mix(allResting.id, y.id, day)).slice(0, 2);
+      check("with no fresh host at all, the three resting hosts with the most points fill the row, most points first", result.hosts.join() === [r1, ...equalOnes].map((h) => h.id).join() && result.shows.every((s) => !s.kept), result.hosts.length.toString());
+
+      // A card of an older day, left open in a tab and pressed later, is interest on the day it was pressed.
+      const late = await person("latepress");
+      const lh = await host("lh", "now");
+      const others = [await host("l1"), await host("l2"), await host("l3")];
+      await history(late.id, lh.id, 4, "saw");
+      await history(late.id, lh.id, 3, "saw");
+      await history(late.id, lh.id, 2, "saw");
+      result = await suggestToday(late.id, [lh, ...others]);
+      check("seen on three days and never opened: resting", !result.hosts.includes(lh.id));
+      // The card of four days ago is pressed yesterday.
+      await S.markOpened(late.id, suggestionDay(new Date(now.getTime() - 4 * DAY)), 1, new Date(now.getTime() - DAY));
+      result = await suggestToday(late.id, [lh, ...others]);
+      check("the oldest of those cards pressed yesterday: all three sightings are answered, and the host can be suggested again", result.hosts.includes(lh.id));
+      const plenty = [await host("p1"), await host("p2"), await host("p3")];
+      result = await suggestToday(thin.id, [f1, r1, r2, r3, ...plenty]);
+      check("with enough fresh hosts, no resting host is suggested", result.hosts.length === 4 && ![r1, r2, r3].some((h) => result.hosts.includes(h.id)), result.hosts.length.toString());
+
+      // Opening a card.
+      const opener = await person("opener");
+      const other = await person("otheropener");
+      const cards = [await host("o1", "now"), await host("o2")];
+      await suggestToday(opener.id, cards);
+      await suggestToday(other.id, cards);
+      const at = new Date(now.getTime() + 5 * MINUTE);
+      await S.markOpened(opener.id, day, 1, at);
+      let lines = (await written(opener.id)).shows;
+      check("opening a card is written on that card, and it counts as seen too", lines[0].openedAt?.getTime() === at.getTime() && lines[0].seenAt?.getTime() === at.getTime() && lines[1].openedAt === null && lines[1].seenAt === null);
+      check("nobody else's lines are touched", (await written(other.id)).shows.every((s) => s.openedAt === null && s.seenAt === null));
+      await S.markSeen(opener.id, day, [2], now);
+      await S.markOpened(opener.id, day, 2, at);
+      await S.markOpened(opener.id, day, 1, new Date(at.getTime() + MINUTE));
+      lines = (await written(opener.id)).shows;
+      check("a card already seen keeps its first moment, and an opening is written once", lines[1].seenAt?.getTime() === now.getTime() && lines[1].openedAt?.getTime() === at.getTime() && lines[0].openedAt?.getTime() === at.getTime());
+      await S.markOpened(other.id, "2020-01-01", 1, at);
+      await S.markOpened(other.id, "not a day", 1, at);
+      await S.markOpened(other.id, day, 0, at);
+      await S.markOpened(other.id, day, 7, at);
+      await S.markOpened(other.id, day, 1.5, at);
+      check("a day with no card of theirs, something that is not a day, and a place that does not exist mark nothing", (await written(other.id)).shows.every((s) => s.openedAt === null));
+    }
+
+    // ----------------------------------------------------------------------
     if (!APP) {
-      console.log("\n9. The page itself: skipped (run with --app=http://localhost:3000 and the app running)");
+      console.log("\n10. The page itself: skipped (run with --app=http://localhost:3000 and the app running)");
     } else {
-      console.log("\n9. The page itself");
+      console.log("\n10. The page itself");
       type Jar = Map<string, string>;
       const send = async (path: string, options: { body?: unknown; jar?: Jar } = {}) => {
         const headers: Record<string, string> = { origin: APP };
@@ -469,6 +587,19 @@ async function main() {
       check("the page never names the people behind a suggestion", ![ben, carla, dan].some((p) => home.text.includes(p.name) || home.text.includes(p.id)));
       check("and never says how many they are, or how many followers anyone has", !/\b\d+ (people|followers?)\b/i.test(whole) && !/followers?\b/i.test(text));
       check("drawing the page again still writes nothing new", (await written(row.id)).shows.length === 3 && (await written(row.id)).shows.every((s) => s.seenAt === null));
+
+      // More than the row shows at first: the others are behind "Show more".
+      const extra = [await host("x1"), await host("x2"), await host("x3")];
+      await db.delete(schema.suggestionDays).where(eq(schema.suggestionDays.viewerId, row.id));
+      await S.makeSuggestions(row.id, new Date(), [...trio, ...extra].map((h) => h.id));
+      const full = (await send("/", { jar: login.jar })).text.replace(/<script[\s\S]*?<\/script>/g, " ");
+      const fullSection = full.match(/<section[^>]*data-suggested=[\s\S]*?<\/section>/)?.[0] ?? "";
+      const behind = fullSection.match(/<details[^>]*data-suggested-more[\s\S]*?<\/details>/)?.[0] ?? "";
+      const count = (text: string) => (text.match(/data-suggested-host=/g) ?? []).length;
+      check(`with six hosts, ${SUGGEST.shown} are shown and the other ${SUGGEST.places - SUGGEST.shown} are behind "Show more"`, count(fullSection) === SUGGEST.places && count(behind) === SUGGEST.places - SUGGEST.shown && words(behind).includes(`Show ${SUGGEST.places - SUGGEST.shown} more`), `${count(fullSection)} in all, ${count(behind)} behind`);
+      // What only a browser does (the closed part's cards not being counted as seen, their being counted once it is opened, a press being sent) is tried by hand.
+      check('"Show more" starts closed', /^<details(?![^>]*\sopen)[^>]*>/.test(behind), behind.slice(0, 80));
+      check("the first three are places 1, 2 and 3", [...fullSection.replace(behind, "").matchAll(/data-suggested-place="(\d)"/g)].map((m) => m[1]).join() === "1,2,3");
 
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, row.id));
       check("a paused person's home page has no row", !(await send("/", { jar: login.jar })).text.includes("data-suggested="));

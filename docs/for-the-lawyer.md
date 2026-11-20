@@ -80,9 +80,10 @@ company yet.
   Meta's and TikTok's terms should be read with that use in mind. (Plans 29, 33.)
 - **Suggested hosts** (new, plan 37). To choose which hosts to suggest, the app uses who follows
   whom (a call that took place makes the customer follow the host by itself, so this includes
-  most people who called). It records which hosts each person was suggested and which of those
-  cards they saw, for 90 days, and which suggestions they hid, for as long as the account
-  exists. Is using this information for suggestions allowed as it is (in the EU and the UK: on
+  most people who called). It records which hosts each person was suggested, which of those
+  cards they saw, and whether they opened that host's page from the card (plan 41; it decides
+  whether a suggestion comes back or rests), for 90 days; and which suggestions they hid, for as
+  long as the account exists. Is using this information for suggestions allowed as it is (in the EU and the UK: on
   which legal ground), what must the privacy page say, and must a person be able to switch
   personal suggestions off?
 - **What a suggestion could give away** (plan 37). A host gets points from this only when at

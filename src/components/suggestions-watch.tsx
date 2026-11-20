@@ -1,8 +1,31 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { makeSuggestionsAction, markSeenAction } from "@/app/suggestions/actions";
+import { makeSuggestionsAction, markOpenedAction, markSeenAction } from "@/app/suggestions/actions";
+
+/**
+ * The link from a suggestion card to the host's page (plans/41). Opening it is remembered, once:
+ * a host whose page the person opened comes back, and one they only looked past rests. The link
+ * works whether or not the telling succeeds; if it fails, the next press tells again.
+ */
+export function SuggestedLink({ day, place, href, className, children }: { day: string; place: number; href: string; className: string; children: React.ReactNode }) {
+  const told = useRef(false);
+  const tell = () => {
+    if (told.current) return;
+    told.current = true;
+    markOpenedAction(day, place).catch(() => {
+      told.current = false;
+    });
+  };
+  return (
+    // Also when opened in a new tab with the middle button (and only that one: the right button opens a menu, not the page).
+    <Link href={href} className={className} onClick={tell} onAuxClick={(event) => event.button === 1 && tell()}>
+      {children}
+    </Link>
+  );
+}
 
 /** After a failed try the next one comes this much later, and there are this many tries in all. */
 const RETRY_MS = 60_000;

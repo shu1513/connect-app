@@ -10,14 +10,14 @@
  * version of the framework may draw a page ahead of time, so a page that wrote while it was drawn
  * would write for looks that never happened.
  */
-import { and, eq, gt, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { instantOffer, offerOf, openTimes } from "@/lib/booking/bookings";
 import { isAvailableNow } from "@/lib/booking/now-rules";
 import { photosOf } from "@/lib/profiles/photo";
 import { averagesFor } from "@/lib/ratings/ratings";
 import type { ShownAverage } from "@/lib/ratings/rules";
-import { hasOpenTime, inPlaces, type OpenTime, openPoints, peoplePoints, ratingPoints, shortlist, SUGGEST, suggestionDay } from "./rules";
+import { hasOpenTime, inPlaces, mostPointsFirst, type OpenTime, openPoints, peoplePoints, ratingPoints, rests, shortlist, type Sighting, SUGGEST, suggestionDay } from "./rules";
 
 const DAY = 24 * 3_600_000;
 const hostId = schema.hostProfiles.userId;
@@ -138,13 +138,40 @@ async function workOut(viewerId: string, day: string, now: Date, among?: string[
     points: peoplePoints(people.get(host.hostId) ?? 0) + ratingPoints(ratings.get(host.hostId) ?? null),
     seenBy: seen.get(host.hostId) ?? 0,
   }));
+  // Hosts the person has seen twice lately without opening them rest (plans/41). They come back only to fill the row.
+  const resting = await restingFor(viewerId, day);
+  const fresh = ranked.filter((host) => !resting.has(host.hostId));
   // The open time is looked up for a short list only (an approximation once there are many hosts).
-  const short = shortlist(ranked, viewerId, day);
-  const opens = await openTimesOf(short.map((host) => host.hostId), now);
-  const bookable = short
-    .filter((host) => hasOpenTime(opens.get(host.hostId)!))
-    .map((host) => ({ ...host, points: host.points + openPoints(opens.get(host.hostId)!, now) }));
-  return inPlaces(bookable, viewerId, day).map((placed) => ({ hostId: placed.host.hostId, place: placed.place, kept: placed.kept }));
+  const withOpenTimes = async (hosts: typeof ranked) => {
+    const opens = await openTimesOf(hosts.map((host) => host.hostId), now);
+    return hosts.filter((host) => hasOpenTime(opens.get(host.hostId)!)).map((host) => ({ ...host, points: host.points + openPoints(opens.get(host.hostId)!, now) }));
+  };
+  const placed = inPlaces(await withOpenTimes(shortlist(fresh, viewerId, day)), viewerId, day).map((one) => ({ hostId: one.host.hostId, place: one.place, kept: one.kept }));
+  if (placed.length >= SUGGEST.shown || resting.size === 0) return placed;
+  // Too few fresh hosts to fill what the row shows at first: the best of the resting ones fill the gap, so the row is not left thin.
+  // Their open time is looked up for the ten with the most points so far; then simply the most points first. No place is kept among fillers.
+  const rested = mostPointsFirst(ranked.filter((host) => resting.has(host.hostId)), viewerId, day).slice(0, SUGGEST.lookUpLeastSeen);
+  for (const one of mostPointsFirst(await withOpenTimes(rested), viewerId, day)) {
+    if (placed.length >= SUGGEST.shown) break;
+    placed.push({ hostId: one.hostId, place: placed.length + 1, kept: false });
+  }
+  return placed;
+}
+
+/**
+ * The hosts who rest for this person on this day (`rests` in rules.ts), from the person's own
+ * lines of the last two weeks: which cards they saw, and which they opened.
+ */
+async function restingFor(viewerId: string, day: string): Promise<Set<string>> {
+  const from = suggestionDay(new Date(Date.parse(`${day}T00:00:00Z`) - SUGGEST.restDays * DAY));
+  const lines = await db
+    .select({ hostId: schema.suggestionShows.hostId, day: schema.suggestionShows.day, seenAt: schema.suggestionShows.seenAt, openedAt: schema.suggestionShows.openedAt })
+    .from(schema.suggestionShows)
+    // The cards of the last two weeks, and any older card that was opened in that time (a card left open in a tab can be pressed days later).
+    .where(and(eq(schema.suggestionShows.viewerId, viewerId), lt(schema.suggestionShows.day, day), or(gte(schema.suggestionShows.day, from), gte(schema.suggestionShows.openedAt, new Date(`${from}T00:00:00Z`)))));
+  const byHost = new Map<string, Sighting[]>();
+  for (const line of lines) byHost.set(line.hostId, [...(byHost.get(line.hostId) ?? []), { day: line.day, seen: line.seenAt !== null, openedOn: line.openedAt ? suggestionDay(line.openedAt) : null }]);
+  return new Set([...byHost].filter(([, sightings]) => rests(sightings, day)).map(([hostId]) => hostId));
 }
 
 const today = (viewerId: string, day: string) => and(eq(schema.suggestionDays.viewerId, viewerId), eq(schema.suggestionDays.day, day));
@@ -225,6 +252,19 @@ export async function markSeen(viewerId: string, day: string, places: number[], 
     .update(schema.suggestionShows)
     .set({ seenAt: now })
     .where(and(eq(schema.suggestionShows.viewerId, viewerId), eq(schema.suggestionShows.day, day), inArray(schema.suggestionShows.place, valid), isNull(schema.suggestionShows.seenAt)));
+}
+
+/**
+ * Marks that the person opened a host's page from the row (plans/41): their own line of the named
+ * day, in that place, once. It is what keeps a host they are interested in coming back. Whoever
+ * opens a card has seen it, so it is marked as seen too if it was not. It can touch nothing else.
+ */
+export async function markOpened(viewerId: string, day: string, place: number, now: Date): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isInteger(place) || place < 1 || place > SUGGEST.places) return;
+  await db
+    .update(schema.suggestionShows)
+    .set({ openedAt: now, seenAt: sql`coalesce(${schema.suggestionShows.seenAt}, ${now.toISOString()}::timestamptz)` })
+    .where(and(eq(schema.suggestionShows.viewerId, viewerId), eq(schema.suggestionShows.day, day), eq(schema.suggestionShows.place, place), isNull(schema.suggestionShows.openedAt)));
 }
 
 /**

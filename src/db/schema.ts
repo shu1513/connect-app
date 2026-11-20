@@ -2116,6 +2116,8 @@ export const suggestionShows = pgTable(
     /** One of the places kept for the hosts seen by the fewest people. */
     kept: boolean("kept").notNull().default(false),
     seenAt: timestamp("seen_at", { withTimezone: true }),
+    /** Set when the person first opened this host's page from the row (plans/41). Interest: it keeps the host coming back. */
+    openedAt: timestamp("opened_at", { withTimezone: true }),
   },
   (t) => [
     primaryKey({ columns: [t.viewerId, t.day, t.place] }),
