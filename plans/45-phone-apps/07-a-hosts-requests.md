@@ -201,6 +201,13 @@ the page was still being read again after a refused save, that reading was overt
 made again, so "Show the note as it is stored now" had nothing new to show. A step that
 begins while such a reading is on its way now makes it again when the step is through.
 
+## Astra's sixth look at the code (20 November 2026): "ready with changes", worked in
+
+One more ordering of the same kind: two readings of the page on their way at once, and then a
+tap on Decline, could still leave the note box without its fresh reading. The screen now
+simply remembers that the note box is owed a reading until a plain reading has really come
+in, whatever overtook what; a step that finds it so reads the page again when it is through.
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *`customerDetailsFor` cannot describe a waiting request.* Decision 1.

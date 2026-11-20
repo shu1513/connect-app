@@ -68,8 +68,12 @@ function OneRequest({ id }: { id: string }) {
   const acting = useRef(false);
   /** A reading that must not be skipped was asked for while a step was under way: it is made when the step is through. */
   const owed = useRef(false);
-  /** How many such readings are on their way. A step that begins meanwhile overtakes them, so it owes one when it is through. */
-  const mustRead = useRef(0);
+  /**
+   * The note box has asked for the stored note to be read again (after a save, or a refused one), and no plain
+   * reading of the page has come in since. It stays so until one does, whatever overtakes what on the way: a step
+   * that finds it so reads the page again when it is through.
+   */
+  const noteDue = useRef(false);
   /**
    * The host's stored note as the latest plain reading of the page found it, and how many such readings have come
    * in: what the note box goes by. Only a plain reading counts. The answer to a step (Accept, say) may have read
@@ -99,6 +103,8 @@ function OneRequest({ id }: { id: string }) {
         setPage(answer.data);
         const stored = answer.data.host?.note ?? null;
         if (stored && (plain || !hasNote.current)) setNoteRead((was) => ({ count: was.count + 1, text: stored.text }));
+        // A plain reading has come in: what the note box asked for is done.
+        if (plain) noteDue.current = false;
         hasNote.current = stored !== null;
         setProblem(null);
         setGone(false);
@@ -171,12 +177,10 @@ function OneRequest({ id }: { id: string }) {
       // about the card that follows it (a card saved while the app was away would then go unnoticed).
       if (!andCard && !now && checking.current > 0) return;
       if (andCard) checking.current++;
-      if (now) mustRead.current++;
       try {
         await read(andCard);
       } finally {
         if (andCard) checking.current--;
-        if (now) mustRead.current--;
       }
     },
     [id, read],
@@ -262,9 +266,6 @@ function OneRequest({ id }: { id: string }) {
   async function act(step: "back" | "accept" | "decline" | "block") {
     if (acting.current) return;
     acting.current = true;
-    // A reading that must not be skipped is on its way (a note was just saved, or refused): this step overtakes its
-    // answer, so the reading is made again when the step is through.
-    if (mustRead.current > 0) owed.current = true;
     newest.current++;
     setBusy(step);
     setSaid(null);
@@ -275,7 +276,8 @@ function OneRequest({ id }: { id: string }) {
     // read again, so it shows where the request stands now.
     const wanted = owed.current;
     owed.current = false;
-    if (!done || wanted) void look(false, true);
+    // (Also when the note box is still owed its reading: this step has overtaken whatever reading was on its way.)
+    if (!done || wanted || noteDue.current) void look(false, true);
   }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/"));
@@ -356,7 +358,11 @@ function OneRequest({ id }: { id: string }) {
           ) : null}
         </Card>
       ) : null}
-      {host?.note ? <NoteBox path={path} note={{ ...host.note, text: noteRead.text }} reading={noteRead.count} onSettled={() => void look(false, true)} /> : null}
+      {host?.note ? <NoteBox path={path} note={{ ...host.note, text: noteRead.text }} reading={noteRead.count} onSettled={() => {
+            noteDue.current = true;
+            void look(false, true);
+          }}
+        /> : null}
 
       {host ? null : page.card ? (
         <Card>
