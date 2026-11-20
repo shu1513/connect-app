@@ -13,6 +13,7 @@ CREATE TABLE "disputes" (
 	"status" text NOT NULL,
 	"opened_at" timestamp with time zone NOT NULL,
 	"due_by" timestamp with time zone,
+	"no_answer" boolean DEFAULT false NOT NULL,
 	"outcome" text,
 	"ended_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -35,12 +36,12 @@ CREATE TABLE "messages" (
 	CONSTRAINT "messages_key_unique" UNIQUE("key")
 );
 --> statement-breakpoint
-ALTER TABLE "disputes" ADD CONSTRAINT "disputes_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "disputes" ADD CONSTRAINT "disputes_month_id_membership_months_id_fk" FOREIGN KEY ("month_id") REFERENCES "public"."membership_months"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "disputes" ADD CONSTRAINT "disputes_contribution_payment_id_contribution_payments_id_fk" FOREIGN KEY ("contribution_payment_id") REFERENCES "public"."contribution_payments"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "disputes" ADD CONSTRAINT "disputes_host_id_user_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "disputes" ADD CONSTRAINT "disputes_customer_id_user_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "messages" ADD CONSTRAINT "messages_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "disputes" ADD CONSTRAINT "disputes_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "disputes" ADD CONSTRAINT "disputes_month_id_membership_months_id_fk" FOREIGN KEY ("month_id") REFERENCES "public"."membership_months"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "disputes" ADD CONSTRAINT "disputes_contribution_payment_id_contribution_payments_id_fk" FOREIGN KEY ("contribution_payment_id") REFERENCES "public"."contribution_payments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "disputes" ADD CONSTRAINT "disputes_host_id_user_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "disputes" ADD CONSTRAINT "disputes_customer_id_user_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "messages" ADD CONSTRAINT "messages_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "disputes_payment_idx" ON "disputes" USING btree ("payment_id");--> statement-breakpoint
 CREATE INDEX "disputes_month_idx" ON "disputes" USING btree ("month_id");--> statement-breakpoint
 CREATE INDEX "disputes_contribution_payment_idx" ON "disputes" USING btree ("contribution_payment_id");--> statement-breakpoint

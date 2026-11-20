@@ -60,12 +60,20 @@ export const LIMITS = {
   noteMax: 300,
   /** How long a customer has to enter their card before an unfinished request is dropped. */
   cardStepMinutes: 30,
+  /**
+   * Paid requests a customer may have standing at the card step at one time, and may start in 24 hours
+   * (sent or not). A request at the card step takes nobody's time and is not counted by the limits above,
+   * and each one makes a saved-card step at Stripe: without these, they could be made without end.
+   */
+  cardStepsOpen: 5,
+  cardStepsPerDay: 20,
 } as const;
 
 /**
  * The wording version a customer agrees to when saving a card. Change it when the wording changes.
- * The wording itself is the tick box on the two pages where a paid request is made
- * (src/app/h/[handle]/book/page.tsx and src/app/h/[handle]/now/page.tsx); the version is recorded
+ * The wording itself is the tick box where a paid request is made: `cardTermsWords` in
+ * book-words.ts (the website's booking page and the phone app's) and the page
+ * src/app/h/[handle]/now/page.tsx; the version is recorded
  * with the request when that box is sent. Other pages must not restate it in a way that only
  * holds for one version.
  */
@@ -85,6 +93,53 @@ export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b", "2026-11-
  */
 /** Under those wordings the card is removed this long after the call's end, when nothing more can be asked of it. */
 export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
+
+/** Whether a paid request made at this moment may still have its card entered, or be sent on: the card step lasts this long and no longer. */
+export function cardStepOpen(createdAt: Date, now: Date): boolean {
+  return createdAt.getTime() > now.getTime() - LIMITS.cardStepMinutes * 60_000;
+}
+
+/**
+ * How long a once-only key made for the phone app can still make a request. After that the app must read
+ * the summary again, which brings a new key. (A key that was answered "no request was made" is remembered
+ * for longer than this, so it can never come back to life: see `spendKey` in bookings.ts.)
+ */
+export const REQUEST_KEY_LIFE_MS = 12 * 3_600_000;
+
+/**
+ * A once-only key for a request from the phone app. It is an id like any other, and it carries the moment
+ * it was made (its first twelve digits, the way a "version 7" id does), so the server can tell later how old
+ * it is without keeping a list of the keys it handed out.
+ */
+export function newRequestKey(now: Date): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  const ms = now.getTime();
+  for (let i = 0; i < 6; i++) bytes[i] = Math.floor(ms / 2 ** (8 * (5 - i))) % 256;
+  bytes[6] = (bytes[6] & 0x0f) | 0x70;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** When a key of that kind was made; null for anything else (the website's own keys carry no moment). */
+export function requestKeyMadeAt(key: string): Date | null {
+  if (!isUuid(key) || key[14] !== "7") return null;
+  return new Date(parseInt(key.slice(0, 8) + key.slice(9, 13), 16));
+}
+
+/** Whether a key made for the phone app can still make a request at this moment: made by now (give or take a few minutes of clocks), and not too long ago. */
+export function requestKeyLives(key: string, now: Date): boolean {
+  const madeAt = requestKeyMadeAt(key);
+  if (!madeAt) return false;
+  const age = now.getTime() - madeAt.getTime();
+  return age <= REQUEST_KEY_LIFE_MS && age >= -5 * 60_000;
+}
+
+/** Whether a text is an id as the database makes them. Anything else names nothing, and is never asked of the database. */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
 
 type Terms = { startsAt: Date; paid: boolean; freeCancelMinutes: number };
 

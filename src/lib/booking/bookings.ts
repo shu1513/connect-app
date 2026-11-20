@@ -8,7 +8,7 @@
  * "busy entries" rule), whatever this code does.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
 import { bookingCardSeen } from "@/lib/membership/cards";
@@ -20,7 +20,7 @@ import { identityState } from "@/lib/safety/identity";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
-import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, earliestStartFor, LIMITS, PASSED_OVER, payCutoff, readLengths, takenUntil } from "./rules";
+import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, cardStepOpen, earliestStartFor, isUuid, LIMITS, PASSED_OVER, payCutoff, readLengths, REQUEST_KEY_LIFE_MS, requestKeyLives, requestKeyMadeAt, takenUntil } from "./rules";
 import { stretchesFor, isOpenStart, openStarts, withOwnBreak, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -44,6 +44,47 @@ export function isOverlap(error: unknown): boolean {
  * Takes each person's calendar lock, always in the same order, so two steps
  * that involve the same people wait for each other instead of getting stuck.
  */
+/** Said to a sending whose once-only key was already answered "no request was made": it makes nothing, however late it arrives. */
+export const KEY_SPENT = "This request can no longer be sent as it is. Please go back and start again.";
+
+/** Said to a sending from the app whose key is too old (or is not one the server made for the app). */
+export const KEY_TOO_OLD = "This page has been open for a long time. Please check the details and send again.";
+
+/** How long a sending from the app waits for another one with the same key. */
+const KEY_WAIT = "8s";
+/**
+ * The queue for once-only keys has a number space of its own (the database's two-number kind of lock). The
+ * calendars use the one-number kind, so a key and a calendar can never turn out to be the same lock.
+ */
+const KEY_SPACE = 4506;
+
+/**
+ * Takes this customer's place in the queue for one once-only key, for the rest of this step of the
+ * database: no other step holds the same place meanwhile. The key is the customer's own: nobody
+ * else's sending waits on it.
+ *
+ * `bounded` (the phone app): waits a few seconds at most for a step that holds the place; if that is
+ * still not through, this one fails (the database's "lock not available") and nothing is decided. The
+ * app is then told "it cannot be told", keeps what it sent, and sends the same again. Not bounded (the
+ * website's form): waits until the other is through and then finds what it made, as it always did; a
+ * form has no way to be told "it cannot be told" and keep its key.
+ *
+ * (Exported for the check script, which holds a place to see both.)
+ */
+export async function queueForKey(tx: Tx, customerId: string, requestKey: string, options: { bounded: boolean }): Promise<void> {
+  const place = sql`select pg_advisory_xact_lock(${KEY_SPACE}::int, hashtext(${`request-key:${customerId}:${requestKey}`}))`;
+  if (!options.bounded) {
+    await tx.execute(place);
+    return;
+  }
+  // The limit is for this one wait. What was in force before is remembered and put back, so what follows in this
+  // step waits exactly as it would have.
+  await tx.execute(sql`select set_config('connect.wait_before', current_setting('lock_timeout'), true)`);
+  await tx.execute(sql`select set_config('lock_timeout', ${KEY_WAIT}, true)`);
+  await tx.execute(place);
+  await tx.execute(sql`select set_config('lock_timeout', current_setting('connect.wait_before'), true)`);
+}
+
 export async function lockCalendars(tx: Tx, userIds: string[]): Promise<void> {
   for (const id of [...new Set(userIds)].sort()) {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`calendar:${id}`}))`);
@@ -418,35 +459,61 @@ export async function askForCall(input: {
   note: string;
   requestKey: string;
   agreedToCardTerms: boolean;
-  /** The price and cancelling rule the customer was shown and agreed to. If the host has changed them since, nothing is sent. */
-  seen: { pricePer15Cents: number; freeCancelMinutes: number };
+  /**
+   * The price and cancelling rule the customer was shown and agreed to. If the host has changed them since, nothing
+   * is sent. `cardTermsVersion`: the version of the words beside the card box that the customer was shown and
+   * ticked; if those words have been changed since, nothing is sent either (the tick was for the old ones). A
+   * form hands in what it was sent, or null when it was sent none: null is no version, and is refused for a paid
+   * request. Only code that leaves the field out altogether (the check scripts) is not asked.
+   */
+  seen: { pricePer15Cents: number; freeCancelMinutes: number; cardTermsVersion?: string | null };
+  /**
+   * A sending from the phone app. Two things are then different from the website's form: the wait for another
+   * sending with the same key has a limit (see `queueForKey`), and the key itself must be one the server made
+   * for the app not too long ago (`requestKeyLives`): an older one makes nothing.
+   */
+  fromApp?: boolean;
   now: Date;
 }): Promise<{ booking: Booking; clientSecret: string | null }> {
   const { customer, now } = input;
-  if (!/^[0-9a-f-]{36}$/i.test(input.requestKey)) throw new BookingError("This form is out of date. Please reload the page.");
+  // The same test as where a request is looked up by its key (requestWithKey): a key that can make a request can find it again.
+  if (!isUuid(input.requestKey)) throw new BookingError("This form is out of date. Please reload the page.");
   if (customer.id === input.hostId) throw new BookingError("You cannot book a call with yourself.");
   const note = input.note.replace(/\s+/g, " ").trim();
   if (note.length > LIMITS.noteMax) throw new BookingError(`The note can be at most ${LIMITS.noteMax} characters.`);
-  const offer = await offerOf(input.hostId);
-  if (!offer || !offer.lengths.includes(input.lengthMinutes) || !offer.canTakePaid) throw new BookingError("This host cannot be booked right now.");
-  const totalCents = bookedTotalCents(offer.pricePer15Cents, input.lengthMinutes * 60);
-  const paid = totalCents > 0;
-  if (paid && totalCents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be charged for.");
-  if (paid && !input.agreedToCardTerms) throw new BookingError("Please tick the box about your card to continue.");
-
   let booking: Booking;
   try {
     booking = await db.transaction(async (tx) => {
-      await lockCalendars(tx, [input.hostId, customer.id]);
+      // Before anything is looked at as it stands now: one sending at a time for one key. A form sent twice, or sent
+      // again because the first answer was lost on the way, waits here until the first is through, and then finds
+      // what it made. So the second can never be refused (the host has changed something meanwhile, say) while the
+      // first goes on to be made.
+      await queueForKey(tx, customer.id, input.requestKey, { bounded: input.fromApp === true });
       const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
       if (again) {
         if (again.customerId !== customer.id) throw new BookingError("This form is out of date. Please reload the page.");
         return again;
       }
-      // Read what the host offers again now that the calendars are locked.
+      // A key the app was already told "no request was made" for makes nothing now, even if everything else would
+      // be in order: this sending may be an early one that was held up on its way, arriving after a later try with
+      // the same key was refused for good.
+      const [spent] = await tx
+        .select({ at: schema.spentRequestKeys.at })
+        .from(schema.spentRequestKeys)
+        .where(and(eq(schema.spentRequestKeys.customerId, customer.id), eq(schema.spentRequestKeys.requestKey, input.requestKey)));
+      if (spent) throw new BookingError(KEY_SPENT);
+      // The website's form never makes a request with a key of the app's kind (its own keys are of another kind):
+      // an app's key that has grown too old must not find a way in through the form.
+      if (!input.fromApp && requestKeyMadeAt(input.requestKey) !== null) throw new BookingError("This form is out of date. Please reload the page.");
+      await lockCalendars(tx, [input.hostId, customer.id]);
+      // What the host offers, read with the calendars locked: nothing about it can change under this request now.
       const current = await offerOf(input.hostId, tx);
-      if (!current || !current.canTakePaid) throw new BookingError("This host cannot be booked right now.");
-      if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.freeCancelMinutes !== input.seen.freeCancelMinutes || current.pricePer15Cents !== offer.pricePer15Cents) {
+      if (!current || !current.lengths.includes(input.lengthMinutes) || !current.canTakePaid) throw new BookingError("This host cannot be booked right now.");
+      const totalCents = bookedTotalCents(current.pricePer15Cents, input.lengthMinutes * 60);
+      const paid = totalCents > 0;
+      if (paid && totalCents < MIN_CHARGE_CENTS) throw new BookingError("This call is too short to be charged for.");
+      if (paid && !input.agreedToCardTerms) throw new BookingError("Please tick the box about your card to continue.");
+      if (current.pricePer15Cents !== input.seen.pricePer15Cents || current.freeCancelMinutes !== input.seen.freeCancelMinutes) {
         throw new BookingError("This host's price or cancelling rule changed while you were looking. Please check the details again.");
       }
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt: input.startsAt, lengthMinutes: input.lengthMinutes, totalCents }, now);
@@ -455,6 +522,29 @@ export async function askForCall(input: {
       const endsAt = new Date(input.startsAt.getTime() + input.lengthMinutes * 60_000);
       const taken = (await busyOf(tx, customer.id, input.startsAt)).some((b) => b.start < takenUntil(endsAt) && b.end > input.startsAt);
       if (taken) throw new BookingError(TAKEN_THEN);
+      if (paid) {
+        // The tick is recorded with the version of the words in force. A tick given for other words is not one for these.
+        if (input.seen.cardTermsVersion !== undefined && input.seen.cardTermsVersion !== CARD_CONSENT_VERSION) {
+          throw new BookingError("The words about your card have changed since you opened this page. Please read them again.");
+        }
+        // A paid request stands at the card step until its card is saved: it takes nobody's time and is not a sent
+        // request, so none of the limits above counts it. These two do, whether or not a card is ever saved.
+        const drafts = and(eq(schema.bookings.customerId, customer.id), eq(schema.bookings.source, "customer"), gt(schema.bookings.totalCents, 0));
+        // Standing at the card step: only those whose time is not up (one past it is over, also before the helper has
+        // ended it), judged by the real clock now that the calendars are locked (a request is always made at a real moment).
+        const at = Date.now();
+        const [{ open }] = await tx
+          .select({ open: sql<number>`count(*)::int` })
+          .from(schema.bookings)
+          .where(and(drafts, eq(schema.bookings.stage, "card"), gt(schema.bookings.createdAt, new Date(at - LIMITS.cardStepMinutes * 60_000))));
+        if (open >= LIMITS.cardStepsOpen) throw new BookingError("You have several requests waiting for their card. Finish one of them first, or wait until they have ended.");
+        const [{ today }] = await tx.select({ today: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, gt(schema.bookings.createdAt, new Date(now.getTime() - DAY))));
+        if (today >= LIMITS.cardStepsPerDay) throw new BookingError("You have started a lot of requests today. Please try again tomorrow.");
+      }
+      // The last thing before a request is made: the app's key must still be alive. (A key that was answered "no
+      // request was made" is remembered for longer than a key lives, so one that has been forgotten is too old to
+      // make anything: together the two close every way back for a sending that was held up.)
+      if (input.fromApp && !requestKeyLives(input.requestKey, new Date())) throw new BookingError(KEY_TOO_OLD);
       const [draft] = await tx
         .insert(schema.bookings)
         .values({
@@ -591,12 +681,34 @@ async function cardStepFor(found: Booking, customer: Person): Promise<{ booking:
 }
 
 /**
+ * The card step of a paid request that is still at it, for the customer who made it: what
+ * Stripe's form needs. If the step could not be made when the request was (Stripe did not
+ * answer then), it is made now. Null for anything that is not this person's own request at its
+ * card step. Nothing is held or charged by this, and nothing about the request changes.
+ */
+export async function cardStepOf(input: { bookingId: string; customer: Person; now: Date }): Promise<{ booking: Booking; clientSecret: string } | null> {
+  const found = await bookingFor(input.bookingId, input.customer.id);
+  if (!found || found.role !== "customer" || found.booking.stage !== "card") return null;
+  // Past its time the request is over, also in the moments before the helper has written that down.
+  if (!cardStepOpen(found.booking.createdAt, input.now)) return null;
+  const step = await cardStepFor(found.booking, input.customer);
+  return step.clientSecret ? { booking: step.booking, clientSecret: step.clientSecret } : null;
+}
+
+/**
  * The customer has entered their card. We ask Stripe ourselves whether it was
  * really saved, check everything again, and only then send the request to the
  * host. Safe to call again, and safe to call late: an unfinished request that
  * has ended is never brought back.
+ *
+ * `live` is set by the two addresses that people's browsers and phones call. Asking Stripe and
+ * waiting for the locks take time, so for them everything is judged and dated by the clock at the
+ * moment of deciding, with every lock held, not by `now` from when the question came in. A check
+ * script that works with a clock of its own leaves `live` out, and is judged by the `now` it
+ * hands in. One thing is measured by the real clock for everyone: whether the card step's time is
+ * up, since the moment the request was made is always a real one.
  */
-export async function finishCardStep(input: { bookingId: string; customerId: string; now: Date }): Promise<Booking> {
+export async function finishCardStep(input: { bookingId: string; customerId: string; now: Date; live?: boolean }): Promise<Booking> {
   const [before] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, input.bookingId));
   if (!before || before.customerId !== input.customerId) throw new BookingError("Request not found.");
   if (before.stage !== "card" || !before.stripeSetupIntentId) return before;
@@ -612,27 +724,35 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       if (booking.stage !== "card") return booking;
       // A card belongs to a booking or to a membership, never both. From here on it is remembered as a booking's.
       const mine = await bookingCardSeen(tx, booking.id, paymentMethodId);
+      // The moment of deciding: Stripe has been asked and every lock is held (the calendars', and the card's just
+      // above). Whether the host is still there for a call asked for "now", and from when her time to answer runs,
+      // are judged and dated by it.
+      const real = new Date();
+      const at = input.live ? real : input.now;
       const end = (reason: string) =>
         tx
           .update(schema.bookings)
           // The card is kept on the row so the helper can remove it from Stripe (never a membership's card).
-          .set({ stage: "ran_out", endedReason: reason, endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
+          .set({ stage: "ran_out", endedReason: reason, endedAt: at, stripePaymentMethodId: mine ? paymentMethodId : null })
           .where(eq(schema.bookings.id, booking.id))
           .returning()
           .then((rows) => rows[0]);
       if (!mine) return end("that card is saved for a membership, so it cannot be used for a booking; please ask again with another card");
+      // The card step lasts as long as the customer was told, and no longer: past it the request ends here, in the
+      // helper's own words, whether or not the helper has been by. (The card is kept on the row so the helper removes it.)
+      if (!cardStepOpen(booking.createdAt, real)) return end("the card was not entered in time");
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
       // The deadlines come from the terms fixed on this request, so the time is checked against those
       // same terms, not against whatever the host's settings are now.
       const asAsked = { ...offer, pricePer15Cents: booking.pricePer15Cents, freeCancelMinutes: booking.freeCancelMinutes, breakMinutes: booking.breakMinutes };
       try {
-        await checkMayAsk(tx, asAsked, booking, input.now);
+        await checkMayAsk(tx, asAsked, booking, at);
       } catch (error) {
         if (error instanceof BookingError) return end(error.message);
         throw error;
       }
-      return sendToHost(tx, booking, input.now, paymentMethodId);
+      return sendToHost(tx, booking, at, paymentMethodId);
     });
   } catch (error) {
     if (!isOverlap(error)) throw error;
@@ -644,7 +764,7 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       const mine = await bookingCardSeen(tx, before.id, paymentMethodId);
       const [row] = await tx
         .update(schema.bookings)
-        .set({ stage: "ran_out", endedReason: `you already have a request or a call at that time, or within ${AFTER_CALL_MINUTES} minutes of it`, endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
+        .set({ stage: "ran_out", endedReason: `you already have a request or a call at that time, or within ${AFTER_CALL_MINUTES} minutes of it`, endedAt: input.live ? new Date() : input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
         .where(and(eq(schema.bookings.id, before.id), eq(schema.bookings.stage, "card")))
         .returning();
       return row;
@@ -941,12 +1061,76 @@ export async function endUnfinishedCardSteps(now: Date): Promise<number> {
 
 /** A booking, for one of its two people (or null). */
 export async function bookingFor(bookingId: string, userId: string): Promise<{ booking: Booking; role: "host" | "customer" } | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(bookingId)) return null;
+  // Only an id as the database makes them is ever asked for: anything else is nobody's booking.
+  if (!isUuid(bookingId)) return null;
   const [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId));
   if (!booking) return null;
   if (booking.hostId === userId) return { booking, role: "host" };
   if (booking.customerId === userId) return { booking, role: "customer" };
   return null;
+}
+
+/**
+ * The request this customer made with this once-only key, if there is one: so that a request whose
+ * answer was lost on the way is found again as it was made, whatever has changed since.
+ */
+export async function requestWithKey(customerId: string, requestKey: string): Promise<Booking | null> {
+  if (!isUuid(requestKey)) return null;
+  const [booking] = await db.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
+  return booking ?? null;
+}
+
+/**
+ * The same question, asked once every sending with this key is through: it takes the key's place
+ * in the queue first (see `askForCall`), so a sending that is being written down at this very
+ * moment is waited for (a few seconds at most) and then seen. This is what is asked before a
+ * customer is told "nothing was sent". One short step on one connection.
+ */
+/**
+ * A used-up key is remembered for a day: twice as long as a key for the app can make a request at all
+ * (`REQUEST_KEY_LIFE_MS`). So when it is forgotten, the key is too old to make anything.
+ */
+const SPENT_KEYS_KEPT_MS = DAY;
+if (SPENT_KEYS_KEPT_MS < 2 * REQUEST_KEY_LIFE_MS) throw new Error("A used-up request key must be remembered for longer than a key lives.");
+/** How many used-up keys one person can have at a time. Nobody refused in good faith comes near it. */
+export const SPENT_KEYS_MAX = 200;
+
+/**
+ * Writes down that this key is used up, with the key's place in the queue held. This person's old ones are tidied
+ * away first, so the list cannot grow without end. If it is full all the same (somebody sending refusals by the
+ * hundred), this throws: the caller then cannot say "no request was made" for good, and says "it cannot be told".
+ */
+async function spendKey(tx: Tx, customerId: string, requestKey: string): Promise<void> {
+  const mine = eq(schema.spentRequestKeys.customerId, customerId);
+  // One of this person's refusals at a time (taken after the key's own place, never before it): two that come
+  // together must not both find one row's room and both take it.
+  await tx.execute(sql`select pg_advisory_xact_lock(${KEY_SPACE}::int, hashtext(${`used-up-keys:${customerId}`}))`);
+  const [known] = await tx.select({ at: schema.spentRequestKeys.at }).from(schema.spentRequestKeys).where(and(mine, eq(schema.spentRequestKeys.requestKey, requestKey)));
+  if (known) return;
+  // Forgotten: what was written down more than a day ago by the database's own clock (the clock that dated it),
+  // unless the key could still make a request, now or later (a key that names a moment still to come is kept
+  // until that moment is long past).
+  const old = await tx
+    .select({ requestKey: schema.spentRequestKeys.requestKey })
+    .from(schema.spentRequestKeys)
+    .where(and(mine, lt(schema.spentRequestKeys.at, sql`now() - make_interval(secs => ${SPENT_KEYS_KEPT_MS / 1000})`)));
+  const dead = old.map((row) => row.requestKey).filter((key) => (requestKeyMadeAt(key)?.getTime() ?? 0) + REQUEST_KEY_LIFE_MS < Date.now());
+  if (dead.length > 0) await tx.delete(schema.spentRequestKeys).where(and(mine, inArray(schema.spentRequestKeys.requestKey, dead)));
+  const [{ kept }] = await tx.select({ kept: sql<number>`count(*)::int` }).from(schema.spentRequestKeys).where(mine);
+  if (kept >= SPENT_KEYS_MAX) throw new Error(`too many used-up request keys for one person (${kept}): this refusal cannot be written down`);
+  await tx.insert(schema.spentRequestKeys).values({ customerId, requestKey }).onConflictDoNothing();
+}
+
+export async function requestWithKeySettled(customerId: string, requestKey: string, options: { spend?: boolean } = {}): Promise<Booking | null> {
+  if (!isUuid(requestKey)) return null;
+  return db.transaction(async (tx) => {
+    await queueForKey(tx, customerId, requestKey, { bounded: true });
+    const [booking] = await tx.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
+    // `spend`: the caller is about to say "no request was made" for good. That is written down here, in the key's
+    // own place in the queue, so that no sending with this key can make one afterwards (see `askForCall`).
+    if (!booking && options.spend) await spendKey(tx, customerId, requestKey);
+    return booking ?? null;
+  });
 }
 
 /** The requests a host has to answer, soonest call first, so requests for the same time sit together. */

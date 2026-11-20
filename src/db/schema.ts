@@ -550,6 +550,23 @@ export const bookings = pgTable(
 );
 
 /**
+ * Once-only keys of requests the phone app was told "no request was made" for
+ * (plans/45-phone-apps/06-asking-for-a-call.md). A sending with such a key makes nothing, however
+ * late it arrives: what the app was told stays true. A row is only ever added.
+ */
+export const spentRequestKeys = pgTable(
+  "spent_request_keys",
+  {
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    requestKey: text("request_key").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.customerId, t.requestKey] })],
+);
+
+/**
  * "This person is taken for this stretch of time." A customer has one for each
  * request they are waiting on or call they have; a host has one for each call
  * they accepted (the call plus the break after it).
@@ -2231,9 +2248,10 @@ export const messages = pgTable(
   "messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // A person's messages go with their account's row (which the app itself never deletes: closing an account keeps it).
     userId: text("user_id")
       .notNull()
-      .references(() => user.id),
+      .references(() => user.id, { onDelete: "cascade" }),
     subject: text("subject").notNull(),
     body: text("body").notNull(),
     /** Where in the app the person can read more or act, such as "/disputes/du_123". Empty when there is nowhere. */
@@ -2263,21 +2281,24 @@ export const messages = pgTable(
  * `stage` is "question" (a bank's question, Stripe: an inquiry) or "chargeback". A question can
  * become a chargeback on the same dispute. `outcome` is empty while the bank has not decided:
  * "won", "lost", or "closed" (ended with no decision: a question that stayed quiet).
+ *
+ * The row goes when the money or the person it is about is deleted. The app never deletes those
+ * (their own records forbid it); only the check scripts do, with the test data they made.
  */
 export const disputes = pgTable(
   "disputes",
   {
     id: text("id").primaryKey(),
-    paymentId: uuid("payment_id").references(() => payments.id),
-    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id),
-    contributionPaymentId: uuid("contribution_payment_id").references((): AnyPgColumn => contributionPayments.id),
+    paymentId: uuid("payment_id").references(() => payments.id, { onDelete: "cascade" }),
+    monthId: uuid("month_id").references((): AnyPgColumn => membershipMonths.id, { onDelete: "cascade" }),
+    contributionPaymentId: uuid("contribution_payment_id").references((): AnyPgColumn => contributionPayments.id, { onDelete: "cascade" }),
     /** Whose money it is, and who paid. Fixed when the row is first written. */
     hostId: text("host_id")
       .notNull()
-      .references(() => user.id),
+      .references(() => user.id, { onDelete: "cascade" }),
     customerId: text("customer_id")
       .notNull()
-      .references(() => user.id),
+      .references(() => user.id, { onDelete: "cascade" }),
     amountCents: integer("amount_cents").notNull(),
     currency: text("currency").notNull().default("usd"),
     /** The bank's reason, in Stripe's word ("fraudulent", "product_not_received", ...). */
@@ -2292,6 +2313,8 @@ export const disputes = pgTable(
     openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
     /** The bank's deadline for an answer, when Stripe gives one. */
     dueBy: timestamp("due_by", { withTimezone: true }),
+    /** The bank takes no answer to this dispute at all (Stripe writes a deadline of zero for that). */
+    noAnswer: boolean("no_answer").notNull().default(false),
     /** won, lost or closed. Empty while it is open. */
     outcome: text("outcome"),
     endedAt: timestamp("ended_at", { withTimezone: true }),

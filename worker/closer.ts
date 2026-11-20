@@ -128,13 +128,6 @@ async function main() {
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
     // About once a minute: what a pause or a closure left behind when the server stopped in the middle of it.
     if (passes % 12 === 0) await finishPausesAndClosures(now).catch((error) => console.error("[accounts] finishing pauses and closures failed; will retry", error));
-    // Bank disputes (plans/47). Every pass: those not asked about for an hour are asked about again (the look takes
-    // a few each time). About once an hour: Stripe's own list of the last 7 days, for any the app does not have or has
-    // out of date. About once a day: the same for the last 130 days, which is as long as a dispute can stay open.
-    if (stripeConfigured()) {
-      await lookAtOpenDisputes(now).catch((error) => console.error("[disputes] the look at open disputes failed; will retry", error));
-      if (passes % 720 === 0) await catchUpFromStripe(now, passes % 17_280 === 0 ? 130 : 7).catch((error) => console.error("[disputes] catching up from Stripe failed; will retry", error));
-    }
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.
@@ -181,6 +174,22 @@ async function main() {
     followPasses++;
   }
 
+  /**
+   * Bank disputes (plans/47), in a loop of their own: Stripe's list of a shared account can be long, and reading it
+   * must never delay closing a room or the money work. Every pass: the open ones not asked about for an hour are
+   * asked about again (a few each time). About once an hour: Stripe's own list of the last 7 days, for any the app
+   * does not have or has out of date. About once a day, and when the helper starts: the same for the last 130 days,
+   * which is as long as a dispute can stay open.
+   */
+  let disputePasses = 0;
+  async function disputePass() {
+    if (!stripeConfigured()) return;
+    const now = new Date();
+    await lookAtOpenDisputes(now).catch((error) => console.error("[disputes] the look at open disputes failed; will retry", error));
+    if (disputePasses % 720 === 0) await catchUpFromStripe(now, disputePasses % 17_280 === 0 ? 130 : 7).catch((error) => console.error("[disputes] catching up from Stripe failed; will retry", error));
+    disputePasses++;
+  }
+
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
   async function sendPass() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
@@ -204,6 +213,7 @@ async function main() {
     await testPass();
     await picturePass();
     await followPass();
+    await disputePass();
     process.exit(0);
   }
 
@@ -223,7 +233,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass)]);
   process.exit(0);
 }
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { askForCall, BookingError } from "@/lib/booking/bookings";
+import { askForCall, BookingError, requestWithKey } from "@/lib/booking/bookings";
 import { hostForMemberByHandle } from "@/lib/membership/access";
 import { bookAsMember } from "@/lib/membership/book";
 import { withNotice } from "@/lib/notice";
@@ -17,6 +17,7 @@ export async function sendRequest(formData: FormData) {
   const profile = await publicProfile(handle);
   if (!profile) redirect("/");
 
+  const requestKey = String(formData.get("requestKey") ?? "");
   let bookingId: string;
   try {
     const { booking } = await askForCall({
@@ -25,15 +26,28 @@ export async function sendRequest(formData: FormData) {
       startsAt: new Date(start),
       lengthMinutes: length,
       note: String(formData.get("note") ?? ""),
-      requestKey: String(formData.get("requestKey") ?? ""),
+      requestKey,
       agreedToCardTerms: formData.get("cardTerms") === "on",
-      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")) },
+      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")), cardTermsVersion: typeof formData.get("cardTermsVersion") === "string" ? String(formData.get("cardTermsVersion")) : null },
       now: new Date(),
     });
     bookingId = booking.id;
   } catch (error) {
-    const message = error instanceof BookingError ? error.message : "Something went wrong. Nothing was sent. Please try again.";
     if (!(error instanceof BookingError)) console.error("[bookings] request failed", error);
+    // The request may have been written down before the failure (a paid one's card step is made at Stripe after
+    // it, and that can fail with a sentence of its own): then it is opened, not denied.
+    const looked = await requestWithKey(user.id, requestKey).then(
+      (made) => ({ made }),
+      () => "could not look" as const,
+    );
+    if (looked !== "could not look" && looked.made) redirect(`/bookings/${looked.made.id}`);
+    // One of the booking's own refusals, with no request found, says why nothing was sent. After anything else, and
+    // whenever it could not even be looked up, it cannot be told from here whether the request was written down
+    // (another sending of this same form may be finishing at this moment), so the page does not say that it was not.
+    const message =
+      error instanceof BookingError && looked !== "could not look"
+        ? error.message
+        : "Something went wrong, and we could not tell whether your request was sent. Please look at your home page for it before you try again.";
     redirect(withNotice(`/h/${profile.handle}/book?length=${length}&start=${encodeURIComponent(start)}`, message));
   }
   redirect(`/bookings/${bookingId}`);

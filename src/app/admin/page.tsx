@@ -202,7 +202,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
           <h2 className="mt-10 text-lg font-semibold">Bank disputes ({bank.open.length} open)</h2>
           <p className="mt-1 text-sm opacity-70">
             A customer&apos;s bank is asking about a payment, or has taken it back until it decides. The money for a disputed payment stays where it is. The app does not answer
-            the bank yet: an open one still has to be answered in Stripe by hand.
+            the bank yet: one that waits for an answer still has to be answered in Stripe by hand.
           </p>
           <ul className="mt-2 list-disc pl-5 text-sm" data-bank-disputes>
             {[...bank.open, ...bank.ended].map((dispute) => {
@@ -213,15 +213,16 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                     {nameOf.get(dispute.customerId)} (customer) and {nameOf.get(dispute.hostId)} (host), {formatMoney(dispute.amountCents)}
                   </Link>
                   : {dispute.stage === "question" ? "a bank's question" : "a dispute"}, {reasonWords(dispute.reason)}.{" "}
-                  {standing === "waiting" && (
+                  {standing === "waiting" && !dispute.noAnswer && (
                     <strong>
                       The bank waits for an answer{dispute.dueBy ? <> by <LocalTime iso={dispute.dueBy.toISOString()} /></> : null}.
                     </strong>
                   )}
+                  {standing === "waiting" && dispute.noAnswer && "The bank takes no answer to this one."}
                   {standing === "with_bank" && "The bank is deciding."}
                   {standing === "won" && "Ended: the payment stands."}
                   {standing === "lost" && "Ended: the bank returned the money to the customer."}
-                  {standing === "closed" && "The bank closed its question."}
+                  {standing === "closed" && (dispute.stage === "question" ? "The bank closed its question." : "Closed without a decision by the bank.")}
                   {dispute.compliance ? " A compliance dispute: fighting it costs 500 dollars." : ""}
                 </li>
               );

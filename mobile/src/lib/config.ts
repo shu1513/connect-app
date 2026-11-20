@@ -14,6 +14,10 @@ export const SERVER = (process.env.EXPO_PUBLIC_SERVER_URL ?? "").trim().replace(
 /** This copy's version, as the server is told it. */
 export const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 
+/** The name links into this app start with ("connect://…"), from app.json: where a bank's approval page hands the person back. */
+const scheme = Constants.expoConfig?.scheme;
+export const APP_SCHEME = typeof scheme === "string" && scheme !== "" ? scheme : "connect";
+
 export const PLATFORM: "android" | "ios" = Platform.OS === "ios" ? "ios" : "android";
 
 /**

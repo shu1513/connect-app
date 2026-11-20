@@ -6,11 +6,13 @@
  * moving. That stays `payments.disputeOpen` and the `dispute` field of a month and of a
  * contribution's payment, which are written first, by the code that has always written them. The
  * record here is written afterwards, in a step of its own, so a fault in it can never stand in
- * the way of protecting the money.
+ * the way of protecting the money. And whenever the record sees something new, the money is
+ * looked at once more, so the two never end up telling different stories.
  *
- * A row is written, and its messages with it, in one database step with the row locked. The first
- * writer makes the row; anyone arriving at the same moment waits for it and then finds nothing
- * new to say.
+ * A row is written, and its messages with it, in one database step with the row locked. A row
+ * that is there is read from Stripe again AFTER it is locked: whoever writes after us has read
+ * after us, so an older answer from Stripe never lands on top of a newer one, and nobody is told
+ * something that was already out of date.
  */
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte } from "drizzle-orm";
 import type Stripe from "stripe";
@@ -18,14 +20,15 @@ import { db, schema } from "@/db";
 import type { Dispute } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
 import { refreshDispute } from "@/lib/contributions/dispute";
+import { errorSummary, queueEmail } from "@/lib/email";
 import { refreshMonthDispute } from "@/lib/membership/ending";
-import { tell } from "@/lib/messages/messages";
-import { refreshPaymentDispute } from "@/lib/payments/disputes";
+import { appUrl, tell } from "@/lib/messages/messages";
+import { allDisputesOf, refreshPaymentDispute } from "@/lib/payments/disputes";
 import type { Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
-import { isCompliance, outcomeOf, reasonWords, stageOf, type Outcome } from "./status";
-import { beganWords, endedWords, type Facts, type Role } from "./words";
+import { isAppeal, isCompliance, outcomeOf, reasonWords, stageOf, standingOf, type Outcome } from "./status";
+import { appealWords, beganWords, endedWords, type Facts, type Role, type Told } from "./words";
 
 /** What a dispute is about: a call's card payment, a membership's month, or a contribution's payment (tips are contributions). */
 export type Owner = { kind: "payment" | "month" | "contribution"; id: string };
@@ -33,16 +36,22 @@ export type Owner = { kind: "payment" | "month" | "contribution"; id: string };
 type Person = { id: string; name: string; email: string; timeZone: string | null };
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+const ownerKey = (owner: Owner) => `${owner.kind}:${owner.id}`;
 
-/** The owner of a charge at Stripe, by its PaymentIntent. Null when the charge is not one of ours. */
-export async function ownerOfIntent(intentId: string): Promise<Owner | null> {
-  const [payment] = await db.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.stripePaymentIntentId, intentId));
-  if (payment) return { kind: "payment", id: payment.id };
-  const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
-  if (month) return { kind: "month", id: month.id };
-  const [contributed] = await db.select({ id: schema.contributionPayments.id }).from(schema.contributionPayments).where(eq(schema.contributionPayments.stripePaymentIntentId, intentId));
-  if (contributed) return { kind: "contribution", id: contributed.id };
-  return null;
+/** The owners of these charges at Stripe, by PaymentIntent. A charge that is not one of ours is simply not in the answer. */
+export async function ownersOfIntents(intentIds: string[]): Promise<Map<string, Owner>> {
+  const owners = new Map<string, Owner>();
+  if (intentIds.length === 0) return owners;
+  const payments = await db.select({ id: schema.payments.id, intentId: schema.payments.stripePaymentIntentId }).from(schema.payments).where(inArray(schema.payments.stripePaymentIntentId, intentIds));
+  for (const row of payments) owners.set(row.intentId!, { kind: "payment", id: row.id });
+  const months = await db.select({ id: schema.membershipMonths.id, intentId: schema.membershipMonths.stripePaymentIntentId }).from(schema.membershipMonths).where(inArray(schema.membershipMonths.stripePaymentIntentId, intentIds));
+  for (const row of months) owners.set(row.intentId!, { kind: "month", id: row.id });
+  const contributed = await db
+    .select({ id: schema.contributionPayments.id, intentId: schema.contributionPayments.stripePaymentIntentId })
+    .from(schema.contributionPayments)
+    .where(inArray(schema.contributionPayments.stripePaymentIntentId, intentIds));
+  for (const row of contributed) owners.set(row.intentId!, { kind: "contribution", id: row.id });
+  return owners;
 }
 
 export const ownerOf = (dispute: Pick<Dispute, "paymentId" | "monthId" | "contributionPaymentId">): Owner =>
@@ -138,22 +147,31 @@ async function peopleFor(tx: Tx, about: About): Promise<{ host: Person; customer
   return { host, customer, hostName: profile?.displayName ?? host.name, founders };
 }
 
-/** Where each of the three can read about a dispute: the host and the founder on its own page, the customer on the page of what they paid for. */
+/** The page of a dispute, for its host and for the founder. */
 export const disputePath = (disputeId: string) => `/disputes/${disputeId}`;
 
-/** What is told, to whom, about one dispute: the three "a stage began" messages or the three "it ended" ones. */
-async function tellAll(tx: Tx, about: About, dispute: Dispute, event: { began: true } | { ended: Outcome }): Promise<void> {
+type Event = { began: true } | { ended: Outcome } | { appeal: true };
+
+/**
+ * What is told, to whom, about one dispute.
+ *   - The host and the customer: a message in the app and the same words by email (`tell`). The
+ *     host reads more on the dispute's own page; the customer on the page of what they paid for.
+ *   - The founder: an email only, with a link to the dispute's page. What the founder is told names
+ *     both people, so it is kept behind the admin login (the admin page and the dispute's page), and
+ *     not on the Messages page, which any login of that account can open.
+ * Each key names the dispute, what happened and the person, so each is told once, however often
+ * Stripe's messages repeat.
+ */
+async function tellAll(tx: Tx, about: About, dispute: Dispute, event: Event): Promise<void> {
   const people = await peopleFor(tx, about);
   if (!people) return;
   const names = { host: people.hostName, customer: people.customer.name };
-  const readers: Array<{ role: Role; person: Person; path: string | null }> = [
-    { role: "host", person: people.host, path: disputePath(dispute.id) },
-    { role: "customer", person: people.customer, path: about.customerPath },
-    ...people.founders.map((person) => ({ role: "founder" as const, person, path: disputePath(dispute.id) })),
-  ];
-  for (const { role, person, path } of readers) {
+  const what = "began" in event ? `${dispute.stage}:began` : "ended" in event ? `ended:${event.ended}` : "appeal";
+  const wordsFor = (role: Role, person: Person): Told => {
     const facts: Facts = {
       stage: dispute.stage as Facts["stage"],
+      standing: standingOf(dispute.status),
+      noAnswer: dispute.noAnswer,
       what: about.what(role, person, names),
       amount: money(dispute.amountCents),
       reason: reasonWords(dispute.reason),
@@ -162,93 +180,127 @@ async function tellAll(tx: Tx, about: About, dispute: Dispute, event: { began: t
       customerName: people.customer.name,
       supportEmail: SUPPORT_EMAIL,
     };
-    const told = "began" in event ? beganWords(role, facts) : endedWords(role, facts, event.ended);
-    // The key names the dispute, what happened and the person: each is told once, however often Stripe's messages repeat.
-    const what = "began" in event ? `${dispute.stage}:began` : `ended:${event.ended}`;
-    await tell(tx, { to: person, key: `dispute:${dispute.id}:${what}:${role}:${person.id}`, subject: told.subject, text: told.text, path });
+    return "began" in event ? beganWords(role, facts) : "ended" in event ? endedWords(role, facts, event.ended) : appealWords(facts);
+  };
+  if (!("appeal" in event)) {
+    const host = wordsFor("host", people.host);
+    await tell(tx, { to: people.host, key: `dispute:${dispute.id}:${what}:host:${people.host.id}`, subject: host.subject, text: host.text, path: disputePath(dispute.id) });
+    const customer = wordsFor("customer", people.customer);
+    await tell(tx, { to: people.customer, key: `dispute:${dispute.id}:${what}:customer:${people.customer.id}`, subject: customer.subject, text: customer.text, path: about.customerPath });
+  }
+  for (const founder of people.founders) {
+    const told = wordsFor("founder", founder);
+    await queueEmail(tx, {
+      to: founder.email,
+      key: `dispute:${dispute.id}:${what}:founder:${founder.id}`,
+      subject: told.subject,
+      text: `${told.text}\n\nThe dispute's page (admin login):\n${appUrl()}${disputePath(dispute.id)}\n`,
+    });
   }
 }
 
-/** One dispute as Stripe shows it now, written into its row, with the messages a change calls for. */
-async function writeOne(owner: Owner, about: About, found: Stripe.Dispute, now: Date): Promise<void> {
-  const stage = stageOf(found.status);
-  const outcome = outcomeOf(found.status);
-  // Stripe writes 0 for "the bank takes no answer": that is not a date.
-  const dueBy = found.evidence_details?.due_by ? new Date(found.evidence_details.due_by * 1000) : null;
-  const seen = {
+/** What Stripe shows of a dispute, as the row keeps it. */
+function seenIn(found: Stripe.Dispute, now: Date) {
+  const due = found.evidence_details?.due_by;
+  return {
     amountCents: found.amount,
     currency: found.currency,
     reason: found.reason,
     compliance: isCompliance(found),
-    stage,
+    stage: stageOf(found.status),
     status: found.status,
-    dueBy,
+    // Stripe writes 0 for "the bank takes no answer": that is not a date.
+    dueBy: due ? new Date(due * 1000) : null,
+    noAnswer: due === 0,
     updatedAt: now,
   };
-  await db.transaction(async (tx) => {
+}
+
+/**
+ * One dispute, written into its row, with the messages a change calls for. Gives back whether
+ * there was something new: a row that did not exist, or another status than the row had.
+ */
+async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now: Date): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const outcome = outcomeOf(listed.status);
     const made = await tx
       .insert(schema.disputes)
       .values({
-        id: found.id,
+        id: listed.id,
         paymentId: owner.kind === "payment" ? owner.id : null,
         monthId: owner.kind === "month" ? owner.id : null,
         contributionPaymentId: owner.kind === "contribution" ? owner.id : null,
         hostId: about.hostId,
         customerId: about.customerId,
-        openedAt: new Date(found.created * 1000),
+        openedAt: new Date(listed.created * 1000),
         outcome,
         endedAt: outcome ? now : null,
-        ...seen,
+        ...seenIn(listed, now),
       })
       .onConflictDoNothing()
       .returning();
     if (made.length > 0) {
       // First sight. A dispute that had already ended when we first saw it is old news: recorded, and nobody is told.
       if (!outcome) await tellAll(tx, about, made[0], { began: true });
-      return;
+      return true;
     }
-    const [before] = await tx.select().from(schema.disputes).where(eq(schema.disputes.id, found.id)).for("update");
-    if (!before) return;
+    const [before] = await tx.select().from(schema.disputes).where(eq(schema.disputes.id, listed.id)).for("update");
+    if (!before) return false;
+    // The row is ours now. Stripe is read again from here (see the top of this file).
+    const fresh = await stripe().disputes.retrieve(listed.id);
+    const now2 = outcomeOf(fresh.status);
     const [after] = await tx
       .update(schema.disputes)
-      .set({ ...seen, outcome, endedAt: outcome ? (before.outcome === outcome ? before.endedAt : now) : null })
-      .where(eq(schema.disputes.id, found.id))
+      .set({ ...seenIn(fresh, now), outcome: now2, endedAt: now2 ? (before.outcome === now2 ? before.endedAt : now) : null })
+      .where(eq(schema.disputes.id, listed.id))
       .returning();
+    if (before.status === fresh.status) return false;
     // A new stage on a row that was there: a bank's question that became a chargeback.
-    if (!outcome && before.stage !== stage) await tellAll(tx, about, after, { began: true });
-    if (outcome && before.outcome !== outcome) await tellAll(tx, about, after, { ended: outcome });
+    if (!now2 && before.stage !== after.stage) await tellAll(tx, about, after, { began: true });
+    if (now2 && before.outcome !== now2) await tellAll(tx, about, after, { ended: now2 });
+    if (isAppeal(fresh.status) && !isAppeal(before.status)) await tellAll(tx, about, after, { appeal: true });
+    return true;
   });
 }
 
 /**
  * Writes down every dispute Stripe has on this owner's charge, as it stands now. Stripe is asked
- * once more after writing: only when it still shows the same is the work done.
+ * once more after writing: only when it still shows the same is the work done. Gives back whether
+ * anything new was seen.
  */
-export async function recordDisputesOf(owner: Owner, now: Date = new Date()): Promise<void> {
+export async function recordDisputesOf(owner: Owner, now: Date = new Date()): Promise<boolean> {
   const about = await aboutOwner(db, owner);
-  if (!about?.intentId) return;
+  if (!about?.intentId) return false;
+  let changed = false;
   let written: string | null = null;
   for (let round = 0; round < 4; round++) {
-    const found = await stripe().disputes.list({ payment_intent: about.intentId, limit: 100 }).autoPagingToArray({ limit: 300 });
+    const found = await allDisputesOf(about.intentId);
     const seen = found
       .map((dispute) => `${dispute.id}:${dispute.status}`)
       .sort()
       .join(",");
-    if (seen === written) return;
-    for (const dispute of found) await writeOne(owner, about, dispute, now);
+    if (seen === written) break;
+    for (const dispute of found) changed = (await writeOne(owner, about, dispute, now)) || changed;
     written = seen;
   }
+  return changed;
 }
 
-/**
- * Asks Stripe again about everything on this owner's charge: first what keeps the money where it
- * is (the code that has always done that, for each kind of money), then the record.
- */
-export async function refreshOwner(owner: Owner, now: Date = new Date()): Promise<void> {
+/** What keeps the money where it is, asked of Stripe again: the code that has always done that, for each kind of money. */
+async function refreshMoney(owner: Owner, now: Date): Promise<void> {
   if (owner.kind === "payment") await refreshPaymentDispute(owner.id, now);
   else if (owner.kind === "month") await refreshMonthDispute(owner.id, now);
   else await refreshDispute(owner.id, now);
-  await recordDisputesOf(owner, now);
+}
+
+/**
+ * Asks Stripe again about everything on this owner's charge: first the money, then the record.
+ * If the record saw something new, the money is looked at once more with a fresh read, so a change
+ * that fell between the two reads cannot leave lost money collectible.
+ */
+export async function refreshOwner(owner: Owner, now: Date = new Date()): Promise<void> {
+  await refreshMoney(owner, now);
+  if (await recordDisputesOf(owner, now)) await refreshMoney(owner, now);
 }
 
 /** For test scripts only: touch nothing but these disputes, so a check never changes other rows of a shared database. */
@@ -268,9 +320,14 @@ export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> 
     .where(and(isNull(schema.disputes.outcome), lte(schema.disputes.updatedAt, new Date(now.getTime() - 3_600_000)), only ? inArray(schema.disputes.id, only.disputeIds) : undefined))
     .orderBy(asc(schema.disputes.updatedAt))
     .limit(25);
+  // One read per charge, however many of its disputes are due.
+  const asked = new Set<string>();
   for (const dispute of open) {
-    await refreshOwner(ownerOf(dispute), now).catch(async (error) => {
-      console.error(`[disputes] could not ask about dispute ${dispute.id}; will retry in an hour`, error);
+    const owner = ownerOf(dispute);
+    if (asked.has(ownerKey(owner))) continue;
+    asked.add(ownerKey(owner));
+    await refreshOwner(owner, now).catch(async (error) => {
+      console.error(`[disputes] could not ask about dispute ${dispute.id} (${errorSummary(error)}); will retry in an hour`);
       // It still takes its turn, so one that keeps failing cannot keep the others from being asked about.
       await db.update(schema.disputes).set({ updatedAt: now }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
     });
@@ -282,36 +339,37 @@ export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> 
  * does not have, or has under another status than Stripe now shows, is read again. So a dispute
  * whose message was lost, or one that began before this record existed, does not stay unknown, and
  * a later change to one that had ended (an appeal) is seen. Stripe's list goes by the day a
- * dispute was opened.
+ * dispute was opened. The list is taken a page at a time; a Stripe account can be shared with
+ * other copies of the app, whose charges are simply not found here.
  */
 export async function catchUpFromStripe(now: Date, days: number, only?: Only): Promise<void> {
   const since = Math.floor((now.getTime() - days * 24 * 3_600_000) / 1000);
-  const listed: Stripe.Dispute[] = [];
-  for await (const dispute of stripe().disputes.list({ created: { gte: since }, limit: 100 })) {
-    if (!only || only.disputeIds.includes(dispute.id)) listed.push(dispute);
-  }
-  if (listed.length === 0) return;
-  const known = new Map<string, string>();
-  for (let from = 0; from < listed.length; from += 500) {
-    const ids = listed.slice(from, from + 500).map((dispute) => dispute.id);
-    const rows = await db.select({ id: schema.disputes.id, status: schema.disputes.status }).from(schema.disputes).where(inArray(schema.disputes.id, ids));
-    for (const row of rows) known.set(row.id, row.status);
-  }
-  // One read per charge, however many of its disputes are behind.
   const asked = new Set<string>();
-  for (const dispute of listed) {
-    if (known.get(dispute.id) === dispute.status) continue;
-    const intentId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-    if (!intentId || asked.has(intentId)) continue;
-    asked.add(intentId);
-    try {
-      const owner = await ownerOfIntent(intentId);
-      // Not one of ours (for example made by another copy of the app in the same Stripe test area): nothing to do.
-      if (owner) await refreshOwner(owner, now);
-    } catch (error) {
-      console.error(`[disputes] could not catch up on dispute ${dispute.id}; the next look tries again`, error);
+  const catchUp = async (page: Stripe.Dispute[]) => {
+    const rows = await db.select({ id: schema.disputes.id, status: schema.disputes.status }).from(schema.disputes).where(inArray(schema.disputes.id, page.map((dispute) => dispute.id)));
+    const known = new Map(rows.map((row) => [row.id, row.status]));
+    const behind = page.flatMap((dispute) => {
+      const intentId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+      return intentId && known.get(dispute.id) !== dispute.status ? [{ dispute, intentId }] : [];
+    });
+    const owners = await ownersOfIntents([...new Set(behind.map((one) => one.intentId))]);
+    for (const { dispute, intentId } of behind) {
+      const owner = owners.get(intentId);
+      if (!owner || asked.has(ownerKey(owner))) continue;
+      asked.add(ownerKey(owner));
+      await refreshOwner(owner, now).catch((error) => console.error(`[disputes] could not catch up on dispute ${dispute.id} (${errorSummary(error)}); the next look tries again`));
+    }
+  };
+  let page: Stripe.Dispute[] = [];
+  for await (const dispute of stripe().disputes.list({ created: { gte: since }, limit: 100 })) {
+    if (only && !only.disputeIds.includes(dispute.id)) continue;
+    page.push(dispute);
+    if (page.length === 100) {
+      await catchUp(page);
+      page = [];
     }
   }
+  if (page.length > 0) await catchUp(page);
 }
 
 /** Disputes for the founder's list: those that have not ended, oldest deadline first, then the latest that ended. */

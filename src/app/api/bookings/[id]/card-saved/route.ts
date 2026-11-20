@@ -13,7 +13,7 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/bookings/[
   const found = await bookingFor(id, user.id);
   if (!found || found.role !== "customer") return Response.json({ error: "Request not found." }, { status: 404 });
   try {
-    const booking = await finishCardStep({ bookingId: id, customerId: user.id, now: new Date() });
+    const booking = await finishCardStep({ bookingId: id, customerId: user.id, now: new Date(), live: true });
     return Response.json({ stage: booking.stage });
   } catch (error) {
     if (error instanceof BookingError) return Response.json({ error: error.message }, { status: 409 });

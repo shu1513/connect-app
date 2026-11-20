@@ -43,6 +43,11 @@ export function stageOf(status: string): Stage {
   return status.startsWith("warning_") ? "question" : "chargeback";
 }
 
+/** A lost dispute the bank is looking at once more. The app answers nothing in an appeal. */
+export function isAppeal(status: string): boolean {
+  return status.startsWith("appeal_");
+}
+
 /** How a dispute ended, or null while it has not. */
 export function outcomeOf(status: string): Outcome | null {
   const standing = standingOf(status);

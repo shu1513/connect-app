@@ -1,22 +1,24 @@
 /**
- * Dispute states that block paying the host and refunding: the customer's bank
- * still has the charge under dispute, or we lost and the money has gone back to
- * the customer. A lost dispute stays blocked; the founder settles it by hand.
+ * A bank dispute over a call's card payment: what keeps its money where it is.
+ *
+ * While the customer's bank has the charge under dispute, and after a dispute is lost (the money
+ * has gone back to the customer), the host cannot collect that money and it cannot be refunded on
+ * top. `payments.disputeOpen` says so. A lost dispute stays blocked; the founder settles it by hand.
+ * Which of Stripe's statuses block is one rule for every kind of money: `blocksMoney` in
+ * src/lib/disputes/status.ts.
  */
 import { eq } from "drizzle-orm";
+import type Stripe from "stripe";
 import { db, schema } from "@/db";
 import { anyBlocksMoney } from "@/lib/disputes/status";
 import { stripe } from "./stripe";
 
-export const BLOCKING_DISPUTE = new Set([
-  "lost",
-  "warning_needs_response",
-  "warning_under_review",
-  "needs_response",
-  "under_review",
-  "appeal_needs_response",
-  "appeal_under_review",
-]);
+/** Every dispute Stripe has on one charge, however many pages that is. */
+export async function allDisputesOf(intentId: string): Promise<Stripe.Dispute[]> {
+  const found: Stripe.Dispute[] = [];
+  for await (const dispute of stripe().disputes.list({ payment_intent: intentId, limit: 100 })) found.push(dispute);
+  return found;
+}
 
 /**
  * Asks Stripe where the disputes over a call's card payment stand, ALL of them together, and
@@ -26,16 +28,22 @@ export const BLOCKING_DISPUTE = new Set([
  * Messages can arrive out of order, and two can be handled at the same moment. So Stripe is asked,
  * that is recorded, and Stripe is asked once more: only when it still says the same is the work
  * done. An answer that went stale while we waited is never the last word.
+ *
+ * `known` is a dispute the caller has just read from Stripe by its id (the one a message was
+ * about). If Stripe's list does not show it yet, it is counted all the same: money is never
+ * released on a list that leaves out a dispute we know of.
  */
-export async function refreshPaymentDispute(paymentId: string, now: Date = new Date()): Promise<void> {
+export async function refreshPaymentDispute(paymentId: string, now: Date = new Date(), known?: { id: string; status: string }): Promise<void> {
   const [payment] = await db.select({ intentId: schema.payments.stripePaymentIntentId }).from(schema.payments).where(eq(schema.payments.id, paymentId));
   if (!payment?.intentId) return;
   let recorded: boolean | null = null;
   for (let round = 0; round < 4; round++) {
-    const disputes = await stripe().disputes.list({ payment_intent: payment.intentId, limit: 100 }).autoPagingToArray({ limit: 300 });
+    const disputes = await allDisputesOf(payment.intentId);
+    const statuses = disputes.map((dispute) => dispute.status);
+    if (known && !disputes.some((dispute) => dispute.id === known.id)) statuses.push(known.status);
     // Stripe shows none: there is nothing to record, and nothing that was recorded is taken back on that word alone.
-    if (disputes.length === 0) return;
-    const blocked = anyBlocksMoney(disputes.map((dispute) => dispute.status));
+    if (statuses.length === 0) return;
+    const blocked = anyBlocksMoney(statuses);
     if (blocked === recorded) return;
     await db.update(schema.payments).set({ disputeOpen: blocked, updatedAt: now }).where(eq(schema.payments.id, paymentId));
     recorded = blocked;

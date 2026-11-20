@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import { dayOf } from "../../../../src/lib/home/rules";
 import { Calendar } from "@/home/calendar";
 import { NextCall } from "@/home/next-call";
 import { HostsYouFollow, SuggestedHosts, WaitingForYou, YourRequests } from "@/home/sections";
 import { useHome } from "@/home/use-home";
+import { takeHostPage } from "@/lib/after-sign-in";
 import { phoneZone } from "@/lib/home-rules";
 import { useStart } from "@/lib/opening";
 import { Card, Heading, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
@@ -22,6 +24,12 @@ export default function HomePlace() {
   // The day the calendar shows; null is today. It is part of the question to the server.
   const [day, setDay] = useState<string | null>(null);
   const { home, problem, pulling, pull, reload, asking, refused } = useHome(day);
+
+  // Someone who picked a time on a host's page before signing in is taken back to that page, once.
+  useEffect(() => {
+    const handle = takeHostPage();
+    if (handle) router.push({ pathname: "/h/[handle]", params: { handle } });
+  }, []);
 
   if (!home) return problem ? <Problem words={problem} onRetry={() => void reload()} /> : <Loading />;
   const nextCall = home.next ? (home.calls.find((call) => call.id === home.next!.id) ?? null) : null;

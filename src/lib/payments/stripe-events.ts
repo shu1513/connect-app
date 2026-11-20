@@ -10,6 +10,7 @@ import { db, schema } from "@/db";
 import { syncPayment } from "@/lib/contributions/charge";
 import { refreshDispute } from "@/lib/contributions/dispute";
 import { recordDisputesOf, type Owner } from "@/lib/disputes/record";
+import { errorSummary } from "@/lib/email";
 import { syncMonth } from "@/lib/membership/charge";
 import { refreshMonthDispute } from "@/lib/membership/ending";
 import { refreshPaymentDispute } from "./disputes";
@@ -61,31 +62,31 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     // First, and on its own: what keeps the money where it is. Each kind of money looks at ALL disputes on its
     // charge together (a bank can dispute one charge more than once), asks Stripe, records, and asks once more,
     // so that messages out of order, or two at the same moment, never leave a stale answer as the last word.
-    const owners: Owner[] = [];
-    // A dispute over a call's card payment: recorded on the payment, where collecting and refunding look.
+    const owners: Array<{ owner: Owner; money: () => Promise<void> }> = [];
+    // A dispute over a call's card payment: recorded on the payment, where collecting and refunding look. The dispute
+    // this message is about is counted also if Stripe's list does not show it yet.
     const [payment] = await db.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.stripePaymentIntentId, intentId));
-    if (payment) {
-      await refreshPaymentDispute(payment.id, now);
-      owners.push({ kind: "payment", id: payment.id });
-    }
+    if (payment) owners.push({ owner: { kind: "payment", id: payment.id }, money: () => refreshPaymentDispute(payment.id, now, { id: dispute!.id, status: dispute!.status }) });
     // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
     const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
-    if (month) {
-      await refreshMonthDispute(month.id, now);
-      owners.push({ kind: "month", id: month.id });
-    }
+    if (month) owners.push({ owner: { kind: "month", id: month.id }, money: () => refreshMonthDispute(month.id, now) });
     // A dispute over a contribution's charge: recorded on its payment, where collecting and refunding look.
     const [contributed] = await db.select({ id: schema.contributionPayments.id }).from(schema.contributionPayments).where(eq(schema.contributionPayments.stripePaymentIntentId, intentId));
-    if (contributed) {
-      await refreshDispute(contributed.id, now);
-      owners.push({ kind: "contribution", id: contributed.id });
-    }
-    // Only then, in a step of its own: the app's record of the dispute, and telling people (plans/47). The money is
-    // protected by now. A fault here must not leave this message "not handled", because an unhandled dispute message
-    // keeps every host from collecting (collect.ts, disputeMessageWaiting). The helper's hourly look and its
-    // catch-up from Stripe's list write whatever is missing.
-    for (const owner of owners) {
-      await recordDisputesOf(owner, now).catch((error) => console.error(`[disputes] could not write the record of dispute ${String(object.id)} yet; the helper's look will`, error));
+    if (contributed) owners.push({ owner: { kind: "contribution", id: contributed.id }, money: () => refreshDispute(contributed.id, now) });
+    for (const { owner, money } of owners) {
+      await money();
+      // Only then, in a step of its own: the app's record of the dispute, and telling people (plans/47). The money is
+      // protected by now. A fault here must not leave this message "not handled", because an unhandled dispute
+      // message keeps every host from collecting (collect.ts, disputeMessageWaiting). The helper's hourly look and
+      // its catch-up from Stripe's list write whatever is missing.
+      const sawNew = await recordDisputesOf(owner, now).catch((error) => {
+        console.error(`[disputes] could not write the record of dispute ${String(object.id)} yet (${errorSummary(error)}); the helper's look will`);
+        return false;
+      });
+      // The record read Stripe after the money did. If it saw something new, the money is looked at once more with
+      // a fresh read, so a change between the two reads cannot leave lost money collectible. A fault HERE does leave
+      // the message unhandled: it is about the money.
+      if (sawNew) await money();
     }
   }
 }

@@ -135,7 +135,8 @@ export function Field({ label, problem, ...input }: { label: string; problem?: s
       <TextInput
         accessibilityLabel={label}
         placeholderTextColor={colors.soft}
-        style={[styles.input, { backgroundColor: colors.surface, borderColor: problem ? colors.danger : colors.edge, color: colors.text }]}
+        // A field for several lines is taller, and its words start at the top.
+        style={[styles.input, input.multiline ? styles.inputTall : null, { backgroundColor: colors.surface, borderColor: problem ? colors.danger : colors.edge, color: colors.text }]}
         {...input}
       />
       {problem ? (
@@ -228,6 +229,7 @@ const styles = StyleSheet.create({
   button: { minHeight: shape.touch, minWidth: shape.touch, borderWidth: 1, borderRadius: shape.pill, paddingVertical: 12, paddingHorizontal: 24, alignItems: "center", justifyContent: "center" },
   buttonLabel: { fontSize: type.body, fontWeight: "700" },
   field: { gap: 6 },
+  inputTall: { minHeight: 104, textAlignVertical: "top" },
   label: { fontSize: type.body, fontWeight: "600" },
   input: { minHeight: shape.touch, borderWidth: 1, borderRadius: shape.field, paddingVertical: 10, paddingHorizontal: 14, fontSize: type.body },
   problem: { fontSize: type.small, lineHeight: 20 },

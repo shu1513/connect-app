@@ -70,12 +70,12 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             {standing === "with_bank" && "The bank is deciding. That can take up to three months."}
             {standing === "won" && "It has ended: the payment stands."}
             {standing === "lost" && "It has ended: the bank returned the money to the customer."}
-            {standing === "closed" && "The bank closed its question. It did not become a dispute."}
+            {standing === "closed" && (question ? "The bank closed its question. It did not become a dispute." : "It was closed without a decision by the bank.")}
           </dd>
           {founder && !asHost && standing === "waiting" && (
             <>
               <dt className="opacity-70">The bank&apos;s deadline</dt>
-              <dd data-due>{dispute.dueBy ? <LocalTime iso={dispute.dueBy.toISOString()} /> : "Stripe gives no date."}</dd>
+              <dd data-due>{dispute.noAnswer ? "The bank takes no answer to this one." : dispute.dueBy ? <LocalTime iso={dispute.dueBy.toISOString()} /> : "Stripe gives no date."}</dd>
             </>
           )}
         </dl>
@@ -90,11 +90,19 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                 customer about it.
               </p>
             )}
-            {(standing === "won" || standing === "closed") && <p>The money for this payment can be collected again, under the usual rules.</p>}
+            {(standing === "won" || standing === "closed") && (
+              <p>
+                This dispute no longer holds the money for this payment back. Your{" "}
+                <Link href="/host" className="underline underline-offset-2">
+                  earnings
+                </Link>{" "}
+                show when it can be collected.
+              </p>
+            )}
             {standing === "lost" && (
               <p>
-                That undoes the payment, so your share of it is no longer yours. It stays out of what you can collect. If you had already collected it, Connect will write to you
-                about that.
+                Your share of the {formatMoney(dispute.amountCents)} the bank returned is no longer yours, and the money for this payment stays held back. If you had already
+                collected it, Connect may ask you to pay it back.
               </p>
             )}
             <p className="mt-3 opacity-70">
@@ -107,9 +115,10 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
           </>
         ) : (
           <>
-            {standing === "waiting" && <p>The app does not answer the bank yet. For now this still has to be answered by hand in Stripe, before the bank&apos;s deadline.</p>}
-            {standing === "with_bank" && <p>The money for this payment stays where it is until the bank has decided.</p>}
-            {(standing === "won" || standing === "closed") && <p>The money for this payment can move again.</p>}
+            {standing === "waiting" && !dispute.noAnswer && <p>The app does not answer the bank yet. For now this still has to be answered by hand in Stripe, before the bank&apos;s deadline.</p>}
+            {standing === "waiting" && dispute.noAnswer && <p>The bank takes no answer to this one, so there is nothing to send. It decides by itself.</p>}
+            {standing === "with_bank" && <p>Nothing can be sent to the bank now. The money for this payment stays where it is until the bank has decided.</p>}
+            {(standing === "won" || standing === "closed") && <p>This dispute no longer holds the money for this payment back.</p>}
             {standing === "lost" && (
               <p>The host&apos;s share of this payment stays held back. If the host had already collected it, the app takes nothing back: that still has to be settled by hand.</p>
             )}

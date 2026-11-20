@@ -3,8 +3,9 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
-import { markRead, messagesOf, MESSAGES_SHOWN } from "@/lib/messages/messages";
+import { messagesOf, MESSAGES_SHOWN } from "@/lib/messages/messages";
 import { requireUser } from "@/lib/session";
+import { MessagesShown } from "./shown";
 
 export const metadata: Metadata = { title: "Messages" };
 
@@ -18,18 +19,15 @@ export const dynamic = "force-dynamic";
 export default async function MessagesPage() {
   const user = await requireUser("/messages");
   const messages = await messagesOf(user.id);
-  // They count as read once this page has shown them. Marked now, so the top bar (drawn after this) no longer counts them;
-  // the list below still marks which ones are new on this visit.
-  const unread = messages.filter((message) => !message.readAt);
-  await markRead(
-    user.id,
-    unread.map((message) => message.id),
-  );
+  // Nothing is written while the page is drawn. The messages count as read once the person's own browser says it has
+  // shown them (shown.tsx); until their next page, the top bar and the "New" marks still show what was new on this visit.
+  const anyNew = messages.some((message) => !message.readAt);
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <h1 className={warm.title}>Messages</h1>
-      <p className="mt-2 text-sm opacity-70">What Connect has written to you. Each message was also sent to your email address.</p>
+      <p className="mt-2 text-sm opacity-70">What Connect has written to you. Each message is also emailed to you.</p>
+      {anyNew && <MessagesShown newestId={messages[0].id} />}
 
       {messages.length === 0 ? (
         <p className="mt-6 text-sm" data-no-messages>
@@ -58,7 +56,7 @@ export default async function MessagesPage() {
           ))}
         </ul>
       )}
-      {messages.length === MESSAGES_SHOWN && <p className="mt-6 text-sm opacity-70">These are your latest {MESSAGES_SHOWN} messages. Older ones are in your email.</p>}
+      {messages.length === MESSAGES_SHOWN && <p className="mt-6 text-sm opacity-70">These are your latest {MESSAGES_SHOWN} messages. Older ones were emailed to you.</p>}
     </SitePage>
   );
 }

@@ -5,14 +5,14 @@
  * database step and under one key. So what a person reads on their "Messages" page is what
  * was emailed to them, and neither exists twice.
  */
-import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lte } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Message } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
 
 type Writer = Pick<typeof db, "insert">;
 
-function appUrl(): string {
+export function appUrl(): string {
   return (process.env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
@@ -42,15 +42,17 @@ export async function tell(tx: Writer, telling: Telling): Promise<boolean> {
     .values({ userId: telling.to.id, subject: telling.subject, body: telling.text, path, key: telling.key })
     .onConflictDoNothing()
     .returning({ id: schema.messages.id });
-  if (written.length === 0) return false;
-  await queueEmail(tx, {
+  const emailed = await queueEmail(tx, {
     to: telling.to.email,
     key: telling.key,
     subject: telling.subject,
     text: `${telling.text}\n${path ? `\nRead it in the app:\n${appUrl()}${path}\n` : ""}\nYou can read every message from Connect under "Messages" in the app:\n${appUrl()}/messages\n`,
     expiresAt: telling.emailExpiresAt,
   });
-  return true;
+  // The two are a pair. One without the other means this key was used somewhere else for something else:
+  // a fault of ours, and nothing half-told may be saved. Throwing undoes the caller's whole step.
+  if ((written.length > 0) !== emailed) throw new Error(`The message and the email under the key "${telling.key}" are not a pair.`);
+  return emailed;
 }
 
 /** How many messages one page shows. Older ones stay in the database. */
@@ -70,11 +72,20 @@ export async function unreadCount(userId: string): Promise<number> {
   return row?.unread ?? 0;
 }
 
-/** Marks these messages of this person as read. Only ever their own, and only ones not read before. */
-export async function markRead(userId: string, ids: string[], now: Date = new Date()): Promise<void> {
-  if (ids.length === 0) return;
+/**
+ * The person's browser has shown their Messages page down from this message, its newest: that
+ * message and every older one of theirs count as read from now. Only ever their own, and only ones
+ * not read before (the first time stays). Older than the page shows are read too: they were emailed,
+ * and a number in the top bar that nothing on the page can clear would only mislead.
+ */
+export async function markReadUpTo(userId: string, newestId: string, now: Date = new Date()): Promise<void> {
+  const [newest] = await db
+    .select({ createdAt: schema.messages.createdAt })
+    .from(schema.messages)
+    .where(and(eq(schema.messages.id, newestId), eq(schema.messages.userId, userId)));
+  if (!newest) return;
   await db
     .update(schema.messages)
     .set({ readAt: now })
-    .where(and(eq(schema.messages.userId, userId), inArray(schema.messages.id, ids), isNull(schema.messages.readAt)));
+    .where(and(eq(schema.messages.userId, userId), lte(schema.messages.createdAt, newest.createdAt), isNull(schema.messages.readAt)));
 }

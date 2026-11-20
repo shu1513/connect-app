@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { accept, bookingFor, BookingError, decline, takeBack } from "@/lib/booking/bookings";
+import { REQUEST_WORDS } from "@/lib/booking/request-words";
 import { bookAsMember } from "@/lib/membership/book";
 import { withNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
@@ -24,7 +25,7 @@ export async function takeBackAction(formData: FormData) {
   let notice: string;
   try {
     await takeBack({ bookingId: id, customerId: user.id, now: new Date() });
-    notice = "Your request was taken back. Nothing was held or charged.";
+    notice = REQUEST_WORDS.takenBack;
   } catch (error) {
     notice = problem(error);
   }
