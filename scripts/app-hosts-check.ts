@@ -361,7 +361,12 @@ async function main() {
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
       check("her page then offers Follow again, as to someone who said no", (await page(maya.handle, cust.jar)).body?.follow === "ended");
       const none = await asApp(`/api/app/hosts/nobody${RUN}/unfollow`, { body: {}, jar: cust.jar });
-      check("unfollowing a handle that does not exist is answered the same, and gives nothing away", none.status === 200 && (none.json as AppFollowDone).words === (unfollowed.json as AppFollowDone).words);
+      check("unfollowing a handle that does not exist is answered exactly the same, to the letter", none.status === 200 && none.text === unfollowed.text, none.text.slice(0, 100));
+      const hiddenUnfollow = await asApp(`/api/app/hosts/${hidden.handle}/unfollow`, { body: {}, jar: cust.jar });
+      check("and so is unfollowing a hidden host: the answers do not tell which names exist", hiddenUnfollow.status === 200 && hiddenUnfollow.text === none.text);
+      const choiceNone = await asApp(`/api/app/hosts/nobody${RUN}/choices`, { body: { tellOnline: false }, jar: cust.jar });
+      const choiceHidden = await asApp(`/api/app/hosts/${other.handle}/choices`, { body: { tellOnline: false }, jar: cust.jar });
+      check("choices for a name that does not exist and for a host not followed are refused with the same words", choiceNone.status === 400 && choiceNone.text === choiceHidden.text, `${choiceNone.text.slice(0, 80)} / ${choiceHidden.text.slice(0, 80)}`);
       check("a step that does not exist is not found", refusal(await asApp(`/api/app/hosts/${maya.handle}/else`, { body: {}, jar: cust.jar })) === "not_found");
       check("a browser cannot follow through the app's address", refusal(await asBrowser(`/api/app/hosts/${maya.handle}/follow`, { body: {}, jar: cust.jar })) === "not_the_app");
     }

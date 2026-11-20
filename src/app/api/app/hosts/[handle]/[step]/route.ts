@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import type { AppFollowDone } from "@/lib/app-door/types";
 import { saveChoices } from "@/lib/follows/emails";
-import { follow, FollowError, followingOf, unfollow } from "@/lib/follows/follows";
+import { follow, FollowError, unfollow } from "@/lib/follows/follows";
 import { handleProblem, tidyHandle } from "@/lib/profiles/handles";
 
 const WRONG = "Something went wrong. Nothing was changed. Please try again.";
@@ -61,7 +61,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
       console.error("[follows] could not unfollow", error);
       return refuse("not_valid", WRONG);
     }
-    const body: AppFollowDone = { words: "Done. You do not follow them, and a call will not change that. You can follow them again from their page.", follow: hostId ? await followingOf(me.id, hostId) : "none" };
+    // The very same answer whether or not there is such a host, and whatever the state of her page: the app
+    // names hosts by their page's name, and an answer that differed would tell which names exist, hidden ones too.
+    const body: AppFollowDone = { words: "Done. You do not follow them, and a call will not change that. You can follow them again from their page.", follow: "ended" };
     return answer(body);
   }
 
@@ -81,6 +83,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
   }
   if (given.tellOnline === undefined && hours === undefined) return refuse("not_valid");
   try {
+    // No such host is answered exactly like a host this person does not follow (the sentence is the function's own).
     if (!hostId) throw new FollowError("You do not follow this host. Nothing was changed.");
     // Only what was sent is handed on. The diary choice is never among it.
     await saveChoices({ followerId: me.id, hostId, ...(given.tellOnline === undefined ? {} : { tellOnline: given.tellOnline }), ...(hours === undefined ? {} : { hours }), now });
