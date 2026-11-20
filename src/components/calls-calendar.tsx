@@ -189,7 +189,8 @@ export function CallsCalendar({ calls, asks, serverNow, day, nextId, cut }: { ca
                 className="relative border-l border-[#e7e5e4]"
                 style={{ height, ...hourLines }}
               >
-                {one === today && nowTop !== null && <div aria-hidden data-calendar-now className="pointer-events-none absolute right-0 left-0 z-10 border-t-2 border-[#dc2626]" style={{ top: nowTop }} />}
+                {/* Two pixels thick, and kept inside the grid in the last minute drawn. */}
+                {one === today && nowTop !== null && <div aria-hidden data-calendar-now className="pointer-events-none absolute right-0 left-0 z-10 border-t-2 border-[#dc2626]" style={{ top: Math.min(nowTop, height - 2) }} />}
                 {inLanes(pieces.filter((piece) => piece.day === one)).map((segment) => {
                   const top = ((segment.from - hours.from * 60) / 60) * CALENDAR.hourPixels;
                   const tall = (Math.max(segment.to - segment.from, CALENDAR.leastMinutes) / 60) * CALENDAR.hourPixels;

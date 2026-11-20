@@ -3565,12 +3565,19 @@ because it does not know which days those are.
   call. The line for "now" could sit just under the grid at the last hour drawn. And the spoken
   name of a request that runs past midnight named the wrong day on its second part, which the
   builder's own review had found too.
+- *Astra, a second round on the fixes:* "ready with changes". Four of the five fixes complete.
+  Taken: the stronger checks still searched the page's words and could pass on wrong data, so
+  they now put the page's data back together, read what the calendar is handed as what it is,
+  and look at each call and each time asked for field by field. Doing that found one thing the
+  looser checks had not: a coming call was handed to its customer with an empty place for
+  "about the customer". It held nothing, but the place is no longer sent. Taken: the line for
+  "now" could still stand a pixel under the grid in the last minute drawn.
 - *CodeRabbit* was at its limit; the builder read the change line by line. One thing found, the
   spoken name above.
 
 **How it was checked.** 725 automatic tests on the code, 10 of them new (the times asked for,
 the total, money written as elsewhere, money that is not settled). On this computer, against the
-local database, after Astra's fixes: `scripts/home-check.ts`, 109 checks, six of them new in
+local database, after Astra's fixes of both rounds: `scripts/home-check.ts`, 110 checks, seven of them new in
 part 9 (a time two people asked for is handed over as exactly one block with the number 2; a
 finished call with its figure, one with its money still held, and a call she booked, each with
 exactly what belongs to it; a host with a request and no call yet; the person who asked is

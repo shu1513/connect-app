@@ -238,7 +238,8 @@ export default async function HomePage(props: PageProps<"/">) {
       ...(earned ? { earned: { text: formatMoney(earned.cents), cents: earned.cents, soFar: earned.soFar } } : {}),
       ...(parts && unsettled(parts) ? { moneyOpen: true } : {}),
       // Only ever set for a call this person hosts that is not over: `customerDetailsFor` answers for no other.
-      ...(finished ? {} : { about: aboutOf.get(call.id)?.details }),
+      // (Not even an empty place for it on any other call: nothing about a customer is named where there is nothing to say.)
+      ...(!finished && aboutOf.has(call.id) ? { about: aboutOf.get(call.id)!.details } : {}),
     };
   });
   // The times people have asked this person for and that wait for her answer (plans/43, decision 10): for each time

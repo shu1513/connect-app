@@ -574,35 +574,57 @@ async function main() {
         db.insert(schema.bookings).values({ hostId: cal.id, customerId, startsAt: askedAt, endsAt: new Date(askedAt.getTime() + minutes * MINUTE), lengthMinutes: minutes, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, note: words, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + DAY) });
       await ask(guest.id, 30, `Ask words one ${RUN}`);
       await ask(outsider.id, 15, `Ask words two ${RUN}`);
-      // What is handed to the calendar travels inside the page, with its quotation marks written as \" there.
-      /** The times asked for, exactly as the calendar is handed them: read back from the page's own data. */
-      const asksOf = (text: string) => {
-        const found = text.match(/asks\\?":(\[.*?\])/);
-        return found ? JSON.stringify(JSON.parse(found[1].replace(/\\"/g, '"'))) : "not handed over";
+      /**
+       * What the calendar is handed, read back from the page: the page's data arrives in pieces, each
+       * written as a string inside a script. The pieces are put together again and the calendar's own
+       * part (it starts with its calls) is read as what it is, so each call and each time asked for
+       * can be looked at field by field. Null when the page hands the calendar nothing. (In that
+       * data, words that begin with a dollar sign are written with two: "$$39.04" is "$39.04".)
+       */
+      type Handed = { calls: Array<Record<string, unknown> & { id: string }>; asks: Array<Record<string, unknown>> };
+      const handedTo = (raw: string): Handed | null => {
+        const data = [...raw.matchAll(/self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g)].map((piece) => JSON.parse(piece[1]) as string).join("");
+        const from = data.indexOf('{"calls":[');
+        if (from < 0) return null;
+        let depth = 0;
+        let inWords = false;
+        for (let at = from; at < data.length; at++) {
+          const letter = data[at];
+          if (inWords) {
+            if (letter === "\\") at++;
+            else if (letter === '"') inWords = false;
+          } else if (letter === '"') inWords = true;
+          else if (letter === "{" || letter === "[") depth++;
+          else if ((letter === "}" || letter === "]") && --depth === 0) return JSON.parse(data.slice(from, at + 1)) as Handed;
+        }
+        return null;
       };
-      /** What is handed over with one call: from its id to the next call's. */
-      const handedWith = (text: string, id: string) => {
-        const from = text.search(new RegExp(`id\\\\?":\\\\?"${id}`));
-        if (from < 0) return "";
-        const rest = text.slice(from + 10);
-        const next = rest.search(/id\\?":\\?"[0-9a-f]{8}-/);
-        return rest.slice(0, next < 0 ? 900 : next);
-      };
+      const callIn = (handed: Handed | null, id: string) => handed?.calls.find((one) => one.id === id) as (Record<string, unknown> & { earned?: { text: string; cents: number; soFar: boolean } }) | undefined;
+      /** One time asked for, and nothing else in it: exactly these three fields with these values. */
+      const isAsk = (ask: Record<string, unknown> | undefined, minutes: number, count: number) =>
+        Boolean(ask) && Object.keys(ask!).sort().join() === "count,endsAt,startsAt" && ask!.startsAt === askedAt.toISOString() && ask!.endsAt === new Date(askedAt.getTime() + minutes * MINUTE).toISOString() && ask!.count === count;
       const withAsks = await page("/", cal.jar);
-      const expected = JSON.stringify([{ startsAt: askedAt.toISOString(), endsAt: new Date(askedAt.getTime() + 30 * MINUTE).toISOString(), count: 2 }]);
-      check("a time two people asked her for is handed to the calendar as one block: its start, the end of the longer call, the number 2, and nothing else", asksOf(withAsks.text) === expected, asksOf(withAsks.text));
-      check("a finished call she hosted is handed over with what it earned as a number, and its money is settled", /cents\\?":3904[,}]/.test(handedWith(withAsks.text, paid.id)) && !handedWith(withAsks.text, paid.id).includes("moneyOpen"), handedWith(withAsks.text, paid.id).slice(0, 200));
-      check("a finished call whose money is still held comes with no figure, and marked as not settled", /moneyOpen\\?":true/.test(handedWith(withAsks.text, held.id)) && !handedWith(withAsks.text, held.id).includes("cents"), handedWith(withAsks.text, held.id).slice(0, 200));
-      check("the call she booked with another host comes with neither", handedWith(withAsks.text, sheBooked.id) !== "" && !/cents|moneyOpen|earned/.test(handedWith(withAsks.text, sheBooked.id)));
+      const hersHanded = handedTo(withAsks.text);
+      check("a time two people asked her for is handed to the calendar as one block: its start, the end of the longer call, the number 2, and nothing else", hersHanded?.asks.length === 1 && isAsk(hersHanded.asks[0], 30, 2), JSON.stringify(hersHanded?.asks ?? "nothing handed over"));
+      const paidHanded = callIn(hersHanded, paid.id);
+      check("a finished call she hosted is handed over with what it earned, as words and as a number, and its money is settled", paidHanded?.earned?.cents === 3904 && paidHanded.earned.text.replace(/^\$\$/, "$") === earnedPaid && paidHanded.earned.soFar === false && !("moneyOpen" in paidHanded), JSON.stringify(paidHanded?.earned ?? null));
+      const heldHanded = callIn(hersHanded, held.id);
+      check("a finished call whose money is still held comes with no figure, and marked as not settled", heldHanded !== undefined && !("earned" in heldHanded) && heldHanded.moneyOpen === true, JSON.stringify(heldHanded ?? null).slice(0, 200));
+      const bookedHanded = callIn(hersHanded, sheBooked.id);
+      check("the call she booked with another host comes with neither, and without anything about its customer", bookedHanded !== undefined && !("earned" in bookedHanded) && !("moneyOpen" in bookedHanded) && !("about" in bookedHanded) && bookedHanded.hosting === false);
 
       // A host whose first requests wait before she has had any call still gets the calendar, with them on it.
       const firstTimer = await asHost(await signUp("firsttimer"), "firsttimer", `Firsttimer Display ${RUN}`);
       await db.insert(schema.bookings).values({ hostId: firstTimer.id, customerId: guest.id, startsAt: askedAt, endsAt: new Date(askedAt.getTime() + 15 * MINUTE), lengthMinutes: 15, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + DAY) });
       const firstTimers = await page("/", firstTimer.jar);
-      check("a host with a request and no call yet has the calendar, with that time on it", firstTimers.html.includes("data-calendar") && asksOf(firstTimers.text) === JSON.stringify([{ startsAt: askedAt.toISOString(), endsAt: new Date(askedAt.getTime() + 15 * MINUTE).toISOString(), count: 1 }]), asksOf(firstTimers.text));
+      const firstHanded = handedTo(firstTimers.text);
+      check("a host with a request and no call yet has the calendar, with that time on it and no call", firstTimers.html.includes("data-calendar") && firstHanded?.calls.length === 0 && firstHanded.asks.length === 1 && isAsk(firstHanded.asks[0], 15, 1), JSON.stringify(firstHanded ?? "nothing handed over"));
 
       const his = await page("/", guest.jar);
-      check("the person who asked is handed an empty list of times, and no figures with the calls", asksOf(his.text) === "[]" && [paid, halfBack, held].every((c) => handedWith(his.text, c.id) !== "" && !/cents|moneyOpen|earned/.test(handedWith(his.text, c.id))), asksOf(his.text));
+      const hisHanded = handedTo(his.text);
+      const theirCalls = [paid, halfBack, held, coming].map((c) => callIn(hisHanded, c.id));
+      check("the person who asked is handed an empty list of times", hisHanded !== null && hisHanded.asks.length === 0, JSON.stringify(hisHanded?.asks ?? "nothing handed over"));
+      check("and each of their calls, finished or coming, without what it earned, whether its money is open, or anything a host is told about a customer", theirCalls.every((one) => one !== undefined && one.hosting === false && !("earned" in one) && !("moneyOpen" in one) && !("about" in one)), JSON.stringify(theirCalls.map((one) => (one ? Object.keys(one).sort().join() : "missing"))).slice(0, 300));
       check("the customer of those calls is handed the same calls, and nothing a host earned", [paid, halfBack, held, coming].every((c) => his.text.includes(c.id)) && !his.text.includes(earnedPaid) && !his.text.includes(earnedHalf) && !his.text.includes("earned") && !his.text.includes(`Calendar words ${RUN}`));
       check("and never the call their host booked with someone else", !his.text.includes(sheBooked.id));
       const nobody = await page("/", outsider.jar);
