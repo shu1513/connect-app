@@ -9,6 +9,7 @@
  */
 import "server-only";
 import { gatherCallPage, type CallPage } from "@/lib/call-page/gather";
+import { APP_ROOM_WORDS } from "@/lib/call-page/room-words";
 import { CALL_WORDS, cancelRuleSentence, cancelWords, paidHowWords, payPoints } from "@/lib/call-page/words";
 import { roomOpensAt, roomState } from "@/lib/calls";
 import { comingCallRows, listCalls, pastCallRows } from "@/lib/home/list-calls";
@@ -66,7 +67,7 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
             checkAgain: CALL_WORDS.payCheckAgain,
           }
         : null,
-    room: state === "room" ? { opensAt: roomOpensAt(call).toISOString(), open: roomState(call, now) === "open" } : null,
+    room: state === "room" ? { opensAt: roomOpensAt(call).toISOString(), open: roomState(call, now) === "open", enter: APP_ROOM_WORDS.goToCall } : null,
     // Only for the host, only when there is a note, and never once the call is over.
     about: role === "host" && !over && page.about?.text ? { title: CALL_WORDS.aboutTitle(page.otherName ?? "this customer"), text: page.about.text } : null,
     cancel:

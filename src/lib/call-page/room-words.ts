@@ -49,6 +49,8 @@ export const APP_ROOM_WORDS = {
   cameraRefused: "Connect is not allowed to use the camera on this phone. To be seen, allow it in the phone's settings. You can also join without it.",
   microphoneRefused: "Connect is not allowed to use the microphone on this phone. To be heard, allow it in the phone's settings. You can also join without it.",
   openSettings: "Open the phone's settings",
+  /** Android: the button under the two sentences on why. The phone then asks, once. */
+  allow: "Allow the camera and the microphone",
   cameraOn: "Camera on",
   cameraOff: "Camera off",
   microphoneOn: "Microphone on",

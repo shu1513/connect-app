@@ -181,8 +181,8 @@ export type AppCallPage = {
   small: string | null;
   /** The customer's confirm-and-pay step: the money is held, never taken, by it. */
   pay: { title: string; points: AppPart[][]; button: string; givenUp: string; notHeld: string; notConfirmed: string; checkAgain: string } | null;
-  /** Nothing stands in the way: when the room opens, and whether it is open now. Join goes by the server's word. */
-  room: { opensAt: string; open: boolean } | null;
+  /** Nothing stands in the way: when the room opens, whether it is open now, and the button that leads to the call's screen once it is. Entering goes by the server's word. */
+  room: { opensAt: string; open: boolean; enter: string } | null;
   /** For the host: her own private note about the customer, to read while she waits. */
   about: { title: string; text: string } | null;
   /**
@@ -552,3 +552,103 @@ export type AppRequests = {
   /** How often the app asks again while the list is in front. */
   refreshSeconds: number;
 };
+
+/**
+ * What the call's own screen needs before anyone enters (plans/45-phone-apps/09-the-call.md): the
+ * times, the other person's name, and every sentence the screen says. Who may enter is not in it:
+ * that is decided when the entry pass is asked for.
+ */
+export type AppRoom = {
+  id: string;
+  role: "customer" | "host";
+  /** The other person, as this person knows them. */
+  other: string;
+  startsAt: string;
+  /** The call's end as it is now. It moves when time is added; the screen follows it and never moves it back. */
+  endsAt: string;
+  opensAt: string;
+  /** The server's clock when this was put together. */
+  serverNow: string;
+  /** Nothing stands in the way of entering once the room is open. When false, the call's own page says what does. */
+  ready: boolean;
+  /** For the host: her private note about the customer, to read (folded) while she waits. Never shown during the call. */
+  about: { title: string; text: string } | null;
+  /** From this many seconds before the end, the screen asks every `askEverySeconds` where the call stands. */
+  watchSeconds: number;
+  askEverySeconds: number;
+  /** From this many seconds before the end, the clock counts down in the open. */
+  countdownSeconds: number;
+  words: {
+    check: string;
+    join: string;
+    joining: string;
+    startsIn: string;
+    timeLeft: string;
+    endsIn: string;
+    ended: string;
+    results: string;
+    oneMoment: string;
+    disconnected: string;
+    takenOver: string;
+    takenOverSmall: string;
+    useThisPhone: string;
+    endReport: string;
+    endReportSure: string;
+    endReportYes: string;
+    endReportNo: string;
+    ending: string;
+    endFailed: string;
+    tryAgain: string;
+    notJoined: string;
+    left: string;
+    otherCameraOff: string;
+    sharing: string;
+    reconnecting: string;
+    joinAgain: string;
+    cameraWhy: string;
+    microphoneWhy: string;
+    cameraRefused: string;
+    microphoneRefused: string;
+    openSettings: string;
+    allow: string;
+    cameraOn: string;
+    cameraOff: string;
+    microphoneOn: string;
+    microphoneOff: string;
+    turnCamera: string;
+    loudspeaker: string;
+    earpiece: string;
+    leave: string;
+    youLeft: string;
+    backToCall: string;
+  };
+};
+
+/** The entry pass: what the video kit needs to enter this call's room, and the call's end and the server's clock as they are now. */
+export type AppPass = { token: string; serverUrl: string; endsAt: string; serverNow: string };
+
+/** Where a call stands, asked near its end and after a lost connection. */
+export type AppCallLive = { endsAt: string; serverNow: string; cancelled: boolean; safetyEnded: boolean };
+
+/** "End call and report" went through: the call is ended for both. */
+export type AppEnded = { ended: true };
+
+/** The report form (the website's, without reports about diary posts, which the app does not have). */
+export type AppReportForm = {
+  title: string;
+  /** Said only when true: the call really was ended with "End call and report". */
+  stopped: string | null;
+  words: string;
+  /** "Read the rules.": the middle part opens the website's rules page. */
+  rules: { before: string; link: string; after: string };
+  what: string;
+  choose: string;
+  reasons: { key: string; label: string }[];
+  more: string;
+  textMax: number;
+  send: string;
+  danger: string;
+};
+
+/** The thank-you, with the report's number. */
+export type AppReportSent = { notice: string };
