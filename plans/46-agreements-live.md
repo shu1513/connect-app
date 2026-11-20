@@ -507,3 +507,17 @@ The plan was not sent a third time. Each part's code goes to Astra, as always.
   that was refused writes no such line, so it counts as nothing, and one that went through
   counts once.
 
+## What Astra's review of part 5 changed (20 November 2026)
+
+Astra said to hold it for one point. Taken:
+- **The five questions to the books are asked in one read-only database step that holds its
+  first look.** A payment is written as several lines in one step; a statement made in that
+  instant could otherwise have shown what was paid without the fee and the share.
+- **A column "Of that, paid by Connect"** beside the refunds: a contribution refunded after the
+  host had collected is paid by Connect, and her share is not taken back (until part 3 says
+  otherwise). Refunds are described as counted when written into the books.
+- The file also carries what customers paid for (calls, memberships, contributions, tips).
+- The check script's refund uses the split the app really makes, compares every column of the
+  other host, and has two more cases: a collection that was refused and went through later, and
+  a contribution refunded after collection.
+

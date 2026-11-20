@@ -4396,7 +4396,8 @@ of her year, and that is this part.
 (`/host/statement`) shows one calendar year month by month and in total: paid by customers,
 given back, Connect's fees, payment fees on tips, her share, sent to her, collection charges;
 then what customers paid for (calls, membership months, contributions, tips) and what each
-column means. It is made for printing, and the same numbers come as a file for a spreadsheet
+column means. A refund Connect paid itself, because she had already collected, is shown beside
+the refunds. It is made for printing, and the same numbers come as a file for a spreadsheet
 (`/host/statement/csv`). It says at the top that it is a summary for her own records and not a
 tax form, that amounts are in US dollars, and that each is counted in the month it was written
 into the books, in UTC. Made from the books the app already keeps; no new table, no migration.
@@ -4405,12 +4406,18 @@ into the books, in UTC. Made from the books the app already keeps; no new table,
 left out and the page says so; two columns more than the plan listed (her share, collection
 charges); the page opens on last year.
 
+**What the reviewer found.** Astra said to hold it for one point: the five questions to the
+books could each see a different moment. They are now asked in one read-only step that holds its
+first look. Also taken: a column for the part of a refund Connect paid itself, the breakdown in
+the file, and stronger checks. The list is in the plan.
+
 **How it was checked.** 10 tests of the sums (a refund in the next year, midnight at New Year, a
-tip with its fee, a member's month and its unused time, the months add up to the year, the file,
-the year asked for). A new real check, `scripts/statement-check.ts`, 13 checks: it writes a call
-paid by card and collected, a payment a second before New Year refunded at midnight, a member's
-month with one call and unused time, a tip, and another host's call, and reads the statement and
-the file back to the cent. In a browser as the test host: the page with her real test numbers
+tip with its fee, a member's month and its unused time, a refund Connect paid, the months add up
+to the year, the file, the year asked for). A new real check, `scripts/statement-check.ts`, 15
+checks: it writes a call paid by card and collected, one whose first collection was refused, a
+payment a second before New Year refunded at midnight, a member's month with one call and unused
+time, a tip, a contribution refunded after collection, and another host's call, and reads the
+statement and the file back to the cent. In a browser as the test host: the page with her real test numbers
 (paid less given back was exactly fees plus her share), the file, and "not found" for a year
 before her profile and for two years at once. The test host was put back as she was.
 
