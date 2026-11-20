@@ -61,10 +61,16 @@ function OneRoom({ id }: { id: string }) {
   const [inFront, setInFront] = useState(false);
   /** The same, for an answer that arrives later to ask: is this screen still the one in front? */
   const front = useRef(false);
+  /** Which visit to this screen this is. What began in an earlier visit (a question, a wait) is not used in a later one, even if the person is back. */
+  const visit = useRef(0);
+  /** "End call and report" is being sent: a second press does not send it twice. */
+  const endingNow = useRef(false);
+  /** The sentences of "End call and report", kept from the moment it was pressed: they are still needed if the room can no longer be read (a paused account, say). */
+  const [endWords, setEndWords] = useState<{ ending: string; endFailed: string; tryAgain: string } | null>(null);
   /** The end the server is being asked about one last time (see "When the clock reaches the end" below). */
   const lastCheck = useRef<number | null>(null);
-  /** The connection was lost, and the server is being asked where the call stands: nothing is offered until it has answered. */
-  const [checking, setChecking] = useState(false);
+  /** The connection was lost, and the server is being asked where the call stands: nothing is offered until it has answered ("failed": it could not be asked). */
+  const [checking, setChecking] = useState<"no" | "asking" | "failed">("no");
   /** "End call and report" went through: the report form is opened, now or when the person is back on this screen. */
   const [toReport, setToReport] = useState(false);
   const newest = useRef(0);
@@ -136,6 +142,7 @@ function OneRoom({ id }: { id: string }) {
     useCallback(() => {
       setInFront(true);
       front.current = true;
+      visit.current++;
       void load();
       return () => {
         setInFront(false);
@@ -155,11 +162,12 @@ function OneRoom({ id }: { id: string }) {
   const refresh = useCallback(async (): Promise<AppCallLive | null> => {
     const order = ++asked.current;
     const sentAt = performance.now();
+    const during = visit.current;
     const answer = await ask<AppCallLive>(`${path}/live`);
     const receivedAt = performance.now();
     if (!answer.ok || !isLive(answer.data)) return null;
-    // An answer that arrives after the person has left this screen changes nothing on it.
-    if (order < shown.current || !front.current) return answer.data;
+    // An answer that arrives after the person has left this screen changes nothing on it, also if they are back by now.
+    if (order < shown.current || !front.current || during !== visit.current) return answer.data;
     shown.current = order;
     // A quick answer is also the best reading of the server's clock there is.
     if (receivedAt - sentAt < 1_000) setClock(answer.data.serverNow, receivedAt, sentAt);
@@ -195,8 +203,14 @@ function OneRoom({ id }: { id: string }) {
       // By the phone's steady counter, so changing the phone's clock cannot stretch or cut the half minute. Only
       // while the screen is in front: left alone, it stops, and is begun afresh when the person comes back.
       const giveUpAt = performance.now() + 30_000;
-      while (front.current && !(await refresh()) && performance.now() < giveUpAt) await wait(1_500);
-      if (front.current) setCheckedEnd(checking);
+      const during = visit.current;
+      const here = () => front.current && during === visit.current;
+      let answered = false;
+      while (here() && !answered && performance.now() < giveUpAt) {
+        answered = (await refresh()) !== null;
+        if (!answered && here()) await wait(1_500);
+      }
+      if (here()) setCheckedEnd(checking);
     })();
   }, [timeUp, endsAt, refresh]);
 
@@ -232,6 +246,23 @@ function OneRoom({ id }: { id: string }) {
     }
   }
 
+  /** After a lost connection: the server is asked where the call stands. Without its answer nothing is offered but to ask again. */
+  const askWhereItStands = useCallback(async () => {
+    const during = visit.current;
+    setChecking("asking");
+    const answer = await refresh();
+    if (!front.current || during !== visit.current) {
+      setChecking("no");
+      return;
+    }
+    if (!answer) {
+      setChecking("failed");
+      return;
+    }
+    setChecking("no");
+    if (room) setNotice(room.words.disconnected);
+  }, [refresh, room]);
+
   /** The connection ended without the person leaving. */
   const lost = useCallback(
     (reason?: DisconnectReason) => {
@@ -240,14 +271,10 @@ function OneRoom({ id }: { id: string }) {
       else if (reason !== DisconnectReason.CLIENT_INITIATED) {
         // The call may have been stopped by the other person, or its time may be up: the server is asked first,
         // and until it has answered nothing is offered (not "join again", and not the camera check).
-        setChecking(true);
-        void refresh().then(() => {
-          setChecking(false);
-          if (front.current && room) setNotice(room.words.disconnected);
-        });
+        void askWhereItStands();
       }
     },
-    [room, refresh],
+    [askWhereItStands],
   );
 
   function leave() {
@@ -257,10 +284,14 @@ function OneRoom({ id }: { id: string }) {
   }
 
   async function endAndReport() {
+    if (endingNow.current) return;
+    endingNow.current = true;
+    if (room) setEndWords({ ending: room.words.ending, endFailed: room.words.endFailed, tryAgain: room.words.tryAgain });
     setEnding("busy");
     // Out of the room at once, on this phone, whatever happens next.
     setPass(null);
     const answer = await ask<AppEnded>(`${path}/end-and-report`, { body: {} });
+    endingNow.current = false;
     if (answer.ok && isEnded(answer.data)) {
       setEnding("no");
       // On to the report form: now, or (if the person has gone to another screen meanwhile) when they are back on this one.
@@ -293,24 +324,24 @@ function OneRoom({ id }: { id: string }) {
       </Page>
     );
   }
+  // "End call and report" comes before everything else, also before a room that can no longer be read (a paused
+  // account can still end its call): until it is known that the call is ended for both, the way to try again must
+  // not be hidden by anything.
+  if (inFront && endWords && (ending === "busy" || toReport)) return <Loading words={endWords.ending} />;
+  if (inFront && endWords && ending === "failed") {
+    return (
+      <Page>
+        <Notice>{endWords.endFailed}</Notice>
+        <Button label={endWords.tryAgain} kind="danger" onPress={() => void endAndReport()} />
+      </Page>
+    );
+  }
   if (!room || now === null || endsAt === null) return problem ? <Problem words={problem} onRetry={() => void load()} /> : <Loading />;
   const words = room.words;
 
   // With another screen in front, nothing of the call is drawn here at all: no camera check (which would switch
   // the camera on behind that screen), and no call.
   if (!inFront) return <View style={styles.fill} />;
-
-  // "End call and report" comes before everything else: until it is known that the call is ended for both, the
-  // way to try again must not be hidden by "this call has ended".
-  if (ending === "busy" || toReport) return <Loading words={words.ending} />;
-  if (ending === "failed") {
-    return (
-      <Page>
-        <Notice>{words.endFailed}</Notice>
-        <Button label={words.tryAgain} kind="danger" onPress={() => void endAndReport()} />
-      </Page>
-    );
-  }
 
   // Over on the screen only once the server has confirmed this end, or said the call was stopped.
   if ((now >= endsAt && checkedEnd === endsAt) || live?.cancelled || live?.safetyEnded) {
@@ -325,7 +356,17 @@ function OneRoom({ id }: { id: string }) {
   // for that moment; anyone else waits for the answer.
   if (now >= endsAt && !pass) return <Loading words={words.oneMoment} />;
   if (notNow) return <Loading />;
-  if (checking) return <Loading words={words.oneMoment} />;
+  if (checking === "asking") return <Loading words={words.oneMoment} />;
+  if (checking === "failed") {
+    // The server could not be asked where the call stands. The camera check is not offered on a guess: only asking again is.
+    return (
+      <Page>
+        <Notice>{UNREACHABLE}</Notice>
+        <Button label={words.tryAgain} onPress={() => void askWhereItStands()} />
+        <Button label={words.backToCall} kind="plain" onPress={toCall} />
+      </Page>
+    );
+  }
 
   if (takenOver) {
     return (

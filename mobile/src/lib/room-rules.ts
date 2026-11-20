@@ -80,6 +80,11 @@ export function clockLine(words: { startsIn: string; timeLeft: string; endsIn: s
 
 /** Where the report form is opened from: exactly one of a call, a request, or a host's page. */
 export function reportPlace(params: { call?: unknown; booking?: unknown; profile?: unknown }): { place: "call" | "booking" | "profile"; id: string } | null {
-  const given = (["call", "booking", "profile"] as const).filter((place) => (place === "profile" ? typeof params[place] === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(params[place] as string) : isId(params[place])));
-  return given.length === 1 ? { place: given[0], id: params[given[0]] as string } : null;
+  // Exactly one place may be named at all (a link that names two is not guessed at); then what names it must be real.
+  const named = (["call", "booking", "profile"] as const).filter((place) => params[place] !== undefined);
+  if (named.length !== 1) return null;
+  const place = named[0];
+  const id = params[place];
+  const real = place === "profile" ? typeof id === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(id) : isId(id);
+  return real ? { place, id: id as string } : null;
 }

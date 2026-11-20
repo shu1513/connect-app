@@ -11,6 +11,8 @@ export const REPORT_WORDS = {
   reportPerson: (name: string) => `Report ${name}`,
   /** Said only when true: the call really was ended with "End call and report". */
   stopped: "The call has been ended for both of you. Nobody can rejoin, and the charge for it will be looked at by a person.",
+  /** For the phone app, while the room's closing is not confirmed yet: nothing is promised that is not known. */
+  stopping: "The call is being ended for both of you. Nobody can join it again, and the charge for it will be looked at by a person.",
   aboutPost: "Tell us what is wrong with this post. Only our team reads this.",
   aboutPerson: "Tell us what happened. Only our team reads this. Reporting someone also blocks them: they cannot contact you through Connect again.",
   readThe: "Read the",

@@ -32,6 +32,8 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
   const [camera, setCamera] = useState(true);
   const [microphone, setMicrophone] = useState(true);
   const [preview, setPreview] = useState<LocalVideoTrack | null>(null);
+  /** Counts the looks at what the phone allows: each one tries the camera's picture afresh (it may have been allowed, or taken away, in the phone's settings meanwhile). */
+  const [looked, setLooked] = useState(0);
 
   /** Looks at what the phone allows, without asking for anything. */
   const look = useCallback(async () => {
@@ -47,6 +49,7 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
         () => false,
       );
       setMay({ camera: true, microphone: heard, asked: true });
+      setLooked((count) => count + 1);
       return;
     }
     const [seen, heard] = await Promise.all([PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA), PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO)]);
@@ -95,7 +98,7 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
       made?.stop();
       setPreview(null);
     };
-  }, [showing]);
+  }, [showing, looked]);
 
   if (!may) return <Loading />;
   if (!may.asked) {

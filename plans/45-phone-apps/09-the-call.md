@@ -137,7 +137,7 @@ both are checked here.
 
 ### How it was tried
 
-- `scripts/app-room-check.ts`, 55 checks, against the real video service and Stripe's test
+- `scripts/app-room-check.ts`, 57 checks, against the real video service and Stripe's test
   mode: what the screen is sent (every sentence, the website's own where the website has
   them); the entry pass refused before the room opens, while unpaid, after a cancellation,
   after the end, for a blocked pair, for a paused account and while calls are paused across
@@ -197,6 +197,31 @@ things that mattered in the app, and six smaller ones:
    id (anything else is "not found" at once); after a lost connection nothing is offered
    until the server has said where the call stands; the room's time is looked at again in the
    moment the entry pass is made (on the website too).
+
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+Four points of the first list were found closed (nothing of the call behind another screen,
+the report links, a form of its own for each place, the clock). What was left:
+
+1. *"Ended for both" still without proof in two places:* pressing "Try again" after the
+   call's booked end (the clock was taken as proof), and the report form's first sentence
+   (it went by the mark alone). **Proof is now one thing only: the room written down as
+   closed,** which the helper's own closing step writes once the video service has confirmed
+   it. "End call and report" runs that step and answers "ended" only with it. Until then the
+   report form says "The call is being ended for both of you", not "has been ended".
+2. *The join check read the call before a wait and judged it after.* The call is now read
+   last, after the person has been taken out of other rooms, and held as it is until the pass
+   is made: a call that was stopped meanwhile gives no pass, and one that was made longer
+   meanwhile is not turned away (on the website too).
+3. *A paused person who had pressed "End call and report" could lose "Try again"* when the
+   screen was read again. The app keeps that step's sentences from the moment it is pressed
+   and shows them before anything else.
+4. Smaller: a second press of "Try again" does not send twice; on an iPhone the camera is
+   tried afresh each time the app comes back to the front; a wait that began during an
+   earlier visit to the screen is not used in a later one; a report link that names two
+   places is not guessed at; after a lost connection, if the server cannot be asked, the
+   camera check is not offered, only "Try again"; the check script puts the switch for all
+   calls back whatever happens.
 
 **Not done, said plainly:** the check script cannot join a call as a second person, so "the
 other person is put out" is proven by the walk (the host on the website was put out), not by

@@ -15,6 +15,17 @@ export async function callWasStopped(userId: string, callId: string): Promise<bo
 }
 
 /**
+ * The same question for the phone app, which does not say "ended for both" without proof: "stopped" only once
+ * the room is written down as closed; "stopping" while the call is marked as stopped and the room's closing is
+ * not confirmed yet; "no" for a call that was not stopped, or that is not this person's.
+ */
+export async function callStopState(userId: string, callId: string): Promise<"no" | "stopping" | "stopped"> {
+  const access = await callForParticipant(callId, userId);
+  if (!access || access.call.safetyEndedAt === null) return "no";
+  return access.call.closedAt === null ? "stopping" : "stopped";
+}
+
+/**
  * Files a report and gives back the thank-you with its number. The person reported is worked out
  * on the server from where the report was made. Throws `ReportError` with its own sentence when
  * the report is not taken.

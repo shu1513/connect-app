@@ -94,16 +94,22 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
   // One call at a time. Taking the person out of other rooms and handing out this pass happen one
   // after the other per person (also across servers), so two joins at once cannot both get through.
   let token: string;
+  let endsAt = call.endsAt;
   try {
     token = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`join:${user.id}`}))`);
-      // Read the call again under the lock: it may have been stopped or cancelled a moment ago.
-      const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
-      if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
       await leaveOtherCalls(user.id, call.id, now);
-      // Waiting for the lock and stepping out of other rooms takes time: no pass is made for a room whose time ran
-      // out meanwhile.
+      // Waiting for the lock and stepping out of other rooms takes time. So the call is read only now, and held
+      // as it is until the pass is made (nothing can stop it, cancel it or move its end in between): it may have
+      // been stopped or cancelled a moment ago, its time may have run out, or time may have been added to it.
+      const [fresh] = await tx
+        .select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt })
+        .from(schema.calls)
+        .where(eq(schema.calls.id, call.id))
+        .for("share");
+      if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
       if (roomState(fresh, new Date()) !== "open") throw new Error("ended");
+      endsAt = fresh.endsAt;
       return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: shownName });
     });
   } catch (error) {
@@ -112,5 +118,5 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
     return no(503, "failed", "Could not connect you just now. Please try again.");
   }
 
-  return { token, serverUrl: videoServerUrl(), role: decision.role, endsAt: call.endsAt.toISOString(), serverNow: new Date().toISOString() };
+  return { token, serverUrl: videoServerUrl(), role: decision.role, endsAt: endsAt.toISOString(), serverNow: new Date().toISOString() };
 }

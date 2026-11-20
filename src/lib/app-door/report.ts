@@ -5,7 +5,7 @@
  * page; it has no diary posts to report.
  */
 import "server-only";
-import { callWasStopped } from "@/lib/safety/report-form";
+import { callStopState } from "@/lib/safety/report-form";
 import { REPORT_TEXT_MAX, REPORT_WORDS } from "@/lib/safety/report-words";
 import { REPORT_REASONS } from "@/lib/safety/reports";
 import type { AppReportForm } from "./types";
@@ -16,9 +16,10 @@ export type AppReportPlace = (typeof APP_REPORT_PLACES)[number];
 
 /** The form. Like the website's page it shows itself for any place; whether the place is this person's to report from is decided when the report is sent. */
 export async function reportFormFor(person: { id: string }, place: AppReportPlace, placeId: string): Promise<AppReportForm> {
+  const stop = place === "call" ? await callStopState(person.id, placeId) : "no";
   return {
     title: REPORT_WORDS.title,
-    stopped: place === "call" && (await callWasStopped(person.id, placeId)) ? REPORT_WORDS.stopped : null,
+    stopped: stop === "stopped" ? REPORT_WORDS.stopped : stop === "stopping" ? REPORT_WORDS.stopping : null,
     words: REPORT_WORDS.aboutPerson,
     rules: { before: `${REPORT_WORDS.readThe} `, link: REPORT_WORDS.rules, after: "." },
     what: REPORT_WORDS.what,

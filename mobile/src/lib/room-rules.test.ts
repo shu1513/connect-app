@@ -104,6 +104,8 @@ describe("the report form", () => {
     expect(reportPlace({ call: ["a", "b"] })).toBeNull();
     // A call and a request are named by an id, never by anything shorter.
     expect(reportPlace({ call: "abc" })).toBeNull();
+    // A link that names two places is not guessed at, even if only one of them is real.
+    expect(reportPlace({ call: "abc", profile: "maya-g" })).toBeNull();
     expect(reportPlace({ booking: "maya-g" })).toBeNull();
     expect(reportPlace({ booking: ID })).toEqual({ place: "booking", id: ID });
   });

@@ -245,8 +245,12 @@ async function main() {
       await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, host.id));
       const before = await switches();
       await setSwitches({ joiningOff: true });
-      const paused = await step(id, "enter", cust.jar);
-      await setSwitches({ joiningOff: before.joiningOff });
+      let paused: Reply = { status: 0, json: null, text: "not asked", headers: {} };
+      try {
+        paused = await step(id, "enter", cust.jar);
+      } finally {
+        await setSwitches({ joiningOff: before.joiningOff });
+      }
       check("while calls are paused across Connect: said so, as a switch and not as this call's fault", refusal(paused) === "switched_off" && sentence(paused) === "Calls are paused across Connect right now. Please try again shortly.");
 
       const entered = await step(id, "enter", cust.jar);
@@ -299,6 +303,7 @@ async function main() {
       const ended = await step(id, "end-and-report", cust.jar);
       const row = await callRow(id);
       check("the customer ends the call for both: it is stopped, and by whom is written down", ended.status === 200 && keys(ended.json) === "ended" && (ended.json as { ended?: boolean }).ended === true && row.safetyEndedAt !== null && row.safetyEndedBy === cust.id && row.cancelledAt === null, `${ended.status} ${ended.text.slice(0, 120)}`);
+      check("'ended' was only answered with proof: the room is written down as closed", (await callRow(id)).closedAt !== null);
       check("nobody can enter it again, and both are told it has ended", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && sentence(await step(id, "enter", host.jar)) === "This call has ended." && ((await live(id, host.jar)).json as AppCallLive).safetyEnded === true && (await room(id, host.jar)).body?.ready === false);
       check("pressed again (the first answer was lost, say), it still answers that the call is ended", (await step(id, "end-and-report", cust.jar)).status === 200 && (await callRow(id)).safetyEndedBy === cust.id);
       // The website's own button on another call, by the host: the same end.
@@ -325,6 +330,10 @@ async function main() {
       check("the form, in the website's words, with the website's reasons", reply.status === 200 && body?.title === REPORT_WORDS.title && body.words === REPORT_WORDS.aboutPerson && body.what === REPORT_WORDS.what && body.more === REPORT_WORDS.more && body.send === REPORT_WORDS.send && body.danger === REPORT_WORDS.danger && body.textMax === 2000 && JSON.stringify(body.reasons) === JSON.stringify(REPORT_REASONS.map((reason) => ({ key: reason.key, label: reason.label }))), reply.text.slice(0, 160));
       check("it has exactly the parts the app knows, and is not kept on the way", keys(body) === "choose,danger,more,reasons,rules,send,stopped,textMax,title,what,words" && keys(body?.rules) === "after,before,link" && String(reply.headers["cache-control"]).includes("no-store"), keys(body));
       check("after 'End call and report' it says the call was ended for both; for any other call it does not", body?.stopped === REPORT_WORDS.stopped && (await form(`call=${ahead.call.id}`, cust.jar)).body?.stopped === null && (await form(`call=${open.call.id}`, stranger.jar)).body?.stopped === null);
+      // A call marked as stopped whose room is not confirmed closed yet: the form does not say "has been ended for both".
+      const unproven = await newCall(host.id, cust.id, { startsIn: 2 });
+      await db.update(schema.calls).set({ safetyEndedAt: new Date(), safetyEndedBy: cust.id }).where(eq(schema.calls.id, unproven.call.id));
+      check("while the room's closing is not confirmed, the form says the call is being ended, not that it has been", (await form(`call=${unproven.call.id}`, cust.jar)).body?.stopped === REPORT_WORDS.stopping);
       check("it says that reporting someone also blocks them", body?.words.includes("Reporting someone also blocks them") === true);
       check("the app reports from a call, a request or a host's page, and from nothing else", (await form(`profile=${handle}`, stranger.jar)).reply.status === 200 && (await form(`booking=${randomUUID()}`, cust.jar)).reply.status === 200 && refusal((await form(`post=${randomUUID()}`, cust.jar)).reply) === "not_found" && refusal((await form("", cust.jar)).reply) === "not_found" && refusal((await form(`call=${open.call.id}&profile=${handle}`, cust.jar)).reply) === "not_found" && refusal((await form("profile=..%2Fadmin", cust.jar)).reply) === "not_found");
 

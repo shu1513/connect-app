@@ -87,9 +87,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
       // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already over
       // needs no ending: the person goes on to the report form as usual.
       if (state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
-      // The call is marked as stopped (nobody can enter it again), but the video service has not confirmed that the
-      // other person is out. "Ended for both" is not said until it has: the app says so and offers to try again,
-      // and trying again closes the room once more.
+      // The call is marked as stopped (nobody can enter it again), but there is no proof yet that the other person
+      // is out: the video service has not confirmed that the room is closed. "Ended for both" is not said until it
+      // has: the app says so and offers to try again, and trying again asks the video service again (also after
+      // the call's booked end: the clock is no proof).
       if (!closed) return notKnown();
     } catch (error) {
       // Whether it was ended for both cannot be told: the app says so and offers to try again.
