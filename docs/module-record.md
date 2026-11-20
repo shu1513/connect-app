@@ -4454,11 +4454,12 @@ announced; a person joining in the last minute before the day could be missed; a
 older code during a release could give a good email up for ever; the warning sat on the money
 alarm. Of the second: taking an email up again, or sending a refused one again, could have sent
 an email twice when an earlier answer of the sending service was lost; "last told another day"
-was judged by emails written, not by emails sent.
+was judged by emails written, not by emails sent. A third look left two narrow cases, both
+about a lost answer of the sending service; both are closed (the plan says how).
 
 **How it was checked.** 15 tests of the rules (who is told, every future version, the key, the
 words for each kind of document, which failures can be sent again) and 2 new ones of the version
-list. `agreements-check` grew to 69 checks; its new part uses three made-up versions and a
+list. `agreements-check` grew to 71 checks; its new part uses three made-up versions and a
 stand-in for the sending service: everyone concerned is written to once over several rounds and
 with two helpers at once; nobody closed or unfinished; someone who signs up or applies to host
 meanwhile is written to in that step; an email whose time ran out, or to an account closed since,
@@ -4467,7 +4468,9 @@ a refused email is said, the founder is written to once, the button sends again 
 asked once and refused outright; an email wrongly given up is taken up again, and one whose
 earlier try may have gone through is not sent a second time; a moved day is announced again; fewer than 30 days left is said for an email not out and for one
 sent late, and not for a person who only signed up today; a day moved back to one announced
-before is said; the health address says nothing of it. `accounts-check` was run again. In a
+before is said, also when the order of two emails cannot be known; the health address says
+nothing of it. `accounts-check` was run again, and `notifications-check` (35 checks) after the
+sending rule changed. In a
 browser, with a temporary coming version that was taken out again: the note on the Payment
 Terms' page, on the last step of sign-up, and on the Hosting page.
 

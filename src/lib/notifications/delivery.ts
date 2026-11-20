@@ -30,6 +30,15 @@ const MAX_ATTEMPTS = 6;
 /** Waits before the next try: a minute, five, thirty, two hours, eight hours. */
 const BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
 const IDEMPOTENCY_MEMORY_MS = 24 * 3_600_000;
+/**
+ * How long after its first try an email may still be tried again: an hour less than the sending service remembers
+ * the key, so that a try which starts inside the time cannot arrive after the service has forgotten it.
+ */
+const REPEAT_SAFELY_MS = IDEMPOTENCY_MEMORY_MS - 3_600_000;
+/** Whether an email that was tried before is too old to be tried again without risking a second copy. */
+const pastRepeating = (email: { attempts: number; firstTriedAt: Date | null }, when: Date): boolean =>
+  email.attempts > 0 && email.firstTriedAt !== null && when.getTime() - email.firstTriedAt.getTime() > REPEAT_SAFELY_MS;
+const NOT_REPEATED = "an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service";
 /** A reasonable day's worth of event and reminder emails to one address. Login emails have their own limits. */
 const DAILY_CAP_PER_ADDRESS = 50;
 /** Resend allows two requests a second; a short pause between sends keeps under that. */
@@ -256,8 +265,8 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         }
       }
       // A try whose answer was lost more than a day ago cannot be repeated safely: Resend has forgotten the key.
-      if (email.attempts > 0 && email.firstTriedAt && at.getTime() - email.firstTriedAt.getTime() > IDEMPOTENCY_MEMORY_MS) {
-        await fail(email, "an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service");
+      if (pastRepeating(email, at)) {
+        await fail(email, NOT_REPEATED);
         continue;
       }
       // A row that has used up its tries but was never closed (a helper died each time before it could
@@ -284,6 +293,12 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
       // The very last look before the service is asked: writing the try down took a moment too.
       if (email.expiresAt && email.expiresAt <= new Date()) {
         await fail(email, "expired before it could be sent");
+        continue;
+      }
+      // And the same for an email that was tried before: judged again by the clock of this moment, not by the one
+      // read when it was picked up, so a slow step in between cannot carry a second try past the service's memory.
+      if (pastRepeating(email, new Date())) {
+        await fail(email, NOT_REPEATED);
         continue;
       }
       const outcome = await transport({ id: email.id, to: email.to, subject: email.subject, text: email.body, headers: email.headers ? (JSON.parse(email.headers) as Record<string, string>) : {} });

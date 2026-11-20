@@ -269,12 +269,15 @@ export async function noticeProblems(now: Date, people?: OnlyPeople): Promise<No
     // The day was moved away and back again: the email for this day went out, and after it one that names another
     // day. So the last thing the person was told is wrong. Asked for every coming version and everyone concerned,
     // whether or not 30 days are owed: it is about what people were told, not about how early.
+    // "After it" counts from this day's email's FIRST try, not from the moment it was written down as sent: the
+    // sending service may have accepted that first try with its answer lost, and a later try then only confirms it
+    // without sending anything. When the order cannot be known, it is said.
     const lastToldAnotherDay = sql`exists (
       select 1 from ${mail} as cur, ${mail} as other
       where cur.dedupe_key = ${start} || ${schema.user.id} and cur.status = 'sent'
         and other.dedupe_key like ${`agreement-notice:${coming.name}:${coming.version.version}:%`}
         and right(other.dedupe_key, length(${schema.user.id}) + 1) = ':' || ${schema.user.id}
-        and other.dedupe_key <> cur.dedupe_key and other.status = 'sent' and other.sent_at > cur.sent_at)`;
+        and other.dedupe_key <> cur.dedupe_key and other.status = 'sent' and other.sent_at > coalesce(cur.first_tried_at, cur.sent_at))`;
     if (await anyOf(lastToldAnotherDay)) {
       add("other_day", `Somebody was last told another day for a new version than the one it now has (${what}). Choose a day that was not announced before.`);
     }
@@ -349,7 +352,9 @@ export async function noticeReport(now: Date, people?: OnlyPeople): Promise<Noti
   const name = sql<string>`split_part(${mail.dedupeKey}, ':', 2)`;
   const version = sql<string>`split_part(${mail.dedupeKey}, ':', 3)`;
   const day = sql<string>`split_part(${mail.dedupeKey}, ':', 4)`;
-  const deadline = sql`((split_part(${mail.dedupeKey}, ':', 4))::timestamp at time zone 'UTC') - interval '30 days'`;
+  // The 30 days are taken off the day itself, as a plain date and time, and only then read as UTC: taken off afterwards
+  // they would follow the database's own time zone, and be an hour out across a change of the clocks.
+  const deadline = sql`(((split_part(${mail.dedupeKey}, ':', 4))::timestamp - interval '30 days') at time zone 'UTC')`;
   const rows = await db
     .select({
       name,

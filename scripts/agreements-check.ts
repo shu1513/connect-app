@@ -311,7 +311,8 @@ async function main() {
         await N.announceComingVersions(new Date(), mine);
         // One was never handed to the sending service. The other was, two days ago, and the answer never came.
         await db.update(schema.emailOutbox).set({ status: "failed", lastError: `no longer wanted: ${N.NOT_COMING}` }).where(eq(schema.emailOutbox.to, stale.email));
-        await db.update(schema.emailOutbox).set({ status: "failed", lastError: `no longer wanted: ${N.NOT_COMING}`, attempts: 1, firstTriedAt: new Date(Date.now() - 2 * DAY) }).where(eq(schema.emailOutbox.to, lost.email));
+// (Twenty-three and a half hours: inside the day the sending service remembers a try, but too close to its end to risk another.)
+        await db.update(schema.emailOutbox).set({ status: "failed", lastError: `no longer wanted: ${N.NOT_COMING}`, attempts: 1, firstTriedAt: new Date(Date.now() - 23.5 * 3_600_000) }).where(eq(schema.emailOutbox.to, lost.email));
         const tookUp = await N.announceComingVersions(new Date(), mine);
         const lostNow = await noticesTo(lost);
         check("emails wrongly given up while their version is still coming on that day are taken up again, with their tries kept as they were", tookUp === 4 && (await noticesTo(stale)).every((one) => one.status === "queued") && lostNow.every((one) => one.status === "queued" && one.attempts === 1 && one.firstTriedAt !== null), String(tookUp));
@@ -344,6 +345,19 @@ async function main() {
         // Moved back to a day that was announced before: those emails went out earlier, and people were last told another day.
         coming.effectiveFrom = day(40);
         check("a day moved back to one that was sent before is said, also for someone who joined late: people were last told another day", (await N.announceComingVersions(new Date(), mine)) === 0 && JSON.stringify(await lines()) === JSON.stringify(["other_day payment-terms 2099-01-01"]) && JSON.stringify(await lines({ emailLike: unfinished.email })) === JSON.stringify(["other_day payment-terms 2099-01-01"]), (await lines()).join("; "));
+        // The same when the order cannot be known. For one person, this day's email was first tried BEFORE the other
+        // day's went out, and written down as sent only afterwards (the service confirmed an earlier try whose answer
+        // had been lost). The other day's email may be the last one that really reached her.
+        const [hers] = (await noticesTo(applicant)).filter((mail) => mail.dedupeKey === `agreement-notice:payment-terms:2099-01-01:${day(40)}:${applicant.id}`);
+        const [theOther] = (await noticesTo(applicant)).filter((mail) => mail.dedupeKey === `agreement-notice:payment-terms:2099-01-01:${day(20)}:${applicant.id}`);
+// (All three moments are put in the past, so that nothing here lies ahead of the emails written further down.)
+        const otherSent = new Date(Date.now() - 120_000);
+        await db.update(schema.emailOutbox).set({ sentAt: otherSent }).where(eq(schema.emailOutbox.id, theOther.id));
+        await db.update(schema.emailOutbox).set({ firstTriedAt: new Date(otherSent.getTime() - 60_000), sentAt: new Date(otherSent.getTime() + 60_000) }).where(eq(schema.emailOutbox.id, hers.id));
+        check("it is said too when this day's email was written down as sent later, but first tried before the other day's went out", JSON.stringify(await lines({ emailLike: applicant.email })) === JSON.stringify(["other_day payment-terms 2099-01-01"]), (await lines({ emailLike: applicant.email })).join("; "));
+        // And not when this day's email was first tried, and sent, after the other day's.
+        await db.update(schema.emailOutbox).set({ firstTriedAt: new Date(otherSent.getTime() + 30_000), sentAt: new Date(otherSent.getTime() + 60_000) }).where(eq(schema.emailOutbox.id, hers.id));
+        check("and not when this day's email was first tried after the other day's went out: then it is the last she was told", (await lines({ emailLike: applicant.email })).length === 0, (await lines({ emailLike: applicant.email })).join("; "));
         coming.effectiveFrom = day(45);
         await N.announceComingVersions(new Date(), mine);
         await send();

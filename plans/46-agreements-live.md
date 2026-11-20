@@ -568,6 +568,20 @@ could have gone out twice or a warning could have been wrong. Taken:
   by an old helper whose earlier try may have gone through; the health address asked while a
   problem is open.
 
+**Astra's third look** said the button was sound and to hold for two narrow cases, both about
+an answer of the sending service that got lost. Taken:
+
+- **An email that was tried before is judged by the clock once more, as the last thing before
+  the service is asked,** and may only be tried again within 23 hours of its first try, an hour
+  less than the service remembers it. So a slow step can no longer carry a second try past that
+  memory and send a second copy. This holds for every email the app sends, not only notices.
+- **"Last told another day" counts from this day's email's first try,** not from the moment it
+  was written down as sent. If the service accepted that first try and the answer was lost, a
+  later try only confirms it and sends nothing; the other day's email may then be the last one
+  that really arrived. When the order cannot be known, the founder is told.
+- The count on the Emails page takes the 30 days off the day itself before reading it as UTC, so
+  it agrees with the warning to the minute.
+
 Not taken:
 - *Keep the sending service's own times for each email.* The app records when the service
   accepted an email. If that answer is lost and a second try succeeds later, the later time is
