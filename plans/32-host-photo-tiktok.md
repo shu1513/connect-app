@@ -1,4 +1,7 @@
-# Plan 30: A host's photo from TikTok (part two of plan 29)
+# Plan 32: A host's photo from TikTok (part two of plan 29)
+
+(This plan was first written as number 30. Another piece of work, following hosts, took the
+numbers 30 and 31 on `main` the same day, so this one became 32.)
 
 **Status:** a plan; the first small step is built (TikTok can be asked for the picture's
 address). Written 19 November 2026 by the builder alone (no helper agents), from the code as it

@@ -84,7 +84,7 @@ export default async function HostPage(props: PageProps<"/host">) {
   const tiktokOn = tiktokSignInOn();
   // While this is on, an Instagram account can also be proven by signing in at Meta. The code stays.
   const instagramOn = instagramSignInOn();
-  // The host's photo (plans/29, plans/30): taken from a confirmed Instagram account, with the key that reads bios,
+  // The host's photo (plans/29, plans/32): taken from a confirmed Instagram account, with the key that reads bios,
   // or from a confirmed TikTok account, at a sign-in there (Connect keeps no key from TikTok).
   const photoState = profile ? await ownPhotoState(user.id) : { photo: null, locked: false };
   const photoFromInstagram = Boolean(checkSettings.instagram) && socials.some((social) => social.network === "instagram" && social.confirmedAt);

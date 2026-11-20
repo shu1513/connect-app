@@ -141,7 +141,7 @@ export function readTokenAnswer(body: string): TokenAnswer {
   return { kind: "key", accessToken: answer.access_token, openId: answer.open_id };
 }
 
-/** `pictureAddress`: where the account's large profile picture is, when TikTok was asked for it and sent one (plans/30). */
+/** `pictureAddress`: where the account's large profile picture is, when TikTok was asked for it and sent one (plans/32). */
 export type AccountAnswer = { kind: "account"; openId: string; username: string; pictureAddress?: string } | { kind: "failed"; reason: TikTokProblem };
 
 /**
@@ -173,7 +173,7 @@ export function readAccountAnswer(body: string, openId: string): AccountAnswer {
 
 const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 const ACCOUNT_URL = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,username";
-/** The same question, also asking where the account's large profile picture is. Only for a host's photo (plans/30); it needs no further permission. */
+/** The same question, also asking where the account's large profile picture is. Only for a host's photo (plans/32); it needs no further permission. */
 const ACCOUNT_WITH_PICTURE_URL = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,username,avatar_large_url";
 const REVOKE_URL = "https://open.tiktokapis.com/v2/oauth/revoke/";
 /** How long a request may take, waiting for the answer and reading it. */
