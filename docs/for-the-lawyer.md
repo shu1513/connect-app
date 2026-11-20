@@ -43,12 +43,19 @@ company yet.
   at the hold cannot always come three days before the money is taken, because a bank can shorten
   a hold. (Plans 23, 25.)
 - **Tips after a call** (new, plan 44). A customer can give the host a tip after a call, from $2,
-  paid by card, held for three days and then taken. Connect keeps its usual fee from it (4.9% plus
-  30 cents), and tells the customer so before they pay.
+  paid by card, held for three days and then taken. The host gets the whole tip and Connect keeps
+  nothing of it. What the card payment costs (2.9% plus 30 cents) is added on top for the
+  customer as a "payment fee": a $5 tip costs $5.46. The total is shown before they pay.
+  - **The added payment fee.** In the United Kingdom and the European Union a business may not
+    add a charge for paying by card, also not under another name; in the United States card rules
+    do not allow one on debit cards, and some states have rules of their own. A fee that every
+    payment carries, whatever it is paid with, is not such a charge, and Connect takes cards only.
+    Is that enough? Must the fee be named or shown differently, or must Connect pay it itself for
+    customers in some countries?
   - In some places the law says a tip must reach the worker in full (for example the United
     Kingdom's law on tips of 2023, and rules for employees in several US states). Hosts are not
-    Connect's employees. May Connect keep its fee from something it calls a "tip"? If not: must the
-    fee on tips be zero, or must the word be changed?
+    Connect's employees, and Connect keeps nothing of a tip. But the 25-cent charge when a host
+    collects her earnings can fall on a collection that holds only a tip. Is that allowed?
   - Is the wording right: a tip is a thank-you for a call that took place, it buys nothing, and it
     is not a donation to a charity?
   - What is a tip for tax: the host's income like a call's price? Does sales tax or VAT apply to
