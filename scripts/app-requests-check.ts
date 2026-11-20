@@ -365,6 +365,9 @@ async function main() {
       const blocks = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, hana.id), eq(schema.blocks.blockedId, cust.id)));
       check("the host blocks the person asking: it is done, and their request has ended", done.status === 200 && blocks.length === 1 && page.notice === "Blocked. They cannot ask you for calls any more, and any requests or future calls between you have ended." && page.stage !== "waiting" && page.host?.answer === null && (await row(custAsk.id)).stage !== "waiting", done.text.slice(0, 200));
       check("from then on her page of it says nothing personal about them", page.host?.known === false && page.host.words === null && page.host.note === null && page.host.customerName === cust.name);
+      check("it says that the request has ended (not that it was not answered in time), and does not offer to block again", page.stageWords === "This request has ended." && page.block === null, `${page.stageWords} ${JSON.stringify(page.block)}`);
+      const web = await asBrowser(`/bookings/${custAsk.id}`, { jar: hana.jar });
+      check("the website's page says the same sentence", web.status === 200 && web.text.includes("This request has ended.") && !web.text.includes("not answered in time"), `${web.status}`);
       check("and it is off her list", !everyRequest((await list(hana.jar)).body).some((request) => request.id === custAsk.id));
       const again = await step(custAsk.id, "block", hana.jar);
       check("blocking again changes nothing and is answered the same way", again.status === 200 && (await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, hana.id), eq(schema.blocks.blockedId, cust.id)))).length === 1);

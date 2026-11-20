@@ -1,7 +1,9 @@
 # Phone apps, part 07: a host's requests
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("not ready"); every point is worked in (the list is at the end).
+**Status:** built on 20 November 2026 (not merged yet: it waits, with parts 01 to 06, behind the
+tips pull request). Written by the builder alone. Part of plan 45. Astra checked the plan once
+("not ready"); every point is worked in (the list is at the end). What the building changed is
+listed below.
 
 ## For the founder: what this is
 
@@ -72,6 +74,54 @@ requests, and on a request's own page. (The instant kind, "call now", is part 11
 
 No payment happens here. Accepting a call that a customer pays for with Stripe is the
 one-to-one service the stores allow.
+
+## What the building changed (20 November 2026)
+
+1. **One place decides what a host may know about a waiting request**
+   (`src/lib/booking/waiting-list.ts`), and the website's list (the requests page and the home
+   page) is drawn from it, as before to the letter. The sentences about requests are in
+   `waiting-words.ts`, the ones about blocking in `src/lib/safety/block-words.ts`; the
+   website's pages and buttons use them too.
+2. **The addresses:** `GET /api/app/requests` (the list); `GET /api/app/bookings/[id]` now also
+   answers for the host of a request (the same address as for its customer; which of the two
+   is reading comes from the sign-in); `POST …/accept`, `…/decline`, `…/note`, `…/block`.
+   A step that is the other person's is "not found", like a request that is not one's own.
+3. **The list's rule holds at every stage, not only while a request waits.** About a customer
+   whose account is closed, or across a block, the host's page of a request says the name and
+   nothing else, also after it was answered. (The website's page for one request still shows
+   a rating there. Stricter in the app; say if the website should follow.)
+4. **Blocking from a request is for either of the two,** as on the website's page: the customer
+   can block the host from their request too. Both are asked once more first. Someone who has
+   already blocked the other is not offered the button again.
+5. **A call asked for "right now" is on the list, marked as that kind,** and is not answered
+   with these buttons: its line says it is answered on "Available now" (part 11 builds that).
+   The addresses refuse both answers for it.
+6. **Accept and Decline are on the list and on the request's page.** On the home page the
+   waiting requests lead to their page, and a button "Answer requests" leads to the list.
+   (The plan had the buttons on the home page too. One tap further, and no button to press by
+   mistake while scrolling the home page.)
+7. **The note** is saved only if the stored note is still the one the screen was showing, as on
+   the website. The box says so when it was changed elsewhere and offers to take the stored
+   one in; what was typed is never lost.
+8. **One sentence changed on the website too:** a request ended by a block said "ended because
+   it was not answered in time" to the host. It now says "This request has ended."
+9. **Not built here:** the payout set-up screen that a refused paid accept should lead to
+   (part 14b; the refusal's own sentence says what to do), and Report (its own part).
+
+### How it was tried
+
+- `scripts/app-requests-check.ts`, 67 checks: the list and what may be known about each person
+  (also for a closed account and across a block); one request as the host sees it; accepting
+  gives the same call, busy time, passed-over request and emails as the website's own
+  function; every refusal (answered twice, too late, the time taken by a request of her own,
+  no payout account, paused, a call asked for now); declining and the seven days; the note
+  (saved, changed, emptied, refused when out of date or too long or across a block);
+  blocking by the host and by the customer; and everything that must be "not found".
+- Part 06's check (122) and the website's own checks pass unchanged.
+- On the Android test phone, with pictures: the home page's waiting requests, the list (two
+  people asking for one time), a request's page, Accept with its question, the list after it
+  (the other person passed over), a request declined elsewhere while the phone showed it, the
+  note saved, Block with its question and the page after it.
 
 ## Astra's check (20 November 2026): "not ready", now worked in
 

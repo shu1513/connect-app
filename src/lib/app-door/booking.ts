@@ -8,6 +8,8 @@
  * app: it shows the words it is given, and hands back the two numbers it was shown as they are.
  */
 import "server-only";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST, whatIsAskedFor } from "@/lib/booking/book-words";
 import { gatherRequest, type RequestPage } from "@/lib/booking/request-page";
@@ -110,6 +112,9 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
   const tooLate = mine && booking.stage === "card" && !cardStepOpen(booking.createdAt, now);
   const atCard = mine && booking.stage === "card" && !tooLate && mayEnterCard(booking, switches);
   const otherName = found.otherName ?? "";
+  // The button to block the other person is not offered again to someone who has blocked them already.
+  const otherId = mine ? booking.hostId : booking.customerId;
+  const [blockedByMe] = await db.select({ blockerId: schema.blocks.blockerId }).from(schema.blocks).where(and(eq(schema.blocks.blockerId, person.id), eq(schema.blocks.blockedId, otherId)));
   return {
     id: booking.id,
     role,
@@ -140,7 +145,7 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     takeBackSure: mine && waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
     host: mine ? null : await hostPart(found),
     // As on the website's page: either of the two can block the other once the request was sent.
-    block: booking.stage !== "card" && otherName ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
+    block: booking.stage !== "card" && otherName && !blockedByMe ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
     // What else the call's own page is for is said once the app has that page (part 08).
     call: booking.callId ? { id: booking.callId } : null,
     // (Past the card step's time the helper ends the request within moments: the page asks again until it has.)

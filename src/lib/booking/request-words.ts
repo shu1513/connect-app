@@ -49,9 +49,18 @@ export function requestTitle(booking: Told, role: "host" | "customer", otherName
   return role === "host" ? `Request from ${otherName}` : `Your request to ${otherName}`;
 }
 
+/**
+ * The reason written on a request that was ended from outside (a block between the two, a closed
+ * account): it "could not go ahead". The host's usual sentence for a request that ran out, "it
+ * was not answered in time", would then say something that did not happen.
+ */
+export const COULD_NOT_GO_AHEAD = "the request could not go ahead";
+const ENDED_FOR_HOST = "This request has ended.";
+
 /** Where the request stands, in one sentence, for the one of its two people who is looking. */
 export function stageWords(booking: Told, role: "host" | "customer"): string {
   if (booking.stage === "passed_over" && booking.endedReason === PASSED_OVER.ownCall) return role === "host" ? OWN_CALL_FOR_HOST : OWN_CALL_FOR_CUSTOMER;
+  if (role === "host" && booking.source !== "member" && booking.stage === "ran_out" && booking.endedReason === COULD_NOT_GO_AHEAD) return ENDED_FOR_HOST;
   const byMember = booking.source === "member";
   return (byMember ? (role === "host" ? MEMBER_STAGE_FOR_HOST : MEMBER_STAGE_FOR_CUSTOMER) : role === "host" ? STAGE_FOR_HOST : STAGE_FOR_CUSTOMER)[booking.stage] ?? booking.stage;
 }
