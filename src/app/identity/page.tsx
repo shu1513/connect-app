@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { eq } from "drizzle-orm";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { returnPath } from "@/lib/safe-next";
 import { identityState, IDENTITY_TRIES, refreshIdentity } from "@/lib/safety/identity";
@@ -21,6 +24,10 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
   const notice = readNotice("/identity", query);
   let state = await identityState(user.id);
   if (!state.passed && (state.pending || state.triesLeft < IDENTITY_TRIES)) state = await refreshIdentity(user.id).catch(() => state);
+  // A result of "under 18" pauses the account, and this page may be the one that just read it (`user.paused` was
+  // read before). A paused person is shown why, not "Start the check".
+  const [now] = await db.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(eq(schema.user.id, user.id));
+  if (now?.pausedAt) redirect("/paused");
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
@@ -50,8 +57,9 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
         <>
           <p className="mt-4 text-sm">
             This confirms that you are a real adult. Hosts need it, and some hosts only take calls from
-            people who have done it. You take a photo of your ID and a selfie on Stripe&apos;s own pages. We never see or keep the photos:
-            Stripe tells us only that you are a real person, 18 or older, and the name on the ID.
+            people who have done it. You take a photo of your ID and a selfie on Stripe&apos;s own pages. We never see or keep the photos.
+            Stripe tells us that you are a real person, your date of birth and the name on the ID. We use your date of birth only to
+            check whether you are 18 or older. We do not keep it.
           </p>
           {state.pending && <p className="mt-3 text-sm">Your last check is still being looked at. This usually takes a minute or two. Reload this page to see the result.</p>}
           {state.triesLeft === 0 ? (

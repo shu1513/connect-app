@@ -11,8 +11,9 @@
  * project. It gets the same emails in a tip's own words: the hold (the receipt), "nothing was
  * charged", a refund, and the host's "you got a tip".
  */
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { schema } from "@/db";
+import { agreementBox } from "./wording";
 import type { Contribution, ContributionPayment } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
 import { queueEmail } from "@/lib/email";
@@ -53,12 +54,20 @@ export async function queueAgreementEmail(tx: Tx, contribution: Contribution): P
   const parts = await partsOf(tx, contribution);
   if (!parts || contribution.kind !== "monthly") return;
   const { giver, hostName, projectName } = parts;
+  // The box they ticked, word for word, in the wording they saw: that can be an older one than today's
+  // (the form sent before a change of the wording, the card step finished after it).
+  const [agreed] = await tx
+    .select({ version: schema.contributionAgreements.version, amountCents: schema.contributionAgreements.amountCents })
+    .from(schema.contributionAgreements)
+    .where(eq(schema.contributionAgreements.contributionId, contribution.id))
+    .orderBy(desc(schema.contributionAgreements.agreedAt))
+    .limit(1);
   await queueEmail(tx, {
     to: giver.email,
     key: `contribution-agreed:${contribution.id}`,
     subject: `Your monthly contribution to ${hostName}'s project: ${money(contribution.amountCents)} a month`,
     text:
-      `Hi ${giver.name},\n\nYou agreed that Connect holds ${money(contribution.amountCents)} on your card today and every month, and takes it three days later each time, until you cancel. It supports ${hostName}'s project "${projectName}".\n\n` +
+      `Hi ${giver.name},\n\nYou ticked this box:\n\n"${agreementBox(agreed?.amountCents ?? contribution.amountCents, agreed?.version)}"\n\nYour contribution supports ${hostName}'s project "${projectName}".\n\n` +
       `It does not buy a call or any promised reward, and it is not a donation to a charity.\n\n` +
       `Before each month's money is taken you get an email with the exact moment, and until that moment you can cancel that month's payment and pay nothing for it.\n\n` +
       `To stop: open "Your account", "Projects you support", and choose "Stop contributing". It takes effect at once. Or use this link: ${contributionPage(contribution)}\n\n${footer}\n`,
@@ -277,7 +286,7 @@ export async function queueNewContributorEmail(tx: Tx, contribution: Contributio
       subject: `${giver.name} sent you a tip of ${money(tipCents)}`,
       text:
         `Hi ${host.name},\n\n${giver.name} sent you a tip of ${money(tipCents)}${call ? ` for your call on ${whenFor(host, call.startsAt)}` : ""}. All of it is yours: Connect keeps nothing of a tip.\n\n` +
-        `The amount is first only held on their card and taken three days later. Until then they, or you, can let it go. It appears with your earnings once the money has been taken.\n\n` +
+        `The amount is first only held on their card and normally taken three days later. Until then they, or you, can let it go. It appears with your earnings once the money has been taken.\n\n` +
         `${contribution.callId ? `The call: ${appUrl()}/calls/${contribution.callId}/results\n\n` : ""}${footer}\n`,
     });
     return;
@@ -288,7 +297,7 @@ export async function queueNewContributorEmail(tx: Tx, contribution: Contributio
     subject: `${giver.name} contributes to "${projectName}"`,
     text:
       `Hi ${host.name},\n\n${giver.name} contributes ${money(contribution.amountCents)}${contribution.kind === "monthly" ? " every month" : ""} to your project "${projectName}".\n\n` +
-      `The amount is first only held on their card and taken three days later. Until then they, or you, can let it go. Your share appears with your earnings once the money has been taken.\n\nYour project: ${appUrl()}/host/project\n\n${footer}\n`,
+      `The amount is first only held on their card and normally taken three days later. Until then they, or you, can let it go. Your share appears with your earnings once the money has been taken.\n\nYour project: ${appUrl()}/host/project\n\n${footer}\n`,
   });
 }
 
