@@ -416,3 +416,43 @@ export type AppIdentityStart = { url: string };
 
 /** The answer of the follow and unfollow addresses: the sentence to show, and how the following stands now. */
 export type AppFollowDone = { words: string; follow: "following" | "ended" | "none" };
+
+/**
+ * One request waiting for a host's answer, with what she may know about the person asking. For
+ * someone whose account is closed, or across a block, only the name, the time, the length and
+ * the price are filled.
+ */
+export type AppWaitingOne = {
+  id: string;
+  /** "now": a call asked for right away, which needs its answer within minutes. */
+  kind: "booked" | "now";
+  name: string;
+  minutes: number;
+  /** "$40.00", or "free". */
+  price: string;
+  respondBy: string | null;
+  known: boolean;
+  /** How other hosts have rated them; null when there are too few ratings. Only when `known`. */
+  rating: { average: number; count: number } | null;
+  /** What to say when there is no rating to show ("New: not enough ratings yet"); null when nothing may be said about them. */
+  ratingWords: string | null;
+  /** Only a yes or no. */
+  idConfirmed: boolean;
+  /** What they wrote when asking; empty when they wrote nothing. */
+  words: string;
+  /** The host's own private note about them, or null. */
+  note: string | null;
+  photoId: string | null;
+};
+
+/** The answer of GET /api/app/requests: the requests a host has to answer, grouped by the time asked for, the soonest first. */
+export type AppRequests = {
+  title: string;
+  /** The lines under the title. */
+  intro: string[];
+  /** What to say when nothing waits; null when something does. */
+  empty: string | null;
+  groups: Array<{ startsAt: string; /** "3 people asked for this time. Choose one." */ many: string | null; requests: AppWaitingOne[] }>;
+  /** How often the app asks again while the list is in front. */
+  refreshSeconds: number;
+};
