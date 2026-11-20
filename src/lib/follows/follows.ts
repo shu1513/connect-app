@@ -218,8 +218,13 @@ export async function followedHosts(userId: string, now: Date): Promise<Followed
   const blocked = new Set(blocks.map((block) => (block.blockerId === userId ? block.blockedId : block.blockerId)));
   const maybe = calendars.filter((calendar) => open.has(calendar.userId) && !blocked.has(calendar.userId) && isAvailableNow(calendar, now)).map((calendar) => calendar.userId);
   // The question the host's own page asks: there, with room for another request, and a length that fits.
+  // Asked five at a time: each answer takes several questions to the database, and this list is read every minute.
   const available = new Set<string>();
-  for (const hostId of maybe) if (await instantOffer(hostId, now)) available.add(hostId);
+  for (let i = 0; i < maybe.length; i += 5) {
+    const some = maybe.slice(i, i + 5);
+    const offers = await Promise.all(some.map((hostId) => instantOffer(hostId, now)));
+    some.forEach((hostId, at) => offers[at] && available.add(hostId));
+  }
   const nextCall = new Map<string, { id: string; startsAt: Date }>();
   for (const call of calls) {
     const other = call.hostId === userId ? call.customerId : call.hostId;
@@ -248,19 +253,22 @@ export async function asksForOnline(followerId: string, hostId: string): Promise
   return Boolean(line && !line.unfollowedAt && line.tellOnline);
 }
 
-export type DiaryNews = { postId: string; hostName: string; handle: string; projectId: string; projectName: string; text: string; writtenAt: Date };
+export type DiaryNews = { postId: string; hostId: string; hostName: string; handle: string; projectId: string; projectName: string; text: string; writtenAt: Date };
 
 /**
- * "New in diaries" (plans/31, decision 9): the latest posts of the hosts this person follows, at
- * most five, from the last seven days. Exactly what anyone could read by opening the diary: the
+ * "News from your hosts" (plans/31, decision 9; the numbers are from plans/36, decision 6): the
+ * latest posts of the hosts this person follows, at most ten, from the last 30 days
+ * (`FOLLOW.newsPosts`, `FOLLOW.newsDays`). Exactly what anyone could read by opening the diary: the
  * post is not removed and not hidden, and the host's page is open to everyone. So it is the same
  * for a follower the host has blocked (leaving it out would be a sign of the block). The rules
- * are applied before anything is sorted or cut to five, and only what is shown is returned.
+ * are applied before anything is sorted or cut to ten, and only what is shown is returned (the
+ * host's id is there for their photo, which is fetched from its own address).
  */
 export async function diaryNews(userId: string, now: Date): Promise<DiaryNews[]> {
   return db
     .select({
       postId: schema.projectPosts.id,
+      hostId: schema.follows.hostId,
       hostName: schema.hostProfiles.displayName,
       handle: schema.hostProfiles.handle,
       projectId: schema.projects.id,
@@ -282,11 +290,11 @@ export async function diaryNews(userId: string, now: Date): Promise<DiaryNews[]>
         eq(schema.hostProfiles.hidden, false),
         isNull(schema.projectPosts.removedAt),
         isNull(schema.projectPosts.hiddenAt),
-        gt(schema.projectPosts.createdAt, new Date(now.getTime() - 7 * DAY)),
+        gt(schema.projectPosts.createdAt, new Date(now.getTime() - FOLLOW.newsDays * DAY)),
       ),
     )
     .orderBy(desc(schema.projectPosts.createdAt), desc(schema.projectPosts.id))
-    .limit(5);
+    .limit(FOLLOW.newsPosts);
 }
 
 /** Whether this person follows anyone at all (for the pages that only then keep themselves fresh). */
