@@ -1,7 +1,7 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { bookSummaryFor } from "@/lib/app-door/booking";
 import type { AppBookSent } from "@/lib/app-door/types";
-import { askForCall, BookingError, requestWithKey } from "@/lib/booking/bookings";
+import { askForCall, BookingError, requestWithKey, requestWithKeyForCertain } from "@/lib/booking/bookings";
 import { publicProfile } from "@/lib/profiles/profiles";
 
 /**
@@ -35,6 +35,16 @@ function notKnown(): Response {
   return new Response(null, { status: 503, headers: { "cache-control": "private, no-store" } });
 }
 
+/** Whether this customer has made a request with this key, asked for certain; "unknown" when it cannot be asked just now. */
+async function certain(customerId: string, requestKey: string): Promise<Awaited<ReturnType<typeof requestWithKeyForCertain>> | "unknown"> {
+  try {
+    return await requestWithKeyForCertain(customerId, requestKey);
+  } catch (lookup) {
+    console.error("[bookings] could not look for a request after a failed sending", lookup);
+    return "unknown";
+  }
+}
+
 export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[handle]/book">) {
   const asked = await appRequest(request, "active");
   if (asked instanceof Response) return asked;
@@ -60,7 +70,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
     return answer(body);
   }
   const profile = await publicProfile(handle);
-  if (!profile) return refuse("not_found");
+  if (!profile) {
+    // Her page is not there now. It may have been a moment ago, when an earlier sending with this key was let
+    // in, and that one may only now be on its way to being written down: it is looked for, for certain, before
+    // "not found" is said. (Hiding a page does not wait for a request that is being made.)
+    const settled = await certain(me.id, given.requestKey);
+    return settled === "unknown" ? notKnown() : settled ? answer<AppBookSent>({ id: settled.id }) : refuse("not_found");
+  }
   try {
     const { booking } = await askForCall({
       customer: me,
@@ -81,13 +97,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
     // A paid request is written down first, and its card step is made at Stripe after. If only the second failed
     // (whatever the kind of failure), the request exists: it is answered as made (its own screen makes the card step
     // when it is asked for), never as "nothing was sent".
-    let made: Awaited<ReturnType<typeof requestWithKey>>;
-    try {
-      made = await requestWithKey(me.id, given.requestKey);
-    } catch (lookup) {
-      console.error("[bookings] could not look for a request after a failed sending", lookup);
-      return notKnown();
-    }
+    // Looked for with the customer's calendar locked: a sending that is being written down right now is waited
+    // for. (Some refusals come before anything is locked: that the host cannot be booked just now, say.)
+    const made = await certain(me.id, given.requestKey);
+    if (made === "unknown") return notKnown();
     if (made) {
       const body: AppBookSent = { id: made.id };
       return answer(body);

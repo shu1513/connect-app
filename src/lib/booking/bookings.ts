@@ -1016,6 +1016,20 @@ export async function requestWithKey(customerId: string, requestKey: string): Pr
   return booking ?? null;
 }
 
+/**
+ * The same question, asked for certain: with this customer's calendar locked. A request is made
+ * with that lock held, so one that is being written down at this very moment is waited for, and
+ * then seen. This is what is asked before a customer is told "nothing was sent".
+ */
+export async function requestWithKeyForCertain(customerId: string, requestKey: string): Promise<Booking | null> {
+  if (!isUuid(requestKey)) return null;
+  return db.transaction(async (tx) => {
+    await lockCalendars(tx, [customerId]);
+    const [booking] = await tx.select().from(schema.bookings).where(and(eq(schema.bookings.requestKey, requestKey), eq(schema.bookings.customerId, customerId)));
+    return booking ?? null;
+  });
+}
+
 /** The requests a host has to answer, soonest call first, so requests for the same time sit together. */
 export async function waitingForHost(hostId: string) {
   return db

@@ -363,6 +363,16 @@ between live callers and the check scripts, and named one blocker and four notes
 5. *Two moments were still dated by the clock from when the question came in.* Both use the
    clock of the moment now.
 
+## Astra's sixth look at the code (20 November 2026): one more race, now worked in
+
+It found all five points of its fifth look fixed, and one race left of the same family:
+
+1. *A retry could be told "not found" (or "this host cannot be booked right now") while the
+   first sending was still being written down,* when the host hid her page in that very
+   moment. Before any such answer the server now looks for the request **with the customer's
+   calendar locked**. A request is made with that lock held, so one that is on its way is
+   waited for and then found. If the look cannot be made, the answer is "it cannot be told".
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *The consent was put too late and the card's lifetime was wrong.* The box is ticked before
