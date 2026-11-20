@@ -96,11 +96,13 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
 export async function stopContribution(input: { contributionId: string; contributorId: string; now?: Date }): Promise<void> {
   if (!isId(input.contributionId)) throw new ContributionError("Contribution not found.");
   const [found] = await db
-    .select({ id: schema.contributions.id })
+    .select({ id: schema.contributions.id, kind: schema.contributions.kind })
     .from(schema.contributions)
     .where(and(eq(schema.contributions.id, input.contributionId.toLowerCase()), eq(schema.contributions.contributorId, input.contributorId)));
   // Someone else's and one that does not exist look the same.
   if (!found) throw new ContributionError("Contribution not found.");
+  // Only a monthly contribution is stopped. One made once, or a tip, has a single payment, which is cancelled instead.
+  if (found.kind !== "monthly") throw new ContributionError("Only a monthly contribution can be stopped. A single payment can be cancelled while it is held.");
   await endContribution(found.id, "stopped", input.now ?? new Date());
 }
 

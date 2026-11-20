@@ -43,6 +43,8 @@ export function endedWords(how: string | null): string {
       return "The project has ended.";
     case "host_let_go":
       return "The host let the payment go.";
+    case "switch":
+      return "It could not be taken while this was paused.";
     case "given_up":
       return "No payment could be put in place for 7 days.";
     case "never_again":
@@ -169,7 +171,8 @@ export async function contributorsOf(hostId: string, projectId: string, now: Dat
   return { contributors, paidCents, shareCents, readyCents: ready.reduce((sum, earning) => sum + earning.shareCents, 0) };
 }
 
-export type FounderRow = PaymentRow & { contribution: Contribution; contributorName: string; hostName: string; projectName: string };
+/** `projectName` is null for a tip, which has a call and no project. */
+export type FounderRow = PaymentRow & { contribution: Contribution; contributorName: string; hostName: string; projectName: string | null };
 
 /**
  * For the founder: what each project has received, and the payments that need a look: one with a
@@ -182,10 +185,11 @@ export async function forFounder(): Promise<{ received: Map<string, number>; row
     .select({ projectId: schema.contributions.projectId, cents: sql<string>`coalesce(sum(${pays.takenCents} - ${pays.refundedCents}), 0)::bigint` })
     .from(pays)
     .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
-    .where(eq(pays.status, "taken"))
+    // (What a project received is contributions to that project: a tip has none, and is not counted here.)
+    .where(and(eq(pays.status, "taken"), isNotNull(schema.contributions.projectId)))
     .groupBy(schema.contributions.projectId);
   const rows = await founderRows(or(isNotNull(pays.problem), eq(pays.thirtyDayMark, true), ne(pays.founderHold, "none"), inArray(pays.dispute, ["open", "lost"]), and(inArray(pays.status, ["held", "taken"]), sql`${pays.amountCents} > 100000`)), ATTENTION, 0);
-  return { received: new Map(totals.map((row) => [row.projectId, Number(row.cents)])), rows };
+  return { received: new Map(totals.flatMap((row) => (row.projectId ? [[row.projectId, Number(row.cents)] as const] : []))), rows };
 }
 
 /** The attention list shows this many, the newest first. Every payment is always reachable through its project's own list. */
@@ -200,7 +204,7 @@ async function founderRows(where: ReturnType<typeof and>, limit: number, offset:
     .select({ payment: pays, contribution: schema.contributions, contributorName: contributor, hostName: host, projectName: schema.projects.name })
     .from(pays)
     .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
-    .innerJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
+    .leftJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
     .where(where)
     .orderBy(desc(pays.createdAt), desc(pays.id))
     .limit(limit)
@@ -217,5 +221,15 @@ async function founderRows(where: ReturnType<typeof and>, limit: number, offset:
  */
 export async function projectPaymentsForFounder(projectId: string, page: number): Promise<{ rows: FounderRow[]; older: boolean }> {
   const found = await founderRows(eq(schema.contributions.projectId, projectId), PAYMENTS_PER_PAGE + 1, (Math.max(1, page) - 1) * PAYMENTS_PER_PAGE);
+  return { rows: found.slice(0, PAYMENTS_PER_PAGE), older: found.length > PAYMENTS_PER_PAGE };
+}
+
+/**
+ * For the founder: every payment of a tip (plans/44, decision 17), page by page, the newest first.
+ * This is how the founder reaches an ordinary tip, to let it go, hold its share back, or refund it
+ * after the host has collected.
+ */
+export async function tipPaymentsForFounder(page: number): Promise<{ rows: FounderRow[]; older: boolean }> {
+  const found = await founderRows(eq(schema.contributions.kind, "tip"), PAYMENTS_PER_PAGE + 1, (Math.max(1, page) - 1) * PAYMENTS_PER_PAGE);
   return { rows: found.slice(0, PAYMENTS_PER_PAGE), older: found.length > PAYMENTS_PER_PAGE };
 }

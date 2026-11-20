@@ -52,8 +52,11 @@ type Reader = Pick<typeof db, "select">;
  * start anything new, as the net behind them.
  */
 export async function whyMustEnd(reader: Reader, contribution: Pick<Contribution, "projectId" | "hostId" | "contributorId">): Promise<string | null> {
-  const [project] = await reader.select({ status: schema.projects.status }).from(schema.projects).where(eq(schema.projects.id, contribution.projectId));
-  if (project?.status !== "running") return "project_ended";
+  // (A tip has no project: only the two people and the host's page can end it.)
+  if (contribution.projectId) {
+    const [project] = await reader.select({ status: schema.projects.status }).from(schema.projects).where(eq(schema.projects.id, contribution.projectId));
+    if (project?.status !== "running") return "project_ended";
+  }
   const people = await reader.select({ id: schema.user.id, pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(inArray(schema.user.id, [contribution.hostId, contribution.contributorId]));
   if (people.length !== 2 || people.some((person) => person.closedAt)) return "closed";
   if (people.some((person) => person.pausedAt)) return "paused";

@@ -242,6 +242,14 @@ back in full, once, by the code that already does this for a contribution. Switc
 brings none of these back. Tips that were taken before stay. A
 host cannot switch tips off for herself in the first version.
 
+**The switch is kept on the server, so it works for the phone apps too** (the founder, 20 November
+2026: "should be on a feature flag so I can turn it on and off. I want this flag works for mobile
+too"). The same goes for the projects switch, which exists since plan 23. An app gets everything
+from the same server, and the server refuses a tip while the switch is off whoever asks. The one
+rule for the app: it asks the server whether tips (and projects) are on each time it draws a page
+that could show them, and never carries the answer inside the app, where only a new version could
+change it. That rule is added to plan 39.
+
 **13. The $1,000 rule counts tips and contributions together.** It is counted for one person
 paying one host (plan 23), whatever the money is called, on what the customer pays. A tip that
 brings a pair over $1,000 in 30 days waits 30 days like a contribution, and the founder gets the

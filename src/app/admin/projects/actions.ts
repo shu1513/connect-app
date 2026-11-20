@@ -8,7 +8,7 @@ import { momentIn } from "@/lib/booking/calendar";
 import { lockAndReport, recordReportMade, removePictureAsFounder, setSuspected } from "@/lib/projects/moderation";
 import { hidePost, showPost } from "@/lib/projects/posts";
 import { ProjectError } from "@/lib/projects/rules";
-import { saveProjectsSwitch } from "@/lib/contributions/switch";
+import { saveProjectsSwitch, saveTipsSwitch } from "@/lib/contributions/switch";
 import { requireAdmin } from "@/lib/session";
 
 function back(text: string, postId?: string): never {
@@ -129,4 +129,16 @@ export async function reportMadeAction(formData: FormData) {
     notice = problem(error);
   }
   back(notice);
+}
+
+/**
+ * The tips switch (plans/44, decision 12): on or off, for every host. The change, its line in the
+ * record of the founder's actions, and what it means for tips that are not taken (they are given
+ * up, and their holds let go) are saved together, or none is.
+ */
+export async function tipsSwitchAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const off = formData.get("tips") === "off";
+  await saveTipsSwitch({ adminId: admin.id, off });
+  back(off ? "Tips are off. Tips that were only held are being let go." : "Tips are on.");
 }

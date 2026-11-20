@@ -6,6 +6,10 @@
  * Contributions have their own emails: a call's speak of a call, and a membership's of held money
  * and talk time, and both would be wrong here. Nothing here says "donation": a contribution
  * supports a host's project and is not a gift to a charity.
+ *
+ * A tip after a call (plans/44) is kept as a contribution of kind "tip", with a call and no
+ * project. It gets the same emails in a tip's own words: the hold (the receipt), "nothing was
+ * charged", a refund, and the host's "you got a tip".
  */
 import { eq, inArray } from "drizzle-orm";
 import { schema } from "@/db";
@@ -27,7 +31,7 @@ function appUrl(): string {
 
 const contributionPage = (contribution: Pick<Contribution, "id">) => `${appUrl()}/contributions/${contribution.id}`;
 
-/** The two people of a contribution, the host's name as others know her, and the project's name. */
+/** The two people of a contribution, the host's name as others know her, and the project's name (a tip has no project). */
 async function partsOf(tx: Tx, contribution: Pick<Contribution, "hostId" | "contributorId" | "projectId">): Promise<{ host: Person; giver: Person; hostName: string; projectName: string } | null> {
   const rows = await tx
     .select({ id: schema.user.id, name: schema.user.name, email: schema.user.email, timeZone: schema.user.timeZone })
@@ -37,7 +41,7 @@ async function partsOf(tx: Tx, contribution: Pick<Contribution, "hostId" | "cont
   const giver = rows.find((row) => row.id === contribution.contributorId);
   if (!host || !giver) return null;
   const [profile] = await tx.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, contribution.hostId));
-  const [project] = await tx.select({ name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.id, contribution.projectId));
+  const [project] = contribution.projectId ? await tx.select({ name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.id, contribution.projectId)) : [];
   return { host, giver, hostName: profile?.displayName ?? host.name, projectName: project?.name ?? "their project" };
 }
 
@@ -70,6 +74,20 @@ export async function queueHoldEmail(tx: Tx, contribution: Contribution, payment
   const parts = await partsOf(tx, contribution);
   if (!parts || !payment.takeAt) return;
   const { giver, hostName, projectName } = parts;
+  if (contribution.kind === "tip") {
+    const tipCents = contribution.tipCents ?? payment.amountCents;
+    await queueEmail(tx, {
+      to: giver.email,
+      key: `contribution-hold:${payment.id}`,
+      subject: `Your tip for ${hostName}: ${money(tipCents)}`,
+      text:
+        `Hi ${giver.name},\n\n${money(payment.amountCents)} is held on your card, through Connect: a tip of ${money(tipCents)} for ${hostName}, and a payment fee of ${money(payment.amountCents - tipCents)}.\n\n` +
+        `The money is taken on ${whenFor(giver, payment.takeAt)}. Until then you can cancel it, and nothing is charged: ${contributionPage(contribution)}\n\n` +
+        `${hostName} receives the whole tip. After the money has been taken, giving it back is ${hostName}'s decision. A tip is a thank-you for a call that has taken place; it does not buy a call or any promised reward, and it is not a donation to a charity.\n\n` +
+        `This email is your receipt. No other email is sent when the money is taken.\n\n${footer}\n`,
+    });
+    return;
+  }
   await queueEmail(tx, {
     to: giver.email,
     key: `contribution-hold:${payment.id}`,
@@ -101,7 +119,7 @@ export async function queuePaymentFailedEmail(tx: Tx, contribution: Contribution
 }
 
 /** Why a held payment was let go, in words for its contributor. */
-function whyLetGo(how: string | null, hostName: string): string {
+function whyLetGo(how: string | null, hostName: string, tip = false): string {
   switch (how) {
     case "cancelled":
     case "stopped":
@@ -116,7 +134,7 @@ function whyLetGo(how: string | null, hostName: string): string {
     case "no_hold_end":
       return "It could not be taken in time, so it was let go.";
     case "switch":
-      return "Contributions to this project are paused at the moment.";
+      return tip ? "Tips are paused at the moment." : "Contributions to this project are paused at the moment.";
     default:
       return "It could no longer go ahead.";
   }
@@ -132,6 +150,17 @@ export async function queueNothingChargedEmail(tx: Tx, contribution: Contributio
   if (!parts) return;
   const { giver, hostName } = parts;
   const goesOn = contribution.kind === "monthly" && contribution.status === "running";
+  if (contribution.kind === "tip") {
+    await queueEmail(tx, {
+      to: giver.email,
+      key: `contribution-let-go:${payment.id}`,
+      subject: `Nothing was charged: your tip for ${hostName}`,
+      text:
+        `Hi ${giver.name},\n\nThe ${money(payment.amountCents)} that was held on your card for your tip to ${hostName} has been let go. Nothing was charged. ${whyLetGo(payment.endedHow, hostName, true)}\n\n` +
+        `Your bank may still show the hold for a few days before it disappears.\n\n${footer}\n`,
+    });
+    return;
+  }
   await queueEmail(tx, {
     to: giver.email,
     key: `contribution-let-go:${payment.id}`,
@@ -149,6 +178,15 @@ export async function queueRefundEmail(tx: Tx, contribution: Contribution, refun
   const parts = await partsOf(tx, contribution);
   if (!parts) return;
   const { giver, hostName } = parts;
+  if (contribution.kind === "tip") {
+    await queueEmail(tx, {
+      to: giver.email,
+      key: `contribution-refund:${refund.id}`,
+      subject: `${money(refund.amountCents)} of your tip for ${hostName} was paid back`,
+      text: `Hi ${giver.name},\n\n${money(refund.amountCents)} of what you paid for your tip to ${hostName} has been paid back to your card. Banks usually show it within 5 to 10 days.\n\nYour tip: ${contributionPage(contribution)}\n\n${footer}\n`,
+    });
+    return;
+  }
   await queueEmail(tx, {
     to: giver.email,
     key: `contribution-refund:${refund.id}`,
@@ -227,6 +265,21 @@ export async function queueNewContributorEmail(tx: Tx, contribution: Contributio
   const parts = await partsOf(tx, contribution);
   if (!parts) return;
   const { giver, host, projectName } = parts;
+  if (contribution.kind === "tip") {
+    const tipCents = contribution.tipCents ?? contribution.amountCents;
+    const [call] = contribution.callId ? await tx.select({ startsAt: schema.calls.startsAt }).from(schema.calls).where(eq(schema.calls.id, contribution.callId)) : [];
+    await queueEmail(tx, {
+      to: host.email,
+      // Named by the call: one email for a call, however often a tip for it is cancelled and given again (plans/44, decision 9).
+      key: `tip-new:${contribution.callId ?? contribution.id}`,
+      subject: `${giver.name} sent you a tip of ${money(tipCents)}`,
+      text:
+        `Hi ${host.name},\n\n${giver.name} sent you a tip of ${money(tipCents)}${call ? ` for your call on ${whenFor(host, call.startsAt)}` : ""}. All of it is yours: Connect keeps nothing of a tip.\n\n` +
+        `The amount is first only held on their card and taken three days later. Until then they, or you, can let it go. It appears with your earnings once the money has been taken.\n\n` +
+        `${contribution.callId ? `The call: ${appUrl()}/calls/${contribution.callId}/results\n\n` : ""}${footer}\n`,
+    });
+    return;
+  }
   await queueEmail(tx, {
     to: host.email,
     key: `contribution-new:${contribution.id}`,
@@ -248,9 +301,9 @@ export async function tellFounderOfLargeTotal(tx: Tx, input: { contributorId: st
   await tellFounders(tx, {
     // Named by the payment that crossed the line: one email for each crossing.
     key: `contribution-1000:${input.paymentId}`,
-    subject: `Contributions over $1,000 in 30 days: ${name(input.contributorId)} to ${name(input.hostId)}`,
+    subject: `Contributions and tips over $1,000 in 30 days: ${name(input.contributorId)} to ${name(input.hostId)}`,
     text:
-      `${name(input.contributorId)} has contributed ${money(input.countedCents)} to ${name(input.hostId)} in the last 30 days, counting money that was taken and holds that are in place. That is over $1,000.\n\n` +
+      `${name(input.contributorId)} has paid ${money(input.countedCents)} to ${name(input.hostId)} in contributions and tips in the last 30 days, counting money that was taken and holds that are in place. That is over $1,000.\n\n` +
       `Each of those payments waits 30 days from its taking before the host can collect it. You can hold one back longer, or release it sooner, each with a reason: ${appUrl()}/admin/projects\n`,
   });
 }

@@ -6,7 +6,8 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { db, schema } from "@/db";
 import { LocalTime } from "@/components/local-time";
-import { supportedBy } from "@/lib/contributions/views";
+import { tipsBy } from "@/lib/contributions/tips";
+import { stateOf, supportedBy } from "@/lib/contributions/views";
 import { membershipsOf } from "@/lib/membership/access";
 import { readNotice } from "@/lib/notice";
 import { Rating } from "@/components/rating";
@@ -61,6 +62,8 @@ export default async function AccountPage(props: PageProps<"/account">) {
   const memberships = await membershipsOf(user.id);
   // "Projects you support". One that was left at the card step and never paid is not listed: nothing was contributed.
   const supported = (await supportedBy(user.id)).filter(({ contribution, began }) => began || contribution.status !== "ended");
+  // "Tips you gave" (plans/44): kept apart from projects. One that was left at the card step and never paid is not listed.
+  const tips = await tipsBy(user.id);
   const hostNames = new Map(
     memberships.length > 0
       ? (await db.select({ id: schema.hostProfiles.userId, name: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, memberships.map((membership) => membership.hostId)))).map((row) => [row.id, row.name])
@@ -244,6 +247,47 @@ export default async function AccountPage(props: PageProps<"/account">) {
                 </span>
               </li>
             ))}
+          </ul>
+        </section>
+      )}
+
+      {tips.length > 0 && (
+        <section id="tips" className="mt-10 scroll-mt-4" data-tips>
+          <h2 className="text-lg font-semibold">Tips you gave</h2>
+          <p className="mt-1 text-sm opacity-70">Your tips to hosts after a call. A tip that is only held can be cancelled on its own page.</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {tips.map(({ tip, tipCents, row, hostName, callStartsAt }) => {
+              const state = stateOf(row.payment);
+              return (
+                <li key={tip.id}>
+                  <Link href={`/contributions/${tip.id}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
+                    ${(tipCents / 100).toFixed(2)} for {hostName}
+                  </Link>
+                  <span className="ml-2 opacity-70">
+                    {callStartsAt && (
+                      <>
+                        For your call on <LocalTime iso={callStartsAt.toISOString()} />.{" "}
+                      </>
+                    )}
+                    {state === "held" && row.payment.takeAt ? (
+                      <>
+                        Held on your card; taken on <LocalTime iso={row.payment.takeAt.toISOString()} />. You can cancel until then.
+                      </>
+                    ) : state === "taken" ? (
+                      "Paid."
+                    ) : state === "cancelled" ? (
+                      "Cancelled; nothing was charged."
+                    ) : state === "cancelling" ? (
+                      "Being cancelled."
+                    ) : state === "problem" ? (
+                      "Being looked at by Connect."
+                    ) : (
+                      "Waiting for your card."
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

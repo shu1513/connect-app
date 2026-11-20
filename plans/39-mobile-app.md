@@ -77,6 +77,10 @@ install from the App Store and Google Play.
      the stores let a tip for a one-to-one call be paid outside their own payment, the app treats
      tips like contributions: it does not show, link to or mention them. Plan 44, decision 18,
      has what Apple's and Google's pages say. This is to be checked again before the app is built.
+   - **The founder's switches reach the app** (the founder, 20 November 2026). Tips and projects
+     each have a switch on the founder's page, kept on the server. Whatever the app shows of
+     either, it asks the server each time whether that feature is on and never carries the
+     answer inside the app: so switching one off works in the app at once, with no new version.
    - A host's first set-up: applying, the ID check, the payout account at Stripe, proving social
      accounts, the photo. The app sends a new host to the website for it. A host can use the
      app once that is done and they are approved, as on the website.

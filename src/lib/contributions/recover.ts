@@ -18,7 +18,7 @@ import { failOwnedOperation, finishOwnedOperation } from "@/lib/payments/operati
 import { isDefiniteRefusal, stripe, stripeErrorMessage } from "@/lib/payments/stripe";
 import { eq } from "drizzle-orm";
 import { db, schema as tables } from "@/db";
-import { projectsOnFor } from "@/lib/safety/switches";
+import { takingOnFor } from "@/lib/safety/switches";
 import { applyLetGo, applyTaken, freshNow, giveUp, paymentById, syncPayment } from "./charge";
 import { paymentOwner } from "./locks";
 import { applyRefundOutcome, outcomeStatus, refundAtStripe, type RefundOutcome, type RefundParams } from "./refund";
@@ -38,8 +38,8 @@ export async function recoverContributionOperation(operation: typeof schema.mone
   const refunded = (stripeRefundId: string | null, status: RefundOutcome["status"]): RefundOutcome => ({ refundId: params.refundId, attempt: params.attempt, stripeRefundId, status });
   /** Whether new money work may still be done for this payment's host: asked right before a request that could place a hold or take money. */
   const covered = async () => {
-    const [owner] = await db.select({ hostId: tables.contributions.hostId }).from(tables.contributionPayments).innerJoin(tables.contributions, eq(tables.contributions.id, tables.contributionPayments.contributionId)).where(eq(tables.contributionPayments.id, paymentId));
-    return Boolean(owner) && (await projectsOnFor(owner.hostId));
+    const [owner] = await db.select({ kind: tables.contributions.kind, hostId: tables.contributions.hostId }).from(tables.contributionPayments).innerJoin(tables.contributions, eq(tables.contributions.id, tables.contributionPayments.contributionId)).where(eq(tables.contributionPayments.id, paymentId));
+    return Boolean(owner) && (await takingOnFor(owner));
   };
 
   try {

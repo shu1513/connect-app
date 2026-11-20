@@ -56,7 +56,8 @@ export async function saveProjectsSwitch(input: { adminId: string; values: Pick<
       .select({ id: pays.id, contributorId: schema.contributions.contributorId, hostId: schema.contributions.hostId })
       .from(pays)
       .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
-      .where(and(inArray(pays.status, ["to_pay", "held"]), isNull(pays.endedHow)));
+      // (Not a tip: tips follow their own switch, plans/44.)
+      .where(and(inArray(pays.status, ["to_pay", "held"]), isNull(pays.endedHow), ne(schema.contributions.kind, "tip")));
     const giveUp = openPayments.filter((row) => !coveredBy(current, row.hostId));
     const monthly = await tx
       .select({ id: schema.contributions.id, contributorId: schema.contributions.contributorId, hostId: schema.contributions.hostId, switchOffAt: schema.contributions.switchOffAt })
@@ -94,5 +95,42 @@ export async function saveProjectsSwitch(input: { adminId: string; values: Pick<
   });
   for (const id of toLetGo) {
     await letGo(id, at).catch((error) => console.error(`[contributions] could not let go of payment ${id} after the switch was saved; the helper will retry`, error));
+  }
+}
+
+/**
+ * Saves the founder's tips switch (plans/44, decision 12), with its line in the record of the
+ * founder's actions, under the same lock that writing a new payment waits for. Switched off, every
+ * tip payment that is not taken is given up in this same step: a hold in place, and a card step
+ * that is still open. Then their holds are let go (the helper repeats that until it is done, and
+ * its own search is the net behind this step). A card form that was already open in a browser can
+ * still reach Stripe for the moment this takes: a hold that lands then is let go like the others.
+ * Switching on again brings nothing back: what was given up stays given up.
+ */
+export async function saveTipsSwitch(input: { adminId: string; off: boolean; now?: Date }): Promise<void> {
+  let at = input.now ?? new Date();
+  const toLetGo = await db.transaction(async (tx) => {
+    // Before any other lock.
+    await lockSwitchForSaving(tx);
+    await setSwitches({ tipsOff: input.off }, tx);
+    await recordAdminAction({ adminId: input.adminId, action: "tips switch set", detail: input.off ? "off" : "on" }, tx);
+    if (!input.off) return [];
+    const openTips = await tx
+      .select({ id: pays.id, contributorId: schema.contributions.contributorId, hostId: schema.contributions.hostId })
+      .from(pays)
+      .innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId))
+      .where(and(inArray(pays.status, ["to_pay", "held"]), isNull(pays.endedHow), eq(schema.contributions.kind, "tip")));
+    for (const pair of pairsOf(openTips)) await lockPair(tx, pair.contributorId, pair.hostId);
+    // Every lock is held now: no tip can be started between here and the end of this step.
+    const now = input.now ?? new Date();
+    at = now;
+    const letGoOf: string[] = [];
+    for (const { id } of [...openTips].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+      if (await giveUpInStep(tx, await lockForPayment(tx, id), "switch", now)) letGoOf.push(id);
+    }
+    return letGoOf;
+  });
+  for (const id of toLetGo) {
+    await letGo(id, at).catch((error) => console.error(`[contributions] could not let go of tip payment ${id} after the tips switch was saved; the helper will retry`, error));
   }
 }

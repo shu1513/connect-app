@@ -15,9 +15,17 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
   const collection = await lastCollectionOf(hostId);
   const would = wouldCollect(ready);
   const tooSoon = collection !== null && now < collection.againAt;
-  // Only what a call earned counts as "a call"; expired member time is listed in words below.
+  // Only what a call earned counts as "a call". What has no call is said in words: tips, contributions to her project, expired member time.
   const calls = new Set(ready.flatMap((e) => (e.call ? [e.call.id] : []))).size;
-  const expired = ready.filter((e) => !e.call).length;
+  const tips = ready.filter((e) => e.tip).length;
+  const contributions = ready.filter((e) => !e.call && !e.tip && e.payment.kind === "contribution").length;
+  const expired = ready.filter((e) => !e.call && e.payment.kind !== "contribution").length;
+  const from = [
+    ...(calls > 0 ? [`${calls} ${calls === 1 ? "call" : "calls"}`] : []),
+    ...(tips > 0 ? [`${tips} ${tips === 1 ? "tip" : "tips"}`] : []),
+    ...(contributions > 0 ? [`${contributions} ${contributions === 1 ? "contribution" : "contributions"}`] : []),
+    ...(expired > 0 ? ["expired member time"] : []),
+  ];
   // A press would be refused for this reason, so the button is not offered while it lasts (minutes).
   const waitForStripe = would !== null && payoutsReady && !tooSoon && (await disputeMessageWaiting());
 
@@ -27,8 +35,7 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
 
       <p className="mt-2">
         <span className="font-medium">Ready to collect: {formatMoney(sum(ready))}</span>
-        {calls > 0 && ` (from ${calls} ${calls === 1 ? "call" : "calls"}${expired > 0 ? " and expired member time" : ""})`}
-        {calls === 0 && expired > 0 && " (from expired member time)"}
+        {from.length > 0 && ` (from ${from.length > 1 ? `${from.slice(0, -1).join(", ")} and ${from.at(-1)}` : from[0]})`}
       </p>
       {ready.length > 0 && !would && (
         <p className="mt-1 opacity-80">That is not more than the 25-cent collection charge, so there is nothing to collect yet.</p>
@@ -61,11 +68,16 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
             {waiting.length === 1 ? "payment" : "payments"}; the reason is beside each)
           </summary>
           <ul className="mt-1 space-y-1">
-            {waiting.map(({ payment, call, month, project, shareCents, heldBack }) => (
+            {waiting.map(({ payment, call, month, project, tip, shareCents, heldBack }) => (
               <li key={payment.id}>
                 {call ? (
                   <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
                     Call on <LocalTime iso={call.startsAt.toISOString()} />
+                  </Link>
+                ) : tip ? (
+                  // A tip (plans/44): kept like a contribution, and named by the call it was given for.
+                  <Link href={`/calls/${tip.callId}/results`} className="underline underline-offset-2" data-tip>
+                    Tip for the call{tip.callStartsAt ? <> on <LocalTime iso={tip.callStartsAt.toISOString()} /></> : null}
                   </Link>
                 ) : payment.kind === "contribution" ? (
                   // A contribution to her project: it has no call to link to either.
