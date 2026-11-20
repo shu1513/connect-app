@@ -2400,9 +2400,16 @@ follows a yes given a second time as a problem.
 Astra, on the code: three points, all taken (they are listed at the end of the plan): an email a
 helper had already picked up is closed too when a yes is taken back; an announcement is kept for
 the next round when writing to one follower failed; a post is looked at again for each follower.
+CodeRabbit, on pull request 54: nine comments, seven taken (an email that was already written
+does not start a follower's 20 hours again; the question after a call is not asked of someone
+who switched these emails off, and names the real limit; a host who extends is announced with
+the new end; an email to an address the follower no longer has is not sent; an index; two
+stricter tests). Not taken, with the reasons at the end of the plan: a lock on the outbox while
+the sending service is asked, and the 20 hours per host again at the moment of sending.
 
-**How it was checked.** Unit tests of the hours, the numbers and the switch (10 new, 589 in
-all). `scripts/follow-emails-check.ts`: about 100 checks against the local database, reading the
+**How it was checked.** Unit tests of the hours, the numbers and the switch (10 new). The
+database change is number 41 (`0041_follow_emails`). All 22 check scripts on the final code,
+with a host's notes (pull request 55) merged in. `scripts/follow-emails-check.ts`: about 100 checks against the local database, reading the
 outbox and sending through a pretend sending service, with the races made to happen (two hosts
 at the same moment for someone one short of five, two posts at once, a host switching off and on
 while a round is under way, a failure in the middle of a round). In the browser, with the switch

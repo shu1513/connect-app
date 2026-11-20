@@ -373,7 +373,10 @@ export const hostCalendars = pgTable("host_calendars", {
    */
   announceAt: timestamp("announce_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  // The few calendars with an announcement waiting: what the helper asks for every few seconds.
+  index("host_calendars_announce_idx").on(t.announceAt).where(sql`${t.announceAt} is not null`),
+]);
 
 /** A stretch of a weekday the host is free, in the calendar's time zone. */
 export const weeklyHours = pgTable(

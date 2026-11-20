@@ -373,3 +373,20 @@ are "bounded imperfections". Verdict: "build as is".
     while its round was under way was still written about for the remaining followers; those
     emails would not have been sent, but each used up that follower's one diary email about the
     host for 20 hours and one of their five for the day.
+- **CodeRabbit's review of the code, nine comments, seven taken:**
+  - When a round is made a second time, an email that was already written no longer starts
+    that follower's 20 hours again.
+  - The question after a call is not asked of someone who has switched these emails off for
+    their whole account, and it says "at most one in 20 hours", which is the rule, not "once a
+    day".
+  - A host who extends their time while a round is under way is announced with the new end.
+  - An email written to an address the follower no longer has is not sent.
+  - An index for the announcements that are waiting, and the two "at the same moment" tests now
+    really make the two meet.
+  - Not taken: holding a lock on the outbox while the sending service is being asked, so that a
+    yes taken back in that very instant could still stop the email. The gap is a few
+    milliseconds; it is written down where the code is (`dropWaiting`).
+  - Not taken: the 20 hours per host also at the moment of sending (Astra had raised it too).
+    Each of these emails runs out within hours of being written, so two about one host can only
+    arrive close together if sending was down for most of a day.
+

@@ -98,7 +98,8 @@ function footer(person: { id: string; unsubscribeToken: string | null }, hostNam
   ].join("\n");
 }
 
-type Words = (to: { name: string; timeZone: string | null }, host: { displayName: string; handle: string }) => { subject: string; lines: string[] };
+/** `until`: for "available now", the end of the host's time as it stands when the email is written. */
+type Words = (to: { name: string; timeZone: string | null }, host: { displayName: string; handle: string }, until: Date) => { subject: string; lines: string[] };
 
 /**
  * Writes one email to one follower, if everything still holds at this moment. One step, under
@@ -106,7 +107,7 @@ type Words = (to: { name: string; timeZone: string | null }, host: { displayName
  * host, the 5 in 24 hours for this follower, and for "available now" the follower's hours and
  * that the announcement is still the one this round began with. Returns whether it was written.
  */
-async function tellFollower(input: { kind: Kind; followerId: string; hostId: string; key: string; expiresAt: Date; now: Date; /** "available now" only: the announcement being made. */ announceAt?: Date; /** The diary email only: the post it is about. */ postId?: string; words: Words }): Promise<boolean> {
+async function tellFollower(input: { kind: Kind; followerId: string; hostId: string; key: string; /** When it is no use any more. "Available now" takes the end of the host's time, read inside the step, instead. */ expiresAt: Date; now: Date; /** "available now" only: the announcement being made. */ announceAt?: Date; /** The diary email only: the post it is about. */ postId?: string; words: Words }): Promise<boolean> {
   const { kind, followerId, hostId, now } = input;
   // The secret of the stop link is made before the step (its own small write), so the step only reads it.
   await unsubscribeTokenFor(followerId);
@@ -117,11 +118,14 @@ async function tellFollower(input: { kind: Kind; followerId: string; hostId: str
     const { line, follower, host } = standing;
     const told = kind === "online" ? line.toldOnlineAt : line.toldPostAt;
     if (told && told.getTime() > now.getTime() - EMAILS.perHostHours * HOUR) return false;
+    let expiresAt = input.expiresAt;
     if (kind === "online") {
       if (!insideHours(now, follower.timeZone, line.hoursFrom, line.hoursTo)) return false;
       // A host who switched off and on again meanwhile has a new announcement, with a minute's wait of its own.
-      const [calendar] = await tx.select({ announceAt: schema.hostCalendars.announceAt }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
-      if (!calendar?.announceAt || calendar.announceAt.getTime() !== input.announceAt?.getTime()) return false;
+      const [calendar] = await tx.select({ announceAt: schema.hostCalendars.announceAt, availableUntil: schema.hostCalendars.availableUntil }).from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
+      if (!calendar?.announceAt || calendar.announceAt.getTime() !== input.announceAt?.getTime() || !calendar.availableUntil) return false;
+      // The end of the host's time as it is now: a host who extended while the round was under way is announced with the new end.
+      expiresAt = calendar.availableUntil;
     } else {
       // The post is looked at again for each follower: one that was removed or hidden while the round was under way
       // must not use up anyone's email of the day, or their one diary email about this host.
@@ -137,16 +141,19 @@ async function tellFollower(input: { kind: Kind; followerId: string; hostId: str
       .from(schema.emailOutbox)
       .where(and(eq(schema.emailOutbox.to, addressOf(follower.email)), eq(schema.emailOutbox.kind, "follow"), gt(schema.emailOutbox.createdAt, new Date(now.getTime() - 24 * HOUR))));
     if (written >= EMAILS.perDay) return false;
-    const { subject, lines } = input.words(follower, host);
-    await queueEmail(tx, {
+    const { subject, lines } = input.words(follower, host, expiresAt);
+    const isNew = await queueEmail(tx, {
       to: follower.email,
       kind: "follow",
       subject,
       text: [`Hi ${follower.name},`, "", ...lines, "", footer(follower, host.displayName)].join("\n"),
       key: input.key,
-      expiresAt: input.expiresAt,
+      expiresAt,
       headers: unsubscribeHeaders(follower, "follows"),
     });
+    // An email with this key was written before (the round is being made again): nothing new was written, so
+    // the follower's 20 hours are not started again.
+    if (!isNew) return false;
     await tx.update(schema.follows).set(kind === "online" ? { toldOnlineAt: now } : { toldPostAt: now }).where(pair(followerId, hostId));
     return true;
   });
@@ -193,10 +200,10 @@ export async function announceAvailable(now: Date, onlyHosts?: string[]): Promis
           expiresAt: offer.availableUntil,
           now,
           announceAt,
-          words: (to, host) => ({
+          words: (to, host, until) => ({
             subject: `${host.displayName} is available now on Connect`,
             lines: [
-              `${host.displayName} has switched "Available now" on and can take a call right away, until about ${whenFor(to, offer.availableUntil)}.`,
+              `${host.displayName} has switched "Available now" on and can take a call right away, until about ${whenFor(to, until)}.`,
               "",
               `Call now: ${appUrl()}/h/${host.handle}`,
               "",
@@ -274,13 +281,18 @@ export async function announcePosts(now: Date, onlyPosts?: string[]): Promise<nu
  * is asked again as it stands at this moment, and for "available now" also the follower's hours
  * and whether the host's own page would still show them as available. The 5 in 24 hours is
  * counted here from what was really sent, so emails held up by an outage do not arrive together.
+ * (The 20 hours per host are kept where emails are written, not here: each email runs out within
+ * hours of being written, so two about one host cannot wait and then arrive close together
+ * unless sending was down for most of a day.)
  */
-export async function followEmailProblem(key: string, at: Date): Promise<string | null | undefined> {
+export async function followEmailProblem(key: string, at: Date, to?: string): Promise<string | null | undefined> {
   const parts = key.match(/^follow-(online|post):([^:]+):([^:]+):(.+)$/);
   if (!parts) return undefined;
   const [, kind, hostId, followerId, about] = parts as unknown as [string, Kind, string, string, string];
   const standing = await standingOf(db, followerId, hostId, kind);
   if (standing.problem !== null) return standing.problem;
+  // Only ever to the follower's address as it is now: one written to an address they no longer have is dropped.
+  if (to !== undefined && addressOf(to) !== addressOf(standing.follower.email)) return "the follower's address has changed";
   const [{ sent }] = await db
     .select({ sent: sql<number>`count(*)::int` })
     .from(schema.emailOutbox)

@@ -56,6 +56,10 @@ const NO_EMAILS = { tellOnline: false, tellPosts: false, hoursFrom: null, hoursT
  * helper has already picked up is closed too, and its claim with it: the helper then finds that
  * the email is no longer its to send (delivery.ts, `ownedBy`), also when it had stopped halfway
  * and the email would otherwise have been picked up again later.
+ *
+ * What this does not promise: an email the helper is handing to the sending service at this very
+ * instant, after its own last check, still goes out. That gap is a few milliseconds, and closing
+ * it would mean holding a lock on the outbox across a request to an outside service.
  */
 export async function dropWaiting(tx: Pick<typeof db, "update">, followerId: string, hostId?: string, kind?: "online" | "post"): Promise<void> {
   // The key is "follow-<kind>:<host>:<follower>:<what it is about>". IDs are matched as they are, never as patterns.

@@ -106,6 +106,21 @@ async function main() {
   /** Follow emails already written to someone in the last day, as plain lines in the outbox. */
   const earlier = (name: string, count: number, status: "queued" | "sent" = "sent") =>
     db.insert(schema.emailOutbox).values(Array.from({ length: count }, () => ({ to: emailOf(name), kind: "follow", subject: "An earlier one", body: "x", dedupeKey: `follow-post:nobody:fe-${RUN}-${name}:${randomUUID()}`, status, sentAt: status === "sent" ? new Date() : null })));
+  /**
+   * Makes several pieces of work meet at one follower's lock: the lock is held here until every one of them is
+   * waiting for it, then let go. `reached` is false if they never all got there: then nothing was proven.
+   */
+  const together = async (followerId: string, works: Array<() => Promise<number>>) => {
+    const waiting = async () => Number((await db.execute(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted and objid = (hashtext(${`follows:${followerId}`})::bigint & 4294967295)::oid`))[0].n);
+    let running: Promise<number>[] = [];
+    let reached = false;
+    await db.transaction(async (tx) => {
+      await F.lockFollowers(tx, [followerId]);
+      running = works.map((work) => work());
+      for (let i = 0; i < 200 && !(reached = (await waiting()) >= works.length); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+    return { wrote: await Promise.all(running), reached };
+  };
   let step = 0;
   /** A fresh moment for each journey, a few minutes apart, so that none sits inside another's minute. */
   const moment = () => new Date(T0.getTime() + ++step * 5 * MINUTE);
@@ -280,8 +295,8 @@ async function main() {
         await switchOn(h.id, at);
         await keptOpen(h.id, new Date(at.getTime() + 61 * SECOND));
       }
-      const wrote = await Promise.all([E.announceAvailable(new Date(at.getTime() + 61 * SECOND), [h1.id]), E.announceAvailable(new Date(at.getTime() + 61 * SECOND), [h2.id])]);
-      check(`two hosts announced at the same moment to someone who has had ${EMAILS.perDay - 1} today: one more email, not two`, wrote[0] + wrote[1] === 1 && (await mail("busy")).length === EMAILS.perDay, wrote);
+      const { wrote, reached } = await together(f.id, [() => E.announceAvailable(new Date(at.getTime() + 61 * SECOND), [h1.id]), () => E.announceAvailable(new Date(at.getTime() + 61 * SECOND), [h2.id])]);
+      check(`two hosts announced at the same moment to someone who has had ${EMAILS.perDay - 1} today: one more email, not two`, reached && wrote[0] + wrote[1] === 1 && (await mail("busy")).length === EMAILS.perDay, { wrote, reached });
       check("and a third host that day writes none", (await onAndAnnounced(h3.id, moment())) === 0 && (await mail("busy")).length === EMAILS.perDay);
       for (const h of [h1, h2, h3]) await switchOff(h.id, new Date(T0.getTime() + 20 * HOUR));
     }
@@ -303,6 +318,7 @@ async function main() {
       await db.update(schema.hostCalendars).set({ announceAt: announcement }).where(eq(schema.hostCalendars.userId, h.id));
       await E.announceAvailable(new Date(later.getTime() + 2 * SECOND), [h.id]);
       check("also if the note of having told them were lost: the email's key is unique", (await mail("crash1")).length === 1 && (await mail("crash2")).length === 1);
+      check("and an email that was there already does not start the follower's 20 hours again", (await line(`fe-${RUN}-crash1`, h.id)).toldOnlineAt === null);
       await switchOff(h.id, new Date(at.getTime() + 2 * MINUTE));
     }
     {
@@ -355,6 +371,7 @@ async function main() {
       const diary = (await mail("lookf")).find((row) => row.dedupeKey?.startsWith("follow-post:"))!;
       check("both kinds are waiting for this follower", Boolean(online) && Boolean(diary));
       check("as things stand, both may be sent", (await E.followEmailProblem(online.dedupeKey!, new Date())) === null && (await E.followEmailProblem(diary.dedupeKey!, new Date())) === null);
+      check("an email written to an address the follower no longer has is not sent", (await E.followEmailProblem(online.dedupeKey!, new Date(), "an-old-address@example.test")) === "the follower's address has changed" && (await E.followEmailProblem(online.dedupeKey!, new Date(), f.email.toUpperCase())) === null);
       check("an email of another kind is none of this function's business", (await E.followEmailProblem("reminder:x:y:hour", new Date())) === undefined);
 
       await db.update(schema.projectPosts).set({ removedAt: T0 }).where(eq(schema.projectPosts.id, p.id));
@@ -477,8 +494,8 @@ async function main() {
       check("nor a post in a project that has ended", (await E.announcePosts(T0, [inEnded.id])) === 0 && (await marked(inEnded.id)));
 
       const [a, b] = [await post(h.projectId, 50), await post(h.projectId, 51)];
-      const both = await Promise.all([E.announcePosts(T0, [a.id]), E.announcePosts(T0, [b.id])]);
-      check("two posts of one host announced at the same moment: one email", both[0] + both[1] === 1 && (await mail("diaryf")).length === 2, both);
+      const both = await together(f.id, [() => E.announcePosts(T0, [a.id]), () => E.announcePosts(T0, [b.id])]);
+      check("two posts of one host announced at the same moment: one email", both.reached && both.wrote[0] + both.wrote[1] === 1 && (await mail("diaryf")).length === 2, both);
     }
 
     // ----------------------------------------------------------------------

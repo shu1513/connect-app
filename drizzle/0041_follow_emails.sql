@@ -11,5 +11,6 @@ ALTER TABLE "project_posts" ADD COLUMN "announced_at" timestamp with time zone D
 ALTER TABLE "project_posts" ALTER COLUMN "announced_at" DROP DEFAULT;--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "follow_emails" boolean DEFAULT true NOT NULL;--> statement-breakpoint
 CREATE INDEX "follows_host_idx" ON "follows" USING btree ("host_id") WHERE "follows"."unfollowed_at" is null;--> statement-breakpoint
+CREATE INDEX "host_calendars_announce_idx" ON "host_calendars" USING btree ("announce_at") WHERE "host_calendars"."announce_at" is not null;--> statement-breakpoint
 CREATE INDEX "project_posts_to_announce_idx" ON "project_posts" USING btree ("created_at") WHERE "project_posts"."announced_at" is null;--> statement-breakpoint
 ALTER TABLE "follows" ADD CONSTRAINT "follows_hours" CHECK (("follows"."hours_from" is null) = ("follows"."hours_to" is null));

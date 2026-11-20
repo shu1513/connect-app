@@ -1,5 +1,5 @@
 {
-  "id": "0e3ad42a-1e28-4516-a4d9-03bd4e377341",
+  "id": "5676ac3f-974d-4a19-b611-62659e0a3bca",
   "prevId": "afa38fae-e955-4e10-a135-4bb634d865eb",
   "version": "7",
   "dialect": "postgresql",
@@ -3124,7 +3124,24 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "host_calendars_announce_idx": {
+          "name": "host_calendars_announce_idx",
+          "columns": [
+            {
+              "expression": "announce_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"host_calendars\".\"announce_at\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "host_calendars_user_id_user_id_fk": {
           "name": "host_calendars_user_id_user_id_fk",

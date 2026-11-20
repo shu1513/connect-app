@@ -162,7 +162,7 @@ async function fail(email: typeof schema.emailOutbox.$inferSelect, reason: strin
 async function noLongerWanted(email: typeof schema.emailOutbox.$inferSelect): Promise<string | null> {
   const key = email.dedupeKey ?? "";
   // An email to a follower (plans/31) is asked about in full, as things stand at this moment.
-  const follower = await followEmailProblem(key, new Date());
+  const follower = await followEmailProblem(key, new Date(), email.to);
   if (follower !== undefined) return follower;
   // Without its key such an email cannot be judged, so it is not sent.
   if (email.kind === "follow") return "an email to a follower without its key";

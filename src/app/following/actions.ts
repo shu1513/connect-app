@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { saveChoices } from "@/lib/follows/emails";
 import { follow, FollowError, unfollow } from "@/lib/follows/follows";
-import { readHours } from "@/lib/follows/rules";
+import { EMAILS, readHours } from "@/lib/follows/rules";
 import { withNotice } from "@/lib/notice";
 import { safeNext } from "@/lib/safe-next";
 import { requireActiveUser, requireUser } from "@/lib/session";
@@ -73,7 +73,7 @@ export async function saveChoicesAction(formData: FormData) {
 /** The one question on the results of a call: "Email you when Anna is available now?" Only that tick is set; the rest stays. */
 export async function askOnlineAction(formData: FormData) {
   const user = await requireActiveUser();
-  let notice = "Done. You get an email when they are available now, at most once a day. You can choose hours, or switch it off, under \"Hosts you follow\".";
+  let notice = `Done. You get an email when they are available now, at most one in ${EMAILS.perHostHours} hours. You can choose hours, or switch it off, under "Hosts you follow".`;
   try {
     await saveChoices({ followerId: user.id, hostId: String(formData.get("hostId") ?? ""), tellOnline: true, now: new Date() });
   } catch (error) {
