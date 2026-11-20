@@ -6,7 +6,7 @@ import { callForParticipant } from "@/lib/payments/access";
 import { cancelCallWith } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { startPaymentFor, syncPaymentFor, type StepRefused } from "@/lib/payments/steps";
-import { endCallForSafety } from "@/lib/safety/calls";
+import { endCallForSafetyConfirmed } from "@/lib/safety/calls";
 import { enterCall } from "@/lib/video/enter";
 
 /**
@@ -83,10 +83,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
     const access = await callForParticipant(id, me.id);
     if (!access) return refuse("not_found");
     try {
-      const state = await endCallForSafety({ call: access.call, by: me.id, now: new Date() });
+      const { state, closed } = await endCallForSafetyConfirmed({ call: access.call, by: me.id, now: new Date() });
       // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already over
       // needs no ending: the person goes on to the report form as usual.
       if (state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
+      // The call is marked as stopped (nobody can enter it again), but the video service has not confirmed that the
+      // other person is out. "Ended for both" is not said until it has: the app says so and offers to try again,
+      // and trying again closes the room once more.
+      if (!closed) return notKnown();
     } catch (error) {
       // Whether it was ended for both cannot be told: the app says so and offers to try again.
       console.error("[safety] could not end a call for the app", error);

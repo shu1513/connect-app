@@ -110,6 +110,7 @@ export function isBooking(data: unknown): data is AppBooking {
   if (data.call !== null && !(isThing(data.call) && isId(data.call.id))) return false;
   // The host's part comes for the host, and only for her.
   if (data.role === "host" ? !isHostPart(data.host) : data.host !== null) return false;
+  if (!(data.report === null || isText(data.report))) return false;
   const block = data.block;
   if (block !== null && !(isThing(block) && isText(block.label) && isText(block.sure) && isText(block.yes) && isText(block.no))) return false;
   const card = data.card;

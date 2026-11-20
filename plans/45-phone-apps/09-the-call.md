@@ -1,7 +1,7 @@
 # Phone apps, part 09: the call itself (entering, talking, leaving, "end and report")
 
 **Status:** built on 20 November 2026 (not merged yet: it waits, with parts 01 to 08, behind the
-tips pull request; Astra has not looked at the code yet). Written by the builder alone. Part of
+tips pull request). Astra looked at the code once ("not ready"); its points are worked in, below. Written by the builder alone. Part of
 plan 45. Astra checked the first draft of the plan ("not ready"); it was split in three (this
 part, 09b and 09c) and every point is worked in (the list is at the end). What the building
 changed is listed below. This is the heart of the product and the
@@ -169,6 +169,38 @@ both are checked here.
 A real camera and microphone (the test phone's camera shows a made-up moving picture); an
 iPhone; two real phones in two places; a call with the phone locked. These are on the
 founder's two-phone list in part 20.
+
+## Astra's check of the code (20 November 2026): "not ready", now worked in
+
+Astra found the website unchanged by the move, and who may enter the same in both. Five
+things that mattered in the app, and six smaller ones:
+
+1. *The camera check could keep the camera on behind another screen.* With another screen in
+   front, the call's screen now draws nothing at all: no camera check and no call.
+2. *"End call and report" could say "ended for both" before the other person was really out*
+   (the call was marked as stopped, but the video service had not confirmed that the room was
+   closed). The app is now told "ended" only once the room is confirmed closed; until then it
+   says "You have left, but the call could not be ended for the other person yet" with "Try
+   again", and that stays in front of everything else. (The website's own button is as it
+   was; the helper closes the room in any case.)
+3. *There was no way to the report form from a host's page or from a request.* Both have the
+   link now, shown by the website's own rules: "Report this page" for anyone signed in on
+   another person's page; "Report (name)" on a request once it was sent.
+4. *A report half written about one person could have been sent about another* (if a second
+   link changed the screen underneath). Each place now has a form of its own.
+5. *Saying no to the camera or the microphone:* the app now remembers that it has asked for
+   as long as it is open, so it does not ask again each time; on an iPhone the microphone is
+   looked at by itself, and both are looked at afresh after a visit to the phone's settings.
+6. Smaller: an answer that arrives after the person has left the screen changes nothing on
+   it, and the last question about the end stops and starts afresh with the screen; an answer
+   that was long on its way cannot set the clock back; a call or a request is named by a full
+   id (anything else is "not found" at once); after a lost connection nothing is offered
+   until the server has said where the call stands; the room's time is looked at again in the
+   moment the entry pass is made (on the website too).
+
+**Not done, said plainly:** the check script cannot join a call as a second person, so "the
+other person is put out" is proven by the walk (the host on the website was put out), not by
+the script; a failed closing of the room cannot be made to happen on purpose here.
 
 ## Astra's check (20 November 2026): "not ready", now worked in
 

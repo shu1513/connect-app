@@ -17,9 +17,14 @@ import { type, useColors } from "@/ui/theme";
  * from that place. Reporting a person also blocks them, as the form says.
  */
 export default function ReportScreen() {
-  const colors = useColors();
   const params = useLocalSearchParams<{ call?: string; booking?: string; profile?: string }>();
   const from = reportPlace(params);
+  // A form of its own for each place: what was chosen and typed about one person is never sent about another.
+  return <ReportForm key={from ? `${from.place}:${from.id}` : "nowhere"} from={from} />;
+}
+
+function ReportForm({ from }: { from: ReturnType<typeof reportPlace> }) {
+  const colors = useColors();
   const { refresh: askOpening } = useOpening();
   const [form, setForm] = useState<AppReportForm | null>(null);
   const [problem, setProblem] = useState<string | null>(null);

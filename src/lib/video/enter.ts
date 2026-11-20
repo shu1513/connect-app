@@ -98,9 +98,12 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
     token = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`join:${user.id}`}))`);
       // Read the call again under the lock: it may have been stopped or cancelled a moment ago.
-      const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
+      const [fresh] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
       if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
       await leaveOtherCalls(user.id, call.id, now);
+      // Waiting for the lock and stepping out of other rooms takes time: no pass is made for a room whose time ran
+      // out meanwhile.
+      if (roomState(fresh, new Date()) !== "open") throw new Error("ended");
       return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: shownName });
     });
   } catch (error) {

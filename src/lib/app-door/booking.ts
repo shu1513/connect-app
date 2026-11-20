@@ -18,6 +18,7 @@ import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS, newRequestKey } from "@/lib
 import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { NOTE_MAX, openAndUnblocked } from "@/lib/people/contacts";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
+import { REPORT_WORDS } from "@/lib/safety/report-words";
 import { publicProfile, sellerLine } from "@/lib/profiles/profiles";
 import { answerFor } from "./requests";
 import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
@@ -174,6 +175,8 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     takeBack: mine && waiting ? REQUEST_WORDS.takeBack : null,
     takeBackSure: mine && waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
     host: mine ? null : await hostPart(found),
+    // As on the website's page: either of the two can report the other once the request was sent.
+    report: booking.stage !== "card" ? REPORT_WORDS.reportPerson(otherName || "this person") : null,
     // As on the website's page: either of the two can block the other once the request was sent.
     block: mayBlockThrough(booking) && otherName && (!blockedByMe || stillBooked || options.blockAgain) ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
     // What else the call's own page is for is said once the app has that page (part 08).

@@ -24,6 +24,7 @@ const booking = {
   id: ID,
   role: "customer",
   host: null,
+  report: null,
   block: null,
   title: "Your request to Maya",
   hostHandle: "maya",

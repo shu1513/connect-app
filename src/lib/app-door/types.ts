@@ -293,6 +293,8 @@ export type AppHostPage = {
   socials: Array<{ label: string; name: string; url: string }>;
   /** This is the viewer's own page. */
   own: boolean;
+  /** The link to the report form ("Report this page"), for someone signed in looking at another person's page; null otherwise. */
+  report: string | null;
   /** Her page's address on the web, for sharing: only for a page anyone may open. */
   shareUrl: string | null;
   /** The viewer's own following, "visitor" for someone not signed in, or null when no Follow button is shown. */
@@ -450,6 +452,8 @@ export type AppBooking = {
     answer: AppAnswer | null;
   } | null;
   /** Blocking the other person, for either of the two, once the request was sent: the button, and the question to ask first. */
+  /** The link to the report form ("Report Maya"), once the request was sent; null before. */
+  report: string | null;
   block: { label: string; sure: string; yes: string; no: string } | null;
   /** While the request can still change by itself: how often the app asks again. */
   refreshSeconds: number | null;

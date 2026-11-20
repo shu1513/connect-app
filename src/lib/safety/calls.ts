@@ -16,9 +16,19 @@ import { closeRoom } from "@/lib/video/livekit";
  * the results page. Returns where the room stood; nothing is changed unless it was "open".
  */
 export async function endCallForSafety(input: { call: Call; by: string; now: Date }): Promise<RoomState> {
+  return (await endCallForSafetyConfirmed(input)).state;
+}
+
+/**
+ * The same, also saying whether the room is confirmed closed: both people out and their entry
+ * passes cancelled. (The website's button goes by the mark alone, as it always did; the phone app
+ * does not say "ended for both" until the video service has confirmed it.) `closed` is true when
+ * there was nothing to close: the room had not opened, or the call was over.
+ */
+export async function endCallForSafetyConfirmed(input: { call: Call; by: string; now: Date }): Promise<{ state: RoomState; closed: boolean }> {
   const { call, by, now } = input;
   const state = roomState(call, now);
-  if (state !== "open") return state;
+  if (state !== "open") return { state, closed: true };
   await db.transaction(async (tx) => {
     const marked = await tx
       .update(schema.calls)
@@ -38,8 +48,9 @@ export async function endCallForSafety(input: { call: Call; by: string; now: Dat
     }
   });
   // Put both people out and cancel their entry passes. The always-on helper repeats this until the room is confirmed closed.
-  await closeRoom(call.roomName, [call.hostId, call.customerId]).catch((error) => {
+  const closed = await closeRoom(call.roomName, [call.hostId, call.customerId]).catch((error) => {
     console.error(`[safety] could not close the room of call ${call.id} yet; the helper will retry`, error);
+    return false;
   });
-  return state;
+  return { state, closed };
 }

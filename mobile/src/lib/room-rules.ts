@@ -80,6 +80,6 @@ export function clockLine(words: { startsIn: string; timeLeft: string; endsIn: s
 
 /** Where the report form is opened from: exactly one of a call, a request, or a host's page. */
 export function reportPlace(params: { call?: unknown; booking?: unknown; profile?: unknown }): { place: "call" | "booking" | "profile"; id: string } | null {
-  const given = (["call", "booking", "profile"] as const).filter((place) => typeof params[place] === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(params[place] as string));
+  const given = (["call", "booking", "profile"] as const).filter((place) => (place === "profile" ? typeof params[place] === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(params[place] as string) : isId(params[place])));
   return given.length === 1 ? { place: given[0], id: params[given[0]] as string } : null;
 }

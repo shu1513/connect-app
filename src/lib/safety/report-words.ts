@@ -6,6 +6,9 @@ export const REPORT_TEXT_MAX = 2000;
 
 export const REPORT_WORDS = {
   title: "Report",
+  /** The links that lead to the form: on a host's page, and on a request. */
+  reportPage: "Report this page",
+  reportPerson: (name: string) => `Report ${name}`,
   /** Said only when true: the call really was ended with "End call and report". */
   stopped: "The call has been ended for both of you. Nobody can rejoin, and the charge for it will be looked at by a person.",
   aboutPost: "Tell us what is wrong with this post. Only our team reads this.",

@@ -1,5 +1,5 @@
 import { VideoView } from "@livekit/react-native";
-import { createLocalVideoTrack, type LocalVideoTrack } from "livekit-client";
+import { createLocalAudioTrack, createLocalVideoTrack, type LocalVideoTrack } from "livekit-client";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Linking, PermissionsAndroid, Platform, StyleSheet, View } from "react-native";
 import type { AppRoom } from "../../../src/lib/app-door/types";
@@ -8,6 +8,13 @@ import { useColors } from "@/ui/theme";
 
 /** What the phone lets the app use. `asked`: the person has been asked (or never needs to be), so they are not asked again by the app. */
 type May = { camera: boolean; microphone: boolean; asked: boolean };
+
+/**
+ * Android: whether the app has asked the phone for the camera and the microphone since it was opened. It asks
+ * once. After a "no" it says how to allow it in the phone's settings, here and every later time this check is
+ * shown, and does not ask again.
+ */
+let askedSinceOpened = false;
 
 /**
  * The check before entering a call (plans/45-phone-apps/09-the-call.md, decision 2): the person
@@ -29,12 +36,21 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
   /** Looks at what the phone allows, without asking for anything. */
   const look = useCallback(async () => {
     if (Platform.OS !== "android") {
-      // An iPhone asks by itself when the camera is first used; what it said is found out by using it (below).
-      setMay((was) => was ?? { camera: true, microphone: true, asked: true });
+      // An iPhone asks by itself, the first time each of the two is used. What it said about the microphone is found
+      // out by using it for a moment; about the camera, by the picture below. Both are looked at afresh each time
+      // (after a visit to the phone's settings either may be allowed now).
+      const heard = await createLocalAudioTrack().then(
+        (track) => {
+          track.stop();
+          return true;
+        },
+        () => false,
+      );
+      setMay({ camera: true, microphone: heard, asked: true });
       return;
     }
     const [seen, heard] = await Promise.all([PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA), PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO)]);
-    setMay((was) => ({ camera: seen, microphone: heard, asked: (was?.asked ?? false) || (seen && heard) }));
+    setMay({ camera: seen, microphone: heard, asked: askedSinceOpened || (seen && heard) });
   }, []);
   useEffect(() => {
     // Now (as soon as this has been drawn), and on coming back from the phone's settings: what is allowed may have changed there.
@@ -51,6 +67,7 @@ export function Lobby({ words, joining, onJoin }: { words: AppRoom["words"]; joi
   /** Asks the phone, once, after the person has read why. */
   async function allow() {
     const { CAMERA, RECORD_AUDIO } = PermissionsAndroid.PERMISSIONS;
+    askedSinceOpened = true;
     const got = await PermissionsAndroid.requestMultiple([CAMERA, RECORD_AUDIO]).catch(() => null);
     setMay({ camera: got?.[CAMERA] === PermissionsAndroid.RESULTS.GRANTED, microphone: got?.[RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED, asked: true });
   }

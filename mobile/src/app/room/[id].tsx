@@ -59,18 +59,28 @@ function OneRoom({ id }: { id: string }) {
   const [checkedEnd, setCheckedEnd] = useState<number | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [inFront, setInFront] = useState(false);
+  /** The same, for an answer that arrives later to ask: is this screen still the one in front? */
+  const front = useRef(false);
+  /** The end the server is being asked about one last time (see "When the clock reaches the end" below). */
+  const lastCheck = useRef<number | null>(null);
+  /** The connection was lost, and the server is being asked where the call stands: nothing is offered until it has answered. */
+  const [checking, setChecking] = useState(false);
+  /** "End call and report" went through: the report form is opened, now or when the person is back on this screen. */
+  const [toReport, setToReport] = useState(false);
   const newest = useRef(0);
   const joiningNow = useRef(false);
   const path = `/api/app/calls/${id}`;
 
   // "Now" is the server's clock, carried on by a steady counter of the phone's: changing the phone's own clock
   // does not move it. It is set from every answer that brings the server's time.
-  const clock = useRef<{ server: number; at: number } | null>(null);
+  const clock = useRef<{ server: number; at: number; asked: number } | null>(null);
   const [now, setNow] = useState<number | null>(null);
-  const setClock = useCallback((serverNow: string, at = performance.now()) => {
+  /** `at`: when the answer came in; `asked`: when its question was put. The answer to the question put last sets the clock: one that was long on its way does not set it back. */
+  const setClock = useCallback((serverNow: string, at = performance.now(), asked = at) => {
     const server = Date.parse(serverNow);
     if (!Number.isFinite(server)) return;
-    clock.current = { server, at };
+    if (clock.current && asked < clock.current.asked) return;
+    clock.current = { server, at, asked };
     setNow(server + performance.now() - at);
   }, []);
   useEffect(() => {
@@ -97,11 +107,12 @@ function OneRoom({ id }: { id: string }) {
       return;
     }
     const mine = ++newest.current;
+    const askedAt = performance.now();
     const answer = await ask<AppRoom>(`${path}/room`);
     if (mine !== newest.current) return;
     if (answer.ok && isRoom(answer.data) && answer.data.id === id) {
       setRoom(answer.data);
-      setClock(answer.data.serverNow);
+      setClock(answer.data.serverNow, performance.now(), askedAt);
       followEnd(answer.data.endsAt);
       setProblem(null);
       setGone(false);
@@ -124,11 +135,15 @@ function OneRoom({ id }: { id: string }) {
   useFocusEffect(
     useCallback(() => {
       setInFront(true);
+      front.current = true;
       void load();
       return () => {
         setInFront(false);
+        front.current = false;
         newest.current++;
         setPass(null);
+        // The last question about the end is put again when the screen is back in front.
+        lastCheck.current = null;
       };
     }, [load]),
   );
@@ -143,10 +158,11 @@ function OneRoom({ id }: { id: string }) {
     const answer = await ask<AppCallLive>(`${path}/live`);
     const receivedAt = performance.now();
     if (!answer.ok || !isLive(answer.data)) return null;
-    if (order < shown.current) return answer.data;
+    // An answer that arrives after the person has left this screen changes nothing on it.
+    if (order < shown.current || !front.current) return answer.data;
     shown.current = order;
     // A quick answer is also the best reading of the server's clock there is.
-    if (receivedAt - sentAt < 1_000) setClock(answer.data.serverNow, receivedAt);
+    if (receivedAt - sentAt < 1_000) setClock(answer.data.serverNow, receivedAt, sentAt);
     setLive(answer.data);
     followEnd(answer.data.endsAt);
     return answer.data;
@@ -170,16 +186,17 @@ function OneRoom({ id }: { id: string }) {
   // When the clock reaches the end, the server is asked once more before the call ends on the screen: time may have
   // been added a moment ago, and a slow connection must not cut anyone off from that. A server that cannot be
   // reached is asked again for half a minute; only then is the call taken to be over.
-  const lastCheck = useRef<number | null>(null);
   const timeUp = inFront && now !== null && endsAt !== null && now >= endsAt;
   useEffect(() => {
     if (!timeUp || endsAt === null || lastCheck.current === endsAt) return;
     lastCheck.current = endsAt;
     const checking = endsAt;
     void (async () => {
-      const giveUpAt = Date.now() + 30_000;
-      while (!(await refresh()) && Date.now() < giveUpAt) await wait(1_500);
-      setCheckedEnd(checking);
+      // By the phone's steady counter, so changing the phone's clock cannot stretch or cut the half minute. Only
+      // while the screen is in front: left alone, it stops, and is begun afresh when the person comes back.
+      const giveUpAt = performance.now() + 30_000;
+      while (front.current && !(await refresh()) && performance.now() < giveUpAt) await wait(1_500);
+      if (front.current) setCheckedEnd(checking);
     })();
   }, [timeUp, endsAt, refresh]);
 
@@ -191,6 +208,7 @@ function OneRoom({ id }: { id: string }) {
     setJoining(true);
     setNotice(null);
     setLeft(false);
+    const askedAt = performance.now();
     const answer = await ask<AppPass>(`${path}/enter`, { body: {} });
     const receivedAt = performance.now();
     joiningNow.current = false;
@@ -199,7 +217,7 @@ function OneRoom({ id }: { id: string }) {
     if (!still()) return;
     if (answer.ok && isPass(answer.data, { plain: PLAIN_HTTP_ALLOWED })) {
       // The pass carries the server's clock and the call's end as they are now (time may have been added since).
-      setClock(answer.data.serverNow, receivedAt);
+      setClock(answer.data.serverNow, receivedAt, askedAt);
       followEnd(answer.data.endsAt);
       setChoices(wanted);
       setPass(answer.data);
@@ -220,9 +238,13 @@ function OneRoom({ id }: { id: string }) {
       setPass(null);
       if (reason === DisconnectReason.DUPLICATE_IDENTITY) setTakenOver(true);
       else if (reason !== DisconnectReason.CLIENT_INITIATED) {
-        if (room) setNotice(room.words.disconnected);
-        // The call may have been stopped, or its time may be up: the server says.
-        void refresh();
+        // The call may have been stopped by the other person, or its time may be up: the server is asked first,
+        // and until it has answered nothing is offered (not "join again", and not the camera check).
+        setChecking(true);
+        void refresh().then(() => {
+          setChecking(false);
+          if (front.current && room) setNotice(room.words.disconnected);
+        });
       }
     },
     [room, refresh],
@@ -235,16 +257,14 @@ function OneRoom({ id }: { id: string }) {
   }
 
   async function endAndReport() {
-    const still = watch();
     setEnding("busy");
     // Out of the room at once, on this phone, whatever happens next.
     setPass(null);
     const answer = await ask<AppEnded>(`${path}/end-and-report`, { body: {} });
     if (answer.ok && isEnded(answer.data)) {
       setEnding("no");
-      // On to the report form. (If another screen has come to the front meanwhile, the form is put over it: it was asked for a moment ago.)
-      if (still()) router.replace({ pathname: "/report", params: { call: id } });
-      else router.push({ pathname: "/report", params: { call: id } });
+      // On to the report form: now, or (if the person has gone to another screen meanwhile) when they are back on this one.
+      setToReport(true);
     } else if (!answer.ok && answer.code === "not_valid") {
       // "This call has not started yet": nothing to end.
       setEnding("no");
@@ -261,8 +281,9 @@ function OneRoom({ id }: { id: string }) {
   // says which, and leads here again when the room is open.
   const notNow = room !== null && now !== null && !pass && live === null && (!room.ready || now < opensAt);
   useEffect(() => {
-    if (notNow && inFront) toCall();
-  }, [notNow, inFront, toCall]);
+    if (toReport && inFront) router.replace({ pathname: "/report", params: { call: id } });
+    else if (notNow && inFront && ending === "no") toCall();
+  }, [toReport, notNow, inFront, ending, toCall, id]);
 
   if (gone) {
     return (
@@ -274,6 +295,22 @@ function OneRoom({ id }: { id: string }) {
   }
   if (!room || now === null || endsAt === null) return problem ? <Problem words={problem} onRetry={() => void load()} /> : <Loading />;
   const words = room.words;
+
+  // With another screen in front, nothing of the call is drawn here at all: no camera check (which would switch
+  // the camera on behind that screen), and no call.
+  if (!inFront) return <View style={styles.fill} />;
+
+  // "End call and report" comes before everything else: until it is known that the call is ended for both, the
+  // way to try again must not be hidden by "this call has ended".
+  if (ending === "busy" || toReport) return <Loading words={words.ending} />;
+  if (ending === "failed") {
+    return (
+      <Page>
+        <Notice>{words.endFailed}</Notice>
+        <Button label={words.tryAgain} kind="danger" onPress={() => void endAndReport()} />
+      </Page>
+    );
+  }
 
   // Over on the screen only once the server has confirmed this end, or said the call was stopped.
   if ((now >= endsAt && checkedEnd === endsAt) || live?.cancelled || live?.safetyEnded) {
@@ -288,6 +325,7 @@ function OneRoom({ id }: { id: string }) {
   // for that moment; anyone else waits for the answer.
   if (now >= endsAt && !pass) return <Loading words={words.oneMoment} />;
   if (notNow) return <Loading />;
+  if (checking) return <Loading words={words.oneMoment} />;
 
   if (takenOver) {
     return (
@@ -298,16 +336,6 @@ function OneRoom({ id }: { id: string }) {
       </Page>
     );
   }
-  if (ending === "busy") return <Loading words={words.ending} />;
-  if (ending === "failed") {
-    return (
-      <Page>
-        <Notice>{words.endFailed}</Notice>
-        <Button label={words.tryAgain} kind="danger" onPress={() => void endAndReport()} />
-      </Page>
-    );
-  }
-
   const line = clockLine(words, { now, startsAt, endsAt, countdownSeconds: room.countdownSeconds });
   if (pass) {
     return (

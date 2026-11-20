@@ -102,5 +102,9 @@ describe("the report form", () => {
     expect(reportPlace({})).toBeNull();
     expect(reportPlace({ profile: "../admin" })).toBeNull();
     expect(reportPlace({ call: ["a", "b"] })).toBeNull();
+    // A call and a request are named by an id, never by anything shorter.
+    expect(reportPlace({ call: "abc" })).toBeNull();
+    expect(reportPlace({ booking: "maya-g" })).toBeNull();
+    expect(reportPlace({ booking: ID })).toEqual({ place: "booking", id: ID });
   });
 });
