@@ -7,6 +7,8 @@ import { HostPhoto } from "@/components/host-photo";
 import { LocalTime } from "@/components/local-time";
 import { RefreshEvery } from "@/components/refresh-every";
 import { SitePage } from "@/components/site-page";
+import { SuggestedHosts } from "@/components/suggested-hosts";
+import { MakeSuggestions } from "@/components/suggestions-watch";
 import { warm, warmFont } from "@/components/warm-ui";
 import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
@@ -21,6 +23,7 @@ import { picturesOf } from "@/lib/projects/pictures";
 import { firstLines } from "@/lib/projects/rules";
 import { callsToRate } from "@/lib/ratings/ratings";
 import { getSignedIn, requireUser } from "@/lib/session";
+import { todaysSuggestions } from "@/lib/suggestions/suggestions";
 
 const REQUEST_LABEL: Record<string, string> = {
   card: "card details needed to send it",
@@ -104,7 +107,7 @@ function FrontPage() {
 /**
  * The home page of someone who is logged in (plans/36-customer-home-page.md), from top to bottom:
  * the next call with its countdown, what is waiting for them, their next calls by day, the hosts
- * they follow, and news from those hosts. Calls that are over are on /calls.
+ * they follow, news from those hosts, and suggested hosts (plans/37). Calls that are over are on /calls.
  *
  * One page for everyone: a person can be a customer and a host with the same account, so the
  * calls they host and the requests waiting for their answer are here too.
@@ -149,11 +152,13 @@ export default async function HomePage(props: PageProps<"/">) {
   const shownHosts = followed.slice(0, HOME.hostsShown);
   // "News from your hosts" (plans/31, decision 9, and plans/36, decision 6): what anyone could read in those diaries.
   const news = followed.length > 0 ? await diaryNews(user.id, now) : [];
-  const [photos, pictures] = await Promise.all([
+  const [photos, pictures, suggested] = await Promise.all([
     // A photo is fetched from its own address, which decides afresh who may see it; a followed host whose page is not open is shown by name only.
     photosOf([...new Set([...myHostIds, ...shownHosts.filter((host) => host.handle).map((host) => host.hostId), ...news.map((post) => post.hostId)])]),
     // Only the pictures everyone may see.
     picturesOf(news.map((post) => post.postId)),
+    // "Suggested hosts" (plans/37): only read here. A paused person gets none.
+    user.paused ? null : todaysSuggestions(user.id, now),
   ]);
 
   // The time the countdown counts from, and by which a room counts as open: taken here, after everything was read,
@@ -375,6 +380,10 @@ export default async function HomePage(props: PageProps<"/">) {
           </ul>
         </section>
       )}
+
+      {/* Today's suggestions are made by the browser's own request, a moment after the page is there; drawing the page never writes. */}
+      {suggested && !suggested.made && <MakeSuggestions key={suggested.day} />}
+      {suggested && <SuggestedHosts day={suggested.day} hosts={suggested.hosts} />}
 
       <p className="mt-8 flex flex-wrap gap-x-6 text-sm">
         <Link href="/calls" className={plainLink}>

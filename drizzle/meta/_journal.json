@@ -316,6 +316,13 @@
       "when": 1795153259137,
       "tag": "0044_photo_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795156763491,
+      "tag": "0045_suggestions",
+      "breakpoints": true
     }
   ]
 }
