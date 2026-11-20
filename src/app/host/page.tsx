@@ -66,10 +66,17 @@ export default async function HostPage(props: PageProps<"/host">) {
   // A host from before the Host Agreement existed, or one who has not said business or private, is asked in a box at the top.
   const holdsAgreement = profile ? await holdsHostAgreement(user.id, new Date()) : true;
   const boxNeeded = Boolean(profile) && (!holdsAgreement || sellerKind === null);
-  // A host who accepted an earlier version and has said business or private is only asked for the new version (part 2).
-  const newVersionOnly = Boolean(profile) && !holdsAgreement && sellerKind !== null && (await acceptedHostAgreementBefore(user.id));
-  // A version of the Host Agreement whose day has not come: said here 30 days ahead, as the email says it.
-  const comingAgreement = profile ? comingVersion("host-agreement", new Date()) : null;
+  // The box's words follow what is missing. A host who has said business or private is only asked for the Host
+  // Agreement: as "a new version" if she accepted an earlier one (part 2), and as the one thing missing if not.
+  const agreementOnly = Boolean(profile) && !holdsAgreement && sellerKind !== null;
+  const boxWords = !agreementOnly
+    ? { title: "Two things we need from you", text: "Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below." }
+    : (await acceptedHostAgreementBefore(user.id))
+      ? { title: "The Host Agreement has a new version", text: "Please read the new version and accept it below. Your answer about how you offer calls is kept; you can change it here." }
+      : { title: "One thing we need from you", text: "Hosts on Connect accept the Host Agreement. Please read it and accept it below. Your answer about how you offer calls is kept; you can change it here." };
+  // A version of the Host Agreement whose day has not come: said here ahead of its day, as the email says it, also
+  // to someone who is about to apply, beside the form that accepts today's version.
+  const comingAgreement = comingVersion("host-agreement", new Date());
   const sellerChoice = (chosen: string | null) => (
     <fieldset className="text-sm">
       <legend>Do you offer calls as a business, or as a private person?</legend>
@@ -254,18 +261,14 @@ export default async function HostPage(props: PageProps<"/host">) {
           <Link href={versionHref("host-agreement", comingAgreement.version)} target="_blank" className="underline underline-offset-2">
             Read the new version
           </Link>
-          . From that day this page asks you to accept it.
+          . {profile ? "From that day this page asks you to accept it." : "If you apply before that day you accept today's version, and from that day this page asks you to accept the new one."}
         </p>
       )}
 
       {boxNeeded && (
         <section className="mt-8 rounded border border-neutral-500 p-4" data-host-box>
-          <h2 className="text-lg font-semibold">{newVersionOnly ? "The Host Agreement has a new version" : "Two things we need from you"}</h2>
-          <p className="mt-2 text-sm">
-            {newVersionOnly
-              ? "Please read the new version and accept it below. Your answer about how you offer calls is kept; you can change it here."
-              : "Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below."}
-          </p>
+          <h2 className="text-lg font-semibold">{boxWords.title}</h2>
+          <p className="mt-2 text-sm">{boxWords.text}</p>
           <form action={answerHostBoxAction} className="mt-3 max-w-md space-y-3">
             {sellerChoice(sellerKind)}
             {hostAgreementTick}

@@ -11,7 +11,6 @@ import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
 import { contributionHealthProblems } from "@/lib/contributions/health";
 import { membershipHealthProblems } from "@/lib/membership/health";
-import { noticeHealthProblems } from "@/legal/notices";
 import { moneyTiming } from "@/lib/payments/rules";
 import { isFrozen } from "@/lib/membership/rules";
 import { commonExpiry, heldOrdinary, holdEndFor, isDecided, isMemberCall } from "@/lib/payments/take";
@@ -106,8 +105,6 @@ export async function healthProblems(now: Date): Promise<string[]> {
 
   problems.push(...(await membershipHealthProblems(now)));
   problems.push(...(await contributionHealthProblems(now)));
-  // Not money, but a promise with a date: 30 days' notice of new terms (plans/46, part 2). The founder moves the day.
-  problems.push(...(await noticeHealthProblems(now)));
 
   return problems;
 }

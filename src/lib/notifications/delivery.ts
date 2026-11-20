@@ -267,6 +267,12 @@ export async function deliverEmails(now: Date, transport: Transport = resendTran
         continue;
       }
 
+      // Asked once more, with the clock of this moment: the checks above take time, and an email whose time ran out
+      // meanwhile (a notice of new terms at the midnight its day begins) is not sent after it.
+      if (email.expiresAt && email.expiresAt <= new Date()) {
+        await fail(email, "expired before it could be sent");
+        continue;
+      }
       // Counted as a try right before the service is asked, so a crash from here on is treated as an unknown outcome.
       const [tried] = await db
         .update(schema.emailOutbox)

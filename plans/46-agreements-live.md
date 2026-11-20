@@ -504,16 +504,53 @@ The plan was not sent a third time. Each part's code goes to Astra, as always.
   emails.
 - **An email is not sent after its day**, not to an account closed since it was written, and not
   for a day that has been moved since.
-- **What the health report counts.** Only versions for which 30 days are owed (not the first
-  published one after a draft, not one marked urgent), and only people who were concerned before
-  the last day for it. Three lines: an email that went out with fewer than 30 days left; one that
-  is still not out with fewer than 30 days left; one that failed. **Changed against decision
-  12:** a failed email counts only when the reason is ours. An address that bounces, or an
-  account closed in between, does not count: moving the day would not mend it, and the health
-  report would stay red until the day.
-- **The Hosting page** says a coming Host Agreement the way the documents' own pages do, and the
-  box that asks for a new version says "The Host Agreement has a new version" and no longer
-  "Two things we need from you" when the host has answered the other one.
+- **Changed against decision 12: the warning is not in the health report.** That address is
+  watched for money, turns "not healthy" for any line, and would stay so until the day. When the
+  30 days are at risk the founder is written an email, once for each problem, and the founder's
+  Emails page shows for every announced version how many emails went out in time, later, or not
+  at all. Counted: only versions the 30 days are owed for (not the first published one after a
+  draft, not one marked urgent with a reason), and only people who were concerned before the last
+  day for it. Four cases: an email that went out with fewer than 30 days left; one still not out
+  with fewer than 30 days left; one that failed for a reason of ours (a bounced address or an
+  account closed in between is not one); a day moved back to one that was announced before.
+- **The Hosting page** says a coming Host Agreement the way the documents' own pages do, and its
+  box's words follow what is missing.
+
+## What Astra's review of part 2 changed (20 November 2026)
+
+Astra read the first build and said to hold it. Taken:
+
+- **Every future version is announced, not only the next one of a document.** A second change
+  planned behind the first would have had almost no notice. Two versions of one document can no
+  longer take effect on the same day, and "urgent" has to give a reason.
+- **Someone who finishes signing up, or applies to host, while a version is coming is written to
+  in that same database step.** Before, the helper found them within a minute, and not at all in
+  the last minute before the day.
+- **The helper's round of notices no longer waits behind other work**, and is timed by the clock:
+  a failure elsewhere in the helper cannot hold it up.
+- **A helper still running older code during a release could give a good email up for ever.** The
+  next round takes such an email up again.
+- **The founder can have refused emails sent again** (a button on the Emails page). Only emails
+  the sending service refused outright: those certainly did not go out.
+- **Both coming notes are shown before a person agrees:** a coming Host Agreement beside the form
+  that applies to host, and a coming Privacy Policy or Copyright Policy on the last step of
+  sign-up.
+- **The email's words:** the hour (00:00 UTC); a link to the version held today by its own name,
+  so it still shows that text afterwards; for hosts, that they can end hosting by closing the host
+  page and that booked calls and begun membership months are not touched (Host Agreement 19.2);
+  for the Terms, the way to reject a change to how disputes are settled (20.10).
+- An email whose time ran out is asked about once more right before it is handed to the sending
+  service.
+- The check script's checks each prove what their label says (the exact moment an email runs
+  out, a closed account apart from a refusal, two helpers at once, a backlog over several rounds).
+
+Not taken:
+- *Keep the sending service's own times for each email.* The app records when the service
+  accepted an email. If that answer is lost and a second try succeeds later, the later time is
+  kept, which can only make a notice look later than it was, never earlier.
+- *A record of who was never told, kept after the day.* The Emails page counts the emails of a
+  version for a year after its day; a person with no email at all is only counted while the
+  version is coming.
 - **Not built:** the phone app's last step of sign-up does not show a coming version (the email
   and the website do). The phone-apps session is told.
 

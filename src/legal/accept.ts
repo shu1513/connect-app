@@ -10,6 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { agreementsToAccept, currentVersion, generalStamp, GENERAL_DOCUMENTS, isDocumentName, type DocumentName, type Occasion } from "./versions";
+import { queueNoticesFor } from "./notices";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -83,6 +84,8 @@ export async function acceptGeneralAgreements(input: { userId: string; shown: Sh
       // The day they first said "18 or older" stays; it is said again with every acceptance, and the first one is the proof.
       .set({ adultConfirmedAt: person.adultConfirmedAt ?? now, termsAcceptedAt: now, termsVersion: generalStamp(now), timeZone: input.timeZone, updatedAt: now })
       .where(eq(schema.user.id, userId));
+    // A version that is coming: this person is written to about it here, in the same step, like everyone who was there before.
+    await queueNoticesFor(tx, userId, "everyone", now);
     return "done";
   });
 }

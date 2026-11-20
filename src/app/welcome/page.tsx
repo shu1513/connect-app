@@ -40,10 +40,11 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const returning = await acceptedBefore(person.id);
   const now = new Date();
   const agreements = agreementsToAccept("sign_up", now);
-  // A version that is announced and not yet in effect: said here too, so that someone signing up today knows of it.
-  const coming = GENERAL_DOCUMENTS.flatMap((name) => {
+  // A version that is announced and not yet in effect: said here too, so that someone signing up today knows of it
+  // before agreeing. Also for the two documents that are told and not accepted (the Privacy Policy, the Copyright Policy).
+  const coming = (["terms-of-service", "payment-terms", "community-rules", "privacy-policy", "copyright-policy"] as const).flatMap((name) => {
     const version = comingVersion(name, now);
-    return version ? [{ name, version }] : [];
+    return version ? [{ name, version, accepted: (GENERAL_DOCUMENTS as readonly string[]).includes(name) }] : [];
   });
   const documentLinks = agreements.map((agreement, index) => (
     <span key={agreement.name}>
@@ -103,13 +104,13 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
           </Link>{" "}
           explains what we do with your information.
         </p>
-        {coming.map(({ name, version }) => (
+        {coming.map(({ name, version, accepted }) => (
           <p key={name} className="rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`${name}@${version.version}`}>
             From {dayWords(version.effectiveFrom)} a new version of the {DOCUMENTS[name].title} applies. {version.summary}{" "}
             <Link href={versionHref(name, version.version)} target="_blank" className="underline underline-offset-2">
               Read it
             </Link>
-            . You will be asked to accept it then.
+            .{accepted ? " You will be asked to accept it then." : ""}
           </p>
         ))}
       </form>

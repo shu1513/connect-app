@@ -43,7 +43,7 @@ async function main() {
   const { runPictureRound } = await import("../src/lib/projects/queue");
   const { followAfterCalls } = await import("../src/lib/follows/follows");
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
-  const { announceComingVersions } = await import("../src/legal/notices");
+  const { runNoticeRound } = await import("../src/legal/notices");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -88,8 +88,17 @@ async function main() {
    * slow money work can never keep a room open past its end.
    */
   let passes = 0;
+  let lastNoticeRound = 0;
   async function pass() {
     const now = new Date();
+    // About once a minute, and before everything else so that no failure further down can hold it up: everyone a coming
+    // version of a legal document concerns is written to, once, and the founder is told when the 30 days are at risk
+    // (plans/46, part 2). With nothing coming, this asks the database nothing.
+    // Timed by the clock, not by the count of finished passes: a pass that fails further down is not counted.
+    if (now.getTime() - lastNoticeRound >= 60_000) {
+      lastNoticeRound = now.getTime();
+      await runNoticeRound(now).catch((error) => console.error("[agreements] the round of notices of a coming version failed; will retry", error));
+    }
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
     // If the payment work fails, the booking work waits for a pass in which it went through.
     try {
@@ -128,9 +137,6 @@ async function main() {
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
     // About once a minute: what a pause or a closure left behind when the server stopped in the middle of it.
     if (passes % 12 === 0) await finishPausesAndClosures(now).catch((error) => console.error("[accounts] finishing pauses and closures failed; will retry", error));
-    // About once a minute: everyone a coming version of a legal document concerns is written to, once (plans/46, part 2).
-    // With nothing coming, this asks the database nothing.
-    if (passes % 12 === 0) await announceComingVersions(now).catch((error) => console.error("[agreements] writing the notices of a coming version failed; will retry", error));
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.

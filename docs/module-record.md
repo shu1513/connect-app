@@ -4320,32 +4320,46 @@ the old stamp, and the app would send them to the last step of sign-up.
 **Why.** Change 5 of the list in `docs/legal/README.md`: the Terms (23.2) and the Host Agreement
 (19.2) promise 30 days' notice of a new version, and nothing sent one.
 
-**What was built.** `src/legal/notices.ts`. About once a minute the helper looks for a version
-whose day has not come and writes one email to everyone it concerns who has none yet: the day,
-what changes, a link to the new text, and what the person has to do. The email's key holds the
-document, the version, the day and the person, so nobody is written to twice and a moved day is
-announced again by itself. Right before sending, the email is asked whether it is still true: not
-to a closed account, not for a day that was moved, and never after its day. The health report
-gains three lines (an email out with fewer than 30 days left, one still not out with fewer than
-30 days left, one that failed for a reason of ours). The Hosting page says a coming Host
-Agreement, and its box has words of its own for "a new version". No migration.
+**What was built.** `src/legal/notices.ts`. Everyone a coming version concerns is written one
+email: the day, what changes, links to the new text and to the one held today, and what the
+person has to do. The helper writes them about once a minute for the people who are there;
+someone who finishes signing up or applies to host meanwhile is written to in that same step. The
+email's key holds the document, the version, the day and the person, so nobody is written to
+twice and a moved day is announced again by itself. Right before sending, the email is asked
+whether it is still true: not to a closed account, not for a day that was moved, never after its
+day. When the 30 days are at risk the founder gets an email, once for each problem, and the
+founder's Emails page shows for every announced version how its emails went, with a button that
+sends refused ones again. The Hosting page and the last step of sign-up say a coming version
+before a person agrees. No migration.
 
 **The builder's own choices** (each can be changed): one email for each document, not one for
 all; a person who has not finished signing up is not written to; a bounced address or a closed
-account is not counted as a failed notice (this changes a sentence of decision 12, and the plan
-says why); the first published version after the draft owes no 30 days.
+account is not counted as a failed notice; the warning goes to the founder by email and to the
+Emails page, not into the health report that watches money (this changes a sentence of decision
+12, and the plan says why); the first published version after the draft owes no 30 days.
 
-**How it was checked.** 11 new tests of the rules (who is told, the key, the words, the last day
-for it). `agreements-check` grew by 20 checks with two made-up versions: everyone concerned is
-written to once and nobody twice; nobody closed or unfinished; someone who finishes signing up
-meanwhile accepts the version in effect and gets the email; a failure of ours shows in the health
-report and a closed account does not; a moved day is announced again; fewer than 30 days left
-shows, for an email not out and for one sent late, and not for a person who only signed up today;
-after the day is moved far enough, the report is quiet again. In a browser, with a temporary
-coming version that was taken out again: the note on the Payment Terms' page, on the last step of
-sign-up, and on the Hosting page.
+**What the reviewer found.** Astra read the first build and said to hold it. Its points, and
+what was done about each, are in the plan ("What Astra's review of part 2 changed"). The largest:
+only the next version of a document was announced; a person joining in the last minute before
+the day could be missed; a helper running older code during a release could give a good email up
+for ever; the warning sat on the money alarm.
+
+**How it was checked.** 15 tests of the rules (who is told, every future version, the key, the
+words for each kind of document, which failures can be sent again) and 2 new ones of the version
+list. `agreements-check` grew to 64 checks; its new part uses three made-up versions and a
+stand-in for the sending service: everyone concerned is written to once over several rounds and
+with two helpers at once; nobody closed or unfinished; someone who signs up or applies to host
+meanwhile is written to in that step; an email whose time ran out, or to an account closed since,
+is never handed to the sending service; a refused email is said, the founder is written to once,
+the button sends exactly the refused ones again; an email wrongly given up is taken up again; a
+moved day is announced again; fewer than 30 days left is said for an email not out and for one
+sent late, and not for a person who only signed up today; a day moved back to one announced
+before is said; the health address says nothing of it. `accounts-check` was run again. In a
+browser, with a temporary coming version that was taken out again: the note on the Payment
+Terms' page, on the last step of sign-up, and on the Hosting page.
 
 **What cannot be tested here.** A real email leaving through the sending service (the check uses
-a stand-in), and whether this way of giving notice holds in law: `docs/for-the-lawyer.md`,
-section 16.
+a stand-in). The new part of the founder's Emails page was type-checked and its numbers are
+checked by the script, but it was not looked at in a browser: the test admin's login is not set
+up. Whether this way of giving notice holds in law: `docs/for-the-lawyer.md`, section 16.
 
