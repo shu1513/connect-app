@@ -17,20 +17,25 @@ import type { AppCardStep } from "../../../src/lib/app-door/types";
 import { requestScreen } from "./book-rules";
 import { APP_SCHEME } from "./config";
 
-/** How the sheet ended: it finished, the person closed it, or it could not be shown or went wrong. */
-export type CardOutcome = "finished" | "given_up" | "failed";
+/** How the sheet ended: it finished, the person closed it, it could not be shown or went wrong, or it was not shown because the person had left. */
+export type CardOutcome = "finished" | "given_up" | "failed" | "not_shown";
 
 let open = false;
 
 /**
  * Shows the card sheet for a request and waits until it is gone. `bookingId` names the request's
  * own screen, which is where a bank's approval page hands the person back to the app.
+ *
+ * `still` says whether the screen that asked is still the one in front. Getting the sheet ready
+ * takes a moment; it is asked again at the very last step before the sheet is shown, so a sheet for
+ * one request never comes up after the person has left that request, or for somebody else.
  */
-export async function enterCard(step: AppCardStep, bookingId: string, button: string): Promise<CardOutcome> {
+export async function enterCard(step: AppCardStep, bookingId: string, button: string, still: () => boolean): Promise<CardOutcome> {
   // One sheet at a time, whatever was tapped twice.
   if (open) return "given_up";
   open = true;
   try {
+    if (!still()) return "not_shown";
     const back = requestScreen(APP_SCHEME, bookingId);
     await initStripe({ publishableKey: step.publishableKey });
     const made = await initPaymentSheet({
@@ -43,6 +48,7 @@ export async function enterCard(step: AppCardStep, bookingId: string, button: st
       primaryButtonLabel: button,
     });
     if (made.error) return "failed";
+    if (!still()) return "not_shown";
     const shown = await presentPaymentSheet();
     if (!shown.error) return "finished";
     return shown.error.code === PaymentSheetError.Canceled ? "given_up" : "failed";

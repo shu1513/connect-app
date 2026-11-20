@@ -144,7 +144,7 @@ call. The screen says what is being bought in those words. The ID check is not a
 
 ### How it was tried
 
-- `scripts/app-booking-check.ts`, 116 checks, with real test cards at Stripe (test mode): the
+- `scripts/app-booking-check.ts`, 120 checks, with real test cards at Stripe (test mode): the
   summary in the website's own sentences (and the website's page for the same time saying the
   same); a request from the app is the same row, deadlines and email as one made by the
   website's own function; sent twice it is one; every refusal; the card step, where only
@@ -236,6 +236,49 @@ Its thirteen points, all taken:
     host will no longer be able to accept it" (she can still see that it was asked and taken
     back). The line about paying by hand or cancelling on the call's page is left out until
     the app has that page.
+
+## Astra's second look at the code (20 November 2026): "not ready", now worked in
+
+Five of the thirteen were fixed outright (4, 10, 11, 12, 13). Ten further points, mostly about
+what happens around a lost answer:
+
+1. *After a sending whose answer was lost, the form could still be changed, and "try again"
+   sent the old tick and note.* Until the server has said what became of a sending, the screen
+   now shows exactly what was sent, read-only, with one button, "Try again". Tried on the
+   phone with the connection cut: one request, as shown.
+2. *The card sheet could still come up after the person had left,* during the moment Stripe's
+   kit gets it ready. The check is now made again at the very last step before the sheet is
+   shown, and it says no for anyone who left the screen, even if they came back since.
+3. *The tick was recorded with whatever wording was in force when it arrived.* The summary now
+   says which wording its box stands beside, and that goes back with the tick. If the wording
+   has changed since, nothing is sent (the website's form does the same now). A tick also no
+   longer comes back when a price goes away and returns.
+4. *The 30 minutes were judged by the clock at the start of the question,* not at the moment
+   of deciding. Now by the later of the two, with the calendars locked. **Not taken:** judging
+   the apps' own "available now" switch again at that same moment. A request let in a blink
+   before the founder flips the switch is no different from one that finished a blink earlier;
+   the switch stops everything after it.
+5. *An answer that came while another screen was in front left a live form whose key was
+   spent.* The screen now remembers that its request was made, opens it when it comes to the
+   front again, and never shows the form again.
+6. *Requests past their card time still counted as "standing at the card step", and the
+   website still offered them a card form.* They no longer count (they still count toward the
+   20 a day); the website's page and the app both say the time has passed, with no card form,
+   and the app's page asks again by itself until the helper has ended the request.
+7. *After the sheet finished and the server could not be asked, the only way on was to enter
+   the card again.* There is now a "Check again" button that asks the server without opening
+   the sheet.
+8. *The check script.* The app it talks to makes the first things at Stripe, so the script now
+   says to start that app with the same test key, and stops at once if the app hands out any
+   other kind. (The app itself refuses a key that is not a test key unless it was started with
+   ALLOW_LIVE_STRIPE=yes.) A test customer that cannot be removed at Stripe now fails the
+   check and is named.
+9. *An older copy of the app would not read the newer answer, and the other way round.*
+   **Not taken now, noted for part 20:** no copy of the app is in anyone's hands yet, and all
+   parts go out together. From the first copy in a store on, an answer may only ever grow,
+   and the oldest version still let in must be raised when it cannot.
+10. *A cancelled ID check could be written back to "being looked at" by an older reading.* A
+    cancelled check is now left alone, like a passed one.
 
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 

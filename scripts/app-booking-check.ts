@@ -7,7 +7,10 @@
  * started from the app and read for the person signed in to the app.
  *
  * It saves test cards at Stripe and starts identity checks there, so it runs only with Stripe's
- * test key (nothing is ever held or charged, and nothing real is made). It empties the table of
+ * test key (nothing is ever held or charged, and nothing real is made). **Start the app it talks
+ * to with the same test key** (the same `.env.local`): the app, not this tool, makes the first
+ * things at Stripe. The app itself refuses a key that is not a test key unless it was started with
+ * ALLOW_LIVE_STRIPE=yes, and this tool stops at once if the app hands out anything but a test key. It empties the table of
  * attempt limits as it goes, so it only runs against a database made for checking (its name must
  * end in "_check"). It removes what it made, here and at Stripe. It never prints a secret.
  *
@@ -189,7 +192,7 @@ async function main() {
   };
   /** Sends the request the way the app does: with what the summary gave it. */
   const send = (handle: string, s: Ok, jar: Jar, change: Record<string, unknown> = {}) =>
-    asApp(`/api/app/hosts/${handle}/book`, { jar, body: { start: s.startsAt, length: s.minutes, note: "", requestKey: s.requestKey, ...(s.cardTerms ? { cardTerms: true } : {}), seen: s.seen, ...change } });
+    asApp(`/api/app/hosts/${handle}/book`, { jar, body: { start: s.startsAt, length: s.minutes, note: "", requestKey: s.requestKey, ...(s.cardTerms ? { cardTerms: true, cardTermsVersion: s.cardTermsVersion } : {}), seen: s.seen, ...change } });
   const row = async (id: string) => (await db.select().from(schema.bookings).where(eq(schema.bookings.id, id)))[0];
   const requestPage = async (id: string, jar?: Jar) => {
     const reply = await asApp(`/api/app/bookings/${id}`, { jar });
@@ -238,8 +241,8 @@ async function main() {
       const free = await summary(maya.handle, slot, cust.jar);
       const f = free.body?.kind === "ok" ? free.body : null;
       check("with a confirmed ID, the summary of a free call", free.reply.status === 200 && f !== null && f.title === `Ask ${maya.displayName} for a call` && f.price === "Free" && f.startsAt === slot && f.minutes === 30, JSON.stringify(free.body).slice(0, 200));
-      check("it has exactly the parts the app knows, and no account id", keys(f) === "button,cardTerms,hostTime,idLine,kind,minutes,note,points,pointsTitle,price,requestKey,seen,startsAt,title,what" && !free.reply.text.includes(maya.id), keys(f));
-      check("a free call has no box about a card, and its button sends the request", f?.cardTerms === null && f.button === "Send request" && f.seen.price === 0 && f.seen.freeCancel === 1440);
+      check("it has exactly the parts the app knows, and no account id", keys(f) === "button,cardTerms,cardTermsVersion,hostTime,idLine,kind,minutes,note,points,pointsTitle,price,requestKey,seen,startsAt,title,what" && !free.reply.text.includes(maya.id), keys(f));
+      check("a free call has no box about a card, and its button sends the request", f?.cardTerms === null && f.cardTermsVersion === null && f.button === "Send request" && f.seen.price === 0 && f.seen.freeCancel === 1440);
       check("it says what is asked for: a live one-to-one call that is not recorded, and a free call's own cancelling rule", f?.what === "A live, private one-to-one video call. It is not recorded. You can cancel for free any time before the call starts." && !JSON.stringify(f).includes("24 hours"), f?.what);
       check("the host's own time is written in her time zone", f?.hostTime.startsWith(`For ${maya.displayName}: `) === true && /C[SD]T$/.test(f?.hostTime ?? ""), f?.hostTime);
       const answerBy = answerDeadline({ startsAt: new Date(slot), paid: false, freeCancelMinutes: 0, requestedAt: new Date() }).getTime();
@@ -255,7 +258,7 @@ async function main() {
       const paid = await summary(noor.handle, paidSlot, cust.jar);
       const p = paid.body?.kind === "ok" ? paid.body : null;
       check("a paid call: the most it can cost, and the price it is worked out from", p?.price === "$40.00 at most ($20.00 per 15 minutes)" && p.seen.price === 2000 && p.seen.freeCancel === 60, p?.price);
-      check("the box about the card carries the website's sentence, word for word", p?.cardTerms === CARD_TERMS("$40.00") && p.button === "Continue to card details");
+      check("the box about the card carries the website's sentence, word for word", p?.cardTerms === CARD_TERMS("$40.00") && p.cardTermsVersion === CARD_CONSENT_VERSION && p.button === "Continue to card details");
       check("a paid call says the same, with the host's own cancelling rule", p?.what === "A live, private one-to-one video call. It is not recorded. You can cancel for free until 1 hour before the call starts. After that, cancelling costs the full booked price.", p?.what);
       check("the points about the money are all there", p?.points.length === 8 && JSON.stringify(p.points).includes("Nothing is held or charged now.") && JSON.stringify(p.points).includes("until 1 hour before the call starts") && p.points[7].some((part) => typeof part === "object" && "time" in part && new Date(part.time).getTime() === payCutoff(new Date(paidSlot), 60).getTime()));
       // The website's own page for the same time says the same.
@@ -342,12 +345,15 @@ async function main() {
       const noId = await asApp(`/api/app/hosts/${maya.handle}/book`, { jar: third.jar, body: { start: s.startsAt, length: 30, requestKey: randomUUID(), seen: { price: 0, freeCancel: 1440 } } });
       check("a free call without a confirmed ID", sentence(noId) === "Before your first free call, please confirm who you are on your account page.");
       const ollyTime = (await openTimes(olly.handle, third.jar))[8];
-      const strict = await asApp(`/api/app/hosts/${olly.handle}/book`, { jar: third.jar, body: { start: ollyTime, length: 30, requestKey: randomUUID(), cardTerms: true, seen: { price: 2000, freeCancel: 0 } } });
+      const strict = await asApp(`/api/app/hosts/${olly.handle}/book`, { jar: third.jar, body: { start: ollyTime, length: 30, requestKey: randomUUID(), cardTerms: true, cardTermsVersion: CARD_CONSENT_VERSION, seen: { price: 2000, freeCancel: 0 } } });
       check("a host who only takes people with a confirmed ID", sentence(strict) === "This host only takes calls from people who have confirmed their ID. Please confirm who you are on your account page.");
       const paidS = await okSummary(noor.handle, nextPaid(), cust.jar);
       const noTick = await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTerms: false });
       const noBox = await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTerms: undefined });
       check("a paid call without the box ticked, or with no box at all: nothing is sent", sentence(noTick) === "Please tick the box about your card to continue." && sentence(noBox) === sentence(noTick));
+      // A tick is for the words it stood beside. Without saying which, or for words that have been changed since, it is no tick.
+      check("a tick that does not say which words it was given for is not taken", refusal(await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTermsVersion: undefined })) === "not_valid" && refusal(await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTermsVersion: 7 })) === "not_valid");
+      check("a tick given for an earlier wording sends nothing", sentence(await send(noor.handle, paidS, cust.jar, { ...fresh(), cardTermsVersion: "2020-01-a" })) === "The words about your card have changed since you opened this page. Please read them again.");
       await setSwitches({ requestsOff: true });
       check("requests switched off by the founder", sentence(await send(maya.handle, s, cust.jar, fresh())) === "Connect is not taking new requests right now. Please try again later.");
       await restoreSwitches();
@@ -405,11 +411,13 @@ async function main() {
       check("the tick is recorded with the wording's version, and Stripe's step is made", made1?.cardConsentVersion === CARD_CONSENT_VERSION && made1.cardConsentAt !== null && Boolean(made1.stripeSetupIntentId));
       check("nobody's time is taken yet, and no email has gone", !(await busyOf(second.id)).some((b) => b.bookingId === id) && (await emailsTo(second.email, `Your request to ${noor.displayName} was sent`)) === 0);
       const page = (await requestPage(id, second.jar)).body;
-      check("its page shows the card step, with the website's words and by when", page?.stage === "card" && page.stageWords === "Almost there: enter your card to send the request." && page.card?.title === "Your card" && page.card.words.startsWith("Nothing is held or charged now.") && page.card.button === "Save card and send request" && page.card.deadline.some((part) => typeof part === "object" && "time" in part && part.time === new Date(made1.createdAt.getTime() + LIMITS.cardStepMinutes * MINUTE).toISOString()) && keys(page.card) === "button,deadline,givenUp,notConfirmed,notSaved,title,words" && page.takeBack === null && page.takeBackSure === null && page.hearBy === null, keys(page?.card));
+      check("its page shows the card step, with the website's words and by when", page?.stage === "card" && page.stageWords === "Almost there: enter your card to send the request." && page.card?.title === "Your card" && page.card.words.startsWith("Nothing is held or charged now.") && page.card.button === "Save card and send request" && page.card.deadline.some((part) => typeof part === "object" && "time" in part && part.time === new Date(made1.createdAt.getTime() + LIMITS.cardStepMinutes * MINUTE).toISOString()) && keys(page.card) === "button,checkAgain,deadline,givenUp,notConfirmed,notSaved,title,words" && page.card.checkAgain === "Check again" && page.takeBack === null && page.takeBackSure === null && page.hearBy === null, keys(page?.card));
       check("the price line says the most it can cost", page?.price.words === "$40.00 at most");
 
       const card = await step(id, "card", second.jar);
       const c = card.json as AppCardStep;
+      // The app this tool talks to must be on Stripe's test key too. Anything else: stop here, before more is made.
+      if (card.status === 200 && !String(c.publishableKey).startsWith("pk_test_")) throw new Error("The app at " + BASE + " is not using Stripe's test key. Stopping.");
       check("the card sheet gets what it needs, and nothing else", card.status === 200 && keys(c) === "clientSecret,merchant,publishableKey" && /^seti_[A-Za-z0-9]+_secret_[A-Za-z0-9]+$/.test(c.clientSecret) && c.publishableKey.startsWith("pk_test_") && c.merchant === "Connect", `${card.status} ${keys(c)}`);
       check("and the secret is never kept on the way", String(card.headers["cache-control"]).includes("no-store"));
       check("nobody else gets it: somebody else, nobody, a browser", refusal(await step(id, "card", cust.jar)) === "not_found" && refusal(await step(id, "card")) === "not_signed_in" && refusal(await asBrowser(`/api/app/bookings/${id}/card`, { jar: second.jar, body: {} })) === "not_the_app");
@@ -449,7 +457,9 @@ async function main() {
         const lateRow = await row(lateId);
         await db.update(schema.bookings).set({ createdAt: new Date(Date.now() - (LIMITS.cardStepMinutes + 1) * MINUTE) }).where(eq(schema.bookings.id, lateId));
         const latePage = (await requestPage(lateId, third.jar)).body;
-        check("past its time the request's page offers no card step, and says why", latePage?.stage === "card" && latePage.card === null && latePage.reason === "The time to enter a card for this request has passed. Nothing was sent.");
+        check("past its time the request's page offers no card step, says why in place of 'enter your card', and asks again by itself", latePage?.stage === "card" && latePage.card === null && latePage.stageWords === "The time to enter a card for this request has passed. Nothing was sent." && latePage.reason === null && latePage.refreshSeconds === 20, JSON.stringify(latePage).slice(0, 200));
+        const lateWeb = await asBrowser(`/bookings/${lateId}`, { jar: third.jar });
+        check("the website's page says the same and shows no card form", lateWeb.status === 200 && lateWeb.text.includes("The time to enter a card for this request has passed. Nothing was sent.") && !lateWeb.text.includes("Save card and send request") && !lateWeb.text.includes("The card form could not be loaded"), `${lateWeb.status}`);
         check("and the card sheet is refused", sentence(await step(lateId, "card", third.jar)) === "The time to enter a card for this request has passed. Nothing was sent.");
         // Even a card that Stripe has saved by then sends nothing: the request ends, and the helper removes the card.
         await stripe().setupIntents.confirm(lateRow.stripeSetupIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
@@ -466,6 +476,10 @@ async function main() {
         const over = await send(noor.handle, await okSummary(noor.handle, nextPaid(), third.jar), third.jar);
         check(`${LIMITS.cardStepsOpen} requests can stand at the card step, and the next is refused`, drafts.every((id) => /^[0-9a-f-]{36}$/.test(id)) && sentence(over) === "You have several requests waiting for their card. Finish one of them first, or wait until they have ended.", sentence(over));
         check("nothing was made for the one refused", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, third.id), eq(schema.bookings.stage, "card")))).length === LIMITS.cardStepsOpen);
+        // One whose time is up no longer stands at the card step, also before the helper has ended it.
+        await db.update(schema.bookings).set({ createdAt: new Date(Date.now() - (LIMITS.cardStepMinutes + 1) * MINUTE) }).where(eq(schema.bookings.id, drafts[1]));
+        const room = await send(noor.handle, await okSummary(noor.handle, nextPaid(), third.jar), third.jar);
+        check("a request whose card time is up no longer counts as standing there", room.status === 200, sentence(room));
 
         // A call asked for "now" (begun on the website) at its card step, while "available now" is switched off for the apps.
         const [instant] = await db
@@ -558,7 +572,14 @@ async function main() {
     await db.delete(schema.bookings).where(inArray(schema.bookings.id, bookingIds));
     await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, ids));
     // The test customers this run made at Stripe go too (their saved cards with them).
-    for (const one of await db.select().from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) await stripe().customers.del(one.stripeCustomerId).catch(() => undefined);
+    // One that could not be removed there is said, and counts as a failed check: its id is the way to remove it by hand.
+    for (const one of await db.select().from(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids))) {
+      const gone = await stripe()
+        .customers.del(one.stripeCustomerId)
+        .then(() => true)
+        .catch((error: { code?: string }) => error?.code === "resource_missing");
+      if (!gone) check(`the test customer ${one.stripeCustomerId} was removed at Stripe`, false, "remove it by hand in Stripe's test dashboard");
+    }
     await db.delete(schema.stripeCustomers).where(inArray(schema.stripeCustomers.userId, ids));
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
     await db.delete(schema.weeklyHours).where(inArray(schema.weeklyHours.hostId, ids));

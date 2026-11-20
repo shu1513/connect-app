@@ -10,7 +10,7 @@ import { publicProfile } from "@/lib/profiles/profiles";
  *
  *   GET  /api/app/hosts/[handle]/book?start=…&length=30   what the customer reads before sending
  *   POST /api/app/hosts/[handle]/book                      send the request
- *        { start, length, note?, requestKey, cardTerms?, seen: { price, freeCancel } }
+ *        { start, length, note?, requestKey, cardTerms?, cardTermsVersion?, seen: { price, freeCancel } }
  *
  * For someone who may act (not a paused person). Who asks comes from the sign-in, never from what
  * is sent. Sending holds every rule again, whatever the summary said: the time, the limits, a
@@ -32,12 +32,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
   const me = asked.person!;
   const { handle } = await ctx.params;
   const sent: unknown = await request.json().catch(() => null);
-  const given = (sent !== null && typeof sent === "object" ? sent : {}) as { start?: unknown; length?: unknown; note?: unknown; requestKey?: unknown; cardTerms?: unknown; seen?: unknown };
+  const given = (sent !== null && typeof sent === "object" ? sent : {}) as { start?: unknown; length?: unknown; note?: unknown; requestKey?: unknown; cardTerms?: unknown; cardTermsVersion?: unknown; seen?: unknown };
   const seen = (given.seen !== null && typeof given.seen === "object" ? given.seen : {}) as { price?: unknown; freeCancel?: unknown };
   const whole = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0;
   if (typeof given.start !== "string" || !whole(given.length) || typeof given.requestKey !== "string" || !whole(seen.price) || !whole(seen.freeCancel)) return refuse("not_valid");
   if (given.note !== undefined && typeof given.note !== "string") return refuse("not_valid");
   if (given.cardTerms !== undefined && typeof given.cardTerms !== "boolean") return refuse("not_valid");
+  if (given.cardTermsVersion !== undefined && given.cardTermsVersion !== null && typeof given.cardTermsVersion !== "string") return refuse("not_valid");
+  // A tick always says which words it was given for: a tick without them is no tick.
+  if (given.cardTerms === true && typeof given.cardTermsVersion !== "string") return refuse("not_valid");
 
   // A request this person already made with this key is answered as it was made, before anything is looked at
     // as it stands now: the answer to the first sending may have been lost on the way, and since then the host may
@@ -59,7 +62,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
       requestKey: given.requestKey,
       // Only the box itself, ticked: nothing else counts as a yes.
       agreedToCardTerms: given.cardTerms === true,
-      seen: { pricePer15Cents: seen.price, freeCancelMinutes: seen.freeCancel },
+      seen: { pricePer15Cents: seen.price, freeCancelMinutes: seen.freeCancel, cardTermsVersion: given.cardTermsVersion ?? null },
       now: new Date(),
     });
     const body: AppBookSent = { id: booking.id };

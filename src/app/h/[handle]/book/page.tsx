@@ -7,7 +7,7 @@ import { isHostToo } from "@/lib/booking/bookings";
 import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, type Part } from "@/lib/booking/book-words";
 import { whenFor } from "@/lib/booking/emails";
-import { LIMITS } from "@/lib/booking/rules";
+import { CARD_CONSENT_VERSION, LIMITS } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { hostForMemberByHandle } from "@/lib/membership/access";
 import { memberBookingView, memberCallCents, memberOpenTimes } from "@/lib/membership/book";
@@ -138,6 +138,8 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
         {paid && (
           <label className="flex items-start gap-2">
             <input type="checkbox" name="cardTerms" required className="mt-1" />
+            {/* Which wording this box stands beside. If it has been changed by the time the form arrives, nothing is sent. */}
+            <input type="hidden" name="cardTermsVersion" value={CARD_CONSENT_VERSION} />
             <span>{cardTermsWords(total)}</span>
           </label>
         )}

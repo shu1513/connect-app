@@ -105,6 +105,16 @@ once a real person has the app. Each is looked at again here, before anything is
   happens at the very moment someone presses "Sign out" and the app is closed in the same
   second, the person could be signed in again when the app is next opened (the server is told
   about the sign-out all the same). Mend the library, or take its makers' fix if there is one.
+- **From part 06 (Astra's second look):** until a copy of the app is in a store, the app and
+  the server change together, and an answer's shape may change freely. **From the first copy
+  in a store on, an answer may only grow** (a part an older copy reads must stay, and a new
+  part must be one an older copy can do without), or the oldest version still let in must be
+  raised in the same step. Write this rule into the app's README, and add a check that reads
+  each answer with the checks of the oldest copy still let in.
+- **From part 06:** on an iPhone, the link that hands back from a bank's approval page must
+  reach Stripe's kit (`useCardReturns` in `mobile/src/lib/card.ts`): written, never run. And
+  Stripe's own ID page inside the phone's browser sheet was not walked on Android either (the
+  test phone's browser first shows Google's terms screen): walk it on both.
 
 ## Keeping the 4.9%
 

@@ -6,7 +6,7 @@ import { ask } from "@/lib/api";
 import { UNREACHABLE, type Answer } from "@/lib/api-rules";
 import { isBooking, isCardStep, sameId } from "@/lib/book-rules";
 import { enterCard, type CardOutcome } from "@/lib/card";
-import { useHere } from "@/lib/here";
+import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Words } from "@/ui/pieces";
@@ -34,7 +34,7 @@ export default function RequestScreen() {
 function OneRequest({ id }: { id: string }) {
   const colors = useColors();
   const { refresh: askOpening } = useOpening();
-  const here = useHere();
+  const watch = useWatch();
   const [page, setPage] = useState<AppBooking | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
@@ -44,7 +44,13 @@ function OneRequest({ id }: { id: string }) {
    * confirmed yet" never stands under a request that has since been sent.
    */
   const [said, setSaid] = useState<{ words: string; stage: string | null } | null>(null);
-  const [busy, setBusy] = useState<"card" | "back" | null>(null);
+  const [busy, setBusy] = useState<"card" | "check" | "back" | null>(null);
+  /**
+   * Stripe's sheet finished, and the server has not yet said that the card is saved (it could not be asked, or
+   * could not tell yet). The card may well be saved: the screen then offers to ask the server again, without the
+   * card being entered a second time.
+   */
+  const [unchecked, setUnchecked] = useState(false);
   const [pulling, setPulling] = useState(false);
   /**
    * Every question to the server gets a number when it is asked, and only the answer to the newest question is
@@ -145,27 +151,48 @@ function OneRequest({ id }: { id: string }) {
   async function card(words: NonNullable<AppBooking["card"]>) {
     if (acting.current) return;
     acting.current = true;
+    // The sheet is shown only on the screen it was asked for, to the person who asked: not after they have left
+    // it (even if they have come back since), and not to somebody who has signed in meanwhile.
+    const still = watch();
     // From here on, a reading that was still on its way no longer counts.
     newest.current++;
     setBusy("card");
     setSaid(null);
+    setUnchecked(false);
     const step = await ask<AppCardStep>(`${path}/card`, { body: {} });
     let outcome: CardOutcome | null = null;
-    // The sheet is shown only on the screen it was asked for, to the person who asked: not after they have left
-    // it, and not to somebody who has signed in since.
-    if (step.ok && isCardStep(step.data) && here()) outcome = await enterCard(step.data, id, words.button);
+    const usable = step.ok && isCardStep(step.data);
+    if (step.ok && isCardStep(step.data)) outcome = await enterCard(step.data, id, words.button, still);
+    if (outcome === "not_shown") outcome = null;
     // Whatever the sheet said, and also when it was not shown: the server is asked where the request stands.
     const after = await asked("/card-saved");
     if (after?.card) {
-      if (outcome === null) setSaid({ words: step.ok ? UNREACHABLE : step.message, stage: after.stage });
+      // No sheet: refused in the server's sentence, an answer that could not be used, or the person had left (nothing to say).
+      if (outcome === null) setSaid(!step.ok ? { words: step.message, stage: after.stage } : !usable ? { words: UNREACHABLE, stage: after.stage } : null);
       else setSaid({ words: outcome === "given_up" ? words.givenUp : outcome === "failed" ? words.notSaved : words.notConfirmed, stage: after.stage });
     }
+    // The sheet finished, and the request is not sent as far as the app knows: the card may be saved all the same.
+    if (outcome === "finished" && (!after || after.card)) setUnchecked(true);
     if (!step.ok && step.code !== "not_valid" && step.code !== "unreachable" && step.code !== "paused" && step.code !== "switched_off") void askOpening();
     acting.current = false;
     setBusy(null);
     // No page came back (the question was refused, or could not be asked): read it, so the screen shows where the
     // request really stands.
     if (!after) void look(false);
+  }
+
+  /** Asks the server once more whether the card that was entered has been saved. Stripe's sheet is not opened again. */
+  async function checkAgain(words: NonNullable<AppBooking["card"]>) {
+    if (acting.current) return;
+    acting.current = true;
+    newest.current++;
+    setBusy("check");
+    setSaid(null);
+    const after = await asked("/card-saved");
+    if (after?.card) setSaid({ words: words.notConfirmed, stage: after.stage });
+    if (after && !after.card) setUnchecked(false);
+    acting.current = false;
+    setBusy(null);
   }
 
   async function takeBack() {
@@ -240,7 +267,8 @@ function OneRequest({ id }: { id: string }) {
           <Words soft>{page.card.words}</Words>
           <Sentence parts={page.card.deadline} soft />
           {saying ? <Notice>{saying}</Notice> : null}
-          <Button label={page.card.button} busy={busy === "card"} onPress={() => void card(page.card!)} />
+          {unchecked ? <Button label={page.card.checkAgain} busy={busy === "check"} disabled={busy !== null} onPress={() => void checkAgain(page.card!)} /> : null}
+          <Button label={page.card.button} kind={unchecked ? "plain" : "main"} busy={busy === "card"} disabled={busy !== null} onPress={() => void card(page.card!)} />
         </Card>
       ) : saying ? (
         <Notice>{saying}</Notice>

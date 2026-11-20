@@ -87,6 +87,8 @@ export const REQUEST_WORDS = {
   cardGivenUp: "You closed the card form before a card was saved. Nothing was sent.",
   cardNotSaved: "Your card could not be saved. Nothing was sent. Please try again, or try another card.",
   cardNotConfirmed: "Your card could not be confirmed yet. Please try again in a moment.",
+  /** The button that asks once more whether a card that was entered has been saved, without opening the card form again. */
+  cardCheckAgain: "Check again",
   /** Under a request that waits for the host's answer. */
   waiting: (paid: boolean) => `This is a request, not a reservation. Other people may ask for the same time, and the host chooses.${paid ? " Nothing is held on your card unless you are accepted." : ""}`,
   takeBack: "Take this request back",

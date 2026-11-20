@@ -13,7 +13,7 @@ import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST, whatIsAskedFor } from "@/lib/booking/book-words";
 import { gatherRequest } from "@/lib/booking/request-page";
 import { cardDeadlineWords, endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
-import { cardStepOpen, LIMITS } from "@/lib/booking/rules";
+import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS } from "@/lib/booking/rules";
 import { publicProfile } from "@/lib/profiles/profiles";
 import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
 
@@ -45,6 +45,8 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
     points: bookPoints({ hostName: name, totalCents: page.totalCents, freeCancelMinutes: offer.freeCancelMinutes, answerBy: page.answerBy, payBy: page.payBy, hostToo: page.hostToo }),
     note: { label: BOOK_WORDS.note(name), max: LIMITS.noteMax },
     cardTerms: page.paid ? cardTermsWords(page.totalCents) : null,
+    // Which wording the box stands beside. It goes back with the request: a tick for other words is not taken.
+    cardTermsVersion: page.paid ? CARD_CONSENT_VERSION : null,
     idLine: page.idConfirmed ? BOOK_WORDS.idLine(name) : null,
     button: BOOK_WORDS.button(page.paid),
     // Made here, as the website's page makes it when it is shown: sent twice with it, a request counts once.
@@ -69,15 +71,17 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
   const waiting = booking.stage === "waiting";
   // The card can be entered from the app while the card step is open, and, for a call asked for "now" (begun on the
   // website), only while "available now" is switched on for the apps. The request itself can always be read.
-  const atCard = booking.stage === "card" && cardStepOpen(booking.createdAt, now) && mayEnterCard(booking, switches);
+  // Past the card step's time the request is over, also in the moments before the helper has ended it.
+  const tooLate = booking.stage === "card" && !cardStepOpen(booking.createdAt, now);
+  const atCard = booking.stage === "card" && !tooLate && mayEnterCard(booking, switches);
   return {
     id: booking.id,
     title: requestTitle(booking, role, found.otherName),
     hostHandle: found.hostHandle,
     stage: booking.stage,
-    stageWords: stageWords(booking, role),
-    // Past the card step's time, in the moments before the helper has ended the request: said as it is.
-    reason: booking.stage === "card" && !cardStepOpen(booking.createdAt, now) ? REQUEST_WORDS.cardTooLate : endedWords(booking, role),
+    // Past the card step's time: said as it is, in place of "enter your card".
+    stageWords: tooLate ? REQUEST_WORDS.cardTooLate : stageWords(booking, role),
+    reason: endedWords(booking, role),
     startsAt: booking.startsAt.toISOString(),
     minutes: booking.lengthMinutes,
     price: requestPrice(booking),
@@ -91,6 +95,7 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
           givenUp: REQUEST_WORDS.cardGivenUp,
           notSaved: REQUEST_WORDS.cardNotSaved,
           notConfirmed: REQUEST_WORDS.cardNotConfirmed,
+          checkAgain: REQUEST_WORDS.cardCheckAgain,
         }
       : null,
     waitingWords: waiting ? REQUEST_WORDS.waiting(paid) : null,
@@ -98,7 +103,8 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     takeBackSure: waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
     // What else the call's own page is for is said once the app has that page (part 08).
     call: booking.callId ? { id: booking.callId } : null,
-    refreshSeconds: waiting || booking.stage === "paying" ? WAITING_REFRESH_SECONDS : null,
+    // (Past the card step's time the helper ends the request within moments: the page asks again until it has.)
+    refreshSeconds: waiting || booking.stage === "paying" || tooLate ? WAITING_REFRESH_SECONDS : null,
     notice,
   };
 }

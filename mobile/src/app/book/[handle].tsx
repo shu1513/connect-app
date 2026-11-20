@@ -5,12 +5,16 @@ import type { AppBookSent, AppBookSummary } from "../../../../src/lib/app-door/t
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
 import { chosenTime, isBookSummary, isId, tickedFor } from "@/lib/book-rules";
-import { useHere } from "@/lib/here";
+import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
 import { BackLink, Button, Card, Field, Heading, Loading, Notice, Page, Problem, Tick, Words } from "@/ui/pieces";
 import { Sentence } from "@/ui/sentence";
 import { type, useColors } from "@/ui/theme";
+
+type Ready = Extract<AppBookSummary, { kind: "ok" }>;
+/** A request as it was sent: what the person saw, and exactly what went to the server. */
+type Sent = { shown: Ready; note: string; ticked: boolean; body: Record<string, unknown> };
 
 /**
  * What a customer reads before asking a host for a call at a time, and the button that sends the
@@ -18,7 +22,8 @@ import { type, useColors } from "@/ui/theme";
  * the server's, the same as on the website's page; the app adds nothing up.
  *
  * For a paid call the box about the card must be ticked here, before anything is sent: the tick
- * travels with the request. Nothing is held or charged by sending.
+ * travels with the request, with the version of the words it was given for. Nothing is held or
+ * charged by sending.
  */
 export default function BookScreen() {
   const params = useLocalSearchParams<{ handle?: string | string[]; start?: string | string[]; length?: string | string[] }>();
@@ -32,6 +37,7 @@ export default function BookScreen() {
 function OneSummary({ handle, time }: { handle: string; time: { start: string; length: number } | null }) {
   const colors = useColors();
   const { refresh: askOpening } = useOpening();
+  const watch = useWatch();
   const [summary, setSummary] = useState<AppBookSummary | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
@@ -40,15 +46,17 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
   const [agreedTo, setAgreedTo] = useState<string | null>(null);
   const terms = tickedFor(summary);
   const ticked = terms !== null && agreedTo === terms;
-  const here = useHere();
-  /**
-   * A request that was sent without an answer coming back: what exactly was sent. It may have arrived. Pressing
-   * again sends this very request again, not the form as it stands now, so the two can only ever be one request,
-   * on the terms the person saw when they first pressed.
-   */
-  const unsure = useRef<Record<string, unknown> | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  /**
+   * A request that was sent without an answer coming back: it may have arrived. Until the server has said what
+   * became of it, the screen shows exactly what was sent and nothing on it can be changed; trying again sends the
+   * very same request, so the two can only ever be one request, on the terms the person saw.
+   */
+  const [unsure, setUnsure] = useState<Sent | null>(null);
+  /** The request this screen made, once the server has said so: the form is then done with. */
+  const [made, setMade] = useState<string | null>(null);
+  const frozen = useRef(false);
   const newest = useRef(0);
   const busy = useRef(false);
   /**
@@ -60,24 +68,32 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
   const path = `/api/app/hosts/${handle}/book`;
 
   const load = useCallback(async () => {
+    // While a sending is unsettled, or done, the summary is not read again: what was sent stays on the screen.
+    if (frozen.current) return;
     const mine = ++newest.current;
     if (!handle || !time) {
       setGone(true);
       return;
     }
     const answer = await ask<AppBookSummary>(`${path}?length=${time.length}&start=${encodeURIComponent(time.start)}`);
-    if (mine !== newest.current) return;
+    if (mine !== newest.current || frozen.current) return;
     if (answer.ok && isBookSummary(answer.data)) {
       if (answer.data.kind === "ok" && !key.current) key.current = answer.data.requestKey;
+      const now = tickedFor(answer.data);
+      // A tick is for what was on the screen when it was given. If that is no longer what is shown, the tick is gone
+      // for good: it does not come back when the same terms come back.
+      setAgreedTo((was) => (was !== null && was === now ? was : null));
       setSummary(answer.data);
       setProblem(null);
       setGone(false);
     } else if (!answer.ok && answer.code === "not_found") {
       setSummary(null);
+      setAgreedTo(null);
       setGone(true);
     } else if (!answer.ok && answer.code !== "unreachable") {
       // Not for this person as things stand (paused, signed out, this copy too old): the sentence, and the opening question says where they belong.
       setSummary(null);
+      setAgreedTo(null);
       setGone(false);
       setProblem(answer.message);
       if (answer.code !== "paused") void askOpening();
@@ -88,50 +104,115 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
     }
   }, [handle, time, path, askOpening]);
 
-  // Read when the screen comes to the front: also on coming back from the ID check, which may have changed what it shows.
+  // When the screen comes to the front: a request this screen has made is opened (its answer may have come while
+  // another screen was in front); otherwise the summary is read, also on coming back from the ID check.
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      if (made) router.replace(`/bookings/${made}`);
+      else void load();
+    }, [load, made]),
   );
 
   const back = () => (router.canGoBack() ? router.back() : router.replace(handle ? `/h/${handle}` : "/"));
 
-  async function send(ready: Extract<AppBookSummary, { kind: "ok" }>) {
-    if (busy.current || !key.current) return;
+  /** Sends a request, or sends an unsettled one again exactly as it was. */
+  async function send(what: Sent) {
+    if (busy.current) return;
     busy.current = true;
+    const still = watch();
     setSending(true);
     setSaid(null);
-    // What the summary showed goes back as it is: the time, the length, the price and the cancelling rule. The
-    // tick is sent only as the box stands for exactly these terms; without it the server sends nothing on.
-    const body = unsure.current ?? { start: ready.startsAt, length: ready.minutes, note, requestKey: key.current, ...(ready.cardTerms ? { cardTerms: ticked } : {}), seen: ready.seen };
-    const answer = await ask<AppBookSent>(path, { body });
-    // Any answer of the server's settles what became of it.
-    if (answer.ok || answer.code !== "unreachable") unsure.current = null;
+    const answer = await ask<AppBookSent>(path, { body: what.body });
     if (answer.ok && isId(answer.data.id)) {
-      // The request's own screen takes this one's place: "back" from there leads to the host's page, not to a form
-      // already sent. Only if this screen is still the one in front: an answer that comes after the person has left
-      // (or somebody else has signed in) moves nothing. The request is then on the home page.
-      if (here()) router.replace(`/bookings/${answer.data.id}`);
-    } else if (!answer.ok && (answer.code === "not_valid" || answer.code === "paused")) {
-      // The server's own sentence. What the summary shows may have changed (the price, the time): it is read again.
-      setSaid(answer.message);
-      await load();
+      // Done. The request's own screen takes this one's place: "back" from there leads to the host's page, not to a
+      // form already sent. If the person has left this screen meanwhile, nothing is moved now; the request is
+      // opened when they come back to it, and until then the form is not shown again.
+      frozen.current = true;
+      setUnsure(null);
+      setMade(answer.data.id);
+      if (still()) router.replace(`/bookings/${answer.data.id}`);
     } else if (!answer.ok && answer.code !== "unreachable") {
+      // The server's own sentence: nothing was made. The form is live again, and what it shows is read again (the
+      // price or the time may have changed, or the page may be gone).
+      frozen.current = false;
+      setUnsure(null);
       setSaid(answer.message);
-      void askOpening();
+      if (answer.code !== "not_valid" && answer.code !== "paused" && answer.code !== "not_found") void askOpening();
+      await load();
     } else {
-      // It may or may not have arrived. Pressing again sends the very same request, so it is one request either way.
-      unsure.current = body;
+      // It may or may not have arrived.
+      frozen.current = true;
+      setUnsure(what);
       setSaid(answer.ok ? UNREACHABLE : answer.message);
     }
     busy.current = false;
     setSending(false);
   }
 
+  /** The request as the form stands now. What the summary showed goes back as it is; the tick only as the box stands for exactly these terms. */
+  function fromForm(ready: Ready): Sent | null {
+    if (!key.current) return null;
+    const body = { start: ready.startsAt, length: ready.minutes, note, requestKey: key.current, ...(ready.cardTerms ? { cardTerms: ticked, cardTermsVersion: ready.cardTermsVersion } : {}), seen: ready.seen };
+    return { shown: ready, note, ticked, body };
+  }
+
+  if (made) {
+    return (
+      <Page title="Your request">
+        <Words>Your request was made.</Words>
+        <Button label="Open your request" onPress={() => router.replace(`/bookings/${made}`)} />
+      </Page>
+    );
+  }
+
+  if (unsure) {
+    // What was sent, as it was sent. Nothing here can be changed until the server has said what became of it.
+    const was = unsure.shown;
+    return (
+      <Page>
+        <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+          {was.title}
+        </Text>
+        <Notice>
+          {said ?? UNREACHABLE}
+          {"\n\n"}
+          Your request may or may not have arrived. Try again to find out: it is sent once at most, exactly as shown here.
+        </Notice>
+        <Card>
+          <View>
+            <Text style={[styles.label, { color: colors.soft }]}>When</Text>
+            <Words>
+              <Text style={styles.bold}>{localTime(was.startsAt)}</Text> ({was.minutes} minutes)
+            </Words>
+          </View>
+          <View>
+            <Text style={[styles.label, { color: colors.soft }]}>Price</Text>
+            <Words>
+              <Text style={styles.bold}>{was.price}</Text>
+            </Words>
+          </View>
+          {unsure.note.trim() ? (
+            <View>
+              <Text style={[styles.label, { color: colors.soft }]}>Your note</Text>
+              <Words>{unsure.note}</Words>
+            </View>
+          ) : null}
+          {was.cardTerms ? (
+            <View>
+              <Text style={[styles.label, { color: colors.soft }]}>{unsure.ticked ? "You ticked" : "You did not tick"}</Text>
+              <Words soft>{was.cardTerms}</Words>
+            </View>
+          ) : null}
+        </Card>
+        <Button label="Try again" busy={sending} onPress={() => void send(unsure)} />
+      </Page>
+    );
+  }
+
   if (gone) {
     return (
       <Page title="Not found">
+        {said ? <Notice>{said}</Notice> : null}
         <Words soft>There is no page here, or it is not open at the moment.</Words>
         <Button label="Back" kind="plain" onPress={back} />
       </Page>
@@ -147,6 +228,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
           {summary.title}
         </Text>
         {problem ? <Notice>{problem}</Notice> : null}
+        {said ? <Notice>{said}</Notice> : null}
         {summary.kind === "gone" ? <Button label={summary.button} onPress={back} /> : null}
         {summary.kind === "own" ? <Words>{summary.words}</Words> : null}
         {summary.kind === "confirm_id" ? (
@@ -193,10 +275,26 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
       </Card>
 
       <Field label={summary.note.label} value={note} onChangeText={setNote} maxLength={summary.note.max} multiline numberOfLines={3} textAlignVertical="top" />
-      {summary.cardTerms ? <Tick label={summary.cardTerms} checked={ticked} onChange={(now) => { setAgreedTo(now ? terms : null); setSaid(null); }} /> : null}
+      {summary.cardTerms ? (
+        <Tick
+          label={summary.cardTerms}
+          checked={ticked}
+          onChange={(now) => {
+            setAgreedTo(now ? terms : null);
+            setSaid(null);
+          }}
+        />
+      ) : null}
       {summary.idLine ? <Words soft>{summary.idLine}</Words> : null}
       {said ? <Notice>{said}</Notice> : null}
-      <Button label={summary.button} busy={sending} onPress={() => void send(summary)} />
+      <Button
+        label={summary.button}
+        busy={sending}
+        onPress={() => {
+          const what = fromForm(summary);
+          if (what) void send(what);
+        }}
+      />
     </Page>
   );
 }

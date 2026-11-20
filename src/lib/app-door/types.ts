@@ -310,6 +310,8 @@ export type AppBookSummary =
       note: { label: string; max: number };
       /** For a paid call: the words beside the box that must be ticked before anything is sent. Null for a free call. */
       cardTerms: string | null;
+      /** Which wording that is; handed back with the request. Null for a free call. */
+      cardTermsVersion: string | null;
       /** That the host sees the person's ID is confirmed; null when it is not. */
       idLine: string | null;
       button: string;
@@ -345,7 +347,7 @@ export type AppBooking = {
    * card sheet was closed and the request is still not sent (closed without a card, a card that was not
    * saved, a card not confirmed yet). Null at every other stage.
    */
-  card: { title: string; words: string; button: string; deadline: AppPart[]; givenUp: string; notSaved: string; notConfirmed: string } | null;
+  card: { title: string; words: string; button: string; deadline: AppPart[]; givenUp: string; notSaved: string; notConfirmed: string; checkAgain: string } | null;
   /** Under a request that waits for the host's answer. */
   waitingWords: string | null;
   /** The label of the button that takes the request back; null when it cannot be taken back. */

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { cardFormSecret, gatherRequest } from "@/lib/booking/request-page";
 import { endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
+import { cardStepOpen } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
 import { stripePublishableKey } from "@/lib/payments/stripe";
 import { requireUser } from "@/lib/session";
@@ -33,7 +34,9 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   const ended = endedWords(booking, role);
 
   // The card form, for a paid request that has not been sent yet.
-  const clientSecret = role === "customer" && booking.stage === "card" ? await cardFormSecret(booking) : null;
+  // Past the card step's time the request is over, also in the moments before the helper has ended it: no card form then.
+  const cardTooLate = role === "customer" && booking.stage === "card" && !cardStepOpen(booking.createdAt, new Date());
+  const clientSecret = role === "customer" && booking.stage === "card" && !cardTooLate ? await cardFormSecret(booking) : null;
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
@@ -119,7 +122,18 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
         </section>
       )}
 
-      {role === "customer" && booking.stage === "card" && !clientSecret && (
+      {cardTooLate && (
+        <section className="mt-6 text-sm">
+          <p role="alert">{REQUEST_WORDS.cardTooLate}</p>
+          <p className="mt-2">
+            <Link href={hostHandle ? `/h/${hostHandle}` : "/"} className="underline underline-offset-2">
+              Choose the time again
+            </Link>
+          </p>
+        </section>
+      )}
+
+      {role === "customer" && booking.stage === "card" && !cardTooLate && !clientSecret && (
         <section className="mt-6 text-sm">
           <p role="alert">{REQUEST_WORDS.cardNotLoaded}</p>
           <p className="mt-2">

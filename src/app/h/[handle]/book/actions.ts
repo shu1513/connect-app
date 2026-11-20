@@ -27,7 +27,7 @@ export async function sendRequest(formData: FormData) {
       note: String(formData.get("note") ?? ""),
       requestKey: String(formData.get("requestKey") ?? ""),
       agreedToCardTerms: formData.get("cardTerms") === "on",
-      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")) },
+      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")), cardTermsVersion: typeof formData.get("cardTermsVersion") === "string" ? String(formData.get("cardTermsVersion")) : null },
       now: new Date(),
     });
     bookingId = booking.id;

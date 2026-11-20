@@ -6,7 +6,7 @@ import type { AppIdentity, AppIdentityStart } from "../../../src/lib/app-door/ty
 import { ask } from "@/lib/api";
 import { UNREACHABLE } from "@/lib/api-rules";
 import { isIdentity, isStripeCheckPage } from "@/lib/book-rules";
-import { useHere } from "@/lib/here";
+import { useWatch } from "@/lib/here";
 import { useOpening } from "@/lib/opening";
 import { BackLink, Button, Loading, Notice, Page, Problem, Title, Words } from "@/ui/pieces";
 
@@ -22,7 +22,7 @@ const PENDING_SECONDS = 5;
  */
 export default function IdentityScreen() {
   const { refresh: askOpening } = useOpening();
-  const here = useHere();
+  const watch = useWatch();
   const [state, setState] = useState<AppIdentity | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
@@ -100,6 +100,7 @@ export default function IdentityScreen() {
   async function start() {
     if (busy.current) return;
     busy.current = true;
+    const still = watch();
     setStarting(true);
     setSaid(null);
     const answer = await ask<AppIdentityStart>("/api/app/identity/start", { body: {} });
@@ -107,7 +108,7 @@ export default function IdentityScreen() {
       // Only Stripe's own page is ever opened here, whatever the answer says. And only on the screen it was asked
       // from, for the person who asked: an answer that comes after they have left this screen, or after somebody
       // else has signed in, opens nothing (the check it started stays theirs, and can be started again).
-      if (here()) await WebBrowser.openBrowserAsync(answer.data.url).catch(() => setSaid("The page for the check could not be opened on this phone. Please try again."));
+      if (still()) await WebBrowser.openBrowserAsync(answer.data.url).catch(() => setSaid("The page for the check could not be opened on this phone. Please try again."));
     } else if (!answer.ok && (answer.code === "not_valid" || answer.code === "paused" || answer.code === "unreachable")) {
       setSaid(answer.message);
     } else if (!answer.ok) {

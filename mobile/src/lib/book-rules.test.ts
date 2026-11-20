@@ -13,6 +13,7 @@ const summary = {
   points: [[{ bold: "This is a request, not a reservation." }, " Others may ask too."], ["You will have an answer by ", { time: "2026-11-21T14:18:00.913Z" }, "."]],
   note: { label: "What would you like to talk about?", max: 300 },
   cardTerms: "I allow Connect to save my card…",
+  cardTermsVersion: "2026-11-b",
   idLine: null,
   button: "Continue to card details",
   requestKey: ID,
@@ -29,7 +30,7 @@ const booking = {
   minutes: 30,
   price: { label: "Price", words: "$40.00 at most" },
   hearBy: null,
-  card: { title: "Your card", words: "Nothing is held or charged now.", button: "Save card and send request", deadline: ["Enter your card by ", { time: "2026-11-20T14:48:03.800Z" }, "."], givenUp: "a", notSaved: "b", notConfirmed: "c" },
+  card: { title: "Your card", words: "Nothing is held or charged now.", button: "Save card and send request", deadline: ["Enter your card by ", { time: "2026-11-20T14:48:03.800Z" }, "."], givenUp: "a", notSaved: "b", notConfirmed: "c", checkAgain: "Check again" },
   waitingWords: null,
   takeBack: null,
   takeBackSure: null,
@@ -53,6 +54,10 @@ describe("what a customer reads before asking", () => {
     expect(isBookSummary({ ...summary, points: [[{ time: "soon" }]] })).toBe(false);
     expect(isBookSummary({ ...summary, points: [[{ link: "https://example.com" }]] })).toBe(false);
     expect(isBookSummary({ ...summary, cardTerms: undefined })).toBe(false);
+    // The words beside the box never come without their version, nor a version without words.
+    expect(isBookSummary({ ...summary, cardTermsVersion: null })).toBe(false);
+    expect(isBookSummary({ ...summary, cardTerms: null })).toBe(false);
+    expect(isBookSummary({ ...summary, cardTerms: null, cardTermsVersion: null })).toBe(true);
     expect(isBookSummary({ ...summary, startsAt: "soon" })).toBe(false);
   });
 });
@@ -67,12 +72,13 @@ describe("what a tick of the card box was given for", () => {
     expect(tickedFor({ ...summary, seen: { price: 3000, freeCancel: 60 } } as never)).not.toBe(was);
     expect(tickedFor({ ...summary, seen: { price: 2000, freeCancel: 1440 } } as never)).not.toBe(was);
     expect(tickedFor({ ...summary, cardTerms: "I allow Connect to hold up to $60.00…" } as never)).not.toBe(was);
+    expect(tickedFor({ ...summary, cardTermsVersion: "2027-01-a" } as never)).not.toBe(was);
     expect(tickedFor({ ...summary, price: "$60.00 at most ($30.00 per 15 minutes)" } as never)).not.toBe(was);
     expect(tickedFor({ ...summary, startsAt: "2026-11-22T17:00:00.000Z" } as never)).not.toBe(was);
     expect(tickedFor({ ...summary, minutes: 15 } as never)).not.toBe(was);
   });
   it("is nothing for a free call, and for anything that is not a summary to send", () => {
-    expect(tickedFor({ ...summary, cardTerms: null } as never)).toBeNull();
+    expect(tickedFor({ ...summary, cardTerms: null, cardTermsVersion: null } as never)).toBeNull();
     expect(tickedFor({ kind: "gone", title: "That time is no longer open", button: "Choose another time" })).toBeNull();
     expect(tickedFor(null)).toBeNull();
   });

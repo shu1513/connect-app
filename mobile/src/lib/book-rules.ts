@@ -31,13 +31,13 @@ export function sameId(value: unknown): string {
 }
 
 /**
- * What a tick of the box about the card was given for: the box's own words, the price and the
- * cancelling rule shown, and the time and length. A tick counts only for exactly these. When any
+ * What a tick of the box about the card was given for: the box's own words and their version, the
+ * price and the cancelling rule shown, and the time and length. A tick counts only for exactly these. When any
  * of them changes on the screen (the host changed her price, say), the box is empty again.
  */
 export function tickedFor(summary: AppBookSummary | null): string | null {
   if (!summary || summary.kind !== "ok" || summary.cardTerms === null) return null;
-  return JSON.stringify([summary.cardTerms, summary.seen.price, summary.seen.freeCancel, summary.startsAt, summary.minutes, summary.price]);
+  return JSON.stringify([summary.cardTerms, summary.cardTermsVersion, summary.seen.price, summary.seen.freeCancel, summary.startsAt, summary.minutes, summary.price]);
 }
 
 /** Whether an answer really is what a customer reads before asking for a call, with the parts the screen reads. */
@@ -50,7 +50,9 @@ export function isBookSummary(data: unknown): data is AppBookSummary {
   if (!isMoment(data.startsAt) || !isWhole(data.minutes) || !isText(data.hostTime) || !isText(data.price) || !isText(data.what) || !isText(data.pointsTitle)) return false;
   if (!Array.isArray(data.points) || !data.points.every(isSentence)) return false;
   if (!isThing(data.note) || !isText(data.note.label) || !isWhole(data.note.max)) return false;
-  if (!isTextOrNull(data.cardTerms) || !isTextOrNull(data.idLine) || !isText(data.button) || !isId(data.requestKey)) return false;
+  if (!isTextOrNull(data.cardTerms) || !isTextOrNull(data.cardTermsVersion) || !isTextOrNull(data.idLine) || !isText(data.button) || !isId(data.requestKey)) return false;
+  // The words beside the box and the version of those words come together, or not at all.
+  if ((data.cardTerms === null) !== (data.cardTermsVersion === null)) return false;
   return isThing(data.seen) && isWhole(data.seen.price) && isWhole(data.seen.freeCancel);
 }
 
@@ -67,7 +69,7 @@ export function isBooking(data: unknown): data is AppBooking {
   if (data.call !== null && !(isThing(data.call) && isId(data.call.id))) return false;
   const card = data.card;
   if (card === null) return true;
-  return isThing(card) && isText(card.title) && isText(card.words) && isText(card.button) && isSentence(card.deadline) && isText(card.givenUp) && isText(card.notSaved) && isText(card.notConfirmed);
+  return isThing(card) && isText(card.title) && isText(card.words) && isText(card.button) && isSentence(card.deadline) && isText(card.givenUp) && isText(card.notSaved) && isText(card.notConfirmed) && isText(card.checkAgain);
 }
 
 /**

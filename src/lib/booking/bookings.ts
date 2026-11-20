@@ -418,8 +418,12 @@ export async function askForCall(input: {
   note: string;
   requestKey: string;
   agreedToCardTerms: boolean;
-  /** The price and cancelling rule the customer was shown and agreed to. If the host has changed them since, nothing is sent. */
-  seen: { pricePer15Cents: number; freeCancelMinutes: number };
+  /**
+   * The price and cancelling rule the customer was shown and agreed to. If the host has changed them since, nothing
+   * is sent. `cardTermsVersion`: the version of the words beside the card box that the customer was shown and
+   * ticked; if those words have been changed since, nothing is sent either (the tick was for the old ones).
+   */
+  seen: { pricePer15Cents: number; freeCancelMinutes: number; cardTermsVersion?: string | null };
   now: Date;
 }): Promise<{ booking: Booking; clientSecret: string | null }> {
   const { customer, now } = input;
@@ -456,10 +460,18 @@ export async function askForCall(input: {
       const taken = (await busyOf(tx, customer.id, input.startsAt)).some((b) => b.start < takenUntil(endsAt) && b.end > input.startsAt);
       if (taken) throw new BookingError(TAKEN_THEN);
       if (paid) {
+        // The tick is recorded with the version of the words in force. A tick given for other words is not one for these.
+        if (input.seen.cardTermsVersion != null && input.seen.cardTermsVersion !== CARD_CONSENT_VERSION) {
+          throw new BookingError("The words about your card have changed since you opened this page. Please read them again.");
+        }
         // A paid request stands at the card step until its card is saved: it takes nobody's time and is not a sent
         // request, so none of the limits above counts it. These two do, whether or not a card is ever saved.
         const drafts = and(eq(schema.bookings.customerId, customer.id), eq(schema.bookings.source, "customer"), gt(schema.bookings.totalCents, 0));
-        const [{ open }] = await tx.select({ open: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, eq(schema.bookings.stage, "card")));
+        // Standing at the card step: only those whose time is not up (one past it is over, also before the helper has ended it).
+        const [{ open }] = await tx
+          .select({ open: sql<number>`count(*)::int` })
+          .from(schema.bookings)
+          .where(and(drafts, eq(schema.bookings.stage, "card"), gt(schema.bookings.createdAt, new Date(now.getTime() - LIMITS.cardStepMinutes * 60_000))));
         if (open >= LIMITS.cardStepsOpen) throw new BookingError("You have several requests waiting for their card. Finish one of them first, or wait until they have ended.");
         const [{ today }] = await tx.select({ today: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, gt(schema.bookings.createdAt, new Date(now.getTime() - DAY))));
         if (today >= LIMITS.cardStepsPerDay) throw new BookingError("You have started a lot of requests today. Please try again tomorrow.");
@@ -647,7 +659,9 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       if (!mine) return end("that card is saved for a membership, so it cannot be used for a booking; please ask again with another card");
       // The card step lasts as long as the customer was told, and no longer: past it the request ends here, in the
       // helper's own words, whether or not the helper has been by. (The card is kept on the row so the helper removes it.)
-      if (!cardStepOpen(booking.createdAt, input.now)) return end("the card was not entered in time");
+      // Judged by the clock at this moment, with the calendars locked, not by when the question came in: asking
+      // Stripe and waiting for the lock take time. (Never earlier than the moment handed in.)
+      if (!cardStepOpen(booking.createdAt, new Date(Math.max(input.now.getTime(), Date.now())))) return end("the card was not entered in time");
       const offer = await offerOf(booking.hostId, tx);
       if (!offer || !offer.canTakePaid) return end("the host can no longer be booked");
       // The deadlines come from the terms fixed on this request, so the time is checked against those
