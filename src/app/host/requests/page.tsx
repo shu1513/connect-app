@@ -12,6 +12,8 @@ import { verifiedAmong } from "@/lib/safety/identity";
 import { requireUser } from "@/lib/session";
 import { acceptAction, declineAction } from "../../bookings/[id]/actions";
 import { SitePage } from "@/components/site-page";
+import { HostPhoto } from "@/components/host-photo";
+import { photosOf } from "@/lib/profiles/photo";
 import { NOW } from "@/lib/booking/now-rules";
 
 export const metadata: Metadata = { title: "Requests for calls" };
@@ -27,6 +29,8 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
   const idConfirmed = await verifiedAmong(customers);
   // The host's own notes about these customers (plans/32). The lookup asks every rule itself for each of them.
   const notes = await hostNotesAbout(user.id, customers);
+  // Their photos (plans/35): the ids only. The photo's own address decides, for each request, whether this host gets it.
+  const photoIds = await photosOf(customers);
 
   // Group by start time, so the host can compare people who asked for the same time.
   const groups = new Map<string, typeof waiting>();
@@ -74,11 +78,14 @@ export default async function HostRequestsPage(props: PageProps<"/host/requests"
               <ul className="mt-3 space-y-4">
                 {rows.map(({ booking, customerName }) => (
                   <li key={booking.id} className="text-sm">
-                    <p>
-                      <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"} ·{" "}
-                      <Rating shown={ratings.get(booking.customerId) ?? null} newText="New: not enough ratings yet" />
-                      {idConfirmed.has(booking.customerId) && <span className="text-green-700"> · ID confirmed</span>}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <HostPhoto photoId={photoIds.get(booking.customerId) ?? null} name={customerName} small />
+                      <p>
+                        <strong>{customerName}</strong>, {booking.lengthMinutes} minutes, {booking.totalCents > 0 ? formatMoney(booking.totalCents) : "free"} ·{" "}
+                        <Rating shown={ratings.get(booking.customerId) ?? null} newText="New: not enough ratings yet" />
+                        {idConfirmed.has(booking.customerId) && <span className="text-green-700"> · ID confirmed</span>}
+                      </p>
+                    </div>
                     {booking.note && <p className="mt-1 opacity-80">&ldquo;{booking.note}&rdquo;</p>}
                     {notes.has(booking.customerId) && <AboutCustomer name={customerName} text={notes.get(booking.customerId)!} />}
                     {booking.respondBy && (

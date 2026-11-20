@@ -52,6 +52,14 @@ export default function PrivacyPage() {
         not depend on any social media account. The rest is as for a photo from Instagram or TikTok.
       </p>
       <p className="mt-4 text-sm">
+        Anyone with an account can upload a photo in the same way, on the Account page. The photo of a person who is not a host
+        is shown only to hosts that person has asked for a call, beside their name, and to nobody else; it stops being shown to a
+        host when either of the two blocks the other. A host&apos;s photo is shown to everyone while their page is open to
+        everyone, and a host who asks another host for a call is shown there with the same photo. We keep our copy until the
+        person removes it or their account is closed. If someone reports a person, we note which photo that person had at the
+        time.
+      </p>
+      <p className="mt-4 text-sm">
         When you contribute to a host&apos;s project, the host sees your name, the amount, whether it is once or every month, and
         when you began. Your card is entered on our payment company&apos;s form (Stripe) and we never see its number. For a monthly
         contribution the card is kept at Stripe for that contribution only, and removed when it ends. We keep what you agreed

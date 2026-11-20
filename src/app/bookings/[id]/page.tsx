@@ -19,6 +19,8 @@ import { hostNoteAbout, NOTE_MAX } from "@/lib/people/contacts";
 import { averageFor } from "@/lib/ratings/ratings";
 import { identityState } from "@/lib/safety/identity";
 import { SitePage } from "@/components/site-page";
+import { HostPhoto } from "@/components/host-photo";
+import { photosOf } from "@/lib/profiles/photo";
 
 export const metadata: Metadata = { title: "Request for a call" };
 
@@ -81,6 +83,8 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   const customerRating = showRating ? await averageFor(booking.customerId, "customer", new Date()) : null;
   const idConfirmed = showRating && (await identityState(booking.customerId)).passed;
   const note = role === "host" ? await hostNoteAbout(booking.hostId, booking.customerId) : null;
+  // For the host: the customer's photo (plans/35). The id only; the photo's own address decides whether this host gets it.
+  const customerPhotoId = role === "host" ? ((await photosOf([booking.customerId])).get(booking.customerId) ?? null) : null;
 
   // The card form, for a paid request that has not been sent yet.
   let clientSecret: string | null = null;
@@ -101,9 +105,12 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
           ← {role === "host" ? "Requests for calls" : "Your calls"}
         </Link>
       </p>
-      <h1 className="mt-4 text-2xl font-semibold">
-        {byMember ? (role === "host" ? `Call with ${otherName}` : `Your call with ${otherName}`) : role === "host" ? `Request from ${otherName}` : `Your request to ${otherName}`}
-      </h1>
+      <div className="mt-4 flex items-center gap-3">
+        {role === "host" && <HostPhoto photoId={customerPhotoId} name={otherName ?? ""} small />}
+        <h1 className="text-2xl font-semibold">
+          {byMember ? (role === "host" ? `Call with ${otherName}` : `Your call with ${otherName}`) : role === "host" ? `Request from ${otherName}` : `Your request to ${otherName}`}
+        </h1>
+      </div>
 
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">

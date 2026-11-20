@@ -18,7 +18,10 @@ import { unblockAction } from "../report/actions";
 import { timeZones } from "@/lib/time-zones";
 import { followEmailsOf } from "@/lib/follows/emails";
 import { followEmailsOn } from "@/lib/follows/rules";
-import { saveAccount, saveFollowEmails, saveReminders } from "./actions";
+import { ownPhotoState } from "@/lib/profiles/photo";
+import { PHOTO } from "@/lib/profiles/photo-rules";
+import { HostPhoto } from "@/components/host-photo";
+import { removeOwnPhoto, saveAccount, saveFollowEmails, saveReminders } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Your account" };
@@ -63,6 +66,9 @@ export default async function AccountPage(props: PageProps<"/account">) {
       ? (await db.select({ id: schema.hostProfiles.userId, name: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, memberships.map((membership) => membership.hostId)))).map((row) => [row.id, row.name])
       : [],
   );
+  // "Your photo" (plans/35). A host's photo is on the Hosting page; anyone else's is here.
+  const [hostProfile] = await db.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id));
+  const photoState = await ownPhotoState(user.id);
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -91,6 +97,61 @@ export default async function AccountPage(props: PageProps<"/account">) {
             Save
           </button>
         </form>
+      </section>
+
+      <section id="photo" className="mt-10 scroll-mt-4" data-account-photo>
+        <h2 className="text-lg font-semibold">Your photo</h2>
+        {hostProfile ? (
+          <p className="mt-2 text-sm">
+            Your photo is on your{" "}
+            <Link href="/host#photo" className="underline underline-offset-2">
+              Hosting page
+            </Link>
+            .
+          </p>
+        ) : photoState.locked ? (
+          <p className="mt-2 text-sm">Your photo was removed by Connect, and you cannot choose another one. If you have questions, write to us.</p>
+        ) : (
+          <>
+            <p className="mt-2 text-sm opacity-70">
+              You can add a photo. Hosts you ask for a call see it beside your name; nobody else does. If you become a host, it is
+              shown on your public page. The middle of your picture is shown, in a circle. We make our own copy and have it checked
+              automatically before anyone sees it; for the check, our copy is sent to a checking service, without your name. We keep
+              our copy until you remove it (the privacy page says when we must keep one longer). You have one photo at a time, and{" "}
+              {PHOTO.triesPerDay} tries in 24 hours.
+            </p>
+            <div className="mt-3 flex items-center gap-4">
+              <HostPhoto photoId={photoState.photo?.id ?? null} name={user.name} />
+              <p className="text-sm">
+                {photoState.photo ? (
+                  <>
+                    Uploaded <LocalTime iso={photoState.photo.takenAt.toISOString()} />.
+                  </>
+                ) : (
+                  "You have no photo yet. Hosts see this letter."
+                )}
+              </p>
+              {photoState.photo && (
+                <form action={removeOwnPhoto}>
+                  <button type="submit" className="text-sm underline underline-offset-2">
+                    Remove
+                  </button>
+                </form>
+              )}
+            </div>
+            {/* A plain form to an address of its own: a picture does not fit into the app's ordinary forms. */}
+            <form method="post" action="/photo" encType="multipart/form-data" className="mt-4 text-sm" data-photo-upload>
+              <label className="block">
+                {photoState.photo ? "Upload another picture" : "Upload a picture"} (JPEG, PNG or WebP, up to 10 MB)
+                <input name="picture" type="file" accept="image/jpeg,image/png,image/webp" required className="mt-1 block w-full" />
+              </label>
+              <button type="submit" className="mt-2 rounded border border-neutral-500 px-3 py-1.5">
+                Upload a photo
+              </button>
+            </form>
+            {photoState.photo && <p className="mt-2 text-sm opacity-70">Your photo stays as it is until a new one has passed the check.</p>}
+          </>
+        )}
       </section>
 
       <section className="mt-10">

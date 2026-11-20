@@ -443,7 +443,7 @@ export default async function HostPage(props: PageProps<"/host">) {
                 . We make our own copy and have it checked automatically before anyone sees it. For the check, our copy is sent to a
                 checking service, without your name. We keep our copy until you remove it (the privacy page says when we must keep one
                 longer). You have one photo at a time, and {PHOTO.triesPerDay} tries in 24 hours. Of a picture you upload, the middle is
-                shown, in a circle.
+                shown, in a circle. When you ask another host for a call, they see this photo beside your name.
                 {Boolean(checkSettings.instagram) && " On Instagram it works for Creator and Business accounts."}
                 {tiktokOn && " For TikTok you log in at TikTok once more: that is how we get the picture. Your account on this page is not changed by it."}
               </p>
