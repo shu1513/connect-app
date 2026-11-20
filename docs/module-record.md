@@ -4007,3 +4007,28 @@ The founder's form for the switches was tried by hand in a browser.
 
 **What the automatic checks cannot test.** A real phone. A real store build talking to a real
 server address.
+
+## Two sentences the agreements need (20 November 2026)
+
+**Why.** The founder asked for the changes that let the drafted agreements go live
+(`docs/legal/README.md`, section 7), and said small ones need no plan of their own. These two
+are words only.
+
+**What was changed.**
+- *The 14-day sentence* (change 9). The tick box a customer ticks when saving a card for a call
+  ends with: "Where a 14-day right to cancel applies to me (in the United Kingdom and Europe): I
+  ask for this call to take place as booked, also within those 14 days, and I understand that
+  the right ends once the call has taken place." It is said to everyone, so the app does not
+  have to ask where a person lives. The wording's version is now `2026-11-c`; the card is
+  handled exactly as under `2026-11-b`. The sentences before joining a membership say the same
+  for a new membership.
+- *The renewal sentence* (change 13). Before joining a membership the first sentence now ends
+  "It renews by itself every month until you cancel", and the tick box ends "It renews every
+  month until I cancel." The wording's version is now `2026-11-20`.
+
+**How it was checked.** 746 automatic tests, type check and lint. Words and two version names
+only, so it was not sent to Astra, and no check script was run for it; the next change that
+touches these pages runs them.
+
+**Still open.** The other changes of that list follow in plan 46.
+

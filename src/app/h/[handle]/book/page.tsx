@@ -175,7 +175,8 @@ export default async function BookPage(props: PageProps<"/h/[handle]/book">) {
             <span>
               I allow Connect to save my card for this booking only and, if my request is accepted, to hold up to {formatMoney(total)} on it
               without my being present, and to charge it after the call as described above. If I ask for more time during the call, the
-              price of that extra time is held on the same card and charged in the same way. The card is removed once the call is over.
+              price of that extra time is held on the same card and charged in the same way. The card is removed once the call is over. Where a 14-day right to cancel applies to me (in the United Kingdom and Europe): I ask for this call to take
+              place as booked, also within those 14 days, and I understand that the right ends once the call has taken place.
             </span>
           </label>
         )}
