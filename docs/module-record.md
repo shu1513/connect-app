@@ -3849,3 +3849,32 @@ agreement through the email in the script; the automatic test covers the old sen
 The helper's re-read is not a lock: between it and the ending there are a few thousandths of a
 second in which a lifted pause could still lose a request made in that same instant.
 
+**How it was checked.** 746 automatic tests on the code, 3 of them new (the tick box of every
+version of the wording). On this computer, against the local database and Stripe's test mode,
+all on the final code unless said: `scripts/safety-check.ts`, 74 checks, 14 of them new (an
+under-18 result pauses and says why; the result is written with the pause, and neither is
+there when the step fails halfway; the call ahead is cancelled at no charge; the person and the
+founder are told once; one check never pauses twice, also after the founder lifted the pause;
+an account paused already keeps its reason; an admin's and a closed account; the helper leaves
+a fresh pause alone, finishes an interrupted one, cancels at no charge a call that reached its
+start meanwhile, and leaves a lifted pause's calls alone); `contribution-check --payouts`, 292;
+`project-journey-check --payouts`, 94; `journey-check`, 63, which joins real calls through the
+changed join step. `membership-check`, 466, ran on the first commit only (it uses the founder's
+pause, whose behaviour did not change after that). In a browser, as the test customer: the
+booking form shows the new sentence about the note, and the identity page opens.
+
+**What the automatic checks cannot test, and what was not tried.** A real answer of "under 18"
+from Stripe: Stripe's test mode gives no such answer on request, so the step the app takes on
+it is called directly in the check. The new sentence on the identity page was not seen in a
+browser (the test customer has passed the check, and the page then shows "Done"). Two people
+joining and being paused in the same instant, and a pass made in the same second as a removal,
+cannot be made to happen on purpose; the code for them was read by Astra, not run. The helper
+itself (`worker/closer.ts`) was not run beside the check scripts, which share one database; its
+new step was called from the check.
+
+**Still open, for the founder.** The repository is public; the founder will make it private.
+Everything in `docs/for-the-lawyer.md`, sections 9 to 15, is a question for a lawyer; the first
+three are a company, who the seller is, and the report of child abuse to the authorities, which
+is still made by hand. The founder then asked for the agreements themselves to be drafted
+(terms, host agreement, privacy and the rest); that is a change of its own, in `docs/legal/`.
+
