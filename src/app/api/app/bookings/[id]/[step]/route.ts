@@ -61,7 +61,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
       if (!(error instanceof BookingError)) console.error("[bookings] could not finish the card step for the app", error);
       return refuse("not_valid", error instanceof BookingError ? error.message : "Could not check your card. Please try again.");
     }
-    const page = await bookingPageFor(me, id, switches, now);
+    // The page as it stands at this moment (asking Stripe took a while: the card step's time may be up by now).
+    const page = await bookingPageFor(me, id, switches, new Date());
     return page ? answer(page) : refuse("not_found");
   }
 

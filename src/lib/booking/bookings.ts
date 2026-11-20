@@ -429,7 +429,8 @@ export async function askForCall(input: {
   now: Date;
 }): Promise<{ booking: Booking; clientSecret: string | null }> {
   const { customer, now } = input;
-  if (!/^[0-9a-f-]{36}$/i.test(input.requestKey)) throw new BookingError("This form is out of date. Please reload the page.");
+  // The same test as where a request is looked up by its key (requestWithKey): a key that can make a request can find it again.
+  if (!isUuid(input.requestKey)) throw new BookingError("This form is out of date. Please reload the page.");
   if (customer.id === input.hostId) throw new BookingError("You cannot book a call with yourself.");
   const note = input.note.replace(/\s+/g, " ").trim();
   if (note.length > LIMITS.noteMax) throw new BookingError(`The note can be at most ${LIMITS.noteMax} characters.`);
@@ -699,7 +700,7 @@ export async function finishCardStep(input: { bookingId: string; customerId: str
       const mine = await bookingCardSeen(tx, before.id, paymentMethodId);
       const [row] = await tx
         .update(schema.bookings)
-        .set({ stage: "ran_out", endedReason: `you already have a request or a call at that time, or within ${AFTER_CALL_MINUTES} minutes of it`, endedAt: input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
+        .set({ stage: "ran_out", endedReason: `you already have a request or a call at that time, or within ${AFTER_CALL_MINUTES} minutes of it`, endedAt: input.live ? new Date() : input.now, stripePaymentMethodId: mine ? paymentMethodId : null })
         .where(and(eq(schema.bookings.id, before.id), eq(schema.bookings.stage, "card")))
         .returning();
       return row;

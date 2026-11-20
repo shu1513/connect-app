@@ -163,6 +163,8 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
         newest.current++;
         setSummary(null);
         setAgreedTo(null);
+        // Said in the place of the page, and nowhere else: when the page can be read again, the sentence goes with it.
+        setSaid(null);
         setProblem(answer.message);
         if (answer.code !== "paused") void askOpening();
       }

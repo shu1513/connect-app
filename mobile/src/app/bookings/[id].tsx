@@ -60,6 +60,8 @@ function OneRequest({ id }: { id: string }) {
   const newest = useRef(0);
   /** A step is under way: nothing else is asked meanwhile. */
   const acting = useRef(false);
+  /** How many readings that also ask about the card are under way: the timer's plain reading does not cut in on them. */
+  const checking = useRef(0);
   /** The stage the screen shows, for words that belong to it. */
   const stage = useRef<string | null>(null);
   const path = `/api/app/bookings/${id}`;
@@ -115,14 +117,9 @@ function OneRequest({ id }: { id: string }) {
     [path, settle],
   );
 
-  /** Reads the page. With `andCard`, a request at its card step is also asked about at Stripe, by the server. */
-  const look = useCallback(
+  /** One reading of the page. With `andCard`, a request at its card step is also asked about at Stripe, by the server. */
+  const read = useCallback(
     async (andCard: boolean) => {
-      if (acting.current) return;
-      if (!id) {
-        setGone(true);
-        return;
-      }
       const got = await asked("");
       if (got?.card && andCard && !acting.current) {
         // No page back: the server could not be asked, or could not tell. A card may be saved all the same (the app
@@ -131,7 +128,28 @@ function OneRequest({ id }: { id: string }) {
         if ((await asked("/card-saved")) === null) setUnchecked(true);
       }
     },
-    [id, asked],
+    [asked],
+  );
+
+  /** Reads the page, unless a step is under way. */
+  const look = useCallback(
+    async (andCard: boolean) => {
+      if (acting.current) return;
+      if (!id) {
+        setGone(true);
+        return;
+      }
+      // The timer's plain reading stands back while a fuller one is under way: overtaking it would drop the question
+      // about the card that follows it (a card saved while the app was away would then go unnoticed).
+      if (!andCard && checking.current > 0) return;
+      if (andCard) checking.current++;
+      try {
+        await read(andCard);
+      } finally {
+        if (andCard) checking.current--;
+      }
+    },
+    [id, read],
   );
 
   // While the screen is in front: now, and on coming back to the app.

@@ -344,6 +344,25 @@ card page fixed, and named six points; two it wanted before merging:
 6. *Two of the website's check scripts would have failed* under the stricter clock. See 2.
    All seven that pass through the card step were run and pass.
 
+## Astra's fifth look at the code (20 November 2026): one blocker left, now worked in
+
+It found the clock, the false "Check again" and the leftover form fixed, accepted the split
+between live callers and the check scripts, and named one blocker and four notes. All taken:
+
+1. *(Blocker.) After an unforeseen fault (the database, say), the server looked for the
+   request, saw none, and answered "nothing was sent", while an earlier sending with the same
+   key could still be on its way to being written down.* Only one of the booking's own
+   refusals now counts as "nothing was sent". After any other fault the answer is "it cannot
+   be told", and the app keeps what was sent and sends the same again.
+2. *A key could make a request that the look-up by key would not find* (two different tests
+   of what a key looks like). One test now.
+3. *The timer's plain reading could cut in on the fuller one made when the app comes back to
+   the front,* and drop its question about the card. The timer now stands back meanwhile.
+4. *"Your account is paused" could stay on the screen after the page was readable again.*
+   It is said in the place of the page only.
+5. *Two moments were still dated by the clock from when the question came in.* Both use the
+   clock of the moment now.
+
 ## Astra's check of the plan (20 November 2026): "not ready", now worked in
 
 1. *The consent was put too late and the card's lifetime was wrong.* The box is ticked before

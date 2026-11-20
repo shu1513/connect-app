@@ -26,6 +26,15 @@ export async function GET(request: Request, ctx: RouteContext<"/api/app/hosts/[h
   return summary ? answer(summary) : refuse("not_found");
 }
 
+/**
+ * "It cannot be told just now what became of this request": said as the server not being reached (no
+ * answer of the door's at all), not as a refusal. The app then keeps what was sent exactly as it was, and
+ * sends the same again; the key makes that the same one request.
+ */
+function notKnown(): Response {
+  return new Response(null, { status: 503, headers: { "cache-control": "private, no-store" } });
+}
+
 export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[handle]/book">) {
   const asked = await appRequest(request, "active");
   if (asked instanceof Response) return asked;
@@ -76,15 +85,18 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/hosts/[
     try {
       made = await requestWithKey(me.id, given.requestKey);
     } catch (lookup) {
-      // It cannot be told just now whether the request exists. That is said as "not reached", not as a refusal: the
-      // app then keeps what was sent as it is, and sends the same again.
       console.error("[bookings] could not look for a request after a failed sending", lookup);
-      return new Response(null, { status: 503, headers: { "cache-control": "private, no-store" } });
+      return notKnown();
     }
     if (made) {
       const body: AppBookSent = { id: made.id };
       return answer(body);
     }
-    return refuse("not_valid", error instanceof BookingError ? error.message : "Something went wrong. Nothing was sent. Please try again.");
+    // No request with this key is there to be seen. After one of the booking's own refusals that settles it:
+    // nothing was made, and the sentence says why. After anything else (the database, Stripe, the unforeseen) it
+    // does not: an earlier sending with the same key may still be on its way to being written down. Then, too, the
+    // answer is "it cannot be told", never "nothing was sent".
+    if (!(error instanceof BookingError)) return notKnown();
+    return refuse("not_valid", error.message);
   }
 }
