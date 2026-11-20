@@ -345,7 +345,8 @@ export default async function HomePage(props: PageProps<"/">) {
         <section className={`${warm.card} mt-6`} data-calls="coming-up">
           <h2 className={sectionTitle}>Your next calls</h2>
           <div className="mt-2">
-            <CallsByDay calls={listed} serverNow={drawn.toISOString()} />
+            {/* The details of the next call are in the card above, once: its row here goes without them. */}
+            <CallsByDay calls={listed.map((call) => (call.id === next?.id ? { ...call, about: undefined } : call))} serverNow={drawn.toISOString()} />
           </div>
         </section>
       )}

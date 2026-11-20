@@ -3315,10 +3315,16 @@ home page; a line of shortcuts; nothing at all across a block or for a closed ac
   someone who hosts nothing. The page asks for the person's own host profile by its key, because
   an approved host with nothing booked must get the shortcuts too; the plan now says so plainly.
 
+- *CodeRabbit* answered "Review limit reached" on pull request 69. By the founder's rule for
+  that case, the builder did not wait and read the whole change line by line instead. One
+  thing found and changed: the details of the next call, with the folded note, were on the
+  page twice (in the card, and again in that call's row of the list). The row now goes without
+  them.
+
 **How it was checked.** 685 automatic tests on the code, 4 of them new (the words for the calls
 before; where Accept and Decline go back to, also for a made-up page). On this computer, against
-the local database, after Astra's fixes: `scripts/home-check.ts`, 85 checks, 41 of them new (part
-8). Before those fixes, which touch none of their code: `scripts/ratings-check.ts`,
+the local database, after Astra's fixes: `scripts/home-check.ts`, 86 checks, 42 of them new (part
+8), run again after the builder's own review. Before those fixes, which touch none of their code: `scripts/ratings-check.ts`,
 `scripts/journey-check.ts` and `scripts/photo-check.ts` (293 checks), all passing. In a browser,
 on a phone-sized window, as the test host: the shortcuts; a hosted call with the customer's
 words, "ID confirmed", "4 calls before, the last on Nov 17, 2026" and the folded note; a note

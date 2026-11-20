@@ -394,6 +394,7 @@ async function main() {
       const card = detailsOf(hers.html, withRegular.id);
       check("the card is about the call she hosts next", hers.html.includes(`data-next-call="${withRegular.id}"`));
       check("with what the customer wrote", words(card).includes(`Advice on my first video ${RUN}`), words(card).slice(0, 160));
+      check("the details of the next call are on the page once: in the card, not again in the list", count(hers.html, `data-customer-details="${withRegular.id}"`) === 1 && listed(hers.html, withRegular.id), String(count(hers.html, `data-customer-details="${withRegular.id}"`)));
       check("ID confirmed and Your member", card.includes("data-customer-id") && card.includes("data-customer-member"));
       check("the calls before: the two that count, not the cancelled one nor the one the customer never joined", card.includes('data-customer-before="2"') && words(card).includes("2 calls before, the last on"), card.match(/data-customer-before="\d+"/)?.[0] ?? "none");
       const contact = (await contactsOf(bri.id, new Date())).find((c) => c.userId === regular.id);
