@@ -19,6 +19,9 @@ import { isFrozen } from "@/lib/membership/rules";
 import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
 import { NoteForm } from "@/components/note-form";
+import { FollowButton } from "@/components/follow-button";
+import { unfollowAction } from "@/app/following/actions";
+import { followingOf, followStillToCome, hasBlocked } from "@/lib/follows/follows";
 import { readNotice } from "@/lib/notice";
 import { hostNoteAbout, NOTE_MAX } from "@/lib/people/contacts";
 import { getSignedIn, isAdminSession } from "@/lib/session";
@@ -121,6 +124,13 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // The host's project, for a customer after a call that took place (plans/23, "After a call"). Asked of its own
   // function, which asks more than "Book another call" does. Only read: showing the box writes nothing.
   const ask = await askAfterCall({ role, call, attendance, hostPage: openPage });
+  // Following (plans/30), for the customer of the call only. Nothing here depends on whether the host has blocked
+  // the customer, so the box never gives a block away; only the customer's own block takes it away.
+  let follow: { state: "following" | "ended" | "none"; toCome: boolean } | null = null;
+  if (role === "customer" && hostProfile && !(await hasBlocked(user.id, call.hostId))) {
+    const [booking] = await db.select({ source: schema.bookings.source }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
+    follow = { state: await followingOf(user.id, call.hostId), toCome: followStillToCome(call, booking?.source ?? null, now) };
+  }
   // Rating: for the two people on the call only. Each sees their own rating, never the other's.
   const otherName = role === "admin" ? "" : (nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
   const rating = role === "admin" ? null : { state: await ratingStateOf(call, new Date()), mine: await myRating(call.id, user.id) };
@@ -209,6 +219,30 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       {note?.allowed && (
         <section className="mt-4 rounded border border-neutral-400 px-4 pb-4 pt-1" data-host-note>
           <NoteForm customerId={call.customerId} name={otherName} text={note.text} max={NOTE_MAX} />
+        </section>
+      )}
+
+      {follow && hostProfile && (follow.state === "following" || (follow.state === "none" && follow.toCome) || openPage) && (
+        <section className="mt-4 rounded border border-neutral-400 p-4 text-sm" data-follow-box={follow.state === "following" ? "following" : follow.state === "none" && follow.toCome ? "to-come" : "offer"}>
+          {follow.state === "following" ? (
+            <>
+              <p>You follow {otherName}. When they are available now, you see it on your home page.</p>
+              <div className="mt-1">
+                <FollowButton state="following" hostId={call.hostId} handle={hostProfile.handle} name={otherName} back={`/calls/${call.id}/results`} />
+              </div>
+            </>
+          ) : follow.state === "none" && follow.toCome ? (
+            <form action={unfollowAction}>
+              <input type="hidden" name="hostId" value={call.hostId} />
+              <input type="hidden" name="back" value={`/calls/${call.id}/results`} />
+              <p>After a call you follow the host, so you see on your home page when they are available now. Only you see who you follow.</p>
+              <button type="submit" className="mt-1 inline-flex min-h-11 items-center underline underline-offset-2">
+                Don&apos;t follow {otherName}
+              </button>
+            </form>
+          ) : (
+            <FollowButton state={follow.state} hostId={call.hostId} handle={hostProfile.handle} name={otherName} back={`/calls/${call.id}/results`} />
+          )}
         </section>
       )}
 

@@ -281,6 +281,13 @@
       "when": 1795113135156,
       "tag": "0039_host_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795131523536,
+      "tag": "0040_follows",
+      "breakpoints": true
     }
   ]
 }

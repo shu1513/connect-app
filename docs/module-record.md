@@ -2265,3 +2265,82 @@ host's request. Not seen in the real try: a personal Instagram account, an accou
 show, a picture a service refuses. The Hosting page's "Your photo" in every state and the
 founder's "Remove and report" with the tick are checked by the script's code, not in a browser.
 
+
+## A later change: following hosts, part one (plan 30, 19 November 2026)
+
+**What it is.** A customer can follow a host. A followed host who is available right now is at
+the top of the customer's home page ("Talk now"), and a new page, "Hosts you follow", lists them
+with who is available and when the next call with each is. After a call that really took place
+the customer follows the host by itself. Plan: `plans/30-following.md`. Part two, the emails to
+followers, is `plans/31-following-part-2-emails.md` and is built next.
+
+**What the founder asked for (19 November 2026).** Following; a followed host who is online on
+the home page; a list with their online status and the next appointment; the home page showing
+all upcoming appointments and the rooms that can be entered now; and that a customer follows a
+host automatically after a conversation.
+
+**What was decided differently from what was first discussed, and why.**
+- **A host sees nothing about their followers, not even a number.** The founder liked "14
+  followers will be told you are online". Astra showed that even a rough number gives single
+  people away: every customer follows after a call, so a follower who is missing or gone points
+  at the customer who reported the host, asked for a refund, blocked them or unfollowed. It can
+  come back once hosts have followers in the hundreds.
+- **A low rating does not remove the follow.** The builder had suggested it; it would have tied
+  something visible to the stars a customer gave. Instead the page after a call offers "Don't
+  follow", and "Unfollow" is on every page that has the button.
+- **Only what the customer did stands in the way of the automatic follow** (their report, their
+  block, their request for a refund). What the host did does not. Found while building: with a
+  host's block stopping it, a blocked customer saw "Follow Anna" where anyone else sees "You
+  follow Anna". Such a follow is quiet: the host never shows as available to someone they have
+  blocked.
+
+**What was built.**
+- One table, `follows` (one line per follower and host, for good; an ended line also means
+  "never follow this host for me by yourself"), and one column, `calls.follow_checked_at`.
+- The rules as plain functions (`src/lib/follows/rules.ts`), reading and writing in
+  `src/lib/follows/follows.ts`. Everything that writes a person's follows takes one lock named
+  after the follower, always last; a block takes the locks of both people.
+- The always-on helper decides, once per call and about two minutes after the room closes,
+  whether the customer follows the host. Calls from before this are never looked at.
+- The Follow button on a host's page and on the results of a call (missing only for someone who
+  has themselves blocked that host), the page `/following`, "Following" in the top bar, and the
+  home page in three parts: "Talk now", "Coming up", "Earlier calls". The list and the home page
+  ask again once a minute while the tab is in front.
+- When a follower blocks a host their follow ends for good. When a host blocks a follower the
+  follower's list stays as it was, and the host is never available on it.
+
+**What the reviewers found.**
+Astra, on the plan, three rounds (16, then 7 points, then "build as is"). Taken: no follower
+number; one rule for the button on every page; "Don't follow" before the automatic follow
+exists; a hidden host stays on the list by name so they can be unfollowed; the lock per
+follower, for both people in a block; "available" promised only as what the host's own page
+shows. Not taken: making the filing of a report wait for the decision.
+Astra, on the code: three points, all taken. The database change filled the new column line by
+line while the table was locked (now a default that is taken away again, which does not rewrite
+the table); the race tests did not really force both orders (they now hold the lock and let the
+two steps go in a chosen order); a member of a host who hides their page lost "Unfollow" on that
+page.
+CodeRabbit was at its limit when the plans were ready, and the founder said to go on without
+it: the plans (pull request 51) were merged on Astra's three checks. It did review the code
+(pull request 52): five small comments, four taken. The follow decision now runs in a loop of
+its own in the helper, so that waiting for a follower's lock can never hold up closing a room
+or the money work; the home page stays fresh for a quarter of an hour after a call, so the host
+appears on it once the follow is decided; a race test now fails if the order it means to force
+was not forced; and the README says to stop the helper before running the check script. Not
+taken: asking for several hosts' availability in one question instead of one after the other,
+which CodeRabbit itself rated a poor trade unless it proves slow (only the few followed hosts
+who say "available" at that moment are asked).
+
+**How it was checked.** Unit tests of the rules (14). `scripts/follow-check.ts`: about 90
+checks against the local database, with the races forced in each order, and, with `--app=`, the
+pages themselves asked of the running app as the seeded test customer. In the browser,
+phone-sized and wide: following from a host's page, the list with the host available, "Talk
+now" on the home page, unfollowing. All 21 check scripts on the code with the host's photo merged
+in; one check of `scripts/photo-check.ts` reads a line of the host's page that this change
+extends, and was updated to the line as it now reads. The database change is number 40
+(`0040_follows`).
+
+**Still open.** Two people on two real devices, one switching "Available now" on and the other
+watching it appear within a minute. Whether the home page's new order reads well to a real
+customer. Part two (emails), then "tell me when a time opens" and suggestions as plans of their
+own.

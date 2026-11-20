@@ -1,8 +1,8 @@
 /**
  * The always-on helper. It closes rooms. Beside that, in loops of their own, it
  * does the payment and booking work that has to happen on a schedule (see
- * src/lib/payments/jobs.ts), writes reminders, sends what is in the outbox and
- * has the pictures of diaries checked.
+ * src/lib/payments/jobs.ts), writes reminders, sends what is in the outbox,
+ * has the pictures of diaries checked, and decides the follows after calls.
  *
  * Every few seconds it looks for calls past their closing time and makes sure
  * nobody is left in the room. It keeps watching each call for a while after
@@ -39,6 +39,7 @@ async function main() {
   const { forgetOldRequests, writeAnswerReminders } = await import("../src/lib/refunds/requests");
   const { endOldTests } = await import("../src/lib/connection/tests");
   const { runPictureRound } = await import("../src/lib/projects/queue");
+  const { followAfterCalls } = await import("../src/lib/follows/follows");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -150,6 +151,15 @@ async function main() {
     await endOldTests(new Date()).catch((error) => console.error("[connection test] ending old tests failed; will retry", error));
   }
 
+  /**
+   * After a call that really took place, the customer follows the host (plans/30). Decided once per call, in a
+   * loop of its own: each decision waits for the follower's lock, and that wait must never hold up closing a
+   * room or the money work.
+   */
+  async function followPass() {
+    await followAfterCalls(new Date()).catch((error) => console.error("[follows] deciding the follows after calls failed; will retry", error));
+  }
+
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
   async function sendPass() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
@@ -172,6 +182,7 @@ async function main() {
     await sendPass();
     await testPass();
     await picturePass();
+    await followPass();
     process.exit(0);
   }
 
@@ -191,7 +202,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass)]);
   process.exit(0);
 }
 
