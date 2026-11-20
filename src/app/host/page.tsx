@@ -78,6 +78,8 @@ export default async function HostPage(props: PageProps<"/host">) {
   const paid = profile ? profile.pricePer15Cents > 0 : false;
   // A host outside the United States is paid in their own money, which Stripe turns their dollars into.
   const abroad = profile ? profile.country !== HOME_COUNTRY : false;
+  // The host's saved languages by name; none for a host who has not chosen yet (plans/34-host-languages.md).
+  const savedLanguages = profile ? languageNames(profile.languages) : [];
   const proven = socials.some((social) => social.confirmedAt);
   const checkSettings = bioSettings();
   // While this is on, a TikTok account is proven by signing in at TikTok, and no longer with a code.
@@ -278,9 +280,9 @@ export default async function HostPage(props: PageProps<"/host">) {
                 About you (up to {ABOUT_MAX} characters)
                 <textarea name="about" rows={3} maxLength={ABOUT_MAX} defaultValue={profile.about} className={field} />
               </label>
-              <p className="text-sm" data-host-languages={languageNames(profile.languages).length}>
-                {languageNames(profile.languages).length > 0 ? (
-                  <span className="opacity-70">Saved languages: {languageNames(profile.languages).join(", ")}</span>
+              <p className="text-sm" data-host-languages={savedLanguages.length}>
+                {savedLanguages.length > 0 ? (
+                  <span className="opacity-70">{`Saved languages: ${savedLanguages.join(", ")}`}</span>
                 ) : (
                   "You have not chosen your languages yet. Tick the ones you can hold a call in, so people know they can talk with you."
                 )}

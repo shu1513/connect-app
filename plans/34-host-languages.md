@@ -1,6 +1,7 @@
 # Plan 34: The languages a host speaks
 
-**Status:** a plan, not built. Written 19 November 2026 by the builder alone (no helper agents),
+**Status:** built, 19 November 2026 (pull request 57; see `docs/module-record.md`). Nothing in
+the building changed a rule of this plan. Written 19 November 2026 by the builder alone (no helper agents),
 from the code as it is on `main` after pull request 55, and from what the founder asked that day.
 Astra checked it once ("ready with changes"); every point was read against the code by the
 builder and is worked in below (the list is at the end).

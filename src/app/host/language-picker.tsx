@@ -11,7 +11,7 @@ export function LanguagePicker({ chosen }: { chosen: readonly string[] }) {
   return (
     // Open while nothing from the list is chosen, so a host who still has to choose sees the list without looking for it.
     <details open={!HOST_LANGUAGES.some((language) => chosen.includes(language.code))}className="rounded border border-neutral-400 px-3 py-2 text-sm" data-language-picker>
-      <summary className="min-h-8 cursor-pointer content-center">
+      <summary className="cursor-pointer py-1">
         Languages you can hold a call in (choose 1 to {MAX_LANGUAGES})
       </summary>
       <fieldset className="mt-2 grid grid-cols-2 gap-x-4">

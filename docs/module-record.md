@@ -2474,3 +2474,12 @@ searching or filtering by language, which needs a decision about browsing hosts 
 - *Code ("ship", no blocking findings).* One small point, taken: three refusals were tested in
   one combined check, so a failure of the first would have hidden the other two; each is its own
   check now. Astra found no loosened access rule, no missed caller, and nothing over-engineered.
+- *The builder's own check, in place of CodeRabbit.* CodeRabbit was asked for a full review on
+  pull request 57 and answered that its review limit was reached. The founder's rule for that
+  case is not to wait, so the builder read the whole change line by line instead. Found and
+  changed: the names of the saved languages were worked out three times on the Hosting page and
+  twice on the host's page (once each now); the line the tick boxes fold behind was centred
+  in a way older browsers do not know (plain spacing now). Looked at and left: the privacy page
+  does not list what a host's page shows, so it needs no new sentence; no rule in the database
+  for "at most five", as planned. One thing noticed and written under "Still open": a host who
+  sends the form with no language ticked gets the refusal and has to fill the form in again.
