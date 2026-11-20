@@ -492,3 +492,28 @@ The plan was not sent a third time. Each part's code goes to Astra, as always.
   step: `npm run seed` does it. Until every open branch has this part, a seeded person fits
   either the old step or the new one, not both.
 
+## What building part 2 added (20 November 2026)
+
+- **Who is told:** everyone with an open account who has finished signing up at least once, for
+  the Terms, the Payment Terms, the Community Rules, the Privacy Policy and the Copyright Policy;
+  everyone with a host profile, for the Host Agreement. Nobody for the Identity Check Notice: it
+  is shown in full, in the version in effect, at every check. A paused account is told; a closed
+  one is not. (`src/legal/notices.ts`.)
+- **One email for each document that changes**, not one for all of them: the key is document,
+  version, day and person, as decision 12 says. Three documents changing on one day are three
+  emails.
+- **An email is not sent after its day**, not to an account closed since it was written, and not
+  for a day that has been moved since.
+- **What the health report counts.** Only versions for which 30 days are owed (not the first
+  published one after a draft, not one marked urgent), and only people who were concerned before
+  the last day for it. Three lines: an email that went out with fewer than 30 days left; one that
+  is still not out with fewer than 30 days left; one that failed. **Changed against decision
+  12:** a failed email counts only when the reason is ours. An address that bounces, or an
+  account closed in between, does not count: moving the day would not mend it, and the health
+  report would stay red until the day.
+- **The Hosting page** says a coming Host Agreement the way the documents' own pages do, and the
+  box that asks for a new version says "The Host Agreement has a new version" and no longer
+  "Two things we need from you" when the host has answered the other one.
+- **Not built:** the phone app's last step of sign-up does not show a coming version (the email
+  and the website do). The phone-apps session is told.
+

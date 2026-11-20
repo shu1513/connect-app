@@ -4314,3 +4314,38 @@ the clock instead.
 
 **After this merges, every open branch needs `npm run seed` once**: the seeded test accounts hold
 the old stamp, and the app would send them to the last step of sign-up.
+
+## Thirty days' notice of new terms (plan 46, part 2, 20 November 2026)
+
+**Why.** Change 5 of the list in `docs/legal/README.md`: the Terms (23.2) and the Host Agreement
+(19.2) promise 30 days' notice of a new version, and nothing sent one.
+
+**What was built.** `src/legal/notices.ts`. About once a minute the helper looks for a version
+whose day has not come and writes one email to everyone it concerns who has none yet: the day,
+what changes, a link to the new text, and what the person has to do. The email's key holds the
+document, the version, the day and the person, so nobody is written to twice and a moved day is
+announced again by itself. Right before sending, the email is asked whether it is still true: not
+to a closed account, not for a day that was moved, and never after its day. The health report
+gains three lines (an email out with fewer than 30 days left, one still not out with fewer than
+30 days left, one that failed for a reason of ours). The Hosting page says a coming Host
+Agreement, and its box has words of its own for "a new version". No migration.
+
+**The builder's own choices** (each can be changed): one email for each document, not one for
+all; a person who has not finished signing up is not written to; a bounced address or a closed
+account is not counted as a failed notice (this changes a sentence of decision 12, and the plan
+says why); the first published version after the draft owes no 30 days.
+
+**How it was checked.** 11 new tests of the rules (who is told, the key, the words, the last day
+for it). `agreements-check` grew by 20 checks with two made-up versions: everyone concerned is
+written to once and nobody twice; nobody closed or unfinished; someone who finishes signing up
+meanwhile accepts the version in effect and gets the email; a failure of ours shows in the health
+report and a closed account does not; a moved day is announced again; fewer than 30 days left
+shows, for an email not out and for one sent late, and not for a person who only signed up today;
+after the day is moved far enough, the report is quiet again. In a browser, with a temporary
+coming version that was taken out again: the note on the Payment Terms' page, on the last step of
+sign-up, and on the Hosting page.
+
+**What cannot be tested here.** A real email leaving through the sending service (the check uses
+a stand-in), and whether this way of giving notice holds in law: `docs/for-the-lawyer.md`,
+section 16.
+
