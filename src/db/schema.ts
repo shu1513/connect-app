@@ -182,6 +182,12 @@ export const hostProfiles = pgTable("host_profiles", {
   about: text("about").notNull().default(""),
   /** Price in US cents per 15 minutes. Zero means free calls. */
   pricePer15Cents: integer("price_per_15_cents").notNull(),
+  /**
+   * The highest price this one host may set, in US cents per 15 minutes, when the founder gave her a higher
+   * one than everyone's $1,000 (plans/48). Empty for every other host. Only the founder writes it (setTopPrice
+   * in profiles/profiles.ts); nothing a host sends can. Always more than $1,000 and at most $2,500.
+   */
+  topPricePer15Cents: integer("top_price_per_15_cents"),
   /** The host's own switch. Hidden profiles cannot be found; booked calls still happen. */
   hidden: boolean("hidden").notNull().default(false),
   /** The founder's decision: pending, approved, declined or suspended. The host cannot change it. */
@@ -219,7 +225,10 @@ export const hostProfiles = pgTable("host_profiles", {
   usConfirmedAt: timestamp("us_confirmed_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+},
+  // The same two numbers as MAX_PRICE_PER_15_CENTS and HIGHEST_TOP_PRICE_PER_15_CENTS in payments/pricing.ts (a test holds them together).
+  (t) => [check("host_profiles_top_price_range", sql`${t.topPricePer15Cents} is null or (${t.topPricePer15Cents} > 100000 and ${t.topPricePer15Cents} <= 250000)`)],
+);
 
 /**
  * A host's claim to a social media account, proven with a code in that account's bio or, for

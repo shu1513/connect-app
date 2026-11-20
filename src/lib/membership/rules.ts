@@ -30,6 +30,12 @@ export const MEMBERSHIP = {
   minMinutes: 30,
   maxMinutes: 100 * 60,
   stepMinutes: 30,
+  /**
+   * The most one month may cost: $400,000. That is 100 hours at $1,000 per 15 minutes, the most a month could
+   * ever cost before one host could be given a higher top price (plans/48). Kept, so that a higher price makes
+   * no month larger than before, and no month can reach the most Stripe takes in one payment ($999,999.99).
+   */
+  maxMonthCents: 40_000_000,
 } as const;
 
 /** What is wrong with a member price and a time included, in words for the host, or null. */
@@ -42,6 +48,10 @@ export function offerProblem(input: { pricePer15Cents: number; includedMinutes: 
   if (pricePer15Cents > regularPricePer15Cents) return "The member price cannot be more than your regular price.";
   if (!Number.isInteger(includedMinutes) || includedMinutes < MEMBERSHIP.minMinutes || includedMinutes > MEMBERSHIP.maxMinutes || includedMinutes % MEMBERSHIP.stepMinutes !== 0) {
     return "Choose the time included from the list: from 30 minutes to 100 hours, in steps of 30 minutes.";
+  }
+  // Only a host with a top price of her own can get here: at $1,000 or less, 100 hours cost at most this.
+  if ((pricePer15Cents * includedMinutes) / 15 > MEMBERSHIP.maxMonthCents) {
+    return `A month can cost at most $${(MEMBERSHIP.maxMonthCents / 100).toFixed(2)}. Choose less time, or a lower member price.`;
   }
   return null;
 }

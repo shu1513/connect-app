@@ -9,7 +9,9 @@ import { momentIn } from "@/lib/booking/calendar";
 import { withNotice } from "@/lib/notice";
 import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
 import { lockPhotoAsFounder, recordPhotoReportMade, removePhotoAsFounder } from "@/lib/profiles/photo";
-import { confirmSocialName, decideProfile, ProfileError, rejectSocialName } from "@/lib/profiles/profiles";
+import { formatMoney } from "@/lib/payments/access";
+import { MAX_PRICE_PER_15_CENTS } from "@/lib/payments/pricing";
+import { confirmSocialName, decideProfile, ProfileError, rejectSocialName, setTopPrice } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { requireAdmin } from "@/lib/session";
 
@@ -54,6 +56,38 @@ export async function decideProfileAction(formData: FormData) {
         notice += " But their waiting requests and future calls could not be ended automatically. Please check them and end them by hand.";
       }
     }
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
+}
+
+/**
+ * The founder gives one host a higher top price than everyone's, changes it, or takes it away (plans/48).
+ * Taking it away has a button of its own, so an empty field pressed by mistake lowers nobody's price.
+ * The step itself writes the founder's record and the host's email.
+ */
+export async function setTopPriceAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const typed = String(formData.get("topPrice") ?? "").trim().replace(/^\$/, "").replace(/,/g, "");
+  let notice: string;
+  try {
+    const userId = String(formData.get("userId") ?? "");
+    if (!userId) throw new ProfileError("Choose a host first. Nothing was changed.");
+    const takeAway = formData.get("takeAway") === "1";
+    if (!takeAway && typed === "") throw new ProfileError(`Type the top price first. To take a host's higher top price away, press "Put back to ${formatMoney(MAX_PRICE_PER_15_CENTS)}". Nothing was changed.`);
+    const typedDollars = Number(typed);
+    const cents = Math.round(typedDollars * 100);
+    // Anything that is not an amount in dollars and whole cents is passed on as "not a number", which the rule refuses in words.
+    const topPricePer15Cents = takeAway ? null : Number.isFinite(typedDollars) && Math.abs(typedDollars * 100 - cents) < 1e-6 ? cents : Number.NaN;
+    const done = await setTopPrice({ userId, topPricePer15Cents, by: admin.id });
+    notice =
+      (done.topPricePer15Cents === MAX_PRICE_PER_15_CENTS
+        ? `${done.displayName} is back to the top price of every host, ${formatMoney(MAX_PRICE_PER_15_CENTS)} per 15 minutes.`
+        : `${done.displayName} can now charge up to ${formatMoney(done.topPricePer15Cents)} per 15 minutes.`) +
+      (done.priceLoweredFrom === null
+        ? ""
+        : ` Their price was ${formatMoney(done.priceLoweredFrom)}, so it came down to ${formatMoney(done.topPricePer15Cents)}, and they were told by email. Requests and calls already made keep their price.`);
   } catch (error) {
     notice = problem(error);
   }

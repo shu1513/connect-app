@@ -4314,3 +4314,52 @@ the clock instead.
 
 **After this merges, every open branch needs `npm run seed` once**: the seeded test accounts hold
 the old stamp, and the app would send them to the last step of sign-up.
+
+## A later change: a higher top price for one host (plan 48, 20 November 2026)
+
+**What the founder decided.** Asked whether $1,000 per 15 minutes is too low for a very big
+celebrity, and advised to keep $1,000 for everyone and raise it by hand for one host, the
+founder answered two questions. The highest price ever allowed for a host the founder has
+checked: **$2,500 per 15 minutes** (offered: $10,000, $5,000, $2,500, $25,000). And when a
+raised limit is later lowered below the host's price: **the price drops at once**, the host is
+told by email, and calls already booked keep their price.
+
+**What was built.** On the admin page "Hosts and accounts" there is a new part, "A higher top
+price for one host": choose a host, type a top price between $1,000.01 and $2,500, save. A
+second button, "Put back to $1000.00", takes it away. Below it is the list of hosts who have
+one. That host, and only that host, can then save a price up to it; her Hosting page says so in
+one line. Every other host is refused above $1,000 exactly as before, now with the sentence
+"Your price can be at most $1000.00 per 15 minutes." No host can set a top price themselves:
+only the founder's step writes that field, and the database refuses a value outside the range.
+Each change is written into the founder's record, in the same database step as the change.
+
+**Lowering.** If the host's price is above the new top price it comes down to it in the same
+step, and the host gets an email with the old and the new price. Requests and calls already
+made keep their price. One thing stops a lowering: a regular price is never below what a member
+pays, so the top price cannot go below a member price that is offered or running; the founder
+is told how far it can go now.
+
+**Said plainly: how large can a payment get.** The longest call (6 hours) at $2,500 per 15
+minutes costs $60,000, and that whole amount is held on the customer's card (it was $24,000).
+Stripe takes up to $999,999.99 in one payment, and the app's numbers hold far more than that. A
+membership month could already cost up to $400,000 (100 hours at $1,000); that is now a rule of
+its own, because at $2,500 a month of 100 hours would cost more than Stripe takes at once. A
+test holds these limits together.
+
+**What cannot be tested here.** Whether a bank allows a hold that large on a card; what Stripe
+does with very large payments on a new account (worth asking Stripe before the first host is
+raised); and what a lost bank dispute over such a call costs Connect, which is the whole
+amount. The Host Agreement names only a lowest price; whether it must name a highest one, and
+Connect's right to lower a price, is a point for the lawyer (`docs/for-the-lawyer.md`, section
+17).
+
+**How it was checked.** Type check, lint and the automatic tests (813, 11 of them new) pass. A
+new check script, `scripts/top-price-check.ts` (39 checks), goes through the app's own
+functions on a real database: the limit for everyone, a raise for one host, the other host
+still refused, the founder's record, the lowering with its email, the member price that stops
+a lowering, taking it away, and the database refusing a wrong value. It ran on a test database
+of its own, not the one the other sessions share, because the new field is not in that one
+until this merges. In a browser, on the same database: as the test admin, a raise to $2,000, a
+lowering to $1,500 with the host's price coming down from $1,800, "Put back", and an empty
+field refused; as the raised test host, the line on the Hosting page and a price of $2,400
+saved.

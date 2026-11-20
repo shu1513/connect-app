@@ -19,6 +19,16 @@ describe("what a host can offer", () => {
     expect(offerProblem({ ...ok, pricePer15Cents: 1001 })).toMatch(/more than your regular price/);
     expect(offerProblem({ ...ok, pricePer15Cents: 499 })).toMatch(/at least \$5\.00/);
   });
+  it("a month costs at most $400,000, which only a host with a top price of her own can reach (plans/48)", () => {
+    // Everyone's highest price, for the longest time: exactly the ceiling, as before.
+    expect(offerProblem({ pricePer15Cents: 100_000, includedMinutes: 100 * 60, regularPricePer15Cents: 100_000 })).toBeNull();
+    // At $2,500 per 15 minutes, 40 hours are exactly the ceiling.
+    const high = { pricePer15Cents: 250_000, includedMinutes: 40 * 60, regularPricePer15Cents: 250_000 };
+    expect(offerProblem(high)).toBeNull();
+    expect(offerProblem({ ...high, includedMinutes: 40 * 60 + 30 })).toBe("A month can cost at most $400000.00. Choose less time, or a lower member price.");
+    expect(offerProblem({ ...high, includedMinutes: 100 * 60 })).toMatch(/at most \$400000\.00/);
+    expect(offerProblem({ pricePer15Cents: 100_001, includedMinutes: 100 * 60, regularPricePer15Cents: 250_000 })).toMatch(/at most \$400000\.00/);
+  });
   it("refuses a host whose calls are free", () => {
     expect(offerProblem({ ...ok, regularPricePer15Cents: 0 })).toMatch(/free/);
   });

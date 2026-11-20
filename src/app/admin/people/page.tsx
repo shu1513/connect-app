@@ -13,7 +13,8 @@ import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { identityState } from "@/lib/safety/identity";
 import { requireAdmin } from "@/lib/session";
 import { RULES } from "@/lib/terms";
-import { closeAccountAction, decideProfileAction, decideSocialAction, lockPhotoAction, photoReportMadeAction, removePhotoAction, reopenAccountAction } from "./actions";
+import { HIGHEST_TOP_PRICE_PER_15_CENTS, MAX_PRICE_PER_15_CENTS, topPriceOf } from "@/lib/payments/pricing";
+import { closeAccountAction, decideProfileAction, decideSocialAction, lockPhotoAction, photoReportMadeAction, removePhotoAction, reopenAccountAction, setTopPriceAction } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Hosts and accounts" };
@@ -65,6 +66,8 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
   const refused = await refusedBioChecks(new Date());
   const waiting = profiles.filter((p) => p.profile.status === "pending");
   const others = profiles.filter((p) => p.profile.status !== "pending");
+  // The hosts the founder gave a higher top price than everyone's (plans/48).
+  const raised = profiles.filter((p) => p.profile.topPricePer15Cents !== null);
   // The confirmed accounts of each waiting host: what the founder compares the name and the handle with.
   const confirmed = waiting.length
     ? await db
@@ -298,6 +301,63 @@ export default async function AdminPeoplePage(props: PageProps<"/admin/people">)
             </tbody>
           </table>
         </div>
+      )}
+
+      <h2 id="top-price" className="mt-10 text-lg font-semibold">A higher top price for one host ({raised.length})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        Every host can charge up to {formatMoney(MAX_PRICE_PER_15_CENTS)} per 15 minutes. Here you can let one host charge more, up to{" "}
+        {formatMoney(HIGHEST_TOP_PRICE_PER_15_CENTS)}. Give this only to a host you have checked yourself: the whole price of a call is held on the customer&apos;s card, and Connect
+        carries the loss when a customer&apos;s bank takes a payment back. To take it away again, choose the host and press &quot;Put back to{" "}
+        {formatMoney(MAX_PRICE_PER_15_CENTS)}&quot;. If a host&apos;s price is above the new top price, it comes down to it at once and the host is told by email; requests and calls already made keep their price.
+      </p>
+      {profiles.length === 0 ? (
+        <p className="mt-2 text-sm opacity-70">There are no hosts yet.</p>
+      ) : (
+        <form action={setTopPriceAction} className="mt-3 flex flex-wrap items-end gap-3 text-sm" data-top-price-form>
+          <label className="block">
+            Host
+            <select name="userId" required defaultValue="" className="mt-1 block max-w-full rounded border border-neutral-400 bg-transparent px-2 py-1">
+              <option value="" disabled>
+                Choose a host
+              </option>
+              {[...profiles]
+                .sort((a, b) => a.profile.displayName.localeCompare(b.profile.displayName))
+                .map(({ profile }) => (
+                  <option key={profile.userId} value={profile.userId}>
+                    {profile.displayName} @{profile.handle}: price {formatMoney(profile.pricePer15Cents)}, top price {formatMoney(topPriceOf(profile))}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="block">
+            Top price per 15 minutes, in US dollars
+            <input
+              name="topPrice"
+              type="number"
+              min={MAX_PRICE_PER_15_CENTS / 100 + 0.01}
+              max={HIGHEST_TOP_PRICE_PER_15_CENTS / 100}
+              step="0.01"
+              placeholder="for example 2000"
+              className="mt-1 block w-48 rounded border border-neutral-400 bg-transparent px-2 py-1"
+            />
+          </label>
+          <button type="submit" className={primary}>
+            Save the top price
+          </button>
+          <button type="submit" name="takeAway" value="1" className={button}>
+            Put back to {formatMoney(MAX_PRICE_PER_15_CENTS)}
+          </button>
+        </form>
+      )}
+      {raised.length > 0 && (
+        <ul className="mt-3 space-y-1 text-sm" data-top-prices>
+          {raised.map(({ profile, email }) => (
+            <li key={profile.userId}>
+              {profile.displayName} <span className="opacity-70">@{profile.handle}</span>, {email}: up to {formatMoney(topPriceOf(profile))} per 15 minutes. Their price now:{" "}
+              {formatMoney(profile.pricePer15Cents)}.
+            </li>
+          ))}
+        </ul>
       )}
 
       <h2 id="photos" className="mt-10 text-lg font-semibold">Photos ({shownPhotos.length})</h2>

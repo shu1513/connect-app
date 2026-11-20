@@ -1,0 +1,2 @@
+ALTER TABLE "host_profiles" ADD COLUMN "top_price_per_15_cents" integer;--> statement-breakpoint
+ALTER TABLE "host_profiles" ADD CONSTRAINT "host_profiles_top_price_range" CHECK ("host_profiles"."top_price_per_15_cents" is null or ("host_profiles"."top_price_per_15_cents" > 100000 and "host_profiles"."top_price_per_15_cents" <= 250000));

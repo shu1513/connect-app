@@ -8,13 +8,14 @@ import { db, schema } from "@/db";
 import { lockCalendar } from "@/lib/membership/locks";
 import { memberPriceFloor } from "@/lib/membership/room";
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
-import { hostPriceProblem } from "@/lib/payments/pricing";
+import { hostPriceProblem, MAX_PRICE_PER_15_CENTS, topPriceOf, topPriceProblem } from "@/lib/payments/pricing";
+import { recordAdminAction } from "@/lib/safety/audit";
 import { identityState } from "@/lib/safety/identity";
 import { acceptHostAgreementIn, AgreementError, type Shown } from "@/legal/accept";
 import { RULES } from "@/lib/terms";
 import { HOME_COUNTRY, isHostCountry } from "./countries";
 import { bioHasCode, bioSettings, isAutomatic, readBio, type BioNetwork, type BioReader, type BioSettings } from "./bio-check";
-import { queueProfileDecisionEmail } from "./emails";
+import { queueProfileDecisionEmail, queueTopPriceEmail } from "./emails";
 import { handleKey, handleProblem, tidyHandle } from "./handles";
 import { chooseAccount, type SharedAccount } from "./instagram";
 import { chosenLanguages } from "./languages";
@@ -28,7 +29,6 @@ export class ProfileError extends Error {}
 export const ABOUT_MAX = 300;
 export const NAME_MIN = 2;
 export const NAME_MAX = 50;
-const MAX_PRICE_PER_15_CENTS = 100_000; // $1,000
 const SOCIAL_CODE_DAYS = 7;
 
 export type ProfileStatus = "pending" | "approved" | "declined" | "suspended";
@@ -85,16 +85,16 @@ function cleanText(typed: string): string {
   return typed.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
-function checkedDetails(input: { displayName: string; about: string; pricePer15Cents: number }) {
+/** `topPricePer15Cents` is the highest price this host may set: everyone's, or her own from the founder (plans/48). */
+function checkedDetails(input: { displayName: string; about: string; pricePer15Cents: number }, topPricePer15Cents: number) {
   const displayName = cleanText(input.displayName);
   const about = cleanText(input.about);
   if (displayName.length < NAME_MIN || displayName.length > NAME_MAX) {
     throw new ProfileError(`Your display name must be ${NAME_MIN} to ${NAME_MAX} characters long.`);
   }
   if (about.length > ABOUT_MAX) throw new ProfileError(`The "about" text can be at most ${ABOUT_MAX} characters.`);
-  const problem = hostPriceProblem(input.pricePer15Cents);
+  const problem = hostPriceProblem(input.pricePer15Cents, topPricePer15Cents);
   if (problem) throw new ProfileError(problem);
-  if (input.pricePer15Cents > MAX_PRICE_PER_15_CENTS) throw new ProfileError("The price is too high.");
   return { displayName, about, pricePer15Cents: input.pricePer15Cents };
 }
 
@@ -158,7 +158,8 @@ export async function createHostProfile(
   userId: string,
   input: { handle: string; displayName: string; about: string; pricePer15Cents: number; country: string; languages: readonly string[]; sellerKind: string; /** The Host Agreement as the form showed it, or null when its box was not ticked. */ agreements: Shown | null },
 ): Promise<void> {
-  const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages) };
+  // Someone who applies has no top price of her own: the founder can only give one to a host there already is.
+  const details = { ...checkedDetails(input, MAX_PRICE_PER_15_CENTS), languages: checkedLanguages(input.languages) };
   if (!input.agreements) throw new ProfileError("Please tick the box to accept the Host Agreement.");
   const sellerKind = checkedSellerKind(input.sellerKind);
   const agreements = input.agreements;
@@ -198,13 +199,15 @@ export async function updateHostProfile(
   userId: string,
   input: { displayName: string; about: string; pricePer15Cents: number; languages: readonly string[]; /** Business or private, when the form asks it. Left as it is when not given. */ sellerKind?: string },
 ): Promise<void> {
-  const details = { ...checkedDetails(input), languages: checkedLanguages(input.languages), ...(input.sellerKind === undefined ? {} : { sellerKind: checkedSellerKind(input.sellerKind) }) };
   await db.transaction(async (tx) => {
     // The host's calendar lock first: a membership month is written down under the same lock while it
     // reads this price, so a month can never start at a price above the regular one.
     await lockCalendar(tx, userId);
     const [profile] = await tx.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, userId)).for("update");
     if (!profile) throw new ProfileError("You do not have a host profile yet.");
+    // Checked with the profile's lock held, against this host's own top price as it is at this moment (plans/48):
+    // the founder's change of it takes the same two locks.
+    const details = { ...checkedDetails(input, topPriceOf(profile)), languages: checkedLanguages(input.languages), ...(input.sellerKind === undefined ? {} : { sellerKind: checkedSellerKind(input.sellerKind) }) };
     const floor = await memberPriceFloor(tx, userId);
     if (floor > 0 && details.pricePer15Cents < floor) {
       throw new ProfileError(
@@ -221,6 +224,61 @@ export async function updateHostProfile(
       // A declined page that is sent in again is no longer declined, so the reason it was declined for goes with it.
       .set({ ...details, status, ...(status === "pending" ? { decidedReason: null } : {}), updatedAt: new Date() })
       .where(eq(schema.hostProfiles.userId, userId));
+  });
+}
+
+const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
+
+/**
+ * The founder gives one host a top price of her own, changes it, or takes it away (plans/48).
+ * `topPricePer15Cents` is the new one in cents, or null for "back to everyone's $1,000". Only the
+ * founder's page calls this; nothing a host can send reaches it.
+ *
+ * When the host's price is above the new top price, the price comes down to it in the same step
+ * (the founder's decision of 20 November 2026) and the host is told by email. Requests and calls
+ * already made keep the price they were made at: that is fixed on each of them. One thing stops
+ * a lowering: a regular price is never below what a member pays, so the top price cannot go
+ * below the host's member price while that is offered or a month at it is open.
+ *
+ * The change, the note in the founder's record and the email are one database step, or none of
+ * them happens. The locks are the ones a host's own save takes, in the same order.
+ */
+export async function setTopPrice(input: { userId: string; topPricePer15Cents: number | null; by: string }): Promise<{ displayName: string; topPricePer15Cents: number; priceLoweredFrom: number | null }> {
+  if (input.topPricePer15Cents !== null) {
+    const problem = topPriceProblem(input.topPricePer15Cents);
+    if (problem) throw new ProfileError(problem);
+  }
+  const top = input.topPricePer15Cents ?? MAX_PRICE_PER_15_CENTS;
+  return db.transaction(async (tx) => {
+    await lockCalendar(tx, input.userId);
+    const [profile] = await tx.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.userId)).for("update");
+    if (!profile) throw new ProfileError("That host was not found. Nothing was changed.");
+    const was = topPriceOf(profile);
+    if (was === top) throw new ProfileError(`${profile.displayName}'s top price is already ${dollars(top)} per 15 minutes. Nothing was changed.`);
+    const lowered = profile.pricePer15Cents > top;
+    if (lowered) {
+      const floor = await memberPriceFloor(tx, input.userId);
+      if (floor > top) {
+        throw new ProfileError(
+          `${profile.displayName} has members at ${dollars(floor)} per 15 minutes, and a regular price can never be below a member's price. Nothing was changed. You can lower the top price to ${dollars(floor)} now; it can go lower once the host has lowered the member price and the months at the old price have ended.`,
+        );
+      }
+    }
+    await tx
+      .update(schema.hostProfiles)
+      .set({ topPricePer15Cents: input.topPricePer15Cents, ...(lowered ? { pricePer15Cents: top } : {}), updatedAt: new Date() })
+      .where(eq(schema.hostProfiles.userId, input.userId));
+    await recordAdminAction(
+      {
+        adminId: input.by,
+        action: input.topPricePer15Cents === null ? "top price removed" : "top price set",
+        targetUserId: input.userId,
+        detail: `Top price per 15 minutes: from ${dollars(was)} to ${dollars(top)}.${lowered ? ` The host's price came down from ${dollars(profile.pricePer15Cents)} to ${dollars(top)}.` : ""}`,
+      },
+      tx,
+    );
+    if (lowered) await queueTopPriceEmail(tx, { userId: input.userId, topPricePer15Cents: top, priceWas: profile.pricePer15Cents });
+    return { displayName: profile.displayName, topPricePer15Cents: top, priceLoweredFrom: lowered ? profile.pricePer15Cents : null };
   });
 }
 
