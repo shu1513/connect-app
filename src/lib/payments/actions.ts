@@ -300,7 +300,10 @@ export async function releasePayment(input: { paymentId: string; note: string } 
     if (!after.stripePaymentIntentId) return;
   }
 
-  await runMoneyOperation(releasePlan(input));
+  const done = await runMoneyOperation(releasePlan(input));
+  // Somebody else let this payment go before this step got to it: for a caller closing it as unpaid, that is
+  // "no longer unpaid" too, so it never takes the other one's doing for its own.
+  if (done === "already_done" && input.unpaidWith !== undefined) throw new NoLongerUnpaidError("This payment is no longer unpaid.");
 }
 
 // ---------------------------------------------------------------------------

@@ -569,6 +569,11 @@ async function main() {
       check("nor is a payment closed as unpaid when the answer was about another card step", otherStep === "no longer unpaid" && (await paymentOf(never.call.id)).status === "awaiting_payment", otherStep);
       await releasePayment({ paymentId: neverBefore.id, note: "The call ended without a payment.", unpaidWith: neverBefore.stripePaymentIntentId ?? null });
       check("a payment that is still unpaid on the same card step is closed", neverBefore.stripePaymentIntentId !== null && (await paymentOf(never.call.id)).status === "closed_uncharged");
+      const neverTwice = await releasePayment({ paymentId: neverBefore.id, note: "The call ended without a payment.", unpaidWith: neverBefore.stripePaymentIntentId ?? null }).then(
+        () => "closed",
+        (error: Error) => (error instanceof NoLongerUnpaidError ? "no longer unpaid" : error.message),
+      );
+      check("a second helper that finds it already let go is told it is no longer unpaid", neverTwice === "no longer unpaid", neverTwice);
       // The same for a payment nobody ever started paying (no card step at Stripe): closed once; and when somebody
       // else has closed it meanwhile, the helper is told so instead of taking it for its own doing.
       const bare = await newCall(host.id, cust.id, { startsIn: 40, price: 2000, minutes: 10 });

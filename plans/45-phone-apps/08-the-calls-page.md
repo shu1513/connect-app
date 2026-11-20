@@ -289,6 +289,9 @@ The fifth look's point was found closed. One more ordering of the same kind:
 2. Smaller: if somebody else charged or closed the payment in between, the helper is now told
    "no longer unpaid" in every case, and never writes "closed" in its log for a payment it
    did not close. One new check (`scripts/app-calls-check.ts`, 78 checks).
+3. *Astra's seventh look: "ready with changes".* Both points were found closed. One case of
+   point 2 was left: a payment with a card step that another helper had already let go was
+   still answered as done. Now that is "no longer unpaid" as well (79 checks).
 
 **Not checked by the script, said plainly:** point 1 needs a new card step to appear in the
 very moment Stripe is being asked. That cannot be made to happen on purpose here, so it is
