@@ -952,16 +952,57 @@ async function main() {
     tikAsked = 0;
     const again = await tikReturn(host, started);
     check("the same return a second time: nothing is asked of TikTok, nothing changes, and the host is told the sign-in was already used", again.startsWith(USED) && tikAsked === 0 && (await photoOf(host))?.id === photo.id, again);
+    /**
+     * The same return twice, really at the same time: the first is held while it asks TikTok (so it has taken the try
+     * up and is in the middle of its work), the second comes in, and only then is the first let go.
+     */
+    const overlapping = async (started: Started, account: TikTokAccount, newPicture: Buffer) => {
+      let reached: () => void = () => undefined;
+      const atTikTok = new Promise<void>((resolve) => (reached = resolve));
+      let letGo: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (letGo = resolve));
+      tikAsked = 0;
+      const winner = tikReturn(host, started, {
+        picture: newPicture,
+        account: async () => {
+          reached();
+          await held;
+          return account;
+        },
+      });
+      let loser = "";
+      let during: Awaited<ReturnType<typeof tryOf>> | undefined;
+      try {
+        await atTikTok;
+        loser = await tikReturn(host, started, { picture: newPicture, account });
+        during = await tryOf(started);
+      } finally {
+        letGo();
+      }
+      return { winner: await winner, loser, during, asked: tikAsked, after: await tryOf(started) };
+    };
     later(3);
-    const doubled = await pressed(host);
-    tikAsked = 0;
-    const both = await Promise.all([tikReturn(host, doubled, { picture: await picture() }), tikReturn(host, doubled, { picture: await picture() })]);
-    check("the same return twice at the same moment: one of them takes the try up and does the work, the other does nothing and ends nothing", tikAsked === 1 && both.filter((said) => said.startsWith(SAVED)).length === 1 && both.filter((said) => said.startsWith(USED)).length === 1 && (await tryOf(doubled)).result === "shown", both);
+    const doubled = await overlapping(await pressed(host), { kind: "account", openId: host.ttNumber, username: host.ttName, pictureAddress: TT_GOOD }, await picture());
+    check("the same return twice at the same moment: the one that took the try up does the work; the other does nothing, asks TikTok nothing, and leaves the try running for the first", doubled.loser.startsWith(USED) && doubled.during?.result === null && doubled.during.returnedAt !== null && doubled.winner.startsWith(SAVED) && doubled.asked === 1 && doubled.after.result === "shown", doubled);
     later(3);
-    const failing = await pressed(host);
-    tikAsked = 0;
-    const lost = await Promise.all([tikReturn(host, failing, { account: { kind: "failed", reason: "the code was not accepted" } }), tikReturn(host, failing, { account: { kind: "failed", reason: "the code was not accepted" } })]);
-    check("and when TikTok will not take the code: still only one of the two asks, and the try is ended once", tikAsked === 1 && lost.filter((said) => said.startsWith(USED)).length === 1 && (await tryOf(failing)).result === "not_fetched", lost);
+    const lost = await overlapping(await pressed(host), { kind: "failed", reason: "the code was not accepted" }, await picture());
+    check("and when TikTok will not take the code: still only one of the two asks, the other ends nothing, and the try is ended once, by its owner", lost.loser.startsWith(USED) && lost.during?.result === null && lost.asked === 1 && lost.winner.includes("could not fetch") && lost.after.result === "not_fetched", lost);
+
+    // Taking a try up: only its own host, only a TikTok try, only once.
+    const claimant = await tikHost({ instagram: true });
+    const mine = await pressed(claimant);
+    const mineId = mine.note.split(".")[3];
+    check("a try cannot be taken up by another host, or with an id that is not one", !(await Photo.takeUpTry({ userId: host.id, tryId: mineId }, now())) && !(await Photo.takeUpTry({ userId: claimant.id, tryId: "-".repeat(36) }, now())) && (await tryOf(mine)).returnedAt === null);
+    check("it is taken up once by its own host, and not a second time", (await Photo.takeUpTry({ userId: claimant.id, tryId: mineId }, now())) && !(await Photo.takeUpTry({ userId: claimant.id, tryId: mineId }, now())));
+    // That return's server now stops: the try is taken up and never gets a result.
+    later(1);
+    const tooSoon = await tikPress(claimant);
+    later(2);
+    const afterwards = await tikPress(claimant);
+    check("a try that was taken up and then left (its server stopped) blocks the host for two minutes from the press, no longer", "refused" in tooSoon && tooSoon.refused === "running" && !("refused" in afterwards) && (await tryOf(mine)).result === "stopped", tooSoon);
+    const [instagramTry] = await db.insert(tries).values({ userId: claimant.id, network: "instagram", startedAt: now(), entryNameKey: claimant.igName, entryAccountId: null }).returning();
+    check("an Instagram try can never be taken up as a TikTok return", !(await Photo.takeUpTry({ userId: claimant.id, tryId: instagramTry.id }, now())));
+    await db.delete(tries).where(eq(tries.id, instagramTry.id));
     check("after all of it the entry is still exactly as it was", (await proofOf(host)) === before);
 
     // Which account signed in.
@@ -971,7 +1012,8 @@ async function main() {
     forget();
     const otherNumber = await tikReturn(strict, strictPress, { account: { kind: "account", openId: "tt-someone-else", username: strict.ttName, pictureAddress: TT_GOOD } });
     check("an entry proven by signing in: another account, even under the same name, gives no photo, changes nothing, and the host is told why", otherNumber.includes("different account") && otherNumber.includes("Connect your TikTok") && !(await photoOf(strict)) && (await proofOf(strict)) === strictBefore && fetched === 0, otherNumber);
-    later(3);
+    check("that try was ended there and then (as \"no picture\"), so the host can press again at once", (await tryOf(strictPress)).result === "no_picture");
+    // (No waiting here: the press right after a refusal must go through.)
     const renamed = await tikReturn(strict, await pressed(strict), { account: { kind: "account", openId: strict.ttNumber, username: "Another.Name", pictureAddress: TT_GOOD } });
     check("the same number under another name is the same account: the photo is taken, and the entry's name is not touched", renamed.startsWith(SAVED) && (await photoOf(strict))?.sourceAccountId === strict.ttNumber && (await proofOf(strict)) === strictBefore, renamed);
 
@@ -992,6 +1034,15 @@ async function main() {
     const borrower = await tikHost({ numbered: false });
     const taken = await tikReturn(borrower, await pressed(borrower), { account: { kind: "account", openId: owner.ttNumber, username: borrower.ttName, pictureAddress: TT_GOOD } });
     check("an account whose number is confirmed for another host gives no photo, whatever its name is now", taken.includes("confirmed for another host") && !(await photoOf(borrower)), taken);
+    // The other host confirms that account only while the picture is with the checking service.
+    const lateOwner = await tikHost({ numbered: false, spare: true });
+    const lateBorrower = await tikHost({ numbered: false });
+    const sharedNumber = `tt-shared-${number(made)}`;
+    const duringCheck = await tikReturn(lateBorrower, await pressed(lateBorrower), {
+      account: { kind: "account", openId: sharedNumber, username: lateBorrower.ttName, pictureAddress: TT_GOOD },
+      meanwhile: async (at) => void (at === "checked" && (await profiles.confirmSocialByLogin({ userId: lateOwner.id, network: "tiktok", accountId: sharedNumber, username: lateOwner.ttName, now: now() }))),
+    });
+    check("another host confirms that very account while the picture is being checked: the photo is not written", duringCheck.includes("confirmed for another host") && !(await photoOf(lateBorrower)) && (await entryOf(lateOwner, "tiktok")).providerAccountId === sharedNumber, duringCheck);
 
     // What TikTok can send back.
     const plain = await tikHost();
@@ -1142,6 +1193,17 @@ async function main() {
       },
     });
     check("the request to TikTok breaks: the host is told nothing was changed, and the try is ended", broke.includes("could not fetch") && (await tryOf(breaking)).result === "not_fetched", broke);
+    // Something of our own breaks after the return has taken the try up, outside every other catch.
+    later(3);
+    const stranded = await pressed(strictAgain);
+    const brokeAfterClaim = await tikReturn(strictAgain, stranded, {
+      change: (r) =>
+        (r.accountFor = () => {
+          throw new Error("something of our own broke");
+        }),
+    });
+    const strandedLine = await tryOf(stranded);
+    check("something of ours breaks after the try was taken up: the host is told so, and the try is ended, not left taken up and running", brokeAfterClaim.includes("went wrong on our side") && strandedLine.result === "stopped" && strandedLine.returnedAt !== null && !("refused" in (await tikPress(strictAgain))), { brokeAfterClaim, result: strandedLine.result });
   });
 
   // ========================================================================

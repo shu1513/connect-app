@@ -477,7 +477,12 @@ export default async function HostPage(props: PageProps<"/host">) {
                   </form>
                 )}
               </div>
-              {photoState.photo && <p className="mt-2 text-sm opacity-70">&quot;Update&quot; fetches your profile picture again, for when you have changed it. Your photo stays as it is until the new one has passed the check.</p>}
+              {photoState.photo && (
+                <p className="mt-2 text-sm opacity-70">
+                  &quot;Update&quot; fetches your profile picture again, for when you have changed it. Your photo stays as it is until the new one has passed the
+                  check. (One exception: if the check refuses the very picture you already have, that photo is taken down.)
+                </p>
+              )}
             </>
           )}
         </section>

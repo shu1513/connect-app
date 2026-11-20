@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { readPhotoNote, sameValue, writePhotoNote } from "./login-note";
-import { endTakenUpTry, finishTikTokTry, startPhotoTry, takeUpTry, type PhotoOptions, type PhotoOutcome } from "./photo";
+import { abandonTry, endTakenUpTry, finishTikTokTry, startPhotoTry, takeUpTry, type PhotoOptions, type PhotoOutcome } from "./photo";
 import { photoNotice } from "./photo-words";
 import { noteRefusedSignIn } from "./profiles";
 import { hasBothScopes, TIKTOK_LOGIN_MINUTES, tiktokAccountFor, tiktokLoginUrl, type TikTokLookup, type TikTokSettings } from "./tiktok";
@@ -24,7 +24,7 @@ const NOT_FINISHED = "Your photo was not taken from TikTok. Nothing was changed.
  * The press. Starts the try (with every refusal a press can meet) and, if it started, says where
  * to send the host and which note to keep in their browser until they come back.
  */
-export async function startTikTokPhoto(input: { userId: string; now: Date; settings: TikTokSettings }, options: Pick<PhotoOptions, "services" | "clock" | "diaryHosts"> = {}): Promise<{ url: string; note: string; maxAgeSeconds: number } | { refused: Exclude<PhotoOutcome, "shown"> }> {
+export async function startTikTokPhoto(input: { userId: string; now: Date; settings: TikTokSettings }, options: Pick<PhotoOptions, "services" | "clock" | "diaryHosts"> = {}): Promise<{ url: string; note: string; maxAgeSeconds: number; tryId: string } | { refused: Exclude<PhotoOutcome, "shown"> }> {
   const started = await startPhotoTry({ userId: input.userId, network: "tiktok" }, options);
   if (typeof started === "string") return { refused: started };
   const state = randomBytes(24).toString("base64url");
@@ -33,7 +33,13 @@ export async function startTikTokPhoto(input: { userId: string; now: Date; setti
     url: tiktokLoginUrl({ clientKey: input.settings.clientKey, returnUrl: input.settings.returnUrl, state }),
     note: writePhotoNote({ state, userId: input.userId, expiresAt, tryId: started.tryId }, input.settings.signingSecret),
     maxAgeSeconds: TIKTOK_LOGIN_MINUTES * 60,
+    tryId: started.tryId,
   };
+}
+
+/** The press wrote its try, but the note could not be put in the host's browser: the try is ended, so the host is not told to "finish at TikTok" when they were never sent there. */
+export async function giveUpTikTokPhoto(input: { userId: string; tryId: string; now: Date }): Promise<void> {
+  await abandonTry({ userId: input.userId, tryId: input.tryId }, input.now);
 }
 
 /** Whether the cookie holds the note of a sign-in for a photo. The return address asks this to know which of the two kinds of return it has. */
@@ -74,9 +80,27 @@ export async function finishTikTokPhoto(input: {
   const started = readPhotoNote(input.note, settings.signingSecret, input.now);
   if (!started || !input.state || !sameValue(started.state, input.state) || started.userId !== input.userId) return NOT_FINISHED;
 
-  if (!(await takeUpTry({ userId: input.userId, tryId: started.tryId }, input.now))) return photoNotice({ outcome: "already_returned" }, "tiktok");
+  // If taking the try up fails, nobody knows whether this return owns the try: nothing is ended, and the host is told
+  // that something of ours went wrong.
+  const took = await takeUpTry({ userId: input.userId, tryId: started.tryId }, input.now).catch(() => null);
+  if (took === null) return photoNotice({ outcome: "failed" }, "tiktok");
+  if (!took) return photoNotice({ outcome: "already_returned" }, "tiktok");
   const tryId = started.tryId;
 
+  // From here on this return owns the try. Whatever of our own breaks before the try has its result, the try is ended
+  // if it still can be (so it is not left taken up and running), and the host is told plainly.
+  try {
+    return await ownedReturn({ ...input, settings }, tryId);
+  } catch (error) {
+    console.error("[tiktok] a photo's return failed", error instanceof Error ? error.name : "error");
+    await endTakenUpTry(tryId, "stopped", "the return failed", input.now).catch(() => undefined);
+    return photoNotice({ outcome: "failed" }, "tiktok");
+  }
+}
+
+/** Steps 3 and 4 of a photo's return, for the one return that has taken the try up. */
+async function ownedReturn(input: Parameters<typeof finishTikTokPhoto>[0] & { settings: TikTokSettings }, tryId: string): Promise<string> {
+  const settings = input.settings;
   if (input.refused || !input.code) {
     await endTakenUpTry(tryId, "stopped", "the host did not finish at TikTok", input.now);
     return "You did not finish at TikTok. Nothing was changed.";

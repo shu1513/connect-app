@@ -30,7 +30,8 @@ export function photoNotice(result: PhotoResult, network: PhotoNetwork): string 
     cannot: "Your account cannot do this at the moment. Nothing was changed.",
     locked: "Your photo was removed by Connect, and you cannot choose another one.",
     no_account: `Confirm your ${label} account first.`,
-    running: network === "instagram" ? "We are still working on your last try. Please wait a moment." : "You started this a moment ago. Finish at TikTok, or wait two minutes and try again.",
+    // (A try under way can be of either network, whichever button was pressed now.)
+    running: "Your last try for a photo is still under way. If you were sent to TikTok, finish there. Otherwise wait two minutes and try again.",
     limit: `You have tried ${PHOTO.triesPerDay} times in the last 24 hours, which is the limit. Please try again tomorrow.`,
     busy: "Many people are using this right now. Please try again in a little while.",
     no_checker: `Photos cannot be checked right now, so none can be taken. ${later}`,

@@ -206,6 +206,18 @@ export async function takeUpTry(input: { userId: string; tryId: string }, now: D
   return taken.length > 0;
 }
 
+/**
+ * Ends a try that was written at the press but whose host could not be sent to TikTok after all
+ * (the note could not be put in their browser). Only a try nobody has taken up yet.
+ */
+export async function abandonTry(input: { userId: string; tryId: string }, now: Date): Promise<void> {
+  if (!isId(input.tryId)) return;
+  await db
+    .update(tries)
+    .set({ result: "stopped", detail: "the host could not be sent to TikTok", endedAt: now })
+    .where(and(eq(tries.id, input.tryId), eq(tries.userId, input.userId), isNull(tries.result), isNull(tries.returnedAt)));
+}
+
 /** Ends a try its return has taken up, when the host did not finish at TikTok or TikTok gave no usable answer. So the host need not wait two minutes to press again. */
 export async function endTakenUpTry(tryId: string, result: "stopped" | "not_fetched", detail: string, now: Date): Promise<void> {
   await endTry(tryId, result, detail, now);
@@ -237,13 +249,9 @@ export async function finishTikTokTry(input: { userId: string; tryId: string; ac
       return { outcome: ended === "stopped" ? "stopped" : "other_account" };
     }
     // The same guarantee an ordinary sign-in gets from the database: this number is not another host's confirmed account.
-    // (It can only matter for an entry that was confirmed without a number.)
-    const [elsewhere] = await db
-      .select({ id: schema.socialAccounts.id })
-      .from(schema.socialAccounts)
-      .where(and(eq(schema.socialAccounts.network, "tiktok"), eq(schema.socialAccounts.providerAccountId, input.account.openId), isNotNull(schema.socialAccounts.confirmedAt), sql`${schema.socialAccounts.userId} <> ${input.userId}`))
-      .limit(1);
-    if (elsewhere) {
+    // (It can only matter for an entry that was confirmed without a number.) Looked for here, before anything is
+    // fetched, and once more in the finish.
+    if (await confirmedElsewhere(db, "tiktok", input.account.openId, input.userId)) {
       const ended = await end("no_picture", "the account is confirmed for another host");
       return { outcome: ended === "stopped" ? "stopped" : "taken_account" };
     }
@@ -429,6 +437,16 @@ async function copyCheckAndFinish(candidate: Candidate, asked: Checker[], clock:
   return { outcome: await finish(candidate, copy, sha256, { by: answer.by, detail: answer.detail }, clock) };
 }
 
+/** Whether this account number, on this network, is another host's confirmed account. */
+async function confirmedElsewhere(reader: Pick<typeof db, "select">, network: PhotoNetwork, accountId: string, userId: string): Promise<boolean> {
+  const [elsewhere] = await reader
+    .select({ id: schema.socialAccounts.id })
+    .from(schema.socialAccounts)
+    .where(and(eq(schema.socialAccounts.network, network), eq(schema.socialAccounts.providerAccountId, accountId), isNotNull(schema.socialAccounts.confirmedAt), sql`${schema.socialAccounts.userId} <> ${userId}`))
+    .limit(1);
+  return Boolean(elsewhere);
+}
+
 /** Whether this host's copy with this fingerprint was refused before, as a photo or as a diary picture, or is locked in her diary. */
 async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, sha256: string): Promise<"refused" | "locked" | null> {
   const pictures = schema.projectPictures;
@@ -445,8 +463,9 @@ async function refusedBefore(reader: Pick<typeof db, "select">, userId: string, 
 /**
  * 3. The finish. With the person's and the profile's locks, in the app's order, and then the try's
  * own line. The photo is written only if nothing has stopped the try, the account may still do
- * this, the confirmed entry on that network has the name and the number it had at the start, and
- * no service has refused this very copy in the meantime (see writeRefusal).
+ * this, the confirmed entry on that network has the name and the number it had at the start, the
+ * account the picture came from has not become another host's confirmed account, and no service
+ * has refused this very copy in the meantime (see writeRefusal).
  */
 async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: { by: string; detail: string }, clock: () => Date): Promise<PhotoOutcome> {
   return db.transaction(async (tx) => {
@@ -467,6 +486,12 @@ async function finish(candidate: Candidate, copy: Copy, sha256: string, passed: 
       .from(schema.socialAccounts)
       .where(and(eq(schema.socialAccounts.userId, candidate.userId), eq(schema.socialAccounts.network, candidate.network), isNotNull(schema.socialAccounts.confirmedAt)));
     if (!entry || entry.nameKey !== attempt.entryNameKey || entry.providerAccountId !== attempt.entryAccountId) return stop("the account changed meanwhile");
+    // An entry confirmed without a number is tied to its name. If the account that name led to has, in the meantime
+    // or before, been confirmed by number for another host, its picture is not this host's photo.
+    if (await confirmedElsewhere(tx, candidate.network, candidate.source.accountId, candidate.userId)) {
+      await tx.update(tries).set({ result: "no_picture", detail: "the account is confirmed for another host", sha256, endedAt: now }).where(eq(tries.id, attempt.id));
+      return "taken_account";
+    }
     // Looked for once more, with the locks a refusal's own write takes: an earlier try of this host's, stopped while a
     // service was still looking at the same copy, may have brought its refusal since this try began.
     if (await refusedBefore(tx, candidate.userId, sha256)) {

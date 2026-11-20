@@ -22,7 +22,7 @@ import {
 } from "@/lib/profiles/profiles";
 import { removePhoto, takePhoto } from "@/lib/profiles/photo";
 import { photoNotice } from "@/lib/profiles/photo-words";
-import { startTikTokPhoto } from "@/lib/profiles/tiktok-photo";
+import { giveUpTikTokPhoto, startTikTokPhoto } from "@/lib/profiles/tiktok-photo";
 import { INSTAGRAM_COOKIE, INSTAGRAM_COOKIE_PATH, instagramSettings } from "@/lib/profiles/instagram";
 import { INSTAGRAM_OFF, startInstagramLogin } from "@/lib/profiles/instagram-login";
 import { TIKTOK_COOKIE, TIKTOK_COOKIE_PATH, tiktokSettings } from "@/lib/profiles/tiktok";
@@ -271,14 +271,24 @@ export async function useTikTokPhoto() {
     redirect(`${withNotice("/host", problem(error))}#photo`);
   }
   if ("refused" in login) redirect(`${withNotice("/host", photoNotice({ outcome: login.refused }, "tiktok"))}#photo`);
-  (await cookies()).set(TIKTOK_COOKIE, login.note, {
-    httpOnly: true,
-    secure: true,
-    // "lax" is what lets the cookie come back when TikTok returns the host to us.
-    sameSite: "lax",
-    path: TIKTOK_COOKIE_PATH,
-    maxAge: login.maxAgeSeconds,
-  });
+  let noteKept = true;
+  try {
+    (await cookies()).set(TIKTOK_COOKIE, login.note, {
+      httpOnly: true,
+      secure: true,
+      // "lax" is what lets the cookie come back when TikTok returns the host to us.
+      sameSite: "lax",
+      path: TIKTOK_COOKIE_PATH,
+      maxAge: login.maxAgeSeconds,
+    });
+  } catch (error) {
+    // The try is written, but the host cannot be sent to TikTok with its note: the try is ended again, so that a
+    // second press is not told to "finish at TikTok".
+    console.error("[profiles] the note of a photo's sign-in could not be kept", error instanceof Error ? error.name : "error");
+    noteKept = false;
+    await giveUpTikTokPhoto({ userId: user.id, tryId: login.tryId, now: new Date() }).catch(() => undefined);
+  }
+  if (!noteKept) redirect(`${withNotice("/host", photoNotice({ outcome: "failed" }, "tiktok"))}#photo`);
   redirect(login.url);
 }
 
