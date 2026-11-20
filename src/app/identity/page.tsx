@@ -10,6 +10,7 @@ import { currentVersion, linkFor, textOf, versionHref } from "@/legal/registry";
 import { readNotice } from "@/lib/notice";
 import { returnPath } from "@/lib/safe-next";
 import { identityState, IDENTITY_TRIES, refreshIdentity } from "@/lib/safety/identity";
+import { IDENTITY_WORDS } from "@/lib/safety/identity-words";
 import { requireUser } from "@/lib/session";
 import { startIdentity } from "./actions";
 import { SitePage } from "@/components/site-page";
@@ -43,7 +44,7 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
           ← {next ? "Back to where you were" : "Your account"}
         </Link>
       </p>
-      <h1 className="mt-4 text-2xl font-semibold">Confirm who you are</h1>
+      <h1 className="mt-4 text-2xl font-semibold">{IDENTITY_WORDS.title}</h1>
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
           {notice}
@@ -51,7 +52,7 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
       )}
       {state.passed ? (
         <>
-          <p className="mt-4 text-sm text-green-700">Done. Your identity is confirmed.</p>
+          <p className="mt-4 text-sm text-green-700">{IDENTITY_WORDS.passed}</p>
           {next && (
             <p className="mt-4 text-sm">
               <Link href={next} className="rounded bg-blue-600 px-4 py-2 font-medium text-white">
@@ -62,44 +63,38 @@ export default async function IdentityPage(props: PageProps<"/identity">) {
         </>
       ) : (
         <>
-          <p className="mt-4 text-sm">
-            This confirms that you are a real adult. Hosts need it, and some hosts only take calls from
-            people who have done it. You take a photo of your ID and a selfie on Stripe&apos;s own pages. We never see or keep the photos.
-            Stripe tells us that you are a real person, your date of birth and the name on the ID. We use your date of birth only to
-            check whether you are 18 or older. We do not keep it.
-          </p>
-          {state.pending && <p className="mt-3 text-sm">Your last check is still being looked at. This usually takes a minute or two. Reload this page to see the result.</p>}
+          <p className="mt-4 text-sm">{IDENTITY_WORDS.what}</p>
+          {state.pending && <p className="mt-3 text-sm">{IDENTITY_WORDS.pending} Reload this page to see the result.</p>}
           {state.triesLeft === 0 ? (
-            <p className="mt-3 text-sm">You have used all {IDENTITY_TRIES} tries. Please write to us.</p>
+            <p className="mt-3 text-sm">{IDENTITY_WORDS.noTries}</p>
           ) : (
             <form action={startIdentity} className="mt-4">
               {next && <input type="hidden" name="next" value={next} />}
               <input type="hidden" name="shown" value={shownValue([{ name: "identity-check-notice", version: notice1.version }])} />
               <section aria-label="Identity Check Notice" className="max-h-80 overflow-y-auto rounded border border-neutral-400 p-3" data-identity-notice={notice1.version}>
                 <p className="text-sm font-bold">
-                  Identity Check Notice{notice1.draft ? " (draft, not in force yet)" : ""}{" "}
+                  {IDENTITY_WORDS.noticeTitle(notice1.draft)}{" "}
                   <Link href={versionHref("identity-check-notice", notice1.version)} target="_blank" className="font-normal underline underline-offset-2">
-                    open it on its own page
+                    {IDENTITY_WORDS.noticeOpen}
                   </Link>
                 </p>
                 <LegalText blocks={noticeBlocks} />
               </section>
               <p className="mt-3 text-sm">
-                By pressing the button you confirm that you have read this notice, and you agree that Stripe, for Connect, compares a picture of your
-                face with your identity document as it describes.
+                {IDENTITY_WORDS.agree}
               </p>
               <button type="submit" className="mt-3 rounded bg-blue-600 px-4 py-2 font-medium text-white">
-                {state.pending ? "I agree, start a new check at Stripe" : "I agree, continue to Stripe"}
+                {IDENTITY_WORDS.button(state.pending)}
               </button>
               <span className="ml-3 text-sm opacity-70">
-                {state.triesLeft} of {IDENTITY_TRIES} tries left
+                {IDENTITY_WORDS.tries(state.triesLeft)}
               </span>
             </form>
           )}
         </>
       )}
       <p className="mt-6 text-sm opacity-70">
-        Hosts you ask for a call can see that your ID is confirmed. They never see your ID, your photos or the name on it.
+        {IDENTITY_WORDS.small}
       </p>
     </SitePage>
   );

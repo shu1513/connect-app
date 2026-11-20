@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { useCardReturns } from "@/lib/card";
 import { OpeningProvider, useOpening } from "@/lib/opening";
 import { whereFor } from "@/lib/where-rules";
 import { Loading, Problem } from "@/ui/pieces";
@@ -35,14 +36,20 @@ export default function RootLayout() {
 function Opened() {
   const { opening, askAgain } = useOpening();
   const colors = useColors();
+  // A bank's approval page hands the person back to the app by a link; Stripe's kit is told (an iPhone needs it).
+  useCardReturns();
   if (opening.kind === "ready") {
     const where = whereFor(opening.start);
     return (
       // Every screen belongs to whoever is signed in. When that becomes someone else, every screen is made anew, so
       // nothing one person was shown (calls, notes, photos) can still stand on the next person's screen.
       <Stack key={opening.start.me?.id ?? "nobody"} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.page } }}>
+        {/* The app itself, and the screens only someone signed in has: asking for a call, a request, the ID check. */}
         <Stack.Protected guard={where === "home"}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="book/[handle]" />
+          <Stack.Screen name="bookings/[id]" />
+          <Stack.Screen name="identity" />
         </Stack.Protected>
         <Stack.Protected guard={where === "welcome"}>
           <Stack.Screen name="(welcome)" />

@@ -16,6 +16,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { gatherHostPage, hostProfileFor } from "@/lib/profiles/host-page";
 import { ASK_WORDS, askTitle, callWords, lengthChoice, membershipStateWords, notTakingWords, priceWords } from "@/lib/profiles/host-page-words";
 import { languageNames } from "@/lib/profiles/languages";
+import { sellerLine } from "@/lib/profiles/profiles";
 import { searchHosts } from "@/lib/profiles/search";
 import { SEARCH, searchTerms } from "@/lib/profiles/search-rules";
 import type { AppHostPage, AppSearch, AppSwitches } from "./types";
@@ -90,6 +91,7 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
     shareUrl: profile.openToAll ? `${site()}/h/${profile.handle}` : null,
     follow: page.follow,
     price: priceWords(profile.pricePer15Cents),
+    seller: await sellerLine(profile.userId, profile.displayName),
     callWords: callWords(profile.freeCancelMinutes),
     verifiedOnly: Boolean(offer?.verifiedOnly),
     confirmId: page.offerIdCheck,

@@ -550,6 +550,23 @@ export const bookings = pgTable(
 );
 
 /**
+ * Once-only keys of requests the phone app was told "no request was made" for
+ * (plans/45-phone-apps/06-asking-for-a-call.md). A sending with such a key makes nothing, however
+ * late it arrives: what the app was told stays true. A row is only ever added.
+ */
+export const spentRequestKeys = pgTable(
+  "spent_request_keys",
+  {
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    requestKey: text("request_key").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.customerId, t.requestKey] })],
+);
+
+/**
  * "This person is taken for this stretch of time." A customer has one for each
  * request they are waiting on or call they have; a host has one for each call
  * they accepted (the call plus the break after it).

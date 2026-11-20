@@ -248,7 +248,7 @@ async function main() {
       check("someone not signed in can open an approved, visible host's page", guest.reply.status === 200 && p?.handle === maya.handle && p.name === maya.displayName, `${guest.reply.status}`);
       check(
         "it has exactly the parts the app knows, and no account id",
-        Object.keys(p ?? {}).sort().join(",") === "about,ask,callWords,confirmId,follow,handle,languages,membership,name,now,own,photoId,price,rating,shareUrl,socials,verifiedOnly" && !guest.reply.text.includes(maya.id),
+        Object.keys(p ?? {}).sort().join(",") === "about,ask,callWords,confirmId,follow,handle,languages,membership,name,now,own,photoId,price,rating,seller,shareUrl,socials,verifiedOnly" && !guest.reply.text.includes(maya.id),
         Object.keys(p ?? {}).sort().join(","),
       );
       check("with her confirmed social account as a link, and not the one she only claimed", p?.socials.length === 1 && p.socials[0].label === "Instagram" && p.socials[0].url.startsWith("https://") && !guest.reply.text.includes(`unproven${RUN}`), JSON.stringify(p?.socials));
