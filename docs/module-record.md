@@ -3491,7 +3491,11 @@ blocks; the list has full-size rows.
   kept by its id; "calls before" beside a finished call would count that call; short calls
   close together would cover each other; two pull requests. Not taken: telling the server the
   browser's zone and width after loading; an index on calls by time.
-- *Astra, on the code (one round so far):* "ready with changes", seven points; no leak and no
+- *Astra, on the code (two rounds; the second was written down here with part two, after the
+  merge):* the second round, on the fixes, said "ready": the four fixes correct, no new bug.
+  One limit it named, kept: when more than 500 calls touch the days, "nearest" is measured on
+  the world's clock, so a call on the edge of the day asked for could lose to one just outside
+  it. The first round said "ready with changes", seven points; no leak and no
   wrong figure found. Taken: the list left out a call that began the day before the first day
   in view; the page still loaded every coming call, so the cap of 500 did not bound what it
   sent; when more than 500 calls touch the days, the earliest were kept instead of the nearest
@@ -3528,3 +3532,39 @@ The week's first day in a browser whose language starts the week on Monday. A re
 
 **Still open.** For the founder: three days on a phone, no month view, and the week's first day
 are the builder's choices. The second pull request: requests on the calendar, the total, "now".
+
+## A later change: a calendar on the home page, part two (plan 43, 20 November 2026)
+
+**What this is.** The three things left for the second pull request of plan 43.
+- **Requests on the calendar** (decision 10). A time people have asked a host for, and that she
+  has not answered, is a dashed block with "1 request" or "3 requests", which leads to the
+  requests page. People who asked for the same start are one block, as long as the longest of
+  their calls. A block that would cover a call stands beside it.
+- **The total** (decision 9), in a line over the calendar: "4 calls hosted in these days · earned
+  $94.20 so far". The calls she hosted that are over, among the days in view, each once; "so
+  far" while the money of any of them is not settled. Not shown when she hosted none of them.
+- **A red line for "now"** in today's column (decision 11), set from the server's time at every
+  refresh of the page.
+
+**What was built.** No change to the database. `asksByTime`, `hostedTotal` and `dollars` in
+`src/lib/home/calendar.ts`; `unsettled` in `src/lib/home/earned.ts`. The home page hands the
+calendar, for each time asked for, its start, its end and the number of people, and nothing else
+about them (who they are and what they wrote is in the list of requests above the calendar, as
+before). Each finished call she hosted is also handed with what it earned as a number, and
+whether its money is still open, so the browser can add up the days it shows; the server cannot,
+because it does not know which days those are.
+
+**How it was checked.** 725 automatic tests on the code, 10 of them new (the times asked for,
+the total, money written as elsewhere, money that is not settled). On this computer, against the
+local database: `scripts/home-check.ts`, 106 checks, three of them new in part 9 (a time two people asked
+for is handed over once with the number 2; the figures for the total; the person who asked is
+handed neither). In a browser, as the test host, in a wide window: two people asking for one
+time ("2 requests") and one asking for a time beside a booked call (side by side); the line
+"4 calls hosted in these days · earned $94.20 so far" for a week with three paid calls and one
+held; the red line at the right height in today's column.
+
+**What the automatic checks cannot test, and what was not tried.** How it looks at phone size
+(part one was tried there; these three additions were not). Pressing a dashed block was not
+tried: it is a plain link to the requests page.
+
+**Still open.** For the founder: a month view was left out; say if you miss it.

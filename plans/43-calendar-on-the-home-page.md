@@ -3,8 +3,8 @@
 **Status:** a plan, not built. Written 20 November 2026 by the builder alone, from the code as it
 is on `main` after pull request 69 (plan 38, the home page as a host sees it), and from what the
 founder said that day. Astra checked it once ("ready with changes"); what was taken is at the
-end. The founder saw a picture of it and said "Yes, build it". The first pull request is built;
-the second is not.
+end. The founder saw a picture of it and said "Yes, build it". Both pull requests are built
+(the first is pull request 71).
 
 **Two pull requests.** First the calendar itself: the grid, the arrows, tapping a call, what a
 finished call earned, and the list of the same days. Second: requests on the calendar, the

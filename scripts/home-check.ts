@@ -568,7 +568,21 @@ async function main() {
       // Searched in everything the page hands over, not only in what is drawn before the calendar is laid out.
       check("a finished call is handed over without what its customer wrote, and without their photo", hers.text.includes(pastOnly.id) && !hers.text.includes(`Words of a finished call ${RUN}`) && !hers.text.includes(`Words of the past guest ${RUN}`) && !hers.text.includes(pastGuestsPhoto.id));
 
+      // Part two: the times people asked her for, and the figures behind the total.
+      const askedAt = new Date(Math.floor((Date.now() + 50 * 60 * MINUTE) / 1000) * 1000);
+      const ask = (customerId: string, minutes: number, words: string) =>
+        db.insert(schema.bookings).values({ hostId: cal.id, customerId, startsAt: askedAt, endsAt: new Date(askedAt.getTime() + minutes * MINUTE), lengthMinutes: minutes, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, note: words, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + DAY) });
+      await ask(guest.id, 30, `Ask words one ${RUN}`);
+      await ask(outsider.id, 15, `Ask words two ${RUN}`);
+      // What is handed to the calendar travels inside the page, with its quotation marks written as \" there.
+      const handed = (text: string, key: string, value: string | number) => new RegExp(`${key}\\\\?":\\\\?"?${String(value).replace(/[.$]/g, "\\$&")}`).test(text);
+      const withAsks = await page("/", cal.jar);
+      const askFor = (text: string) => new RegExp(`${askedAt.toISOString().replace(/[.]/g, "\\.")}[^}]{0,160}count\\\\?":2`).test(text);
+      check("a time two people asked her for is handed to the calendar once, with the number 2 and nothing else about them", askFor(withAsks.text), withAsks.text.match(/count\\?":\d+/g)?.join(" ") ?? "no count");
+      check("the calendar is handed what each finished call earned as a number too, and that one call's money is not settled, for the total", handed(withAsks.text, "cents", 3904) && withAsks.text.includes("moneyOpen"));
+
       const his = await page("/", guest.jar);
+      check("the person who asked is handed no such block, and no figures", !askFor(his.text) && !handed(his.text, "cents", 3904) && !his.text.includes("moneyOpen"));
       check("the customer of those calls is handed the same calls, and nothing a host earned", [paid, halfBack, held, coming].every((c) => his.text.includes(c.id)) && !his.text.includes(earnedPaid) && !his.text.includes(earnedHalf) && !his.text.includes("earned") && !his.text.includes(`Calendar words ${RUN}`));
       check("and never the call their host booked with someone else", !his.text.includes(sheBooked.id));
       const nobody = await page("/", outsider.jar);

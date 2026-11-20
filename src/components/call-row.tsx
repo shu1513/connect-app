@@ -29,7 +29,9 @@ export type ListedCall = {
    * What the call earned its host, for a finished call this person hosted, once something of it
    * is charged (plans/43, decision 8). Worked out on the server and sent with hosted calls only.
    */
-  earned?: { text: string; soFar: boolean };
+  earned?: { text: string; cents: number; soFar: boolean };
+  /** For a finished call this person hosted: part of its money is not settled yet, charged or not (for the total over the calendar). */
+  moneyOpen?: boolean;
   /**
    * About the customer, for the host of the call only (plans/38). The server attaches it to the
    * calls this person hosts and to no others; `hosting` above is only how the row reads.
