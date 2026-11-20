@@ -42,6 +42,10 @@ company yet.
   (never "donate"); the monthly agreement, and whether a yearly reminder is needed; that the email
   at the hold cannot always come three days before the money is taken, because a bank can shorten
   a hold. (Plans 23, 25.)
+- **Money when someone deletes their own account** (new, plan 39; not built). A customer who
+  deletes their account with a call booked would be treated as cancelling it themselves, so a
+  late cancellation would be charged as usual. A host who deletes theirs would still be paid
+  what they have earned. Is that allowed, and what must the person be told before they confirm?
 
 ## 3. Safety and children
 
@@ -85,6 +89,17 @@ company yet.
   least three different people who follow one of the customer's hosts follow that host too, and
   the page never says why a host is suggested. In a very small community, someone who knows
   exactly who else follows their host could still guess something. Is three enough?
+- **Deleting your own account** (new, plan 39; not built). Apple and Google require that a
+  person can delete their account and the personal details that go with it, except records
+  the law says must be kept. Today an account can only be closed by the founder, which locks
+  it and keeps almost everything. Which records must Connect keep, and for how long (paid
+  calls and money, refund requests, reports, identity-check results, blocks)? Which must be
+  wiped, and how soon? May Connect keep enough about someone it removed for breaking the
+  rules to stop them signing up again?
+- **The phone apps** (new, plan 39; not built). The privacy page must also cover what an app
+  adds: the phone's address for notifications, what a notification shows on a locked screen,
+  and the camera and microphone on the phone. Both stores ask for a form saying what the app
+  collects; it has to match the privacy page.
 - **How long records are kept, in general.** (Plan 5.)
 
 ## 5. Emails
