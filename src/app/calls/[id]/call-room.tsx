@@ -6,6 +6,7 @@ import { DisconnectReason } from "livekit-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ROOM_WORDS } from "@/lib/call-page/room-words";
 import { CLOSE_LATE_SECONDS } from "@/lib/calls";
 import { ACCEPT_CLOSES_SECONDS, ASK_CLOSES_SECONDS, ASK_OPENS_SECONDS, choicesThatFit, COUNTDOWN_SECONDS, extensionPriceCents, MAX_EXTENSION_MINUTES, MIN_EXTENSION_MINUTES, WATCH_SECONDS } from "@/lib/extend/rules";
 import { JOINING_EVENT } from "@/components/connection-test";
@@ -135,18 +136,18 @@ function EndForSafety({ onEnd }: { onEnd: () => void }) {
   if (!asking) {
     return (
       <button type="button" onClick={() => setAsking(true)} className="rounded border border-red-600 px-3 py-1.5 text-sm text-red-600">
-        End call and report
+        {ROOM_WORDS.endReport}
       </button>
     );
   }
   return (
     <span className="flex items-center gap-2 text-sm">
-      <span>End this call for both of you and report what happened?</span>
+      <span>{ROOM_WORDS.endReportSure}</span>
       <button type="button" onClick={onEnd} className="rounded bg-red-600 px-3 py-1.5 font-medium text-white">
-        Yes, end and report
+        {ROOM_WORDS.endReportYes}
       </button>
       <button type="button" onClick={() => setAsking(false)} className="underline underline-offset-2">
-        No
+        {ROOM_WORDS.endReportNo}
       </button>
     </span>
   );
@@ -172,7 +173,7 @@ const Lobby = memo(function Lobby(props: { userName: string; joining: boolean; o
   const problem = useCallback((error: Error) => handlers.current.onProblem(`Camera or microphone problem: ${error.message}`), []);
   return (
     <div className="mt-4 max-w-xl" data-lk-theme="default">
-      <PreJoin defaults={defaults} persistUserChoices={false} onValidate={alwaysValid} onSubmit={submit} onError={problem} joinLabel={props.joining ? "Joining…" : "Join call"} />
+      <PreJoin defaults={defaults} persistUserChoices={false} onValidate={alwaysValid} onSubmit={submit} onError={problem} joinLabel={props.joining ? ROOM_WORDS.joining : ROOM_WORDS.join} />
     </div>
   );
 });
@@ -358,7 +359,7 @@ export function CallRoom(props: Props) {
       const receivedAt = Date.now();
       const body = await response.json();
       if (!response.ok) {
-        setNotice(body.error ?? "Could not join the call.");
+        setNotice(body.error ?? ROOM_WORDS.couldNotJoin);
         return;
       }
       // The server's answer carries its clock, read just before the answer was sent. (Not "halfway through
@@ -369,7 +370,7 @@ export function CallRoom(props: Props) {
       setChoices(values);
       setConnection({ token: body.token, serverUrl: body.serverUrl });
     } catch {
-      setNotice("Could not reach the server. Check your internet connection and try again.");
+      setNotice(ROOM_WORDS.notReached);
     } finally {
       setJoining(false);
     }
@@ -380,7 +381,7 @@ export function CallRoom(props: Props) {
     if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
       setTakenOver(true);
     } else if (reason !== DisconnectReason.CLIENT_INITIATED) {
-      setNotice("You were disconnected. You can join again while the room is open.");
+      setNotice(ROOM_WORDS.disconnected);
     }
   }
 
@@ -388,7 +389,7 @@ export function CallRoom(props: Props) {
 
   const resultsLink = (
     <Link href={`/calls/${props.callId}/results`} className="underline underline-offset-2">
-      See the results
+      {ROOM_WORDS.results}
     </Link>
   );
 
@@ -396,7 +397,7 @@ export function CallRoom(props: Props) {
   if ((now >= closesAt && checkedEnd === endsAt) || live?.cancelled || live?.safetyEnded) {
     return (
       <section className="mt-10">
-        <p className="text-lg">This call has ended.</p>
+        <p className="text-lg">{ROOM_WORDS.ended}</p>
         <p className="mt-2">{resultsLink}</p>
       </section>
     );
@@ -404,7 +405,7 @@ export function CallRoom(props: Props) {
 
   // The clock has reached the end and the server is being asked one last time. Someone who is in the
   // call stays in it for that moment; anyone else just waits for the answer.
-  if (now >= closesAt && !connection) return <p className="mt-10 opacity-70">One moment…</p>;
+  if (now >= closesAt && !connection) return <p className="mt-10 opacity-70">{ROOM_WORDS.oneMoment}</p>;
 
   if (now < opensAt) {
     return (
@@ -418,7 +419,7 @@ export function CallRoom(props: Props) {
 
   const secondsLeft = Math.max(0, (endsAt - now) / 1000);
   const lastMinute = now >= startsAt && secondsLeft <= COUNTDOWN_SECONDS;
-  const clock = now < startsAt ? `Starts in ${formatDuration((startsAt - now) / 1000)}` : lastMinute ? `This call ends in ${formatDuration(secondsLeft)}` : `Time left ${formatDuration(secondsLeft)}`;
+  const clock = now < startsAt ? `${ROOM_WORDS.startsIn} ${formatDuration((startsAt - now) / 1000)}` : lastMinute ? `${ROOM_WORDS.endsIn} ${formatDuration(secondsLeft)}` : `${ROOM_WORDS.timeLeft} ${formatDuration(secondsLeft)}`;
   const clockLine = (
     <p className={lastMinute ? "text-2xl font-semibold text-red-600" : "text-lg font-medium"} aria-live={lastMinute ? "off" : "polite"} role={lastMinute ? "timer" : undefined}>
       {clock}
@@ -483,14 +484,14 @@ export function CallRoom(props: Props) {
   if (takenOver) {
     return (
       <section className="mt-10">
-        <p className="text-lg">This call is now open in another tab or device.</p>
-        <p className="mt-2 text-sm opacity-70">Only one connection per person is allowed, so this one was disconnected.</p>
+        <p className="text-lg">{ROOM_WORDS.takenOver}</p>
+        <p className="mt-2 text-sm opacity-70">{ROOM_WORDS.takenOverSmall}</p>
         <button
           type="button"
           className="mt-4 rounded bg-blue-600 px-4 py-2 font-medium text-white"
           onClick={() => setTakenOver(false)}
         >
-          Use this tab instead
+          {ROOM_WORDS.useThisTab}
         </button>
       </section>
     );
@@ -500,12 +501,12 @@ export function CallRoom(props: Props) {
     return (
       <section className="mt-10">
         {ending === "busy" ? (
-          <p className="text-lg">Ending the call…</p>
+          <p className="text-lg">{ROOM_WORDS.ending}</p>
         ) : (
           <p role="alert" className="text-red-600">
-            You have left, but the call could not be ended for the other person yet.{" "}
+            {ROOM_WORDS.endFailed}{" "}
             <button type="button" onClick={endForSafety} className="ml-2 rounded border border-red-600 px-3 py-1.5 text-sm">
-              Try again
+              {ROOM_WORDS.tryAgain}
             </button>
           </p>
         )}
@@ -524,7 +525,7 @@ export function CallRoom(props: Props) {
           </p>
         )}
         {props.whileWaiting}
-        <p className="mt-2 text-sm opacity-70">Check your camera and microphone, then join.</p>
+        <p className="mt-2 text-sm opacity-70">{ROOM_WORDS.check}</p>
         <Lobby userName={props.userName} joining={joining} onJoin={join} onProblem={setNotice} />
       </section>
     );

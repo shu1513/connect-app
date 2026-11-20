@@ -5,7 +5,9 @@ import { withNotice } from "@/lib/notice";
 import { safeNext } from "@/lib/safe-next";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 import { block, BlockError, unblock } from "@/lib/safety/blocks";
-import { createReport, ReportError } from "@/lib/safety/reports";
+import { sendReportFor } from "@/lib/safety/report-form";
+import { REPORT_WORDS } from "@/lib/safety/report-words";
+import { ReportError } from "@/lib/safety/reports";
 import { requireUser } from "@/lib/session";
 
 /** Files a report. The person reported is worked out on the server from where the report was made. */
@@ -15,20 +17,11 @@ export async function sendReport(formData: FormData) {
   const contextId = String(formData.get("contextId") ?? "");
   let notice: string;
   try {
-    const { reference } = await createReport({
-      reporterId: user.id,
-      context,
-      contextId,
-      reason: String(formData.get("reason") ?? ""),
-      text: String(formData.get("text") ?? ""),
-      now: new Date(),
-    });
-    // Reporting a post does not block its host, so that is not promised for one.
-    notice = context === "post" ? `Thank you. Your report is R-${reference}. We will look at it.` : `Thank you. Your report is R-${reference}. We will look at it, and you will not hear from this person through Connect again.`;
+    ({ notice } = await sendReportFor(user.id, { context, contextId, reason: String(formData.get("reason") ?? ""), text: String(formData.get("text") ?? "") }, new Date()));
   } catch (error) {
     if (!(error instanceof ReportError)) {
       console.error("[safety] report failed", error);
-      redirect(withNotice(`/report?${context}=${encodeURIComponent(contextId)}`, "Something went wrong. Please try again."));
+      redirect(withNotice(`/report?${context}=${encodeURIComponent(contextId)}`, REPORT_WORDS.wrong));
     }
     redirect(withNotice(`/report?${context}=${encodeURIComponent(contextId)}`, error.message));
   }
