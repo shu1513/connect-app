@@ -407,8 +407,7 @@ function OneRequest({ id }: { id: string }) {
 
       {page.call ? (
         <Card>
-          <Words>Your call is on your Calls page.</Words>
-          <Button label="Open your calls" kind="plain" onPress={() => router.push("/calls")} />
+          <Button label="Open the call's page" kind="plain" onPress={() => router.push({ pathname: "/calls/[id]", params: { id: page.call!.id } })} />
         </Card>
       ) : null}
       {hostHandle && page.role === "customer" ? <TextLink label="Open the host's page" onPress={() => router.push(`/h/${hostHandle}`)} /> : null}

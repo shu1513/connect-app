@@ -1,8 +1,10 @@
+import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { AppCall, AppHome } from "../../../src/lib/app-door/types";
 import { agoWords, clockWords, countdownWords, localTime } from "@/lib/home-rules";
 import { Photo } from "@/ui/photo";
+import { Button } from "@/ui/pieces";
 import { type, useColors } from "@/ui/theme";
 import { AboutLines } from "./call-row";
 
@@ -89,6 +91,8 @@ export function NextCall({ call, next, serverNow, onDue }: { call: AppCall; next
           <Text style={[styles.small, { color: colors.soft }]}>The room opens {earlyMinutes} minutes before the start.</Text>
         </View>
       )}
+      {/* The call's own page: paying, cancelling, and the way into the room. */}
+      <Button label="Open this call" kind="plain" onPress={() => router.push({ pathname: "/calls/[id]", params: { id: call.id } })} />
     </View>
   );
 }

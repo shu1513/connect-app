@@ -1,7 +1,9 @@
 # Phone apps, part 08: a call's page (paying, the countdown, cancelling) and past calls
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
-checked it once ("ready with changes"); its points are worked in (the list is at the end).
+**Status:** built on 20 November 2026 (not merged yet: it waits, with parts 01 to 07, behind the
+tips pull request; Astra has not looked at the code yet). Written by the builder alone. Part of
+plan 45. Astra checked the plan once ("ready with changes"); its points are worked in (the list
+is at the end). What the building changed is listed below.
 
 ## For the founder: what this is
 
@@ -74,6 +76,57 @@ cancelling. The Join button appears here and leads to part 09. And the list of p
 
 The payment here is for the one-to-one call itself. The price is the host's price, as on the
 website.
+
+## What the building changed (20 November 2026)
+
+1. **One gathering and one set of sentences for a call's page,** for the website and the app
+   (`src/lib/call-page/gather.ts`, `words.ts`). The website's page and its pay panel were moved
+   onto them, word for word as before.
+2. **The pay steps are one function each** (`src/lib/payments/steps.ts`), called by the
+   website's two addresses and by the app's. A hold started from the app is the very hold the
+   website would start: the check starts one from each and gets the same one.
+3. **The addresses:** `GET /api/app/calls?kind=coming|past&page=1` (the Calls place),
+   `GET /api/app/calls/[id]` (a call's page; it only reads), `POST …/pay`, `…/pay-check`
+   (the server asks Stripe, and answers with the page), `…/cancel`.
+4. **Cancelling compares what was shown** (decision 3), on the website and in the app: the form
+   and the app both send what the page said cancelling means. If it has turned from free to
+   charged meanwhile, nothing is cancelled; the website goes back to the call's page with the
+   sentence, the app shows it and reads the page again. Cancelling that costs less than was
+   shown always goes through. What the system cancels by itself is not touched.
+5. **One function describes a call for every list** (`src/lib/home/list-calls.ts`): the home
+   page, "Past calls" and the app's Calls place. Who sees what about the other person, and what
+   a host earned, is still decided by the two functions the home page's plan names.
+6. **The Calls place** shows every coming call (also one far ahead, which the home page does
+   not load) and, below, the past ones, each 50 to a page.
+7. **Not built here, each with its own part:** the Join button and the room (part 09; the page
+   says "The room is open" by the server's word), the results of a call (part 10; "See the
+   details" has no screen to lead to yet), the connection check (part 09c), and the address
+   the call screen asks during a call (`live`, part 09, where it is used).
+
+### How it was tried
+
+- `scripts/app-calls-check.ts`, 54 checks, with real holds at Stripe (test mode): coming and
+  past calls (a call far ahead that the home page does not load, paging, a stranger); a call's
+  page in each state, and the website's page for the same call saying the same; the hold
+  (started twice and from the website: one hold; before a card, after a refused card, after a
+  good one; a hold, not a charge); cancelling free, as the host with the hold let go, late,
+  after the start, twice, and when it turned from free to charged while the person looked.
+- The home page's checks pass unchanged after its calls were moved onto the shared function
+  (`home-check` 110, `app-home-check` 75).
+- On the Android test phone, with pictures: the Calls place; a paid call's page with the
+  confirm-and-pay step; the hold placed in Stripe's sheet with a test card, and the page moving
+  on to the countdown; the question before a late cancellation; a free call with its room
+  open; a free cancellation.
+
+### What could not be tried here
+
+- **A member's call** (paid from membership time, cancelled with time given back): making one
+  needs a whole membership with a paid month. The refusal to pay one by card is in the shared
+  function; the website's own `member-calls-check` covers member calls.
+- A refused card and a bank's approval **for the hold** were not walked again on the phone: it
+  is the same sheet as in part 06, where both were walked, and the check script does both
+  against Stripe.
+- The iPhone.
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 
