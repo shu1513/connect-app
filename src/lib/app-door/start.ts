@@ -6,14 +6,14 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Switches } from "@/lib/safety/switches";
-import type { SignedIn } from "@/lib/session";
 import { TERMS_VERSION } from "@/lib/terms";
-import { isTooOld, type AppClient } from "./rules";
+import type { AppRequest } from "./gate";
 import type { AppStart, AppSwitches } from "./types";
 
 /**
  * What is on for the apps, as the app is told it. The website's own switches rule first: a thing
  * the founder has switched off for everyone is off in the apps whatever the apps' switch says.
+ * (Memberships named for certain hosts only are decided host by host, where a host is shown.)
  *
  * Tips: there are no tips on `main` yet (plans/44). Until there are, and until the website's own
  * tip switch is read here beside the apps', tips are off for the apps whatever is saved.
@@ -26,9 +26,10 @@ export function switchesForApps(all: Switches): AppSwitches {
   };
 }
 
-/** The answer of GET /api/app/start. `person` is whoever is logged in; a closed account counts as nobody. */
-export async function startFor(client: AppClient, person: SignedIn | null, all: Switches): Promise<AppStart> {
-  const base = { updateNeeded: isTooOld(client.version, all.appOldestVersion), switches: switchesForApps(all), termsVersion: TERMS_VERSION };
+/** The answer of GET /api/app/start, for whoever the gate let in. */
+export async function startFor(asked: AppRequest): Promise<AppStart> {
+  const { person } = asked;
+  const base = { updateNeeded: asked.updateNeeded, switches: switchesForApps(asked.switches), termsVersion: TERMS_VERSION };
   if (!person) return { ...base, me: null };
   const [profile] = await db
     .select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden })

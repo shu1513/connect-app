@@ -10,6 +10,8 @@ import { ownOrigins } from "./same-site";
 
 const APP_NAME = "Connect";
 const ONE_HOUR = 3600;
+/** An email address that no account can have (".invalid" is set aside so that it never exists). See the sign-in of a closed account, below. */
+const NOBODY = "nobody@closed-account.invalid";
 
 /** Google sign-in is offered only when its keys are set in .env.local. */
 export const googleSignInConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -39,7 +41,8 @@ function developmentOrigins(): string[] {
 const phoneApp = {
   id: "connect-phone-app",
   async onRequest(request: Request) {
-    if (request.headers.get("origin") || request.headers.get("expo-origin") !== APP_ORIGIN) return;
+    // Any "where from" that is there at all is left alone, an empty one too.
+    if (request.headers.has("origin") || request.headers.get("expo-origin") !== APP_ORIGIN) return;
     const headers = new Headers(request.headers);
     headers.set("origin", APP_ORIGIN);
     return { request: new Request(request, { headers }) };
@@ -192,10 +195,21 @@ export const auth = betterAuth({
       // Wherever the login tool is asked to send someone on to, it must be the website: when an email
       // is asked for, and again when its link is opened. (See leadsToTheWebsite: trusting the phone
       // app's name must not let a confirmation or reset link lead into an app.)
-      const destinations = [ctx.body?.callbackURL, ctx.body?.redirectTo, ctx.body?.errorCallbackURL, ctx.body?.newUserCallbackURL, ctx.query?.callbackURL].flat();
+      // (One that is left out, or empty, is the login tool's own default: the website's front page.)
+      const destinations = [ctx.body?.callbackURL, ctx.body?.redirectTo, ctx.body?.errorCallbackURL, ctx.body?.newUserCallbackURL, ctx.query?.callbackURL];
       const own = ownOrigins();
-      if (destinations.some((destination) => destination !== undefined && destination !== null && !leadsToTheWebsite(destination, own))) {
+      if (destinations.some((destination) => destination !== undefined && destination !== null && destination !== "" && !leadsToTheWebsite(destination, own))) {
         throw new APIError("FORBIDDEN", { message: "Invalid callbackURL" });
+      }
+      // A closed account must not be told apart from a wrong password, by anything in the answer.
+      // Left to itself the login tool checks the password first and only then fails to make the
+      // login, with an answer of its own ("failed to create session"), and for an account that
+      // never confirmed its email it would even send the confirmation again. So a sign-in for a
+      // closed account is handed on as a sign-in for an address nobody has: the login tool then
+      // gives its ordinary "invalid email or password", after the same work as for any stranger.
+      if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string") {
+        const [account] = await db.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.email, ctx.body.email.toLowerCase()));
+        if (account?.closedAt) return { context: { ...ctx, body: { ...ctx.body, email: NOBODY } } };
       }
       if (ctx.path === "/change-password") {
         return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };

@@ -36,11 +36,33 @@ export const APP_ORIGIN = "connect://";
  */
 export function leadsToTheWebsite(destination: unknown, own: string[]): boolean {
   if (typeof destination !== "string" || destination === "") return false;
-  // A path on this site. "//host" and "/\host" are other sites written to look like a path.
-  if (destination.startsWith("/")) return !destination.startsWith("//") && !destination.startsWith("/\\");
+  // Nothing that a browser, the login tool and this check could read three different ways: no
+  // backslash (some read it as a slash), no invisible characters.
+  if (/[\\\u0000-\u001f\u007f]/.test(destination)) return false;
+  if (destination.startsWith("/")) return isPlainPath(destination);
   try {
     const url = new URL(destination);
-    return (url.protocol === "https:" || url.protocol === "http:") && own.includes(url.origin);
+    return (url.protocol === "https:" || url.protocol === "http:") && own.includes(url.origin) && url.username === "" && url.password === "" && isPlainPath(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A path that means the same before and after it is tidied. The login tool tidies a path before it
+ * uses it (it drops "." and ".." steps and reads %2F as it stands), and what is left over could
+ * begin with "//", which a browser reads as another site: "/.//evil.test" is tidied to
+ * "//evil.test". So a path is only accepted when tidying changes nothing: it begins with one
+ * slash, has no empty step, no "." or ".." step, and no slash, backslash or dot hidden in a % code.
+ */
+function isPlainPath(path: string): boolean {
+  const steps = path.split(/[?#]/)[0];
+  if (!steps.startsWith("/") || steps.includes("//")) return false;
+  if (/%(2f|5c|2e)/i.test(steps)) return false;
+  if (steps.split("/").some((step) => step === "." || step === "..")) return false;
+  try {
+    const tidied = new URL(path, "https://website.invalid");
+    return tidied.origin === "https://website.invalid" && tidied.pathname === steps;
   } catch {
     return false;
   }

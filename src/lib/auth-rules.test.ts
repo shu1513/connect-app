@@ -30,7 +30,9 @@ describe("leadsToTheWebsite", () => {
   const own = ["https://connect.example", "http://localhost:3000"];
 
   it("accepts a path on this site", () => {
-    for (const path of ["/", "/welcome", "/reset-password", "/welcome?next=%2Fh%2Fmaria"]) expect(leadsToTheWebsite(path, own), path).toBe(true);
+    for (const path of ["/", "/welcome", "/reset-password", "/welcome?next=%2Fh%2Fmaria", "/h/maria/book?length=30#times", "/calls/0f0e0d0c-1111-2222-3333-444455556666"]) {
+      expect(leadsToTheWebsite(path, own), path).toBe(true);
+    }
   });
 
   it("accepts a full address on one of the website's own sites", () => {
@@ -52,6 +54,24 @@ describe("leadsToTheWebsite", () => {
       "javascript:alert(1)",
       "welcome",
       "",
+      // Paths that only become another site once they are tidied, or that a browser reads differently.
+      "/.//evil.test",
+      "/..//evil.test",
+      "/a/..//evil.test",
+      "/./welcome",
+      "/welcome/../../evil",
+      "/%2Fevil.test",
+      "/%2f%2fevil.test",
+      "/%5Cevil.test",
+      "/%2e%2e/evil",
+      "/welcome//x",
+      "/wel\tcome",
+      "/welcome\u0000",
+      "https://connect.example@evil.test/welcome",
+      "https://user:pw@connect.example/welcome",
+      "https://connect.example//evil.test",
+      "https://connect.example/.//evil.test",
+      "https://connect.example\\@evil.test",
     ]) {
       expect(leadsToTheWebsite(elsewhere, own), elsewhere).toBe(false);
     }

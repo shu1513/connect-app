@@ -5,11 +5,14 @@
  * old; and the person must be someone this address is for. Who may ask is decided per address,
  * as its page on the website decides it, from the same reading of who is logged in that the
  * website's pages use.
+ *
+ * The sign-in is read from the app's own header and from nowhere else: a browser's cookie is
+ * never looked at here (see SIGN_IN_HEADER).
  */
 import "server-only";
-import { switches } from "@/lib/safety/switches";
+import { switches, type Switches } from "@/lib/safety/switches";
 import { signedInFrom, type SignedIn } from "@/lib/session";
-import { comesTheAppsWay, isTooOld, whyNot, type AppClient, type Who } from "./rules";
+import { comesTheAppsWay, isTooOld, signInFrom, whyNot, type AppClient, type Who } from "./rules";
 import type { Refusal, RefusalCode } from "./types";
 
 /** The sentence that goes with each refusal of the gate, in the website's words. */
@@ -59,6 +62,10 @@ export type AppRequest = {
   client: AppClient;
   /** Who is logged in; null only at an address for anyone. A closed account counts as nobody. */
   person: SignedIn | null;
+  /** The founder's switches, as read for this request, so an address does not read them twice. */
+  switches: Switches;
+  /** Whether this copy is older than the oldest allowed. Only ever true at the opening address, which says so instead of refusing. */
+  updateNeeded: boolean;
 };
 
 /**
@@ -66,17 +73,29 @@ export type AppRequest = {
  *
  *   const asked = await appRequest(request, "member");
  *   if (asked instanceof Response) return asked;
+ *
+ * `opening` is for the one address the app asks when it opens: a copy that is too old is not
+ * refused there, since that address is the one that must still answer it, to say "please update".
+ *
+ * It reads the login without extending it (only the phone's own request to the login tool does
+ * that, or the renewed login would never reach the phone) and changes nothing of Connect's own. A
+ * login that has run out is still tidied away by the login tool as it is read.
  */
-export async function appRequest(request: Request, who: Who): Promise<AppRequest | Response> {
+export async function appRequest(request: Request, who: Who, options: { opening?: boolean } = {}): Promise<AppRequest | Response> {
   const client = comesTheAppsWay(request.headers);
   if (!client) return refuse("not_the_app");
 
-  if (isTooOld(client.version, (await switches()).appOldestVersion)) return refuse("update_needed");
+  const all = await switches();
+  const updateNeeded = isTooOld(client.version, all.appOldestVersion);
+  if (updateNeeded && !options.opening) return refuse("update_needed");
 
-  // Read without extending the login: only the phone's own request to the login tool does that.
-  const found = await signedInFrom(request.headers, { renew: false });
-  const person = found && !found.closed ? found : null;
+  // The sign-in the app handed over, and only that: whatever cookie came along is not read.
+  const signIn = signInFrom(request.headers);
+  const found = signIn ? await signedInFrom(new Headers({ cookie: signIn }), { renew: false }) : null;
+  // A closed account has no login left; should one ever turn up it is nobody. So is a login whose
+  // email address is not confirmed, at an address for anyone.
+  const person = found && !found.closed && (who !== "anyone" || found.emailVerified) ? found : null;
   const refusal = whyNot(who, person);
   if (refusal) return refuse(refusal);
-  return { client, person };
+  return { client, person, switches: all, updateNeeded };
 }

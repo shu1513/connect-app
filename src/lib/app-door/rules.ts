@@ -42,6 +42,31 @@ export function comesTheAppsWay(headers: HeaderReader): AppClient | null {
 }
 
 /**
+ * The header in which the app hands over its sign-in: what the login tool's kit for phones keeps
+ * in the phone's secure store, sent by the app's own code with each request.
+ *
+ * An address for the app reads the sign-in from here and from nowhere else. In particular it
+ * never looks at a browser's cookie. A browser sends its cookie by itself, and a page on our own
+ * site (or, in an old browser, a page anywhere that got a header through) could otherwise ask an
+ * app address in a logged-in person's name. A page cannot read the login cookie (it is hidden from
+ * scripts), so it has nothing to put in this header.
+ */
+export const SIGN_IN_HEADER = "x-connect-signin";
+
+/**
+ * The sign-in the app handed over, in the form the login tool reads (name=value pairs), or null
+ * when there is none or it is not in that form. Whether it is a real, living login is the login
+ * tool's to say; this only keeps out what could not be one.
+ */
+export function signInFrom(headers: HeaderReader): string | null {
+  const value = headers.get(SIGN_IN_HEADER);
+  if (!value || value.length > 4096) return null;
+  // Printable characters only, and at least one name=value pair: nothing that could start a new header line.
+  if (!/^[\x21-\x7e]+=[\x20-\x7e]*$/.test(value)) return null;
+  return value;
+}
+
+/**
  * Whether a copy of the app is older than the oldest one still allowed. With no oldest version
  * set, or one that is not a version, nothing is too old: a slip of the founder's hand in that
  * field must never lock every phone out.
