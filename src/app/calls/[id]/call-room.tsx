@@ -5,7 +5,7 @@ import { LiveKitRoom, PreJoin, VideoConference, type LocalUserChoices } from "@l
 import { DisconnectReason } from "livekit-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CLOSE_LATE_SECONDS } from "@/lib/calls";
 import { ACCEPT_CLOSES_SECONDS, ASK_CLOSES_SECONDS, ASK_OPENS_SECONDS, choicesThatFit, COUNTDOWN_SECONDS, extensionPriceCents, MAX_EXTENSION_MINUTES, MIN_EXTENSION_MINUTES, WATCH_SECONDS } from "@/lib/extend/rules";
 import { JOINING_EVENT } from "@/components/connection-test";
@@ -26,6 +26,12 @@ type Props = {
   otherName: string;
   /** Zero for a free call. */
   pricePer15Cents: number;
+  /**
+   * Shown only while this person waits to join: before the room opens, and in the camera check.
+   * For a host it is their private note about the customer (plans/32). It is never drawn next to
+   * the call itself: the call screen can share the screen, and the note must not be on it.
+   */
+  whileWaiting?: ReactNode;
 };
 
 type Connection = { token: string; serverUrl: string };
@@ -405,6 +411,7 @@ export function CallRoom(props: Props) {
       <section className="mt-10">
         <p className="text-lg">The room opens in {formatDuration((opensAt - now) / 1000)}.</p>
         <p className="mt-2 text-sm opacity-70">It opens 5 minutes before the booked start. This page will update by itself.</p>
+        {props.whileWaiting}
       </section>
     );
   }
@@ -516,6 +523,7 @@ export function CallRoom(props: Props) {
             {notice}
           </p>
         )}
+        {props.whileWaiting}
         <p className="mt-2 text-sm opacity-70">Check your camera and microphone, then join.</p>
         <Lobby userName={props.userName} joining={joining} onJoin={join} onProblem={setNotice} />
       </section>

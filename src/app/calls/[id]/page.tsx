@@ -3,9 +3,11 @@ import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AboutCustomer } from "@/components/about-customer";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { roomOpensAt } from "@/lib/calls";
+import { hostNoteAbout } from "@/lib/people/contacts";
 import { callForParticipant, formatMoney } from "@/lib/payments/access";
 import { syncHold } from "@/lib/payments/hold";
 import { cancellationOutcome, paymentBlocksJoin, payOpensAt, payWindow } from "@/lib/payments/rules";
@@ -51,6 +53,9 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
   // A customer knows their host by the display name on the host's page, never by the host's account name.
   const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
   const other = hostProfile ? { name: hostProfile.displayName } : person;
+  // The host's own note about this customer, to read while waiting for the call (plans/32). Fetched only for the
+  // host, with the logged-in person as the host: nothing of it is in the page the customer gets.
+  const about = role === "host" ? await hostNoteAbout(user.id, call.customerId) : null;
   const bookedPrice = payment ? formatMoney(payment.bookedCents) : null;
   // The most the whole call can cost. The booking's total grows when time is added during the call;
   // the call's own payment (the figure above, used for paying and cancelling before the call) does not.
@@ -156,6 +161,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           role={role}
           otherName={other?.name ?? (role === "host" ? "The customer" : "The host")}
           pricePer15Cents={call.pricePer15Cents}
+          whileWaiting={about?.text ? <AboutCustomer name={other?.name ?? "this customer"} text={about.text} /> : null}
         />
         </>
       )}

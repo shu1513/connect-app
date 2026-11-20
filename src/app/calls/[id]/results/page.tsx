@@ -18,11 +18,13 @@ import { isDecided, moneyPlan } from "@/lib/payments/take";
 import { isFrozen } from "@/lib/membership/rules";
 import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
+import { NoteForm } from "@/components/note-form";
 import { FollowButton } from "@/components/follow-button";
 import { askOnlineAction, unfollowAction } from "@/app/following/actions";
 import { asksForOnline, followingOf, followStillToCome, hasBlocked } from "@/lib/follows/follows";
 import { followEmailsOn } from "@/lib/follows/rules";
 import { readNotice } from "@/lib/notice";
+import { hostNoteAbout, NOTE_MAX } from "@/lib/people/contacts";
 import { getSignedIn, isAdminSession } from "@/lib/session";
 import { requireUser } from "@/lib/session";
 import { myRating, ratingStateOf } from "@/lib/ratings/ratings";
@@ -135,6 +137,10 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // Rating: for the two people on the call only. Each sees their own rating, never the other's.
   const otherName = role === "admin" ? "" : (nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
   const rating = role === "admin" ? null : { state: await ratingStateOf(call, new Date()), mine: await myRating(call.id, user.id) };
+  // The host's private notepad about this customer (plans/32). It has nothing to do with the rating: it is there
+  // after a cancelled or missed call too. Fetched only for the host of this call, with the logged-in person as the
+  // host, and never loaded for anyone else: a founder looking at someone else's call is "admin" here and gets nothing.
+  const note = role === "host" ? await hostNoteAbout(user.id, call.customerId) : null;
   const who = (identity: string | null) =>
     identity === call.hostId
       ? `${nameOf.get(identity) ?? "Host"} (host)`
@@ -210,6 +216,12 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           ) : (
             <p className="opacity-80">You can rate this call a few minutes after its booked end, once its record is final. Refresh this page then.</p>
           )}
+        </section>
+      )}
+
+      {note?.allowed && (
+        <section className="mt-4 rounded border border-neutral-400 px-4 pb-4 pt-1" data-host-note>
+          <NoteForm customerId={call.customerId} name={otherName} text={note.text} max={NOTE_MAX} />
         </section>
       )}
 

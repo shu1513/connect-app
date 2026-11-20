@@ -8,6 +8,7 @@
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { BookingError, endInstantRequestsOfAbsentHosts, lockCalendars, offerOf } from "./bookings";
+import { hostNotesAbout } from "@/lib/people/contacts";
 import { averagesFor } from "@/lib/ratings/ratings";
 import { averageText } from "@/lib/ratings/rules";
 import { verifiedAmong } from "@/lib/safety/identity";
@@ -104,6 +105,8 @@ export async function liveForHost(hostId: string, now: Date) {
   const customers = [...new Set(waiting.map(({ booking }) => booking.customerId))];
   const ratings = await averagesFor(customers, "customer", now);
   const idConfirmed = await verifiedAmong(customers);
+  // This host's own notes about them (plans/32). The lookup asks every rule itself for each customer.
+  const notes = await hostNotesAbout(hostId, customers);
   return {
     ...stateOf(calendar, now),
     requests: waiting.map(({ booking, customerName }) => ({
@@ -113,6 +116,8 @@ export async function liveForHost(hostId: string, now: Date) {
       customerRating: averageText(ratings.get(booking.customerId) ?? null),
       /** Only a yes or no leaves the server: never the ID or the name on it. */
       idConfirmed: idConfirmed.has(booking.customerId),
+      /** The host's private note about this customer, or null. This answer only ever goes to that host. */
+      about: notes.get(booking.customerId) ?? null,
       lengthMinutes: booking.lengthMinutes,
       totalCents: booking.totalCents,
       respondBy: booking.respondBy!.toISOString(),
