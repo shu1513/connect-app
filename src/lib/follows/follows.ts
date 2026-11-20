@@ -10,7 +10,7 @@
  * holds, and a block and an automatic follow can never pass each other. No step takes another
  * lock after it.
  */
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { loadAttendance } from "@/lib/attendance/load";
 import { instantOffer } from "@/lib/booking/bookings";
@@ -46,6 +46,31 @@ async function listed(reader: Reader, followerId: string): Promise<number> {
 
 const pair = (followerId: string, hostId: string) => and(eq(schema.follows.followerId, followerId), eq(schema.follows.hostId, hostId));
 
+/** A follow that ends takes its yes to emails with it: following again starts with both choices off (plans/31). */
+const NO_EMAILS = { tellOnline: false, tellPosts: false, hoursFrom: null, hoursTo: null } as const;
+
+/**
+ * Taking a yes back takes the waiting emails with it (plans/31, decision 6): the emails to this
+ * follower that are still waiting to be sent are closed, about one host or all, of one kind or
+ * both. Called inside the step that takes the yes back, under the follower's lock. An email a
+ * helper has already picked up is closed too, and its claim with it: the helper then finds that
+ * the email is no longer its to send (delivery.ts, `ownedBy`), also when it had stopped halfway
+ * and the email would otherwise have been picked up again later.
+ *
+ * What this does not promise: an email the helper is handing to the sending service at this very
+ * instant, after its own last check, still goes out. That gap is a few milliseconds, and closing
+ * it would mean holding a lock on the outbox across a request to an outside service.
+ */
+export async function dropWaiting(tx: Pick<typeof db, "update">, followerId: string, hostId?: string, kind?: "online" | "post"): Promise<void> {
+  // The key is "follow-<kind>:<host>:<follower>:<what it is about>". IDs are matched as they are, never as patterns.
+  const plain = (value: string) => value.replace(/[\\%_]/g, "\\$&");
+  const keys = (kind ? [kind] : (["online", "post"] as const)).map((k) => `follow-${k}:${hostId ? plain(hostId) : "%"}:${plain(followerId)}:%`);
+  await tx
+    .update(schema.emailOutbox)
+    .set({ status: "failed", lastError: "no longer wanted: the yes to this email was taken back", leaseUntil: null })
+    .where(and(eq(schema.emailOutbox.kind, "follow"), inArray(schema.emailOutbox.status, ["queued", "sending"]), or(...keys.map((key) => like(schema.emailOutbox.dedupeKey, key)))));
+}
+
 /**
  * A person follows the host whose page has this handle. The page must be open to everyone, so a
  * page that cannot be opened and one that does not exist give the same answer. Someone the host
@@ -73,7 +98,7 @@ export async function follow(input: { followerId: string; handle: string; now: D
     await tx
       .insert(schema.follows)
       .values({ followerId, hostId: profile.userId, how: "self", createdAt: now })
-      .onConflictDoUpdate({ target: [schema.follows.followerId, schema.follows.hostId], set: { unfollowedAt: null, how: "self", callId: null, createdAt: now } });
+      .onConflictDoUpdate({ target: [schema.follows.followerId, schema.follows.hostId], set: { unfollowedAt: null, how: "self", callId: null, createdAt: now, ...NO_EMAILS } });
   });
   return { hostId: profile.userId, displayName: profile.displayName };
 }
@@ -91,7 +116,10 @@ export async function unfollow(input: { followerId: string; hostId: string; now:
     await lockFollowers(tx, [followerId]);
     const [line] = await tx.select().from(schema.follows).where(pair(followerId, hostId));
     if (line) {
-      if (!line.unfollowedAt) await tx.update(schema.follows).set({ unfollowedAt: now }).where(pair(followerId, hostId));
+      if (!line.unfollowedAt) {
+        await tx.update(schema.follows).set({ unfollowedAt: now, ...NO_EMAILS }).where(pair(followerId, hostId));
+        await dropWaiting(tx, followerId, hostId);
+      }
       return;
     }
     const [host] = await tx.select({ userId: schema.hostProfiles.userId }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, hostId));
@@ -116,7 +144,10 @@ export async function hasBlocked(blockerId: string, blockedId: string): Promise<
 export async function endFollowInBlock(tx: Tx, blockerId: string, blockedId: string, now: Date): Promise<void> {
   // Both people's locks: either may be the follower in something that is being written at this moment.
   await lockFollowers(tx, [blockerId, blockedId]);
-  await tx.update(schema.follows).set({ unfollowedAt: now }).where(and(pair(blockerId, blockedId), isNull(schema.follows.unfollowedAt)));
+  await tx.update(schema.follows).set({ unfollowedAt: now, ...NO_EMAILS }).where(and(pair(blockerId, blockedId), isNull(schema.follows.unfollowedAt)));
+  // No email crosses a block, in either direction: what was waiting is dropped for both (plans/31).
+  await dropWaiting(tx, blockerId, blockedId);
+  await dropWaiting(tx, blockedId, blockerId);
 }
 
 export type FollowedHost = {
@@ -128,6 +159,11 @@ export type FollowedHost = {
   available: boolean;
   /** This person's next call with them, in either role. */
   nextCall: { id: string; startsAt: Date } | null;
+  /** Their yes to emails about this host, and the hours for "available now" (minutes of the day; null: any time). */
+  tellOnline: boolean;
+  tellPosts: boolean;
+  hoursFrom: number | null;
+  hoursTo: number | null;
 };
 
 /**
@@ -139,6 +175,10 @@ export async function followedHosts(userId: string, now: Date): Promise<Followed
   const lines = await db
     .select({
       hostId: schema.follows.hostId,
+      tellOnline: schema.follows.tellOnline,
+      tellPosts: schema.follows.tellPosts,
+      hoursFrom: schema.follows.hoursFrom,
+      hoursTo: schema.follows.hoursTo,
       displayName: schema.hostProfiles.displayName,
       handle: schema.hostProfiles.handle,
       status: schema.hostProfiles.status,
@@ -194,8 +234,59 @@ export async function followedHosts(userId: string, now: Date): Promise<Followed
       available: available.has(line.hostId),
       nextCall: nextCall.get(line.hostId) ?? null,
       nextCallAt: nextCall.get(line.hostId)?.startsAt ?? null,
+      tellOnline: line.tellOnline,
+      tellPosts: line.tellPosts,
+      hoursFrom: line.hoursFrom,
+      hoursTo: line.hoursTo,
     })),
-  ).map(({ hostId, name, handle, available, nextCall }) => ({ hostId, name, handle, available, nextCall }));
+  ).map(({ hostId, name, handle, available, nextCall, tellOnline, tellPosts, hoursFrom, hoursTo }) => ({ hostId, name, handle, available, nextCall, tellOnline, tellPosts, hoursFrom, hoursTo }));
+}
+
+/** Whether this follower has said yes to "available now" emails about this host. False for someone who does not follow. */
+export async function asksForOnline(followerId: string, hostId: string): Promise<boolean> {
+  const [line] = await db.select({ tellOnline: schema.follows.tellOnline, unfollowedAt: schema.follows.unfollowedAt }).from(schema.follows).where(pair(followerId, hostId));
+  return Boolean(line && !line.unfollowedAt && line.tellOnline);
+}
+
+export type DiaryNews = { postId: string; hostName: string; handle: string; projectId: string; projectName: string; text: string; writtenAt: Date };
+
+/**
+ * "New in diaries" (plans/31, decision 9): the latest posts of the hosts this person follows, at
+ * most five, from the last seven days. Exactly what anyone could read by opening the diary: the
+ * post is not removed and not hidden, and the host's page is open to everyone. So it is the same
+ * for a follower the host has blocked (leaving it out would be a sign of the block). The rules
+ * are applied before anything is sorted or cut to five, and only what is shown is returned.
+ */
+export async function diaryNews(userId: string, now: Date): Promise<DiaryNews[]> {
+  return db
+    .select({
+      postId: schema.projectPosts.id,
+      hostName: schema.hostProfiles.displayName,
+      handle: schema.hostProfiles.handle,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      text: schema.projectPosts.text,
+      writtenAt: schema.projectPosts.createdAt,
+    })
+    .from(schema.follows)
+    .innerJoin(schema.user, eq(schema.user.id, schema.follows.hostId))
+    .innerJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.follows.hostId))
+    .innerJoin(schema.projects, eq(schema.projects.hostId, schema.follows.hostId))
+    .innerJoin(schema.projectPosts, eq(schema.projectPosts.projectId, schema.projects.id))
+    .where(
+      and(
+        eq(schema.follows.followerId, userId),
+        isNull(schema.follows.unfollowedAt),
+        isNull(schema.user.closedAt),
+        eq(schema.hostProfiles.status, "approved"),
+        eq(schema.hostProfiles.hidden, false),
+        isNull(schema.projectPosts.removedAt),
+        isNull(schema.projectPosts.hiddenAt),
+        gt(schema.projectPosts.createdAt, new Date(now.getTime() - 7 * DAY)),
+      ),
+    )
+    .orderBy(desc(schema.projectPosts.createdAt), desc(schema.projectPosts.id))
+    .limit(5);
 }
 
 /** Whether this person follows anyone at all (for the pages that only then keep themselves fresh). */

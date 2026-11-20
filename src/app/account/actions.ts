@@ -3,12 +3,20 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
+import { setFollowEmails } from "@/lib/follows/emails";
 import { requireUser } from "@/lib/session";
 import { isTimeZone } from "@/lib/time-zones";
 
 export async function saveReminders(formData: FormData) {
   const user = await requireUser();
   await db.update(schema.user).set({ reminderEmails: formData.get("reminders") === "on", updatedAt: new Date() }).where(eq(schema.user.id, user.id));
+  redirect("/account?notice=reminders");
+}
+
+/** The account's switch for emails about hosts the person follows (plans/31). Off also drops the ones still waiting. */
+export async function saveFollowEmails(formData: FormData) {
+  const user = await requireUser();
+  await setFollowEmails(user.id, formData.get("follows") === "on");
   redirect("/account?notice=reminders");
 }
 

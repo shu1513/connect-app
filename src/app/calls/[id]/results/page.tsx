@@ -20,8 +20,10 @@ import { requestViewOf } from "@/lib/refunds/requests";
 import { BlockButton } from "@/components/block-button";
 import { NoteForm } from "@/components/note-form";
 import { FollowButton } from "@/components/follow-button";
-import { unfollowAction } from "@/app/following/actions";
-import { followingOf, followStillToCome, hasBlocked } from "@/lib/follows/follows";
+import { askOnlineAction, unfollowAction } from "@/app/following/actions";
+import { asksForOnline, followingOf, followStillToCome, hasBlocked } from "@/lib/follows/follows";
+import { followEmailsOf } from "@/lib/follows/emails";
+import { EMAILS, followEmailsOn } from "@/lib/follows/rules";
 import { readNotice } from "@/lib/notice";
 import { hostNoteAbout, NOTE_MAX } from "@/lib/people/contacts";
 import { getSignedIn, isAdminSession } from "@/lib/session";
@@ -126,10 +128,13 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   const ask = await askAfterCall({ role, call, attendance, hostPage: openPage });
   // Following (plans/30), for the customer of the call only. Nothing here depends on whether the host has blocked
   // the customer, so the box never gives a block away; only the customer's own block takes it away.
-  let follow: { state: "following" | "ended" | "none"; toCome: boolean } | null = null;
+  let follow: { state: "following" | "ended" | "none"; toCome: boolean; askEmail: boolean } | null = null;
   if (role === "customer" && hostProfile && !(await hasBlocked(user.id, call.hostId))) {
     const [booking] = await db.select({ source: schema.bookings.source }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
-    follow = { state: await followingOf(user.id, call.hostId), toCome: followStillToCome(call, booking?.source ?? null, now) };
+    const state = await followingOf(user.id, call.hostId);
+    // The one question of plans/31: asked here, of a follower who has not said yes yet, while those emails are switched on
+    // for the site and for their own account (someone who switched them all off is not asked to tick one).
+    follow = { state, toCome: followStillToCome(call, booking?.source ?? null, now), askEmail: state === "following" && followEmailsOn() && (await followEmailsOf(user.id)) && !(await asksForOnline(user.id, call.hostId)) };
   }
   // Rating: for the two people on the call only. Each sees their own rating, never the other's.
   const otherName = role === "admin" ? "" : (nameOf.get(role === "host" ? call.customerId : call.hostId) ?? "the other person");
@@ -227,6 +232,16 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           {follow.state === "following" ? (
             <>
               <p>You follow {otherName}. When they are available now, you see it on your home page.</p>
+              {follow.askEmail && (
+                <form action={askOnlineAction} className="mt-2" data-ask-email>
+                  <input type="hidden" name="hostId" value={call.hostId} />
+                  <input type="hidden" name="back" value={`/calls/${call.id}/results`} />
+                  <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5">
+                    Email me when {otherName} is available now
+                  </button>
+                  <span className="ml-2 opacity-70">At most one in {EMAILS.perHostHours} hours. You can choose hours later.</span>
+                </form>
+              )}
               <div className="mt-1">
                 <FollowButton state="following" hostId={call.hostId} handle={hostProfile.handle} name={otherName} back={`/calls/${call.id}/results`} />
               </div>
