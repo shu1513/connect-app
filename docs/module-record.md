@@ -3166,3 +3166,22 @@ customers' photos at all. Before the child-safety tool is switched on, every pho
 brought under it. Left out on purpose: the photo on the home page's list of calls, the
 contacts page, the list of members, the call screen and in emails; the host's photo on the
 customer's own pages.
+
+## A correction after the home page: one check of the project script (19 November 2026)
+
+`scripts/project-check.ts` keeps a list of the pages that may use the code of projects, posts and
+pictures, and fails when any other page does. The home page (plan 36) shows the first picture of
+a diary post and so uses `picturesOf`; the list did not name it, and that one check failed on
+`main` from pull request 61 on. The builder had run the scripts that read the home page, not this
+one; the session building photo uploads found it in its own full round and said so.
+
+Corrected: the home page is on the list of the reader's pages, with the reason, and a new check
+beside it: the home page takes exactly one thing from that code, the reader's question about
+pictures, and never asks it as the host. The page itself did not change. Checked: journey 18 of
+`scripts/project-check.ts`, all pass; the other journeys of that script passed in the other
+session's round. Learned: after a page starts to use code of another feature, run that feature's
+own check script too, not only the scripts that open the page.
+
+CodeRabbit reviewed the correction and made two points about the new check, both taken: it now
+reads every import from that code whichever quotes it is written with, and it refuses the word
+`forHost` anywhere on the home page instead of trying to read the call. Journey 18 passes again.
