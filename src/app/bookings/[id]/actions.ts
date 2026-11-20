@@ -5,6 +5,7 @@ import { accept, bookingFor, BookingError, decline, takeBack } from "@/lib/booki
 import { bookAsMember } from "@/lib/membership/book";
 import { withNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
+import { backTo } from "./back-to";
 
 function problem(error: unknown): string {
   if (error instanceof BookingError) return error.message;
@@ -12,9 +13,9 @@ function problem(error: unknown): string {
   return "Something went wrong. Nothing was changed. Please try again.";
 }
 
-/** Where to go back to: the page the button was on. Only our own two pages are allowed. */
+/** Where to go back to: the page the button was on (see back-to.ts). */
 function origin(formData: FormData, bookingId: string): string {
-  return formData.get("from") === "requests" ? "/host/requests" : `/bookings/${bookingId}`;
+  return backTo(formData.get("from"), bookingId);
 }
 
 export async function takeBackAction(formData: FormData) {

@@ -31,7 +31,7 @@ import { createHash } from "node:crypto";
 import { and, eq, exists, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
-import { hasAskedHost } from "@/lib/people/contacts";
+import { hasAskedHost, haveAskedHost } from "@/lib/people/contacts";
 import { askInOrder } from "@/lib/projects/checks/order";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
 import type { Checker } from "@/lib/projects/checks/types";
@@ -736,8 +736,12 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
  */
 export async function photosForHost(hostId: string, customerIds: string[]): Promise<Map<string, string>> {
   const all = [...(await photosOf([...new Set(customerIds)]))];
-  const handed = await Promise.all(all.map(([customerId]) => hasAskedHost(hostId, customerId)));
-  return new Map(all.filter((_, index) => handed[index]));
+  // One check for everyone on the list (plans/38); it is the very code of the single check.
+  const handed = await haveAskedHost(
+    hostId,
+    all.map(([customerId]) => customerId),
+  );
+  return new Map(all.filter(([customerId]) => handed.has(customerId)));
 }
 
 /**

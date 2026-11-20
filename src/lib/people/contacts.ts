@@ -8,7 +8,6 @@
  */
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { NOTE_MAX, tidyNote } from "./note-rules";
 
 /** A problem the person can understand. Its message is safe to show them. */
@@ -37,25 +36,55 @@ export type Contact = {
   note: string | null;
 };
 
-/** The people this person has had calls with, most recent first. Never an email, a blocked person or a closed account. */
-export async function contactsOf(userId: string, now: Date): Promise<Contact[]> {
-  const joined = (who: typeof schema.calls.hostId | typeof schema.calls.customerId) =>
-    sql`exists (select 1 from ${schema.attendanceEvents} a where a.call_id = ${schema.calls.id} and a.type = 'participant_joined' and a.participant_identity = ${who})`;
+const joined = (who: typeof schema.calls.hostId | typeof schema.calls.customerId) =>
+  sql`exists (select 1 from ${schema.attendanceEvents} a where a.call_id = ${schema.calls.id} and a.type = 'participant_joined' and a.participant_identity = ${who})`;
+
+/**
+ * A call that counts as "they have talked": over by its booked end, not cancelled, not made by a
+ * check script, and joined by each of the two. Written once: "People you have talked to" and the
+ * count a host sees beside a booked call (plans/38) can never disagree. For a query over calls
+ * joined with their bookings.
+ */
+const talked = (now: Date) =>
+  and(ne(schema.bookings.source, "admin"), isNull(schema.calls.cancelledAt), lte(schema.calls.endsAt, now), joined(schema.calls.hostId), joined(schema.calls.customerId));
+
+/**
+ * How often this person has talked with each of these others, in either role, and when the last
+ * of those calls started: by the rule of `talked`. Someone they have never talked with is not in
+ * the answer. One question, however many people. It says nothing about blocks or closed accounts:
+ * whoever shows the answer asks about those first.
+ */
+export async function talkedBefore(userId: string, otherIds: string[], now: Date): Promise<Map<string, { calls: number; lastCallAt: Date }>> {
+  const ids = [...new Set(otherIds)].filter((id) => id !== userId);
+  const before = new Map<string, { calls: number; lastCallAt: Date }>();
+  if (ids.length === 0) return before;
   const calls = await db
     .select({ hostId: schema.calls.hostId, customerId: schema.calls.customerId, startsAt: schema.calls.startsAt })
     .from(schema.calls)
     .innerJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
     .where(
       and(
-        or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)),
-        // Calls that are over, were not cancelled, were not made by a check script, and that both people joined.
-        ne(schema.bookings.source, "admin"),
-        isNull(schema.calls.cancelledAt),
-        lte(schema.calls.endsAt, now),
-        joined(schema.calls.hostId),
-        joined(schema.calls.customerId),
+        or(and(eq(schema.calls.hostId, userId), inArray(schema.calls.customerId, ids)), and(eq(schema.calls.customerId, userId), inArray(schema.calls.hostId, ids))),
+        talked(now),
       ),
     );
+  for (const call of calls) {
+    const other = call.hostId === userId ? call.customerId : call.hostId;
+    const entry = before.get(other) ?? { calls: 0, lastCallAt: call.startsAt };
+    entry.calls++;
+    if (call.startsAt > entry.lastCallAt) entry.lastCallAt = call.startsAt;
+    before.set(other, entry);
+  }
+  return before;
+}
+
+/** The people this person has had calls with, most recent first. Never an email, a blocked person or a closed account. */
+export async function contactsOf(userId: string, now: Date): Promise<Contact[]> {
+  const calls = await db
+    .select({ hostId: schema.calls.hostId, customerId: schema.calls.customerId, startsAt: schema.calls.startsAt })
+    .from(schema.calls)
+    .innerJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
+    .where(and(or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)), talked(now)));
   const byPerson = new Map<string, { calls: number; lastCallAt: Date; wasMyCustomer: boolean; wasMyHost: boolean }>();
   for (const call of calls) {
     const iWasHost = call.hostId === userId;
@@ -119,7 +148,27 @@ export async function contactsOf(userId: string, now: Date): Promise<Contact[]> 
 }
 
 /**
- * Whether this person has really asked this host for a call, as things stand right now: the
+ * Of these people, those whose account is open and who have no block with this person in either
+ * direction. Two questions, however many people.
+ */
+export async function openAndUnblocked(personId: string, otherIds: string[], reader: Reader = db): Promise<Set<string>> {
+  const ids = [...new Set(otherIds)].filter((id) => id !== personId);
+  if (ids.length === 0) return new Set();
+  // One after the other, not side by side: the reader may be a transaction, which has one connection.
+  const open = await reader
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(and(inArray(schema.user.id, ids), isNull(schema.user.closedAt)));
+  const blocks = await reader
+    .select({ blockerId: schema.blocks.blockerId, blockedId: schema.blocks.blockedId })
+    .from(schema.blocks)
+    .where(or(and(eq(schema.blocks.blockerId, personId), inArray(schema.blocks.blockedId, ids)), and(eq(schema.blocks.blockedId, personId), inArray(schema.blocks.blockerId, ids))));
+  const blocked = new Set(blocks.map((block) => (block.blockerId === personId ? block.blockedId : block.blockerId)));
+  return new Set(open.map((person) => person.id).filter((id) => !blocked.has(id)));
+}
+
+/**
+ * Which of these people have really asked this host for a call, as things stand right now: the
  * person sent them a request (which every call of theirs came from; not one abandoned at the card
  * step, not a test call), neither has blocked the other, and the person's account is not closed.
  *
@@ -129,26 +178,36 @@ export async function contactsOf(userId: string, now: Date): Promise<Contact[]> 
  *
  * Two things hang on this one rule: whether the host may keep (and read) a note about the person
  * (plans/32), and whether the host is handed the person's photo (plans/35).
+ *
+ * Three questions, however many people (plans/38): a list asks once for everyone on it. The
+ * answer for one person (`hasAskedHost`) is this same code, so the two can never differ.
  */
-export async function hasAskedHost(hostId: string, customerId: string, reader: Reader = db): Promise<boolean> {
-  if (hostId === customerId) return false;
-  const [asked] = await reader
-    .select({ id: schema.bookings.id })
+export async function haveAskedHost(hostId: string, customerIds: string[], reader: Reader = db): Promise<Set<string>> {
+  const ids = [...new Set(customerIds)].filter((id) => id !== hostId);
+  if (ids.length === 0) return new Set();
+  const asked = await reader
+    .select({ customerId: schema.bookings.customerId })
     .from(schema.bookings)
     .where(
       and(
         eq(schema.bookings.hostId, hostId),
-        eq(schema.bookings.customerId, customerId),
+        inArray(schema.bookings.customerId, ids),
         ne(schema.bookings.source, "admin"),
         isNotNull(schema.bookings.requestedAt),
         or(ne(schema.bookings.source, "member"), isNotNull(schema.bookings.callId)),
       ),
     )
-    .limit(1);
-  if (!asked) return false;
-  const [customer] = await reader.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, customerId));
-  if (!customer || customer.closedAt) return false;
-  return !(await isBlockedEitherWay(hostId, customerId, reader));
+    .groupBy(schema.bookings.customerId);
+  return openAndUnblocked(
+    hostId,
+    asked.map((row) => row.customerId),
+    reader,
+  );
+}
+
+/** Whether this one person has really asked this host for a call: the rule of `haveAskedHost`. */
+export async function hasAskedHost(hostId: string, customerId: string, reader: Reader = db): Promise<boolean> {
+  return (await haveAskedHost(hostId, [customerId], reader)).has(customerId);
 }
 const mayNote = hasAskedHost;
 
@@ -171,8 +230,11 @@ export async function hostNotesAbout(hostId: string, customerIds: string[]): Pro
     .select({ customerId: schema.hostNotes.customerId, text: schema.hostNotes.text })
     .from(schema.hostNotes)
     .where(and(eq(schema.hostNotes.hostId, hostId), inArray(schema.hostNotes.customerId, ids)));
-  const allowed = await Promise.all(notes.map((note) => mayNote(hostId, note.customerId)));
-  return new Map(notes.filter((_, index) => allowed[index]).map((note) => [note.customerId, note.text]));
+  const allowed = await haveAskedHost(
+    hostId,
+    notes.map((note) => note.customerId),
+  );
+  return new Map(notes.filter((note) => allowed.has(note.customerId)).map((note) => [note.customerId, note.text]));
 }
 
 /**

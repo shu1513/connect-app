@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import Link from "next/link";
 import { CallsByDay, type ListedCall } from "@/components/calls-by-day";
 import { Countdown } from "@/components/countdown";
+import { CustomerDetailsLines } from "@/components/customer-details";
 import { DiaryPicture } from "@/components/diary-picture";
 import { HostPhoto } from "@/components/host-photo";
 import { LocalTime } from "@/components/local-time";
@@ -13,6 +14,7 @@ import { warm, warmFont } from "@/components/warm-ui";
 import { db, schema } from "@/db";
 import { requestsOfCustomer, waitingForHost } from "@/lib/booking/bookings";
 import { roomOpensAt, roomState } from "@/lib/calls";
+import { customerDetailsFor } from "@/lib/home/customer-details";
 import { diaryNews, followedHosts } from "@/lib/follows/follows";
 import { FOLLOW } from "@/lib/follows/rules";
 import { notPaidYet, paymentLine, paymentsByCall } from "@/lib/home/payment-line";
@@ -24,6 +26,7 @@ import { firstLines } from "@/lib/projects/rules";
 import { callsToRate } from "@/lib/ratings/ratings";
 import { getSignedIn, requireUser } from "@/lib/session";
 import { todaysSuggestions } from "@/lib/suggestions/suggestions";
+import { RequestList, timesAskedFor } from "./host/requests/request-list";
 
 const REQUEST_LABEL: Record<string, string> = {
   card: "card details needed to send it",
@@ -110,7 +113,10 @@ function FrontPage() {
  * they follow, news from those hosts, and suggested hosts (plans/37). Calls that are over are on /calls.
  *
  * One page for everyone: a person can be a customer and a host with the same account, so the
- * calls they host and the requests waiting for their answer are here too.
+ * calls they host and the requests waiting for their answer are here too. A host sees more on it
+ * (plans/38-host-home-page.md): what she should know about the customer of each call she hosts,
+ * the requests themselves with Accept and Decline, and a line of shortcuts. Those parts appear
+ * when there is something to show; someone who only books calls sees the page of plan 36.
  *
  * Drawing this page only reads. It never opens a room: every way into a call is a link to the
  * call's own page, which decides who may enter.
@@ -134,7 +140,7 @@ export default async function HomePage(props: PageProps<"/">) {
   // A customer knows their host by the display name on the host's page, never by the host's account name.
   const myHostIds = [...new Set(calls.filter((c) => c.customerId === user.id).map((c) => c.hostId))];
   const callIds = calls.map((c) => c.id);
-  const [people, hostProfiles, payments, requests, toAnswer, toRate, followed] = await Promise.all([
+  const [people, hostProfiles, payments, requests, toAnswer, toRate, followed, aboutOf, ownProfiles] = await Promise.all([
     otherIds.length > 0 ? db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, otherIds)) : [],
     myHostIds.length > 0 ? db.select({ userId: schema.hostProfiles.userId, displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, myHostIds)) : [],
     callIds.length > 0 ? db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [],
@@ -142,7 +148,16 @@ export default async function HomePage(props: PageProps<"/">) {
     waitingForHost(user.id),
     callsToRate(user.id, now),
     followedHosts(user.id, now),
+    // About the customers of the calls this person hosts, and of no other call (plans/38). Nothing is asked for someone who hosts none.
+    customerDetailsFor(user.id, calls, now),
+    // This person's own host profile, for the shortcuts: only whether there is one, where it is, and how it stands.
+    db.select({ handle: schema.hostProfiles.handle, status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, user.id)),
   ]);
+  const ownProfile = ownProfiles[0] ?? null;
+  // Who has hosting to do. Not only an approved profile: a host who changed her display name waits for approval
+  // again, and a declined or suspended host can still have calls booked.
+  const hosts = ownProfile?.status === "approved" || calls.some((call) => call.hostId === user.id) || toAnswer.length > 0;
+  const requestTimes = timesAskedFor(toAnswer);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
   const paymentsOf = paymentsByCall(payments);
@@ -169,10 +184,13 @@ export default async function HomePage(props: PageProps<"/">) {
     startsAt: call.startsAt.toISOString(),
     minutes: Math.round((call.endsAt.getTime() - call.startsAt.getTime()) / 60_000),
     name: otherOf(call),
-    photoId: call.customerId === user.id ? (photos.get(call.hostId) ?? null) : null,
+    // The host's photo for a call this person booked; the customer's for a call they host, when they are handed one.
+    photoId: call.customerId === user.id ? (photos.get(call.hostId) ?? null) : (aboutOf.get(call.id)?.photoId ?? null),
     hosting: call.hostId === user.id,
     open: roomState(call, drawn) === "open",
     payment: paymentLine(paymentsOf.get(call.id) ?? []),
+    // Only ever set for a call this person hosts: `customerDetailsFor` answers for no other.
+    about: aboutOf.get(call.id)?.details,
   }));
   const next = nextCall(calls, drawn);
   const nextListed = next ? listed.find((call) => call.id === next.id)! : null;
@@ -188,6 +206,34 @@ export default async function HomePage(props: PageProps<"/">) {
       */}
       <RefreshEvery seconds={FOLLOW.refreshSeconds} />
       <h1 className={warm.title}>{firstName ? `Hello, ${firstName}` : "Hello"}</h1>
+
+      {hosts && (
+        <nav aria-label="Hosting" className="mt-2 text-sm" data-host-shortcuts>
+          <p className="flex flex-wrap items-center gap-x-5">
+            <span className="font-bold text-[#9a3412]">Hosting</span>
+            <Link href="/host/now" className={plainLink}>
+              Available now
+            </Link>
+            <Link href="/host/calendar" className={plainLink}>
+              Your calendar
+            </Link>
+            <Link href="/host#paid" className={plainLink}>
+              Earnings
+            </Link>
+            <Link href="/host" className={plainLink}>
+              Settings
+            </Link>
+          </p>
+          {ownProfile?.status === "approved" && !ownProfile.hidden && (
+            <p className="text-[#57534e]">
+              Your page:{" "}
+              <Link href={`/h/${ownProfile.handle}`} className={plainLink}>
+                /h/{ownProfile.handle}
+              </Link>
+            </p>
+          )}
+        </nav>
+      )}
 
       {user.paused && (
         <p className="mt-6 rounded border border-red-600 p-3 text-sm">
@@ -220,6 +266,11 @@ export default async function HomePage(props: PageProps<"/">) {
               </p>
             </div>
           </div>
+          {nextListed.about && (
+            <div className="mt-3 text-sm">
+              <CustomerDetailsLines callId={next.id} name={nextListed.name} about={nextListed.about} />
+            </div>
+          )}
           <Countdown
             callId={next.id}
             serverNow={drawn.toISOString()}
@@ -254,12 +305,20 @@ export default async function HomePage(props: PageProps<"/">) {
         <section className="mt-6 rounded-3xl border border-[#fed7aa] bg-[#fff7ed] p-5 text-sm" data-waiting>
           <h2 className={sectionTitle}>Waiting for you</h2>
           {toAnswer.length > 0 && (
-            <p className="mt-1">
-              You have {toAnswer.length} {toAnswer.length === 1 ? "request" : "requests"} for a call waiting for your answer.{" "}
-              <Link href="/host/requests" className={plainLink}>
-                See {toAnswer.length === 1 ? "it" : "them"}
-              </Link>
-            </p>
+            <div data-requests-to-answer>
+              <p className="mt-1">
+                You have {toAnswer.length} {toAnswer.length === 1 ? "request" : "requests"} for a call waiting for your answer.
+              </p>
+              {/* The requests themselves, to answer here (plans/38): the list of the requests page, its first few times. */}
+              <div className="mt-3">
+                <RequestList hostId={user.id} waiting={toAnswer} from="home" times={HOME.requestTimesShown} />
+              </div>
+              <p>
+                <Link href="/host/requests" className={plainLink}>
+                  {requestTimes > HOME.requestTimesShown ? `See all ${toAnswer.length} requests` : "The requests page"}
+                </Link>
+              </p>
+            </div>
           )}
           {toRate.length > 0 && (
             <>

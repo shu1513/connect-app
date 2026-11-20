@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agoWords, byDay, countdownWords, dayAfter, dayOf, nextCall, notOver } from "./rules";
+import { agoWords, byDay, callsBeforeWords, countdownWords, dayAfter, dayOf, nextCall, notOver } from "./rules";
 
 const at = (iso: string) => new Date(iso);
 const call = (startsAt: string, endsAt: string, more: { cancelledAt?: Date; safetyEndedAt?: Date } = {}) => ({
@@ -143,5 +143,16 @@ describe("calls grouped by day", () => {
   });
   it("gives nothing for no calls", () => {
     expect(byDay([], zone, now)).toEqual([]);
+  });
+});
+
+describe("the words for the calls a host has had with a customer before", () => {
+  it("says it is the first call when there was none", () => {
+    expect(callsBeforeWords(0)).toBe("First call with you");
+  });
+  it("leads up to one date for one call, and to the last date for several", () => {
+    expect(callsBeforeWords(1)).toBe("1 call before, on");
+    expect(callsBeforeWords(2)).toBe("2 calls before, the last on");
+    expect(callsBeforeWords(14)).toBe("14 calls before, the last on");
   });
 });

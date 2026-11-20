@@ -1,6 +1,6 @@
 /**
- * Testing tool: the home page and "Past calls" (plans/36), read from the running app the way a
- * browser gets them, against the local database.
+ * Testing tool: the home page and "Past calls" (plans/36), and what a host sees on the home page
+ * (plans/38), read from the running app the way a browser gets them, against the local database.
  *
  * What is real and what is pretended:
  *   real       sign-up and the confirmation link (so each person has a real login), and every
@@ -154,6 +154,32 @@ async function main() {
   }
   const listed = (html: string, callId: string) => html.includes(`data-call="${callId}"`);
 
+  // --- for part 8 (plans/38) ---
+  /** The request a call came from, sent to the host and accepted, as a real booking leaves it. */
+  async function requestOf(row: { id: string; hostId: string; customerId: string; startsAt: Date; endsAt: Date }, more: { words?: string; source?: string } = {}) {
+    await db.insert(schema.bookings).values({ hostId: row.hostId, customerId: row.customerId, startsAt: row.startsAt, endsAt: row.endsAt, lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, note: more.words ?? "", stage: "accepted", source: more.source ?? "customer", requestKey: randomUUID(), requestedAt: now, decidedAt: now, callId: row.id });
+  }
+  /** A request that waits for the host's answer. */
+  async function waitingRequest(hostId: string, customerId: string, startsInMinutes: number, words: string) {
+    const startsAt = new Date(Math.floor((Date.now() + startsInMinutes * MINUTE) / 1000) * 1000);
+    const [row] = await db
+      .insert(schema.bookings)
+      .values({ hostId, customerId, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MINUTE), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, note: words, stage: "waiting", requestKey: randomUUID(), requestedAt: now, respondBy: new Date(Date.now() + DAY) })
+      .returning();
+    return row;
+  }
+  /** The video service's word that these people joined the call. */
+  async function joined(callId: string, who: string[]) {
+    await db.insert(schema.attendanceEvents).values(who.map((id) => ({ provider: "homecheck", providerEventId: randomUUID(), callId, type: "participant_joined", participantIdentity: id, providerTime: now, payload: "{}" })));
+  }
+  /** The details a host is shown about the customer of one call: that part of the page, or "" when there is none. */
+  const detailsOf = (html: string, callId: string) => {
+    const from = html.indexOf(`data-customer-details="${callId}"`);
+    if (from < 0) return "";
+    const rest = html.slice(from + 30);
+    const ends = [rest.indexOf("data-customer-details="), rest.indexOf("data-call="), rest.indexOf("data-countdown="), rest.indexOf("</section>")].filter((at) => at >= 0);
+    return html.slice(from, from + 30 + Math.min(...ends, 6000));
+  };
   try {
     // ----------------------------------------------------------------------
     console.log("\n1. Someone new, and someone who is not logged in");
@@ -313,9 +339,142 @@ async function main() {
       check("a page number that is not one is read as the first page", count((await page("/calls?page=abc", other.jar)).html, "data-call=") === HOME.pastPerPage);
       check("none of them is on the home page", !(await page("/", other.jar)).html.includes("data-calls="));
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n8. What a host sees about her customers (plans/38)");
+    {
+      const { contactsOf, hasAskedHost, haveAskedHost, hostNotesAbout } = await import("../src/lib/people/contacts");
+      const bri = await asHost(await signUp("bri"), "bri", `Bri Display ${RUN}`);
+      const regular = await signUp("regular");
+      const first = await person("first");
+      const pausedMember = await person("pausedm");
+      const tester = await person("tester");
+      const seller = await host("seller", `Seller Display ${RUN}`);
+      const stranger = await person("stranger");
+
+      // Two calls that count, one cancelled, and one the customer never joined.
+      const before1 = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: -3 * 24 * 60 });
+      const before2 = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: -2 * 24 * 60 });
+      const beforeCancelled = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: -4 * 24 * 60, cancelled: true });
+      const beforeMissed = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: -5 * 24 * 60 });
+      for (const row of [before1, before2, beforeCancelled, beforeMissed]) await requestOf(row);
+      await joined(before1.id, [bri.id, regular.id]);
+      await joined(before2.id, [bri.id, regular.id]);
+      await joined(beforeCancelled.id, [bri.id, regular.id]);
+      await joined(beforeMissed.id, [bri.id]);
+
+      const noteText = `Likes short answers ${RUN}`;
+      const legalName = `Legal Name ${RUN}`;
+      await db.insert(schema.hostNotes).values({ hostId: bri.id, customerId: regular.id, text: noteText });
+      await db.insert(schema.identityChecks).values({ userId: regular.id, stripeSessionId: `vs_homecheck_${randomUUID()}`, status: "verified", adult: true, verifiedName: legalName, checkedAt: now });
+      await db.insert(schema.memberships).values([
+        { hostId: bri.id, customerId: regular.id, status: "active", since: now },
+        { hostId: bri.id, customerId: pausedMember.id, status: "paused", since: now },
+      ]);
+
+      const withRegular = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: 90 });
+      await requestOf(withRegular, { words: `Advice on my first video ${RUN}` });
+      const withFirst = await call({ hostId: bri.id, customerId: first.id, startsInMinutes: 200 });
+      await requestOf(withFirst, { words: `Sponsors question ${RUN}` });
+      const withPaused = await call({ hostId: bri.id, customerId: pausedMember.id, startsInMinutes: 300 });
+      await requestOf(withPaused, { source: "now" });
+      const testCall = await call({ hostId: bri.id, customerId: tester.id, startsInMinutes: 400 });
+      await requestOf(testCall, { words: `Words of a test call ${RUN}`, source: "admin" });
+      const sheBooked = await call({ hostId: seller.id, customerId: bri.id, startsInMinutes: 500 });
+      await requestOf(sheBooked, { words: `Her own words as a customer ${RUN}` });
+
+      const hers = await page("/", bri.jar);
+      const card = detailsOf(hers.html, withRegular.id);
+      check("the card is about the call she hosts next", hers.html.includes(`data-next-call="${withRegular.id}"`));
+      check("with what the customer wrote", words(card).includes(`Advice on my first video ${RUN}`), words(card).slice(0, 160));
+      check("ID confirmed and Your member", card.includes("data-customer-id") && card.includes("data-customer-member"));
+      check("the calls before: the two that count, not the cancelled one nor the one the customer never joined", card.includes('data-customer-before="2"') && words(card).includes("2 calls before, the last on"), card.match(/data-customer-before="\d+"/)?.[0] ?? "none");
+      const contact = (await contactsOf(bri.id, new Date())).find((c) => c.userId === regular.id);
+      check('the same number as "People you have talked to"', contact?.calls === 2, String(contact?.calls));
+      check("her own note, folded", card.includes('data-host-note="folded"') && words(card).includes(noteText) && words(card).includes(`Your notes about ${regular.name}`));
+      check("never the customer's email or the name from their ID", !hers.text.includes(regular.email) && !hers.text.includes(legalName));
+      check("no star rating beside a booked call", !card.includes("data-rating") && !/ratings?\b/.test(words(card)), words(card).slice(0, 200));
+
+      const firstRow = detailsOf(hers.html, withFirst.id);
+      check("a first-time customer: their words and \"First call with you\", nothing else", words(firstRow).includes(`Sponsors question ${RUN}`) && firstRow.includes('data-customer-before="0"') && words(firstRow).includes("First call with you") && !firstRow.includes("data-customer-id") && !firstRow.includes("data-customer-member") && !firstRow.includes("data-host-note"), words(firstRow).slice(0, 160));
+      const pausedRow = detailsOf(hers.html, withPaused.id);
+      check("a paused membership is not \"Your member\", and a call right now has no words", pausedRow !== "" && !pausedRow.includes("data-customer-member") && !pausedRow.includes("data-customer-words"), words(pausedRow).slice(0, 160));
+      check("a test call shows no details", listed(hers.html, testCall.id) && detailsOf(hers.html, testCall.id) === "" && !hers.text.includes(`Words of a test call ${RUN}`));
+      check("a call she booked as a customer is on the same page, without details", listed(hers.html, sheBooked.id) && detailsOf(hers.html, sheBooked.id) === "" && !hers.text.includes(`Her own words as a customer ${RUN}`));
+      check("the shortcuts for a host are there, with her page", hers.html.includes("data-host-shortcuts") && hers.html.includes(`href="/h/${bri.handle}"`) && hers.html.includes('href="/host/now"') && hers.html.includes('href="/host#paid"'));
+
+      const his = await page("/", regular.jar);
+      check("the customer of that call gets none of it on their own home page", listed(his.html, withRegular.id) || his.html.includes(`data-next-call="${withRegular.id}"`) ? !his.text.includes("data-customer-") && !his.text.includes(noteText) && !his.text.includes("Your member") && !his.text.includes("calls before") : false);
+      check("and no shortcuts for someone who only books calls", !his.html.includes("data-host-shortcuts"));
+      // What a page hands to the parts that run in the browser travels inside the page itself, and is what a refresh
+      // sends again. So the whole reply is searched, not only what is drawn: the host's holds the details, the customer's none.
+      check("nor in what the page hands to the browser, which is what a refresh sends again; the host's page does hold it there", !his.text.includes("callsBefore") && !his.text.includes("idConfirmed") && hers.text.includes("callsBefore") && hers.text.includes(noteText));
+      const sellers = await signUp("sellerlogin");
+      const sellersCall = await call({ hostId: sellers.id, customerId: regular.id, startsInMinutes: 600 });
+      await requestOf(sellersCall);
+      const another = await page("/", sellers.jar);
+      check("another host, with a call of the same customer, sees nothing of this host's note or count", detailsOf(another.html, sellersCall.id).includes('data-customer-before="0"') && !another.text.includes(noteText) && !detailsOf(another.html, sellersCall.id).includes("data-customer-member"));
+
+      // The check for several people at once against the single check, person by person.
+      const abandoned = await person("abandoned");
+      await db.insert(schema.bookings).values({ hostId: bri.id, customerId: abandoned.id, startsAt: new Date(Date.now() + DAY), endsAt: new Date(Date.now() + DAY + 30 * MINUTE), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 0, totalCents: 0, freeCancelMinutes: 0, stage: "card", requestKey: randomUUID() });
+      const everyone = [regular.id, first.id, pausedMember.id, tester.id, seller.id, stranger.id, abandoned.id, bri.id];
+      const same = async () => {
+        const many = await haveAskedHost(bri.id, everyone);
+        const single = await Promise.all(everyone.map((id) => hasAskedHost(bri.id, id)));
+        return { ok: everyone.every((id, i) => many.has(id) === single[i]), many };
+      };
+      const open = await same();
+      check("the check for several customers at once answers as the single check does for each", open.ok && open.many.has(regular.id) && open.many.has(first.id) && open.many.has(pausedMember.id));
+      check("never for a test call, a host she booked herself, a stranger, a request abandoned at the card step, or herself", ![tester.id, seller.id, stranger.id, abandoned.id, bri.id].some((id) => open.many.has(id)));
+
+      // A block, in either direction, with the call still on the list (a block cancels only calls that have not started, and that can fail).
+      for (const [blockerId, blockedId, which] of [
+        [bri.id, regular.id, "the host blocked the customer"],
+        [regular.id, bri.id, "the customer blocked the host"],
+      ] as const) {
+        await db.insert(schema.blocks).values({ blockerId, blockedId });
+        const blocked = await page("/", bri.jar);
+        check(`${which}: the call that is still listed shows no details at all`, (listed(blocked.html, withRegular.id) || blocked.html.includes(`data-next-call="${withRegular.id}"`)) && detailsOf(blocked.html, withRegular.id) === "" && !blocked.text.includes(noteText) && !blocked.text.includes(`Advice on my first video ${RUN}`));
+        check("  and the two checks still agree", (await same()).ok && !(await same()).many.has(regular.id) && (await hostNotesAbout(bri.id, [regular.id])).size === 0);
+        await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, blockerId), eq(schema.blocks.blockedId, blockedId)));
+      }
+      check("unblocked, the details are back", detailsOf((await page("/", bri.jar)).html, withRegular.id).includes("data-host-note"));
+      await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, first.id));
+      const closed = await page("/", bri.jar);
+      check("a customer whose account is closed: the call that is still listed shows no details", listed(closed.html, withFirst.id) && detailsOf(closed.html, withFirst.id) === "" && !closed.text.includes(`Sponsors question ${RUN}`) && (await same()).ok);
+      await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, first.id));
+
+      // Requests, to answer on the home page.
+      const asking = [await person("ask1"), await person("ask2")];
+      const sameTime = await Promise.all(asking.map((who, i) => waitingRequest(bri.id, who.id, 3 * 24 * 60, `Request words ${i} ${RUN}`)));
+      const fromRegular = await waitingRequest(bri.id, regular.id, 4 * 24 * 60, `A request from the regular ${RUN}`);
+      const withRequests = await page("/", bri.jar);
+      const list = withRequests.html.slice(withRequests.html.indexOf('data-request-list="home"'));
+      check("the requests are on the home page, each with Accept and Decline that come back to it", [...sameTime, fromRegular].every((b) => list.includes(`data-request="${b.id}"`)) && count(list, 'name="from" value="home"') === 6 && count(words(list), "Accept") === 3 && count(words(list), "Decline") === 3, `${count(list, 'name="from" value="home"')} return fields`);
+      check("people who asked for the same time sit together", words(list).includes("2 people asked for this time. Choose one."));
+      check("with the customer's words, and her note folded", words(list).includes(`Request words 0 ${RUN}`) && list.slice(list.indexOf(`data-request="${fromRegular.id}"`)).includes('data-host-note="folded"'));
+      const more = await Promise.all([5, 6, 7, 8, 9].map((days, i) => waitingRequest(bri.id, asking[0].id, days * 24 * 60 + i, `More ${i} ${RUN}`)));
+      const many = await page("/", bri.jar);
+      check(`only the first ${HOME.requestTimesShown} times asked for are shown, with the way to all of them`, count(many.html, "data-request=") === HOME.requestTimesShown + 1 && !many.html.includes(`data-request="${more[4].id}"`) && many.words.includes("See all 8 requests") && many.html.includes('href="/host/requests"'), `${count(many.html, "data-request=")} shown`);
+      const requestsPage = await page("/host/requests", bri.jar);
+      check("the requests page shows all of them, with its own return field, and the note folded", count(requestsPage.html, "data-request=") === 8 && count(requestsPage.html, 'name="from" value="requests"') === 16 && !requestsPage.html.includes('name="from" value="home"') && requestsPage.html.includes('data-host-note="folded"'), `${count(requestsPage.html, "data-request=")} shown`);
+      check("the customer who asked sees no list of requests to answer", !(await page("/", regular.jar)).html.includes("data-request-list"));
+
+      // A host whose profile waits for approval again still has hosting to do.
+      await db.update(schema.hostProfiles).set({ status: "pending" }).where(eq(schema.hostProfiles.userId, bri.id));
+      const pending = await page("/", bri.jar);
+      check("a host waiting for approval again keeps the shortcuts and the details, without the link to a page nobody can open", pending.html.includes("data-host-shortcuts") && !pending.html.includes(`href="/h/${bri.handle}"`) && detailsOf(pending.html, withRegular.id) !== "");
+    }
   } finally {
     const ids = made.length ? made : ["-"];
     const callIds = calls.length ? calls : [randomUUID()];
+    // Part 8: what hangs on the calls and the people.
+    await db.delete(schema.attendanceEvents).where(inArray(schema.attendanceEvents.callId, callIds));
+    await db.delete(schema.bookings).where(or(inArray(schema.bookings.hostId, ids), inArray(schema.bookings.customerId, ids)));
+    await db.delete(schema.hostNotes).where(or(inArray(schema.hostNotes.hostId, ids), inArray(schema.hostNotes.customerId, ids)));
+    await db.delete(schema.memberships).where(or(inArray(schema.memberships.hostId, ids), inArray(schema.memberships.customerId, ids)));
+    await db.delete(schema.identityChecks).where(inArray(schema.identityChecks.userId, ids));
     const projectIds = projects.length ? projects : [randomUUID()];
     const posts = (await db.select({ id: schema.projectPosts.id }).from(schema.projectPosts).where(inArray(schema.projectPosts.projectId, projectIds))).map((p) => p.id);
     if (posts.length) await db.delete(schema.projectPictures).where(inArray(schema.projectPictures.postId, posts));
