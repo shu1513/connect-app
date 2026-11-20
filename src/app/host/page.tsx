@@ -631,6 +631,15 @@ export default async function HostPage(props: PageProps<"/host">) {
         )}
         {/* Also shown while the payout account is not ready: money already earned is still theirs to see. */}
         {stripeConfigured() && settings.stripeAccountId && <Earnings hostId={user.id} payoutsReady={settings.payoutsReady} abroad={abroad} now={now} />}
+        {/* Every host has it, whatever she earned and whether or not payouts are set up (plans/46, part 5). */}
+        {profile && (
+          <p className="mt-4 text-sm">
+            <Link href="/host/statement" className="underline underline-offset-2" data-statement-link>
+              Your yearly statement
+            </Link>{" "}
+            <span className="opacity-70">A summary of a year for your own records: what customers paid, our fees, and what was sent to you. It is not a tax form.</span>
+          </p>
+        )}
       </section>
 
       <MembershipPart hostId={user.id} regularPricePer15Cents={profile?.pricePer15Cents ?? null} payoutsReady={Boolean(settings.payoutsReady) && stripeConfigured()} now={now} />

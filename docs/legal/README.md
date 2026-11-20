@@ -171,7 +171,7 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 8 | Business or private host | **Built** (part 1): asked when applying, shown on the host's page and where a call is asked for. |
 | 9 | The 14-day sentence | **Built** (pull request 80). The founder's tool for a new membership cancelled within 14 days is plan 46, part 3. |
 | 10 | Reasons when a host's page is declined or suspended | **Built** (part 1): saved, emailed and shown; closing an account takes a reason too. |
-| 11 | Tax details from hosts and the yearly reports | No code: Stripe's tools on the company's own Stripe account. See `docs/research/tax-forms-for-hosts.md`. A yearly statement a host can download is plan 46, part 5. |
+| 11 | Tax details from hosts and the yearly reports | No code: Stripe's tools on the company's own Stripe account. See `docs/research/tax-forms-for-hosts.md`. A yearly statement a host can download is **built** (plan 46, part 5); it is a summary, not a tax form. |
 | 12 | Refunds by Connect in the host's place, also after she collected | Plan 46, part 3. |
 | 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
 | 14 | Sending earnings not collected for 12 months | Plan 46, part 3. |
