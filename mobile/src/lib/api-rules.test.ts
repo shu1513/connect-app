@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { addressFor, APP_HEADER, appHeader, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
+import { addressFor, APP_HEADER, appHeader, isLoginToolAddress, isServer, readAnswer, SIGN_IN_HEADER, UNREACHABLE, whereNext } from "./api-rules";
 
 describe("the names the app and the server share", () => {
   it("are the same on both sides", () => {
@@ -56,6 +56,35 @@ describe("where a request may go", () => {
       "",
     ]) {
       expect(addressFor(server, path)).toBeNull();
+    }
+  });
+
+  it("knows a server address the app may talk to", () => {
+    expect(isServer("https://connect.example")).toBe(true);
+    expect(isServer("https://connect.example:8443")).toBe(true);
+    expect(isServer("http://localhost:3310")).toBe(false);
+    expect(isServer("http://localhost:3310", { plain: true })).toBe(true);
+    for (const bad of ["", "https://", "https://a@connect.example", "https://connect.example/", "https://connect.example/x", "ftp://connect.example"]) expect(isServer(bad, { plain: true })).toBe(false);
+  });
+
+  it("knows the login tool's own addresses, the only other place a sign-in may go", () => {
+    const here = "https://connect.example";
+    expect(isLoginToolAddress(here, "https://connect.example/api/auth/sign-in/email")).toBe(true);
+    expect(isLoginToolAddress(here, "https://connect.example/api/auth/get-session?x=1")).toBe(true);
+    // A server set with its usual port written out is the same place as the address without it.
+    expect(isLoginToolAddress("https://connect.example:443", "https://connect.example/api/auth/get-session")).toBe(true);
+    expect(isLoginToolAddress("https://connect.example:8443", "https://connect.example/api/auth/get-session")).toBe(false);
+    for (const bad of [
+      "https://evil.test/api/auth/sign-in/email",
+      "https://connect.example.evil.test/api/auth/get-session",
+      "https://connect.example@evil.test/api/auth/get-session",
+      "https://connect.example/api/app/start",
+      "https://connect.example/api/auth",
+      "http://connect.example/api/auth/get-session",
+      "/api/auth/get-session",
+      "",
+    ]) {
+      expect(isLoginToolAddress(here, bad)).toBe(false);
     }
   });
 

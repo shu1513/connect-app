@@ -4,11 +4,10 @@ import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { safeNext } from "@/lib/safe-next";
-import { db, schema } from "@/db";
 import { getSignedIn } from "@/lib/session";
-import { eq } from "drizzle-orm";
 import { timeZones } from "@/lib/time-zones";
 import { finishSignUp } from "./actions";
+import { acceptedBefore, WELCOME_PROBLEMS } from "@/lib/welcome";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
 
@@ -30,8 +29,7 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   }
   if (person.welcomed) redirect(next);
   // Someone who accepted an older version of the terms is asked again.
-  const [row] = await db.select({ termsAcceptedAt: schema.user.termsAcceptedAt }).from(schema.user).where(eq(schema.user.id, person.id));
-  const returning = Boolean(row?.termsAcceptedAt);
+  const returning = await acceptedBefore(person.id);
 
   return (
     <SitePage bare className={warm.auth}>
@@ -42,12 +40,12 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
 
       {problem === "boxes" && (
         <p role="alert" className="mt-4 text-sm text-red-600">
-          Please tick both boxes to continue.
+          {WELCOME_PROBLEMS.boxes}
         </p>
       )}
       {problem === "zone" && (
         <p role="alert" className="mt-4 text-sm text-red-600">
-          Please choose your time zone from the list.
+          {WELCOME_PROBLEMS.zone}
         </p>
       )}
 

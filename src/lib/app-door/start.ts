@@ -6,7 +6,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Switches } from "@/lib/safety/switches";
-import { TERMS_VERSION } from "@/lib/terms";
+import { SUPPORT_EMAIL, TERMS_VERSION } from "@/lib/terms";
 import type { AppRequest } from "./gate";
 import type { AppStart, AppSwitches } from "./types";
 
@@ -32,12 +32,13 @@ export function switchesForApps(all: Switches): AppSwitches {
 /** The answer of GET /api/app/start, for whoever the gate let in. */
 export async function startFor(asked: AppRequest): Promise<AppStart> {
   const { person } = asked;
-  const base = { updateNeeded: asked.updateNeeded, switches: switchesForApps(asked.switches), termsVersion: TERMS_VERSION };
+  const base = { updateNeeded: asked.updateNeeded, switches: switchesForApps(asked.switches), termsVersion: TERMS_VERSION, supportEmail: SUPPORT_EMAIL };
   if (!person) return { ...base, me: null };
-  const [profile] = await db
-    .select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden })
-    .from(schema.hostProfiles)
-    .where(eq(schema.hostProfiles.userId, person.id));
+  const [[profile], [own]] = await Promise.all([
+    db.select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, person.id)),
+    // Why the account is paused, as the website's own page for a paused person shows it. Asked only for someone who is.
+    person.paused ? db.select({ pausedReason: schema.user.pausedReason }).from(schema.user).where(eq(schema.user.id, person.id)) : [],
+  ]);
   return {
     ...base,
     me: {
@@ -46,6 +47,7 @@ export async function startFor(asked: AppRequest): Promise<AppStart> {
       email: person.email,
       timeZone: person.timeZone,
       paused: person.paused,
+      pausedReason: person.paused ? (own?.pausedReason ?? null) : null,
       next: person.welcomed ? null : "welcome",
       host: profile ? { status: profile.status, hidden: profile.hidden } : null,
     },

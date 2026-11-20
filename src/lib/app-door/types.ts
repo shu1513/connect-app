@@ -48,6 +48,8 @@ export type AppPerson = {
   email: string;
   timeZone: string | null;
   paused: boolean;
+  /** Why, in the founder's words, when the account is paused and a reason was given; otherwise null. Hers alone to read. */
+  pausedReason: string | null;
   /** What stands between this person and the home page; null when nothing does. */
   next: "welcome" | null;
   /** Her host profile's state, or null for someone who never applied. */
@@ -63,4 +65,21 @@ export type AppStart = {
   me: AppPerson | null;
   /** The version of the terms in force, so the app can say which it is showing. */
   termsVersion: string;
+  /** Where to write to Connect: shown to a paused person, and wherever the app says "write to us". */
+  supportEmail: string;
 };
+
+/** The answer of GET /api/app/welcome: what the "18 or older and terms" step shows. */
+export type AppWelcome = {
+  /** True when this person has done the step already (the app then goes on). */
+  done: boolean;
+  /** True when she accepted an earlier version of the terms: the step says "we have updated the rules". */
+  returning: boolean;
+  /** Her saved time zone, if she has one. */
+  timeZone: string | null;
+  /** Every time zone name the server accepts. The app offers the phone's own if it is among them. */
+  timeZones: string[];
+};
+
+/** The answer of POST /api/app/welcome. */
+export type AppWelcomeDone = { done: true };

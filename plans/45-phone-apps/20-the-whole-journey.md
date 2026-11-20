@@ -89,6 +89,23 @@ You asked for every feature. These are the differences that remain:
    and for an approved host, on a server that is up.
 7. **Send them in.**
 
+## Left for this part by the parts before it
+
+Things found while building that are not a fault in Connect's own code, or that only matter
+once a real person has the app. Each is looked at again here, before anything is sent to a store.
+
+- **From part 02:** changing the phone's text size while the app is open restarts the screen,
+  and the test build then prints a warning about "multiple navigation containers". The app
+  carries on correctly; look once more in a store-style build.
+- **From part 02:** with a keyboard plugged into an Android phone, the page that has the
+  keyboard's attention is drawn with a grey veil (Android's own mark for it). Decide whether to
+  restyle it.
+- **From part 03 (Astra's fifth look):** on Android, the library that keeps things in the
+  phone's secure store does not report when the phone failed to write to its storage. If that
+  happens at the very moment someone presses "Sign out" and the app is closed in the same
+  second, the person could be signed in again when the app is next opened (the server is told
+  about the sign-out all the same). Mend the library, or take its makers' fix if there is one.
+
 ## Keeping the 4.9%
 
 Step 3 above is the standing guard. It stays in the automatic checks after this part.

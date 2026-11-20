@@ -4077,3 +4077,45 @@ without (no test screens; with a plain address in its settings it sends nothing)
 **What cannot be tried here.** The iPhone build (this Mac's Xcode is too old). A real phone.
 
 **Left for part 20:** two small things seen on the test phone, noted in that part's plan.
+
+## The phone apps, part 03: signing up and signing in (plan 45, 20 November 2026)
+
+**What this is.** A person installs the app and gets to the home page: by signing in to the
+account they already have, or by making one. It is the same account as on the website.
+
+**What was built.**
+- *The screens:* first opening ("Sign in", "Create account"); create account; "Check your
+  email" (remembered on the phone, so it is still there after the app was closed); sign in;
+  the two-step code or a backup code, for anyone who has it; forgot password; "18 or older and
+  terms" with the time zone; sign out on the Account page. A paused account is told why inside
+  the app. A closed account gets the ordinary "did not match" sentence.
+- *The "18 and terms" step for the app* (`/api/app/welcome`), on one function shared with the
+  website's form (`src/lib/welcome.ts`), which now also refuses to write for an account closed
+  in that very moment.
+- *The sign-in client* (`mobile/src/lib/auth.ts`): the login tool's own kit for phones, asked
+  as carefully as the door (only Connect's server, no redirect, a time limit, one request at a
+  time). The phone keeps the sign-in and nothing else.
+
+**What the building changed.** Twelve things, listed in the plan. Among them: the phone's own
+time zone is offered if the server accepts it, with a search otherwise; signing out shows the
+first screens at once, with or without a connection.
+
+**What the reviewers found.** Astra looked at the code five times. Its points were all about
+what happens at bad moments: signing out with no connection; a renewal answered late putting an
+old sign-in back; the phone's secure store failing or being unreadable (as after restoring a
+phone from a backup), which could have locked a person out; a sign-out shown as done before the
+phone had done its part. All taken. The fifth look said "ready with changes"; one point lies
+inside a library and is noted in part 20's plan.
+
+**How it was checked.** 778 automatic tests on the website, 41 on the app. `app-door-check`,
+119 checks, 24 of them new. The website's `accounts-check` passes unchanged. On the Android
+test phone, with pictures: a new account from first opening to Home; the app closed and opened
+again at "Check your email"; a wrong password; an unconfirmed account; "Send it again"; forgot
+password to a new sign-in; an admin's two-step code, a wrong code and a backup code; sign out
+(the server's session is gone), also with no connection, also with the app closed a second
+later; a paused account; a closed account; the sign-in renewed on opening (a session made to
+look two days old went from 20 days left to 30); the too-old screen.
+
+**What cannot be tried here.** A real email arriving on a real phone. The pages of the website
+opened from the app (the test phone's browser asks to agree to Google's terms first; that was
+not done). The iPhone.

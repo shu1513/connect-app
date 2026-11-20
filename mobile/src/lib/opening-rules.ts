@@ -25,7 +25,7 @@ const isThing = (value: unknown): value is Record<string, unknown> => value !== 
  * answer, or some other site's answer, never opens the app.
  */
 export function isStart(data: unknown): data is AppStart {
-  if (!isThing(data) || typeof data.updateNeeded !== "boolean" || typeof data.termsVersion !== "string") return false;
+  if (!isThing(data) || typeof data.updateNeeded !== "boolean" || typeof data.termsVersion !== "string" || typeof data.supportEmail !== "string") return false;
   const switches = data.switches;
   if (!isThing(switches) || typeof switches.tips !== "boolean" || typeof switches.availableNow !== "boolean") return false;
   if (switches.memberships !== "on" && switches.memberships !== "use_only" && switches.memberships !== "off") return false;
@@ -33,6 +33,7 @@ export function isStart(data: unknown): data is AppStart {
   if (me === null) return true;
   if (!isThing(me) || typeof me.id !== "string" || typeof me.name !== "string" || typeof me.email !== "string" || typeof me.paused !== "boolean") return false;
   if (me.timeZone !== null && typeof me.timeZone !== "string") return false;
+  if (me.pausedReason !== null && typeof me.pausedReason !== "string") return false;
   if (me.next !== null && me.next !== "welcome") return false;
   return me.host === null || (isThing(me.host) && typeof me.host.status === "string" && typeof me.host.hidden === "boolean");
 }
@@ -51,8 +52,13 @@ function saysUpdate(data: unknown): boolean {
  * refusals. Not getting through (no connection, some other site's page, half an answer) is the
  * other case.
  */
-function gotThrough(answer: Answer<AppStart>): boolean {
+export function gotThrough(answer: Answer<AppStart>): boolean {
   return answer.ok ? saysUpdate(answer.data) || isStart(answer.data) : answer.code !== "unreachable";
+}
+
+/** Whether an answer of the opening address says, as a whole answer, that somebody is signed in. */
+export function someoneSignedIn(answer: Answer<AppStart>): boolean {
+  return answer.ok && isStart(answer.data) && answer.data.me !== null;
 }
 
 /**
@@ -78,6 +84,15 @@ export function openingFrom(answer: Answer<AppStart>): Opening {
  * old one (someone signed out elsewhere is signed out here), "this copy is too old" closes the
  * app, and a refusal never leaves the old, signed-in screens standing.
  */
+/**
+ * What the app shows the moment someone signs out, before the server has been asked anything:
+ * the same app with nobody signed in. It does not wait for the server, and does not depend on
+ * reaching it: a phone handed to the next person shows nothing of the one before.
+ */
+export function signedOut(now: Opening): Opening {
+  return now.kind === "ready" ? { kind: "ready", start: { ...now.start, me: null } } : now;
+}
+
 export function openingAfter(now: Opening, answer: Answer<AppStart>): Opening {
   return now.kind === "ready" && !gotThrough(answer) ? now : openingFrom(answer);
 }
