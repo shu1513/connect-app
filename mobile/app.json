@@ -56,7 +56,8 @@
         }
       ],
       "expo-font",
-      "./plugins/stripe-store-build"
+      "./plugins/stripe-store-build",
+      "./plugins/quiet-test-build"
     ],
     "experiments": {
       "typedRoutes": true,

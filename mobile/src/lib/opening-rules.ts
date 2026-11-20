@@ -38,11 +38,21 @@ export function isStart(data: unknown): data is AppStart {
 }
 
 /**
- * Whether Connect itself answered: a whole opening answer, or one of its own refusals. Not
- * getting through (no connection, some other site's page, half an answer) is the other case.
+ * Whether an answer says "this copy is too old", in so many words. This is read before anything
+ * else about the answer: a later server may send parts this copy does not know, and an old copy
+ * must still understand that it has to be updated.
+ */
+function saysUpdate(data: unknown): boolean {
+  return isThing(data) && data.updateNeeded === true;
+}
+
+/**
+ * Whether Connect itself answered: a whole opening answer, "please update", or one of its own
+ * refusals. Not getting through (no connection, some other site's page, half an answer) is the
+ * other case.
  */
 function gotThrough(answer: Answer<AppStart>): boolean {
-  return answer.ok ? isStart(answer.data) : answer.code !== "unreachable";
+  return answer.ok ? saysUpdate(answer.data) || isStart(answer.data) : answer.code !== "unreachable";
 }
 
 /**
@@ -53,8 +63,8 @@ function gotThrough(answer: Answer<AppStart>): boolean {
  */
 export function openingFrom(answer: Answer<AppStart>): Opening {
   if (answer.ok) {
-    if (!isStart(answer.data)) return { kind: "unreachable", message: UNREACHABLE };
-    return answer.data.updateNeeded ? { kind: "update", message: PLEASE_UPDATE } : { kind: "ready", start: answer.data };
+    if (saysUpdate(answer.data)) return { kind: "update", message: PLEASE_UPDATE };
+    return isStart(answer.data) ? { kind: "ready", start: answer.data } : { kind: "unreachable", message: UNREACHABLE };
   }
   if (answer.code === "update_needed") return { kind: "update", message: answer.message };
   return { kind: "unreachable", message: answer.message };

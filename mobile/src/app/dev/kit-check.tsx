@@ -65,7 +65,9 @@ async function checkKits(): Promise<Line[]> {
     // Asks the server's login tool who is signed in. Nobody is: the point is that the question got there and back.
     const asked = await client.getSession();
     if (asked.error) throw new Error(`the server's login tool did not answer (${asked.error.status ?? "no connection"})`);
-    return asked.data ? "reached the server's login tool; somebody is signed in" : "reached the server's login tool; nobody is signed in";
+    // This check keeps no sign-in, so the one right answer is "nobody". Anything else (some other site's page, say) is not the login tool.
+    if (asked.data !== null) throw new Error("something answered, but not as the server's login tool does");
+    return "reached the server's login tool; nobody is signed in";
   });
   return lines;
 }

@@ -75,15 +75,17 @@ function isRefusal(body: unknown): body is Refusal {
 /**
  * Reads what the server sent. A refusal is one of the door's codes with its sentence, whatever
  * number came with it; a success is an answer of the door, which is always one plain thing with
- * named parts. Anything else (a page of some network in between, an error of the server itself,
- * half an answer, a list) counts as "could not reach Connect": the app never guesses.
+ * named parts, and never has a part called "error". Anything else (a page of some network in
+ * between, an error of the server itself, half an answer, a list, a refusal this copy of the app
+ * does not know yet) counts as "could not reach Connect": the app never guesses, and never takes
+ * something refused for something done.
  *
  * This only tells an answer from a refusal. Whether an answer has the parts a screen needs is
  * for the one who asked to check (see `isStart` in opening-rules.ts).
  */
 export function readAnswer<T>(status: number, body: unknown): Answer<T> {
   if (isRefusal(body)) return { ok: false, code: body.error.code, message: body.error.message };
-  if (status >= 200 && status < 300 && body !== null && typeof body === "object" && !Array.isArray(body)) return { ok: true, data: body as T };
+  if (status >= 200 && status < 300 && body !== null && typeof body === "object" && !Array.isArray(body) && !("error" in body)) return { ok: true, data: body as T };
   return { ok: false, code: "unreachable", message: UNREACHABLE };
 }
 

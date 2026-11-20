@@ -1,7 +1,7 @@
 # Phone apps, part 02: the app's frame
 
 **Status:** built, 20 November 2026 (see `docs/module-record.md`). Written that day by the
-builder alone. Part of plan 45. Astra checked the plan once and the code once; every point was
+builder alone. Part of plan 45. Astra checked the plan once and the code twice; every point was
 worked in. What the building changed or added is listed under "What the building changed" near
 the end; where that list and a decision differ, the list is what was built.
 
@@ -175,6 +175,22 @@ containers". The app carries on correctly.
    check runs, not when the file is read.
 8. *The camera and microphone questions gave no reason; an unused permission.* Point 8.
 9. *The field outline was too faint.* Point 9.
+
+## Astra's second look at the code (20 November 2026): "ready with changes", worked in
+
+All nine fixes were found complete. Four further points, none a "must", all taken:
+
+1. *The everyday test build copies every request, with its headers, to the code server on the
+   developer's computer* (a tool for looking at network traffic). From part 03 on a request
+   carries the sign-in. `mobile/plugins/quiet-test-build.js` switches that tool off. A store
+   build never has it.
+2. *"This copy is too old" must be understood before anything else in the answer is read:* a
+   later server may send parts an old copy does not know, and the old copy would have taken the
+   whole answer for unreadable and stayed open.
+3. *The test screen took any answer for the login tool's.* It now takes only the one right
+   answer ("nobody is signed in").
+4. *A refusal this copy does not know yet, sent with 200, counted as a success.* Any answer with
+   a part called "error" that is not a known refusal now counts as "cannot reach Connect".
 
 ## Astra's check of the plan (20 November 2026): "ready with changes", worked in
 

@@ -56,6 +56,10 @@ describe("what the app shows when it opens", () => {
     expect(openingAfter(ready, { ok: true, data: signedOutLater })).toEqual({ kind: "ready", start: signedOutLater });
     expect(openingAfter(ready, { ok: false, code: "update_needed", message: "Please update." }).kind).toBe("update");
     expect(openingAfter(ready, { ok: true, data: { ...start, updateNeeded: true } }).kind).toBe("update");
+    // "Too old" is understood even when the rest of the answer is from a later server this copy cannot read.
+    const later = { updateNeeded: true, switches: { memberships: "a_later_kind" }, somethingNew: 1 } as never;
+    expect(openingFrom({ ok: true, data: later })).toEqual({ kind: "update", message: PLEASE_UPDATE });
+    expect(openingAfter(ready, { ok: true, data: later }).kind).toBe("update");
     // Half an answer counts as not getting through.
     expect(openingAfter(ready, { ok: true, data: {} as never })).toBe(ready);
     // A refusal is Connect's own word: the old, signed-in screens do not stay.

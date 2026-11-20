@@ -57,6 +57,10 @@ Nothing here needs a store account. It needs Android Studio (installed) and the 
 In a test build, the Account place has two test screens: "Check the kits" (each kit the app stands
 on proves it is alive on this phone) and "The look" (every shared piece of the look on one page).
 
+A test build's tool for looking at network traffic is switched off
+(`plugins/quiet-test-build.js`): it would copy every request, with the sign-in in its header, to
+the code server on this Mac.
+
 ## Trying it as a store build would be made
 
 The everyday test build above loads its code from this Mac as it runs. A store build carries its
