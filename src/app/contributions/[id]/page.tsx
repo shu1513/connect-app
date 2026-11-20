@@ -81,18 +81,18 @@ export default async function ContributionPage(props: PageProps<"/contributions/
           , and a payment fee of {formatMoney(contribution.amountCents - tipCents)}. All of a tip is meant for the host; Connect keeps nothing of it. It is a thank-you; it does not buy a call or any promised reward.
         </p>
       ) : (
-      <p className="mt-1 text-sm">
-        {formatMoney(contribution.amountCents)}
-        {monthly ? " every month" : ", once"}, to{" "}
-        {profile ? (
-          <Link href={`/h/${profile.handle}/project`} className="underline underline-offset-2">
-            {hostName}&apos;s project
-          </Link>
-        ) : (
-          `${hostName}'s project`
-        )}
-        . It supports the project; it does not buy a call or any promised reward.
-      </p>
+        <p className="mt-1 text-sm">
+          {formatMoney(contribution.amountCents)}
+          {monthly ? " every month" : ", once"}, to{" "}
+          {profile ? (
+            <Link href={`/h/${profile.handle}/project`} className="underline underline-offset-2">
+              {hostName}&apos;s project
+            </Link>
+          ) : (
+            `${hostName}'s project`
+          )}
+          . It supports the project; it does not buy a call or any promised reward.
+        </p>
       )}
 
       {notice && (

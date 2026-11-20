@@ -138,7 +138,8 @@ export async function reportMadeAction(formData: FormData) {
  */
 export async function tipsSwitchAction(formData: FormData) {
   const admin = await requireAdmin();
-  const off = formData.get("tips") === "off";
+  // Read strictly: anything that is not "on" counts as off, the safe side, as for the other switches.
+  const off = formData.get("tips") !== "on";
   await saveTipsSwitch({ adminId: admin.id, off });
   back(off ? "Tips are off. Tips that were only held are being let go." : "Tips are on.");
 }

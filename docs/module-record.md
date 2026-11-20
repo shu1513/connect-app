@@ -3695,6 +3695,12 @@ and 39.
   nothing ever shows her.
 - *The other check scripts* found three lists that had to learn of the new files (which pages
   may reach the money code, which may reach the project code, how many actions the founder has).
+- *CodeRabbit* had reached its review limit on this pull request (76: "Next included review
+  available in 37 minutes"), so, as the founder has asked for that case, the builder read the
+  whole change line by line in its place. Three small things changed: the founder's tips switch
+  now reads its form strictly (anything that is not "on" counts as off, the safe side, as the
+  other switches do); "Tips you gave" says when a paid tip was paid back; and one paragraph of
+  the tip's page was laid out wrongly in the code.
 
 **How it was checked.** 743 automatic tests on the code, 18 of them new (what a tip costs, for
 every tip from $2.00 to $3,000.00 and the largest; reading a typed tip; who may give one; the

@@ -274,7 +274,11 @@ export default async function AccountPage(props: PageProps<"/account">) {
                         Held on your card; taken on <LocalTime iso={row.payment.takeAt.toISOString()} />. You can cancel until then.
                       </>
                     ) : state === "taken" ? (
-                      "Paid."
+                      row.payment.refundedCents > 0 ? (
+                        `Paid; $${(row.payment.refundedCents / 100).toFixed(2)} of it was paid back to your card.`
+                      ) : (
+                        "Paid."
+                      )
                     ) : state === "cancelled" ? (
                       "Cancelled; nothing was charged."
                     ) : state === "cancelling" ? (
