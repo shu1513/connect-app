@@ -33,6 +33,7 @@ install from the App Store and Google Play.
 - About people deleting their own account in the app: "of course."
 - Then, about everything still open: "do what you think is the best. use your best judgement
   after research"
+- About the alert for a call now: "maybe the phone should vibrate too or something"
 
 ## Decisions (the builder's, after the research; the founder can change any of them)
 
@@ -52,7 +53,7 @@ install from the App Store and Google Play.
    part 1 below.
 
 3. **What is in the first version of the app.**
-   For everyone: sign up, sign in, the account page, closing your own account, reporting and
+   For everyone: sign up, sign in, the account page, deleting your own account, reporting and
    blocking.
    For a customer: search, a host's page, asking for a booked call, asking for a call now,
    saving a card and paying, the list of calls, the call itself, rating, asking for a refund,
