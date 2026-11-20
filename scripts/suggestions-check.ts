@@ -188,6 +188,12 @@ async function main() {
       check(`nor one whose account is a little under ${SUGGEST.minAccountDays} days old`, (await count()) === 4);
       await aged(SUGGEST.minAccountDays * DAY + 5 * MINUTE);
       check(`from ${SUGGEST.minAccountDays} days on they count like anyone else`, (await count()) === 5);
+      // To the moment: asked with a fixed clock, exactly so many days after the account was made, and one millisecond before.
+      const madeAt = new Date(Date.now() - 10 * DAY);
+      await db.update(schema.user).set({ createdAt: madeAt }).where(eq(schema.user.id, fresh.id));
+      const at = async (moment: number) => (await S.peopleBehind(viewer.id, [david.id], new Date(moment))).get(david.id) ?? 0;
+      const turns = madeAt.getTime() + SUGGEST.minAccountDays * DAY;
+      check(`exactly ${SUGGEST.minAccountDays} days after the account was made it counts, a moment before it does not`, (await at(turns)) === 5 && (await at(turns - 1)) === 4, `${await at(turns - 1)} then ${await at(turns)}`);
       await db.update(schema.follows).set({ unfollowedAt: now }).where(and(eq(schema.follows.followerId, fresh.id), eq(schema.follows.hostId, david.id)));
       const loner = await person("loner");
       check("someone who follows nobody has nobody behind any host", (await S.peopleBehind(loner.id, [david.id, emma.id], new Date())).size === 0);

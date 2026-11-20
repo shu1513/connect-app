@@ -58,7 +58,7 @@ with you. I would build this idea from day one."
    - Each person counts once for a host, however often they called.
    - A person only counts while their account is open and not paused, and a follow only counts
      while there is no block between that person and that host.
-   - A person only counts once their account is three days old (added on 19 November 2026, on
+   - A person only counts once their account is at least three days old (added on 19 November 2026, on
      the founder's word, against the trick with made-up accounts under "Limits to know about").
    - **Changed after Astra's check:** the first draft gave 4 points for a person who had also
      had a call with the host and 2 for one who only follows. That is dropped. Telling "a call
@@ -299,7 +299,7 @@ That needs real hosts and customers, and then a look at what was shown and what 
   are made once a day), and open times, ratings and the daily order move the row too. An
   automatic security review of the code raised this on 19 November 2026. The founder then said:
   "we can tighten it a bit now if it has no harm". So an account counts as one of the people
-  only from its third day: accounts made for the purpose are worth nothing at first, and the
+  only once it is at least three days old: accounts made for the purpose are worth nothing at first, and the
   trick takes days of waiting on top of the looking. It is not closed: someone patient can still
   do it. The cost of the rule is small: a new person's follows start to count three days after
   they joined, so in the first three days after the app opens this part gives no points at all.
