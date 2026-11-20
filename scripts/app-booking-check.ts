@@ -27,7 +27,7 @@ import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
 import type { AppBooking, AppBookSent, AppBookSummary, AppCardStep, AppHostPage, AppIdentity, AppIdentityStart, Refusal } from "../src/lib/app-door/types";
-import { answerDeadline, CARD_CONSENT_VERSION, LIMITS, payCutoff } from "../src/lib/booking/rules";
+import { answerDeadline, CARD_CONSENT_VERSION, LIMITS, newRequestKey, payCutoff, REQUEST_KEY_LIFE_MS, requestKeyMadeAt } from "../src/lib/booking/rules";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
@@ -389,11 +389,18 @@ async function main() {
         (error: Error) => ({ id: null, after: Date.now() - began, error: error.message }),
       );
       // The app's sending comes back by itself, after its waits have run out, while both places are still held.
-      const gaveUp = await send(maya.handle, waitApp, cust.jar);
-      const gaveUpAfter = Date.now() - began;
-      const webStillWaits = await Promise.race([webCall.then(() => false), pause(300).then(() => true)]);
-      appPlace.letGo();
-      webPlace.letGo();
+      // (If it ever lost its limit it would wait for ever: this check gives it 40 seconds, and lets go either way.)
+      let gaveUp: Reply = { status: 0, json: null, text: "the app's sending did not come back within 40 seconds", headers: {} };
+      let gaveUpAfter = 0;
+      let webStillWaits = false;
+      try {
+        gaveUp = await Promise.race([send(maya.handle, waitApp, cust.jar), pause(40_000).then(() => gaveUp)]);
+        gaveUpAfter = Date.now() - began;
+        webStillWaits = await Promise.race([webCall.then(() => false), pause(300).then(() => true)]);
+      } finally {
+        appPlace.letGo();
+        webPlace.letGo();
+      }
       await Promise.all([appPlace.through, webPlace.through]);
       const web = await webCall;
       check("the app's sending gives up after its limit and is told nothing certain", gaveUp.status === 503 && gaveUp.text === "" && gaveUpAfter >= 8_000 && (await withKey(waitApp.requestKey)) === 0, `${gaveUp.status} after ${gaveUpAfter} ms ${gaveUp.text.slice(0, 80)}`);
@@ -409,6 +416,27 @@ async function main() {
       const saidNow = await send(maya.handle, full, second.jar, { seen: { price: 500, freeCancel: 1440 } });
       const leftOver = (await db.select().from(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id))).length;
       check("used-up keys older than a day are tidied away, and the refusal is then said", sentence(saidNow) === sentence(old) && leftOver === 1 && (await spentKeys(second.id, full.requestKey)) === 1, `${saidNow.status} ${leftOver}`);
+      // Two refusals at the same moment with one place left in the list: one is written down and said, the other is not said for good.
+      await db.delete(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id));
+      await db.insert(schema.spentRequestKeys).values(Array.from({ length: B.SPENT_KEYS_MAX - 1 }, () => ({ customerId: second.id, requestKey: randomUUID() })));
+      const [pairA, pairB] = [await okSummary(maya.handle, s.startsAt, second.jar), await okSummary(maya.handle, s.startsAt, second.jar)];
+      const pair = await Promise.all([send(maya.handle, pairA, second.jar, { seen: { price: 500, freeCancel: 1440 } }), send(maya.handle, pairB, second.jar, { seen: { price: 500, freeCancel: 1440 } })]);
+      const inList = (await db.select().from(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id))).length;
+      check("two refusals at once for the last place in the list: one is said, the other is not, and the list is not overfull", pair.map((reply) => reply.status).sort().join() === "400,503" && inList === B.SPENT_KEYS_MAX, `${pair.map((reply) => reply.status).join()} ${inList}`);
+      await db.delete(schema.spentRequestKeys).where(eq(schema.spentRequestKeys.customerId, second.id));
+      // A key only makes a request for half a day. An older one (a sending held up for longer than a used-up key is
+      // remembered, say) makes nothing, though everything else is in order; so does a key the server did not make for the app.
+      const fresh2 = await okSummary(maya.handle, s.startsAt, cust.jar);
+      const oldKey = newRequestKey(new Date(Date.now() - REQUEST_KEY_LIFE_MS - 60_000));
+      const tooOld = await send(maya.handle, fresh2, cust.jar, { requestKey: oldKey });
+      const notOurs = await send(maya.handle, fresh2, cust.jar, { requestKey: randomUUID() });
+      check("a key older than half a day makes nothing, and neither does one the server did not make for the app", sentence(tooOld) === B.KEY_TOO_OLD && sentence(notOurs) === B.KEY_TOO_OLD && (await withKey(oldKey)) === 0 && requestKeyMadeAt(fresh2.requestKey) !== null && Math.abs(requestKeyMadeAt(fresh2.requestKey)!.getTime() - Date.now()) < 60_000, `${sentence(tooOld)} | ${sentence(notOurs)}`);
+      // A request that was made is still found by its key, however old the key has become.
+      const agedKey = newRequestKey(new Date(Date.now() - REQUEST_KEY_LIFE_MS - 60_000));
+      const agedTime = nextFree();
+      const { booking: aged } = await B.askForCall({ customer: { id: cust.id, name: cust.name, email: cust.email }, hostId: maya.id, startsAt: new Date(agedTime), lengthMinutes: 30, note: "", requestKey: agedKey, agreedToCardTerms: false, seen: { pricePer15Cents: 0, freeCancelMinutes: 1440 }, now: new Date() });
+      const agedAgain = await send(maya.handle, { ...fresh2, startsAt: agedTime }, cust.jar, { requestKey: agedKey });
+      check("a request that was made is still found by its key, however old the key", agedAgain.status === 200 && (agedAgain.json as AppBookSent).id === aged.id);
       // The limit is for the wait for the key only: what was in force before is put back.
       const limits = await db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('lock_timeout', '5s', true)`);
@@ -446,8 +474,8 @@ async function main() {
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
       check("a paused person", refusal(await send(maya.handle, s, cust.jar, fresh())) === "paused");
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
-      // (One request was made on purpose above: the sending that gave up waiting, sent again.)
-      check("none of those made a request", (await db.select().from(schema.bookings).where(and(inArray(schema.bookings.customerId, [cust.id, third.id]), sql`${schema.bookings.requestKey} <> ${waitApp.requestKey}`))).length === 1 && (await db.select().from(schema.bookings).where(eq(schema.bookings.hostId, second.id))).length === 0);
+      // (Two requests were made on purpose above: the sending that gave up waiting, sent again; and the one with the aged key.)
+      check("none of those made a request", (await db.select().from(schema.bookings).where(and(inArray(schema.bookings.customerId, [cust.id, third.id]), sql`${schema.bookings.requestKey} not in (${waitApp.requestKey}, ${agedKey})`))).length === 1 && (await db.select().from(schema.bookings).where(eq(schema.bookings.hostId, second.id))).length === 0);
       // The limit on requests waiting with one host.
       const more = [await okSummary(maya.handle, nextFree(), cust.jar), await okSummary(maya.handle, nextFree(), cust.jar)];
       for (const one of more) await send(maya.handle, one, cust.jar);

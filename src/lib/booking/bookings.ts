@@ -20,7 +20,7 @@ import { identityState } from "@/lib/safety/identity";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
-import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, cardStepOpen, earliestStartFor, isUuid, LIMITS, PASSED_OVER, payCutoff, readLengths, takenUntil } from "./rules";
+import { AFTER_CALL_MINUTES, answerDeadline, CARD_CONSENT_VERSION, cardStepOpen, earliestStartFor, isUuid, LIMITS, PASSED_OVER, payCutoff, readLengths, REQUEST_KEY_LIFE_MS, requestKeyLives, takenUntil } from "./rules";
 import { stretchesFor, isOpenStart, openStarts, withOwnBreak, type Interval } from "./slots";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -46,6 +46,9 @@ export function isOverlap(error: unknown): boolean {
  */
 /** Said to a sending whose once-only key was already answered "no request was made": it makes nothing, however late it arrives. */
 export const KEY_SPENT = "This request can no longer be sent as it is. Please go back and start again.";
+
+/** Said to a sending from the app whose key is too old (or is not one the server made for the app). */
+export const KEY_TOO_OLD = "This page has been open for a long time. Please check the details and send again.";
 
 /** How long a sending from the app waits for another one with the same key. */
 const KEY_WAIT = "8s";
@@ -464,8 +467,12 @@ export async function askForCall(input: {
    * request. Only code that leaves the field out altogether (the check scripts) is not asked.
    */
   seen: { pricePer15Cents: number; freeCancelMinutes: number; cardTermsVersion?: string | null };
-  /** The phone app: the wait for another sending with the same key has a limit (see `queueForKey`). */
-  boundedKeyWait?: boolean;
+  /**
+   * A sending from the phone app. Two things are then different from the website's form: the wait for another
+   * sending with the same key has a limit (see `queueForKey`), and the key itself must be one the server made
+   * for the app not too long ago (`requestKeyLives`): an older one makes nothing.
+   */
+  fromApp?: boolean;
   now: Date;
 }): Promise<{ booking: Booking; clientSecret: string | null }> {
   const { customer, now } = input;
@@ -481,7 +488,7 @@ export async function askForCall(input: {
       // again because the first answer was lost on the way, waits here until the first is through, and then finds
       // what it made. So the second can never be refused (the host has changed something meanwhile, say) while the
       // first goes on to be made.
-      await queueForKey(tx, customer.id, input.requestKey, { bounded: input.boundedKeyWait === true });
+      await queueForKey(tx, customer.id, input.requestKey, { bounded: input.fromApp === true });
       const [again] = await tx.select().from(schema.bookings).where(eq(schema.bookings.requestKey, input.requestKey));
       if (again) {
         if (again.customerId !== customer.id) throw new BookingError("This form is out of date. Please reload the page.");
@@ -531,6 +538,10 @@ export async function askForCall(input: {
         const [{ today }] = await tx.select({ today: sql<number>`count(*)::int` }).from(schema.bookings).where(and(drafts, gt(schema.bookings.createdAt, new Date(now.getTime() - DAY))));
         if (today >= LIMITS.cardStepsPerDay) throw new BookingError("You have started a lot of requests today. Please try again tomorrow.");
       }
+      // The last thing before a request is made: the app's key must still be alive. (A key that was answered "no
+      // request was made" is remembered for longer than a key lives, so one that has been forgotten is too old to
+      // make anything: together the two close every way back for a sending that was held up.)
+      if (input.fromApp && !requestKeyLives(input.requestKey, new Date())) throw new BookingError(KEY_TOO_OLD);
       const [draft] = await tx
         .insert(schema.bookings)
         .values({
@@ -1072,8 +1083,12 @@ export async function requestWithKey(customerId: string, requestKey: string): Pr
  * moment is waited for (a few seconds at most) and then seen. This is what is asked before a
  * customer is told "nothing was sent". One short step on one connection.
  */
-/** A used-up key only matters while a sending with it could still be on its way. A day is far longer than that. */
+/**
+ * A used-up key is remembered for a day: twice as long as a key for the app can make a request at all
+ * (`REQUEST_KEY_LIFE_MS`). So when it is forgotten, the key is too old to make anything.
+ */
 const SPENT_KEYS_KEPT_MS = DAY;
+if (SPENT_KEYS_KEPT_MS < 2 * REQUEST_KEY_LIFE_MS) throw new Error("A used-up request key must be remembered for longer than a key lives.");
 /** How many used-up keys one person can have at a time. Nobody refused in good faith comes near it. */
 export const SPENT_KEYS_MAX = 200;
 
@@ -1084,6 +1099,9 @@ export const SPENT_KEYS_MAX = 200;
  */
 async function spendKey(tx: Tx, customerId: string, requestKey: string): Promise<void> {
   const mine = eq(schema.spentRequestKeys.customerId, customerId);
+  // One of this person's refusals at a time (taken after the key's own place, never before it): two that come
+  // together must not both find one row's room and both take it.
+  await tx.execute(sql`select pg_advisory_xact_lock(${KEY_SPACE}::int, hashtext(${`used-up-keys:${customerId}`}))`);
   const [known] = await tx.select({ at: schema.spentRequestKeys.at }).from(schema.spentRequestKeys).where(and(mine, eq(schema.spentRequestKeys.requestKey, requestKey)));
   if (known) return;
   await tx.delete(schema.spentRequestKeys).where(and(mine, lt(schema.spentRequestKeys.at, new Date(Date.now() - SPENT_KEYS_KEPT_MS))));

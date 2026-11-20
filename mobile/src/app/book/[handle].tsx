@@ -62,9 +62,10 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
   const newest = useRef(0);
   const busy = useRef(false);
   /**
-   * The key that makes a request sent twice count once: the first one the server gave this screen,
-   * kept for as long as the screen stands. A second tap, and trying again after the connection
-   * failed, are then the same one request.
+   * The key that makes a request sent twice count once: the one the newest summary brought (a key
+   * only makes a request for half a day, so an old one is not kept). A second tap, and trying
+   * again after the connection failed, are still the same one request: while a sending is
+   * unsettled the summary is not read again, and what is sent again is exactly what was sent.
    */
   const key = useRef<string | null>(null);
   const path = `/api/app/hosts/${handle}/book`;
@@ -80,7 +81,7 @@ function OneSummary({ handle, time }: { handle: string; time: { start: string; l
     const answer = await ask<AppBookSummary>(`${path}?length=${time.length}&start=${encodeURIComponent(time.start)}`);
     if (mine !== newest.current || frozen.current) return;
     if (answer.ok && isBookSummary(answer.data)) {
-      if (answer.data.kind === "ok" && !key.current) key.current = answer.data.requestKey;
+      if (answer.data.kind === "ok") key.current = answer.data.requestKey;
       const now = tickedFor(answer.data);
       // A tick is for what was on the screen when it was given. If that is no longer what is shown, the tick is gone
       // for good: it does not come back when the same terms come back.

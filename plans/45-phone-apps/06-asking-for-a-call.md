@@ -446,6 +446,23 @@ Astra found the app's retry gap closed in every ordering. What was left:
 4. *(Note.)* The check of the wait limit depended on timing. It now holds both places until
    the app's sending has given up, then lets go.
 
+## Astra's tenth look at the code (20 November 2026): one gap reopened by the tidying, now closed for good
+
+1. *Forgetting a used-up key after a day let it come back to life* (a call a week ahead: the
+   "no" forgotten, then a held-up copy of the first sending arriving). **A key for the app now
+   carries the moment it was made, and makes a request for half a day and no longer.** A
+   used-up key is remembered for a whole day. So by the time a "no" is forgotten, its key is
+   too old to make anything. The app takes the newest key each time it reads the summary; a
+   page left open longer than half a day says "This page has been open for a long time.
+   Please check the details and send again." A request that was made is still found by its
+   key however old the key is. The website's form is as it was (it has no "used-up" keys).
+2. *(Note.)* Two refusals at the very same moment could both take the last place in a
+   person's list of 200. They now take turns. A check does it.
+3. *(Note.)* On the website, a lookup that itself failed was read as "no request found". It
+   now leads to "we could not tell whether your request was sent".
+4. *(Note.)* The check of the wait limit could hang if the limit were ever lost. It now gives
+   up after 40 seconds and lets go either way.
+
 **The database gets one small new table with this part** (`spent_request_keys`). Its change
 file is made when this part's pull request is opened, so its number comes after whatever has
 been merged by then.

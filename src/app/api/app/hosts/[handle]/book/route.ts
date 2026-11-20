@@ -101,7 +101,7 @@ async function send(
       // Only the box itself, ticked: nothing else counts as a yes.
       agreedToCardTerms: given.cardTerms,
       seen: { pricePer15Cents: given.seen.price, freeCancelMinutes: given.seen.freeCancel, cardTermsVersion: given.cardTermsVersion },
-      boundedKeyWait: true,
+      fromApp: true,
       now: new Date(),
     });
     return answer<AppBookSent>({ id: booking.id });

@@ -8,12 +8,11 @@
  * app: it shows the words it is given, and hands back the two numbers it was shown as they are.
  */
 import "server-only";
-import { randomUUID } from "node:crypto";
 import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, CONFIRM_ID_FIRST, whatIsAskedFor } from "@/lib/booking/book-words";
 import { gatherRequest } from "@/lib/booking/request-page";
 import { cardDeadlineWords, endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
-import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS } from "@/lib/booking/rules";
+import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS, newRequestKey } from "@/lib/booking/rules";
 import { publicProfile } from "@/lib/profiles/profiles";
 import type { AppBooking, AppBookSummary, AppSwitches } from "./types";
 
@@ -52,7 +51,8 @@ export async function bookSummaryFor(person: { id: string }, handle: string, ask
     idLine: page.idConfirmed ? BOOK_WORDS.idLine(name) : null,
     button: BOOK_WORDS.button(page.paid),
     // Made here, as the website's page makes it when it is shown: sent twice with it, a request counts once.
-    requestKey: randomUUID(),
+    // (A key for the app carries the moment it was made, and makes a request for half a day and no longer.)
+    requestKey: newRequestKey(now),
     seen: { price: offer.pricePer15Cents, freeCancel: offer.freeCancelMinutes },
   };
 }
