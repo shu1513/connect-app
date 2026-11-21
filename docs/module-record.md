@@ -4801,3 +4801,169 @@ deleted or kept by their day; nothing done twice.
 
 **What cannot be tested here.** Two real years passing: the check writes rows with old dates.
 Whether the periods are right is the lawyer's (`docs/for-the-lawyer.md`, section 19).
+
+## Bank disputes, part 2: the host's choice, the app's answer to the bank, and the customer (plan 47, 21 November 2026)
+
+**What this is.** Part 1 recorded a dispute and told everyone. After this part the app answers
+the bank by itself. The host of a disputed payment gets two buttons, "Fight it" and "Give the
+money back", and 24 hours to choose; no choice means fight (the founder's rule). To fight, the
+app puts together a letter from its own records (what was paid for, the price, who was in the
+call and when, any refund request and its answer) and sends it to the bank through Stripe. And
+a customer whose bank has an open dispute cannot start anything new that costs money until it
+has ended. Nothing is taken back from a host yet: that is part 3.
+
+**The founder's decisions** (20 November 2026): no manual handling; the host chooses, and
+silence after 24 hours means fight; "the best customer experience yet preventing abuse" for the
+customer; for the kind of dispute that costs 500 dollars to fight, "do the $5,000 line". On 21
+November: "continue with part 2 and 3".
+
+**What was built.**
+- *The rules, in one place with no database in it* (`src/lib/disputes/rules.ts`): what the app
+  does about a stage that waits for an answer (asks the host about a chargeback; answers a
+  bank's question at once; leaves alone a dispute whose bank takes no answer and a compliance
+  dispute under the founder's line); until when the host can choose (24 hours, and never closer
+  than 3 days to the bank's deadline; with less time than that nobody is asked and the app
+  fights at once); what is due to be sent; and when a dispute keeps its customer from paying.
+- *The letter* (`proof.ts`, a plain function, and `evidence.ts`, which reads the record for
+  it). It answers the bank's own reason first. It says only what the record shows: a late
+  cancellation is never called a call that took place; a call whose record changed after the
+  money was taken gives both records; an agreement is named only if a published version was
+  accepted before the payment (today every version is a draft, so none is named). It has no
+  link, no device and no internet address in it. A bank's question gets the same facts, shorter.
+- *The host's choice* (`choose.ts`): one locked step; the first choice stands; only that
+  dispute's host, only for a chargeback that waits, only in their time.
+- *Sending it* (`answer.ts`, run by the helper after its look at open disputes). An answer to a
+  bank cannot be taken back, so it follows the app's rule for such requests: first the request
+  is written down with its label, then Stripe is asked with that label, then the reply is
+  recorded. A request left without a reply is sent again under the same label, which gives the
+  first reply back and never sends twice. "Give the money back" tells Stripe the dispute is not
+  contested. The record says whose answer it was: the app's proof, the app giving in, somebody
+  else's (answered in Stripe by a person), or not known (a request of the app was written down
+  and somebody else answered meanwhile).
+- *The customer* (`paying.ts`). While a chargeback of theirs is open, and after one the bank
+  decided for them although the app had sent its proof, a customer cannot make a NEW agreement
+  to pay: a paid call (booked or "now"), added time paid by card, joining or resuming a
+  membership, switching renewals back on, taking a host's new offer, a contribution, a tip.
+  Everything already agreed runs on: booked calls are paid and held, months renew, a member
+  books from their membership. A bank's question stops nothing, and neither does a loss the app
+  did not fight (the host gave the money back, or a person answered in Stripe). After a loss
+  that followed the app's own proof it stays off until the founder presses "Allow paying
+  again" on the dispute's page; that press is written down as an admin action.
+- *Pages.* The dispute's page has the two buttons with what each means, then what was chosen
+  and what was sent. The founder sees the letter as Stripe received it and the "Allow paying
+  again" button. The admin list says which disputes are left to the founder.
+- *Messages.* The host's first message now says they choose and by when; the email with it is
+  not sent any more once their time is up. The customer is told what they cannot do meanwhile
+  and what stays. The founder is told "Nothing is needed from you", or, for a compliance dispute
+  under the line, that it is left to them. One day before the bank's deadline a dispute with no
+  answer is a fault: the founder gets an email that says so, and the health address shows it.
+- *Disputes that part 1 recorded and that still wait*: on the next look their host gets one
+  message that they can now choose.
+
+**The setting.** `DISPUTE_COMPLIANCE_FIGHT_FROM_DOLLARS`: from which disputed amount the app
+fights a compliance dispute (each costs Connect 500 dollars to fight). Not set means 5,000, the
+founder's line. `never` means the app never fights one.
+
+**What the building changed from the plan.**
+- The plan put the two changed sentences into the legal drafts in this part. The drafts are
+  kept by the legal work (plan 46) with versions of their own, so this part does not edit
+  them; the point is in the lawyer's file, section 16, and must be carried into payment terms
+  9.7 and host agreement 9.1 before they are published.
+- The lawyer's file had said the letter carries the internet address and device a payment was
+  made from. It does not (the plan leaves them out); the lawyer's file now says what is sent.
+- The label of a request carries the attempt's number from the start
+  (`dispute:<id>:<stage>:<kind>:<attempt>`), so a new request after a closed one never reuses
+  an old label.
+- The letter says less about a membership than the plan had it: nothing about whether or when
+  the member stopped. A dispute ends the membership, and the ending clears the marks such a
+  sentence would be read from.
+- The compliance line is a setting, not a number in the code.
+- The checks are a script of their own, `scripts/dispute-answers-check.ts`, and every "new
+  agreement" place is walked inside that feature's own check script, where a real call, a real
+  membership or a real project is already set up (`scripts/stopped-customer.ts` gives a
+  customer an open dispute for one step).
+
+**What Astra found** (gpt-6.2-astra, effort high, the code before the pull request; "block").
+It found no way to send the wrong kind of answer (fight never becomes "give in") and no way
+past the page's checks. What it did find, and what was done:
+- *A request written down whose reply was lost was only recovered while the dispute still
+  waited.* If the helper came back after the bank had moved on, the request stayed "being sent"
+  for good and a lost dispute did not count as "lost after the app's own proof". Now every
+  request that is written down is settled, whatever its dispute has become, and the record does
+  not write an ending (or tell anyone) while one is unconfirmed; that is settled within the same
+  pass, at the latest after 23 hours.
+- *A question the app answered, next seen as a chargeback already decided, kept the question's
+  answer.* A loss would then have kept the customer from paying after a chargeback the app
+  never fought. Everything that belongs to a stage is now cleared on every stage change.
+- *What the app does was judged on its own row, not on Stripe's fresh answer.* It is now judged
+  on what Stripe shows in the read right before sending (a bank that stopped taking an answer,
+  a dispute newly marked as a compliance one, another amount), also for a repeat that might be
+  the first time Stripe really does it. A reply that shows another stage than the request was
+  written for is not called the app's own.
+- *The job took the first 50 waiting disputes.* Fifty that are left to the founder could have
+  kept a due one out. It now takes all of them; one that is not due costs one look at its row.
+- *The letter could say more than the record shows:* "no cancellation on record" for a
+  membership (the marks are cleared by the dispute itself); the whole length of a call made
+  longer, for the first payment; "the customer did not join" when a leaving with no joining is
+  on record; "the host's time is paid for" where only time together is; "the record was
+  incomplete" for every reviewed charge (a report also causes a review); "a later message
+  changed the record" for a charge the app cannot explain; "refunded before this dispute"
+  without dates; "the host answered" when the founder did; a refund request offered for a call
+  cancelled late, which has none; a host's or project's name with a link or an address in it;
+  "never disputed" (now "no dispute on Connect's record"); an unbounded list of joinings. Each
+  is narrowed, with a test.
+- *The membership rule reached too far.* It sat in the check every promise goes through, so it
+  also stopped a host from withdrawing an offer and keeping the member, and refused an
+  invitation before the customer agreed to anything. It is now asked only where a new agreement
+  is written: joining, resuming, renewals back on, taking a new offer (as the plan says).
+- *A false "this one needs you" email* for a dispute answered in the very pass that found it
+  close to the deadline. The row is read again after the try.
+- *Smaller ones, all taken:* the customer is told "this dispute no longer keeps you from
+  starting new bookings and payments" (another dispute may still be open), and "that changes
+  nothing about calls you have already booked"; a founder who is also the dispute's host sees
+  the founder's tools too; "Allow paying again" and its line in the record of admin actions are
+  one step; the job's clock moves on while it works through its list.
+- *Its second look* confirmed those fixes and found more, all taken: a request left without a
+  reply is never sent again once the dispute is in an appeal (it could have been a first answer
+  to the appeal); when what the app does about a waiting dispute changes on Stripe's side (it
+  becomes a compliance dispute, or stops being one), the stage is begun afresh, the host gets
+  their time if it is now theirs to choose, and the founder is told what the app now does; a
+  call cancelled late carries no "day of the service"; a refund given after a request counts as
+  its answer; a charge whose amount is not on record yet waits, and one the app has no totals
+  for is given with its amount and the room's record and no rule; the letter answers the
+  bank's reason as Stripe shows it at that moment; any web or internet address in a name puts
+  plain words in its place; no "this one needs you" email while the row is marked to be read
+  again; the money is looked at once more also when the record waits; the history says "not
+  known" for a request that was never confirmed; the customer of a disputed membership is told
+  that it ends; a test dispute that cannot be ended is cut loose in the test database, so it
+  is not written again.
+- *Kept against its advice:* Stripe is not read a second time between writing the request down
+  and sending it (the read is the step right before, and no read can close that gap); Stripe's
+  own mark of who submitted (`submission_method`) and its "past due" are not kept; every clear
+  "no" waits the same hour.
+
+**How it was checked.** 924 tests (56 new: the rules, the letter for every kind of money and
+every reason for a charge with what it never says, the wording).
+`scripts/dispute-answers-check.ts`, new, 91 checks with real disputes in Stripe's test area,
+run again after each round of review changes: the host fights (Stripe shows one submission with
+the app's own fields); nobody answers (nothing a second early, sent at the moment); the host
+gives back; won; lost, with the customer kept from paying until the founder's button; the press
+and "time is up" at the same moment; a bank's question; a question that became a chargeback; a
+question the app answered that is next seen as a decided chargeback; a dispute recorded before
+this part; a dispute the app leaves alone; answered from outside; a request that never left; a
+reply that was lost, also when the bank has decided before the helper comes back; the late
+fault, and no false one. Each place where a customer with an open dispute is refused is walked
+inside that feature's own check script, with a real call, membership or project
+(`scripts/stopped-customer.ts`), and so are a free call, free added time and a host keeping a
+member, which must go through: `booking-check` (145), `now-check` (77), `extend-check` (116),
+`membership-check` (474), `contribution-check` (282), `tip-check`. Also run and passing:
+`disputes-check` (72), `payments-check` (77), `member-calls-check` (244), `refunds-check` (112).
+In the browser, with one test dispute: the host's two buttons and what the page says after
+"Fight it"; the customer refused on a contribution with the sentence that says why; the founder's
+view with the letter as Stripe received it, and "Allow paying again".
+
+**What cannot be tried here.** A real bank, and a real compliance dispute (Stripe's test card
+for one needs a card number typed into a form, which the scripts do not do; the row is marked
+by hand). Stripe's test area decides a dispute only on two exact texts, so the app's own letter
+was sent once to see that Stripe takes every field, and "won" and "lost" were tried with those
+texts in the letter's place.

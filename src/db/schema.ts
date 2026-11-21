@@ -2329,6 +2329,44 @@ export const disputes = pgTable(
      * the minute (and clears this), instead of the message's own handling waiting for Stripe a second time.
      */
     lookAgain: boolean("look_again").notNull().default(false),
+
+    // ---- The answer to the bank (plans/47, part 2). Everything from here to `stageHistory` belongs to the stage
+    // the dispute is in: a bank's question that becomes a chargeback begins a new stage, and these start afresh.
+    /** When the app first saw this stage waiting for an answer. Empty: the stage was never seen waiting. */
+    stageBeganAt: timestamp("stage_began_at", { withTimezone: true }),
+    /** Until when the host can choose. Empty: nobody is asked (see `planFor` in src/lib/disputes/rules.ts). */
+    askUntil: timestamp("ask_until", { withTimezone: true }),
+    /** fight or give_back. Empty until chosen, or until the host's time is up. */
+    choice: text("choice"),
+    /** host (they pressed) or silence (their time ran out, which counts as "fight"). */
+    chosenAs: text("chosen_as"),
+    chosenAt: timestamp("chosen_at", { withTimezone: true }),
+    /**
+     * What became of the answer to the bank:
+     *   none        nothing was sent, and nothing is written down to be sent
+     *   sending     a request is written down (`answerKind`, `answerAttempt`, `proof`) and has no reply yet
+     *   proof       the app sent its proof: Stripe's reply to that very request said so
+     *   given_in    the app gave in: Stripe's reply to that very request said so
+     *   not_ours    the dispute stopped waiting with no request of the app written down (answered in Stripe by a person, or by Stripe itself)
+     *   unknown     a request was written down, no reply came, and the dispute stopped waiting: not known who answered
+     */
+    answer: text("answer").notNull().default("none"),
+    /** proof or give_in: what the written-down request asks of Stripe. */
+    answerKind: text("answer_kind"),
+    /** The number at the end of the request's label. A new number only after the one before was settled as "not sent". */
+    answerAttempt: integer("answer_attempt").notNull().default(0),
+    /** When the request was written down, or last refused by Stripe with a clear "no". */
+    answerStartedAt: timestamp("answer_started_at", { withTimezone: true }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answerError: text("answer_error"),
+    /** While `sending`: the exact request, as JSON. Once answered: the evidence as Stripe's reply showed it. */
+    proof: text("proof"),
+    /** One line (JSON) for each stage that is over: its choice and what became of its answer. */
+    stageHistory: text("stage_history").notNull().default("[]"),
+
+    /** The customer of a lost dispute may start new payments again: the founder said so (see src/lib/disputes/paying.ts). */
+    payingAllowedAt: timestamp("paying_allowed_at", { withTimezone: true }),
+    payingAllowedBy: text("paying_allowed_by").references(() => user.id),
     /** won, lost or closed. Empty while it is open. */
     outcome: text("outcome"),
     endedAt: timestamp("ended_at", { withTimezone: true }),
@@ -2348,6 +2386,8 @@ export const disputes = pgTable(
     check("disputes_stage", sql`${t.stage} in ('question', 'chargeback')`),
     check("disputes_outcome", sql`${t.outcome} is null or ${t.outcome} in ('won', 'lost', 'closed')`),
     check("disputes_ended_shape", sql`(${t.outcome} is null) = (${t.endedAt} is null)`),
+    check("disputes_choice", sql`${t.choice} is null or ${t.choice} in ('fight', 'give_back')`),
+    check("disputes_answer", sql`${t.answer} in ('none', 'sending', 'proof', 'given_in', 'not_ours', 'unknown')`),
   ],
 );
 

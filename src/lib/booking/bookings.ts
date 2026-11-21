@@ -8,6 +8,7 @@
  * "busy entries" rule), whatever this code does.
  */
 import { randomUUID } from "node:crypto";
+import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
@@ -517,6 +518,10 @@ export async function askForCall(input: {
         throw new BookingError("This host's price or cancelling rule changed while you were looking. Please check the details again.");
       }
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt: input.startsAt, lengthMinutes: input.lengthMinutes, totalCents }, now);
+      // A customer with a chargeback cannot make a new agreement to pay (plans/47, decision 9). Asked here, where the new
+      // request is written, and not in the shared check above, which the card step of a request already made uses too.
+      const stopped = totalCents > 0 ? await whyNoNewPayment(tx, customer.id) : null;
+      if (stopped) throw new BookingError(stopped);
       // Say so now, before a card is entered, if the customer is already taken at that time.
       // (The database still has the last word when the request is finally sent.)
       const endsAt = new Date(input.startsAt.getTime() + input.lengthMinutes * 60_000);
@@ -624,6 +629,9 @@ export async function askNow(input: {
       const startsAt = latestInstantStart(now);
       const endsAt = new Date(startsAt.getTime() + input.lengthMinutes * 60_000);
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt, lengthMinutes: input.lengthMinutes, totalCents, source: "now" }, now);
+      // (As for a booked request: plans/47, decision 9.)
+      const stopped = totalCents > 0 ? await whyNoNewPayment(tx, customer.id) : null;
+      if (stopped) throw new BookingError(stopped);
       const taken = (await busyOf(tx, customer.id, now)).some((b) => b.start < takenUntil(endsAt) && b.end > now);
       if (taken) throw new BookingError(TAKEN_NOW);
       const [draft] = await tx

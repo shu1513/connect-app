@@ -152,7 +152,15 @@ async function main() {
         if (dispute.paymentId) await refreshOwner({ kind: "payment", id: dispute.paymentId });
         const [now] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, dispute.id));
         if (!now?.outcome) {
-          console.log(`NOT ended: dispute ${dispute.id} is still open (${now?.status}). Its messages were left as they are.`);
+          // Answered by the app, and Stripe's test area keeps such a dispute "under review" for good. Its row is taken
+          // away here, so that it neither keeps the test customer from paying nor is asked about every hour for ever.
+          await db.delete(schema.disputes).where(eq(schema.disputes.id, dispute.id));
+          // Its payment forgets its payment at Stripe, so the catch-up from Stripe's list cannot find the dispute's owner
+          // here and write the row again.
+          if (dispute.paymentId) await db.update(schema.payments).set({ stripePaymentIntentId: null }).where(eq(schema.payments.id, dispute.paymentId));
+          await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
+          await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
+          console.log(`Taken away: dispute ${dispute.id} is still open at Stripe (${now?.status}) and cannot be ended in the test area. Its row, messages and emails are removed here.`);
           continue;
         }
         await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
@@ -202,10 +210,10 @@ async function main() {
       check("the host's message leads to the dispute's page", toHost.path === `/disputes/${d1.id}`);
       check("the customer is told their bank can withdraw it, and where to write", toCustomer.body.includes("withdraw") && toCustomer.body.includes("$13.33") && toCustomer.body.includes("write to us at"), toCustomer.body.slice(0, 160));
       check("the customer's message leads to the call's page, not to the dispute's", toCustomer.path === `/calls/${first.call.id}/results`);
-      check("nothing in it promises what the app does not do yet (no answer to the bank, no taking back)", told.every((m) => !/we (will )?(fight|answer)|taken back from/i.test(m.body)));
+      check("nothing in it promises what the app does not do yet (no taking back from a host)", told.every((m) => !/taken back from|we will take/i.test(m.body)));
       if (toFounders.length > 0) {
         const toFounder = toFounders[0];
-        check("the founder is told the bank's reason and deadline, that it is still answered by hand, and where the dispute's page is", toFounder.body.includes("did not make this payment") && toFounder.body.includes("wants an answer by") && toFounder.body.includes("by hand in Stripe") && toFounder.body.includes(`/disputes/${d1.id}`), toFounder.body.slice(0, 200));
+        check("the founder is told the bank's reason and deadline, that the app answers by itself, and where the dispute's page is", toFounder.body.includes("did not make this payment") && toFounder.body.includes("wants an answer by") && toFounder.body.includes("Nothing is needed from you") && !toFounder.body.includes("by hand") && toFounder.body.includes(`/disputes/${d1.id}`), toFounder.body.slice(0, 200));
       }
 
       await handleStripeEvent(message("charge.dispute.created", d1.id));

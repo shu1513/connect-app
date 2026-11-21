@@ -18,6 +18,7 @@ config({ path: ".env.local", quiet: true });
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { requireLocalDatabase } from "./local-only";
+import { refusalWhileDisputed, whileDisputed } from "./stopped-customer";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail: unknown = "") {
@@ -1460,6 +1461,7 @@ async function main() {
     await save(host, { on: true, pricePer15Cents: 750, includedMinutes: 120 });
     check("switching it on again charges nobody by itself, and brings no renewal back by itself", (await MS(heldOne.membershipId)).status === "paused" && (await monthsOf(heldOne.membershipId)).length === 2 && (await offerOf(host)).version === 1 && (await MS(keeps.membershipId)).offerStoppedAt !== null && (await MS(forgets.membershipId)).offerStoppedAt !== null);
     check("the host cannot bring a member's renewal back for them", (await refusal(E.undoStop({ membershipId: keeps.membershipId, by: "host", actorId: host.id, now: new Date() }))) === null && (await MS(keeps.membershipId)).offerStoppedAt !== null);
+    check("a member whose bank has an open dispute cannot switch renewals back on, and is told why", /Your bank has an open dispute/.test((await refusalWhileDisputed(keeps.member.id, host.id, () => E.undoStop({ membershipId: keeps.membershipId, by: "member", actorId: keeps.member.id, now: new Date() }))) ?? "") && (await MS(keeps.membershipId)).offerStoppedAt !== null);
     await E.undoStop({ membershipId: keeps.membershipId, by: "member", actorId: keeps.member.id, now: new Date() });
     await E.undoStop({ membershipId: cancels.membershipId, by: "member", actorId: cancels.member.id, now: new Date() });
     check("\"Keep my membership\" takes back the member's side of it, both marks", (await MS(keeps.membershipId)).offerStoppedAt === null && (await MS(cancels.membershipId)).memberStoppedAt === null && (await MS(cancels.membershipId)).offerStoppedAt === null);
@@ -1546,6 +1548,7 @@ async function main() {
     const outsider = await person("stranger");
     check("someone else cannot use the link", (await refusal(press(randomUUID(), true, outsider.id))) === "This invitation is no longer open.");
     check("a page whose wording has changed since it was opened must be read again", /wording of this page has changed/.test((await refusal(J.join({ customerId: invitation.member.id, inviteId: invitation.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: "an older wording", now: new Date() }))) ?? "") && (await MS(invitation.membershipId)).status === "invited");
+    check("someone whose bank has an open dispute cannot join, and is told why", /Your bank has an open dispute/.test((await refusalWhileDisputed(invitation.member.id, host.id, () => press(randomUUID()))) ?? "") && (await MS(invitation.membershipId)).status === "invited" && (await agreementsOf(invitation.membershipId)).length === 0);
     const [one, two] = await Promise.all([press(), press()]);
     const three = await press();
     const membership = await MS(invitation.membershipId);
@@ -1702,6 +1705,7 @@ async function main() {
     check("resuming needs the box ticked again", /tick the box/.test((await refusal(press(requestId, false))) ?? ""));
     const stale = await refusal(J.resume({ customerId: m.member.id, membershipId: m.membershipId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, offerVersion: 1, now: new Date() }));
     check("\"Resume\" from a page that still showed the old price and time is refused: nobody agrees to terms they did not see", /changed the membership while this page was open/.test(stale ?? "") && (await MS(m.membershipId)).status === "paused" && (await agreementsOf(m.membershipId)).length === 1, stale);
+    check("someone whose bank has an open dispute cannot resume, and is told why", /Your bank has an open dispute/.test((await refusalWhileDisputed(m.member.id, host.id, () => press(randomUUID()))) ?? "") && (await MS(m.membershipId)).status === "paused" && (await agreementsOf(m.membershipId)).length === 1);
     const [one, two] = await Promise.all([press(), press()]);
     check("\"Resume\" pressed twice: one agreement, one month", one.monthId === two.monthId && (await agreementsOf(m.membershipId)).length === 2 && (await monthsOf(m.membershipId)).length === 2);
     const month = await pay(one.monthId, "pm_card_mastercard");
@@ -1802,6 +1806,7 @@ async function main() {
     check("a member with an open offer is shown with it", cut3.members.find((member) => member.membershipId === newer.membershipId)?.openOfferMinutes === 60);
     const answer = (what: "accept" | "decline", made: Made, offerId: string) => refusal((what === "accept" ? E.acceptLessTime : E.declineLessTime)({ membershipId: made.membershipId, memberId: made.member.id, offerId, now: new Date() }));
     check("an old or made-up button does nothing", (await answer("accept", newer, randomUUID())) === "This offer is no longer open." && (await answer("accept", older, offered.offerId!)) === "This offer is no longer open.");
+    check("a member whose bank has an open dispute cannot take the offer (it is a new agreement to pay); the offer stays open", /Your bank has an open dispute/.test((await whileDisputed(newer.member.id, host2.id, () => answer("accept", newer, offered.offerId!))) ?? "") && (await MS(newer.membershipId)).offerId === offered.offerId && (await agreementsOf(newer.membershipId)).length === 1);
     await Promise.all([answer("accept", newer, offered.offerId!), answer("accept", newer, offered.offerId!)]);
     const accepted = await MS(newer.membershipId);
     const record = (await agreementsOf(newer.membershipId)).at(-1)!;
@@ -1859,7 +1864,7 @@ async function main() {
     check("worked out again, it is saved: the member is kept, and the invitation that still fits stays", (await Room.minutesMembersNeed(db, host5.id)) === 120 && (await MS(kept5.membershipId)).hostStoppedAt === null && (await MS(arrived.membershipId)).status === "invited" && (await db.select().from(schema.weeklyHours).where(eq(schema.weeklyHours.id, hours5.id))).length === 0);
     const takeBack = (m: Made, keep: boolean, offerId: string, now = new Date()) => refusal(E.takeBackLessTime({ membershipId: m.membershipId, hostId: host3.id, offerId, keep, now }));
     check("a take-back button from an older offer, or one pressed after the member's month has ended, does nothing", (await takeBack(members[2], true, randomUUID())) === "This offer is no longer open." && (await takeBack(members[2], true, offers[2], (await M(members[2].monthId)).endsAt!)) === "This offer is no longer open." && (await MS(members[2].membershipId)).offerId === offers[2]);
-    check("the host takes an offer back and keeps the member with their old time, now that there is room", (await takeBack(members[2], true, offers[2])) === null && (await MS(members[2].membershipId)).offerId === null && (await MS(members[2].membershipId)).hostStoppedAt === null && (await MS(members[2].membershipId)).ownMinutes === 120);
+    check("the host takes an offer back and keeps the member with their old time, now that there is room (also a member whose bank has an open dispute: the agreement that was there goes on)", (await whileDisputed(members[2].member.id, host3.id, () => takeBack(members[2], true, offers[2]))) === null && (await MS(members[2].membershipId)).offerId === null && (await MS(members[2].membershipId)).hostStoppedAt === null && (await MS(members[2].membershipId)).ownMinutes === 120);
     check("the old button then says the offer is no longer open", (await answer("accept", members[2], offers[2])) === "This offer is no longer open.");
     await setHours(host3, 45); // she cuts again, to 3 hours a month
     check("keeping the last one with their old time too would no longer fit; taking the offer back with a pause does", /no room for this member's full time/.test((await takeBack(members[3], true, offers[3])) ?? "") && (await takeBack(members[3], false, offers[3])) === null && (await MS(members[3].membershipId)).hostStoppedAt !== null && (await MS(members[3].membershipId)).offerId === null);

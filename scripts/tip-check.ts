@@ -38,6 +38,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
+import { refusalWhileDisputed } from "./stopped-customer";
 import { totpCode } from "./totp";
 
 const BASE = process.argv.find((arg) => arg.startsWith("--app="))?.slice("--app=".length).replace(/\/$/, "") ?? "http://localhost:3000";
@@ -472,6 +473,7 @@ async function main() {
     const byHost = await press(host, to, "Continue to the card step", {}, { drawn: summary.text });
     check("the host cannot send it either", byHost.found && noticeOf(byHost) === NO_TIP && (await tipsOfCall(goodCall)).length === 0, noticeOf(byHost));
     check("the app's own function refuses a tip for a call that is not the person's, and for one that does not exist, with the same words", (await refused(T.startTip({ customerId: dan.id, callId: goodCall, amount: "5", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) === NO_TIP && (await refused(T.startTip({ customerId: dan.id, callId: randomUUID(), amount: "5", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) === NO_TIP);
+    check("a customer whose bank has an open dispute cannot start a tip, and is told why", /Your bank has an open dispute/.test((await refusalWhileDisputed(cara.id, host.id, () => T.startTip({ customerId: cara.id, callId: goodCall, amount: "5", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) ?? "") && (await tipsOfCall(goodCall)).length === 0);
     for (const [label, callId] of [["a cancelled call", cancelledCall], ["a call rated 2 stars", starCalls.get(2)!], ["a call older than 7 days", oldCall], ["a call with a refund request", refundCall]] as const) {
       check(`a tip for ${label} is refused by the server, whatever the page showed`, (await refused(T.startTip({ customerId: cara.id, callId, amount: "5", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) === NO_TIP);
     }

@@ -17,6 +17,7 @@
  *     else either person is taken for.
  */
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
+import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { db, schema } from "@/db";
 import type { Call, CallExtension, Payment } from "@/db/schema";
 import { endRequestsInTheWay, lockCalendars } from "@/lib/booking/bookings";
@@ -327,6 +328,10 @@ export async function askForMoreTime(
         const [host] = await tx.select({ payoutsReady: schema.hostSettings.payoutsReady }).from(schema.hostSettings).where(eq(schema.hostSettings.userId, call.hostId));
         if (!own || own.status !== "held" || !host?.payoutsReady) throw new ExtendError(NO_LONGER);
       }
+      // Added time paid by card is a new payment: a customer with a chargeback cannot start one (plans/47, decision 9).
+      // Time taken from a membership they have is not.
+      const stopped = cardId !== null ? await whyNoNewPayment(tx, input.customerId) : null;
+      if (stopped) throw new ExtendError(stopped);
 
       if (own?.kind === "member_call") {
         // Decided again with the month locked. If it is no longer what the screen showed (or what the card was looked up for), nothing is written.

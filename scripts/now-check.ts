@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
+import { refusalWhileDisputed } from "./stopped-customer";
 
 const RUN = randomUUID().slice(0, 8);
 const MINUTE = 60_000;
@@ -307,6 +308,7 @@ async function main() {
     {
       const dan = await person("dan");
       await N.setAvailableNow({ hostId: hana.id, minutes: 120, now });
+      check("a customer whose bank has an open dispute cannot ask for a paid call now, and is told why", /Your bank has an open dispute/.test((await refusalWhileDisputed(dan.id, hana.id, () => askNow(dan, hana.id, 15, now, 2000))) ?? ""));
       const { booking, clientSecret } = await askNow(dan, hana.id, 15, now, 2000);
       check("a paid instant request first needs a card", booking.stage === "card" && Boolean(clientSecret) && booking.totalCents === 2000);
       check("a request from a page showing an old price is refused", await refusedWith(askNow(dan, hana.id, 15, now, 1500), "price changed"));

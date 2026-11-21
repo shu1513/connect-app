@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
+import { refusalWhileDisputed, whileDisputed } from "./stopped-customer";
 
 const RUN = randomUUID().slice(0, 8);
 const HOUR = 3_600_000;
@@ -124,8 +125,9 @@ async function main() {
       const host = await freeHost("host1");
       const ann = await customer("ann");
       const [slot] = await times(host.id);
-      const { booking, clientSecret } = await ask(ann, host.id, slot);
-      check("a free request goes straight to the host, with no card step", booking.stage === "waiting" && clientSecret === null);
+      // Asked by someone whose bank has an open dispute: a free call is no new agreement to pay, so nothing stands in the way.
+      const { booking, clientSecret } = await whileDisputed(ann.id, host.id, () => ask(ann, host.id, slot));
+      check("a free request goes straight to the host, with no card step (also from someone whose bank has an open dispute)", booking.stage === "waiting" && clientSecret === null);
       check("the answer deadline is 24 hours after asking", booking.respondBy?.getTime() === answerDeadline({ startsAt: slot, paid: false, freeCancelMinutes: 0, requestedAt: now }).getTime());
       check("the customer is now taken for that time; the host is not", (await busyOf(ann.id)).length === 1 && (await busyOf(host.id)).length === 0);
       check("the time is still open on the host's page", (await times(host.id)).some((t) => t.getTime() === slot.getTime()));
@@ -413,6 +415,7 @@ async function main() {
     {
       const zoe = await customer("zoe");
       const slot = await nextPaidSlot();
+      check("a customer whose bank has an open dispute cannot ask for a paid call, and is told why; nothing is written", /Your bank has an open dispute/.test((await refusalWhileDisputed(zoe.id, hana.id, () => ask(zoe, hana.id, slot))) ?? "") && (await busyOf(zoe.id)).length === 0);
       const { booking, clientSecret } = await ask(zoe, hana.id, slot);
       check("a paid request first needs a card", booking.stage === "card" && Boolean(clientSecret));
       check("until then the host does not see it and nobody's time is taken", !(await B.waitingForHost(hana.id)).some((wf) => wf.booking.id === booking.id) && (await busyOf(zoe.id)).length === 0);

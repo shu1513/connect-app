@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { requireLocalDatabase } from "./local-only";
+import { refusalWhileDisputed } from "./stopped-customer";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail: unknown = "") {
@@ -937,6 +938,8 @@ async function main() {
     check("while the founder's switch does not cover her, nothing new starts", (await refusal(start())) === S.NOT_TAKING);
     await setSwitches({ projects: "everyone", projectsHosts: [] });
     check("none of these refusals wrote anything", (await countOf(giver)) + (await countOf(blocked)) + (await countOf(paused)) + (await countOf(host)) === 0);
+
+    check("someone whose bank has an open dispute cannot start a contribution, and is told why", /Your bank has an open dispute/.test((await refusalWhileDisputed(giver.id, host.id, () => start())) ?? "") && (await countOf(giver)) === 0);
 
     // The form is sent.
     const key = randomUUID();

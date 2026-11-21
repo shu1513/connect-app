@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { disputesForFounder } from "@/lib/disputes/record";
+import { planFor } from "@/lib/disputes/rules";
 import { reasonWords, standingOf } from "@/lib/disputes/status";
 import { memberDecisionDeadline } from "@/lib/membership/calls";
 import { readNotice } from "@/lib/notice";
@@ -201,8 +202,9 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         <>
           <h2 className="mt-10 text-lg font-semibold">Bank disputes ({bank.open.length} open)</h2>
           <p className="mt-1 text-sm opacity-70">
-            A customer&apos;s bank is asking about a payment, or has taken it back until it decides. The money for a disputed payment stays where it is. The app does not answer
-            the bank yet: one that waits for an answer still has to be answered in Stripe by hand.
+            A customer&apos;s bank is asking about a payment, or has taken it back until it decides. The money for a disputed payment stays where it is. The app answers the bank
+            by itself: the host of a disputed payment chooses within 24 hours, and no choice counts as &quot;fight&quot;. Only one that says &quot;the app does not fight this
+            one&quot; is left to you.
           </p>
           <ul className="mt-2 list-disc pl-5 text-sm" data-bank-disputes>
             {[...bank.open, ...bank.ended].map((dispute) => {
@@ -213,10 +215,16 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                     {nameOf.get(dispute.customerId)} (customer) and {nameOf.get(dispute.hostId)} (host), {formatMoney(dispute.amountCents)}
                   </Link>
                   : {dispute.stage === "question" ? "a bank's question" : "a dispute"}, {reasonWords(dispute.reason)}.{" "}
-                  {standing === "waiting" && !dispute.noAnswer && (
-                    <strong>
-                      The bank waits for an answer{dispute.dueBy ? <> by <LocalTime iso={dispute.dueBy.toISOString()} /></> : null}.
+                  {standing === "waiting" && !dispute.noAnswer && planFor(dispute) === "leave" && (
+                    <strong data-left-to-founder>
+                      The app does not fight this one (a compliance dispute under the amount you set). Fight it in Stripe{dispute.dueBy ? <> by <LocalTime iso={dispute.dueBy.toISOString()} /></> : null} if you want to.
                     </strong>
+                  )}
+                  {standing === "waiting" && !dispute.noAnswer && planFor(dispute) !== "leave" && (
+                    <>
+                      The bank waits for an answer{dispute.dueBy ? <> by <LocalTime iso={dispute.dueBy.toISOString()} /></> : null}; the app sends it.
+                      {dispute.answerError ? <strong> The last try did not go through.</strong> : null}
+                    </>
                   )}
                   {standing === "waiting" && dispute.noAnswer && "The bank takes no answer to this one."}
                   {standing === "with_bank" && "The bank is deciding."}
