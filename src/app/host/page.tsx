@@ -5,7 +5,9 @@ import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { hoursAndTimeOff } from "@/lib/booking/calendar";
 import { readNotice } from "@/lib/notice";
+import { formatMoney } from "@/lib/payments/access";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
+import { MAX_PRICE_PER_15_CENTS, topPriceOf } from "@/lib/payments/pricing";
 import { HOME_COUNTRY, HOST_COUNTRIES, hostCountryName } from "@/lib/profiles/countries";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
@@ -14,8 +16,9 @@ import { ownPhotoState } from "@/lib/profiles/photo";
 import { languageNames } from "@/lib/profiles/languages";
 import { PHOTO } from "@/lib/profiles/photo-rules";
 import { ABOUT_MAX, NAME_MAX, NAME_MIN, sellerKindOf } from "@/lib/profiles/profiles";
-import { holdsHostAgreement, shownValue } from "@/legal/accept";
-import { agreementsToAccept } from "@/legal/versions";
+import { acceptedHostAgreementBefore, holdsHostAgreement, shownValue } from "@/legal/accept";
+import { comingVersions, dayInWords } from "@/legal/notices";
+import { agreementsToAccept, versionHref } from "@/legal/versions";
 import { isNetwork, NETWORKS } from "@/lib/profiles/social";
 import { instagramSignInOn } from "@/lib/profiles/instagram";
 import { tiktokSignInOn } from "@/lib/profiles/tiktok";
@@ -63,7 +66,19 @@ export default async function HostPage(props: PageProps<"/host">) {
   const hostAgreements = agreementsToAccept("hosting", new Date());
   const sellerKind = profile ? sellerKindOf(profile) : null;
   // A host from before the Host Agreement existed, or one who has not said business or private, is asked in a box at the top.
-  const boxNeeded = Boolean(profile) && (!(await holdsHostAgreement(user.id, new Date())) || sellerKind === null);
+  const holdsAgreement = profile ? await holdsHostAgreement(user.id, new Date()) : true;
+  const boxNeeded = Boolean(profile) && (!holdsAgreement || sellerKind === null);
+  // The box's words follow what is missing. A host who has said business or private is only asked for the Host
+  // Agreement: as "a new version" if she accepted an earlier one (part 2), and as the one thing missing if not.
+  const agreementOnly = Boolean(profile) && !holdsAgreement && sellerKind !== null;
+  const boxWords = !agreementOnly
+    ? { title: "Two things we need from you", text: "Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below." }
+    : (await acceptedHostAgreementBefore(user.id))
+      ? { title: "The Host Agreement has a new version", text: "Please read the new version and accept it below. Your answer about how you offer calls is kept; you can change it here." }
+      : { title: "One thing we need from you", text: "Hosts on Connect accept the Host Agreement. Please read it and accept it below. Your answer about how you offer calls is kept; you can change it here." };
+  // A version of the Host Agreement whose day has not come: said here ahead of its day, as the email says it, also
+  // to someone who is about to apply, beside the form that accepts today's version.
+  const comingAgreements = comingVersions(new Date()).filter((one) => one.name === "host-agreement");
   const sellerChoice = (chosen: string | null) => (
     <fieldset className="text-sm">
       <legend>Do you offer calls as a business, or as a private person?</legend>
@@ -242,10 +257,20 @@ export default async function HostPage(props: PageProps<"/host">) {
         )}
       </section>
 
+      {comingAgreements.map(({ version }) => (
+        <p key={version.version} role="note" className="mt-8 rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`host-agreement@${version.version}`}>
+          <strong>A new version of the Host Agreement takes effect on {dayInWords(version.effectiveFrom)}.</strong> {version.summary}{" "}
+          <Link href={versionHref("host-agreement", version.version)} target="_blank" className="underline underline-offset-2">
+            Read the new version
+          </Link>
+          . {profile ? "From that day this page asks you to accept it." : "If you apply before that day you accept today's version, and from that day this page asks you to accept the new one."}
+        </p>
+      ))}
+
       {boxNeeded && (
         <section className="mt-8 rounded border border-neutral-500 p-4" data-host-box>
-          <h2 className="text-lg font-semibold">Two things we need from you</h2>
-          <p className="mt-2 text-sm">Hosts on Connect accept the Host Agreement and say how they offer their calls. Please answer both below.</p>
+          <h2 className="text-lg font-semibold">{boxWords.title}</h2>
+          <p className="mt-2 text-sm">{boxWords.text}</p>
           <form action={answerHostBoxAction} className="mt-3 max-w-md space-y-3">
             {sellerChoice(sellerKind)}
             {hostAgreementTick}
@@ -282,7 +307,7 @@ export default async function HostPage(props: PageProps<"/host">) {
               <LanguagePicker chosen={[]} />
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5)
-                <input name="price" type="number" min={5} step="0.01" defaultValue="20" required className={field} />
+                <input name="price" type="number" min={5} max={MAX_PRICE_PER_15_CENTS / 100} step="0.01" defaultValue="20" required className={field} />
               </label>
               <label className="block text-sm">
                 Where are you based?
@@ -356,7 +381,13 @@ export default async function HostPage(props: PageProps<"/host">) {
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5)
                 {/* A host from before free calls were taken away is shown the lowest price, and must save one. */}
-                <input name="price" type="number" min={5} step="0.01" defaultValue={(Math.max(profile.pricePer15Cents, 500) / 100).toFixed(2)} required className={field} />
+                <input name="price" type="number" min={5} max={topPriceOf(profile) / 100} step="0.01" defaultValue={(Math.max(profile.pricePer15Cents, 500) / 100).toFixed(2)} required className={field} />
+                {/* Only a host the founder gave a higher top price than everyone's is told about it (plans/48). */}
+                {profile.topPricePer15Cents !== null && (
+                  <span className="mt-1 block text-sm" data-top-price>
+                    Your price can be up to {formatMoney(topPriceOf(profile))} per 15 minutes.
+                  </span>
+                )}
                 {profile.pricePer15Cents === 0 && (
                   <span className="mt-1 block text-sm" data-free-no-more>
                     You can no longer set a price of zero. Saving this form sets your price for new requests to at least $5 per 15 minutes. Requests and calls already made keep their price.

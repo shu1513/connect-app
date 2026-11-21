@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { attendanceChargeCents, bookedTotalCents, collectionAmounts, DEFAULT_FEE_TERMS, hostPriceProblem, reviewChargeLimitCents, splitAfterRefunds, splitCharge } from "./pricing";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+import { hostProfiles } from "@/db/schema";
+import { MAX_LENGTH_MINUTES } from "@/lib/booking/rules";
+import { MEMBERSHIP } from "@/lib/membership/rules";
+import {
+  attendanceChargeCents,
+  bookedTotalCents,
+  collectionAmounts,
+  DEFAULT_FEE_TERMS,
+  HIGHEST_TOP_PRICE_PER_15_CENTS,
+  hostPriceProblem,
+  MAX_PRICE_PER_15_CENTS,
+  reviewChargeLimitCents,
+  splitAfterRefunds,
+  splitCharge,
+  STRIPE_MAX_CHARGE_CENTS,
+  topPriceOf,
+  topPriceProblem,
+} from "./pricing";
 
 // The founder's example: $20 per 15 minutes.
 const PRICE = 2000;
@@ -222,5 +240,66 @@ describe("the price a host may set", () => {
     expect(hostPriceProblem(500.5)).toMatch(/whole number/);
     expect(hostPriceProblem(-500)).toMatch(/whole number/);
     expect(hostPriceProblem(Number.NaN)).toMatch(/whole number/);
+  });
+  it("is at most $1,000 for a host without a top price of her own", () => {
+    expect(hostPriceProblem(100_000)).toBeNull();
+    expect(hostPriceProblem(100_001)).toBe("Your price can be at most $1000.00 per 15 minutes.");
+    expect(hostPriceProblem(250_000)).toMatch(/at most \$1000\.00/);
+    expect(hostPriceProblem(100_001, topPriceOf({ topPricePer15Cents: null }))).toMatch(/at most \$1000\.00/);
+  });
+  it("goes up to the top price the founder gave that one host, and no further", () => {
+    const top = topPriceOf({ topPricePer15Cents: 200_000 });
+    expect(hostPriceProblem(100_001, top)).toBeNull();
+    expect(hostPriceProblem(200_000, top)).toBeNull();
+    expect(hostPriceProblem(200_001, top)).toBe("Your price can be at most $2000.00 per 15 minutes.");
+    expect(hostPriceProblem(499, top)).toMatch(/at least \$5\.00/);
+  });
+});
+
+describe("a top price of a host's own (plans/48)", () => {
+  it("is everyone's $1,000 for a host who was given none, and for nobody at all", () => {
+    expect(MAX_PRICE_PER_15_CENTS).toBe(100_000);
+    expect(topPriceOf({ topPricePer15Cents: null })).toBe(100_000);
+    expect(topPriceOf(null)).toBe(100_000);
+    expect(topPriceOf(undefined)).toBe(100_000);
+    expect(topPriceOf({ topPricePer15Cents: 175_050 })).toBe(175_050);
+  });
+  it("the founder can give one from just above $1,000 up to $2,500 (the founder's ceiling of 20 November 2026)", () => {
+    expect(HIGHEST_TOP_PRICE_PER_15_CENTS).toBe(250_000);
+    expect(topPriceProblem(100_001)).toBeNull();
+    expect(topPriceProblem(200_000)).toBeNull();
+    expect(topPriceProblem(250_000)).toBeNull();
+  });
+  it("refuses one that is not above everyone's, above the ceiling, or not an amount", () => {
+    expect(topPriceProblem(100_000)).toMatch(/must be more than that/);
+    expect(topPriceProblem(50_000)).toMatch(/must be more than that/);
+    expect(topPriceProblem(0)).toMatch(/must be more than that/);
+    expect(topPriceProblem(-200_000)).toMatch(/must be more than that/);
+    expect(topPriceProblem(250_001)).toMatch(/highest top price a host can be given is \$2500\.00/);
+    expect(topPriceProblem(10_000_000)).toMatch(/highest top price/);
+    expect(topPriceProblem(150_000.5)).toMatch(/in dollars/);
+    expect(topPriceProblem(Number.NaN)).toMatch(/in dollars/);
+    expect(topPriceProblem(Number.POSITIVE_INFINITY)).toMatch(/in dollars/);
+  });
+  it("the database holds the same two numbers", () => {
+    const [range] = getTableConfig(hostProfiles).checks;
+    expect(range.name).toBe("host_profiles_top_price_range");
+    const said = new PgDialect().sqlToQuery(range.value).sql;
+    expect(said).toContain(`> ${MAX_PRICE_PER_15_CENTS} `);
+    expect(said).toContain(`<= ${HIGHEST_TOP_PRICE_PER_15_CENTS})`);
+  });
+  it("the largest payments it allows stay within what Stripe takes at once and what the database's numbers hold", () => {
+    // The longest call at the highest top price: the hold on the customer's card.
+    const longestCall = bookedTotalCents(HIGHEST_TOP_PRICE_PER_15_CENTS, MAX_LENGTH_MINUTES * 60);
+    expect(longestCall).toBe(6_000_000);
+    expect(longestCall).toBeLessThanOrEqual(STRIPE_MAX_CHARGE_CENTS);
+    // A membership month never costs more than it could before (100 hours at $1,000 per 15 minutes).
+    expect(MEMBERSHIP.maxMonthCents).toBe((MAX_PRICE_PER_15_CENTS * MEMBERSHIP.maxMinutes) / 15);
+    expect(MEMBERSHIP.maxMonthCents).toBeLessThanOrEqual(STRIPE_MAX_CHARGE_CENTS);
+    // Money columns are 32-bit whole numbers.
+    expect(STRIPE_MAX_CHARGE_CENTS).toBeLessThan(2 ** 31);
+    // The fee sum of the largest call, with a card from abroad, adds up and loses nothing.
+    const split = splitCharge(longestCall, DEFAULT_FEE_TERMS, true);
+    expect(split).toEqual({ feeCents: 384_030, hostShareCents: 5_615_970 });
   });
 });

@@ -6,7 +6,8 @@ import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { deliveryConfigured } from "@/lib/notifications/delivery";
 import { requireAdmin } from "@/lib/session";
-import { sendTestEmail } from "./actions";
+import { dayInWords, noticeProblems, noticeReport } from "@/legal/notices";
+import { sendRefusedAgain, sendTestEmail } from "./actions";
 import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Emails" };
@@ -30,6 +31,9 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
       failed: sql<number>`count(*) filter (where ${schema.emailOutbox.status} = 'failed' and ${schema.emailOutbox.createdAt} > now() - interval '7 days')::int`,
     })
     .from(schema.emailOutbox);
+  // Every version of a legal document people were written to about, and whether the 30 days were kept (plans/46, part 2).
+  const notices = await noticeReport(new Date());
+  const noticeLines = notices.some((one) => one.state === "coming") ? await noticeProblems(new Date()) : [];
 
   return (
     <SitePage className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -54,6 +58,35 @@ export default async function OutboxPage(props: PageProps<"/admin/outbox">) {
           Send a test email to {admin.email}
         </button>
       </form>
+      {notices.length > 0 && (
+        <section className="mt-6 rounded border border-neutral-400 p-4 text-sm" data-notice-report>
+          <h2 className="font-semibold">Notices of new terms</h2>
+          <p className="mt-1 opacity-70">Every new version people were written to about. The Terms and the Host Agreement promise 30 days&apos; notice.</p>
+          {noticeLines.map((problem) => (
+            <p key={`${problem.kind}:${problem.coming.name}:${problem.coming.version.version}`} role="alert" className="mt-2 font-medium">
+              {problem.line}
+            </p>
+          ))}
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {notices.map((one) => (
+              <li key={`${one.name}:${one.version}:${one.effectiveFrom}`} data-notice={`${one.name}@${one.version}@${one.effectiveFrom}`}>
+                {one.title}, version {one.version},{" "}
+                {one.state === "coming" ? "takes effect on" : one.state === "in_effect" ? "in effect since" : "announced for a day that was given up,"} {dayInWords(one.effectiveFrom)}: {one.written} written;{" "}
+                {one.sentInTime} sent with 30 days or more to go; {one.sentLate} sent later; {one.waiting} waiting; {one.failedOurs} not sent, for us to look at; {one.notOurs} not sent because the address does
+                not work, the account was closed or the day was moved.{one.state === "coming" && !one.owed ? " No 30 days are owed for this one (it follows a draft, or it is marked urgent)." : ""}
+              </li>
+            ))}
+          </ul>
+          {notices.some((one) => one.state === "coming" && one.failedOurs > 0) && (
+            <form action={sendRefusedAgain} className="mt-3">
+              <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5">
+                Send the refused ones again
+              </button>
+              <span className="ml-3 opacity-70">Only emails the sending service refused on their one and only try: those certainly did not go out.</span>
+            </form>
+          )}
+        </section>
+      )}
       {emails.length === 0 ? (
         <p className="mt-6 text-sm opacity-70">No emails yet.</p>
       ) : (

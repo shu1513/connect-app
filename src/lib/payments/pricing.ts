@@ -25,14 +25,45 @@ export const MIN_CHARGE_CENTS = 50;
 /** The lowest price a host may set. (A call with a price of zero, from before 19 November 2026 or made by a check script, is a free call.) */
 export const MIN_PRICE_PER_15_CENTS = 500;
 
+/** The highest price every host may set: $1,000 per 15 minutes. */
+export const MAX_PRICE_PER_15_CENTS = 100_000;
+/**
+ * The highest top price the founder can give one host: $2,500 per 15 minutes (the founder's
+ * decision of 20 November 2026, plans/48). Connect carries the loss of a lost bank dispute and
+ * holds the whole booked price on the customer's card, so this is kept low: the longest call
+ * (6 hours) then costs $60,000. The database refuses a higher one too.
+ */
+export const HIGHEST_TOP_PRICE_PER_15_CENTS = 250_000;
+/** Stripe takes at most this much in one payment in US dollars: $999,999.99. */
+export const STRIPE_MAX_CHARGE_CENTS = 99_999_999;
+
 /**
  * Checks the price a host sets for their calls. Every host charges at least the minimum: a host
  * cannot set a price of zero (the founder's decision of 19 November 2026, plans/40; until then zero
  * meant "free calls"). Calls that already exist keep the price they were made with.
+ *
+ * And no host charges more than her top price: $1,000 for everyone, or the higher one the founder
+ * gave this one host (plans/48). The caller passes that host's top price; without one it is everyone's.
  */
-export function hostPriceProblem(pricePer15Cents: number): string | null {
+export function hostPriceProblem(pricePer15Cents: number, topPricePer15Cents: number = MAX_PRICE_PER_15_CENTS): string | null {
   if (!Number.isInteger(pricePer15Cents) || pricePer15Cents < 0) return "The price must be a whole number of cents.";
   if (pricePer15Cents < MIN_PRICE_PER_15_CENTS) return `Your price must be at least $${(MIN_PRICE_PER_15_CENTS / 100).toFixed(2)} per 15 minutes.`;
+  if (pricePer15Cents > topPricePer15Cents) return `Your price can be at most $${(topPricePer15Cents / 100).toFixed(2)} per 15 minutes.`;
+  return null;
+}
+
+/** The highest price this host may set: her own top price when the founder gave her one, otherwise everyone's. */
+export function topPriceOf(host: { topPricePer15Cents: number | null } | null | undefined): number {
+  return host?.topPricePer15Cents ?? MAX_PRICE_PER_15_CENTS;
+}
+
+/** What is wrong with a top price the founder types for one host, in words for the founder, or null. */
+export function topPriceProblem(topPricePer15Cents: number): string | null {
+  if (!Number.isInteger(topPricePer15Cents)) return "Type the top price in dollars, for example 2000 or 1500.50.";
+  if (topPricePer15Cents <= MAX_PRICE_PER_15_CENTS) {
+    return `Every host can already charge up to $${(MAX_PRICE_PER_15_CENTS / 100).toFixed(2)} per 15 minutes, so a top price of a host's own must be more than that.`;
+  }
+  if (topPricePer15Cents > HIGHEST_TOP_PRICE_PER_15_CENTS) return `The highest top price a host can be given is $${(HIGHEST_TOP_PRICE_PER_15_CENTS / 100).toFixed(2)} per 15 minutes.`;
   return null;
 }
 /** Our charge for one collection of earnings by a host. Covers Stripe's payout charge. */

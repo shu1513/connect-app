@@ -5,7 +5,8 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { shownValue } from "@/legal/accept";
 import { dayWords } from "@/legal/document-page";
-import { agreementsToAccept, comingVersion, DOCUMENTS, GENERAL_DOCUMENTS, versionHref } from "@/legal/versions";
+import { comingVersions } from "@/legal/notices";
+import { agreementsToAccept, DOCUMENTS, GENERAL_DOCUMENTS, versionHref } from "@/legal/versions";
 import { safeNext } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
@@ -40,11 +41,12 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const returning = await acceptedBefore(person.id);
   const now = new Date();
   const agreements = agreementsToAccept("sign_up", now);
-  // A version that is announced and not yet in effect: said here too, so that someone signing up today knows of it.
-  const coming = GENERAL_DOCUMENTS.flatMap((name) => {
-    const version = comingVersion(name, now);
-    return version ? [{ name, version }] : [];
-  });
+  // Every version that is announced and not yet in effect, said above the button, so that someone signing up today
+  // knows of it before agreeing. Also for the two documents that are told and not accepted (the Privacy Policy, the
+  // Copyright Policy). The same list the emails are written from.
+  const coming = comingVersions(now)
+    .filter((one) => one.audience === "everyone")
+    .map(({ name, version }) => ({ name, version, accepted: (GENERAL_DOCUMENTS as readonly string[]).includes(name) }));
   const documentLinks = agreements.map((agreement, index) => (
     <span key={agreement.name}>
       {index > 0 && (index === agreements.length - 1 ? " and the " : ", the ")}
@@ -89,6 +91,15 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
           Your time zone (used for the times in your emails)
           <TimeZoneSelect zones={timeZones()} saved={person.timeZone} />
         </label>
+        {coming.map(({ name, version, accepted }) => (
+          <p key={`${name}@${version.version}`} className="rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`${name}@${version.version}`}>
+            From {dayWords(version.effectiveFrom)} a new version of the {DOCUMENTS[name].title} applies. {version.summary}{" "}
+            <Link href={versionHref(name, version.version)} target="_blank" className="underline underline-offset-2">
+              Read it
+            </Link>
+            .{accepted ? " You will be asked to accept it then." : ""}
+          </p>
+        ))}
         <p className="text-sm" data-agreement-sentence>
           {returning ? "By pressing the button you agree to the updated " : "By finishing sign-up you agree to the "}
           {documentLinks}.
@@ -103,15 +114,6 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
           </Link>{" "}
           explains what we do with your information.
         </p>
-        {coming.map(({ name, version }) => (
-          <p key={name} className="rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`${name}@${version.version}`}>
-            From {dayWords(version.effectiveFrom)} a new version of the {DOCUMENTS[name].title} applies. {version.summary}{" "}
-            <Link href={versionHref(name, version.version)} target="_blank" className="underline underline-offset-2">
-              Read it
-            </Link>
-            . You will be asked to accept it then.
-          </p>
-        ))}
       </form>
 
       <p className="mt-6 text-sm">

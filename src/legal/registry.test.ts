@@ -128,6 +128,11 @@ describe("what the list refuses", () => {
     expect(check({ ...next, effectiveFrom: "2027-03-05", urgent: "A court order of 3 March 2027." }, PLAIN, true)).toEqual([]);
   });
 
+  it("two versions that take effect on the same day, and an urgency that does not say why", () => {
+    expect(check({ ...next, effectiveFrom: "2026-11-20" }).join(" ")).toMatch(/takes effect on the same day as 2026-11-20/);
+    expect(check({ ...next, effectiveFrom: "2027-03-05", urgent: "  " }, PLAIN, true).join(" ")).toMatch(/marked urgent without saying why.*less than 30 days/);
+  });
+
   it("but not a first published version after a draft: nothing was in force before it", () => {
     expect(check({ ...next, effectiveFrom: "2027-03-02" })).toEqual([]);
   });

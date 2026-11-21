@@ -44,6 +44,7 @@ async function main() {
   const { followAfterCalls } = await import("../src/lib/follows/follows");
   const { catchUpFromStripe, lookAtOpenDisputes } = await import("../src/lib/disputes/record");
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
+  const { runNoticeRound } = await import("../src/legal/notices");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -190,6 +191,17 @@ async function main() {
     disputePasses++;
   }
 
+  /**
+   * The notices of a coming version of a legal document (plans/46, part 2), in a loop of their own, about once a
+   * minute: writing to many people must never delay a room or the money work, and a failure there must never hold up
+   * a notice that has a date. With nothing coming, this asks the database nothing.
+   */
+  let noticePasses = 0;
+  async function noticePass() {
+    if (noticePasses++ % 12 !== 0) return;
+    await runNoticeRound(new Date()).catch((error) => console.error("[agreements] the round of notices of a coming version failed; will retry", error));
+  }
+
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
   async function sendPass() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
@@ -214,6 +226,7 @@ async function main() {
     await picturePass();
     await followPass();
     await disputePass();
+    await noticePass();
     process.exit(0);
   }
 
@@ -233,7 +246,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass)]);
   process.exit(0);
 }
 
