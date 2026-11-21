@@ -4663,6 +4663,12 @@ another form than it proposed.
   or is already looking at one.
 - The check script's clean-up now brings the money up to date too, not only the record.
 
+Astra then read that last change once more ("not ready", three small gaps, all closed): a
+dispute Stripe's list does not show yet is asked for with the row held, and a message about an
+open dispute freezes the money first, whatever happens to the reading after it; whether the
+Messages page was full is counted on the server; an appeal never asks for an answer by a date
+that has passed or from a bank that takes none.
+
 **How it was checked.** 868 tests (26 new: every status Stripe has, two disputes on one charge in
 every mix, and the wording, which must never say the app answers the bank or takes anything
 back). `scripts/disputes-check.ts`, new, 72 checks with real disputes in Stripe's test area (run

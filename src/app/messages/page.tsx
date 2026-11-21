@@ -28,7 +28,7 @@ export default async function MessagesPage() {
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <h1 className={warm.title}>Messages</h1>
       <p className="mt-2 text-sm opacity-70">What Connect has written to you. Each message is also emailed to you.</p>
-      {anyNew && <MessagesShown shownIds={messages.map((message) => message.id)} pageWasFull={messages.length === MESSAGES_SHOWN} />}
+      {anyNew && <MessagesShown shownIds={messages.map((message) => message.id)} />}
 
       {messages.length === 0 ? (
         <p className="mt-6 text-sm" data-no-messages>

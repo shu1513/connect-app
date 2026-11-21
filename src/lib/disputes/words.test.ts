@@ -51,7 +51,14 @@ describe("what the founder is told when a dispute opens", () => {
     const looking = appealWords(facts).text;
     expect(looking).toContain("nothing more can be sent now");
     expect(looking).not.toContain("by hand");
-    for (const told of [waits, looking]) expect(told).toContain("keeps the money for this payment where it is");
+    // Never an instruction that cannot be followed: a date that has passed, or a bank that takes no answer.
+    const late = appealWords({ ...facts, appealWaits: true, duePassed: true }).text;
+    expect(late).toContain("has passed");
+    expect(late).not.toContain("by hand");
+    const none = appealWords({ ...facts, appealWaits: true, noAnswer: true }).text;
+    expect(none).toContain("takes no answer");
+    expect(none).not.toContain("by hand");
+    for (const told of [waits, looking, late, none]) expect(told).toContain("keeps the money for this payment where it is");
   });
 
   it("never asks for an answer when the dispute was first seen with the bank already", () => {

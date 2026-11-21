@@ -138,9 +138,13 @@ export function appealWords(facts: Facts): Told {
     subject: `A bank is looking at a lost dispute again: ${facts.customerName} and ${facts.hostName}`,
     text:
       `The dispute over ${facts.what} (${facts.amount}) is in an appeal at the bank.\n\n` +
-      (facts.appealWaits
-        ? `The bank waits for an answer in this appeal${facts.dueBy && !facts.duePassed ? `, by ${facts.dueBy}` : ""}. The app sends nothing to the bank in an appeal: if you want to answer, that is done by hand in Stripe.`
-        : `The bank is already looking at what was sent, so nothing more can be sent now.`) +
+      (!facts.appealWaits
+        ? `The bank is already looking at what was sent, so nothing more can be sent now.`
+        : facts.noAnswer
+          ? `The bank takes no answer in this appeal, so there is nothing to send.`
+          : facts.dueBy && facts.duePassed
+            ? `The bank's date for an answer in this appeal, ${facts.dueBy}, has passed, so an answer may no longer be taken.`
+            : `The bank waits for an answer in this appeal${facts.dueBy ? `, by ${facts.dueBy}` : ""}. The app sends nothing to the bank in an appeal: if you want to answer, that is done by hand in Stripe.`) +
       ` The app keeps the money for this payment where it is until the bank has decided.`,
   };
 }

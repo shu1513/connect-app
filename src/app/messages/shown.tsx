@@ -9,15 +9,15 @@ import { messagesShownAction } from "./actions";
  * anybody looking at it (when a browser fetches it ahead of a click), and that must not count as
  * having read anything. Draws nothing.
  */
-export function MessagesShown({ shownIds, pageWasFull }: { shownIds: string[]; pageWasFull: boolean }) {
+export function MessagesShown({ shownIds }: { shownIds: string[] }) {
   // The ids as one string: the effect runs again only when the messages on the page are other ones.
   const shown = shownIds.join(",");
   useEffect(() => {
     // A server action called from an effect goes inside a transition (this Next.js version's guide on server actions).
     // If the telling fails, the messages simply stay marked as new until the next visit.
     startTransition(() => {
-      messagesShownAction(shown.split(","), pageWasFull).catch(() => undefined);
+      messagesShownAction(shown.split(",")).catch(() => undefined);
     });
-  }, [shown, pageWasFull]);
+  }, [shown]);
   return null;
 }
