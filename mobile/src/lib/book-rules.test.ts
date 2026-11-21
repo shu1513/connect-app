@@ -105,6 +105,12 @@ describe("a request's page", () => {
     expect(isBooking({ ...booking, refreshSeconds: 0 })).toBe(false);
     expect(isBooking({ ...booking, call: { id: "x" } })).toBe(false);
     expect(isBooking({ ...booking, price: "$40.00" })).toBe(false);
+    // The report link is words or nothing: a number is refused, and so is an answer without the part at all.
+    expect(isBooking({ ...booking, report: 5 })).toBe(false);
+    const { report: _left, ...withoutReport } = booking;
+    void _left;
+    expect(isBooking(withoutReport)).toBe(false);
+    expect(isBooking({ ...booking, report: "Report Maya" })).toBe(true);
   });
 });
 
