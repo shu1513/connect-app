@@ -255,13 +255,16 @@ function OneRoom({ id }: { id: string }) {
     const receivedAt = performance.now();
     joiningNow.current = false;
     setJoining(false);
-    // The person left this screen while the pass was on its way, or the camera check it was pressed on is no
-    // longer the one on the screen: nothing is entered.
-    if (!still() || pressedOn !== lobbiesLeft.current) return;
+    // The person left this screen while the pass was on its way: nothing is entered, and nothing of it is used.
+    if (!still()) return;
     if (answer.ok && isPass(answer.data, { plain: PLAIN_HTTP_ALLOWED })) {
       // The pass carries the server's clock and the call's end as they are now (time may have been added since).
       setClock(answer.data.serverNow, receivedAt, askedAt);
       followEnd(answer.data.endsAt);
+      // The camera check it was pressed on is no longer the one on the screen: nothing is entered (that takes a
+      // fresh press). What the pass says about the clock and the call's end is kept all the same, just above: time
+      // may have been added, and the screen must not take the call for over because it dropped this pass.
+      if (pressedOn !== lobbiesLeft.current) return;
       // (Entered with `choices` as the camera check says them at the moment the call is drawn.)
       setPass(answer.data);
     } else if (!answer.ok && answer.code === "not_found") {

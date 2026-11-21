@@ -316,6 +316,13 @@ changing how the choice is kept, not by one more patch:
 4. Smaller: if the call cannot be read when its time looks up, the answer is "could not
    connect, try again", not "this call has ended".
 
+**Astra's seventh look (21 November 2026): the camera question is closed.** It found no
+ordering left in which a switch shown "off" on the camera check enters the call as "on", and
+the four points of the sixth look closed. One thing it added, now worked in: a pass that is
+not used (its camera check was gone) still brought the call's newer end with it, and that was
+thrown away with the pass; near the old end the screen could then take a call that had been
+made longer for over. Now the pass's clock and end are kept, and only entering is refused.
+
 **Walked again on the Android test phone after this change (21 November 2026):** the camera
 switched off on the camera check, then "Join call": the call opened with the camera off and
 the microphone on. Left, and joined again with the camera on and the microphone off: the
