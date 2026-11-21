@@ -1,25 +1,38 @@
 /**
- * End dates for two kinds of record (plans/46-agreements-live.md, decision 15, part 4). The helper
- * runs both about once an hour.
+ * End dates for three kinds of record (plans/46-agreements-live.md, decision 15, part 4). The
+ * helper runs them about once an hour.
  *
- *   - An email, two years after it was sent: only the fact that it was sent is kept. Its text, its
- *     subject and the address it went to are removed, and with them the extra headers (they can hold
- *     a link that still works), the note of an error and the sending service's own number. Its kind,
- *     its key, its times and whether it was sent or failed stay. An email that was never sent is
- *     treated the same two years after it was written. One that is still waiting to be sent, or
- *     being sent, is never touched.
+ *   - An email, two years after it was sent: only the fact that an email of that kind was sent, and
+ *     when, is kept. Its text, its subject and the address it went to are removed, and with them
+ *     the extra headers (they can hold a link that still works), the note of an error and the
+ *     sending service's own number. Its key is replaced by one that names nobody: a key can hold
+ *     the numbers of the people an email was about ("follow-post:<host>:<follower>:<post>"), and
+ *     the draft Privacy Policy (section 7) promises that what is kept no longer says who it is
+ *     about. Its kind, its times and whether it was sent or failed stay. An email that was never
+ *     sent is treated the same two years after it was written. One that is still waiting to be
+ *     sent, or being sent, is never touched.
  *   - A login record, twelve months after it ran out: deleted. (Most are gone much sooner: the
- *     login library removes them on logging out.) The login library's one-time codes and links
- *     (confirming an address, a new password) go the same way twelve months after they ran out.
+ *     login library removes them on logging out. A login that is still being used keeps moving
+ *     its end forward, so the twelve months count from the last time it could be used.) The login
+ *     library's one-time codes and links (confirming an address, a new password) go the same way
+ *     twelve months after they ran out.
+ *   - The login library's counters of repeated attempts, which are kept by network address: seven
+ *     days after the last attempt they counted. They are only read inside windows of an hour.
  *
- * These are the two periods of the draft Privacy Policy (section 7) that do not depend on an
- * account being closed. What happens on closing is plans/45, parts 19 to 19c.
+ * Nothing reads an email by its key that late: the clean-up of refund texts finds its emails after
+ * one year, and the notices of new terms are counted for about a year.
+ *
+ * These are the periods of the draft Privacy Policy (section 7) that do not depend on an account
+ * being closed. What happens on closing is plans/45, parts 19 to 19c.
  */
 import { and, inArray, isNotNull, like, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 export const EMAIL_KEPT_YEARS = 2;
 export const LOGIN_KEPT_MONTHS = 12;
+export const ATTEMPT_COUNTERS_KEPT_DAYS = 7;
+/** The start of the key an emptied email gets in place of its own: its own number follows, which names no person. */
+export const EMPTIED_KEY = "emptied:";
 
 /** The same day and time, this many months earlier. A day the earlier month does not have (31 March less one month) becomes its last day. */
 export function monthsBefore(now: Date, months: number): Date {
@@ -38,7 +51,7 @@ export const emailCutoff = (now: Date): Date => monthsBefore(now, EMAIL_KEPT_YEA
 export const loginCutoff = (now: Date): Date => monthsBefore(now, LOGIN_KEPT_MONTHS);
 
 /** For check scripts only: touch nothing but rows of matching people, so a check never changes other rows. */
-export type OnlyThese = { emailKeyLike: string; userIds: string[]; codeLike: string };
+export type OnlyThese = { emailKeyLike: string; userIds: string[]; codeLike: string; counterKeyLike: string };
 
 const mail = schema.emailOutbox;
 /** How many rows one round changes at most; the helper comes back within the hour. */
@@ -58,14 +71,15 @@ export async function emptyOldEmails(now: Date, only?: OnlyThese): Promise<numbe
         // Never one that is waiting to be sent or being sent.
         inArray(mail.status, ["sent", "failed"]),
         sql`coalesce(${mail.sentAt}, ${mail.createdAt}) < ${cutoff}::timestamptz`,
-        or(ne(mail.to, ""), ne(mail.subject, ""), ne(mail.body, ""), isNotNull(mail.headers), isNotNull(mail.lastError), isNotNull(mail.providerId)),
+        // Something is still to remove. An email with no key of its own (a login link) has none to replace.
+        or(ne(mail.to, ""), ne(mail.subject, ""), ne(mail.body, ""), isNotNull(mail.headers), isNotNull(mail.lastError), isNotNull(mail.providerId), sql`${mail.dedupeKey} not like ${`${EMPTIED_KEY}%`}`),
         only ? like(mail.dedupeKey, only.emailKeyLike) : undefined,
       ),
     )
     .limit(PER_ROUND);
   const emptied = await db
     .update(mail)
-    .set({ to: "", subject: "", body: "", headers: null, lastError: null, providerId: null })
+    .set({ to: "", subject: "", body: "", headers: null, lastError: null, providerId: null, dedupeKey: sql`case when ${mail.dedupeKey} is null then null else ${EMPTIED_KEY} || ${mail.id}::text end` })
     // Asked again in the writing itself: an email that went back to waiting in between is left alone.
     .where(and(inArray(mail.id, due), inArray(mail.status, ["sent", "failed"])))
     .returning({ id: mail.id });
@@ -86,8 +100,19 @@ export async function deleteOldLogins(now: Date, only?: OnlyThese): Promise<numb
   return sessions.length + codes.length;
 }
 
-/** Both, for the helper. One failing does not stop the other. */
+/** Deletes the login library's counters of repeated attempts that have counted nothing for seven days. Returns how many. */
+export async function deleteOldAttemptCounters(now: Date, only?: OnlyThese): Promise<number> {
+  const cutoff = now.getTime() - ATTEMPT_COUNTERS_KEPT_DAYS * 24 * 3_600_000;
+  const gone = await db
+    .delete(schema.rateLimit)
+    .where(and(lt(schema.rateLimit.lastRequest, cutoff), only ? like(schema.rateLimit.key, only.counterKeyLike) : undefined))
+    .returning({ id: schema.rateLimit.id });
+  return gone.length;
+}
+
+/** All three, for the helper. One failing does not stop the others. */
 export async function runRetention(now: Date): Promise<void> {
   await emptyOldEmails(now).catch((error) => console.error("[retention] emptying old emails failed; will retry", error));
   await deleteOldLogins(now).catch((error) => console.error("[retention] deleting old login records failed; will retry", error));
+  await deleteOldAttemptCounters(now).catch((error) => console.error("[retention] deleting old attempt counters failed; will retry", error));
 }

@@ -176,6 +176,17 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
 | 14 | Sending earnings not collected for 12 months | Plan 46, part 3. |
 
+**To carry into the first published version** (a merged version is never edited, so these wait
+for the next one):
+
+- Privacy Policy, section 7, "Other emails we sent you": two years after the email was sent (or
+  written, if it never went), its text, subject, address and everything else that says who it
+  was about are removed; that an email of that kind was sent, and when, is kept.
+- Privacy Policy, section 7, "Login records": deleted twelve months after the login ran out. A
+  login that is still used keeps moving its end forward.
+- Privacy Policy, section 7, a new line: counters of repeated login attempts, kept by network
+  address, seven days after the last attempt.
+
 ## 8. Astra's drafts, and where they differ from these
 
 Astra (GPT 6.2 Astra, effort high) wrote its own full set from the same code, without seeing

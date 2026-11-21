@@ -532,11 +532,16 @@ founder can let one host charge up to $2,500, and take that away again. This is 
 
 - **Emails:** two years after an email was sent, the app removes its text, its subject, the
   address it went to, its extra headers, the note of an error and the sending service's number.
-  It keeps that an email of that kind was sent, and when. Is two years right, or should the proof
+  Its key, which can hold the numbers of the people it was about, is replaced by one that names
+  nobody. It keeps that an email of that kind was sent, and when. Is two years right, or should the proof
   that a legal notice was sent (new terms, a payment reminder, a decision about an account) be
   kept longer, with its text? Today the notice of new terms is emptied like any other email.
+- **Counters of repeated login attempts** are kept by internet address and deleted seven days
+  after the last attempt. Is an internet address personal information here, and is seven days
+  right?
 - **Login records** (with the internet address and the kind of browser) are deleted twelve
-  months after they ran out. Is that long enough for looking into fraud, and short enough?
+  months after they ran out. A login that is still used keeps moving its end forward, so the
+  twelve months count from the last time it could be used. Is that long enough for looking into fraud, and short enough?
 - Every other period in the Privacy Policy's table is still a proposal and nothing deletes those
   records: payments, what a person agreed to, reports and blocks, identity-check results,
   backups.

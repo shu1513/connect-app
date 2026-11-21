@@ -28,7 +28,8 @@ async function main() {
 
   const userId = `ret-${RUN}`;
   const address = `retcheck-${RUN}@example.test`;
-  const only = { emailKeyLike: `retcheck-${RUN}:%`, userIds: [userId], codeLike: `retcheck-${RUN}:%` };
+  const only = { emailKeyLike: `retcheck-${RUN}:%`, userIds: [userId], codeLike: `retcheck-${RUN}:%`, counterKeyLike: `retcheck-${RUN}:%` };
+  const made: string[] = [];
   const now = new Date();
   const ago = (days: number) => new Date(now.getTime() - days * DAY);
   const mail = schema.emailOutbox;
@@ -38,11 +39,12 @@ async function main() {
       .insert(mail)
       .values({ to: address, kind: "booking", subject: `Subject ${name}`, body: `Text ${name}`, dedupeKey: `retcheck-${RUN}:${name}`, headers: '{"List-Unsubscribe":"<https://example.test/u>"}', providerId: `prov-${name}`, lastError: null, ...values })
       .returning({ id: mail.id });
+    made.push(row.id);
     return row.id;
   }
   const emailNow = async (id: string) => (await db.select().from(mail).where(eq(mail.id, id)))[0];
   const whole = (row: Awaited<ReturnType<typeof emailNow>>) => row.to === address && row.subject.startsWith("Subject") && row.body.startsWith("Text") && row.headers !== null;
-  const empty = (row: Awaited<ReturnType<typeof emailNow>>) => row.to === "" && row.subject === "" && row.body === "" && row.headers === null && row.lastError === null && row.providerId === null;
+  const empty = (row: Awaited<ReturnType<typeof emailNow>>) => row.to === "" && row.subject === "" && row.body === "" && row.headers === null && row.lastError === null && row.providerId === null && row.dedupeKey === `emptied:${row.id}`;
 
   try {
     await db.insert(schema.user).values({ id: userId, name: "Retention Check", email: address, emailVerified: true });
@@ -55,22 +57,25 @@ async function main() {
       // Written long ago, sent only last year: counted from the sending.
       const lateSent = await email("late-sent", { status: "sent", sentAt: ago(300), createdAt: ago(TWO_YEARS + 5) });
       const youngSent = await email("young-sent", { status: "sent", sentAt: ago(TWO_YEARS - 10), createdAt: ago(TWO_YEARS - 10) });
-      const oldWaiting = await email("old-waiting", { status: "queued", createdAt: ago(TWO_YEARS + 5) });
-      const oldSending = await email("old-sending", { status: "sending", createdAt: ago(TWO_YEARS + 5), leaseUntil: new Date(now.getTime() + 60_000) });
+      // Not due for a long time, so that a helper running beside this check cannot pick it up and send it.
+      const oldWaiting = await email("old-waiting", { status: "queued", createdAt: ago(TWO_YEARS + 5), nextAttemptAt: new Date(now.getTime() + 365 * DAY) });
+      const oldSending = await email("old-sending", { status: "sending", createdAt: ago(TWO_YEARS + 5), leaseUntil: new Date(now.getTime() + 365 * DAY) });
 
       const first = await retention.emptyOldEmails(now, only);
       const sent = await emailNow(oldSent);
-      check("an email sent more than two years ago is emptied: address, subject, text, headers and the service's number are gone", first === 2 && empty(sent), `${first}`);
-      check("that it was sent, when, its kind and its key stay", sent.status === "sent" && sent.sentAt !== null && sent.kind === "booking" && sent.dedupeKey === `retcheck-${RUN}:old-sent` && sent.createdAt.getTime() === ago(TWO_YEARS + 5).getTime());
+      check("an email sent more than two years ago is emptied: address, subject, text, headers and the service's number are gone, and its key names nobody any more", first === 2 && empty(sent), `${first} ${sent.dedupeKey}`);
+      check("that it was sent, when, and its kind stay", sent.status === "sent" && sent.sentAt !== null && sent.kind === "booking" && sent.createdAt.getTime() === ago(TWO_YEARS + 5).getTime());
       const failed = await emailNow(oldFailed);
       check("one that was never sent is emptied two years after it was written, with the note of its error; that it failed stays", empty(failed) && failed.status === "failed");
       check("one written long ago and sent last year is left: the two years count from the sending", whole(await emailNow(lateSent)));
       check("one sent a little less than two years ago is left", whole(await emailNow(youngSent)));
-      check("one still waiting to be sent, or being sent, is never touched, however old", whole(await emailNow(oldWaiting)) && whole(await emailNow(oldSending)));
+      const waitingNow = await emailNow(oldWaiting);
+      const sendingNow = await emailNow(oldSending);
+      check("one still waiting to be sent, or being sent, is never touched, however old: it stays as it was, with its key", whole(waitingNow) && whole(sendingNow) && waitingNow.status === "queued" && sendingNow.status === "sending" && waitingNow.dedupeKey === `retcheck-${RUN}:old-waiting`);
       check("asked again, nothing is emptied a second time", (await retention.emptyOldEmails(now, only)) === 0);
-      // The clean-up of refund texts finds its emails by their key (src/lib/refunds/requests.ts): the key is still there.
-      const found = await db.select({ id: mail.id }).from(mail).where(like(mail.dedupeKey, `retcheck-${RUN}:old-%`));
-      check("an emptied email is still found by its key", found.length === 4);
+      // Younger emails keep their keys: the clean-up of refund texts, a year after a request, still finds its emails by them.
+      const kept = await db.select({ id: mail.id }).from(mail).where(like(mail.dedupeKey, `retcheck-${RUN}:%`));
+      check("an email whose two years are not over keeps its key", kept.length === 4, String(kept.length));
       // Two years on from now, the young one's time has come too.
       const later = new Date(now.getTime() + 30 * DAY);
       check("thirty days later the one that was a little too young is emptied", (await retention.emptyOldEmails(later, only)) === 1 && empty(await emailNow(youngSent)));
@@ -93,8 +98,20 @@ async function main() {
       check("the same for the login library's one-time codes", JSON.stringify(codes) === JSON.stringify([`ret-${RUN}-v-young`]), String(codes));
       check("asked again, nothing more is deleted", (await retention.deleteOldLogins(now, only)) === 0);
     }
+
+    console.log("\n3. Counters of repeated attempts");
+    {
+      await db.insert(schema.rateLimit).values([
+        { id: `ret-${RUN}-c-old`, key: `retcheck-${RUN}:old`, count: 3, lastRequest: now.getTime() - 8 * DAY },
+        { id: `ret-${RUN}-c-young`, key: `retcheck-${RUN}:young`, count: 3, lastRequest: now.getTime() - 6 * DAY },
+      ]);
+      const gone = await retention.deleteOldAttemptCounters(now, only);
+      const left = (await db.select({ id: schema.rateLimit.id }).from(schema.rateLimit).where(like(schema.rateLimit.key, `retcheck-${RUN}:%`))).map((row) => row.id);
+      check("a counter that has counted nothing for more than seven days is deleted; a younger one stays", gone === 1 && JSON.stringify(left) === JSON.stringify([`ret-${RUN}-c-young`]), `${gone} ${left}`);
+    }
   } finally {
-    await db.delete(mail).where(like(mail.dedupeKey, `retcheck-${RUN}:%`));
+    if (made.length) await db.delete(mail).where(inArray(mail.id, made));
+    await db.delete(schema.rateLimit).where(like(schema.rateLimit.key, `retcheck-${RUN}:%`));
     await db.delete(schema.verification).where(like(schema.verification.identifier, `retcheck-${RUN}:%`));
     await db.delete(schema.session).where(inArray(schema.session.userId, [userId]));
     await db.delete(schema.user).where(eq(schema.user.id, userId));

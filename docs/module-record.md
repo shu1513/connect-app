@@ -4774,21 +4774,30 @@ for what Connect keeps, and nothing in the app ended any of them except three ol
 
 **What was built.** `src/lib/retention.ts`, run by the helper about once an hour. Two years after
 an email was sent (or written, if it never went), its address, subject, text, extra headers,
-error note and the sending service's number are removed; its kind, its key, its times and
-whether it was sent or failed stay. An email still waiting to be sent, or being sent, is never
-touched. A login record is deleted twelve months after it ran out, and so are the login
-library's one-time codes. No migration, no page changed.
+error note and the sending service's number are removed, and its key is replaced by one that
+names nobody; its kind, its times and whether it was sent or failed stay. An email still waiting
+to be sent, or being sent, is never touched. A login record is deleted twelve months after it ran
+out, and so are the login library's one-time codes. The login library's counters of repeated
+attempts are deleted seven days after the last attempt. No migration, no page changed.
 
 **The builder's own choices:** the one-time codes are included; months are counted on the
-calendar; no new version of the Privacy Policy, because the draft already proposes exactly these
-two periods (the plan says why).
+calendar; seven days for the counters; no new version of the Privacy Policy, because the draft
+already proposes these two periods; what the first published version has to add is listed in
+`docs/legal/README.md`.
+
+**What the reviewer found.** Astra said to hold it for one point: an emptied email kept its key,
+and a key can name both people an email was about, while the Privacy Policy promises that what is
+kept names nobody. The key is now replaced. Also taken: the check's waiting email is not due, so
+a helper running beside the check cannot send it; the counters of repeated attempts get an end
+date; the plan no longer says the draft policy "already matches" without saying what it leaves
+open. Not taken: a year-zero date in the month arithmetic, and a notice of new terms announced
+more than two years ahead.
 
 **How it was checked.** 4 tests of the dates (a leap day, a month that is too short). A new real
-check, `scripts/retention-check.ts`, 12 checks: old emails emptied and what stays; one sent last
-year but written long ago left alone; waiting ones never touched; an emptied email still found
-by its key (the refund clean-up needs that); login records and codes deleted or kept by their
-day; nothing done twice.
+check, `scripts/retention-check.ts`, 13 checks: old emails emptied, their keys replaced, and what
+stays; one sent last year but written long ago left alone; waiting ones never touched; younger
+emails keep their keys (the refund clean-up needs that); login records, codes and counters
+deleted or kept by their day; nothing done twice.
 
 **What cannot be tested here.** Two real years passing: the check writes rows with old dates.
-Whether two years and twelve months are the right periods is the lawyer's
-(`docs/for-the-lawyer.md`, section 19).
+Whether the periods are right is the lawyer's (`docs/for-the-lawyer.md`, section 19).
