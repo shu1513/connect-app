@@ -159,9 +159,10 @@ async function main() {
           await db.transaction(async (tx) => {
             if (dispute.paymentId) await tx.update(schema.payments).set({ stripePaymentIntentId: null }).where(eq(schema.payments.id, dispute.paymentId));
             await tx.delete(schema.disputes).where(eq(schema.disputes.id, dispute.id));
+            // In the same step: if anything fails, the row stays and the next "--demo-off" finds it again.
+            await tx.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
+            await tx.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
           });
-          await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
-          await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
           console.log(`Taken away: dispute ${dispute.id} is still open at Stripe (${now?.status}) and cannot be ended in the test area. Its row, messages and emails are removed here.`);
           continue;
         }

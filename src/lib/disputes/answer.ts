@@ -25,7 +25,7 @@ import { isDefiniteRefusal, stripe, stripeErrorMessage } from "@/lib/payments/st
 import { gatherFacts } from "./evidence";
 import { proofFrom } from "./proof";
 import { aboutOwner, ownerOf, seenIn, tellAll, type Only } from "./record";
-import { answerLabel, dueNow, LABEL_SAFE_MS, LATE_MS, planFor, RETRY_AFTER_NO_MS, sameStage, waits } from "./rules";
+import { answerLabel, askUntilFor, dueNow, LABEL_SAFE_MS, LATE_MS, planFor, RETRY_AFTER_NO_MS, sameStage, waits } from "./rules";
 import { isAppeal } from "./status";
 
 const WAITING = ["needs_response", "warning_needs_response"];
@@ -33,12 +33,15 @@ const WAITING = ["needs_response", "warning_needs_response"];
 type Kind = "proof" | "give_in";
 /** What is asked of Stripe: the evidence to submit, or nothing more than "close". Kept as written, so a repeat sends the same. */
 type Request = { kind: Kind; evidence?: Record<string, unknown> };
-type Written = { id: string; stage: string; kind: Kind; attempt: number; request: Request };
+/** `moved`: the read of Stripe right before showed this stage no longer waiting (a repeat is then only to learn the first reply). */
+type Written = { id: string; stage: string; kind: Kind; attempt: number; request: Request; moved?: boolean };
+type Reader = Pick<typeof db, "select">;
 
 /** The request for the proof: what the record shows, and for a compliance dispute the fee Stripe wants acknowledged. */
-async function proofRequest(dispute: Dispute, fresh: Stripe.Dispute): Promise<Request | null> {
-  // The bank's reason and the amount as Stripe shows them now: the letter answers what the bank says today.
-  const facts = await gatherFacts(db, { ...dispute, reason: fresh.reason, amountCents: fresh.amount }, ownerOf(dispute));
+async function proofRequest(reader: Reader, dispute: Dispute, fresh: Stripe.Dispute): Promise<Request | null> {
+  // The bank's reason and the amount as Stripe shows them now: the letter answers what the bank says today. Read
+  // through the step that holds the dispute's row, so no second connection is needed while one is held.
+  const facts = await gatherFacts(reader, { ...dispute, reason: fresh.reason, amountCents: fresh.amount }, ownerOf(dispute));
   if (!facts) return null;
   const evidence: Record<string, unknown> = { ...proofFrom(facts) };
   // Only ever reached for a compliance dispute at or above the founder's line (planFor): Stripe passes the answer
@@ -77,7 +80,8 @@ async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<st
     // does is decided on what Stripe shows NOW, not on the row: a bank that has stopped taking an answer, a dispute
     // newly marked as a compliance one, or another amount, all count from this read.
     const fresh = await inTime(stripe().disputes.retrieve(dispute.id, {}, { maxNetworkRetries: 0 }));
-    const plan = planFor({ ...seenIn(fresh, now), stage: dispute.stage });
+    const seen = seenIn(fresh, now);
+    const plan = planFor({ ...seen, stage: dispute.stage });
     const stillWaiting = waits(fresh.status) && sameStage(fresh.status, dispute.stage);
 
     if (sending) {
@@ -93,12 +97,17 @@ async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<st
         // known to be the app's own. If it never arrived and somebody else has answered since, Stripe refuses this
         // one, and that is recorded. Never for a dispute that has moved to another stage: a question's answer is not
         // sent as a chargeback's.
-        return { id: dispute.id, stage: dispute.stage, kind: dispute.answerKind as Kind, attempt: dispute.answerAttempt, request: JSON.parse(dispute.proof) as Request };
+        // One case apart: the dispute still waits an hour after the request was written down, and the bank's deadline
+        // is a day or less away. Stripe may be giving the same failure back under the label each time, and waiting 23
+        // hours would lose the dispute. A dispute that still waits has no answer at Stripe (an answer moves it on at
+        // once, and Stripe takes only one per stage), so the request is closed as not sent and a new one is written.
+        const stuckNearDeadline = stillWaiting && age >= RETRY_AFTER_NO_MS && seen.dueBy !== null && seen.dueBy.getTime() - now.getTime() <= LATE_MS;
+        if (!stuckNearDeadline) return { id: dispute.id, stage: dispute.stage, kind: dispute.answerKind as Kind, attempt: dispute.answerAttempt, request: JSON.parse(dispute.proof) as Request, moved: !stillWaiting };
       }
       if (stillWaiting) {
-        // Still waiting, and the request cannot go: too old for a repeat to be safe (it never went through), or the
-        // app now leaves this dispute alone. Closed as not sent; if an answer is still due, the next pass writes a
-        // new one, with the next number.
+        // Still waiting, and the request cannot go: too old for a repeat to be safe (it never went through), stuck
+        // close to the bank's deadline, or the app now leaves this dispute alone. Closed as not sent; if an answer is
+        // still due, the next pass writes a new one, with the next number.
         const why = mayNotSend ? "A request was written down and not sent: the app leaves this dispute alone." : "A request was written down and never confirmed; it was closed as not sent.";
         await tx.update(schema.disputes).set({ answer: "none", proof: null, answerStartedAt: null, answerError: why, lookAgain: true }).where(eq(schema.disputes.id, dispute.id));
         return null;
@@ -108,7 +117,15 @@ async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<st
       return "moved";
     }
 
-    const kind = stillWaiting ? dueNow({ plan, choice: dispute.choice, askUntil: dispute.askUntil, now }) : null;
+    // Nobody was asked (no time was given when the stage began), and by what Stripe shows now and the setting as it
+    // is now the host could be: for example the amount from which the app fights a compliance dispute was changed
+    // while this one waited. Nothing is sent before the host has had their time: the record's look opens it.
+    let hostNotAsked = false;
+    if (stillWaiting && plan === "ask" && dispute.askUntil === null && dispute.choice === null) {
+      const [host] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, dispute.hostId));
+      hostNotAsked = askUntilFor({ now, dueBy: seen.dueBy, hostCanChoose: Boolean(host) && !host.closedAt }) !== null;
+    }
+    const kind = stillWaiting && !hostNotAsked ? dueNow({ plan, choice: dispute.choice, askUntil: dispute.askUntil, now }) : null;
     if (!kind) {
       // Not waiting in this stage any more (answered from outside, or it moved on), or Stripe now shows a dispute
       // the app leaves alone: the record's look brings the row up to date.
@@ -116,7 +133,7 @@ async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<st
       // "moved": Stripe was read and shows this stage no longer waiting. The row says so only after the record's look.
       return stillWaiting ? null : "moved";
     }
-    const request: Request | null = kind === "give_in" ? { kind } : proofForCheck ? { kind, evidence: proofForCheck } : await proofRequest(dispute, fresh);
+    const request: Request | null = kind === "give_in" ? { kind } : proofForCheck ? { kind, evidence: proofForCheck } : await proofRequest(tx, dispute, fresh);
     if (!request) {
       await tx.update(schema.disputes).set({ answerError: "The record of this payment could not be read, so no proof could be written.", answerStartedAt: now }).where(eq(schema.disputes.id, dispute.id));
       return null;
@@ -206,19 +223,31 @@ export async function answerOne(disputeId: string, now: Date, check: ForCheck = 
   const { cut } = check;
   const written = await writeDown(disputeId, now, check.proof);
   if (written === "moved") return true;
-  if (!written || cut === "before_stripe") return false;
+  if (!written) return false;
+  // A repeat for a dispute Stripe just showed as no longer waiting is only to learn the first reply: whatever comes of
+  // it, the dispute is not one that still waits for the app.
+  const moved = written.moved === true;
+  if (cut === "before_stripe") return moved;
   let reply: Stripe.Dispute;
   try {
     reply = await send(written);
   } catch (error) {
-    // A clear "no" is recorded. Anything else leaves the request written down: the next pass sends it again.
+    // A clear "no" is recorded. Anything else leaves the request written down, with what Stripe said (the founder's
+    // "this one needs you" email carries it): the next pass sends it again.
     if (isDefiniteRefusal(error)) await recordRefusal(written, stripeErrorMessage(error), now);
-    else console.error(`[disputes] no clear answer from Stripe for dispute ${written.id}; the request stays written down (${errorSummary(error)})`);
-    return false;
+    else {
+      console.error(`[disputes] no clear answer from Stripe for dispute ${written.id}; the request stays written down (${errorSummary(error)})`);
+      await db
+        .update(schema.disputes)
+        .set({ answerError: `No clear answer from Stripe yet: ${stripeErrorMessage(error)}` })
+        .where(and(eq(schema.disputes.id, written.id), eq(schema.disputes.answer, "sending"), eq(schema.disputes.answerAttempt, written.attempt)))
+        .catch(() => undefined);
+    }
+    return moved;
   }
-  if (cut === "after_stripe") return false;
+  if (cut === "after_stripe") return moved;
   await recordReply(written, reply, now);
-  return false;
+  return moved;
 }
 
 /** The founder is told, once, of a dispute that still waits for the app's answer a day before the bank's deadline. */

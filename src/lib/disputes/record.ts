@@ -351,7 +351,12 @@ async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now:
     // What the app does about a stage that still waits has changed on Stripe's side, with nothing chosen or sent yet
     // (a dispute newly marked as a compliance one, or no longer; another amount): the stage is begun afresh, so the
     // host gets their time when it is now theirs to choose, and nobody is asked when it no longer is.
-    const planDiffers = !stageChanged && before.stageBeganAt !== null && waits(before.status) && waits(fresh.status) && before.answer === "none" && planFor(before) !== planFor(seen);
+    const sameWaitingStage = !stageChanged && before.stageBeganAt !== null && waits(before.status) && waits(fresh.status) && before.answer === "none";
+    // The same holds when nobody was asked and the host now could be (the founder's line for compliance disputes was
+    // moved while this one waited): the stage is begun afresh, which gives the host their time.
+    const [hostNow] = sameWaitingStage && before.askUntil === null && before.choice === null && planFor(seen) === "ask" ? await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, before.hostId)) : [];
+    const neverAsked = hostNow !== undefined && askUntilFor({ now, dueBy: seen.dueBy, hostCanChoose: !hostNow.closedAt }) !== null;
+    const planDiffers = sameWaitingStage && (planFor(before) !== planFor(seen) || neverAsked);
     // A choice the host has made stands; only the founder is then told what the app now does.
     const planChanged = planDiffers && before.choice === null;
     const begins = waits(fresh.status) && (stageChanged || before.stageBeganAt === null || planChanged);

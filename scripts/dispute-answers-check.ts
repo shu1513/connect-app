@@ -31,6 +31,8 @@ function check(label: string, ok: boolean, detail = "") {
 async function main() {
   if (!process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_")) throw new Error("This script only runs with a Stripe test key.");
   requireLocalDatabase();
+  // The amount from which the app fights a compliance dispute, as the founder set it, whatever this machine's own setting is.
+  process.env.DISPUTE_COMPLIANCE_FIGHT_FROM_DOLLARS = "5000";
   const { db, schema } = await import("../src/db");
   const { stripe } = await import("../src/lib/payments/stripe");
   const { createPaymentForCall, startHold, syncHold } = await import("../src/lib/payments/hold");
@@ -40,7 +42,7 @@ async function main() {
   const { answerDisputes, answerOne, disputeHealthProblems } = await import("../src/lib/disputes/answer");
   const { chooseAnswer, ChoiceError } = await import("../src/lib/disputes/choose");
   const { allowPayingAgain, STOPPED_AFTER_LOSS, STOPPED_WHILE_OPEN, whyNoNewPayment } = await import("../src/lib/disputes/paying");
-  const { canChoose, ASK_MS } = await import("../src/lib/disputes/rules");
+  const { canChoose, ASK_MS, RETRY_AFTER_NO_MS } = await import("../src/lib/disputes/rules");
 
   const RUN = randomUUID().slice(0, 8);
   const stamp = new Date();
@@ -336,7 +338,13 @@ async function main() {
       await db.update(schema.disputes).set({ compliance: false, noAnswer: true }).where(eq(schema.disputes.id, d.id));
       await answerDisputes(farLater, { disputeIds: [d.id] });
       check("a bank that takes no answer: nothing is sent either", (await atStripe(d.id)).evidence_details?.submission_count === 0 && (await rowOf(d.id)).answer === "none");
+      // Nobody was asked about it, and now the host could be (as when the founder moves the line while it waits).
       await db.update(schema.disputes).set({ noAnswer: false }).where(eq(schema.disputes.id, d.id));
+      await answerDisputes(new Date(), { disputeIds: [d.id] });
+      check("a dispute nobody was asked about, whose host now could be: nothing is sent before they have had their time", (await atStripe(d.id)).evidence_details?.submission_count === 0 && (await rowOf(d.id)).answer === "none" && (await rowOf(d.id)).choice === null && (await rowOf(d.id)).lookAgain === true);
+      await helperLooks(d.id);
+      const opened = await rowOf(d.id);
+      check("the look opens the host's time, and tells them they can choose", opened.askUntil !== null && canChoose(opened, new Date()) && (await messagesAbout(d.id)).some((m) => m.userId === host.id && m.key.includes(":chargeback:plan:ask:") && m.body.includes("Choose by")), `${opened.askUntil?.toISOString()}`);
     }
 
     // ----------------------------------------------------------------------
@@ -399,22 +407,26 @@ async function main() {
       const d = await disputed(host, customer, "pm_card_createDispute");
       // As after a "no" from Stripe a moment ago, with the bank's deadline 12 hours away.
       const soon = new Date(Date.now() + 12 * 3_600_000);
-      await db.update(schema.disputes).set({ dueBy: soon, askUntil: null, answerError: "No such dispute", answerStartedAt: new Date() }).where(eq(schema.disputes.id, d.id));
+      const refusedAt = new Date();
+      // (The host's time is over: in the row the bank's deadline is moved close by hand, while Stripe still shows the real one.)
+      await db.update(schema.disputes).set({ dueBy: soon, askUntil: new Date(Date.now() - 60_000), answerError: "No such dispute", answerStartedAt: refusedAt }).where(eq(schema.disputes.id, d.id));
       await answerDisputes(new Date(), { disputeIds: [d.id] });
       await answerDisputes(new Date(), { disputeIds: [d.id] });
       const late = (await emailsAbout(d.id)).filter((mail) => mail.dedupeKey?.includes(":chargeback:late:founder:"));
       check("the founder is told once, plainly, with what Stripe said", late.length === admins.length && late.every((mail) => mail.body.includes("This one needs you") && mail.body.includes("No such dispute")), `${late.length}`);
       check("nobody else gets that message", (await messagesAbout(d.id)).every((m) => !m.key.includes(":late:")));
       check("the health address says so", (await disputeHealthProblems(new Date())).some((problem) => problem.includes("no answer from the app")));
-      await db.update(schema.disputes).set({ answerError: null, answerStartedAt: null }).where(eq(schema.disputes.id, d.id));
-      await answerOne(d.id, new Date(), { proof: WIN });
+      // The refusal stays on record: the next try comes an hour after it, and not before.
+      await answerOne(d.id, new Date(refusedAt.getTime() + RETRY_AFTER_NO_MS - 1000), { proof: WIN });
+      check("a second before the hour after the \"no\" is over, nothing is sent", (await rowOf(d.id)).answer === "none" && (await atStripe(d.id)).evidence_details?.submission_count === 0);
+      await answerOne(d.id, new Date(refusedAt.getTime() + RETRY_AFTER_NO_MS), { proof: WIN });
       check("an hour after the \"no\" it is tried again, and goes through", (await rowOf(d.id)).answer === "proof");
       await becomes(d.id, "won");
 
       // A dispute first seen 12 hours before the bank's deadline: answered in the same pass, and nobody is told it is late.
       const customer2 = await person("customer");
       const e = await disputed(host, customer2, "pm_card_createDispute");
-      await db.update(schema.disputes).set({ dueBy: soon, askUntil: null }).where(eq(schema.disputes.id, e.id));
+      await db.update(schema.disputes).set({ dueBy: soon, askUntil: new Date(Date.now() - 60_000) }).where(eq(schema.disputes.id, e.id));
       await answerDisputes(new Date(), { disputeIds: [e.id] });
       check("a dispute answered in the pass that finds it close to the deadline makes no \"this one needs you\" email", (await rowOf(e.id)).answer === "proof" && (await emailsAbout(e.id)).every((mail) => !mail.dedupeKey?.includes(":late:")), `${(await rowOf(e.id)).answer}`);
     }

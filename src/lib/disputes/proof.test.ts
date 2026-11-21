@@ -62,7 +62,8 @@ describe("the proof for a call", () => {
     expect(proofFrom(facts).uncategorized_text).toMatch(/^The cardholder says they did not make, or do not recognise, this payment/);
     expect(proofFrom(facts).uncategorized_text).toContain("The same account made 3 earlier payments on Connect for which Connect has no dispute on record");
     expect(proofFrom({ ...facts, bankReason: "product_not_received" }).uncategorized_text).toMatch(/^The cardholder says they did not get what they paid for/);
-    expect(proofFrom({ ...facts, bankReason: "duplicate" }).uncategorized_text).toMatch(/^The cardholder says they were charged twice/);
+    expect(proofFrom({ ...facts, bankReason: "duplicate" }).uncategorized_text).toMatch(/^The cardholder says they were charged twice\. What this payment was for is described below\./);
+    expect(proofFrom({ ...facts, bankReason: "duplicate" }).uncategorized_text).not.toMatch(/of its own/);
     expect(proofFrom({ ...facts, bankReason: "something_new" }).uncategorized_text).toMatch(/^This is what the payment was for/);
   });
 
@@ -104,6 +105,10 @@ describe("the proof for a call", () => {
     const refunded = proofFrom({ ...facts, refundedCents: 500, about: { ...call, refundRequest: { askedAt: at("2027-01-10T21:00:00Z"), reason: "other", status: "asked", decidedAt: null, decidedAs: null, answeredByRefund: true } } });
     expect(refunded.refund_refusal_explanation).toContain("A refund was given after that request.");
     expect(refunded.refund_refusal_explanation).not.toContain("had not been answered");
+    // The refund that answered the request was of another payment of the call (added time): said as that, beside "nothing of it has been refunded".
+    const other = proofFrom({ ...facts, about: { ...call, refundRequest: { askedAt: at("2027-01-10T21:00:00Z"), reason: "other", status: "asked", decidedAt: null, decidedAs: null, answeredByRefund: true } } });
+    expect(other.refund_refusal_explanation).toContain("a refund was given for another payment of the same call, not for this one");
+    expect(other.uncategorized_text).toContain("Nothing of it has been refunded.");
     const byConnect = proofFrom({ ...facts, about: { ...call, refundRequest: { askedAt: at("2027-01-10T21:00:00Z"), reason: "other", status: "declined", decidedAt: at("2027-01-10T22:00:00Z"), decidedAs: "admin", answeredByRefund: false } } });
     expect(byConnect.refund_refusal_explanation).toContain("Connect answered on 2027-01-10 22:00 UTC: no refund.");
     expect(text(proofFrom(facts))).not.toMatch(/24 hours/);
@@ -231,5 +236,7 @@ describe("what the proof never says", () => {
     expect(short.length).toBeLessThan(long.length);
     expect(short).toContain("What was paid for");
     expect(short).toContain("The host joined at");
+    const withTerms = proofFrom({ ...facts, stage: "question", accepted: [{ title: "Payment Terms", version: "2027-01-01", at: at("2027-01-02T08:00:00Z") }] });
+    expect(withTerms.uncategorized_text).toContain("the Payment Terms, version 2027-01-01");
   });
 });

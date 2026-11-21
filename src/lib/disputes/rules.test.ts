@@ -8,7 +8,14 @@ const chargeback = { stage: "chargeback", compliance: false, amountCents: 1333, 
 
 describe("the amount from which a compliance dispute is fought", () => {
   it("is 5,000 dollars unless the setting says otherwise (the founder's decision)", () => {
-    expect(complianceFightFromCents(undefined)).toBe(500_000);
+    // With nothing set on this machine either: passing nothing reads the setting.
+    const set = process.env.DISPUTE_COMPLIANCE_FIGHT_FROM_DOLLARS;
+    delete process.env.DISPUTE_COMPLIANCE_FIGHT_FROM_DOLLARS;
+    try {
+      expect(complianceFightFromCents(undefined)).toBe(500_000);
+    } finally {
+      if (set !== undefined) process.env.DISPUTE_COMPLIANCE_FIGHT_FROM_DOLLARS = set;
+    }
     expect(complianceFightFromCents("")).toBe(500_000);
   });
 

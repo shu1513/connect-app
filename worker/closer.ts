@@ -193,7 +193,8 @@ async function main() {
     const now = new Date();
     await lookAtOpenDisputes(now).catch((error) => console.error("[disputes] the look at open disputes failed; will retry", error));
     // The answer to the bank, for every dispute whose answer is due: the host chose, their time is up, or it is a bank's question.
-    await answerDisputes(now).catch((error) => console.error("[disputes] answering the bank failed; will retry", error));
+    // (The clock is read again: the look above can take a while, and deadlines are judged from now.)
+    await answerDisputes(new Date()).catch((error) => console.error("[disputes] answering the bank failed; will retry", error));
     if (disputePasses % 720 === 0) await catchUpFromStripe(now, disputePasses % 17_280 === 0 ? 130 : 7).catch((error) => console.error("[disputes] catching up from Stripe failed; will retry", error));
     disputePasses++;
   }

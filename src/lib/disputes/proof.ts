@@ -184,7 +184,10 @@ function callSentences(facts: ProofFacts, call: CallFacts): { what: string; serv
     ? `The customer asked for a refund in the app on ${at(request.askedAt)}. ` +
       (request.status === "asked"
         ? request.answeredByRefund
-          ? "A refund was given after that request."
+          ? // The request is the call's; the refund that answered it can be of this payment or of another one of the same call.
+            facts.refundedCents > 0
+            ? "A refund was given after that request."
+            : "After that request a refund was given for another payment of the same call, not for this one."
           : "The request had not been answered when this was written."
         : request.status === "closed"
           ? "Connect closed the request."
@@ -237,7 +240,7 @@ function opening(facts: ProofFacts): string {
     case "subscription_canceled":
       return `The cardholder says they had cancelled. What was paid for, and the rule for cancelling it, follows. ${account}`;
     case "duplicate":
-      return `The cardholder says they were charged twice. Each payment on Connect is for one booking, one membership month or one gift of its own; this one is described below. ${account}`;
+      return `The cardholder says they were charged twice. What this payment was for is described below. ${account}`;
     case "credit_not_processed":
       return `The cardholder says a refund they were promised did not arrive. What the app's record shows about refunds for this payment follows. ${account}`;
     default:
@@ -269,7 +272,7 @@ export function proofFrom(facts: ProofFacts): Proof {
     product_description: `Connect is a website for private, paid, one-to-one video calls with hosts. This payment: ${parts.what}.`,
     customer_name: plain(facts.customer.name, "the customer"),
     customer_email_address: facts.customer.email,
-    uncategorized_text: facts.stage === "question" ? [opening(facts), `What was paid for: ${parts.what}. ${charged}${refunded}`, parts.service].join("\n\n") : letter,
+    uncategorized_text: facts.stage === "question" ? [opening(facts), `What was paid for: ${parts.what}. ${charged}${refunded}`, parts.service, agreements].filter(Boolean).join("\n\n") : letter,
   };
   if (about.kind === "call") {
     // The day of the service and the record of who was in the call, only where the charge is for time in the call: a

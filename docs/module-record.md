@@ -4948,6 +4948,23 @@ past the page's checks. What it did find, and what was done:
   own mark of who submitted (`submission_method`) and its "past due" are not kept; every clear
   "no" waits the same hour.
 
+**What CodeRabbit found** (16 comments; 14 taken). The admin list now says that an appeal in
+which the bank waits for an answer is the founder's (the app sends nothing in an appeal). The
+letter never gives a scheduled price as money taken: a month or a contribution whose taken
+amount is not on record yet gets no letter until it is. A refund that answered a request but
+was of another payment of the same call is said as that. A dispute nobody was asked about,
+whose host now could be (the founder moved the line for compliance disputes while it waited),
+gets its host's time before anything is sent. A request stuck without a clear answer from
+Stripe keeps what Stripe said on record, and when the bank's deadline is a day or less away
+and the dispute still waits after an hour, it is closed as not sent and written anew (a
+dispute that still waits has no answer at Stripe, and Stripe takes only one). The letter's
+facts are read through the step that holds the dispute's row; the "charged twice" opening
+claims nothing about other payments; a bank's question gets the accepted terms too; the
+job's clock is read after the look; the tests and the check script no longer depend on this
+machine's own setting; the demo's clean-up is one step. *Not taken:* keeping test notices from
+a real founder's address (the scripts run only against the local test database, whose admins
+are test accounts; part 1's script works the same way).
+
 **How it was checked.** 924 tests (56 new: the rules, the letter for every kind of money and
 every reason for a charge with what it never says, the wording).
 `scripts/dispute-answers-check.ts`, new, 91 checks with real disputes in Stripe's test area,

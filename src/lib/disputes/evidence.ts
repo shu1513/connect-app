@@ -124,9 +124,11 @@ export async function gatherFacts(reader: Reader, dispute: { stage: string; reas
       .where(eq(schema.membershipMonths.id, owner.id));
     if (!row) return null;
     const { month } = row;
+    // What Stripe really took is not on record here yet: the scheduled amount is never given as money taken.
+    if (month.takenCents === null) return null;
     return {
       ...common,
-      chargedCents: month.takenCents ?? month.totalCents,
+      chargedCents: month.takenCents,
       refundedCents: month.paidBackCents,
       chargedAt: month.takenAt,
       earlierPayments: await earlierPaymentsOf(reader, dispute.customerId, month.takenAt, null),
@@ -151,11 +153,11 @@ export async function gatherFacts(reader: Reader, dispute: { stage: string; reas
     .leftJoin(schema.projects, eq(schema.projects.id, schema.contributions.projectId))
     .leftJoin(schema.calls, eq(schema.calls.id, schema.contributions.callId))
     .where(eq(schema.contributionPayments.id, owner.id));
-  if (!row) return null;
+  if (!row || row.payment.takenCents === null) return null;
   const [agreement] = await reader.select({ agreedAt: schema.contributionAgreements.agreedAt }).from(schema.contributionAgreements).where(eq(schema.contributionAgreements.contributionId, row.contribution.id)).orderBy(asc(schema.contributionAgreements.agreedAt)).limit(1);
   return {
     ...common,
-    chargedCents: row.payment.takenCents ?? row.payment.amountCents,
+    chargedCents: row.payment.takenCents,
     refundedCents: row.payment.refundedCents,
     chargedAt: row.payment.takenAt,
     earlierPayments: await earlierPaymentsOf(reader, dispute.customerId, row.payment.takenAt, null),

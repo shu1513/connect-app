@@ -452,10 +452,12 @@ From `plans/47-bank-disputes.md`. The app answers a bank dispute by itself (buil
 
 - **What is sent to a bank without a person looking first.** To fight a dispute, the app sends
   the customer's bank, through Stripe: the customer's name and email address, since when they
-  have an account and how many earlier payments were never disputed, when they and the host
+  have an account, when they and the host
   joined and left the call, what they paid, the version of the terms they accepted (only once
-  a published version exists), and any refund request with its answer. As built it sends no
-  internet address and no device. Does the
+  a published version exists), and any refund request with its answer. When the bank's reason is that the
+  cardholder did not make or does not recognise the payment, and only then, it also says how
+  many earlier payments of the same account Connect has no dispute on record for (when there
+  are any). As built it sends no internet address and no device. Does the
   privacy policy say this clearly enough (payment terms draft, section 9.7, says only "we may
   give the bank our records")? Is anything in that list more than a bank should get?
 - **A statement written by a machine.** The letter to the bank is put together by the app from
