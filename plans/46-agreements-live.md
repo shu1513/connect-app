@@ -649,3 +649,16 @@ Astra said to hold it for one point. Taken:
   version". (A second draft would also need a name: a version is named by its day, and the
   draft's day is taken.)
 
+## Part 3 has its detailed plan (21 November 2026)
+
+`plans/46-part-3-money-owed.md`, checked by Astra four times. It changes this plan in three
+places, and says why:
+- **Decision 13 is replaced.** A host's debt is not taken out of her next collections. It is
+  recovered the way plan 47 (bank disputes, built since) recovers one: after written notice and
+  14 days, Stripe is asked to take the amount back out of what it sent her. The founder's yes to
+  that is asked for before part 3a is started.
+- **"A bank dispute lost after collection" is no longer part of part 3:** plan 47 built it.
+- **"The host's line in `agreement_acceptances`"** became an exact rule: a published version, in
+  effect and accepted before Stripe's time for the charge; otherwise the app never takes the
+  debt by itself.
+
