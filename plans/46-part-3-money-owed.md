@@ -238,9 +238,12 @@ Everything else here is the builder's.
    written. It is the closest record there is of the bank's hold, to the second. The app's own
    "held at" is not used: it is the time the app learned of the hold. Her acceptance has to be
    earlier than that second. Where the charge's number is missing or does not fit the payment,
-   where Stripe's time cannot be read, where the acceptance falls in the same second, or where
-   the version in effect then cannot be shown to have been accepted by then, the row is
-   written in a new state, "waiting", with no due day. She is
+   where Stripe says for good that it has no such charge, where the acceptance falls in the
+   same second, or where the version in effect then cannot be shown to have been accepted by
+   then, the row is written in a new state, "waiting", with no due day. **When Stripe simply
+   cannot be reached, or does not answer in time, nothing is written:** the look comes back on
+   its next pass. A passing fault must never turn a debt the app may take into one it never
+   takes. She is
    told that she owes it and that Connect will write to her. The founder's page offers "Call it
    off" and "Settled outside the app". It is never promoted later, whatever she accepts
    afterwards. Plan 47's dispute debts are not changed by this decision; see "For the founder
@@ -340,7 +343,8 @@ Everything else here is the builder's.
     - **What the founder enters:** the day the member's request reached Connect, and a tick
       that the member lives where the 14-day right applies (the card's country does not show
       where a person lives). The action refuses when that day is more than 14 days after
-      joining. (Default C.)
+      joining, when it is before the day of joining, and when it is later than today.
+      (Default C.)
     - **What it does:** it ends the membership as the founder, with a reason of its own
       ("cancelled within 14 days"), and cancels its coming member calls. Everything else is
       what ending a membership already does: renewal stops; a month that is only to be paid or
@@ -466,7 +470,9 @@ stand-in for the sending service, and tests of the rules:
 - a reversal whose answer was lost: found at Stripe and booked once, not sent twice;
 - a host without a published Host Agreement accepted by the bank's time of the charge:
   "waiting", never taken, also after she accepts one later, when she accepted between the
-  bank's hold and the app learning of it, and when she accepted in the same second; "Call it off" books Connect's cost once; "Settled
+  bank's hold and the app learning of it, and when she accepted in the same second; Stripe
+  not answering when the row is to be written: nothing is written, and the next pass writes
+  it "told"; "Call it off" books Connect's cost once; "Settled
   outside the app" books what she paid and only the rest as Connect's cost. With one accepted
   in time: "told". (The check makes up a published version for its own run, as
   `agreements-check` does.)
@@ -509,8 +515,8 @@ paused); still to be paid: ended, nothing charged; taken, nothing used: the whol
 back, no renewal; taken, one call of 30 minutes used: that call stays paid at the member
 price, the rest goes back, the host's share of the call is untouched; a coming member call is
 cancelled and its money goes back once, through its own line; a late cancellation that was
-charged stays charged; a request that reached Connect on day 15: refused; one of day 14
-handled on day 20: done; the first month already ended: refused, with the sentence that says
+charged stays charged; a request that reached Connect on day 15: refused; a day in the
+future, or before joining: refused; one of day 14 handled on day 20: done; the first month already ended: refused, with the sentence that says
 why; a resumed membership, and a second membership of the same pair: refused; anything about
 a bank on it: refused; pressed twice: nothing is paid back twice; the ticked sentence is the
 new one and carries the new version.
@@ -673,6 +679,15 @@ arithmetic for the examples of decision 4 agreed with the plan's.
    decision 6.
 
 This last round of changes was made as Astra wrote them and was not sent back a fifth time.
+
+## What CodeRabbit found in the plan's pull request, and what was done
+
+Two points, both taken.
+1. *A passing failure to read Stripe's time for the charge would have written the debt as
+   "waiting" for ever.* Decision 7 now writes nothing when Stripe cannot be reached, and tries
+   again on the next pass; only a lasting reason makes a debt wait.
+2. *The day the request reached Connect could be entered as a day in the future, or before the
+   member joined.* Decision 13 refuses both.
 
 Not taken, in any of the four checks: nothing was set aside. Two things are deliberately left
 small and named under "Not in this part": a debt written smaller than it could have been is not
