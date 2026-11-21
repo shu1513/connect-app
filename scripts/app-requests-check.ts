@@ -295,6 +295,29 @@ async function main() {
       // After the time to answer.
       await db.update(schema.bookings).set({ respondBy: new Date(Date.now() - MINUTE) }).where(eq(schema.bookings.id, cyAsk.id));
       check("after the time to answer has passed", sentence(await step(cyAsk.id, "accept", hana.jar)) === "The time to answer this request has passed." && (await row(cyAsk.id)).stage === "waiting");
+      // The same when the time to answer runs out while the answer is waiting its turn: the clock is read after
+      // the wait, not when the answer was sent. Her calendar is held here, the answer is sent three seconds before
+      // the deadline, and the calendar is let go a second after it.
+      const { lockCalendars } = await import("../src/lib/booking/bookings");
+      await db.update(schema.bookings).set({ respondBy: new Date(Date.now() + 3_000) }).where(eq(schema.bookings.id, cyAsk.id));
+      let calendarHeld = () => {};
+      let letCalendarGo = () => {};
+      const isHeld = new Promise<void>((done) => (calendarHeld = done));
+      const untilLetGo = new Promise<void>((done) => (letCalendarGo = done));
+      const holding = db.transaction(async (tx) => {
+        await lockCalendars(tx, [hana.id]);
+        calendarHeld();
+        await untilLetGo;
+      });
+      await isHeld;
+      const sentInTime = Date.now() < (await row(cyAsk.id)).respondBy!.getTime();
+      const waitedAnswer = step(cyAsk.id, "accept", hana.jar);
+      await new Promise((done) => setTimeout(done, 4_000));
+      letCalendarGo();
+      await holding;
+      const waited = await waitedAnswer;
+      const afterWait = await row(cyAsk.id);
+      check("an answer sent in time that waited its turn past the deadline is refused, and no call is made", sentInTime && sentence(waited) === "The time to answer this request has passed." && afterWait.stage === "waiting" && afterWait.callId === null, `${sentInTime} ${waited.status} ${afterWait.stage}`);
       await db.update(schema.bookings).set({ respondBy: cyAsk.respondBy }).where(eq(schema.bookings.id, cyAsk.id));
       // The time taken meanwhile: the host asked somebody else for a call of her own at that very time.
       await db.insert(schema.identityChecks).values({ userId: hana.id, stripeSessionId: `vs_check_${RUN}_hana`, status: "verified", adult: true, checkedAt: now });
