@@ -5,7 +5,7 @@
  * database step and under one key. So what a person reads on their "Messages" page is what
  * was emailed to them, and neither exists twice.
  */
-import { and, count, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Message } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
@@ -79,13 +79,12 @@ export async function unreadCount(userId: string): Promise<number> {
  * and a number in the top bar that nothing on the page can clear would only mislead.
  */
 export async function markReadUpTo(userId: string, newestId: string, now: Date = new Date()): Promise<void> {
-  const [newest] = await db
-    .select({ createdAt: schema.messages.createdAt })
-    .from(schema.messages)
-    .where(and(eq(schema.messages.id, newestId), eq(schema.messages.userId, userId)));
-  if (!newest) return;
+  // The moment of the newest message is compared inside the database, never carried through this code: the database
+  // keeps it to the microsecond and a date here only to the millisecond, which would leave out the very message shown.
+  // A message that is not this person's gives no moment, and then nothing is marked.
+  const upTo = sql`(select anchor.created_at from messages anchor where anchor.id = ${newestId} and anchor.user_id = ${userId})`;
   await db
     .update(schema.messages)
     .set({ readAt: now })
-    .where(and(eq(schema.messages.userId, userId), lte(schema.messages.createdAt, newest.createdAt), isNull(schema.messages.readAt)));
+    .where(and(eq(schema.messages.userId, userId), isNull(schema.messages.readAt), sql`${schema.messages.createdAt} <= ${upTo}`));
 }

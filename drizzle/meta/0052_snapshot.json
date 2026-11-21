@@ -1,5 +1,5 @@
 {
-  "id": "52035330-fbb1-47ee-be6d-d6c8cba01dd1",
+  "id": "31b05d3d-b34f-4c60-94a7-f1b0f154896e",
   "prevId": "50c01e20-8038-43d4-9120-60997f7f37a8",
   "version": "7",
   "dialect": "postgresql",
@@ -2913,6 +2913,13 @@
           "notNull": true,
           "default": false
         },
+        "look_again": {
+          "name": "look_again",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "outcome": {
           "name": "outcome",
           "type": "text",
@@ -3028,6 +3035,22 @@
           ],
           "isUnique": false,
           "where": "\"disputes\".\"outcome\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "disputes_look_again_idx": {
+          "name": "disputes_look_again_idx",
+          "columns": [
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"disputes\".\"look_again\"",
           "concurrently": false,
           "method": "btree",
           "with": {}

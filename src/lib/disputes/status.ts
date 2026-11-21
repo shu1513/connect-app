@@ -92,7 +92,10 @@ export function reasonWords(reason: string): string {
       return "the cardholder says a refund they were promised did not arrive";
     case "noncompliant":
       return "the bank says the payment did not follow the card network's rules";
-    default:
+    case "general":
       return "the bank gave no particular reason";
+    default:
+      // A reason is there; this app only has no words for it yet.
+      return `a reason this app has no words for (Stripe calls it "${reason}")`;
   }
 }

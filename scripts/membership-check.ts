@@ -872,7 +872,8 @@ async function main() {
     month = await M(m.monthId);
     check("lost: the month stays frozen past its end. Nothing expires to the host, nothing is paid back, nothing renews", month.dispute === "lost" && month.status === "closed" && month.freeCents === 6000 && (await expiredPayment(m.monthId)) === undefined && (await monthsOf(m.membershipId)).length === 1, month);
     check("the founder sees the disputed month", (await membershipsToLookAt(new Date())).disputed.some((row) => row.month.id === m.monthId));
-    check("the dispute's own record says how it ended, and both are told that once (plans/47)", (await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId)))[0]?.outcome === "lost" && (await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:ended:lost:%`))).filter((one) => one.userId === host.id || one.userId === m.member.id).length === 2);
+    await (await import("../src/lib/disputes/record")).lookAtOpenDisputes(new Date(Date.now() + 120_000), { disputeIds: [disputeId] });
+    check("the dispute's own record says how it ended (written by the helper's look), and both are told that once (plans/47)", (await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId)))[0]?.outcome === "lost" && (await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:ended:lost:%`))).filter((one) => one.userId === host.id || one.userId === m.member.id).length === 2);
     await audit("after a lost dispute", m);
   });
 

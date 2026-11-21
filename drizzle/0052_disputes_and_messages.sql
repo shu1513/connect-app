@@ -14,6 +14,7 @@ CREATE TABLE "disputes" (
 	"opened_at" timestamp with time zone NOT NULL,
 	"due_by" timestamp with time zone,
 	"no_answer" boolean DEFAULT false NOT NULL,
+	"look_again" boolean DEFAULT false NOT NULL,
 	"outcome" text,
 	"ended_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -48,5 +49,6 @@ CREATE INDEX "disputes_contribution_payment_idx" ON "disputes" USING btree ("con
 CREATE INDEX "disputes_host_idx" ON "disputes" USING btree ("host_id");--> statement-breakpoint
 CREATE INDEX "disputes_customer_idx" ON "disputes" USING btree ("customer_id");--> statement-breakpoint
 CREATE INDEX "disputes_open_idx" ON "disputes" USING btree ("updated_at") WHERE "disputes"."outcome" is null;--> statement-breakpoint
+CREATE INDEX "disputes_look_again_idx" ON "disputes" USING btree ("updated_at") WHERE "disputes"."look_again";--> statement-breakpoint
 CREATE INDEX "messages_user_idx" ON "messages" USING btree ("user_id","created_at");--> statement-breakpoint
 CREATE INDEX "messages_unread_idx" ON "messages" USING btree ("user_id") WHERE "messages"."read_at" is null;

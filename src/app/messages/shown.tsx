@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { startTransition, useEffect } from "react";
 import { messagesShownAction } from "./actions";
 
 /**
@@ -11,8 +11,11 @@ import { messagesShownAction } from "./actions";
  */
 export function MessagesShown({ newestId }: { newestId: string }) {
   useEffect(() => {
+    // A server action called from an effect goes inside a transition (this Next.js version's guide on server actions).
     // If the telling fails, the messages simply stay marked as new until the next visit.
-    messagesShownAction(newestId).catch(() => undefined);
+    startTransition(() => {
+      messagesShownAction(newestId).catch(() => undefined);
+    });
   }, [newestId]);
   return null;
 }

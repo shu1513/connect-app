@@ -13,8 +13,14 @@
  * that is there is read from Stripe again AFTER it is locked: whoever writes after us has read
  * after us, so an older answer from Stripe never lands on top of a newer one, and nobody is told
  * something that was already out of date.
+ *
+ * That locked read is the helper's work, never part of handling a message from Stripe: while such
+ * a message is not handled, no host can collect, so its handling must not wait for Stripe longer
+ * than the money needs. The message's handling only notes the dispute (`noteDispute`: a first
+ * sight is written from what was just read; a known one is marked "look again"), and the helper
+ * does the rest within the minute.
  */
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db, schema } from "@/db";
 import type { Dispute } from "@/db/schema";
@@ -150,7 +156,7 @@ async function peopleFor(tx: Tx, about: About): Promise<{ host: Person; customer
 /** The page of a dispute, for its host and for the founder. */
 export const disputePath = (disputeId: string) => `/disputes/${disputeId}`;
 
-type Event = { began: true } | { ended: Outcome } | { appeal: true };
+type Event = { began: true } | { ended: Outcome; afterAppeal?: boolean } | { appeal: true };
 
 /**
  * What is told, to whom, about one dispute.
@@ -188,11 +194,14 @@ async function tellAll(tx: Tx, about: About, dispute: Dispute, event: Event): Pr
     const customer = wordsFor("customer", people.customer);
     await tell(tx, { to: people.customer, key: `dispute:${dispute.id}:${what}:customer:${people.customer.id}`, subject: customer.subject, text: customer.text, path: about.customerPath });
   }
+  // The founder was told that an appeal began, so they are told how it ended also when that is the same ending as
+  // before the appeal (for the host and the customer, who were not told of the appeal, the same ending is no news).
+  const forFounder = "ended" in event && event.afterAppeal ? `ended-after-appeal:${event.ended}` : what;
   for (const founder of people.founders) {
     const told = wordsFor("founder", founder);
     await queueEmail(tx, {
       to: founder.email,
-      key: `dispute:${dispute.id}:${what}:founder:${founder.id}`,
+      key: `dispute:${dispute.id}:${forFounder}:founder:${founder.id}`,
       subject: told.subject,
       text: `${told.text}\n\nThe dispute's page (admin login):\n${appUrl()}${disputePath(dispute.id)}\n`,
     });
@@ -217,47 +226,73 @@ function seenIn(found: Stripe.Dispute, now: Date) {
 }
 
 /**
+ * Writes the row of a dispute the app has not seen before, from what Stripe shows, and tells the
+ * people. Gives back false, and writes nothing, when the row is there already. A dispute that had
+ * already ended when we first saw it is old news: recorded, and nobody is told.
+ */
+async function firstSight(tx: Tx, owner: Owner, about: About, found: Stripe.Dispute, now: Date): Promise<boolean> {
+  const outcome = outcomeOf(found.status);
+  const made = await tx
+    .insert(schema.disputes)
+    .values({
+      id: found.id,
+      paymentId: owner.kind === "payment" ? owner.id : null,
+      monthId: owner.kind === "month" ? owner.id : null,
+      contributionPaymentId: owner.kind === "contribution" ? owner.id : null,
+      hostId: about.hostId,
+      customerId: about.customerId,
+      openedAt: new Date(found.created * 1000),
+      outcome,
+      endedAt: outcome ? now : null,
+      ...seenIn(found, now),
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (made.length === 0) return false;
+  if (!outcome) await tellAll(tx, about, made[0], { began: true });
+  return true;
+}
+
+/**
+ * For the handling of a message from Stripe, after the money is protected: notes the dispute the
+ * message was about, without asking Stripe anything more. `found` is that dispute as Stripe showed
+ * it a moment ago. A first sight is written from it, with its messages. A dispute the app knows is
+ * marked for the helper, which asks Stripe about it again within the minute (`lookAtOpenDisputes`).
+ */
+export async function noteDispute(owner: Owner, found: Stripe.Dispute, now: Date = new Date()): Promise<void> {
+  const about = await aboutOwner(db, owner);
+  if (!about) return;
+  await db.transaction(async (tx) => {
+    if (await firstSight(tx, owner, about, found, now)) return;
+    await tx.update(schema.disputes).set({ lookAgain: true }).where(eq(schema.disputes.id, found.id));
+  });
+}
+
+/** Stripe is read with a row locked in `writeOne`: never for longer than this. */
+const LOCKED_READ_MS = 15_000;
+
+/**
  * One dispute, written into its row, with the messages a change calls for. Gives back whether
  * there was something new: a row that did not exist, or another status than the row had.
  */
 async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now: Date): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const outcome = outcomeOf(listed.status);
-    const made = await tx
-      .insert(schema.disputes)
-      .values({
-        id: listed.id,
-        paymentId: owner.kind === "payment" ? owner.id : null,
-        monthId: owner.kind === "month" ? owner.id : null,
-        contributionPaymentId: owner.kind === "contribution" ? owner.id : null,
-        hostId: about.hostId,
-        customerId: about.customerId,
-        openedAt: new Date(listed.created * 1000),
-        outcome,
-        endedAt: outcome ? now : null,
-        ...seenIn(listed, now),
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (made.length > 0) {
-      // First sight. A dispute that had already ended when we first saw it is old news: recorded, and nobody is told.
-      if (!outcome) await tellAll(tx, about, made[0], { began: true });
-      return true;
-    }
+    if (await firstSight(tx, owner, about, listed, now)) return true;
     const [before] = await tx.select().from(schema.disputes).where(eq(schema.disputes.id, listed.id)).for("update");
     if (!before) return false;
-    // The row is ours now. Stripe is read again from here (see the top of this file).
-    const fresh = await stripe().disputes.retrieve(listed.id);
-    const now2 = outcomeOf(fresh.status);
+    // The row is ours now. Stripe is read again from here (see the top of this file), and "look again" is cleared in
+    // the same step: a message from Stripe that comes in meanwhile waits for this row and then sets it once more.
+    const fresh = await stripe().disputes.retrieve(listed.id, {}, { timeout: LOCKED_READ_MS });
+    const outcome = outcomeOf(fresh.status);
     const [after] = await tx
       .update(schema.disputes)
-      .set({ ...seenIn(fresh, now), outcome: now2, endedAt: now2 ? (before.outcome === now2 ? before.endedAt : now) : null })
+      .set({ ...seenIn(fresh, now), lookAgain: false, outcome, endedAt: outcome ? (before.outcome === outcome ? before.endedAt : now) : null })
       .where(eq(schema.disputes.id, listed.id))
       .returning();
     if (before.status === fresh.status) return false;
     // A new stage on a row that was there: a bank's question that became a chargeback.
-    if (!now2 && before.stage !== after.stage) await tellAll(tx, about, after, { began: true });
-    if (now2 && before.outcome !== now2) await tellAll(tx, about, after, { ended: now2 });
+    if (!outcome && before.stage !== after.stage) await tellAll(tx, about, after, { began: true });
+    if (outcome && before.outcome !== outcome) await tellAll(tx, about, after, { ended: outcome, afterAppeal: isAppeal(before.status) });
     if (isAppeal(fresh.status) && !isAppeal(before.status)) await tellAll(tx, about, after, { appeal: true });
     return true;
   });
@@ -307,17 +342,24 @@ export async function refreshOwner(owner: Owner, now: Date = new Date()): Promis
 export type Only = { disputeIds: string[] };
 
 /**
- * The helper's hourly look: every dispute that has not ended is asked about again, whatever kind of
- * money it is about. So an ending is recorded also when Stripe's message about it never came.
- * (The looks that exist for a month and for a contribution go by "the month is open"; a month
- * already marked lost by one dispute is passed over there although a second dispute on it is still
- * open. Going by dispute closes that gap.)
+ * The helper's look, every few seconds. Two kinds of dispute are asked about again:
+ *   - one a message from Stripe has just been about (`noteDispute` marked it): within the minute;
+ *   - every one that has not ended, whatever kind of money it is about: once an hour. So an ending
+ *     is recorded also when Stripe's message about it never came. (The looks that exist for a
+ *     month and for a contribution go by "the month is open"; a month already marked lost by one
+ *     dispute is passed over there although a second dispute on it is still open. Going by dispute
+ *     closes that gap.)
+ * A dispute that could not be asked about keeps its mark and is tried again a minute later.
  */
 export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> {
+  const due = or(
+    and(isNull(schema.disputes.outcome), lte(schema.disputes.updatedAt, new Date(now.getTime() - 3_600_000))),
+    and(eq(schema.disputes.lookAgain, true), lte(schema.disputes.updatedAt, new Date(now.getTime() - 60_000))),
+  );
   const open = await db
     .select()
     .from(schema.disputes)
-    .where(and(isNull(schema.disputes.outcome), lte(schema.disputes.updatedAt, new Date(now.getTime() - 3_600_000)), only ? inArray(schema.disputes.id, only.disputeIds) : undefined))
+    .where(and(due, only ? inArray(schema.disputes.id, only.disputeIds) : undefined))
     .orderBy(asc(schema.disputes.updatedAt))
     .limit(25);
   // One read per charge, however many of its disputes are due.
@@ -327,7 +369,7 @@ export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> 
     if (asked.has(ownerKey(owner))) continue;
     asked.add(ownerKey(owner));
     await refreshOwner(owner, now).catch(async (error) => {
-      console.error(`[disputes] could not ask about dispute ${dispute.id} (${errorSummary(error)}); will retry in an hour`);
+      console.error(`[disputes] could not ask about dispute ${dispute.id} (${errorSummary(error)}); will retry`);
       // It still takes its turn, so one that keeps failing cannot keep the others from being asked about.
       await db.update(schema.disputes).set({ updatedAt: now }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
     });

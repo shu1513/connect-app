@@ -115,6 +115,8 @@ async function main() {
 
   const message = (type: string, disputeId: string) => ({ type, data: { object: { id: disputeId } } });
   const anHourLater = () => new Date(Date.now() + 3_600_000 + 60_000);
+  /** The helper's look, as it runs a minute or two after a message from Stripe marked a dispute "look again". */
+  const helperLooks = (...disputeIds: string[]) => lookAtOpenDisputes(new Date(Date.now() + 120_000), { disputeIds });
 
   try {
     const host = await person("host");
@@ -194,7 +196,7 @@ async function main() {
       check("nor a stranger without an admin login", (await disputeForViewer(d1.id, stranger, false)) === null);
       check("one that does not exist is the same \"not found\", also for an admin login", (await disputeForViewer("du_does_not_exist", host, true)) === null);
       const pages = await disputePagesOf([await reload(first.payment.id)]);
-      check("the host's earnings line about this payment leads to that page", pages.get(first.payment.id) === `/disputes/${d1.id}`);
+      check("the host's earnings line about this payment leads to that page", pages.get(first.payment.id)?.path === `/disputes/${d1.id}` && pages.get(first.payment.id)?.lost === false);
       const list = await disputesForFounder();
       check("it is on the founder's list of open disputes", list.open.some((d) => d.id === d1.id) && !list.ended.some((d) => d.id === d1.id));
     }
@@ -235,8 +237,11 @@ async function main() {
       console.log("\n6. The dispute is won: the money can move again, and the three are told");
       check("Stripe says the dispute was won", (await decide(d2.id, "won")) === "won");
       await handleStripeEvent(message("charge.dispute.closed", d2.id));
+      check("handling Stripe's message releases the money at once", (await reload(second.payment.id)).disputeOpen === false);
+      check("and marks the dispute for the helper, without waiting for Stripe a second time", (await rowOf(d2.id)).lookAgain === true && (await rowOf(d2.id)).outcome === null);
+      await helperLooks(d2.id);
       const row = await rowOf(d2.id);
-      check("the ending is recorded", row.outcome === "won" && row.endedAt !== null);
+      check("then its look records the ending, and the mark is gone", row.outcome === "won" && row.endedAt !== null && row.lookAgain === false);
       check("the money is no longer held back", (await reload(second.payment.id)).disputeOpen === false);
       const ended = (await messagesAbout(d2.id)).filter((m) => m.key.includes(":ended:won:"));
       check("the host is told this dispute no longer holds the money and where to look, the customer that the payment stands", ended.length === both && ended.some((m) => m.userId === host.id && m.body.includes("no longer holds the money back") && m.body.includes("Your earnings")) && ended.some((m) => m.userId === customer.id && m.body.includes("let the payment stand")));
@@ -336,6 +341,7 @@ async function main() {
       const now = (await stripe().disputes.list({ payment_intent: sixth.intentId, limit: 10 })).data.map((dispute) => dispute.status).sort();
       check("at Stripe one of them is won and another still waits for an answer", now.includes("won") && now.includes("needs_response"), now.join(", "));
       check("the money stays held back", (await reload(sixth.payment.id)).disputeOpen === true);
+      await helperLooks(...several.map((dispute) => dispute.id));
       check("and the record has one as won and one as open", (await db.select().from(schema.disputes).where(eq(schema.disputes.paymentId, sixth.payment.id))).map((row) => row.outcome ?? "open").sort().join(",") === "open,won");
       for (const dispute of (await stripe().disputes.list({ payment_intent: sixth.intentId, limit: 10 })).data) {
         if (dispute.status === "needs_response") await decide(dispute.id, "won");

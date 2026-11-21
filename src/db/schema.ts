@@ -2324,6 +2324,11 @@ export const disputes = pgTable(
     dueBy: timestamp("due_by", { withTimezone: true }),
     /** The bank takes no answer to this dispute at all (Stripe writes a deadline of zero for that). */
     noAnswer: boolean("no_answer").notNull().default(false),
+    /**
+     * Set when a message from Stripe about this dispute came in: the helper asks Stripe about it again within
+     * the minute (and clears this), instead of the message's own handling waiting for Stripe a second time.
+     */
+    lookAgain: boolean("look_again").notNull().default(false),
     /** won, lost or closed. Empty while it is open. */
     outcome: text("outcome"),
     endedAt: timestamp("ended_at", { withTimezone: true }),
@@ -2338,6 +2343,7 @@ export const disputes = pgTable(
     index("disputes_customer_idx").on(t.customerId),
     // The few that have not ended: what the helper's hourly look asks about.
     index("disputes_open_idx").on(t.updatedAt).where(sql`${t.outcome} is null`),
+    index("disputes_look_again_idx").on(t.updatedAt).where(sql`${t.lookAgain}`),
     check("disputes_one_owner", sql`num_nonnulls(${t.paymentId}, ${t.monthId}, ${t.contributionPaymentId}) = 1`),
     check("disputes_stage", sql`${t.stage} in ('question', 'chargeback')`),
     check("disputes_outcome", sql`${t.outcome} is null or ${t.outcome} in ('won', 'lost', 'closed')`),

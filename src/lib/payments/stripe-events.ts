@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { syncPayment } from "@/lib/contributions/charge";
 import { refreshDispute } from "@/lib/contributions/dispute";
-import { recordDisputesOf, type Owner } from "@/lib/disputes/record";
+import { noteDispute, type Owner } from "@/lib/disputes/record";
 import { errorSummary } from "@/lib/email";
 import { syncMonth } from "@/lib/membership/charge";
 import { refreshMonthDispute } from "@/lib/membership/ending";
@@ -76,17 +76,12 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     for (const { owner, money } of owners) {
       await money();
       // Only then, in a step of its own: the app's record of the dispute, and telling people (plans/47). The money is
-      // protected by now. A fault here must not leave this message "not handled", because an unhandled dispute
-      // message keeps every host from collecting (collect.ts, disputeMessageWaiting). The helper's hourly look and
-      // its catch-up from Stripe's list write whatever is missing.
-      const sawNew = await recordDisputesOf(owner, now).catch((error) => {
-        console.error(`[disputes] could not write the record of dispute ${String(object.id)} yet (${errorSummary(error)}); the helper's look will`);
-        return false;
-      });
-      // The record read Stripe after the money did. If it saw something new, the money is looked at once more with
-      // a fresh read, so a change between the two reads cannot leave lost money collectible. A fault HERE does leave
-      // the message unhandled: it is about the money.
-      if (sawNew) await money();
+      // protected by now. This step asks Stripe nothing more: a first sight is written from the dispute read above,
+      // and a dispute the app knows is marked for the helper, which reads Stripe again within the minute (looking
+      // at the money once more as it does). A fault here must not leave this message "not handled", because an
+      // unhandled dispute message keeps every host from collecting (collect.ts, disputeMessageWaiting); the helper's
+      // hourly look and its catch-up from Stripe's list write whatever is missing.
+      await noteDispute(owner, dispute!, now).catch((error) => console.error(`[disputes] could not note dispute ${String(object.id)} (${errorSummary(error)}); the helper's look will`));
     }
   }
 }

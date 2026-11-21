@@ -93,6 +93,6 @@ describe("the bank's reason in words", () => {
     expect(reasonWords("fraudulent")).toContain("did not make");
     expect(reasonWords("product_not_received")).toContain("did not get");
     expect(reasonWords("general")).toBe("the bank gave no particular reason");
-    expect(reasonWords("something_new")).toBe("the bank gave no particular reason");
+    expect(reasonWords("something_new")).toBe('a reason this app has no words for (Stripe calls it "something_new")');
   });
 });

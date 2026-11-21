@@ -30,8 +30,9 @@ export async function allDisputesOf(intentId: string): Promise<Stripe.Dispute[]>
  * done. An answer that went stale while we waited is never the last word.
  *
  * `known` is a dispute the caller has just read from Stripe by its id (the one a message was
- * about). If Stripe's list does not show it yet, it is counted all the same: money is never
- * released on a list that leaves out a dispute we know of.
+ * about). If Stripe's list does not show it yet, it is counted all the same. So is every dispute
+ * on this payment that the app has on record as holding the money (plans/47) and that the list
+ * leaves out: money is never released on a list that omits a dispute we know of.
  */
 export async function refreshPaymentDispute(paymentId: string, now: Date = new Date(), known?: { id: string; status: string }): Promise<void> {
   const [payment] = await db.select({ intentId: schema.payments.stripePaymentIntentId }).from(schema.payments).where(eq(schema.payments.id, paymentId));
@@ -40,7 +41,10 @@ export async function refreshPaymentDispute(paymentId: string, now: Date = new D
   for (let round = 0; round < 4; round++) {
     const disputes = await allDisputesOf(payment.intentId);
     const statuses = disputes.map((dispute) => dispute.status);
-    if (known && !disputes.some((dispute) => dispute.id === known.id)) statuses.push(known.status);
+    const listed = new Set(disputes.map((dispute) => dispute.id));
+    if (known && !listed.has(known.id)) statuses.push(known.status);
+    const onRecord = await db.select({ id: schema.disputes.id, status: schema.disputes.status }).from(schema.disputes).where(eq(schema.disputes.paymentId, paymentId));
+    for (const row of onRecord) if (!listed.has(row.id) && row.id !== known?.id) statuses.push(row.status);
     // Stripe shows none: there is nothing to record, and nothing that was recorded is taken back on that word alone.
     if (statuses.length === 0) return;
     const blocked = anyBlocksMoney(statuses);

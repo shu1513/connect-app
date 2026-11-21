@@ -8,7 +8,7 @@ import { warm } from "@/components/warm-ui";
 import { db, schema } from "@/db";
 import { disputeForViewer } from "@/lib/disputes/pages";
 import { aboutOwner, ownerOf } from "@/lib/disputes/record";
-import { reasonWords, standingOf } from "@/lib/disputes/status";
+import { isAppeal, reasonWords, standingOf } from "@/lib/disputes/status";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 import { SUPPORT_EMAIL } from "@/lib/terms";
@@ -66,8 +66,10 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
           </dd>
           <dt className="opacity-70">Where it stands</dt>
           <dd data-where>
-            {standing === "waiting" && (question ? "The bank is waiting for an answer to its question." : "The bank is waiting for an answer.")}
-            {standing === "with_bank" && "The bank is deciding. That can take up to three months."}
+            {standing === "waiting" && !dispute.noAnswer && (question ? "The bank is waiting for an answer to its question." : "The bank is waiting for an answer.")}
+            {standing === "waiting" && dispute.noAnswer && "The bank is deciding by itself. It takes no answer to this one."}
+            {standing === "with_bank" && !isAppeal(dispute.status) && "The bank is deciding. That can take up to three months."}
+            {standing === "with_bank" && isAppeal(dispute.status) && "The bank is looking at it once more (an appeal)."}
             {standing === "won" && "It has ended: the payment stands."}
             {standing === "lost" && "It has ended: the bank returned the money to the customer."}
             {standing === "closed" && (question ? "The bank closed its question. It did not become a dispute." : "It was closed without a decision by the bank.")}
@@ -117,7 +119,13 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
           <>
             {standing === "waiting" && !dispute.noAnswer && <p>The app does not answer the bank yet. For now this still has to be answered by hand in Stripe, before the bank&apos;s deadline.</p>}
             {standing === "waiting" && dispute.noAnswer && <p>The bank takes no answer to this one, so there is nothing to send. It decides by itself.</p>}
-            {standing === "with_bank" && <p>Nothing can be sent to the bank now. The money for this payment stays where it is until the bank has decided.</p>}
+            {standing === "with_bank" && !isAppeal(dispute.status) && <p>Nothing can be sent to the bank now. The money for this payment stays where it is until the bank has decided.</p>}
+            {standing === "with_bank" && isAppeal(dispute.status) && (
+              <p>
+                The app sends nothing to the bank in an appeal. If something has to be sent, that is done by hand in Stripe. The money for this payment stays where it is until the
+                bank has decided.
+              </p>
+            )}
             {(standing === "won" || standing === "closed") && <p>This dispute no longer holds the money for this payment back.</p>}
             {standing === "lost" && (
               <p>The host&apos;s share of this payment stays held back. If the host had already collected it, the app takes nothing back: that still has to be settled by hand.</p>
