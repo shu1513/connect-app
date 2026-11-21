@@ -1,12 +1,10 @@
-import { and, desc, eq, inArray, isNotNull, lte, or } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
-import { db, schema } from "@/db";
-import { paymentLine, paymentsByCall } from "@/lib/home/payment-line";
-import { HOME } from "@/lib/home/rules";
+import { CALL_WORDS } from "@/lib/call-page/words";
+import { listCalls, pastCallRows } from "@/lib/home/list-calls";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Past calls" };
@@ -25,37 +23,12 @@ export default async function PastCallsPage(props: PageProps<"/calls">) {
   const page = typeof query.page === "string" && /^[1-9]\d{0,3}$/.test(query.page) ? Number(query.page) : 1;
   const now = new Date();
 
-  // One more than a page holds, to know whether there are older ones.
-  const found = await db
-    .select()
-    .from(schema.calls)
-    .where(
-      and(
-        or(eq(schema.calls.hostId, user.id), eq(schema.calls.customerId, user.id)),
-        // The opposite of the home page's "not over" (src/lib/home/rules.ts).
-        or(isNotNull(schema.calls.cancelledAt), isNotNull(schema.calls.safetyEndedAt), lte(schema.calls.endsAt, now)),
-      ),
-    )
-    .orderBy(desc(schema.calls.startsAt), desc(schema.calls.id))
-    .limit(HOME.pastPerPage + 1)
-    .offset((page - 1) * HOME.pastPerPage);
-  const calls = found.slice(0, HOME.pastPerPage);
-  const older = found.length > HOME.pastPerPage;
+  // Which calls, and whether there are older ones: asked in one place, for this page and the phone app (list-calls.ts).
+  const { calls, older } = await pastCallRows(user.id, page, now);
 
-  // Only the names of the people this person has had calls with.
-  const otherIds = [...new Set(calls.map((c) => (c.hostId === user.id ? c.customerId : c.hostId)))];
-  // A customer knows their host by the display name on the host's page, never by the host's account name.
-  const myHostIds = [...new Set(calls.filter((c) => c.customerId === user.id).map((c) => c.hostId))];
-  const callIds = calls.map((c) => c.id);
-  const [people, hostProfiles, payments] = await Promise.all([
-    otherIds.length > 0 ? db.select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, otherIds)) : [],
-    myHostIds.length > 0 ? db.select({ userId: schema.hostProfiles.userId, displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, myHostIds)) : [],
-    callIds.length > 0 ? db.select().from(schema.payments).where(inArray(schema.payments.callId, callIds)) : [],
-  ]);
-  const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  const hostNameOf = new Map(hostProfiles.map((p) => [p.userId, p.displayName]));
-  const paymentsOf = paymentsByCall(payments);
-  const otherOf = (call: (typeof calls)[number]) => (call.hostId === user.id ? nameOf.get(call.customerId) : (hostNameOf.get(call.hostId) ?? nameOf.get(call.hostId))) ?? "Unknown";
+  // Each call described in the one place that decides who is named how and what the money line says, for this
+  // page, the home page and the phone app alike.
+  const rowOf = new Map((await listCalls(user.id, calls, now)).map((row) => [row.id, row]));
   const pageLink = (n: number) => (n === 1 ? "/calls" : `/calls?page=${n}`);
   const plainLink = "inline-flex min-h-11 items-center underline underline-offset-2";
 
@@ -66,10 +39,10 @@ export default async function PastCallsPage(props: PageProps<"/calls">) {
           ← Home
         </Link>
       </p>
-      <h1 className={`${warm.title} mt-2`}>Past calls</h1>
+      <h1 className={`${warm.title} mt-2`}>{CALL_WORDS.pastTitle}</h1>
 
       {calls.length === 0 ? (
-        <p className="mt-6 text-sm opacity-70">{page === 1 ? "No past calls yet." : "No more calls."}</p>
+        <p className="mt-6 text-sm opacity-70">{page === 1 ? CALL_WORDS.noPast : CALL_WORDS.noMore}</p>
       ) : (
         <div className="mt-6 overflow-x-auto" data-calls="earlier">
           <table className="w-full text-left text-sm">
@@ -89,10 +62,10 @@ export default async function PastCallsPage(props: PageProps<"/calls">) {
                   <td className="py-2 pr-4">
                     <LocalTime iso={call.startsAt.toISOString()} year />
                   </td>
-                  <td className="py-2 pr-4">{otherOf(call)}</td>
+                  <td className="py-2 pr-4">{rowOf.get(call.id)?.name ?? "Unknown"}</td>
                   <td className="py-2 pr-4">{call.hostId === user.id ? "Host" : "Customer"}</td>
-                  <td className="py-2 pr-4">{call.cancelledAt ? "Cancelled" : "Ended"}</td>
-                  <td className="py-2 pr-4">{paymentLine(paymentsOf.get(call.id) ?? [])}</td>
+                  <td className="py-2 pr-4">{call.cancelledAt ? CALL_WORDS.statusCancelled : CALL_WORDS.statusEnded}</td>
+                  <td className="py-2 pr-4">{rowOf.get(call.id)?.payment}</td>
                   <td className="py-2 whitespace-nowrap">
                     <Link href={`/calls/${call.id}/results`} className="underline underline-offset-2">
                       Results

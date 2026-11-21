@@ -277,7 +277,8 @@ async function cancelUnpaidAtCutoff(now: Date): Promise<void> {
     try {
       if (await actionInFlight(payment.id)) continue; // a try is still being checked: wait for the answer
       // Ask Stripe one last time, so a hold that did go through is never thrown away.
-      const synced = payment.stripePaymentIntentId ? await syncHold(payment.id, now) : payment;
+      // (A card still being confirmed at the bank is not "unpaid": that throws here, and this booking is looked at again on the next round.)
+      const synced = payment.stripePaymentIntentId ? await syncHold(payment.id, now, { closing: true }) : payment;
       if (synced.status !== "awaiting_payment") continue;
       await cancelCall({ call, payment: synced, by: "admin", now, reason: "unpaid" });
       log(`booking ${booking.id} was cancelled: the money was not held in time`);

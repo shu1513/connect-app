@@ -8,7 +8,7 @@ import type { Call, Payment } from "@/db/schema";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import type Stripe from "stripe";
-import { lockPayment, MoneyError, runMoneyOperation, type Tx } from "./operations";
+import { lockPayment, MoneyError, OutcomeUnknownError, runMoneyOperation, type Tx } from "./operations";
 import { cardPayment } from "./own";
 import { bookedTotalCents, DEFAULT_FEE_TERMS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
@@ -69,6 +69,8 @@ async function tooLateToHold(reader: Pick<typeof db, "select">, payment: Pick<Pa
  * Stripe gets 10 seconds to answer instead of the usual 80, and is not asked twice.
  */
 const IN_CALL_REQUEST = { timeout: 10_000, maxNetworkRetries: 0 } as const;
+/** The same for a question asked while a call and its payment are locked: others wait on those locks meanwhile. */
+const LOCKED_REQUEST = { timeout: 8_000, maxNetworkRetries: 0 } as const;
 
 /**
  * The one hold a payment has at Stripe: finds it, or creates it. Both the
@@ -111,7 +113,10 @@ async function holdIntentFor(input: {
   if (payment.stripePaymentIntentId) {
     const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId);
     if (intent.status === "requires_capture") {
-      await syncHold(payment.id, now);
+      // Stripe has the money on hold. Whether it counts is decided where a hold is written down (a call that was
+      // cancelled or stopped a moment ago takes no hold any more): only then is it said to be held.
+      const synced = await syncHold(payment.id, now);
+      if (synced.status !== "held") throw new MoneyError("This call can no longer be paid for.");
       return { held: true };
     }
     if (intent.status !== "canceled" && intent.client_secret) return { held: false, intentId: intent.id, clientSecret: intent.client_secret };
@@ -198,8 +203,32 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   // A card authorised after the booking's cut-off (through a form left open, say) does not count:
   // the payment stays unpaid, and the helper cancels the booking and lets that hold go.
   // The same for a request for more time that has ended: its hold never counts, and the helper lets it go.
-  const authorisedAt = details.authorisedAt ? new Date(details.authorisedAt * 1000) : now;
-  if (await tooLateToHold(tx, payment, authorisedAt)) return;
+  // When Stripe does not say when the bank approved, the moment this is being written down stands in for it:
+  // the latest it can have been.
+  const dated = details.authorisedAt !== null;
+  const authorisedAt = details.authorisedAt !== null ? new Date(details.authorisedAt * 1000) : now;
+  // The call itself (not for time added to a call, which has its own rule in `tooLateToHold`).
+  const [call] =
+    !payment.extensionId && payment.callId
+      ? await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId))
+      : [];
+  if (!payment.extensionId && payment.callId) {
+    // A card authorised for a call that was cancelled does not count: the payment stays unpaid, and the
+    // cancellation (or the helper) lets that hold go.
+    if (!call || call.cancelledAt) return;
+  }
+  if (call?.safetyEndedAt) {
+    // A call that was stopped with "End call and report": the stop put this payment up for the founder's review.
+    // A card the bank approved before the stop is kept for that review; so is one whose time Stripe does not give
+    // (it is not thrown away on a guess). Only one that Stripe itself dates at or after the stop, or after the
+    // booking's cut-off or the call's end, does not count.
+    if (dated && (authorisedAt >= call.safetyEndedAt || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt)))) return;
+  } else {
+    if (await tooLateToHold(tx, payment, authorisedAt)) return;
+    // Nor does a card authorised when the call's booked end had passed (through a card form left open): the
+    // payment stays unpaid, and the helper closes it and lets that hold go.
+    if (call && authorisedAt >= call.endsAt) return;
+  }
   const captureBefore = details.captureBefore ? new Date(details.captureBefore * 1000) : null;
   await tx
     .update(schema.payments)
@@ -213,6 +242,26 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
       updatedAt: new Date(),
     })
     .where(eq(schema.payments.id, payment.id));
+}
+
+/**
+ * Asks Stripe where the hold of a payment stands and writes a hold down, inside a step that already has the
+ * payment locked (cancelling a call does: what cancelling costs depends on whether the money is held at that very
+ * moment, not on what our own record had heard of so far). Only for a card payment still waiting for its hold;
+ * anything else is handed back as it is. Throws if Stripe cannot be asked: nothing is then decided.
+ */
+export async function syncHoldLocked(tx: Tx, payment: Payment): Promise<Payment> {
+  if (payment.kind !== "card" || payment.status !== "awaiting_payment" || !payment.stripePaymentIntentId) return payment;
+  // Locks are held while Stripe is asked, so Stripe gets a short time to answer and is not asked twice.
+  const intent = await stripe().paymentIntents.retrieve(payment.stripePaymentIntentId, { expand: ["latest_charge"] }, LOCKED_REQUEST);
+  // A card that is being confirmed at this very moment: whether the money is held is not known yet, so nothing may
+  // be decided on it. (The helper treats this state the same way.)
+  if (intent.status === "processing") throw new OutcomeUnknownError("The bank's answer about this card is not known yet.");
+  if (intent.status !== "requires_capture") return payment;
+  // (A hold whose time Stripe does not give is dated by the clock now, after Stripe has answered: the latest it can have been.)
+  await applyHeld(tx, payment, holdDetails(intent), new Date());
+  const [after] = await tx.select().from(schema.payments).where(eq(schema.payments.id, payment.id));
+  return after;
 }
 
 /**
@@ -288,13 +337,17 @@ async function paymentStatus(paymentId: string): Promise<string | undefined> {
  * Asks Stripe for the real state of a payment's hold and records it.
  * This, not anything the browser says, is what marks a payment as held.
  */
-export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
+export async function syncHold(paymentId: string, now: Date, options: { closing?: boolean } = {}): Promise<Payment> {
   const [before] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
   if (!before) throw new MoneyError("Payment not found.");
   if (before.kind !== "card") return before; // a membership's payment has no hold at Stripe to ask about
   if (!before.stripePaymentIntentId || (before.status !== "awaiting_payment" && before.status !== "held")) return before;
 
   const intent = await stripe().paymentIntents.retrieve(before.stripePaymentIntentId, { expand: ["latest_charge"] });
+  // `closing`: the caller is about to close this payment as unpaid if it is still waiting. A card that is being
+  // confirmed at this very moment is not "unpaid": whether the money is held is not known yet, so the caller is
+  // told so (it tries again later) instead of being handed "still waiting".
+  if (options.closing && before.status === "awaiting_payment" && intent.status === "processing") throw new OutcomeUnknownError("The bank's answer about this card is not known yet.");
   const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
 
   await db.transaction(async (tx) => {
@@ -313,6 +366,10 @@ export async function syncHold(paymentId: string, now: Date): Promise<Payment> {
   });
 
   const [after] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
+  // `closing`: "still waiting" is only an answer about the card step that Stripe was asked about. If the customer
+  // started a new card step while Stripe was being asked, nothing is known about that one: the caller is told so
+  // (it tries again later) instead of being handed a card step nobody has looked at.
+  if (options.closing && after.status === "awaiting_payment" && after.stripePaymentIntentId !== intent.id) throw new OutcomeUnknownError("The card step changed while Stripe was being asked.");
   return after;
 }
 

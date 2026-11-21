@@ -4719,3 +4719,49 @@ request's page, Accept with its question, Decline, the note, Block.
 
 **For the founder.** Should the website's page for one request follow the app's stricter rule
 (no rating shown about a customer whose account is closed or who is blocked)?
+
+## Phone apps, part 08: a call's page, paying, cancelling, and the Calls place (plan 45)
+
+**What was built.**
+- *One gathering and one set of sentences for a call's page,* for the website and the app; the
+  website's page and pay panel were moved onto them, word for word.
+- *The pay steps as one function each,* called by the website's addresses and the app's.
+- *The app's addresses:* the coming and the past calls, a call's page, confirm-and-pay (a
+  hold), "where does the hold stand", cancel.
+- *The screens:* the Calls place, and a call's page with its countdown, the confirm-and-pay
+  step in Stripe's sheet, and cancelling.
+
+**What the building changed.** Seven things, listed in the plan. The main one, on the website
+too: cancelling now compares what the person was shown with what it means at that moment; if
+it has turned from free to charged, nothing is cancelled.
+
+**How it was checked.** `scripts/app-calls-check.ts`, 74 checks, with real holds at Stripe
+(test mode). `home-check` (110) and `app-home-check` (75) pass unchanged. On the Android test
+phone, with pictures: the Calls place, a hold placed, the countdown, both kinds of cancelling.
+
+**Not built here:** Join and the room (part 09), a call's results (part 10), the connection
+check (part 09c). **Not tried:** a member's call; the iPhone.
+
+**Added after Astra's look at the code.** What cancelling means is decided, compared with what
+was shown, and written down in one step (on the website too); the website's cancel form
+always says what its page showed; a card approved after a call was cancelled or over does not
+count; a member's call in a frozen month says so; a hidden host is named without her photo
+(on the website's home page too); a call that is over is "ended" for the app. Twelve points
+in all, listed in the plan.
+
+**Added after Astra's second look.** Stripe is asked in the very step that cancels (a hold the
+bank placed a moment before is never missed); a card approved before "End call and report"
+is kept for the founder's review; the helper cancels a call as unpaid only if it still is; a
+frozen month's late cancellation says what happens when it is freed.
+
+**Added after Astra's third look.** A refusal of a cancellation no longer undoes a hold that the
+same step had just found; a card still being confirmed decides nothing; Stripe has a short
+time to answer while a call is locked.
+
+**Added after Astra's fifth, sixth and seventh looks (the last: "ready with changes").** The
+helper that closes the payment of a finished call nobody paid for now closes it only if, under
+the payment's lock, it is still waiting on the very card step Stripe was asked about: a hold
+written down in between is not let go (on a call stopped for safety it stays with the review);
+a card step that changed while Stripe was being asked is "not known yet"; and a payment that
+somebody else charged, closed or let go meanwhile is "no longer unpaid", never taken for the
+helper's own doing. `scripts/app-calls-check.ts` now has 79 checks.

@@ -718,6 +718,25 @@ export async function photoFor(viewer: Viewer, photoId: string): Promise<{ bytes
   return null;
 }
 
+/**
+ * The ids of the photos of those of these hosts whose page anyone may see right now. For a list that names hosts
+ * whatever has become of their page (a person's own calls): a host whose page is hidden, waiting or closed is
+ * named there without a photo, and nothing is said about whether she has one. The same test as `photoFor` makes
+ * for someone who is not logged in. Never the bytes.
+ */
+export async function openPhotosOf(hostIds: string[]): Promise<Map<string, string>> {
+  const byHost = new Map<string, string>();
+  if (hostIds.length === 0) return byHost;
+  const rows = await db
+    .select({ id: photos.id, userId: photos.userId })
+    .from(photos)
+    .innerJoin(schema.user, eq(schema.user.id, photos.userId))
+    .innerJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, photos.userId))
+    .where(and(inArray(photos.userId, hostIds), isNull(photos.lockedAt), eq(schema.hostProfiles.status, "approved"), eq(schema.hostProfiles.hidden, false), isNull(schema.user.closedAt)));
+  for (const row of rows) byHost.set(row.userId, row.id);
+  return byHost;
+}
+
 /** The ids of these hosts' photos, for a page that has already decided that each host's page is open to this viewer. Never the bytes. */
 export async function photosOf(hostIds: string[]): Promise<Map<string, string>> {
   const byHost = new Map<string, string>();

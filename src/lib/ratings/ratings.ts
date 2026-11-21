@@ -156,7 +156,7 @@ export async function callsToRate(userId: string, now: Date, limit = 5): Promise
   return open.map((call) => {
     const iAmHost = call.hostId === userId;
     const other = byId.get(iAmHost ? call.customerId : call.hostId);
-    // A host is known by their display name; a customer by their own name.
-    return { callId: call.id, otherName: (iAmHost ? other?.name : (other?.displayName ?? other?.name)) ?? "the other person", endsAt: call.endsAt };
+    // A host is known by the name on her page, and by nothing else (never by her account name); a customer by their own name.
+    return { callId: call.id, otherName: (iAmHost ? other?.name : other?.displayName) ?? "the other person", endsAt: call.endsAt };
   });
 }

@@ -21,7 +21,7 @@ import { SUGGEST, SUGGEST_WHY } from "@/lib/suggestions/rules";
 import type { AppCall, AppHome, AppSwitches } from "./types";
 
 /** One call, field by field. `about` is only ever there when the gathering attached it: for a call this person hosts that is not over. */
-function callFor(call: ListedCall): AppCall {
+export function callFor(call: ListedCall): AppCall {
   return {
     id: call.id,
     startsAt: call.startsAt,
