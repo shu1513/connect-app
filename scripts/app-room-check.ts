@@ -56,6 +56,8 @@ function plain(path: string, options: { body?: unknown; headers?: Record<string,
   return new Promise((resolve, reject) => {
     const request = http.request(url, { method: payload !== undefined ? "POST" : "GET", headers }, (response) => {
       const chunks: Buffer[] = [];
+      // (A connection that breaks after the first lines of the answer says so here, not on the request.)
+      response.on("error", reject);
       response.on("data", (chunk: Buffer) => chunks.push(chunk));
       response.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
@@ -77,6 +79,8 @@ function plain(path: string, options: { body?: unknown; headers?: Record<string,
       });
     });
     request.on("error", reject);
+    // An answer that never comes, or never ends, does not hang the check (and so its clean-up) for good.
+    request.setTimeout(60_000, () => request.destroy(new Error(`no answer from ${url.pathname} within a minute`)));
     if (payload !== undefined) request.write(payload);
     request.end();
   });
@@ -300,6 +304,19 @@ async function main() {
       const id = open.call.id;
       check("nobody signed in, a stranger and a browser cannot end a call", refusal(await step(id, "end-and-report")) === "not_signed_in" && refusal(await step(id, "end-and-report", stranger.jar)) === "not_found" && refusal(await asBrowser(`/api/app/calls/${id}/end-and-report`, { jar: cust.jar, body: {} })) === "not_the_app" && (await callRow(id)).safetyEndedAt === null);
       check("a call whose room is not open yet cannot be ended this way (it can be cancelled)", sentence(await step(ahead.call.id, "end-and-report", cust.jar)) === "This call has not started yet." && (await callRow(ahead.call.id)).safetyEndedAt === null);
+      // The founder raises the oldest copy of the app still allowed while a call is under way: entering then asks
+      // for an update, but "End call and report" is still answered, in its own words (here: for a call whose room
+      // has not opened, so nothing is ended by asking).
+      const floorBefore = (await switches()).appOldestVersion;
+      const raised = ["", ""];
+      try {
+        await setSwitches({ appOldestVersion: "9000.0.0" });
+        raised[0] = refusal(await step(ahead.call.id, "enter", cust.jar)) ?? "";
+        raised[1] = sentence(await step(ahead.call.id, "end-and-report", cust.jar)) ?? "";
+      } finally {
+        await setSwitches({ appOldestVersion: floorBefore });
+      }
+      check("with the oldest allowed copy raised, entering asks for an update, but 'End call and report' is still answered", raised[0] === "update_needed" && raised[1] === "This call has not started yet.", raised.join(" | "));
       const ended = await step(id, "end-and-report", cust.jar);
       const row = await callRow(id);
       check("the customer ends the call for both: it is stopped, and by whom is written down", ended.status === 200 && keys(ended.json) === "ended" && (ended.json as { ended?: boolean }).ended === true && row.safetyEndedAt !== null && row.safetyEndedBy === cust.id && row.cancelledAt === null, `${ended.status} ${ended.text.slice(0, 120)}`);
@@ -360,13 +377,20 @@ async function main() {
       check("nobody can report themselves", sentence(await send({ place: "profile", id: handle, reason: "other", text: "" }, host.jar)) === "You cannot report yourself.");
     }
   } finally {
+    // An account of this run that was made but never noted (its confirmation email did not come, say) is removed too.
+    for (const lost of await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, `approom-${RUN}-%`))) if (!made.includes(lost.id)) made.push(lost.id);
     const ids = made.length ? made : ["-"];
     const mine = callIds.length ? callIds : [randomUUID()];
     const payments = await db.select({ id: schema.payments.id, intent: schema.payments.stripePaymentIntentId }).from(schema.payments).where(inArray(schema.payments.callId, mine));
     // Nothing of this run stays open at Stripe: a hold that is still there is let go.
     for (const payment of payments) if (payment.intent) await stripe().paymentIntents.cancel(payment.intent).catch(() => undefined);
     const paymentIds = payments.length ? payments.map((p) => p.id) : [randomUUID()];
-    const quietly = async (what: Promise<unknown>) => what.catch((error: Error) => console.log(`  (could not remove something of this run: ${error.message.slice(0, 120)})`));
+    // Whatever could not be removed is said, counts as a failure of the check, and the rest is still removed.
+    const quietly = async (what: Promise<unknown>) =>
+      what.catch((error: Error) => {
+        failures++;
+        console.log(` FAIL  could not remove something of this run: ${error.message.slice(0, 120)}`);
+      });
     await quietly(db.delete(schema.reports).where(inArray(schema.reports.reporterId, ids)));
     await quietly(db.delete(schema.blocks).where(inArray(schema.blocks.blockerId, ids)));
     await quietly(db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.paymentId, paymentIds)));

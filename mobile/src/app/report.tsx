@@ -50,6 +50,7 @@ function ReportForm({ from }: { from: ReturnType<typeof reportPlace> }) {
     if (answer.ok && isReportForm(answer.data)) {
       setForm(answer.data);
       setProblem(null);
+      setGone(false);
     } else if (!answer.ok && answer.code === "not_found") {
       setGone(true);
     } else if (!answer.ok && answer.code !== "unreachable") {
@@ -136,7 +137,12 @@ function ReportForm({ from }: { from: ReturnType<typeof reportPlace> }) {
         </View>
       </Card>
 
-      <Field label={form.more} value={text} onChangeText={setText} maxLength={form.textMax} multiline numberOfLines={5} textAlignVertical="top" />
+      <Field label={form.more} value={text} onChangeText={(value) => {
+          setText(value);
+          // What was said about the text before (too long, say) is not left standing over the corrected text.
+          setSaid(null);
+        }}
+        maxLength={form.textMax} multiline numberOfLines={5} textAlignVertical="top" />
       {said ? <Notice>{said}</Notice> : null}
       <Button label={form.send} busy={sending} onPress={() => void send()} />
       <Words soft>{form.danger}</Words>

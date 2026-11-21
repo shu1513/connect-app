@@ -89,8 +89,10 @@ export async function hostPageFor(viewer: { id: string } | null, handle: string,
     rating: page.rating ? { average: page.rating.average, count: page.rating.count } : null,
     socials: profile.socials.map((social) => ({ label: social.label, name: social.name, url: social.url })),
     own: viewer?.id === profile.userId,
-    // As on the website's page: anyone signed in can report a page that is not their own.
-    report: viewer && viewer.id !== profile.userId ? REPORT_WORDS.reportPage : null,
+    // As on the website's page: anyone signed in can report a page that is not their own. Only a page anyone may
+    // open: a report about a page is looked up as such a page, so for a hidden page the link would lead to a
+    // form that cannot be sent.
+    report: viewer && viewer.id !== profile.userId && profile.openToAll ? REPORT_WORDS.reportPage : null,
     shareUrl: profile.openToAll ? `${site()}/h/${profile.handle}` : null,
     follow: page.follow,
     price: priceWords(profile.pricePer15Cents),

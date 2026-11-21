@@ -128,9 +128,11 @@ Mac as the other (the same room). The test phone's camera shows a made-up moving
   `EXPO_PUBLIC_CALL_PICTURES=1` to `mobile/.env.local` and start the code server again with
   `--clear`. Only a test build obeys this; a build for a store never does.
 - A database used for checking collects old calls. If "Join call" takes very long, mark them
-  as closed (`update calls set closed_at = now() where closed_at is null` on the checking
-  database only): the server steps out of every room a person could still be in before it
-  lets them into another.
+  as closed: the server steps out of every room a person could still be in before it lets
+  them into another. **Only ever on a database made for checking.** Look first at which
+  database you are on (`select current_database();` must show a name ending in `_check`),
+  and only then run `update calls set closed_at = now() where closed_at is null;`. On any
+  other database that statement would close every open call.
 
 ## The iPhone
 

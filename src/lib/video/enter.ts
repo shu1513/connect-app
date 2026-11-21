@@ -21,7 +21,7 @@ import { createEntryPass, removeFromRoom, videoServerUrl } from "./livekit";
  * confirmed closed, including one that was cancelled or has just run out.
  * Throws if the video service cannot confirm it.
  */
-async function leaveOtherCalls(reader: Pick<typeof db, "select">, userId: string, thisCallId: string, now: Date): Promise<void> {
+async function leaveOtherCalls(reader: Pick<typeof db, "select">, userId: string, thisCallId: string): Promise<void> {
   // Read with the join step's own connection: a second one, asked for while the step holds its locks, could
   // leave many joins at once waiting for each other.
   const others = await reader
@@ -29,7 +29,9 @@ async function leaveOtherCalls(reader: Pick<typeof db, "select">, userId: string
     .from(schema.calls)
     .where(and(or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)), ne(schema.calls.id, thisCallId), isNull(schema.calls.closedAt)));
   for (const other of others) {
-    if (roomState(other, now) === "not_open_yet") continue;
+    // By the clock of this very moment, not of when the join began: this step may have waited its turn, and a
+    // room that has opened meanwhile (and may have been entered from another device) is one to step out of.
+    if (roomState(other, new Date()) === "not_open_yet") continue;
     await removeFromRoom(other.roomName, userId);
   }
 }
@@ -141,7 +143,7 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
       // being added at this very moment: this step is left, holding nothing, and the call is asked about for sure
       // outside it (below), so nothing here waits on the call's line while it holds the person's.
       if (roomState(early, new Date()) !== "open") throw new Error("recheck");
-      await leaveOtherCalls(tx, user.id, call.id, now);
+      await leaveOtherCalls(tx, user.id, call.id);
       // Waiting for the lock and stepping out of other rooms takes time. So the call is read only now, and held
       // as it is until the pass is made (nothing can stop it, cancel it or move its end in between): it may have
       // been stopped or cancelled a moment ago, its time may have run out, or time may have been added to it.

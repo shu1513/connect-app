@@ -114,7 +114,7 @@ function Stage({ words, clock, onLeave, onEndAndReport, onProblem }: { words: Wo
   const mine = drawn.find((track) => track.participant.isLocal && track.source === Track.Source.Camera);
   // A screen the other person shows (from the website) is shown large; the app never shares its own.
   const large = shared ?? theirs;
-  const said = connection === ConnectionState.Reconnecting ? words.reconnecting : others.length === 0 ? (seen ? words.left : words.notJoined) : shared ? words.sharing : !theirs ? words.otherCameraOff : null;
+  const said = connection === ConnectionState.Reconnecting || connection === ConnectionState.SignalReconnecting ? words.reconnecting : others.length === 0 ? (seen ? words.left : words.notJoined) : shared ? words.sharing : !theirs ? words.otherCameraOff : null;
 
   async function microphone() {
     await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled).catch(() => onProblem(words.microphoneRefused));

@@ -56,7 +56,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
   // Placing a hold is for someone who may act. Finding out where a hold stands, and cancelling, are also for a
   // paused person, as on the website.
   // Entering a call is for someone who may act too. Ending a call one is in, and reporting, is for everyone.
-  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member");
+  // "End call and report" is answered for any copy of the app, also one that has become too old meanwhile.
+  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member", { safety: step === "end-and-report" });
   if (asked instanceof Response) return asked;
   const me = asked.person!;
   const page = async (notice: string | null = null) => {
@@ -77,6 +78,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
       // The video service could not be asked: nothing was decided, so nothing is refused.
       if (why === "failed") return notKnown();
       return refuse("not_valid", message);
+    }
+    // The app hands its camera and microphone only to a video service at "wss://host" or "wss://host:port", with
+    // nothing after it (mobile/src/lib/room-rules.ts, isPass). A LIVEKIT_URL of another shape would be answered
+    // here as a success that every phone then refuses: said plainly in the server's log instead, and answered as
+    // "it cannot be told".
+    if (!/^wss?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/?$/.test(pass.serverUrl)) {
+      console.error('[calls] LIVEKIT_URL is not an address the phone apps accept: it must be "wss://host" or "wss://host:port", with no path or query after it. Nobody can enter a call from the app until it is.');
+      return notKnown();
     }
     const body: AppPass = { token: pass.token, serverUrl: pass.serverUrl, endsAt: pass.endsAt, serverNow: pass.serverNow };
     return answer(body);

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readNotice } from "@/lib/notice";
-import { callWasStopped } from "@/lib/safety/report-form";
+import { callStopState } from "@/lib/safety/report-form";
 import { REPORT_TEXT_MAX, REPORT_WORDS } from "@/lib/safety/report-words";
 import { REPORT_REASONS } from "@/lib/safety/reports";
 import { requireUser } from "@/lib/session";
@@ -19,15 +19,16 @@ export default async function ReportPage(props: PageProps<"/report">) {
   if (!context) notFound();
   const contextId = String(query[context]);
   const notice = readNotice("/report", query);
-  // Said only when true: the call really was ended with the button.
-  const stopped = context === "call" ? await callWasStopped(user.id, contextId) : false;
+  // Said only when true: the call really was ended with the button. And "has been ended for both" only once the
+  // room is written down as closed; until then, "is being ended" (as in the phone app).
+  const stop = context === "call" ? await callStopState(user.id, contextId) : "no";
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
       <h1 className="text-2xl font-semibold">{REPORT_WORDS.title}</h1>
-      {stopped && (
-        <p className="mt-2 text-sm">{REPORT_WORDS.stopped}</p>
+      {stop !== "no" && (
+        <p className="mt-2 text-sm">{stop === "stopped" ? REPORT_WORDS.stopped : REPORT_WORDS.stopping}</p>
       )}
       <p className="mt-2 text-sm opacity-70">
         {context === "post" ? REPORT_WORDS.aboutPost : REPORT_WORDS.aboutPerson} {REPORT_WORDS.readThe}{" "}

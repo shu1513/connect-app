@@ -74,6 +74,11 @@ export type AppRequest = {
  *   const asked = await appRequest(request, "member");
  *   if (asked instanceof Response) return asked;
  *
+ * `safety` is for the one step that must work from any copy of the app, also one the founder has
+ * since declared too old: "End call and report", pressed by someone who is in a call. A person is
+ * never left unable to end a call because the oldest allowed version was raised while it ran.
+ * Everything else about that step is checked as always (the sign-in, whose call it is).
+ *
  * `opening` is for the one address the app asks when it opens: a copy that is too old is not
  * refused there, since that address is the one that must still answer it, to say "please update".
  *
@@ -81,13 +86,13 @@ export type AppRequest = {
  * that, or the renewed login would never reach the phone) and changes nothing of Connect's own. A
  * login that has run out is still tidied away by the login tool as it is read.
  */
-export async function appRequest(request: Request, who: Who, options: { opening?: boolean } = {}): Promise<AppRequest | Response> {
+export async function appRequest(request: Request, who: Who, options: { opening?: boolean; safety?: boolean } = {}): Promise<AppRequest | Response> {
   const client = comesTheAppsWay(request.headers);
   if (!client) return refuse("not_the_app");
 
   const all = await switches();
   const updateNeeded = isTooOld(client.version, all.appOldestVersion);
-  if (updateNeeded && !options.opening) return refuse("update_needed");
+  if (updateNeeded && !options.opening && !options.safety) return refuse("update_needed");
 
   // The sign-in the app handed over, and only that: whatever cookie came along is not read.
   const signIn = signInFrom(request.headers);

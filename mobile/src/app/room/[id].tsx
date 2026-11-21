@@ -13,7 +13,7 @@ import { useOpening } from "@/lib/opening";
 import { clockLine, isEnded, isLive, isPass, isRoom, laterEnd } from "@/lib/room-rules";
 import { InCall } from "@/room/in-call";
 import { Lobby } from "@/room/lobby";
-import { BackLink, Button, Card, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
+import { BackLink, Button, Card, Loading, Notice, Page, Words } from "@/ui/pieces";
 import { type, useColors } from "@/ui/theme";
 
 // The video kit's parts must be in place before anything of it is used. Once for the app's whole run.
@@ -234,7 +234,9 @@ function OneRoom({ id }: { id: string }) {
       const here = () => front.current && during === visit.current;
       let answered = false;
       while (here() && !answered && performance.now() < giveUpAt) {
-        answered = (await refresh()) !== null;
+        // Each question has only the time that is left of the half minute: one that gets no answer does not hold
+        // the screen past it.
+        answered = (await Promise.race([refresh(), wait(Math.max(giveUpAt - performance.now(), 0)).then(() => null)])) !== null;
         if (!answered && here()) await wait(1_500);
       }
       if (here()) setCheckedEnd(checking);
@@ -375,7 +377,17 @@ function OneRoom({ id }: { id: string }) {
       </Page>
     );
   }
-  if (!room || now === null || endsAt === null) return problem ? <Problem words={problem} onRetry={() => void load()} /> : <Loading />;
+  if (!room || now === null || endsAt === null) {
+    if (!problem) return <Loading />;
+    // This screen has no bar at the top to go back with: beside "Try again" there is always a way out.
+    return (
+      <Page>
+        <Notice>{problem}</Notice>
+        <Button label="Try again" onPress={() => void load()} />
+        <Button label="Back" kind="plain" onPress={back} />
+      </Page>
+    );
+  }
   const words = room.words;
 
   // With another screen in front, nothing of the call is drawn here at all: no camera check (which would switch

@@ -127,8 +127,10 @@ export function Lobby({
   /** Asks the phone, once, after the person has read why. */
   async function allow() {
     const { CAMERA, RECORD_AUDIO } = PermissionsAndroid.PERMISSIONS;
-    askedSinceOpened = true;
     const got = await PermissionsAndroid.requestMultiple([CAMERA, RECORD_AUDIO]).catch(() => null);
+    // The phone could not be asked at all (it answered nothing): nothing was refused, so "Allow" stays, to try again.
+    if (!got) return;
+    askedSinceOpened = true;
     changeMay({ camera: got?.[CAMERA] === PermissionsAndroid.RESULTS.GRANTED, microphone: got?.[RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED, asked: true });
   }
 

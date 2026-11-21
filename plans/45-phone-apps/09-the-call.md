@@ -137,7 +137,7 @@ both are checked here.
 
 ### How it was tried
 
-- `scripts/app-room-check.ts`, 57 checks, against the real video service and Stripe's test
+- `scripts/app-room-check.ts`, 59 checks at first (60 now), against the real video service and Stripe's test
   mode: what the screen is sent (every sentence, the website's own where the website has
   them); the entry pass refused before the room opens, while unpaid, after a cancellation,
   after the end, for a blocked pair, for a paused account and while calls are paused across
