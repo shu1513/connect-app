@@ -63,6 +63,8 @@ function add(sums: Sums, line: StatementLine): void {
     else sums.feesCents += line.amountCents;
   } else if (line.kind === "host_share") sums.shareCents += line.amountCents;
   else if (line.kind === "host_transfer") sums.sentCents -= line.amountCents;
+  // A share taken back out of its transfer after a lost bank dispute (plans/47): that much less was sent, in the month it was taken.
+  else if (line.kind === "host_takeback") sums.sentCents -= line.amountCents;
   else if (line.kind === "payout_fee") sums.collectionChargesCents += line.amountCents;
   // A refund given after the host had collected: Connect paid it, and says so beside the refund.
   else if (line.kind === "connect_cost") sums.paidByConnectCents += line.amountCents;
@@ -110,7 +112,7 @@ export const PAID_FOR: Record<Source, string> = { call: "Calls paid by card", me
 export function statementCsv(statement: Statement): string {
   const row = (label: string, sums: Sums) => [label, ...COLUMNS.map((column) => plainDollars(sums[column.key]))].join(",");
   return [
-    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. Bank disputes are not included."`,
+    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. A payment a customer's bank took back in a dispute is not in 'Given back'; a share taken back from you after such a dispute is counted as less 'Sent to you', in the month it was taken."`,
     ["Month", ...COLUMNS.map((column) => `"${column.title}"`)].join(","),
     ...statement.months.map((sums, index) => row(MONTH_NAMES[index], sums)),
     row(`Year ${statement.year}`, statement.total),

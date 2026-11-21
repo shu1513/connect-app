@@ -4992,3 +4992,120 @@ for one needs a card number typed into a form, which the scripts do not do; the 
 by hand). Stripe's test area decides a dispute only on two exact texts, so the app's own letter
 was sent once to see that Stripe takes every field, and "won" and "lost" were tried with those
 texts in the letter's place.
+
+## Bank disputes, part 3: taking back a share a host had collected (plan 47, 21 November 2026)
+
+**What this is.** A host can collect their share of a payment before the customer's bank
+disputes it. If the dispute is then lost, the bank has taken the money from Connect and the host
+still has their share. Until now that was settled by hand. After this part the app tells the
+host in writing, waits 14 days, and then asks Stripe to take that amount back out of the
+transfer that carried it. Never while a dispute is open, never more than was sent, and never the
+bank's fees.
+
+**The founder's decisions** (20 November 2026): the host pays back what they collected for a
+payment the bank took back ("from later earnings"), and only after a dispute is lost, never
+while it is open. On 21 November: "continue with part 2 and 3". That it is done by reversing the
+transfer at Stripe, the 14 days, and "the founder can cancel" are the builder's, from the plan.
+
+**What was built.**
+- *The record* (`host_debts`, migration 54): one row for a dispute and a share. The share is
+  the payment whose transfer carried the money: a call's own payment, or the payments under a
+  membership's month or a contribution's payment.
+- *Finding what is owed* (`src/lib/disputes/takeback.ts`, a look the helper repeats): every
+  lost dispute, every share under it that was really sent and has no row yet. With the share's
+  payment held, Stripe is asked what the dispute and the transfer show now, and the amount is
+  worked out (`takeback-rules.ts`): the whole share when the bank took the whole payment, the
+  same part when it took a part, never more than is left of the transfer, and with other
+  take-backs on the same share counted. A share that owes nothing gets a row that says so, so
+  Stripe is not asked every pass. The host gets a message in the app and by email; each admin
+  gets an email.
+- *Taking it*: 14 days after the notice, a money action of a new kind ("take_back") on the
+  share's payment, through the same steps as every money action (written down under a label,
+  asked of Stripe with that label, recorded). First Stripe is asked whether the dispute is
+  still lost. The reversal carries the take-back's id, so it can be found again. A clear "no"
+  puts the row back to its notice with what Stripe said; it is tried again a day later, and
+  after 30 days of refusals the founder is told once.
+- *When the helper stops in the middle*: the check of unfinished money actions knows the new
+  kind. The same request again while that is safe; after that the transfer's own list of
+  reversals, searched for the take-back's id. Every way the action can end as "not done" puts
+  the row back in the same step, so a row never stays "being taken".
+- *The founder's "Cancel this take-back"* on the dispute's page, while the host only has their
+  notice. Written down as an admin action; the host is told. That is how an objection is
+  honoured.
+- *The bank decides the other way after all*: a take-back that only has its notice is called
+  off by itself; one that is being taken waits for its action; one that was taken is not given
+  back by the app, and the founder and the host are told once.
+- *Pages*: the dispute's page lists the take-back for the host and the founder; the host's
+  earnings show what is owed, from when, and what was taken. The messages about a lost dispute
+  now say what really happens to a share that was collected. The host's yearly statement counts
+  a take-back as that much less sent.
+
+**What the building changed from the plan.**
+- A share that owes nothing gets a row with the status "nothing" (the plan: no row). Without
+  it the look would ask Stripe about the same share on every pass.
+- The words are in a file of their own (`takeback-words.ts`), and the check is a script of its
+  own (`scripts/dispute-takeback-check.ts`).
+- The yearly statement was not in the plan: a take-back is a line of its own in the money
+  record (`host_takeback`), counted as less sent.
+
+**How it was checked.** 960 tests (24 new: the amount in every mix, when it is due, who can
+cancel, every sentence people are told). `scripts/dispute-takeback-check.ts`, new, 50 checks
+with real charges, disputes, transfers and reversals in Stripe's test area: one take-back
+however often the look runs; nothing a second before the 14 days and taken at them; the
+reversal is real at Stripe, the right amount out of the right transfer; never taken twice; two
+lost disputes on one charge (Stripe's test card disputes a part with each): each takes the same
+part, together never more than was sent; a share that was not collected, one whose collection
+sent nothing, and a dispute Stripe does not show as lost make no take-back; a transfer that
+went through only after the loss is found later; the founder's cancel, and that a take-back
+being taken or taken cannot be cancelled; a dispute won before anything was taken, while a
+reversal is under way, and after it was taken; Stripe refuses (the row is back at its notice,
+tried again a day later under a new label, the founder told after 30 days); the helper stops
+before Stripe and after Stripe (found by repeating, and found in Stripe's list when too old to
+repeat). In the browser, with one test take-back: the dispute's page and the earnings as the
+host, the message, and the founder's cancel.
+
+**What Astra found** (gpt-6.2-astra, effort high, before the pull request; "block"). The
+ordinary paths held: a cancelled take-back is never taken, no row stays "being taken" after a
+plain refusal, the pages show nothing to the wrong person. What it found, all taken:
+- *A look-up at Stripe that failed was taken for "Stripe refused".* After a lost reply, a
+  search of the transfer's reversals that could not be read would have marked the take-back as
+  not done, and the next try, under a new label, could have taken the amount a second time.
+  Now a failed look-up concludes nothing, as for every other money action.
+- *A repeat could be the first time Stripe really does it.* It is now sent only while the
+  dispute is still lost, in the record and at Stripe; otherwise the list is searched. And the
+  row is judged again at the moment it is claimed, with its payment held: its 14 days, the day
+  after a refusal, and that the dispute is still lost.
+- *"It did not happen" is concluded only after 24 hours* (a repeat is sent up to 23), so one
+  helper cannot conclude it while another is still sending.
+- *The 14 days* count from the moment the notice is written, not from when the look began.
+- *Never more than the bank took back*: where a refund Connect paid for itself had made the
+  charge smaller than the host's share, the host does not owe more than the bank's loss. With
+  no charge to read, nothing is worked out on a guess.
+- *An amount set aside for a dispute that is then cancelled*: another dispute over the same
+  share that had been told "nothing is owed" for that reason is worked out afresh, with a
+  notice of its own. (One that was told a smaller amount for that reason keeps it.)
+- *Smaller ones:* both reads of Stripe happen under one limit of time while the payment is
+  held, and the dispute is marked afterwards; the "30 days of refusals" email is judged again
+  on the row as it is; the words say "asks Stripe to take back" and speak of "this take-back",
+  not of the whole payment; the yearly statement explains the new line; the founder's cancel
+  names its dispute; the earnings show every open take-back and the latest ten that were taken.
+- *Its second look* found three more, all taken: a repeat that brings no reversal, whatever
+  Stripe said to it, settles nothing by itself (Stripe's list does); the clock is read right
+  before a repeat goes out, and "it did not happen" needs a search that began after the 24
+  hours; and all shares under one dispute together never owe more than the bank took back (a
+  membership's month has several shares).
+- *CodeRabbit* had no review left for this pull request (its limit for the hour was used), so,
+  as agreed for that case, the builder read the whole diff once more instead. Nothing further
+  was found.
+- *Not taken:* the check script's use of the helper's own check of unfinished actions, which
+  looks at every such action in the shared test database (the other check scripts do the same).
+
+**What cannot be tried here.** A host whose Stripe balance is empty when the amount is taken
+(the test account always has money): what Stripe then does, and how fast, is Stripe's. A
+dispute that Stripe itself turns from lost to won (written into the local record instead).
+
+**Still open.** The yearly statement shows a take-back as less money sent, but does not show the
+payment the bank took back as given back; an accountant should say how a lost dispute belongs
+in it. A share that was never collected stays held back after a loss, as before; a dispute
+over only part of such a charge is still settled by hand (the plan's "leftover 1").
+

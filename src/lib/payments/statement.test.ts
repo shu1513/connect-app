@@ -8,6 +8,14 @@ import { buildStatement, COLUMNS, plainDollars, readYear, statementCsv, type Sou
 const line = (kind: string, amountCents: number, at: string, source: Source = "call"): StatementLine => ({ kind, amountCents, at: new Date(at), source });
 
 describe("a host's yearly statement", () => {
+  it("counts a share taken back after a lost bank dispute as that much less sent, in the month it was taken", () => {
+    const s = buildStatement([line("host_transfer", -4435, "2026-03-20T09:00:00Z"), line("payout_fee", 25, "2026-03-20T09:00:00Z"), line("host_takeback", 4435, "2026-05-02T09:00:00Z")], 2026);
+    expect(s.months[2].sentCents).toBe(4435);
+    expect(s.months[4].sentCents).toBe(-4435);
+    expect(s.total.sentCents).toBe(0);
+    expect(s.total.collectionChargesCents).toBe(25);
+  });
+
   it("adds up a call that was paid, its fee, her share, and the transfer with its collection charge", () => {
     const s = buildStatement(
       [

@@ -153,7 +153,8 @@ describe("the other messages", () => {
   it("says what the bank decided when a dispute is lost, never that the customer already has the money", () => {
     const told = endedWords("host", facts, "lost").text;
     expect(told).toContain("the bank decided for the customer, and the $13.33 does not come back");
-    expect(told).toContain("may ask you to pay it back");
+    expect(told).toContain("Connect asks Stripe to take it back from your Stripe balance");
+    expect(told).toContain("nothing is taken for 14 days after that");
     for (const role of ["host", "customer", "founder"] as const) expect(all(endedWords(role, facts, "lost"))).not.toMatch(/returned/);
   });
 
@@ -190,19 +191,20 @@ describe("the other messages", () => {
   });
 });
 
-describe("what nobody is told", () => {
-  it("is that the app takes anything back from a host (part 3 of the plan is not built)", () => {
-    const everything = [
-      ...(["host", "customer", "founder"] as const).flatMap((role) => [beganWords(role, facts), beganWords(role, question), endedWords(role, facts, "won"), endedWords(role, facts, "lost"), endedWords(role, { ...facts, stopStays: true }, "lost"), endedWords(role, facts, "closed")]),
+describe("what is said about taking a share back", () => {
+  it("is said only at a loss: to the host that it is taken after a message and 14 days, to the founder that they can cancel it", () => {
+    expect(endedWords("host", facts, "lost").text).toContain("you get a message with the amount first");
+    expect(endedWords("founder", facts, "lost").text).toContain("asks Stripe to take it back out of the transfer");
+    expect(endedWords("founder", facts, "lost").text).toContain("can cancel it on the dispute's page");
+    const others = [
+      ...(["host", "customer", "founder"] as const).flatMap((role) => [beganWords(role, facts), beganWords(role, question), endedWords(role, facts, "won"), endedWords(role, facts, "closed")]),
+      endedWords("customer", facts, "lost"),
       appealWords(facts),
       choiceWords(facts),
       lateWords(facts, null),
     ]
       .map(all)
       .join("\n");
-    // The only words about taking back say that the app does NOT (the founder's "lost" notice, written twice above).
-    expect(everything.match(/taken back/g) ?? []).toHaveLength(2);
-    expect(everything).toContain("nothing is taken back by the app");
-    expect(everything).not.toMatch(/we will take|will be taken from|reverse/i);
+    expect(others).not.toMatch(/take it back|takes it back|taken back|reverse/i);
   });
 });

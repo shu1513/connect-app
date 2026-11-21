@@ -44,6 +44,7 @@ async function main() {
   const { followAfterCalls } = await import("../src/lib/follows/follows");
   const { catchUpFromStripe, lookAtOpenDisputes } = await import("../src/lib/disputes/record");
   const { answerDisputes } = await import("../src/lib/disputes/answer");
+  const { takeBackPass } = await import("../src/lib/disputes/takeback");
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
   const { runNoticeRound } = await import("../src/legal/notices");
   const { runRetention } = await import("../src/lib/retention");
@@ -195,6 +196,8 @@ async function main() {
     // The answer to the bank, for every dispute whose answer is due: the host chose, their time is up, or it is a bank's question.
     // (The clock is read again: the look above can take a while, and deadlines are judged from now.)
     await answerDisputes(new Date()).catch((error) => console.error("[disputes] answering the bank failed; will retry", error));
+    // A share a host had collected before a dispute was lost: told, and taken back 14 days later.
+    await takeBackPass(new Date()).catch((error) => console.error("[disputes] taking shares back failed; will retry", error));
     if (disputePasses % 720 === 0) await catchUpFromStripe(now, disputePasses % 17_280 === 0 ? 130 : 7).catch((error) => console.error("[disputes] catching up from Stripe failed; will retry", error));
     disputePasses++;
   }

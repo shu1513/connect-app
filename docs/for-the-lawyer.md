@@ -448,7 +448,7 @@ written here.
 ## 16. Bank disputes handled by the app (new, plan 47)
 
 From `plans/47-bank-disputes.md`. The app answers a bank dispute by itself (built, parts 1 and
-2). Taking a share back from a host (the fourth point) is not built yet.
+2), and takes a share back from a host after a lost dispute (built, part 3).
 
 - **What is sent to a bank without a person looking first.** To fight a dispute, the app sends
   the customer's bank, through Stripe: the customer's name and email address, since when they
@@ -472,7 +472,14 @@ From `plans/47-bank-disputes.md`. The app answers a bank dispute by itself (buil
   balance can go below zero; Stripe makes that up from later payments and, in some countries,
   by debiting the host's bank account. Is section 9.4 of the host agreement draft enough for
   that in each of the 33 countries? Are 14 days enough notice under the European rules for
-  platforms (section 9 above)? What must the notice say?
+  platforms (section 9 above)? What must the notice say? As built, the notice says which
+  payment, that the bank decided for the customer, how the amount is worked out (the whole
+  share, or the same part as the bank took of the charge), from which date Stripe is asked,
+  that nothing is taken before, that the bank's fees are not charged to the host, and where to
+  object. An objection is honoured by a person: the founder cancels the take-back. The app does
+  not say where Stripe gets the money from beyond "your Stripe balance". If the bank later
+  decides the other way after the amount was taken, the app does not give it back by itself:
+  the founder and the host are told, and the founder sends it by hand. Is that enough?
 - **A customer kept from paying.** While a chargeback is open the customer cannot start a new
   payment; if the bank decides for them after Connect sent proof that the call took place, it
   stays that way until the founder allows it again. May a customer be treated so for using a

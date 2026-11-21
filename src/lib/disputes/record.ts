@@ -143,7 +143,7 @@ export async function aboutOwner(reader: Reader, owner: Owner): Promise<About | 
 }
 
 /** The host, the customer and the admins, with the host's name as customers know it. */
-async function peopleFor(tx: Tx, about: About): Promise<{ host: Person; customer: Person; hostName: string; founders: Person[] } | null> {
+export async function peopleFor(tx: Tx, about: About): Promise<{ host: Person; customer: Person; hostName: string; founders: Person[] } | null> {
   const columns = { id: schema.user.id, name: schema.user.name, email: schema.user.email, timeZone: schema.user.timeZone };
   const rows = await tx.select(columns).from(schema.user).where(inArray(schema.user.id, [about.hostId, about.customerId]));
   const host = rows.find((row) => row.id === about.hostId);

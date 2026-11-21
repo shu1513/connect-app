@@ -269,8 +269,8 @@ async function main() {
       check("the money stays held back after a lost dispute", (await reload(first.payment.id)).disputeOpen === true);
       const ended = (await messagesAbout(d1.id)).filter((m) => m.key.includes(":ended:lost:"));
       check("the host and the customer are told how it ended, once", ended.length === both && ended.some((m) => m.userId === host.id && m.body.includes("no longer yours") && m.body.includes("decided for the customer") && m.body.includes("$13.33")) && ended.some((m) => m.userId === customer.id && m.body.includes("decided in your favour") && m.body.includes("$13.33")), `${ended.length}`);
-      check("the host is promised nothing the app does not do: no \"we will write\", no take-back", ended.filter((m) => m.userId === host.id).every((m) => m.body.includes("may ask you to pay it back") && !/will write|taken back/i.test(m.body)));
-      check("and each admin is told by email, that it is settled by hand", (await emailsAbout(d1.id)).filter((mail) => mail.dedupeKey?.includes(":ended:lost:founder:") && mail.body.includes("settled by hand")).length === admins.length);
+      check("the host is told what happens to a share they had collected: a message first, then 14 days", ended.filter((m) => m.userId === host.id).every((m) => m.body.includes("you get a message with the amount first") && !/will write|taken back/i.test(m.body)));
+      check("and each admin is told by email, with what the app does about a share that was collected", (await emailsAbout(d1.id)).filter((mail) => mail.dedupeKey?.includes(":ended:lost:founder:") && mail.body.includes("asks Stripe to take it back")).length === admins.length);
       await handleStripeEvent(message("charge.dispute.closed", d1.id));
       await lookAtOpenDisputes(anHourLater(), { disputeIds: [d1.id] });
       check("the late message and another look tell nobody twice", (await messagesAbout(d1.id)).length === 2 * both && (await emailsAbout(d1.id)).length === 2 * mailed);
