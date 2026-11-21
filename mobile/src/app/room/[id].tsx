@@ -164,6 +164,8 @@ function OneRoom({ id }: { id: string }) {
         front.current = false;
         newest.current++;
         setPass(null);
+        // The camera check goes with the screen; the next one says its own choice afresh.
+        wantedNow.current = { camera: false, microphone: false };
         // The last question about the end is put again when the screen is back in front.
         lastCheck.current = null;
       };
@@ -230,11 +232,10 @@ function OneRoom({ id }: { id: string }) {
   }, [timeUp, endsAt, refresh]);
 
   /** Asks for an entry pass, and enters with what was chosen. */
-  async function join(wanted: { camera: boolean; microphone: boolean }) {
+  async function join() {
     if (joiningNow.current) return;
     joiningNow.current = true;
     const still = watch();
-    wantedNow.current = wanted;
     setJoining(true);
     setNotice(null);
     setLeft(false);
@@ -431,7 +432,7 @@ function OneRoom({ id }: { id: string }) {
           {aboutOpen ? <Words>{room.about.text}</Words> : null}
         </Card>
       ) : null}
-      <Lobby words={words} joining={joining} onChoice={noteChoice} onJoin={(wanted) => void join(wanted)} />
+      <Lobby words={words} joining={joining} onChoice={noteChoice} onJoin={() => void join()} />
       <Button label={words.backToCall} kind="plain" onPress={toCall} />
     </Page>
   );

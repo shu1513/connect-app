@@ -278,6 +278,24 @@ Five of the six points of the third look were found closed. What was left:
    another room, a pause or the closing of that person's account waits for it (it wants the
    same line). The newer main does the same; changing the order is not this part's work.
 
+## Astra's fifth look at the code (21 November 2026): "not ready", now worked in
+
+1. *An old camera check could overwrite the new one.* If the person left the call's screen
+   while the phone was still answering about a permission, and came back, that late answer
+   could put "camera on" back over what they saw and chose on the new screen. Now only the
+   camera check that is on the screen has a say; a late answer for one that is gone is
+   dropped. And there is one way the choice reaches the call screen (said at each press and
+   once more at "Join", always as it is at that moment); "Join" no longer carries a copy of
+   its own.
+2. *A call whose time looks up,* at any of the first looks, is asked about for sure (waiting
+   for a step that may be adding time) before anyone is told it has ended; if time was
+   added, the join starts afresh, once. This is done in a step of its own that holds nothing
+   afterwards, so "End call and report" never waits behind it.
+3. *The look for a block comes first* among the early looks, so the clock is read right
+   before anyone is taken out of another room.
+4. Left as it is, as before: a pause of an account waits while the video service takes that
+   person out of another room.
+
 ## Astra's check (20 November 2026): "not ready", now worked in
 
 1. *Too much for one part.* Split into 09, 09b and 09c.

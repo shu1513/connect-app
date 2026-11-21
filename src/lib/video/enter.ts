@@ -68,7 +68,20 @@ const no = (status: 401 | 403 | 404 | 409 | 503, why: EntryRefused["refused"]["w
  * Hands out an entry pass only to a person who is on this call, only while the room is open, and
  * for a paid call only while the money is held. Entering takes the person out of any other room first.
  */
-export async function enterCall(user: { id: string; name: string; paused: boolean }, callId: string): Promise<EntryPass | EntryRefused> {
+/**
+ * Whether the call is open after all. Asked when its time looks up: time may be being added at this very moment
+ * (that step holds the call's line until the new end is written down), so the call is read once more, waiting
+ * for that. In a step of its own, which holds nothing once it has answered.
+ */
+async function openForSure(callId: string): Promise<boolean> {
+  const [sure] = await db.transaction((tx) =>
+    tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, callId)).for("share"),
+  );
+  return Boolean(sure) && !sure.safetyEndedAt && !sure.cancelledAt && roomState(sure, new Date()) === "open";
+}
+
+/** `again`: this is the one fresh start after the call turned out to have been made longer (see `openForSure`). */
+export async function enterCall(user: { id: string; name: string; paused: boolean }, callId: string, again = false): Promise<EntryPass | EntryRefused> {
   const access = await callForParticipant(callId, user.id);
   // A stranger gets the same answer whether or not the call exists.
   if (!access) return no(404, "not_found", "Call not found.");
@@ -84,6 +97,8 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
   const decision = canJoin(call, user.id, now);
   if (!decision.allowed) {
     if (decision.reason === "not_on_call") return no(404, "not_found", "Call not found.");
+    // Its time looks up: nobody is told so before it is certain. If time was added, everything starts afresh, once.
+    if (decision.reason === "closed" && !again && (await openForSure(call.id).catch(() => false))) return enterCall(user, callId, true);
     return no(409, "not_now", MESSAGES[decision.reason]);
   }
 
@@ -112,21 +127,15 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
       // A first look at this call before anyone is taken out of another room: if it was stopped or cancelled, or
       // its time ran out, while this step waited its turn, the person stays where they are. (The look that counts
       // comes below, with the call held.)
-      const [early] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
-      if (!early || early.safetyEndedAt || early.cancelledAt) throw new Error("ended");
-      if (roomState(early, new Date()) !== "open") {
-        // Its time looks up. Time may be being added at this very moment (that step holds the call until it is
-        // written down): so the call is read once more, waiting for that, before anyone is told it has ended.
-        const [sure] = await tx
-          .select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt })
-          .from(schema.calls)
-          .where(eq(schema.calls.id, call.id))
-          .for("share");
-        if (!sure || sure.safetyEndedAt || sure.cancelledAt || roomState(sure, new Date()) !== "open") throw new Error("ended");
-      }
-      // And a block between the two that was written down while this step waited: found here, before the person
+      // First a block between the two that was written down while this step waited: found here, before the person
       // is taken out of a room they may stay in.
       if (await isBlockedEitherWay(call.hostId, call.customerId, tx)) throw new Error("ended");
+      const [early] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
+      if (!early || early.safetyEndedAt || early.cancelledAt) throw new Error("ended");
+      // Its time looks up (the clock is read here, right before anyone is taken out of another room). Time may be
+      // being added at this very moment: this step is left, holding nothing, and the call is asked about for sure
+      // outside it (below), so nothing here waits on the call's line while it holds the person's.
+      if (roomState(early, new Date()) !== "open") throw new Error("recheck");
       await leaveOtherCalls(tx, user.id, call.id, now);
       // Waiting for the lock and stepping out of other rooms takes time. So the call is read only now, and held
       // as it is until the pass is made (nothing can stop it, cancel it or move its end in between): it may have
@@ -149,6 +158,11 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
     });
   } catch (error) {
     if (error instanceof Error && error.message === "ended") return no(409, "not_now", MESSAGES.closed);
+    if (error instanceof Error && error.message === "recheck") {
+      // Nobody was taken out of anywhere. If time was added, everything starts afresh, once; otherwise it has ended.
+      if (!again && (await openForSure(call.id).catch(() => false))) return enterCall(user, callId, true);
+      return no(409, "not_now", MESSAGES.closed);
+    }
     if (error instanceof Error && error.message === "paused") return no(403, "paused", PAUSED);
     if (error instanceof Error && error.message === "closed") return no(401, "signed_out", "Please log in.");
     console.error(`[calls] could not hand out an entry pass for call ${call.id}`, error);

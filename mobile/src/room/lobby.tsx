@@ -36,7 +36,8 @@ export function Lobby({
   joining: boolean;
   /** Told what is chosen whenever it changes, also while "Joining…" is shown: the person enters with what is chosen at that moment. */
   onChoice: (wanted: { camera: boolean; microphone: boolean }) => void;
-  onJoin: (wanted: { camera: boolean; microphone: boolean }) => void;
+  /** The person pressed "Join". With what, the screen already knows: it was told through `onChoice`. */
+  onJoin: () => void;
 }) {
   const colors = useColors();
   const [may, setMay] = useState<May | null>(null);
@@ -47,12 +48,24 @@ export function Lobby({
   // itself (and when the phone's answer about a permission comes), not only after the next redraw: a pass that
   // arrives in between must find the camera off if it was just switched off.
   const latest = useRef<{ may: May | null; camera: boolean; microphone: boolean }>({ may: null, camera: true, microphone: true });
+  // Only the camera check that is on the screen has a say. One that was left (the person went to another screen and
+  // came back to a new one) may still get a late answer from the phone about a permission: that answer is dropped,
+  // so it can never put back "camera on" over what the person sees and chose on the new one.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const tell = useCallback(() => {
+    if (!alive.current) return;
     const now = latest.current;
     onChoice({ camera: now.may?.camera === true && now.camera, microphone: now.may?.microphone === true && now.microphone });
   }, [onChoice]);
   const changeMay = useCallback(
     (next: May | ((was: May | null) => May | null)) => {
+      if (!alive.current) return;
       const value = typeof next === "function" ? next(latest.current.may) : next;
       latest.current.may = value;
       setMay(value);
@@ -141,9 +154,11 @@ export function Lobby({
   // What the person would enter with, as chosen and as the phone allows, said to the screen whenever it changes.
   const wantsCamera = may?.camera === true && camera;
   const wantsMicrophone = may?.microphone === true && microphone;
+  // (A second line behind the presses above. It says what is true at this moment, never what a drawing of a
+  // moment ago held.)
   useEffect(() => {
-    onChoice({ camera: wantsCamera, microphone: wantsMicrophone });
-  }, [wantsCamera, wantsMicrophone, onChoice]);
+    tell();
+  }, [wantsCamera, wantsMicrophone, tell]);
 
   if (!may) return <Loading />;
   if (!may.asked) {
@@ -164,7 +179,11 @@ export function Lobby({
       {may.camera ? <Tick label={words.cameraOn} checked={camera} onChange={changeCamera} /> : <Notice>{words.cameraRefused}</Notice>}
       {may.microphone ? <Tick label={words.microphoneOn} checked={microphone} onChange={changeMicrophone} /> : <Notice>{words.microphoneRefused}</Notice>}
       {!may.camera || !may.microphone ? <Button label={words.openSettings} kind="plain" onPress={() => void Linking.openSettings().catch(() => {})} /> : null}
-      <Button label={joining ? words.joining : words.join} busy={joining} onPress={() => onJoin({ camera: wantsCamera, microphone: wantsMicrophone })} />
+      <Button label={joining ? words.joining : words.join} busy={joining} onPress={() => {
+          tell();
+          onJoin();
+        }}
+      />
     </View>
   );
 }
