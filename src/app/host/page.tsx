@@ -5,7 +5,9 @@ import { LocalTime } from "@/components/local-time";
 import { db, schema } from "@/db";
 import { hoursAndTimeOff } from "@/lib/booking/calendar";
 import { readNotice } from "@/lib/notice";
+import { formatMoney } from "@/lib/payments/access";
 import { getHostSettings, refreshPayoutsReady } from "@/lib/payments/hosts";
+import { MAX_PRICE_PER_15_CENTS, topPriceOf } from "@/lib/payments/pricing";
 import { HOME_COUNTRY, HOST_COUNTRIES, hostCountryName } from "@/lib/profiles/countries";
 import { FREE_CANCEL_CHOICES_MINUTES } from "@/lib/payments/rules";
 import { stripeConfigured } from "@/lib/payments/stripe";
@@ -305,7 +307,7 @@ export default async function HostPage(props: PageProps<"/host">) {
               <LanguagePicker chosen={[]} />
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5)
-                <input name="price" type="number" min={5} step="0.01" defaultValue="20" required className={field} />
+                <input name="price" type="number" min={5} max={MAX_PRICE_PER_15_CENTS / 100} step="0.01" defaultValue="20" required className={field} />
               </label>
               <label className="block text-sm">
                 Where are you based?
@@ -379,7 +381,13 @@ export default async function HostPage(props: PageProps<"/host">) {
               <label className="block text-sm">
                 Price per 15 minutes, in US dollars (at least $5)
                 {/* A host from before free calls were taken away is shown the lowest price, and must save one. */}
-                <input name="price" type="number" min={5} step="0.01" defaultValue={(Math.max(profile.pricePer15Cents, 500) / 100).toFixed(2)} required className={field} />
+                <input name="price" type="number" min={5} max={topPriceOf(profile) / 100} step="0.01" defaultValue={(Math.max(profile.pricePer15Cents, 500) / 100).toFixed(2)} required className={field} />
+                {/* Only a host the founder gave a higher top price than everyone's is told about it (plans/48). */}
+                {profile.topPricePer15Cents !== null && (
+                  <span className="mt-1 block text-sm" data-top-price>
+                    Your price can be up to {formatMoney(topPriceOf(profile))} per 15 minutes.
+                  </span>
+                )}
                 {profile.pricePer15Cents === 0 && (
                   <span className="mt-1 block text-sm" data-free-no-more>
                     You can no longer set a price of zero. Saving this form sets your price for new requests to at least $5 per 15 minutes. Requests and calls already made keep their price.

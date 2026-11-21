@@ -9,7 +9,10 @@ import { momentIn } from "@/lib/booking/calendar";
 import { withNotice } from "@/lib/notice";
 import { closeAccount, reopenAccount } from "@/lib/profiles/closing";
 import { lockPhotoAsFounder, recordPhotoReportMade, removePhotoAsFounder } from "@/lib/profiles/photo";
-import { confirmSocialName, decideProfile, ProfileError, rejectSocialName } from "@/lib/profiles/profiles";
+import { ContributionError, readSum } from "@/lib/contributions/rules";
+import { formatMoney } from "@/lib/payments/access";
+import { MAX_PRICE_PER_15_CENTS } from "@/lib/payments/pricing";
+import { confirmSocialName, decideProfile, ProfileError, rejectSocialName, setTopPrice } from "@/lib/profiles/profiles";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { requireAdmin } from "@/lib/session";
 
@@ -54,6 +57,45 @@ export async function decideProfileAction(formData: FormData) {
         notice += " But their waiting requests and future calls could not be ended automatically. Please check them and end them by hand.";
       }
     }
+  } catch (error) {
+    notice = problem(error);
+  }
+  back(notice);
+}
+
+/**
+ * The founder gives one host a higher top price than everyone's, changes it, or takes it away (plans/48).
+ * Taking it away has a button of its own, so an empty field pressed by mistake lowers nobody's price.
+ * The step itself writes the founder's record and the host's email.
+ */
+export async function setTopPriceAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const typed = String(formData.get("topPrice") ?? "").trim();
+  let notice: string;
+  try {
+    const userId = String(formData.get("userId") ?? "");
+    if (!userId) throw new ProfileError("Choose a host first. Nothing was changed.");
+    const takeAway = formData.get("takeAway") === "1";
+    if (!takeAway && typed === "") throw new ProfileError(`Type the top price first. To take a host's higher top price away, press "Put back to ${formatMoney(MAX_PRICE_PER_15_CENTS)}". Nothing was changed.`);
+    // "Put back" uses nothing of what stands in the field. Otherwise the amount is read by the app's one strict reader of
+    // dollars and cents ("2000", "$2,000", "1500.50"); anything else ("20,00", "2e3", "abc") is refused, never guessed.
+    let topPricePer15Cents: number | null = null;
+    if (!takeAway) {
+      try {
+        topPricePer15Cents = readSum(typed);
+      } catch (error) {
+        if (!(error instanceof ContributionError)) throw error;
+        throw new ProfileError("Type the top price in dollars, for example 2000 or 1500.50. Nothing was changed.");
+      }
+    }
+    const done = await setTopPrice({ userId, topPricePer15Cents, by: admin.id });
+    notice =
+      (done.topPricePer15Cents === MAX_PRICE_PER_15_CENTS
+        ? `${done.displayName} is back to the top price of every host, ${formatMoney(MAX_PRICE_PER_15_CENTS)} per 15 minutes.`
+        : `${done.displayName} can now charge up to ${formatMoney(done.topPricePer15Cents)} per 15 minutes.`) +
+      (done.priceLoweredFrom === null
+        ? ""
+        : ` Their price was ${formatMoney(done.priceLoweredFrom)}, so it came down to ${formatMoney(done.topPricePer15Cents)}${done.told ? ", and they were told by email" : ". No email was sent, because their account is closed"}. Requests and calls already made keep their price.`);
   } catch (error) {
     notice = problem(error);
   }

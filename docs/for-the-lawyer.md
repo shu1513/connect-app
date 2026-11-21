@@ -505,3 +505,26 @@ was written and when it was sent. Questions:
   given for it. People who signed up under the draft are asked to accept it at their next visit.
   Is there anything they should be told beyond that?
 
+## 18. A higher top price for one host (new, plan 48)
+
+From `plans/48-top-price-per-host.md`. Every host can charge up to $1,000 for 15 minutes. The
+founder can let one host charge up to $2,500, and take that away again. This is built.
+
+- **The agreement names no highest price.** The Host Agreement (6.1) says a host sets a price
+  and names only the lowest one. Must it say that there is a highest price, that Connect can
+  give one host a higher one, and that this is Connect's choice alone?
+- **Connect lowers a host's price.** When the founder lowers or takes away a host's higher top
+  price, the app sets the host's price down to the new limit at once and tells the host by
+  email. Calls already booked keep their price. The agreement says the host chooses the price
+  (the summary, and 6.1), and that hosts work for themselves. May Connect change a price this
+  way, with what notice (the European rules for platforms, section 9 above, ask for notice of
+  changes), and does it weaken the statement that the host is independent?
+- **Treating hosts differently.** One host may charge more than another, by the founder's
+  choice. Does that need a stated reason or stated criteria (again the European rules for
+  platforms, which ask a platform to explain different treatment)?
+- **Very large payments.** One call can now cost up to $60,000 (6 hours at $2,500), held on the
+  customer's card before the call. Does a payment of that size bring duties that smaller ones
+  do not: checks on where the money comes from, reports, a cooling-off right that is harder to
+  give up (section 11 above), or a limit under consumer credit rules where the card is a credit
+  card? Stripe does the payment checks today; is that enough?
+
