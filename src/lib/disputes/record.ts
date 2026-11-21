@@ -288,7 +288,13 @@ async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now:
     if (!before) return false;
     // The row is ours now. Stripe is read again from here (see the top of this file), and "look again" is cleared in
     // the same step: a message from Stripe that comes in meanwhile waits for this row and then sets it once more.
-    const fresh = await stripe().disputes.retrieve(listed.id, {}, { timeout: LOCKED_READ_MS, maxNetworkRetries: 0 });
+    // Stripe's library is told to try once and to give up in time; the deadline here holds whatever it does
+    // (it can still try again after a broken connection). Giving up undoes this step and frees the row.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const fresh = await Promise.race([
+      stripe().disputes.retrieve(listed.id, {}, { timeout: LOCKED_READ_MS, maxNetworkRetries: 0 }),
+      new Promise<never>((_, reject) => (deadline = setTimeout(() => reject(new Error("Stripe did not answer in time while a dispute's row was held.")), LOCKED_READ_MS))),
+    ]).finally(() => clearTimeout(deadline));
     const outcome = outcomeOf(fresh.status);
     const [after] = await tx
       .update(schema.disputes)
@@ -379,7 +385,16 @@ export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> 
     await refreshOwner(owner, now).then(
       // It takes its turn also when Stripe's list did not show it (then nothing above wrote to its row), so no
       // dispute can keep the others from being asked about.
-      () => db.update(schema.disputes).set({ updatedAt: now }).where(eq(schema.disputes.id, dispute.id)),
+      () =>
+        db
+          .update(schema.disputes)
+          .set({ updatedAt: now })
+          .where(eq(schema.disputes.id, dispute.id))
+          .then(
+            () => undefined,
+            // The look itself went through. Not being able to note its turn must not stop the others'.
+            (error) => console.error(`[disputes] could not note the turn of dispute ${dispute.id} (${errorSummary(error)})`),
+          ),
       async (error) => {
         console.error(`[disputes] could not ask about dispute ${dispute.id} (${errorSummary(error)}); will retry`);
         await db.update(schema.disputes).set({ lookAgain: true, updatedAt: now }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
@@ -414,7 +429,7 @@ export async function catchUpFromStripe(now: Date, days: number, only?: Only): P
       await refreshOwner(owner, now).catch(async (error) => {
         console.error(`[disputes] could not catch up on dispute ${dispute.id} (${errorSummary(error)}); the next look tries again`);
         // If its row was written before the fault, the helper's look takes it up again within the minute.
-        await db.update(schema.disputes).set({ lookAgain: true }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
+        await db.update(schema.disputes).set({ lookAgain: true, updatedAt: now }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
       });
     }
   };

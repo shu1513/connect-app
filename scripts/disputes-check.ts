@@ -36,7 +36,7 @@ async function main() {
   const { settleOrdinaryCharges } = await import("../src/lib/payments/take");
   const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
   const { refreshPaymentDispute } = await import("../src/lib/payments/disputes");
-  const { catchUpFromStripe, lookAtOpenDisputes, recordDisputesOf, disputesForFounder } = await import("../src/lib/disputes/record");
+  const { catchUpFromStripe, lookAtOpenDisputes, recordDisputesOf, refreshOwner, disputesForFounder } = await import("../src/lib/disputes/record");
   const { disputeForViewer, disputePagesOf } = await import("../src/lib/disputes/pages");
   const { markReadUpTo, messagesOf, unreadCount } = await import("../src/lib/messages/messages");
 
@@ -145,14 +145,19 @@ async function main() {
       console.log(`Made: an open dispute, /disputes/${dispute.id} (host@test.local is its host, customer@test.local its customer; the call is /calls/${made.call.id}/results).`);
     } else {
       for (const dispute of await demoDisputes()) {
-        const current = await stripe().disputes.retrieve(dispute.id).catch(() => null);
-        if (current?.status === "needs_response") await stripe().disputes.close(dispute.id).catch(() => undefined);
-        // The dispute is ended at Stripe (given in) and its row brought up to date, so nothing asks about it again.
-        // The row, the call and its payment stay, as a test call's do: a lost dispute, with its money held back.
-        if (dispute.paymentId) await recordDisputesOf({ kind: "payment", id: dispute.paymentId });
+        const current = await stripe().disputes.retrieve(dispute.id);
+        if (current.status === "needs_response") await stripe().disputes.close(dispute.id);
+        // The dispute is ended at Stripe (given in) and both the money and its row are brought up to date, so nothing
+        // asks about it again. The row, the call and its payment stay, as a test call's do.
+        if (dispute.paymentId) await refreshOwner({ kind: "payment", id: dispute.paymentId });
+        const [now] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, dispute.id));
+        if (!now?.outcome) {
+          console.log(`NOT ended: dispute ${dispute.id} is still open (${now?.status}). Its messages were left as they are.`);
+          continue;
+        }
         await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
         await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
-        console.log(`Ended: dispute ${dispute.id}. Its messages and its emails are taken away.`);
+        console.log(`Ended (${now.outcome}): dispute ${dispute.id}. Its messages and its emails are taken away.`);
       }
     }
     process.exit(0);
