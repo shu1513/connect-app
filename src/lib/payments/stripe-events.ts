@@ -9,9 +9,11 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { syncPayment } from "@/lib/contributions/charge";
 import { refreshDispute } from "@/lib/contributions/dispute";
+import { noteDispute, type Owner } from "@/lib/disputes/record";
+import { errorSummary } from "@/lib/email";
 import { syncMonth } from "@/lib/membership/charge";
 import { refreshMonthDispute } from "@/lib/membership/ending";
-import { BLOCKING_DISPUTE } from "./disputes";
+import { refreshPaymentDispute } from "./disputes";
 import { syncHold } from "./hold";
 import { stripe } from "./stripe";
 
@@ -48,31 +50,38 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
   }
 
   if (event.type.startsWith("charge.dispute.")) {
-    // Messages can arrive out of order, and two can be handled at the same moment. So Stripe is asked
-    // where the dispute stands now, that is recorded, and Stripe is asked once more: only when it still
-    // says the same is the work done. An answer that went stale while we waited is never the last word.
-    let recorded: string | null = null;
-    for (let round = 0; round < 4; round++) {
-      const dispute = await stripe()
-        .disputes.retrieve(String(object.id))
-        .catch((error: { code?: string }) => {
-          if (error?.code === "resource_missing") return null; // Stripe does not know it: not ours
-          throw error;
-        });
-      if (!dispute || dispute.status === recorded) return;
-      const intentId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-      if (!intentId) return;
-      await db
-        .update(schema.payments)
-        .set({ disputeOpen: BLOCKING_DISPUTE.has(dispute.status), updatedAt: new Date() })
-        .where(eq(schema.payments.stripePaymentIntentId, intentId));
-      // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
-      const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
-      if (month) await refreshMonthDispute(month.id, new Date());
-      // A dispute over a contribution's charge: recorded on its payment, where collecting and refunding look.
-      const [contributed] = await db.select({ id: schema.contributionPayments.id }).from(schema.contributionPayments).where(eq(schema.contributionPayments.stripePaymentIntentId, intentId));
-      if (contributed) await refreshDispute(contributed.id, new Date());
-      recorded = dispute.status;
+    const dispute = await stripe()
+      .disputes.retrieve(String(object.id))
+      .catch((error: { code?: string }) => {
+        if (error?.code === "resource_missing") return null; // Stripe does not know it: not ours
+        throw error;
+      });
+    const intentId = typeof dispute?.payment_intent === "string" ? dispute.payment_intent : dispute?.payment_intent?.id;
+    if (!intentId) return;
+    const now = new Date();
+    // First, and on its own: what keeps the money where it is. Each kind of money looks at ALL disputes on its
+    // charge together (a bank can dispute one charge more than once), asks Stripe, records, and asks once more,
+    // so that messages out of order, or two at the same moment, never leave a stale answer as the last word.
+    const owners: Array<{ owner: Owner; money: () => Promise<void> }> = [];
+    // A dispute over a call's card payment: recorded on the payment, where collecting and refunding look. The dispute
+    // this message is about is counted also if Stripe's list does not show it yet.
+    const [payment] = await db.select({ id: schema.payments.id }).from(schema.payments).where(eq(schema.payments.stripePaymentIntentId, intentId));
+    if (payment) owners.push({ owner: { kind: "payment", id: payment.id }, money: () => refreshPaymentDispute(payment.id, now, { id: dispute!.id, status: dispute!.status }) });
+    // A dispute over a membership month's charge: recorded on the month, where booking, paying back and collecting look.
+    const [month] = await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(eq(schema.membershipMonths.stripePaymentIntentId, intentId));
+    if (month) owners.push({ owner: { kind: "month", id: month.id }, money: () => refreshMonthDispute(month.id, now) });
+    // A dispute over a contribution's charge: recorded on its payment, where collecting and refunding look.
+    const [contributed] = await db.select({ id: schema.contributionPayments.id }).from(schema.contributionPayments).where(eq(schema.contributionPayments.stripePaymentIntentId, intentId));
+    if (contributed) owners.push({ owner: { kind: "contribution", id: contributed.id }, money: () => refreshDispute(contributed.id, now) });
+    for (const { owner, money } of owners) {
+      await money();
+      // Only then, in a step of its own: the app's record of the dispute, and telling people (plans/47). The money is
+      // protected by now. This step asks Stripe nothing more: a first sight is written from the dispute read above,
+      // and a dispute the app knows is marked for the helper, which reads Stripe again within the minute (looking
+      // at the money once more as it does). A fault here must not leave this message "not handled", because an
+      // unhandled dispute message keeps every host from collecting (collect.ts, disputeMessageWaiting); the helper's
+      // hourly look and its catch-up from Stripe's list write whatever is missing.
+      await noteDispute(owner, dispute!, now).catch((error) => console.error(`[disputes] could not note dispute ${String(object.id)} (${errorSummary(error)}); the helper's look will`));
     }
   }
 }

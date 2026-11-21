@@ -804,6 +804,9 @@ async function main() {
     if (!disputeId) return;
     await handleStripeEvent({ type: "charge.dispute.created", data: { object: { id: disputeId } } });
     check("a message about a dispute finds the contribution's payment and records it as open", (await PM(m.paymentId)).dispute === "open");
+    const [recorded] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId));
+    check("the dispute has a record of its own, as this payment's, for this host and this contributor (plans/47)", recorded?.contributionPaymentId === m.paymentId && recorded.paymentId === null && recorded.monthId === null && recorded.hostId === host.id && recorded.customerId === m.giver.id, JSON.stringify(recorded ?? null).slice(0, 160));
+    check("the host is told about it, in words about a contribution", (await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:%`))).some((one) => one.userId === host.id && one.body.includes("a contribution to")));
     check("the monthly contribution ends, and its payment that was not taken is given up", (await CO(m.contributionId)).endedHow === "dispute" && (await PM(next)).endedHow === "dispute");
     const when = new Date(at.getTime() + 8 * DAY);
     check("the share cannot be collected while the dispute is open", (await unsentEarnings(when, host.id))[0]?.heldBack === "dispute");

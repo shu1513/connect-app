@@ -20,7 +20,11 @@ const EVENTS = [
   "payment_intent.succeeded",
   "payment_intent.requires_action",
   "charge.dispute.created",
+  // A bank's question that becomes a chargeback, and any other change while a dispute is open (plans/47).
+  "charge.dispute.updated",
   "charge.dispute.closed",
+  // A dispute that was lost and is later decided the other way.
+  "charge.dispute.funds_reinstated",
 ] as const;
 const MARK = "connect-app-dev";
 

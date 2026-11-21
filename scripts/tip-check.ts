@@ -780,6 +780,10 @@ async function main() {
     if (disputeId) {
       await handleStripeEvent({ type: "charge.dispute.created", data: { object: { id: disputeId } } } as Parameters<typeof handleStripeEvent>[0]);
       check("a message about a dispute finds the tip's payment and records it as open", (await PM(disputed.paymentId)).dispute === "open");
+      const [recorded] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId));
+      check("the dispute has a record of its own, as the tip's payment's, for this host and this customer (plans/47)", recorded?.contributionPaymentId === disputed.paymentId && recorded.hostId === pia.id && recorded.customerId === mona.id, JSON.stringify(recorded ?? null).slice(0, 160));
+      const toldAbout = await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:%`));
+      check("the host is told in words about a tip, and the customer's message leads to that call's page", toldAbout.some((one) => one.userId === pia.id && one.body.includes("a tip for the call on")) && toldAbout.some((one) => one.userId === mona.id && one.path === `/calls/${disputed.callId}/results`), toldAbout.map((one) => one.path).join(" "));
       check("the tip can be neither collected nor refunded", (await unsentEarnings(new Date(Date.now() + 40 * DAY), pia.id)).find((one) => one.payment.contributionPaymentId === disputed.paymentId)?.heldBack === "dispute" && /disputed/.test(await refused(R.refundContribution({ paymentId: disputed.paymentId, amountCents: 100, by: "host", deciderId: pia.id, reason: "a check", requestKey: randomUUID() }))));
       check("and her monthly contribution goes on", (await CO(monthlyId)).status === "running");
       check("the host's results of that call say that the charge is disputed, and offer no refund", (await results(disputed.callId, pia)).words.includes("has disputed this charge") && !formsOf((await results(disputed.callId, pia)).text).some((f) => f.buttons.some((b) => b.words === "Refund")));

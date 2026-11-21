@@ -8,7 +8,7 @@
  */
 import { and, eq, lte } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { BLOCKING_DISPUTE } from "@/lib/payments/disputes";
+import { blocksMoney } from "@/lib/disputes/status";
 import { stripe } from "@/lib/payments/stripe";
 import { endInStep } from "./ending";
 import { letGo } from "./charge";
@@ -50,7 +50,7 @@ export async function refreshDispute(paymentId: string, now: Date = new Date()):
     const [seen] = await db.select({ version: pays.disputeVersion }).from(pays).where(eq(pays.id, paymentId));
     const disputes = await stripe().disputes.list({ payment_intent: payment.intentId, limit: 100 }).autoPagingToArray({ limit: 300 });
     if (disputes.length === 0) break;
-    const state = disputes.some((dispute) => dispute.status === "lost") ? "lost" : disputes.some((dispute) => BLOCKING_DISPUTE.has(dispute.status)) ? "open" : "won";
+    const state = disputes.some((dispute) => dispute.status === "lost") ? "lost" : disputes.some((dispute) => blocksMoney(dispute.status)) ? "open" : "won";
     if (state === recorded) break;
     if (await recordDispute(paymentId, state, now, seen.version)) recorded = state;
   }

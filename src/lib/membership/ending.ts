@@ -11,7 +11,7 @@
 import { and, eq, gt, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
-import { BLOCKING_DISPUTE } from "@/lib/payments/disputes";
+import { blocksMoney } from "@/lib/disputes/status";
 import { cancelCall } from "@/lib/payments/cancel";
 import { MoneyError, type Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
@@ -175,7 +175,7 @@ export async function refreshMonthDispute(monthId: string, now: Date = new Date(
   for (let round = 0; round < 3; round++) {
     const disputes = await stripe().disputes.list({ payment_intent: month.intentId, limit: 100 }).autoPagingToArray({ limit: 300 });
     if (disputes.length === 0) break;
-    const state = disputes.some((dispute) => dispute.status === "lost") ? "lost" : disputes.some((dispute) => BLOCKING_DISPUTE.has(dispute.status)) ? "open" : "won";
+    const state = disputes.some((dispute) => dispute.status === "lost") ? "lost" : disputes.some((dispute) => blocksMoney(dispute.status)) ? "open" : "won";
     if (state === recorded) break;
     await recordMonthDispute(monthId, state, now);
     recorded = state;

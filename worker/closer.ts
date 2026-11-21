@@ -42,6 +42,7 @@ async function main() {
   const { endOldTests } = await import("../src/lib/connection/tests");
   const { runPictureRound } = await import("../src/lib/projects/queue");
   const { followAfterCalls } = await import("../src/lib/follows/follows");
+  const { catchUpFromStripe, lookAtOpenDisputes } = await import("../src/lib/disputes/record");
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
   const { runNoticeRound } = await import("../src/legal/notices");
 
@@ -175,6 +176,22 @@ async function main() {
   }
 
   /**
+   * Bank disputes (plans/47), in a loop of their own: Stripe's list of a shared account can be long, and reading it
+   * must never delay closing a room or the money work. Every pass: the open ones not asked about for an hour are
+   * asked about again (a few each time). About once an hour: Stripe's own list of the last 7 days, for any the app
+   * does not have or has out of date. About once a day, and when the helper starts: the same for the last 130 days,
+   * which is as long as a dispute can stay open.
+   */
+  let disputePasses = 0;
+  async function disputePass() {
+    if (!stripeConfigured()) return;
+    const now = new Date();
+    await lookAtOpenDisputes(now).catch((error) => console.error("[disputes] the look at open disputes failed; will retry", error));
+    if (disputePasses % 720 === 0) await catchUpFromStripe(now, disputePasses % 17_280 === 0 ? 130 : 7).catch((error) => console.error("[disputes] catching up from Stripe failed; will retry", error));
+    disputePasses++;
+  }
+
+  /**
    * The notices of a coming version of a legal document (plans/46, part 2), in a loop of their own, about once a
    * minute: writing to many people must never delay a room or the money work, and a failure there must never hold up
    * a notice that has a date. With nothing coming, this asks the database nothing.
@@ -208,6 +225,7 @@ async function main() {
     await testPass();
     await picturePass();
     await followPass();
+    await disputePass();
     await noticePass();
     process.exit(0);
   }
@@ -228,7 +246,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("notices", noticePass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass)]);
   process.exit(0);
 }
 
