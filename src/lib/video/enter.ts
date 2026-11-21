@@ -113,7 +113,20 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
       // its time ran out, while this step waited its turn, the person stays where they are. (The look that counts
       // comes below, with the call held.)
       const [early] = await tx.select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, call.id));
-      if (!early || early.safetyEndedAt || early.cancelledAt || roomState(early, new Date()) !== "open") throw new Error("ended");
+      if (!early || early.safetyEndedAt || early.cancelledAt) throw new Error("ended");
+      if (roomState(early, new Date()) !== "open") {
+        // Its time looks up. Time may be being added at this very moment (that step holds the call until it is
+        // written down): so the call is read once more, waiting for that, before anyone is told it has ended.
+        const [sure] = await tx
+          .select({ safetyEndedAt: schema.calls.safetyEndedAt, cancelledAt: schema.calls.cancelledAt, startsAt: schema.calls.startsAt, endsAt: schema.calls.endsAt })
+          .from(schema.calls)
+          .where(eq(schema.calls.id, call.id))
+          .for("share");
+        if (!sure || sure.safetyEndedAt || sure.cancelledAt || roomState(sure, new Date()) !== "open") throw new Error("ended");
+      }
+      // And a block between the two that was written down while this step waited: found here, before the person
+      // is taken out of a room they may stay in.
+      if (await isBlockedEitherWay(call.hostId, call.customerId, tx)) throw new Error("ended");
       await leaveOtherCalls(tx, user.id, call.id, now);
       // Waiting for the lock and stepping out of other rooms takes time. So the call is read only now, and held
       // as it is until the pass is made (nothing can stop it, cancel it or move its end in between): it may have
@@ -124,11 +137,13 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
         .where(eq(schema.calls.id, call.id))
         .for("share");
       if (!fresh || fresh.safetyEndedAt || fresh.cancelledAt) throw new Error("ended");
-      if (roomState(fresh, new Date()) !== "open") throw new Error("ended");
-      // One of the two may have blocked the other while this step waited: looked at again as the very last
-      // thing before the pass is made. (A block does not put anyone out of a call that is under way; a pass
-      // made in the instant before a block is the same as having entered just before it.)
+      // One of the two may have blocked the other while this step waited: looked at again before the pass is
+      // made. (A block does not put anyone out of a call that is under way; a pass made in the instant before
+      // a block is the same as having entered just before it.)
       if (await isBlockedEitherWay(call.hostId, call.customerId, tx)) throw new Error("ended");
+      // The clock, as the very last thing: every question above took a moment, and the call's end is held as it
+      // is (nothing can move it while this step holds the call), so only the time can still have run out.
+      if (roomState(fresh, new Date()) !== "open") throw new Error("ended");
       endsAt = fresh.endsAt;
       return createEntryPass({ roomName: call.roomName, userId: user.id, displayName: shownName });
     });

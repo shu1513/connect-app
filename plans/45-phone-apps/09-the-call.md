@@ -260,6 +260,24 @@ door turns a paused or blocked person away before the join check is reached), so
 proven by reading the code, and by the website's own safety check, which pauses an account
 and tries to join.
 
+## Astra's fourth look at the code (20 November 2026): "not ready", now worked in
+
+Five of the six points of the third look were found closed. What was left:
+
+1. *The camera choice could still lag by one redraw.* The camera-check screen told the call
+   screen about a switched-off camera only after it had drawn itself again; a pass arriving in
+   that instant still entered with the camera on. Now the choice is said at the press itself,
+   and so is the phone's answer about a permission. And while an enabled camera's picture is
+   still starting, the box says "One moment…", not "Camera off".
+2. Smaller, in the one join check: the clock is looked at as the very last thing before the
+   pass is made (after the look for a block, which takes a moment); a block written down while
+   the step waited is found before the person is taken out of another room; a call whose time
+   looks up at the first look is read once more, waiting for a step that may be adding time
+   at that moment, before anyone is told it has ended.
+3. Left as it is, said plainly: while the video service is slow to take someone out of
+   another room, a pause or the closing of that person's account waits for it (it wants the
+   same line). The newer main does the same; changing the order is not this part's work.
+
 ## Astra's check (20 November 2026): "not ready", now worked in
 
 1. *Too much for one part.* Split into 09, 09b and 09c.

@@ -1,6 +1,6 @@
 import { VideoView } from "@livekit/react-native";
 import { createLocalAudioTrack, createLocalVideoTrack, type LocalVideoTrack } from "livekit-client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Linking, PermissionsAndroid, Platform, StyleSheet, View } from "react-native";
 import type { AppRoom } from "../../../src/lib/app-door/types";
 import { Button, Loading, Notice, Tick, Words } from "@/ui/pieces";
@@ -43,6 +43,33 @@ export function Lobby({
   const [camera, setCamera] = useState(true);
   const [microphone, setMicrophone] = useState(true);
   const [preview, setPreview] = useState<LocalVideoTrack | null>(null);
+  // What is chosen and what the phone allows, as they are at this very moment. The screen is told at the press
+  // itself (and when the phone's answer about a permission comes), not only after the next redraw: a pass that
+  // arrives in between must find the camera off if it was just switched off.
+  const latest = useRef<{ may: May | null; camera: boolean; microphone: boolean }>({ may: null, camera: true, microphone: true });
+  const tell = useCallback(() => {
+    const now = latest.current;
+    onChoice({ camera: now.may?.camera === true && now.camera, microphone: now.may?.microphone === true && now.microphone });
+  }, [onChoice]);
+  const changeMay = useCallback(
+    (next: May | ((was: May | null) => May | null)) => {
+      const value = typeof next === "function" ? next(latest.current.may) : next;
+      latest.current.may = value;
+      setMay(value);
+      tell();
+    },
+    [tell],
+  );
+  const changeCamera = (value: boolean) => {
+    latest.current.camera = value;
+    setCamera(value);
+    tell();
+  };
+  const changeMicrophone = (value: boolean) => {
+    latest.current.microphone = value;
+    setMicrophone(value);
+    tell();
+  };
   /** Counts the looks at what the phone allows: each one tries the camera's picture afresh (it may have been allowed, or taken away, in the phone's settings meanwhile). */
   const [looked, setLooked] = useState(0);
 
@@ -59,16 +86,16 @@ export function Lobby({
         },
         () => false,
       );
-      setMay({ camera: true, microphone: heard, asked: true });
+      changeMay({ camera: true, microphone: heard, asked: true });
       setLooked((count) => count + 1);
       return;
     }
     const [seen, heard] = await Promise.all([PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA), PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO)]);
-    setMay({ camera: seen, microphone: heard, asked: askedSinceOpened || (seen && heard) });
-  }, []);
+    changeMay({ camera: seen, microphone: heard, asked: askedSinceOpened || (seen && heard) });
+  }, [changeMay]);
   useEffect(() => {
     // Now (as soon as this has been drawn), and on coming back from the phone's settings: what is allowed may have changed there.
-    const first = setTimeout(() => void look().catch(() => setMay({ camera: false, microphone: false, asked: false })), 0);
+    const first = setTimeout(() => void look().catch(() => changeMay({ camera: false, microphone: false, asked: false })), 0);
     const listener = AppState.addEventListener("change", (state) => {
       if (state === "active") void look().catch(() => {});
     });
@@ -76,14 +103,14 @@ export function Lobby({
       clearTimeout(first);
       listener.remove();
     };
-  }, [look]);
+  }, [look, changeMay]);
 
   /** Asks the phone, once, after the person has read why. */
   async function allow() {
     const { CAMERA, RECORD_AUDIO } = PermissionsAndroid.PERMISSIONS;
     askedSinceOpened = true;
     const got = await PermissionsAndroid.requestMultiple([CAMERA, RECORD_AUDIO]).catch(() => null);
-    setMay({ camera: got?.[CAMERA] === PermissionsAndroid.RESULTS.GRANTED, microphone: got?.[RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED, asked: true });
+    changeMay({ camera: got?.[CAMERA] === PermissionsAndroid.RESULTS.GRANTED, microphone: got?.[RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED, asked: true });
   }
 
   // The person's own camera, only while it is wanted and allowed. It is let go when this check is left.
@@ -102,14 +129,14 @@ export function Lobby({
       })
       // The phone said no (on an iPhone this is where that is found out), or has no camera to give.
       .catch(() => {
-        if (!over) setMay((was) => (was ? { ...was, camera: false } : was));
+        if (!over) changeMay((was) => (was ? { ...was, camera: false } : was));
       });
     return () => {
       over = true;
       made?.stop();
       setPreview(null);
     };
-  }, [showing, looked]);
+  }, [showing, looked, changeMay]);
 
   // What the person would enter with, as chosen and as the phone allows, said to the screen whenever it changes.
   const wantsCamera = may?.camera === true && camera;
@@ -132,10 +159,10 @@ export function Lobby({
     <View style={styles.gap}>
       <Words soft>{words.check}</Words>
       <View style={[styles.preview, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-        {preview && showing ? <VideoView videoTrack={preview} mirror objectFit="cover" style={styles.fill} /> : <Words soft>{words.cameraOff}</Words>}
+        {preview && showing ? <VideoView videoTrack={preview} mirror objectFit="cover" style={styles.fill} /> : <Words soft>{showing ? words.oneMoment : words.cameraOff}</Words>}
       </View>
-      {may.camera ? <Tick label={words.cameraOn} checked={camera} onChange={setCamera} /> : <Notice>{words.cameraRefused}</Notice>}
-      {may.microphone ? <Tick label={words.microphoneOn} checked={microphone} onChange={setMicrophone} /> : <Notice>{words.microphoneRefused}</Notice>}
+      {may.camera ? <Tick label={words.cameraOn} checked={camera} onChange={changeCamera} /> : <Notice>{words.cameraRefused}</Notice>}
+      {may.microphone ? <Tick label={words.microphoneOn} checked={microphone} onChange={changeMicrophone} /> : <Notice>{words.microphoneRefused}</Notice>}
       {!may.camera || !may.microphone ? <Button label={words.openSettings} kind="plain" onPress={() => void Linking.openSettings().catch(() => {})} /> : null}
       <Button label={joining ? words.joining : words.join} busy={joining} onPress={() => onJoin({ camera: wantsCamera, microphone: wantsMicrophone })} />
     </View>
