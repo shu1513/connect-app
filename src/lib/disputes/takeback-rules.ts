@@ -31,17 +31,19 @@ export type DebtStatus = "told" | "cancelled" | "taking" | "taken";
  * - `transferLeftCents`: what is left of that transfer at Stripe after everything already reversed.
  * - `othersOpenCents`: what other take-backs on the same share are still to take (two disputes can
  *   be lost on one charge). Together they never ask for more than is left.
- * And never more than the bank took back in this dispute: where a refund Connect paid for itself had made the charge
- * smaller without making the host's share smaller, the host does not owe more than the bank's loss.
+ * And never more than the bank took back in this dispute, all shares under it counted together (`sameDisputeCents`:
+ * what other shares of the same dispute already owe or paid back): where a refund Connect paid for itself had made
+ * the charge smaller without making the host's shares smaller, the host does not owe more than the bank's loss.
  */
-export function owedCents(input: { sentCents: number; disputedCents: number; chargeLeftCents: number; transferLeftCents: number; othersOpenCents: number }): number {
+export function owedCents(input: { sentCents: number; disputedCents: number; chargeLeftCents: number; transferLeftCents: number; othersOpenCents: number; sameDisputeCents?: number }): number {
   const { sentCents, disputedCents, chargeLeftCents, transferLeftCents, othersOpenCents } = input;
+  const sameDisputeCents = Number.isFinite(input.sameDisputeCents) ? Math.max(0, Math.floor(input.sameDisputeCents!)) : 0;
   if (![sentCents, disputedCents, chargeLeftCents, transferLeftCents, othersOpenCents].every(Number.isFinite)) return 0;
   if (sentCents <= 0 || disputedCents <= 0) return 0;
   const whole = chargeLeftCents <= 0 || disputedCents >= chargeLeftCents;
   const part = whole ? sentCents : Math.floor((sentCents * disputedCents) / chargeLeftCents);
   const room = Math.max(0, Math.floor(transferLeftCents) - Math.max(0, Math.floor(othersOpenCents)));
-  return Math.max(0, Math.min(part, room, Math.floor(disputedCents)));
+  return Math.max(0, Math.min(part, room, Math.floor(disputedCents) - sameDisputeCents));
 }
 
 /** Whether a take-back is due to be asked of Stripe now: told, its notice over, and not refused within the last day. */

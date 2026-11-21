@@ -5048,7 +5048,7 @@ transfer at Stripe, the 14 days, and "the founder can cancel" are the builder's,
 - The yearly statement was not in the plan: a take-back is a line of its own in the money
   record (`host_takeback`), counted as less sent.
 
-**How it was checked.** 959 tests (23 new: the amount in every mix, when it is due, who can
+**How it was checked.** 960 tests (24 new: the amount in every mix, when it is due, who can
 cancel, every sentence people are told). `scripts/dispute-takeback-check.ts`, new, 50 checks
 with real charges, disputes, transfers and reversals in Stripe's test area: one take-back
 however often the look runs; nothing a second before the 14 days and taken at them; the
@@ -5081,13 +5081,22 @@ plain refusal, the pages show nothing to the wrong person. What it found, all ta
 - *Never more than the bank took back*: where a refund Connect paid for itself had made the
   charge smaller than the host's share, the host does not owe more than the bank's loss. With
   no charge to read, nothing is worked out on a guess.
-- *An amount set aside for a dispute that is then cancelled* is worked out afresh for another
-  dispute over the same share, with a notice of its own.
+- *An amount set aside for a dispute that is then cancelled*: another dispute over the same
+  share that had been told "nothing is owed" for that reason is worked out afresh, with a
+  notice of its own. (One that was told a smaller amount for that reason keeps it.)
 - *Smaller ones:* both reads of Stripe happen under one limit of time while the payment is
   held, and the dispute is marked afterwards; the "30 days of refusals" email is judged again
   on the row as it is; the words say "asks Stripe to take back" and speak of "this take-back",
   not of the whole payment; the yearly statement explains the new line; the founder's cancel
   names its dispute; the earnings show every open take-back and the latest ten that were taken.
+- *Its second look* found three more, all taken: a repeat that brings no reversal, whatever
+  Stripe said to it, settles nothing by itself (Stripe's list does); the clock is read right
+  before a repeat goes out, and "it did not happen" needs a search that began after the 24
+  hours; and all shares under one dispute together never owe more than the bank took back (a
+  membership's month has several shares).
+- *CodeRabbit* had no review left for this pull request (its limit for the hour was used), so,
+  as agreed for that case, the builder read the whole diff once more instead. Nothing further
+  was found.
 - *Not taken:* the check script's use of the helper's own check of unfinished actions, which
   looks at every such action in the shared test database (the other check scripts do the same).
 

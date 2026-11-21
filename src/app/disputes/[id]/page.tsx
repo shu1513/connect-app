@@ -309,7 +309,7 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
           <h2 className="text-base font-semibold">{asHost ? "Money Connect takes back" : "Taken back from the host"}</h2>
           <p className="mt-2 opacity-80">
             {asHost
-              ? "You had collected your share of this payment before the bank decided for the customer. That share is taken back out of what was sent to you."
+              ? "You had collected your share of this payment before the bank decided for the customer."
               : "The host had collected their share of this payment before the dispute was lost."}
           </p>
           <ul className="mt-3 space-y-3">

@@ -40,6 +40,18 @@ describe("what a host owes for a share after a lost dispute", () => {
     expect(owedCents({ sentCents: 9000, disputedCents: 2000, chargeLeftCents: 2000, transferLeftCents: 9000, othersOpenCents: 0 })).toBe(2000);
   });
 
+  it("counts all shares under one dispute together: a month with two shares never owes more than the bank took", () => {
+    // A $100 month paid two $40 shares; $80 was refunded at Connect's cost; the bank takes back the $20 that was left.
+    const share = { sentCents: 4000, disputedCents: 2000, chargeLeftCents: 2000, transferLeftCents: 4000, othersOpenCents: 0 };
+    const first = owedCents({ ...share, sameDisputeCents: 0 });
+    const second = owedCents({ ...share, sameDisputeCents: first });
+    expect(first).toBe(2000);
+    expect(second).toBe(0);
+    // With nothing refunded, the two shares of a month the bank took back whole are both owed in full.
+    const whole = { sentCents: 4000, disputedCents: 10_000, chargeLeftCents: 10_000, transferLeftCents: 4000, othersOpenCents: 0 };
+    expect(owedCents({ ...whole, sameDisputeCents: 0 }) + owedCents({ ...whole, sameDisputeCents: 4000 })).toBe(8000);
+  });
+
   it("takes the whole share when what was left of the charge is not known", () => {
     expect(owedCents({ ...whole, chargeLeftCents: 0 })).toBe(1238);
   });

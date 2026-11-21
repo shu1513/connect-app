@@ -40,7 +40,7 @@ import { cancelledWords, leftoverWords, owedWords, owedWordsForFounder, refusedW
 const debts = schema.hostDebts;
 
 /** What the amount was worked out from, kept with the row. */
-export type Basis = { sentCents: number; disputedCents: number; chargeLeftCents: number; transferLeftCents: number; othersOpenCents: number };
+export type Basis = { sentCents: number; disputedCents: number; chargeLeftCents: number; transferLeftCents: number; othersOpenCents: number; sameDisputeCents: number };
 
 /** What the money action carries: enough to send the very same request again. */
 export type TakeParams = { debtId: string; transferId: string; amountCents: number };
@@ -67,7 +67,8 @@ async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" |
     amount: formatMoney(debt.amountCents),
     sent: formatMoney(sent),
     part: whole ? null : { disputed: formatMoney(basis.disputedCents!), of: formatMoney(basis.chargeLeftCents!) },
-    capped: debt.amountCents < part,
+    // Less than that part, and why: no more is owed than the bank took back, or no more is left of the transfer.
+    capped: debt.amountCents >= part ? null : debt.amountCents >= Math.max(0, (basis.disputedCents ?? 0) - (basis.sameDisputeCents ?? 0)) ? "bank" : "transfer",
     dueOn: whenFor(person, debt.dueAt),
     hostName: people.hostName,
     customerName: people.customer.name,
@@ -143,6 +144,9 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
     if (current?.outcome !== "lost") return false;
     const others = await tx.select().from(debts).where(eq(debts.paymentId, paymentId));
     if (others.some((other) => other.disputeId === dispute.id) || others.some((other) => other.status === "taking")) return false;
+    // What other shares under the same dispute already owe or have paid back (a membership's month has several):
+    // all of them together never owe more than the bank took back in this dispute.
+    const sameDispute = await tx.select({ amountCents: debts.amountCents }).from(debts).where(and(eq(debts.disputeId, dispute.id), inArray(debts.status, ["told", "taking", "taken"])));
 
     // Both reads at once, one try each, under one limit of time: the share's payment is held meanwhile.
     const [atStripe, transfer] = await inTime(
@@ -160,6 +164,7 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
       chargeLeftCents: charge.amount_captured - charge.amount_refunded,
       transferLeftCents: transfer.amount - transfer.amount_reversed,
       othersOpenCents: others.filter((other) => other.status === "told").reduce((sum, other) => sum + other.amountCents, 0),
+      sameDisputeCents: sameDispute.reduce((sum, other) => sum + other.amountCents, 0),
     };
     const amountCents = owedCents(basis);
     // The 14 days count from the moment the notice is written, not from when this pass began.
@@ -301,6 +306,8 @@ async function takeOne(debt: HostDebt, now: Date): Promise<void> {
 
 /** Only after this long is "Stripe's list does not show it" taken as "it did not happen": an hour after the last moment the request may still have been sent. */
 const SETTLED_AFTER_MS = 24 * 3_600_000;
+/** A repeat under the same label is sent up to this age of the action (Stripe keeps a label for 24 hours). */
+const RESEND_UNTIL_MS = 23 * 3_600_000;
 
 /**
  * Asking Stripe what it has is not the action itself. If the asking fails, even with a clear "no" (no permission,
@@ -318,8 +325,9 @@ async function lookUp<T>(read: () => Promise<T>): Promise<T> {
  * For the helper's check of unfinished money actions (payments/jobs.ts): what became of a take-back that got no answer.
  *   - While a repeat is safe AND the dispute is still lost (here and at Stripe): the same request under the same
  *     label, which gives the first reply back, or does it now. A repeat can be the first time Stripe really does
- *     it, so it is never sent for a dispute that is no longer lost.
- *   - Otherwise every page of the transfer's own reversals is searched for this take-back's id.
+ *     it, so it is never sent for a dispute that is no longer lost. A repeat that brings no reversal, whatever
+ *     Stripe said to it, settles nothing by itself.
+ *   - Then, and otherwise, every page of the transfer's own reversals is searched for this take-back's id.
  *   - "It did not happen" is concluded only from a search that was read to the end, and only once the request can no
  *     longer be on its way (24 hours; a repeat is sent up to 23). Before that, nothing is concluded.
  */
@@ -327,13 +335,24 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
   if (!operation.paymentId) return;
   const [row] = await db.select({ disputeId: debts.disputeId }).from(debts).where(eq(debts.id, params.debtId));
   const [dispute] = row ? await db.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, row.disputeId)) : [];
+  const age = () => Date.now() - operation.createdAt.getTime();
   let resend = canRepeat && dispute?.outcome === "lost";
   if (resend) resend = outcomeOf((await lookUp(() => stripe().disputes.retrieve(row.disputeId))).status) === "lost";
   let reversalId: string | undefined;
-  if (resend) {
-    // A clear "no" to the request itself is thrown, and the caller settles it as refused (`refuseTakeback`).
-    reversalId = (await reverseAtStripe(params, operation.label)).id;
-  } else {
+  // The clock is read right before the request goes out: the reads above can take time, and a repeat is only safe
+  // while Stripe still knows the label.
+  if (resend && age() < RESEND_UNTIL_MS) {
+    try {
+      reversalId = (await reverseAtStripe(params, operation.label)).id;
+    } catch (error) {
+      // Whatever a repeat is answered with, a "no" included, proves nothing about the first request (it may have gone
+      // through before, say, a permission was taken away): the transfer's own list is what settles it.
+      console.error(`[disputes] the repeat of take-back ${params.debtId} got no reversal (${errorSummary(error)}); Stripe's list is searched instead`);
+    }
+  }
+  // Only a search that BEGAN after the request could no longer be on its way can say "it did not happen".
+  const conclusive = age() >= SETTLED_AFTER_MS;
+  if (reversalId === undefined) {
     await lookUp(async () => {
       for await (const reversal of stripe().transfers.listReversals(params.transferId, { limit: 100 })) {
         if (reversal.metadata?.debtId === params.debtId) {
@@ -349,7 +368,7 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
     return;
   }
   // Not found, but the request may still be on its way (or another helper may just be sending it): looked at again.
-  if (Date.now() - operation.createdAt.getTime() < SETTLED_AFTER_MS) return;
+  if (!conclusive) return;
   await refuseTakeback(operation, params, "Stripe shows this take-back did not happen.");
 }
 
@@ -440,5 +459,7 @@ export async function debtsOfDispute(disputeId: string): Promise<HostDebt[]> {
 export async function debtsOfHost(hostId: string, takenShown = 10): Promise<Array<HostDebt & { path: string }>> {
   const open = await db.select().from(debts).where(and(eq(debts.hostId, hostId), inArray(debts.status, ["told", "taking"]))).orderBy(asc(debts.dueAt));
   const taken = await db.select().from(debts).where(and(eq(debts.hostId, hostId), eq(debts.status, "taken"))).orderBy(sql`${debts.takenAt} desc`).limit(takenShown);
-  return [...open, ...taken].map((row) => ({ ...row, path: disputePath(row.disputeId) }));
+  // (One that was taken between the two reads is shown once, as taken.)
+  const settled = new Set(taken.map((row) => row.id));
+  return [...open.filter((row) => !settled.has(row.id)), ...taken].map((row) => ({ ...row, path: disputePath(row.disputeId) }));
 }

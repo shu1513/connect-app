@@ -6,7 +6,7 @@ const facts: DebtFacts = {
   amount: "$12.38",
   sent: "$12.38",
   part: null,
-  capped: false,
+  capped: null,
   dueOn: "Saturday, December 5",
   hostName: "Ana",
   customerName: "Ben",
@@ -31,7 +31,8 @@ describe("what a host is told when a share is owed back", () => {
   });
 
   it("says so when less than that is asked for, because no more is left of the transfer", () => {
-    expect(owedWords({ ...facts, amount: "$4.00", capped: true }).text).toContain("no more than this can be taken out of that transfer");
+    expect(owedWords({ ...facts, amount: "$4.00", capped: "transfer" }).text).toContain("no more than this can be taken out of that transfer");
+    expect(owedWords({ ...facts, amount: "$4.00", capped: "bank" }).text).toContain("no more is owed than the bank took back");
   });
 
   it("says the bank's fees are not charged to the host", () => {

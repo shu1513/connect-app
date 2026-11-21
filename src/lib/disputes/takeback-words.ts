@@ -17,8 +17,8 @@ export type DebtFacts = {
   sent: string;
   /** The bank disputed only a part of the charge: that part, and what was left of the charge. Null when it was all of it. */
   part: { disputed: string; of: string } | null;
-  /** The whole share could not be asked for: less than it is left of the transfer at Stripe. */
-  capped: boolean;
+  /** Less than that part is asked for, and why: no more is owed than the bank took back ("bank"), or no more can be taken out of the transfer ("transfer"). */
+  capped: "bank" | "transfer" | null;
   /** From when it is taken, written for this reader. */
   dueOn: string;
   hostName: string;
@@ -29,7 +29,7 @@ export type DebtFacts = {
 const how = (facts: DebtFacts): string =>
   (facts.part
     ? `The bank took back ${facts.part.disputed} of the ${facts.part.of} that was left of the charge, so the same part of the ${facts.sent} you were sent is owed, rounded down to the cent: ${facts.amount}.`
-    : `You were sent ${facts.sent} for this payment, and the bank took the whole payment back, so ${facts.amount} is owed.`) + (facts.capped ? " (It is less than that part: no more than this can be taken out of that transfer.)" : "");
+    : `You were sent ${facts.sent} for this payment, and the bank took the whole payment back, so ${facts.amount} is owed.`) + (facts.capped === "bank" ? " (It is less than that: no more is owed than the bank took back.)" : facts.capped === "transfer" ? " (It is less than that: no more than this can be taken out of that transfer.)" : "");
 
 /** To the host, when the take-back is written down: which payment, why, how much and how it is worked out, and their 14 days. */
 export function owedWords(facts: DebtFacts): Told {
