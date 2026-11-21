@@ -4549,3 +4549,114 @@ until this merges. In a browser, on the same database: as the test admin, a rais
 lowering to $1,500 with the host's price coming down from $1,800, "Put back", and an empty
 field refused; as the raised test host, the line on the Hosting page and a price of $2,400
 saved.
+
+## Bank disputes, part 1: the record, the Messages page, and telling everyone (plan 47, 20 and 21 November 2026)
+
+**What this is.** A customer can ask their bank to pull a payment back (a chargeback; the app
+says "bank dispute"). Until now the app froze the money and told nobody. After this part it
+keeps a record of every dispute, tells the host, the customer and the founder when one opens
+and when it ends, and has a "Messages" page where a person reads what Connect wrote to them.
+It does **not** answer the bank yet and takes nothing back from a host: those are parts 2 and
+3 of the plan, which the founder has paused. Every sentence a person reads says only what the
+app does today.
+
+**The founder's decisions** (20 November 2026; the full list is at the top of the plan): no
+manual handling of disputes; the host chooses within 24 hours and "fight" is the default; a
+message center in the app; and, asked about the one kind of dispute that costs 500 dollars to
+fight, "do the $5,000 line": the app fights those only from 5,000 dollars. Then: "pause after
+part 1".
+
+**What was built.**
+- *A fault in the existing code, mended.* A bank can dispute one charge more than once. For a
+  call's card payment the app looked only at the dispute the latest message was about, so a won
+  dispute could unfreeze money a second dispute still held. A call's payment now gets its flag
+  from all disputes on its charge (`refreshPaymentDispute` in `src/lib/payments/disputes.ts`),
+  as a membership's month and a contribution already did. Which of Stripe's statuses hold money
+  back is now one rule for all three (`blocksMoney` in `src/lib/disputes/status.ts`); a status
+  the code does not know holds the money, where before it let it go for months and
+  contributions.
+- *The record* (`disputes`, one row per dispute at Stripe, `src/lib/disputes/record.ts`): whose
+  money, who paid, how much, the bank's reason, whether it is a bank's question or a chargeback,
+  where it stands, the bank's deadline, how it ended. It is written after the money is
+  protected, in a step of its own; a fault in it never leaves Stripe's message unhandled (an
+  unhandled dispute message keeps every host from collecting). When the record sees something
+  new, the money is looked at once more.
+- *Telling people.* The host and the customer get a message in the app and the same words by
+  email (`tell` in `src/lib/messages/messages.ts`: one step, one key, never one without the
+  other). Each admin gets an email. When a stage begins (a bank's question; a chargeback; a
+  question that became a chargeback) and when it ends. A dispute first seen when it had already
+  ended is recorded and nobody is told old news.
+- *Pages.* "Messages" in the top bar with the number not yet read; `/messages`; `/disputes/[id]`
+  for the host whose money it is and for an admin login; a "Bank disputes" list on the admin
+  page; the host's earnings line about a disputed payment leads to the dispute's page.
+- *The helper* (a loop of its own, so Stripe's list never delays the money work): every open
+  dispute is asked about again once an hour; Stripe's own list of the last 7 days is read every
+  hour and of the last 130 days once a day, for any dispute the app does not have or has out of
+  date.
+
+**What the building changed from the plan.**
+- The founder is told by email and on the admin page, not on the Messages page. What the
+  founder is told names both people, and the Messages page opens with any login of the account;
+  the admin page and the dispute's page ask for the admin login.
+- The record locks its own row, not the owner (the payment, the month, the contribution's
+  payment). It needs no owner lock: it changes nothing of the owner. A row that exists is read
+  from Stripe again after it is locked, so an older answer never lands on a newer one.
+- Messages count as read when the person's own browser says it has shown them, not while the
+  page is drawn (a page can be drawn without anybody looking at it).
+- The two new tables are deleted with the money or the person they belong to. The app itself
+  never deletes those; the check scripts do, with their own test data.
+- Handling a message from Stripe only notes the dispute (a first sight is written from what
+  was just read; a known one is marked). The helper reads Stripe again and writes the rest.
+- The migration is number 52: main took 50 and 51 while this was built.
+
+**What the reviewers found.** Astra (gpt-6.2-astra, effort high) read the plan three times
+before any code ("not ready", "not ready", "ready with changes"; the plan lists each round).
+Then it read the code three times, and each time said "not ready":
+- *First look.* Eight points, all taken. The serious ones: the money step and the record each
+  read Stripe on their own, so lost money could stay collectible for a moment; the founder's
+  message named both people and sat behind an ordinary login; sentences that promised more than
+  one dispute establishes ("can be collected again"); a bank that takes no answer was told to
+  the founder as "answer by hand"; messages were marked read while the page was drawn.
+- *Second look.* The newest message could stay "New" for good: the database keeps a time to the
+  microsecond, the app to the millisecond, so "mark as read up to this one" left out the very
+  message shown. The builder's own check script failed on the same thing in the same hour.
+  Fixed inside the database. Also taken: the record is no longer written while Stripe's message
+  is handled (no host can collect meanwhile), but by the helper within the minute; money is
+  never released on a list from Stripe that omits a dispute the app knows; the earnings line
+  links to the dispute that actually holds the money.
+- *Third look.* Four points taken: a look that fails half way marks the dispute and is tried
+  again a minute later; the helper waits at most 8 seconds, once, for Stripe while it holds a
+  dispute's row; "returned the disputed amount" where a bank may have disputed only part; the
+  right words for the founder when a dispute is first seen in an appeal.
+- *Not taken, with the reason.* A counter on each payment that orders two readings of Stripe
+  (the money steps keep the loop they always had: ask, write, ask again until it says the same;
+  Astra agreed this was there before this part). The 300-item limit in the month's and the
+  contribution's own dispute code (earlier, merged modules; no charge has 300 disputes). Three
+  cases that need two rare faults in the same moment: Stripe's list leaving out a dispute just
+  as the database fails right after it worked; an appeal that begins and ends within a minute
+  (nobody is told of an appeal that changed nothing); a dispute that Stripe decides between two
+  readings milliseconds apart (the two messages are then both true, in order).
+
+**How it was checked.** 865 tests (23 new: every status Stripe has, two disputes on one charge in
+every mix, and the wording, which must never say the app answers the bank or takes anything
+back). `scripts/disputes-check.ts`, new, 72 checks with real disputes in Stripe's test area:
+recorded once however often the message comes; two messages at the same moment; lost and won;
+a bank's question; a dispute no message announced, found from Stripe's own list; a known
+dispute that changed with no message; a fault in the middle of telling people, which undoes the
+whole step and leaves the money protected; two disputes on one charge, one won and one open:
+the money stays held. It takes only the money of its own calls and cleans up by the exact ids
+it made. The check scripts that touch disputes pass with a few checks added to each:
+`payments-check` (77), `membership-check` (470), `contribution-check` (281), `tip-check` (128).
+In the browser, with one test dispute (`--demo`), as the host, the customer and the admin: the
+number in the top bar, "New" on the first visit and read on the second, the dispute's page for
+the host and the admin and "not found" for the customer, the earnings line, the admin list.
+
+**What cannot be tried here.** A real bank. Everything about disputes was tried with Stripe's
+test cards, which open a dispute at once and decide it on a magic text. How long real banks
+take, and what they send, is not known from this.
+
+**Still open.** Parts 2 and 3 of plan 47, paused by the founder. Until they are built an open
+dispute still has to be answered by hand in Stripe, and a share a host collected before a lost
+dispute is settled by hand. The phone apps do not show messages yet (the phone-app session was
+told what exists). Registering Stripe's two extra message kinds for a live account is a step
+for go-live.

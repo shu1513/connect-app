@@ -1,6 +1,9 @@
 # Plan 47: Bank disputes, handled without the founder
 
-**Status:** a plan only. Written 20 November 2026 by the builder alone (no helper agents), from
+**Status:** part 1 is built (21 November 2026; what building it changed is in the record,
+`docs/module-record.md`, "Bank disputes, part 1"). Parts 2 and 3 are **paused by the founder**
+("pause after part 1", 20 November 2026) and are not to be started without their word. When
+written, this was a plan only. Written 20 November 2026 by the builder alone (no helper agents), from
 the code as it is on `main` after pull request 83 and from Stripe's own pages read that day
 (listed under "What Stripe says"). Astra (gpt-6.2-astra) checked the first draft against the
 code: "not ready", eight points that had to be fixed. Its second look, at the second draft: "not
