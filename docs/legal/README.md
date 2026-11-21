@@ -167,7 +167,7 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 4 | Real addresses | The support address is a setting (`SUPPORT_EMAIL`); the others are written into the first published version. Someone has to read the inbox. |
 | 5 | Thirty days' notice of new terms by email | **Built** (part 2): one email to everyone a coming version concerns, a note on the pages, and an email to the founder (and a count on the Emails page) when the 30 days are at risk. |
 | 6 | Closing your own account and deleting your details | Plan 45, parts 19 to 19c (the phone-apps work). Until then: "write to us", and the founder closes the account. |
-| 7 | End dates for records | Plan 46, part 4, for emails and login records. The other periods of the privacy policy are proposals and are **not built**. |
+| 7 | End dates for records | **Built** (part 4) for two of them: an email is emptied two years after it was sent, and a login record is deleted twelve months after it ran out. The other periods of the privacy policy are proposals and are **not built**. |
 | 8 | Business or private host | **Built** (part 1): asked when applying, shown on the host's page and where a call is asked for. |
 | 9 | The 14-day sentence | **Built** (pull request 80). The founder's tool for a new membership cancelled within 14 days is plan 46, part 3. |
 | 10 | Reasons when a host's page is declined or suspended | **Built** (part 1): saved, emailed and shown; closing an account takes a reason too. |
@@ -175,6 +175,17 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 12 | Refunds by Connect in the host's place, also after she collected | Plan 46, part 3. |
 | 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
 | 14 | Sending earnings not collected for 12 months | Plan 46, part 3. |
+
+**To carry into the first published version** (a merged version is never edited, so these wait
+for the next one):
+
+- Privacy Policy, section 7, "Other emails we sent you": two years after the email was sent (or
+  written, if it never went), its text, subject, address and everything else that says who it
+  was about are removed; that an email of that kind was sent, and when, is kept.
+- Privacy Policy, section 7, "Login records": deleted twelve months after the login ran out. A
+  login that is still used keeps moving its end forward.
+- Privacy Policy, section 7, a new line: counters of repeated login attempts, kept by network
+  address, seven days after the last attempt.
 
 ## 8. Astra's drafts, and where they differ from these
 

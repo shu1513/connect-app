@@ -625,3 +625,27 @@ Astra said to hold it for one point. Taken:
   other host, and has two more cases: a collection that was refused and went through later, and
   a contribution refunded after collection.
 
+## What building part 4 added (20 November 2026)
+
+- `src/lib/retention.ts`, run by the helper about once an hour, at most 2,000 emails a round.
+  No migration: an emptied email is one with nothing left to remove, so no mark is needed.
+- **Changed against decision 15: an emptied email does not keep its key.** A key can hold the
+  numbers of the people an email was about (a follower and a host, for one), and the draft
+  Privacy Policy promises that what is kept no longer says who it is about. The key is replaced
+  by one made of the email's own number. Nothing reads an email by its key that late: the
+  clean-up of refund texts does so after one year.
+- **A third end date: the login library's counters of repeated attempts**, kept by network
+  address, are deleted seven days after the last attempt they counted. (Astra's review.)
+- "Two years" and "twelve months" are counted on the calendar, not in days.
+- **The login library's one-time codes and links** (confirming an address, a new password) are
+  deleted twelve months after they ran out too. They can hold an email address, and nothing reads
+  one that has run out.
+- **Changed against this plan: no new version of the Privacy Policy.** The draft's two lines say
+  "[PERIOD: we propose 2 years]" and "[PERIOD: we propose 12 months]". What is built keeps to
+  those two periods and to the sentence under the table ("we delete the information or remove
+  from it everything that says who it is about"). What the draft does not say, and the first
+  published version must: from when each period counts, and the counters of repeated attempts.
+  That is written down in `docs/legal/README.md`, section 7, "To carry into the first published
+  version". (A second draft would also need a name: a version is named by its day, and the
+  draft's day is taken.)
+

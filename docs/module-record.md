@@ -4765,3 +4765,39 @@ written down in between is not let go (on a call stopped for safety it stays wit
 a card step that changed while Stripe was being asked is "not known yet"; and a payment that
 somebody else charged, closed or let go meanwhile is "no longer unpaid", never taken for the
 helper's own doing. `scripts/app-calls-check.ts` now has 79 checks.
+
+## End dates for emails and login records (plan 46, part 4, 20 November 2026)
+
+**Why.** Change 7 of the list in `docs/legal/README.md`: the draft Privacy Policy gives periods
+for what Connect keeps, and nothing in the app ended any of them except three older clean-ups
+(connection notes, refund texts, suggestions).
+
+**What was built.** `src/lib/retention.ts`, run by the helper about once an hour. Two years after
+an email was sent (or written, if it never went), its address, subject, text, extra headers,
+error note and the sending service's number are removed, and its key is replaced by one that
+names nobody; its kind, its times and whether it was sent or failed stay. An email still waiting
+to be sent, or being sent, is never touched. A login record is deleted twelve months after it ran
+out, and so are the login library's one-time codes. The login library's counters of repeated
+attempts are deleted seven days after the last attempt. No migration, no page changed.
+
+**The builder's own choices:** the one-time codes are included; months are counted on the
+calendar; seven days for the counters; no new version of the Privacy Policy, because the draft
+already proposes these two periods; what the first published version has to add is listed in
+`docs/legal/README.md`.
+
+**What the reviewer found.** Astra said to hold it for one point: an emptied email kept its key,
+and a key can name both people an email was about, while the Privacy Policy promises that what is
+kept names nobody. The key is now replaced. Also taken: the check's waiting email is not due, so
+a helper running beside the check cannot send it; the counters of repeated attempts get an end
+date; the plan no longer says the draft policy "already matches" without saying what it leaves
+open. Not taken: a year-zero date in the month arithmetic, and a notice of new terms announced
+more than two years ahead.
+
+**How it was checked.** 4 tests of the dates (a leap day, a month that is too short). A new real
+check, `scripts/retention-check.ts`, 13 checks: old emails emptied, their keys replaced, and what
+stays; one sent last year but written long ago left alone; waiting ones never touched; younger
+emails keep their keys (the refund clean-up needs that); login records, codes and counters
+deleted or kept by their day; nothing done twice.
+
+**What cannot be tested here.** Two real years passing: the check writes rows with old dates.
+Whether the periods are right is the lawyer's (`docs/for-the-lawyer.md`, section 19).
