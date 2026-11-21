@@ -321,7 +321,12 @@ ordering left in which a switch shown "off" on the camera check enters the call 
 the four points of the sixth look closed. One thing it added, now worked in: a pass that is
 not used (its camera check was gone) still brought the call's newer end with it, and that was
 thrown away with the pass; near the old end the screen could then take a call that had been
-made longer for over. Now the pass's clock and end are kept, and only entering is refused.
+made longer for over. Now a later end is kept, and only entering is refused.
+
+**Astra's eighth look (21 November 2026): "ready with changes", two notes, both taken.** An
+answer to a "Join" whose camera check is gone is not shown on the camera check that replaced
+it (not its refusal, not its failure), and its clock is not taken, since it was read before
+the moment the screen has already reached; only a later end of the call is kept.
 
 **Walked again on the Android test phone after this change (21 November 2026):** the camera
 switched off on the camera check, then "Join call": the call opened with the camera off and
