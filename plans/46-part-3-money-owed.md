@@ -4,7 +4,9 @@
 `main` after pull request 97. It is the detailed plan that `plans/46-agreements-live.md` asks for
 before its part 3 is built ("Part 3: refunds by Connect after a host has collected, and
 uncollected earnings"). Astra (GPT, effort high) checked the first draft against the code: "not
-ready", eight points. They are worked in here; what was taken and what was not is at the end.
+ready", eight points. Its second check, of the second draft: "not ready" again, narrower: exact
+rules for a handful of cases. Both are worked in here; what was taken and what was not is at
+the end. This is the third draft.
 
 Parts 1, 2, 4 and 5 of plan 46 are merged (pull requests 85, 89, 96, 88).
 
@@ -31,9 +33,9 @@ debt is taken out of her next collections inside the app, and that nothing is ta
 way. Plan 47, built since, recovers a debt by asking Stripe to reverse part of the transfer it
 sent her. You agreed there to "from later earnings"; that it is done by a reversal at Stripe was
 that builder's choice. **This plan uses the reversal for refund debts too, so that there is one
-way and not two.** If you would rather have debts taken out of later collections, say so before
-part 3a is built: that is a different, larger piece of work, and plan 47's part would have to
-follow it.
+way and not two.** Part 3a is not started until you have said yes to that. If you would rather
+have debts taken out of later collections, that is a different, larger piece of work, and plan
+47's part would have to follow it.
 
 **Also dropped from this part:** "a bank dispute lost after the host collected". Plan 47 built
 it.
@@ -48,6 +50,8 @@ it.
 - **B.** After a host has collected, **only you** can refund, not the host herself.
 - **C.** Your 14-day button asks you for **the day the member's request reached you**, and
   judges the 14 days by that day. So a request of day 14 that you handle on day 17 still counts.
+  It works while the member's first month is still running; after that it refuses, and the case
+  is settled by hand.
 
 ## What the founder said
 
@@ -110,7 +114,7 @@ Everything else here is the builder's.
 
 ## Decisions (the builder's; each can be changed)
 
-1. **One way to recover a debt: plan 47's** (see the founder's decision above). A debt from a
+1. **One way to recover a debt: plan 47's** (the founder's decision above). A debt from a
    refund is a row in `host_debts`, taken by the same request to Stripe, with the same daily
    retry, the same telling of the founder after 30 days of refusals, and the same "Call it off".
    No money is held back inside "Collect earnings".
@@ -127,77 +131,97 @@ Everything else here is the builder's.
    from the first split and everything refunded so far (`splitAfterRefunds`). A part refund
    before she collected made what was sent smaller already and owes nothing; only refunds after
    the sending do. The numbers are written on the refund itself when it is confirmed (her share
-   before, her share after, Connect's fee before and after), so that its notice can always be
-   shown again exactly, whatever is refunded later.
+   before and after, Connect's fee before and after), so that its notice can always be shown
+   again exactly, whatever is refunded later.
 
-4. **The ceiling, over all causes.** From one share, the app never takes back more than:
-   - what is left of the transfer at Stripe (what was sent, less what Stripe shows as reversed),
-     less the debts on that share that are still open (told, waiting, objected, being taken);
-     and
-   - what was sent, less what she is still entitled to after every refund and every lost
-     dispute so far.
-   **A lost dispute after a refund** is therefore worked out from her share **as it stands
-   after the refunds**, not from what was sent. (Astra's example: 100 charged, 80 sent; 50
-   refunded, so she owes 40 and her share is 40; the bank then takes 25 of the 50 that are
-   left: she owes half of 40, which is 20, not 25.) `owedCents` gets that number in place of
-   "what was sent"; for a share with no refund after the sending the two are the same, so
-   plan 47's cases do not change.
-   - A share that was "sent" with nothing sent (the collection charge ate it) has no transfer:
-     the refund is marked "nothing to take back" once, and is not looked at again.
-   - A share that carried the collection charge got up to 25 cents less than the share: she
-     can owe at most what she got. The charge stays what it was in the books.
-   - While a reversal on a share is being taken, nothing new is worked out for that share.
-   - When a debt is called off, the other debts on that share that had been cut short because
-     of it are worked out again; one whose amount rises gets a fresh notice for the rise, with
-     its own 14 days. (Today only rows that said "nothing" are looked at again.)
-   - **Found on the way, in plan 47's code:** a member's month can pay for several shares, and
-     two helpers working on two of them at the same moment can both count the same room under
-     one dispute. Allocation under one dispute is put behind one lock for that dispute.
+4. **How much can be taken from one share, over all causes.** Everything is counted against
+   **what was really sent** for that share (`transferCents`), which for a share that carried the
+   collection charge is up to 25 cents less than the share.
+   - **A refund debt** is the number of decision 3, cut down so that all debts ever written on
+     that share (whatever became of them) never add up to more than was sent.
+   - **A dispute debt** starts from what was sent **less every refund debt ever written on that
+     share**, whatever became of it (open, taken, settled outside, or called off). Of that, the
+     part the bank took of what was left of the charge, rounded down, as `owedCents` works it
+     out today. (Astra's example: 100 charged, 80 sent; 50 refunded after, a debt of 40; the
+     bank then takes 25 of the 50 that are left: half of the 40 that remain, 20. With no refund
+     debt on the share the number is what plan 47 gives today, also for a share that carried
+     the charge: half of 79.75 is 39.87.)
+   - **Both** are cut down to the room that is physically left on the transfer: what Stripe
+     shows as not reversed, less the debts on that share that are still open (told, waiting,
+     objected, being taken).
+   - **Under one dispute**, all its shares together never owe more than the bank took (a
+     member's month can pay for three shares: of 40, 24 and 16 when 25 of 100 is lost, they owe
+     10, 6 and 4). Working that out is put behind one lock for the dispute: today two helpers
+     on two of its shares can both count the same room.
+   - **Nothing is worked out on a share while money is moving on it:** not while a reversal is
+     being taken, and not while a refund of that payment is still unfinished in the app's own
+     record. And if Stripe's own total of refunds on the charge is not the app's, the look
+     waits for the app's record to catch up, so that both sides of the sum come from the same
+     confirmed refunds.
+   - **An amount once written never rises.** When a debt is called off, rows that said
+     "nothing" for lack of room (on that share, and on the other shares of the same dispute)
+     are worked out afresh, as today. A row that was written smaller than it could have been
+     stays as it is: the app forgoes the difference, and the founder's page shows it.
+   - A share "sent" with nothing sent has no transfer: the refund is marked "nothing to take
+     back", once.
 
 5. **A refund is refused while anything about a bank is on the payment** (a question, a
-   dispute, a recorded loss), as today, and while a transfer of that share is under way. So a
-   refund and a dispute never start at the same time; one that was already on its way when a
-   loss arrives is finished, and the ceiling above covers both orders.
+   dispute, a recorded loss), as today, and while a transfer of that share is under way. A
+   dispute that was won, or a question Stripe has closed, lets refunds through again. A bank
+   event can still arrive while a refund is on its way; the "nothing is worked out while money
+   is moving" rule of decision 4 covers that.
 
 6. **The 14 days count from the notice really sent, and an objection stops the taking.** For
-   both kinds of debt, because it is one row and one piece of code:
-   - The notice is the message on her Messages page and the same text by email. The 14 days
-     count from the moment the email was handed to the sending service (`sentAt` on the email).
-     While that email has not gone, the debt is not due; if it failed, the founder is told and
-     the debt waits.
+   both kinds of debt, because it is one row and one piece of code.
+   - The notice is the message on her Messages page and the same text by email, written in one
+     step under one key; the row keeps which email that is. The due day stays empty until the
+     sending service has accepted that email, and is then 14 days after that moment. Until
+     then her page says "14 days after our email to you goes out". If the email fails (a
+     bounced address, a refusal), the founder is told and the debt waits. The debts there are
+     today are given their email by the same key.
    - Her earnings page and the message carry a button, "I think this is wrong", with a box for
      her reasons, while the debt says "told". Pressing it puts the row in a new state,
-     "objected": it is not taken. The founder is told at once and decides: "Call it off", or
-     "Take it after all" (she is told why, and it is then taken no earlier than its first day
-     and no earlier than 3 days after that answer). The helper checks the state under the same
-     lock with which it starts the taking, so an objection made a second earlier always wins.
-   - An objection sent to support by email instead: the founder presses "Hold it: she
-     objected" on the same page, with the same effect.
-   This is a change to plan 47's behaviour (today the days count from the row, and only a
-   cancellation stops it). It can only make the app slower to take, never quicker.
+     "objected": it is not taken. The helper reads the state under the same lock with which it
+     starts the taking, so an objection made a second earlier always wins. The founder is told
+     at once and decides: "Call it off", or "Take it after all" with a written answer. That
+     answer goes to her like a notice; the row then says "answered", and is due no earlier
+     than its first due day and no earlier than 3 days after that answer was sent. She cannot
+     press the button a second time on an answered debt; she can still write to support.
+   - An objection sent to support by email: the founder presses "Hold it: she objected", with
+     the same effect, from the moment it is pressed.
+   - A lost dispute that is decided the other way calls off its debt by itself whether the row
+     says told, objected or answered.
+   This changes plan 47's behaviour (today the days count from the row, and only a
+   cancellation stops it); its page, which reads the due day of every "told" row, and its check
+   script `scripts/dispute-takeback-check.ts`, which expects 14 days from the row and takes
+   money without sending the email, change with it. The change can only make the app slower to
+   take, never quicker.
 
-7. **Before the Host Agreement is published and accepted, the app never takes a refund debt by
-   itself.** (Default A.) A debt is taken by the app only if the host accepted a version of the
-   Host Agreement that is published (not a draft) and in effect, at or before the moment **the
-   customer's money was first held** for that payment: the hold of a call's payment, of a
-   contribution's or tip's payment, of a membership month. That moment is used, and not the
-   moment the charge was written down, because the writing can come later than the bank's
-   taking. Otherwise the row is written in a new state, "waiting", with no due day; she is told
-   that she owes it and that Connect will write to her; and the founder's page offers "Call it
-   off" and "Settled outside the app" (with a note of how). It is never promoted later, whatever
-   she accepts afterwards. Plan 47's dispute debts are not changed by this decision; see "For
-   the founder to decide".
+7. **The app takes a refund debt by itself only where the Host Agreement was in force for that
+   payment.** (Default A.) That is: a version of the Host Agreement that is published (not a
+   draft) and was in effect at the moment of the bank's hold, accepted by her at or before that
+   moment. **The moment is the bank's own**: the time Stripe gives for the charge of that
+   payment (a call's or added time's own payment; a contribution's or tip's payment; a
+   membership month's payment for the shares paid from it), read from Stripe when the row is
+   written. The app's own "held at" is not used: it is the time the app learned of the hold.
+   Where Stripe's time cannot be read, or the version in effect then cannot be shown to have
+   been accepted by then, the row is written in a new state, "waiting", with no due day. She is
+   told that she owes it and that Connect will write to her. The founder's page offers "Call it
+   off" and "Settled outside the app". It is never promoted later, whatever she accepts
+   afterwards. Plan 47's dispute debts are not changed by this decision; see "For the founder
+   to decide".
 
 8. **The books.** A refund after collection writes the same three lines as any refund: the
    refund, the change in the fee, the change in her share. Her share in the books is then what
    she is entitled to, and what was sent stays what was sent.
    - Taken back: one line `host_takeback` for the amount, with a note that names the cause.
-   - Called off, or settled outside the app: one line `connect_cost` for the amount Connect
-     carries, written once, in the same step. It explains money that stayed with her; it is not
-     a second refund.
+   - Called off: one line `connect_cost` for the amount Connect carries, once, in that step.
+   - Settled outside the app: the founder enters how much she paid and how. A new line,
+     `host_repaid`, for what she paid; `connect_cost` only for what was let go, if anything.
    - Example (Astra's): 100 charged, 80 hers, 20 the fee, no collection charge on this share.
      A full refund writes minus 100, minus 80, minus 20. Taken back: plus 80 `host_takeback`.
-     Called off instead: plus 80 `connect_cost`.
+     Called off instead: plus 80 `connect_cost`. Repaid 50 outside and the rest let go: plus 50
+     `host_repaid`, plus 30 `connect_cost`.
    - **A contribution or tip refunded after collection changes to this pattern.** Today the
      whole refund is booked as Connect's cost at once. After: the refund once on the
      contribution's payment, the two changes on its share, then the reversal or the waiver. A
@@ -206,51 +230,57 @@ Everything else here is the builder's.
      finished or still on their way, keep the old treatment to their end; a later refund in the
      new pattern reads the share's own refunded amount, because the payment's total also holds
      the old refunds that left the share whole.
+   - **The yearly statement:** "Sent to you" becomes what was sent, with nothing taken off; a
+     column of its own, "Taken back or paid back", holds `host_takeback` and `host_repaid`;
+     "Of that, paid by Connect" is renamed "Carried by Connect". A reversal in January of money
+     sent in December then no longer makes January's "Sent to you" a minus.
 
 9. **Who can refund after collection: the founder only**, with a reason and an amount.
    (Default B.) The host's own button keeps refusing after she collected. A founder who is also
-   that call's host is treated as the host there, as today; a refund after collection is made
-   from the founder's page, where the person always acts as the founder.
+   that call's host is treated as the host on the call's page, as today; a refund after
+   collection is made from the founder's page, where the person always acts as the founder.
 
 10. **The founder's form.** Shown also after a share was sent, for the kinds this plan covers
     (a call paid by card, a contribution, a tip). An amount that can be changed, and a reason
     chosen from the grounds the Host Agreement names for deciding in the host's place (8.3 and
-    8.4: the call was ended with "End call and report"; the host did not join; a mistake, fraud
-    or a broken rule; the host is paused, closed or cannot be reached; the law or the card
-    companies require it; a legal right of a customer in the UK or Europe), plus a sentence of
-    the founder's own. Before it is pressed it shows an **estimate**: "The host has collected.
-    The customer is paid back from Connect's money. The host will owe about X." After Stripe has
-    answered, the page says what really happened: paid back, on its way, or refused by Stripe
-    with Stripe's words; and what the host owes, or that it waits (decision 7), or that nothing
-    can be taken back. The page gets a way to find one payment by the call's id or the
-    customer's email address.
+    8.4), plus a sentence of the founder's own. Before it is pressed it shows an **estimate**:
+    "The host has collected. The customer is paid back from Connect's money. The host will owe
+    about X." After Stripe has answered, the page says what really happened and what the host
+    owes, or that it waits (decision 7), or that nothing can be taken back. The page gets a way
+    to find one payment by the call's id or the customer's email address.
 
-11. **Stripe can accept a refund and still not pay it at once.** A refund can be "on its way"
-    (also when Connect's own balance at Stripe is too low) or fail. The debt is written only
-    when Stripe confirms the refund. One that Stripe refuses for good (a charge it will no
-    longer refund) is shown to the founder as refused, and is the founder's to settle outside
-    the app.
+11. **Stripe can accept a refund and still not pay it at once.** The debt is written only when
+    Stripe confirms the refund.
+    - **A call:** the page says "paid back", "on its way" (also when Connect's own balance at
+      Stripe is too low), or "refused by Stripe", with Stripe's words. A refused one is over:
+      the founder can try again, or settle it outside the app.
+    - **A contribution or a tip:** a refund Stripe refuses is owed again and tried every hour,
+      as today; it is never dropped. The page says so, and does not tell the founder to pay it
+      outside the app, which could pay it twice.
 
 12. **Not collected for 12 months.**
     - **When:** her last collection **that went through** is more than 12 months ago, or she
       never had one and the oldest share that is ready now has been ready, by the date it
-      carries, for more than 12 months. "Went through": a collection with at least one share of
-      more than nothing whose transfer succeeded. (The date a share carries can have moved; it
-      is the best the tables hold, and the plan says so plainly.)
-    - **How:** the helper, once a day, in a loop of its own. For each such host it runs the
-      whole of what her own button runs (`collectEarnings`: ask Stripe whether the payout
-      account is ready, accept under her lock, send), with an id of its own for each try. Under
-      her lock it asks again that the account is open, that the 12 months still hold, and that
-      her 24 hours are over. So everything that holds a share back today (a bank's question or
-      dispute, a refund request under way, the founder's hold on a contribution, the smallest
-      amount worth sending) holds it back here too.
+      carries, for more than 12 months. "Went through": a collection one of whose own items,
+      for more than nothing, has a transfer that succeeded (the item's own money action; a
+      later try of the same share under another collection does not count for the earlier
+      one). The date a share carries can have moved; it is the best the tables hold.
+    - **How:** the helper, once a day, in a loop of its own. For each such host it first
+      claims the try: a line in a small table of its own (the host, the week, an id), written
+      under her lock, so two helpers make one try and one email. Then it runs the whole of
+      what her own button runs (`collectEarnings`: ask Stripe whether the payout account is
+      ready, accept under her lock, send), with that line's id, which is used again if the
+      same try is repeated. Under her lock it asks again that the account is open, that the 12
+      months still hold, and that her 24 hours are over. So everything that holds a share back
+      today holds it back here too.
     - **A try that sends nothing** (the account is not ready, Stripe refuses, nothing is
-      collectable) is written on a line of its own for that host, and tried again a week
-      later. It does not count as a collection.
-    - **The email** goes out once the outcome of that collection is known (or after a day, with
-      what is known by then): what was sent, in US dollars, to her Stripe account; the charge;
-      what could not be sent; and that she can collect herself whenever she likes, once in 24
-      hours. For a host abroad it says that her bank turns the dollars into her own money.
+      collectable) is noted on that line with the reason, and the next try is a week later. It
+      does not count as a collection.
+    - **The email** goes out once the outcome of every transfer of that collection is known,
+      or after a day with what is known by then: what was sent, in US dollars, to her Stripe
+      account; the charge really taken; what could not be sent; what is "still being checked";
+      and that she can collect herself, once in 24 hours. For a host abroad it says that
+      Stripe turns the dollars into her own money when it pays her bank.
     - A paused account is treated like any other open one. A closed account is not touched
       (the founder's "final collection" exists for it).
     - `collections.startedBy` becomes optional, and a new column says who started it: the
@@ -258,9 +288,12 @@ Everything else here is the builder's.
 
 13. **The 14-day button for a new membership** (Payment Terms 12.3), on the founder's
     Memberships page.
-    - **For which:** a membership in its first period, whose first month was really paid for or
-      held (the moment its first month was authorised is "joined"); not one that was resumed
-      or joined again later. No bank's question or dispute on it.
+    - **For which:** the first membership this person has had with this host that was really
+      joined (its agreement is of the kind "joined", not "resumed"; no earlier membership of
+      the pair got as far as a month that was held or paid), and only **while its first month
+      is the month that is running**. "Joined" is the moment that first month was authorised.
+      A first month that was never authorised (still to be paid) can be ended too: nothing was
+      paid. No bank's question or dispute on it.
     - **What the founder enters:** the day the member's request reached Connect, and a tick
       that the member lives where the 14-day right applies (the card's country does not show
       where a person lives). The action refuses when that day is more than 14 days after
@@ -272,8 +305,10 @@ Everything else here is the builder's.
       money set aside for the cancelled calls go back to the card through the pay-back lines
       there are, and nothing of this month expires to the host. Time that was really used
       stays paid at the member price, with the host's share and the fee as they are. The plan
-      adds no sum of its own ("month less used"): that could pay back twice what the lines
-      already pay back.
+      adds no sum of its own ("month less used"): that could pay back twice.
+    - **After the first month has ended**, the unused money may already have gone to the host
+      and a second month may have begun. The button refuses then and says so; the founder
+      settles that case by hand. (Named under "Not in this part".)
     - **A late cancellation or a missed call that was already charged stays charged.** By
       booking, the member asked for the call to take place then. (For the lawyer.)
     - The member is told that it was cancelled within the 14 days and, as today, each amount as
@@ -281,27 +316,33 @@ Everything else here is the builder's.
 
 14. **The sentence before joining** becomes: "Where a 14-day right to cancel applies to you (in
     the United Kingdom and Europe): you can cancel a new membership within 14 days of joining
-    by writing to us. Time you used in those days is paid for at the member price; the rest of
-    what you paid is given back." With a new wording version, as every change of that list
-    gets.
+    by writing to us. Time you used in those days, and a call you cancelled late or missed, is
+    paid for at the member price; the rest of what you paid is given back." With a new wording
+    version, as every change of that list gets.
 
-15. **No change to the legal documents' texts.** A merged version is never edited. Three
+15. **No change to the legal documents' texts.** A merged version is never edited. Four
     sentences have to be right in the first published version, and are added to the list in
     `docs/legal/README.md`, section 7 ("To carry into the first published version"): Host
     Agreement 9.4 should say plainly that the usual way is asking Stripe to take the amount
-    back out of what was sent, and that she can object with a button; 8.2 should say that after
-    she has collected only Connect can refund; 7.7's "[12]" becomes 12.
+    back out of what was sent, that the 14 days count from our email, and that she can object
+    with a button; 8.2 should say that after she has collected only Connect can refund; 7.7's
+    "[12]" becomes 12; Payment Terms 12.3 should name the late cancellation and the missed
+    call beside "time you used".
 
 ## The parts (one pull request each, in this order)
 
 ### Part 3a: refunds after collection, and the debt
 
+**Not started until the founder has said yes to the reversal at Stripe as the one way.**
+
 **Migration** (the next free number when it is built; 0054 is the last on `main` today):
 - `host_debts`: `dispute_id` optional; `refund_id` and `contribution_refund_id`, each a link;
   the check "exactly one cause"; two more "one row for a cause and a share"; `due_at`
-  optional; the states "waiting", "objected" and "settled" added; `notice_email_id` (the email
-  whose sending starts the days), `objected_at`, `objection` (her words), `decided_at`,
-  `decided_by`, `settled_note`.
+  optional; the states "waiting", "objected", "answered" and "settled" added;
+  `notice_email_id` (the email whose sending starts the days), `objected_at`, `objection` (her
+  words), `answer` (the founder's), `answer_email_id`, `decided_at`, `decided_by`,
+  `settled_note`, `repaid_cents`; `held_at_bank` (Stripe's time for the charge) and
+  `agreement_version` (the version that made it takeable, or empty).
 - `refunds` and the contribution's refund lines: `after_collection`; her share and the fee
   before and after (four numbers, filled when the refund is confirmed); `host_owes_cents`; and
   a mark "looked at for a debt".
@@ -312,71 +353,81 @@ Everything else here is the builder's.
   transfer is touched.
 - `src/lib/contributions/refund.ts`: decision 8; the old lines keep their treatment.
 - `src/lib/disputes/takeback.ts`, every function that reads the dispute today, branched by
-  cause: the finder gets two more (confirmed refunds of calls; of contributions and tips, found
-  through the contribution's payment to its share; never a member's time given back, never an
-  old line of Connect's own); writing a row checks the cause again under the lock, takes the
-  ceiling of decision 4, and chooses "told" or "waiting" by decision 7; only a dispute row asks
-  Stripe about the dispute; the taking and its recovery after an unknown outcome check, for a
-  refund row, that the refund is still confirmed and the row still "told" and due (decision
-  6), and keep the request, its label and the search of the reversals as they are; the line in
-  the books and the words depend on the cause; "the bank decided the other way" stays for
-  dispute rows; the telling of the founder after 30 days no longer drops rows without a
-  dispute; calling off works from "told", "waiting" and "objected", and books Connect's cost
-  for a refund row in the same step.
-- `takeback-rules.ts`: the ceiling (decision 4), the due day from the email's sending
-  (decision 6), the states. `takeback-words.ts`: the words for a refund debt (owed, waiting,
-  objected, answered, taken, called off, settled, refused for 30 days).
+  cause. The finder gets two more (confirmed refunds of calls; of contributions and tips,
+  found through the contribution's payment to its share; never a member's time given back,
+  never an old line of Connect's own). Writing a row checks the cause again under the lock,
+  works the amount out by decision 4, reads the bank's time and chooses "told" or "waiting" by
+  decision 7; only a dispute row asks Stripe about the dispute. **Starting** a taking needs
+  the row "told" or "answered" and due (decision 6), and for a refund row the refund still
+  confirmed. **Finishing** one whose outcome is not known works on the row as it is, "being
+  taken": the reversals at Stripe are always searched first and one that was made is booked;
+  the request is sent again only under the same label and while that is safe, as today. The
+  line in the books and the words depend on the cause. "The bank decided the other way"
+  covers told, objected and answered rows. The telling of the founder after 30 days no longer
+  drops rows without a dispute. Calling off works from "told", "waiting", "objected" and
+  "answered".
+- `takeback-rules.ts`: the amounts (decision 4), the due day (decision 6), the states.
+  `takeback-words.ts`: the words for a refund debt (owed, waiting, objected, answered, taken,
+  called off, settled, refused for 30 days).
 - Pages: the founder's refund form and the search (decision 10), with its true answer
-  (decision 11); a founder's list of debts of both kinds, with the buttons of decisions 6 and
-  7 (today cancelling lives only on a dispute's page); the host's earnings page lists waiting
-  and objected debts too, names the cause, links to the call, the project or the tip, and
-  carries "I think this is wrong"; the host's project page stops calling a share that shrank
-  "sent to you"; the founder's contribution form stops saying nothing will be taken back.
-- The yearly statement: "Sent to you" stays what it is (already less what was taken back); a
-  column "Of that, taken back" shows that part; "Of that, paid by Connect" is renamed "Carried
-  by Connect", because a waiver can fall in another month, or another year, than the refund.
-  Both the page and the file.
+  (decision 11); a founder's list of debts of both kinds, with the buttons of decisions 6, 7
+  and 8 (today cancelling lives only on a dispute's page); the host's earnings page lists
+  waiting, objected and answered debts too, names the cause, links to the call, the project
+  or the tip, shows a due day or "14 days after our email goes out", and carries "I think
+  this is wrong"; the dispute's page no longer reads a due day that can be empty; the host's
+  project page stops calling a share that shrank "sent to you"; the founder's contribution
+  form stops saying nothing will be taken back.
+- The yearly statement: decision 8, on the page and in the file.
 
-**Checked by** a new script against Stripe's test mode, `scripts/owed-check.ts`, and tests of
-the rules:
+**Checked by** a new script against Stripe's test mode, `scripts/owed-check.ts`, with a
+stand-in for the sending service, and tests of the rules:
 - a call paid, collected, then refunded in full by the founder: the customer's refund is real
-  at Stripe; one row, told once however often the look runs; the three lines; not due while
-  the email has not gone; nothing taken a second before 14 days after its sending; then the
-  reversal is real at Stripe for that amount of that transfer, and the line `host_takeback`;
+  at Stripe; one row, told once however often the look runs; the three lines; no due day
+  while the email has not gone, and the founder is told when it fails; nothing taken a second
+  before 14 days after its sending; then the reversal is real at Stripe for that amount of
+  that transfer, and the line `host_takeback`;
 - half refunded before collecting and half after: only the second owes; half refunded twice
   after: two rows, to the cent, together never more than was sent;
-- a share that carried the collection charge; a share that was sent with nothing: "nothing to
-  take back", looked at once;
-- a refund, then a part dispute lost on the same share: 40 and 20 in Astra's example, in
-  both orders in which the helper finds them, and when the refund debt was already taken;
-  a debt called off: the other debt on that share is worked out again, with a fresh notice for
-  the rise; two helpers on two shares of one disputed month: together never more than the
-  bank took;
+- a share that carried the collection charge, alone and with a half dispute (39.87 of 79.75);
+  a share that was sent with nothing: "nothing to take back", looked at once;
+- a refund, then a part dispute lost on the same share: 40 and 20, when the refund debt is
+  open, taken, called off, and settled outside; the dispute found while the refund is still on
+  its way: nothing is worked out until the refund is confirmed in the app; three shares of one
+  disputed month: 10, 6 and 4, and with two helpers at once never more than the bank took; a
+  debt called off: a row that said "nothing" is worked out again, a row that was cut short
+  stays;
 - the refund fails at Stripe: no row; still on its way: no row until confirmed; the founder's
-  page says which;
+  page says which; a contribution's refund that Stripe refuses is tried again and never paid
+  twice;
 - the host's own button after collection: refused; the founder without a reason: refused;
   while a transfer of that share is under way, or anything about a bank is on the payment:
-  refused;
-- "I think this is wrong" a moment before the day: never taken; "Take it after all": taken no
-  earlier than 3 days later; pressed while it is being taken: refused;
-- a host without a published Host Agreement accepted before the money was held: "waiting",
-  never taken, also after she accepts one later; "Settled outside the app" and "Call it off"
-  each book Connect's cost once. With one accepted in time: "told". (The check makes up a
-  published version for its own run, as `agreements-check` does.)
+  refused; after a dispute was won: allowed;
+- "I think this is wrong" a moment before the day: never taken; "Take it after all": due no
+  earlier than the first day and 3 days after the answer was sent, and she cannot object
+  again; pressed while it is being taken: refused; an objected dispute debt whose dispute is
+  then won: called off by itself;
+- a reversal whose answer was lost: found at Stripe and booked once, not sent twice;
+- a host without a published Host Agreement accepted by the bank's time of the charge:
+  "waiting", never taken, also after she accepts one later, and when she accepted between the
+  bank's hold and the app learning of it; "Call it off" books Connect's cost once; "Settled
+  outside the app" books what she paid and only the rest as Connect's cost. With one accepted
+  in time: "told". (The check makes up a published version for its own run, as
+  `agreements-check` does.)
 - a tip refunded after collection: the debt is the tip she got, not the payment fee; a
   contribution likewise, also a part refund after an old refund of Connect's own; an old line
   with `connectsOwn`, finished or on its way, is left as it was;
 - Stripe refuses the reversal: back to its notice, tried the next day; told to the founder
   after 30 days, for a refund row too;
-- the yearly statement, page and file, for a refund in December taken back or waived in
-  January;
-- `disputes-check` and `contribution-check` (their own scripts) pass, the second with its one
-  check of the old behaviour changed to the new.
+- the yearly statement, page and file, for a refund in December taken back, repaid or waived
+  in January;
+- plan 47's own scripts (`disputes-check`, `dispute-takeback-check`) and `contribution-check`
+  pass, the second and third changed where this plan changes what they expect (the days from
+  the email; the old booking of a refund after collection).
 
 ### Part 3b: earnings not collected for 12 months
 
-**Migration:** `collections.started_by` optional; `collections.started_as`; a small table for
-the helper's tries that sent nothing (the host, when, why).
+**Migration:** `collections.started_by` optional; `collections.started_as`; the small table of
+the helper's tries (the host, the week, an id, when, what came of it).
 
 **Code:** decision 12.
 
@@ -387,7 +438,8 @@ before; one who never collected counts from her oldest ready share; a refused tr
 down, is not a collection, and is tried again after a week and not before; a payout account
 that Stripe says is not ready is left; a share held back by a dispute or a refund request
 stays; a closed account is not touched; two helpers at once, or her own button in the same
-minute, make one collection; the email names a transfer that was refused as not sent.
+minute, make one collection and one email; the same try run again uses its id again; the
+email names a refused transfer as not sent and an unfinished one as still being checked.
 
 ### Part 3c: the 14-day button for a membership, and the sentence
 
@@ -396,20 +448,22 @@ its version.
 
 **Checked by** the membership check script, against Stripe's test mode: joined 3 days ago, the
 money only held: the hold is let go, nothing is charged, the membership is ended (not
-paused); taken, nothing used: the whole month goes back, no renewal; taken, one call of 30
-minutes used: that call stays paid at the member price, the rest goes back, the host's share of
-the call is untouched; a coming member call is cancelled and its money goes back once, through
-its own line; a late cancellation that was charged stays charged; a request that reached
-Connect on day 15: refused; one of day 14 handled on day 20: done; a resumed membership:
-refused; anything about a bank on it: refused; pressed twice: nothing is paid back twice; the
-ticked sentence is the new one and carries the new version.
+paused); still to be paid: ended, nothing charged; taken, nothing used: the whole month goes
+back, no renewal; taken, one call of 30 minutes used: that call stays paid at the member
+price, the rest goes back, the host's share of the call is untouched; a coming member call is
+cancelled and its money goes back once, through its own line; a late cancellation that was
+charged stays charged; a request that reached Connect on day 15: refused; one of day 14
+handled on day 20: done; the first month already ended: refused, with the sentence that says
+why; a resumed membership, and a second membership of the same pair: refused; anything about
+a bank on it: refused; pressed twice: nothing is paid back twice; the ticked sentence is the
+new one and carries the new version.
 
 ## Working beside the other sessions
 
 - **Bank disputes (plan 47)** is fully merged and its session has stopped. This plan changes
-  its table, adds to `takeback.ts`, and changes two of its behaviours (decision 4's amount
-  after a refund and lock; decision 6's days and objection). Its check script must still pass,
-  and its memory file is told.
+  its table, adds to `takeback.ts`, and changes three of its behaviours (decision 4's lock and
+  what a dispute debt starts from after a refund; decision 6's days and objection). Its two
+  check scripts must pass, changed where the plan says, and its memory file is told.
 - **The phone apps (plan 45)** are paused. Nothing here changes what the app's door sends. The
   Messages page can now hold a notice about a refund debt; the phone has no button to object
   yet.
@@ -427,29 +481,31 @@ ticked sentence is the new one and carries the new version.
   on unclaimed property where it cannot be sent?
 - The 14-day cancellation of a membership: is "time used is paid at the member price" right
   where the member did not expressly ask for the service to start, and may a late cancellation
-  stay charged?
+  or a missed call stay charged?
 
-## For the founder to decide (nothing here waits for it, except the first)
+## For the founder to decide
 
-- **The reversal at Stripe as the one way** (at the top). Part 3a is not started until you
-  have seen this.
+- **The reversal at Stripe as the one way** (at the top). Part 3a waits for your yes.
 - **One rule or two for when the app may take by itself?** Under this plan a refund debt is
-  never taken by the app unless the host held a published Host Agreement in time (decision 7).
+  never taken by the app unless the Host Agreement was in force for that payment (decision 7).
   A lost bank dispute's debt (plan 47) is taken after 14 days whatever she accepted. The
   builder would make both follow decision 7; it is left as it is because plan 47's rules were
-  agreed with you in that session.
-- Defaults A, B and C at the top.
+  agreed with you in that session. Nothing waits for this.
+- Defaults A, B and C at the top. Nothing waits for them.
 
 ## Not in this part
 
 - Giving a member's time back after the host collected (`giveTimeBack` keeps refusing). It
   needs the same debt for a share paid from a month, and can follow once 3a is in.
-- A host paying a debt by card or bank transfer, and a "request to pay" (Host Agreement 9.4's
-  second step).
+- A 14-day cancellation handled after the member's first month has ended. The founder settles
+  it by hand.
+- A host paying a debt by card or bank transfer through the app, and a "request to pay" (Host
+  Agreement 9.4's second step). A payment she makes outside the app can be recorded.
 - Charging a host the bank's dispute fee (9.2).
 - Holding back a host's uncollected earnings against a debt.
 - A debt that was taken and then turns out wrong (plan 47's "leftover 2"): the founder gives it
   back by hand. Paying back by hand does not give the transfer its room back.
+- Raising a debt that was written smaller than it could have been (decision 4).
 - Closing your own account (plan 45, parts 19 to 19c).
 
 ## What Astra found in the first draft, and what was done
@@ -469,23 +525,53 @@ ticked sentence is the new one and carries the new version.
    in the table, a due day that can be empty. **Taken:** decision 2 and part 3a.
 4. *What the books and the statement mean after a take-back or a waiver*; the old lines of
    contributions; the pages that would say something untrue. **Taken:** decision 8 and part
-   3a's pages and statement.
+   3a's pages.
 5. *Stripe accepting a refund is not the customer having the money*; the form says "sent"
    whatever happened. **Taken:** decisions 10 and 11.
 6. *The agreement test must look at the exact version, at whether it was published and in
-   effect, and at a moment that is certain.* **Taken:** decision 7 uses the moment the money was
-   first held.
+   effect, and at a moment that is certain.* **Taken:** decision 7.
 7. *The 12-month helper must run the whole collection, not two of its steps; "went through" and
    "became ready" were not defined; a refused try has no row to carry its next day; the email
    must wait for the outcome.* **Taken:** decision 12.
 8. *The 14-day outcome is mostly what ending a membership already does; "joined" was not
    defined; "Cancel now" pauses and works while the month is to be paid too.* **Taken:**
-   decision 13, which now adds a reason and an authorised action and no sum of its own.
-9. *Corrections to "What is there today" and the founder's form (part refunds, an estimate
-   before and the truth after, where the action lives).* **Taken:** that section and decision
-   10.
+   decision 13, which adds a reason and an authorised action and no sum of its own.
+9. *Corrections to "What is there today" and the founder's form.* **Taken:** that section and
+   decision 10.
 
-Not taken: none of its points was set aside. Two things it raised are left as they are and
-named under "Not in this part": a taken debt that turns out wrong, and Stripe's own limits on
-how old a charge can be for a refund (the app shows Stripe's refusal; nothing is worked out in
-advance).
+## What Astra found in the second draft, and what was done
+
+"Not ready" again: the worked example came out right, but several rules were not exact enough
+to build from.
+
+1. *The amount when Stripe and the app know of a refund at different moments; which of two
+   numbers a share that carried the charge starts from; debts already taken; an amount that
+   rises.* **Taken:** decision 4 is rewritten. Everything counts against what was sent; a
+   dispute debt starts from what was sent less every refund debt ever written; nothing is
+   worked out while money is moving or while Stripe's total is not the app's. **An amount that
+   rises is given up:** one row cannot carry a part already taken and a later part with its own
+   14 days, so the app forgoes the difference instead of building that.
+2. *Part 3a should wait for the founder's yes, not for her having seen it.* **Taken.**
+3. *Finishing a reversal whose outcome is unknown must work on a row that says "being taken",
+   and must look at Stripe first.* **Taken:** part 3a's code.
+4. *Money a host pays back outside the app is not money Connect carried.* **Taken:** decision
+   8, a line of its own and an amount the founder enters. *The statement's column.* **Taken:**
+   "Sent to you" is what was sent, and "Taken back or paid back" stands beside it.
+5. *A contribution's refund that Stripe refuses is tried again every hour; telling the founder
+   to pay it outside could pay it twice.* **Taken:** decision 11.
+6. *The app's "held at" is the time the app learned of the hold, not the bank's.* **Taken:**
+   decision 7 reads Stripe's own time for the charge, and leaves what cannot be shown
+   "waiting".
+7. *Which email is the notice; what happens when it cannot be sent; "Take it after all" needs a
+   reason, a guard against objecting again, and a day; an objected dispute debt whose dispute
+   is won; plan 47's page and its second check script.* **Taken:** decision 6.
+8. *A first month that was never authorised; which membership counts as the first; a request
+   handled after the first month ended; the sentence left out the late cancellation.*
+   **Taken:** decisions 13 and 14. The late case is refused by the button and settled by hand.
+9. *The 12-month helper: which item proves a collection went through, one id for each try, one
+   email, the wording for a transfer still being checked, who converts the dollars.*
+   **Taken:** decision 12.
+
+Not taken, in either check: nothing was set aside. Two things are deliberately left small and
+named under "Not in this part": a debt written smaller than it could have been is not raised,
+and a 14-day request handled after the first month is settled by hand.
