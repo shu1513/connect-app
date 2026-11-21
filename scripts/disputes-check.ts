@@ -9,6 +9,10 @@
  * test disputes it left open.
  *
  * Usage: npx tsx scripts/disputes-check.ts
+ *
+ * For looking at the pages in a browser:
+ *   npx tsx scripts/disputes-check.ts --demo       host@test.local gets one open dispute from customer@test.local
+ *   npx tsx scripts/disputes-check.ts --demo-off   takes exactly that away again
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -61,11 +65,11 @@ async function main() {
   const pause = (ms = 2000) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /** A charged call paid with one of Stripe's test cards: host there the full 10 minutes, $13.33. */
-  async function chargedCall(host: Person, customer: Person, card: string) {
+  async function chargedCall(host: Person, customer: Person, card: string, room = "disputecheck") {
     const startsAt = new Date(Math.ceil((Date.now() + 600_000) / 1000) * 1000);
     const endsAt = new Date(startsAt.getTime() + MINUTES * 60_000);
     const { call, payment } = await db.transaction(async (tx) => {
-      const [made] = await tx.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt, roomName: `disputecheck-${randomUUID()}`, pricePer15Cents: PRICE }).returning();
+      const [made] = await tx.insert(schema.calls).values({ hostId: host.id, customerId: customer.id, startsAt, endsAt, roomName: `${room}-${randomUUID()}`, pricePer15Cents: PRICE }).returning();
       await createPaymentForCall(tx, made);
       const [paid] = await tx.select().from(schema.payments).where(eq(schema.payments.callId, made.id));
       return { call: made, payment: paid };
@@ -117,6 +121,41 @@ async function main() {
   const anHourLater = () => new Date(Date.now() + 3_600_000 + 60_000);
   /** The helper's look, as it runs a minute or two after a message from Stripe marked a dispute "look again". */
   const helperLooks = (...disputeIds: string[]) => lookAtOpenDisputes(new Date(Date.now() + 120_000), { disputeIds });
+
+  // For a look in the browser: one open dispute between the two seeded test accounts, and taking it away again.
+  // What the demo made is known by its room name, and nothing else is ever touched.
+  if (process.argv.includes("--demo") || process.argv.includes("--demo-off")) {
+    const demoDisputes = async () => {
+      const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(like(schema.calls.roomName, "disputedemo-%"));
+      const found = [];
+      for (const call of calls) {
+        const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
+        if (payment) found.push(...(await db.select().from(schema.disputes).where(eq(schema.disputes.paymentId, payment.id))));
+      }
+      return found;
+    };
+    if (process.argv.includes("--demo")) {
+      const [seededHost] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
+      const [seededCustomer] = await db.select().from(schema.user).where(eq(schema.user.email, "customer@test.local"));
+      if (!seededHost || !seededCustomer) throw new Error("Run `npm run seed` first.");
+      const made = await chargedCall(seededHost, seededCustomer, "pm_card_createDispute", "disputedemo");
+      const [dispute] = await disputesAtStripe(made.intentId);
+      if (!dispute) throw new Error("Stripe opened no dispute.");
+      await handleStripeEvent(message("charge.dispute.created", dispute.id));
+      console.log(`Made: an open dispute, /disputes/${dispute.id} (host@test.local is its host, customer@test.local its customer; the call is /calls/${made.call.id}/results).`);
+    } else {
+      for (const dispute of await demoDisputes()) {
+        const current = await stripe().disputes.retrieve(dispute.id).catch(() => null);
+        if (current?.status === "needs_response") await stripe().disputes.close(dispute.id).catch(() => undefined);
+        await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
+        await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
+        await db.delete(schema.disputes).where(eq(schema.disputes.id, dispute.id));
+        if (dispute.paymentId) await refreshPaymentDispute(dispute.paymentId);
+        console.log(`Taken away: dispute ${dispute.id}, its messages and its emails.`);
+      }
+    }
+    process.exit(0);
+  }
 
   try {
     const host = await person("host");
