@@ -212,7 +212,7 @@ async function main() {
       const ended = (await messagesAbout(d1.id)).filter((m) => m.key.includes(":ended:lost:"));
       check("the host and the customer are told how it ended, once", ended.length === both && ended.some((m) => m.userId === host.id && m.body.includes("no longer yours") && m.body.includes("returned $13.33 to the customer")) && ended.some((m) => m.userId === customer.id && m.body.includes("returned $13.33 to you")), `${ended.length}`);
       check("the host is promised nothing the app does not do: no \"we will write\", no take-back", ended.filter((m) => m.userId === host.id).every((m) => m.body.includes("may ask you to pay it back") && !/will write|taken back/i.test(m.body)));
-      check("and each admin is told by email, that it is settled by hand", admins.every((admin) => true) && (await emailsAbout(d1.id)).filter((mail) => mail.dedupeKey?.includes(":ended:lost:founder:") && mail.body.includes("settled by hand")).length === admins.length);
+      check("and each admin is told by email, that it is settled by hand", (await emailsAbout(d1.id)).filter((mail) => mail.dedupeKey?.includes(":ended:lost:founder:") && mail.body.includes("settled by hand")).length === admins.length);
       await handleStripeEvent(message("charge.dispute.closed", d1.id));
       await lookAtOpenDisputes(anHourLater(), { disputeIds: [d1.id] });
       check("the late message and another look tell nobody twice", (await messagesAbout(d1.id)).length === 2 * both && (await emailsAbout(d1.id)).length === 2 * mailed);
