@@ -8,6 +8,7 @@ import { isBooking, isRequests } from "@/lib/book-rules";
 import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
+import { blocksSent } from "@/lib/requests-fresh";
 import { Asker, askBeforeAccepting } from "@/requests/asker";
 import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, Title, Words } from "@/ui/pieces";
 import { type, useColors } from "@/ui/theme";
@@ -36,6 +37,8 @@ export default function RequestsScreen() {
   const [pulling, setPulling] = useState(false);
   const newest = useRef(0);
   const acting = useRef(false);
+  /** How many blocks had been sent when this list was last emptied or first shown (see lib/requests-fresh.ts). */
+  const blocksSeen = useRef(blocksSent());
   const refreshSeconds = list?.refreshSeconds ?? null;
 
   const load = useCallback(async () => {
@@ -60,6 +63,15 @@ export default function RequestsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Someone was blocked from a request's screen since this list was read: what it held is not shown again,
+      // not while the fresh reading is on its way and not if that reading fails.
+      if (blocksSent() !== blocksSeen.current) {
+        blocksSeen.current = blocksSent();
+        newest.current++;
+        setList(null);
+        setAnswered([]);
+        setProblem(null);
+      }
       void load();
       const listener = AppState.addEventListener("change", (state) => {
         if (state === "active") void load();

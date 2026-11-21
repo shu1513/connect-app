@@ -68,11 +68,16 @@ export async function aboutWaiting(hostId: string, waiting: Waiting, now: Date):
     // Their photos (plans/35): the ids only, and only of those this host is handed a photo of.
     photosForHost(hostId, known),
   ]);
+  // A block, or the closing of an account, may have been written down while the questions above were on their
+  // way. So who may be shown is asked once more, last, and everything about a customer is held to that answer:
+  // what is handed out is never older than this last look. (A block written down in the instant after it is the
+  // same as one made just after the list was read.)
+  const still = known.length > 0 ? await openAndUnblocked(hostId, known) : new Set<string>();
   return new Map(
     waiting.map(({ booking }) => {
       const id = booking.customerId;
-      const may = allowed.has(id);
-      return [booking.id, { known: may, rating: may ? (ratings.get(id) ?? null) : null, idConfirmed: idConfirmed.has(id), words: may ? booking.note : "", note: notes.get(id) ?? null, photoId: photoIds.get(id) ?? null }];
+      const may = allowed.has(id) && still.has(id);
+      return [booking.id, { known: may, rating: may ? (ratings.get(id) ?? null) : null, idConfirmed: may && idConfirmed.has(id), words: may ? booking.note : "", note: may ? (notes.get(id) ?? null) : null, photoId: may ? (photoIds.get(id) ?? null) : null }];
     }),
   );
 }

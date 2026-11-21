@@ -9,6 +9,7 @@ import { enterCard, type CardOutcome } from "@/lib/card";
 import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
+import { blockSent } from "@/lib/requests-fresh";
 import { Asker, askBeforeAccepting } from "@/requests/asker";
 import { NoteBox } from "@/requests/note-box";
 import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Words } from "@/ui/pieces";
@@ -269,6 +270,8 @@ function OneRequest({ id }: { id: string }) {
     newest.current++;
     setBusy(step);
     setSaid(null);
+    // A list of requests kept on its screen from before must not show this person again without a fresh reading.
+    if (step === "block") blockSent();
     const done = await asked(step === "back" ? "/take-back" : `/${step}`);
     acting.current = false;
     setBusy(null);
