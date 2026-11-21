@@ -5,6 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { cardFormSecret, gatherRequest } from "@/lib/booking/request-page";
 import { endedWords, REQUEST_WORDS, requestPrice, requestTitle, stageWords } from "@/lib/booking/request-words";
 import { cardStepOpen } from "@/lib/booking/rules";
+import { REPORT_WORDS } from "@/lib/safety/report-words";
 import { readNotice } from "@/lib/notice";
 import { stripePublishableKey } from "@/lib/payments/stripe";
 import { requireUser } from "@/lib/session";
@@ -186,7 +187,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
       {booking.stage !== "card" && (
         <div className="mt-8 text-sm opacity-70">
           <Link href={`/report?booking=${booking.id}`} className="underline underline-offset-2">
-            Report {otherName}
+            {REPORT_WORDS.reportPerson(otherName ?? "this person")}
           </Link>
           <span className="mx-2">·</span>
           <BlockButton userId={role === "host" ? booking.customerId : booking.hostId} name={otherName ?? "this person"} back={`/bookings/${booking.id}`} />

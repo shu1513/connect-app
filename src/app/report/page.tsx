@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readNotice } from "@/lib/notice";
+import { callStopState } from "@/lib/safety/report-form";
+import { REPORT_TEXT_MAX, REPORT_WORDS } from "@/lib/safety/report-words";
 import { REPORT_REASONS } from "@/lib/safety/reports";
-import { callForParticipant } from "@/lib/payments/access";
 import { requireUser } from "@/lib/session";
 import { sendReport } from "./actions";
 import { SitePage } from "@/components/site-page";
@@ -18,25 +19,21 @@ export default async function ReportPage(props: PageProps<"/report">) {
   if (!context) notFound();
   const contextId = String(query[context]);
   const notice = readNotice("/report", query);
-  // Said only when true: the call really was ended with the button.
-  const stopped = context === "call" ? (await callForParticipant(contextId, user.id))?.call.safetyEndedAt !== null && (await callForParticipant(contextId, user.id)) !== null : false;
+  // Said only when true: the call really was ended with the button. And "has been ended for both" only once the
+  // room is written down as closed; until then, "is being ended" (as in the phone app).
+  const stop = context === "call" ? await callStopState(user.id, contextId) : "no";
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
     <SitePage className="mx-auto w-full max-w-xl px-4 py-12">
-      <h1 className="text-2xl font-semibold">Report</h1>
-      {stopped && (
-        <p className="mt-2 text-sm">
-          The call has been ended for both of you. Nobody can rejoin, and the charge for it will be looked at by a person.
-        </p>
+      <h1 className="text-2xl font-semibold">{REPORT_WORDS.title}</h1>
+      {stop !== "no" && (
+        <p className="mt-2 text-sm">{stop === "stopped" ? REPORT_WORDS.stopped : REPORT_WORDS.stopping}</p>
       )}
       <p className="mt-2 text-sm opacity-70">
-        {context === "post"
-          ? "Tell us what is wrong with this post. Only our team reads this."
-          : "Tell us what happened. Only our team reads this. Reporting someone also blocks them: they cannot contact you through Connect again."}{" "}
-        Read the{" "}
+        {context === "post" ? REPORT_WORDS.aboutPost : REPORT_WORDS.aboutPerson} {REPORT_WORDS.readThe}{" "}
         <Link href="/rules" target="_blank" className="underline underline-offset-2">
-          rules
+          {REPORT_WORDS.rules}
         </Link>
         .
       </p>
@@ -49,10 +46,10 @@ export default async function ReportPage(props: PageProps<"/report">) {
         <input type="hidden" name="context" value={context} />
         <input type="hidden" name="contextId" value={contextId} />
         <label className="block">
-          What happened?
+          {REPORT_WORDS.what}
           <select name="reason" required className={field} defaultValue="">
             <option value="" disabled>
-              Choose a reason
+              {REPORT_WORDS.choose}
             </option>
             {REPORT_REASONS.map((reason) => (
               <option key={reason.key} value={reason.key}>
@@ -62,14 +59,14 @@ export default async function ReportPage(props: PageProps<"/report">) {
           </select>
         </label>
         <label className="block">
-          Tell us more (optional)
-          <textarea name="text" rows={5} maxLength={2000} className={field} />
+          {REPORT_WORDS.more}
+          <textarea name="text" rows={5} maxLength={REPORT_TEXT_MAX} className={field} />
         </label>
         <button type="submit" className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white">
-          Send report
+          {REPORT_WORDS.send}
         </button>
       </form>
-      <p className="mt-6 text-sm opacity-70">If someone is in danger right now, contact your local emergency services first.</p>
+      <p className="mt-6 text-sm opacity-70">{REPORT_WORDS.danger}</p>
     </SitePage>
   );
 }

@@ -26,7 +26,7 @@ export function isCallPage(data: unknown): data is AppCallPage {
   if (pay !== null && !(isThing(pay) && isText(pay.title) && Array.isArray(pay.points) && pay.points.every(isSentence) && isText(pay.button) && isText(pay.givenUp) && isText(pay.notHeld) && isText(pay.notConfirmed) && isText(pay.checkAgain))) return false;
   // The confirm-and-pay step comes with the state "pay" and with no other; the room with "room" and with no other.
   if ((data.state === "pay") !== (pay !== null)) return false;
-  if (room !== null && !(isThing(room) && isMoment(room.opensAt) && typeof room.open === "boolean")) return false;
+  if (room !== null && !(isThing(room) && isMoment(room.opensAt) && typeof room.open === "boolean" && isText(room.enter) && room.enter !== "")) return false;
   if ((data.state === "room") !== (room !== null)) return false;
   if (about !== null && !(isThing(about) && isText(about.title) && isText(about.text))) return false;
   return cancel === null || (isThing(cancel) && isText(cancel.words) && isText(cancel.button) && (cancel.shown === "free" || cancel.shown === "late_charge") && isText(cancel.yes) && isText(cancel.no));

@@ -208,6 +208,7 @@ function OneHostPage({ handle }: { handle: string }) {
         ) : null}
 
         {page.about ? <Words soft>{page.about}</Words> : null}
+        {page.report ? <TextLink label={page.report} onPress={() => router.push({ pathname: "/report", params: { profile: page.handle } })} /> : null}
 
         {page.socials.length > 0 ? (
           <View style={styles.gap}>

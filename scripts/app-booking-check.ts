@@ -524,7 +524,8 @@ async function main() {
       const { reply, body } = await requestPage(freeId, cust.jar);
       const made1 = await row(freeId);
       check("the customer reads their request", reply.status === 200 && body?.id === freeId && body.title === `Your request to ${maya.displayName}` && body.stage === "waiting" && body.stageWords === "Sent. Waiting for the host's answer.", reply.text.slice(0, 160));
-      check("it has exactly the parts the app knows", keys(body) === "block,call,card,hearBy,host,hostHandle,id,minutes,notice,price,reason,refreshSeconds,role,stage,stageWords,startsAt,takeBack,takeBackSure,title,waitingWords" && body?.role === "customer" && body.host === null, keys(body));
+      check("it has exactly the parts the app knows", keys(body) === "block,call,card,hearBy,host,hostHandle,id,minutes,notice,price,reason,refreshSeconds,report,role,stage,stageWords,startsAt,takeBack,takeBackSure,title,waitingWords" && body?.role === "customer" && body.host === null, keys(body));
+      check("once the request was sent, the customer can report the host from it", body?.report === `Report ${maya.displayName}`);
       check("with when, the price, and by when the answer comes", body?.startsAt === made1.startsAt.toISOString() && body.minutes === 30 && body.price.label === "Price" && body.price.words === "Free" && body.hearBy?.at === made1.respondBy?.toISOString() && body.hearBy?.label === "You will hear by");
       check("taking it back is asked about once more, in words that promise only what is true", body?.takeBackSure?.words === "The host will no longer be able to accept it. This cannot be undone." && body.takeBackSure.yes === "Take it back" && body.takeBackSure.no === "Keep it");
       check("it can be taken back, asks again by itself, and has no card step", body?.takeBack === "Take this request back" && body.refreshSeconds === 20 && body.card === null && body.call === null && body.notice === null && body.waitingWords === "This is a request, not a reservation. Other people may ask for the same time, and the host chooses.");
@@ -565,6 +566,7 @@ async function main() {
       check("nobody's time is taken yet, and no email has gone", !(await busyOf(second.id)).some((b) => b.bookingId === id) && (await emailsTo(second.email, `Your request to ${noor.displayName} was sent`)) === 0);
       const page = (await requestPage(id, second.jar)).body;
       check("its page shows the card step, with the website's words and by when", page?.stage === "card" && page.stageWords === "Almost there: enter your card to send the request." && page.card?.title === "Your card" && page.card.words.startsWith("Nothing is held or charged now.") && page.card.button === "Save card and send request" && page.card.deadline.some((part) => typeof part === "object" && "time" in part && part.time === new Date(made1.createdAt.getTime() + LIMITS.cardStepMinutes * MINUTE).toISOString()) && keys(page.card) === "button,checkAgain,deadline,givenUp,notConfirmed,notSaved,title,words" && page.card.checkAgain === "Check again" && page.refreshSeconds === 30 && page.takeBack === null && page.takeBackSure === null && page.hearBy === null, keys(page?.card));
+      check("a request that was not sent yet offers no report", page?.report === null);
       check("the price line says the most it can cost", page?.price.words === "$40.00 at most");
 
       const card = await step(id, "card", second.jar);

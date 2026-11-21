@@ -18,6 +18,7 @@ import { publicPost } from "@/lib/projects/posts";
 import { linksOf } from "@/lib/projects/rules";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
+import { REPORT_TEXT_MAX } from "./report-words";
 
 export class ReportError extends Error {}
 
@@ -31,7 +32,7 @@ export const REPORT_REASONS = [
 ] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number]["key"];
 
-const TEXT_MAX = 2000;
+const TEXT_MAX = REPORT_TEXT_MAX;
 const REPORTS_PER_DAY = 10;
 
 function appUrl(): string {

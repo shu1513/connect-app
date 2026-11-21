@@ -8,6 +8,7 @@ import { FollowButton } from "@/components/follow-button";
 import { readNotice } from "@/lib/notice";
 import { timeWords } from "@/lib/membership/rules";
 import { NOW } from "@/lib/booking/now-rules";
+import { REPORT_WORDS } from "@/lib/safety/report-words";
 import { firstLength, lengthWords } from "@/lib/booking/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { HostPhoto } from "@/components/host-photo";
@@ -95,7 +96,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
       {viewer && viewer.id !== profile.userId && (
         <p className="mt-4 text-sm">
           <Link href={`/report?profile=${profile.handle}`} className="inline-flex min-h-11 items-center underline underline-offset-2 opacity-70">
-            Report this page
+            {REPORT_WORDS.reportPage}
           </Link>
         </p>
       )}

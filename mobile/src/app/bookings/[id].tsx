@@ -411,6 +411,7 @@ function OneRequest({ id }: { id: string }) {
         </Card>
       ) : null}
       {hostHandle && page.role === "customer" ? <TextLink label="Open the host's page" onPress={() => router.push(`/h/${hostHandle}`)} /> : null}
+      {page.report ? <TextLink label={page.report} onPress={() => router.push({ pathname: "/report", params: { booking: page.id } })} /> : null}
       {block ? (
         <Button
           label={block.label}

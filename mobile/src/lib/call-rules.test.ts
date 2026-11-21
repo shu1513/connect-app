@@ -14,7 +14,7 @@ const page = {
   words: null,
   small: null,
   pay: null,
-  room: { opensAt: "2026-11-21T16:55:00.000Z", open: false },
+  room: { opensAt: "2026-11-21T16:55:00.000Z", open: false, enter: "Go to the call" },
   about: null,
   cancel: { words: "Cancelling now is free. Nothing is charged.", button: "Cancel this call", shown: "free", yes: "Cancel the call", no: "Keep it" },
   refreshSeconds: 30,

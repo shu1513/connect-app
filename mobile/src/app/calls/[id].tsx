@@ -311,7 +311,7 @@ function OneCall({ id }: { id: string }) {
         </View>
       ) : null}
 
-      {page.room ? <Countdown key={page.serverNow} page={page} room={page.room} onDue={whenDue} /> : null}
+      {page.room ? <Countdown key={page.serverNow} page={page} room={page.room} onDue={whenDue} onEnter={() => router.push({ pathname: "/room/[id]", params: { id } })} /> : null}
 
       {page.pay ? (
         <Card>
@@ -375,7 +375,7 @@ function OneCall({ id }: { id: string }) {
  * came, so it does not jump when the phone's clock is changed. Whether the room is open is the
  * server's word: when the counter says it should be by now, the server is asked, once.
  */
-function Countdown({ page, room, onDue }: { page: AppCallPage; room: NonNullable<AppCallPage["room"]>; onDue: () => void }) {
+function Countdown({ page, room, onDue, onEnter }: { page: AppCallPage; room: NonNullable<AppCallPage["room"]>; onDue: () => void; onEnter: () => void }) {
   const colors = useColors();
   const drawnAt = Date.parse(page.serverNow);
   const [passed, setPassed] = useState(0);
@@ -403,6 +403,8 @@ function Countdown({ page, room, onDue }: { page: AppCallPage; room: NonNullable
         <>
           <Heading>The room is open</Heading>
           <Words soft>{untilStart > 0 ? `The call starts in ${clockWords(untilStart)}.` : `The booked start was ${agoWords(-untilStart)}.`}</Words>
+          {/* On to the call's own screen: the camera check, and then the room. Whether one may enter is the server's word there. */}
+          <Button label={room.enter} onPress={onEnter} />
         </>
       ) : due ? (
         <Words soft>Checking…</Words>

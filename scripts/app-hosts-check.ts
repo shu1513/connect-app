@@ -248,7 +248,7 @@ async function main() {
       check("someone not signed in can open an approved, visible host's page", guest.reply.status === 200 && p?.handle === maya.handle && p.name === maya.displayName, `${guest.reply.status}`);
       check(
         "it has exactly the parts the app knows, and no account id",
-        Object.keys(p ?? {}).sort().join(",") === "about,ask,callWords,confirmId,follow,handle,languages,membership,name,now,own,photoId,price,rating,seller,shareUrl,socials,verifiedOnly" && !guest.reply.text.includes(maya.id),
+        Object.keys(p ?? {}).sort().join(",") === "about,ask,callWords,confirmId,follow,handle,languages,membership,name,now,own,photoId,price,rating,report,seller,shareUrl,socials,verifiedOnly" && !guest.reply.text.includes(maya.id),
         Object.keys(p ?? {}).sort().join(","),
       );
       check("with her confirmed social account as a link, and not the one she only claimed", p?.socials.length === 1 && p.socials[0].label === "Instagram" && p.socials[0].url.startsWith("https://") && !guest.reply.text.includes(`unproven${RUN}`), JSON.stringify(p?.socials));
@@ -273,6 +273,7 @@ async function main() {
       const hostC = await asHost(await newPerson("hostc"), "hostc", `Host C ${RUN}`);
       const own = (await page(hostC.handle, hostC.jar)).body;
       check("her own page says it is hers, and has no Follow button", own?.own === true && own.follow === null);
+      check("anyone signed in can report a page that is not their own; a visitor and the host herself cannot", stranger?.report === "Report this page" && p?.report === null && own?.report === null);
       check("a host with no calendar is 'not taking calls at the moment'", own?.ask.closed === `${hostC.displayName} is not taking calls at the moment.` && own.ask.starts.length === 0 && own.ask.lengths.length === 0 && own.now === null);
     }
 

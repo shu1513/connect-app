@@ -18,6 +18,7 @@ const page: AppHostPage = {
   rating: null,
   socials: [{ label: "Instagram", name: "mayamakes", url: "https://instagram.com/mayamakes" }],
   own: false,
+  report: "Report this page",
   shareUrl: "https://connect.example/h/maya",
   follow: "none",
   price: "$25.00 per 15 minutes",

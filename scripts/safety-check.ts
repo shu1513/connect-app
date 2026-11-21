@@ -418,7 +418,8 @@ async function main() {
       await finishPausesAndClosures(new Date(), cut.id);
       check("once the pause is lifted the helper leaves the person's calls alone", (await callNow(afterLift.callId)).cancelledAt === null);
 
-      const joinStep = readFileSync("src/app/api/calls/[id]/token/route.ts", "utf8");
+      // The join step is one function for the website's address and the phone app's (plans/45-phone-apps/09-the-call.md).
+      const joinStep = readFileSync("src/lib/video/enter.ts", "utf8");
       check("(read from the code) the join step reads the person again, holding their line, before it hands out a pass", /\.for\("share"\);[\s\S]*if \(me\.pausedAt\) throw[\s\S]*createEntryPass\(/.test(joinStep));
 
       const freeHost = await person("free6");

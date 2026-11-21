@@ -5109,3 +5109,43 @@ payment the bank took back as given back; an accountant should say how a lost di
 in it. A share that was never collected stays held back after a loss, as before; a dispute
 over only part of such a charge is still settled by hand (the plan's "leftover 1").
 
+## Phone apps, part 09: the call itself (plan 45)
+
+**What was built.**
+- *One join check and one reading of "where the call stands",* each in one place, for the
+  website's addresses and the app's.
+- *The room's sentences and the report form's sentences in one place each;* the website's call
+  screen and report page were moved onto them, word for word.
+- *The app's addresses:* what the call's screen needs before anyone enters, the entry pass,
+  where the call stands, "End call and report", and the report form.
+- *The app's screens:* the camera check (the phone asks for camera and microphone once, after
+  two plain sentences on why), the call (the other person large, oneself small, five buttons,
+  the time left, "End call and report"), the end, and the report form.
+
+**What the building changed.** Ten things, listed in the plan. The ones that matter most:
+leaving the call's screen by any way leaves the call; the app only hands its camera and
+microphone to a video service on a locked address; screenshots of a call show black on
+Android.
+
+**How it was checked.** `scripts/app-room-check.ts`, 59 checks, against the real video service.
+A real call between the Android test phone and the website in Chrome with a real camera,
+with pictures: seeing each other, muting, leaving and coming back, a second device taking
+over, a short network cut, "End call and report" with the report, and a call running out.
+
+**Not built here:** a locked phone, connection grades, more time, the chat (part 09b); the
+connection check (part 09c); a call's results (part 10). **Not tried:** a real phone's camera
+and microphone, an iPhone, a long loss of connection, saying no to the camera.
+
+**Added after Astra's two looks at the code.** Nothing of a call is drawn with another screen in
+front; "ended for both" is only said once the room is written down as closed; report links
+on a host's page and on a request; a form of its own for each place; the camera and
+microphone asked once; the join check reads the call last (on the website too).
+
+**Added after Astra's third and fourth looks, and the move onto the newer main.** The sentence
+shown while the closing of a room is not yet confirmed promises nothing that is not known; a
+person enters with the camera and microphone choice of that very moment (said at the press,
+not after the next redraw); the one join check looks for a block before anyone is taken out
+of another room and again before the pass, reads the clock last, and reads a call whose time
+looks up once more before refusing it. From the newer main (the legal change #78): the join
+check reads the person's own account again while holding their line, so an account paused or
+closed in that moment gets no pass. `scripts/app-room-check.ts` now has 59 checks.

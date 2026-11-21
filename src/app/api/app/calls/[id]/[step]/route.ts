@@ -1,11 +1,13 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { callPageFor } from "@/lib/app-door/calls";
-import type { AppPayStep } from "@/lib/app-door/types";
+import type { AppEnded, AppPass, AppPayStep } from "@/lib/app-door/types";
 import { cancelledWords } from "@/lib/call-page/words";
 import { callForParticipant } from "@/lib/payments/access";
 import { cancelCallWith } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { startPaymentFor, syncPaymentFor, type StepRefused } from "@/lib/payments/steps";
+import { endCallForSafetyConfirmed } from "@/lib/safety/calls";
+import { enterCall } from "@/lib/video/enter";
 
 /**
  * "It cannot be told just now what became of this step": said as the server not being reached (no answer of the
@@ -34,25 +36,82 @@ function refusalOf(step: StepRefused): Response {
  *                                        shown goes with it: if cancelling has turned from free to charged
  *                                        meanwhile, nothing is cancelled
  *
+ * And of the call itself (plans/45-phone-apps/09-the-call.md):
+ *
+ *   POST /api/app/calls/[id]/enter           the entry pass to the call's room, by the one join check the website
+ *                                            uses: only for a person of this call, only while the room is open and,
+ *                                            for a paid call, the money is held
+ *   POST /api/app/calls/[id]/end-and-report  "End call and report": the call is ended for both, at once
+ *
  * Who is asking comes from the sign-in. A call that does not exist, one that is somebody else's, and a
  * step that is the other person's are the same "not found". What the app says happened in Stripe's
  * sheet is never believed, and nothing here takes money: a hold is a hold.
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[id]/[step]">) {
   const { id, step } = await ctx.params;
-  if (step !== "pay" && step !== "pay-check" && step !== "cancel") {
+  if (step !== "pay" && step !== "pay-check" && step !== "cancel" && step !== "enter" && step !== "end-and-report") {
     const anyone = await appRequest(request, "anyone");
     return anyone instanceof Response ? anyone : refuse("not_found");
   }
   // Placing a hold is for someone who may act. Finding out where a hold stands, and cancelling, are also for a
   // paused person, as on the website.
-  const asked = await appRequest(request, step === "pay" ? "active" : "member");
+  // Entering a call is for someone who may act too. Ending a call one is in, and reporting, is for everyone.
+  // "End call and report" is answered for any copy of the app, also one that has become too old meanwhile.
+  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member", { safety: step === "end-and-report" });
   if (asked instanceof Response) return asked;
   const me = asked.person!;
   const page = async (notice: string | null = null) => {
     const body = await callPageFor(me, id, new Date(), notice);
     return body ? answer(body) : refuse("not_found");
   };
+
+  if (step === "enter") {
+    // (A paused person was turned away at the door, in the door's own sentence. The join check looks once more,
+    // holding the person's own line: an account paused or closed in this very moment gets no pass either.)
+    const pass = await enterCall({ id: me.id, name: me.name, paused: false }, id);
+    if ("refused" in pass) {
+      const { why, message } = pass.refused;
+      if (why === "not_found") return refuse("not_found");
+      if (why === "paused") return refuse("paused");
+      if (why === "signed_out") return refuse("not_signed_in");
+      if (why === "switched_off") return refuse("switched_off", message);
+      // The video service could not be asked: nothing was decided, so nothing is refused.
+      if (why === "failed") return notKnown();
+      return refuse("not_valid", message);
+    }
+    // The app hands its camera and microphone only to a video service at "wss://host" or "wss://host:port", with
+    // nothing after it (mobile/src/lib/room-rules.ts, isPass). A LIVEKIT_URL of another shape would be answered
+    // here as a success that every phone then refuses: said plainly in the server's log instead, and answered as
+    // "it cannot be told".
+    if (!/^wss?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/?$/.test(pass.serverUrl)) {
+      console.error('[calls] LIVEKIT_URL is not an address the phone apps accept: it must be "wss://host" or "wss://host:port", with no path or query after it. Nobody can enter a call from the app until it is.');
+      return notKnown();
+    }
+    const body: AppPass = { token: pass.token, serverUrl: pass.serverUrl, endsAt: pass.endsAt, serverNow: pass.serverNow };
+    return answer(body);
+  }
+
+  if (step === "end-and-report") {
+    const access = await callForParticipant(id, me.id);
+    if (!access) return refuse("not_found");
+    try {
+      const { state, closed } = await endCallForSafetyConfirmed({ call: access.call, by: me.id, now: new Date() });
+      // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already over
+      // needs no ending: the person goes on to the report form as usual.
+      if (state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
+      // The call is marked as stopped (nobody can enter it again), but there is no proof yet that the other person
+      // is out: the video service has not confirmed that the room is closed. "Ended for both" is not said until it
+      // has: the app says so and offers to try again, and trying again asks the video service again (also after
+      // the call's booked end: the clock is no proof).
+      if (!closed) return notKnown();
+    } catch (error) {
+      // Whether it was ended for both cannot be told: the app says so and offers to try again.
+      console.error("[safety] could not end a call for the app", error);
+      return notKnown();
+    }
+    const body: AppEnded = { ended: true };
+    return answer(body);
+  }
 
   if (step === "pay") {
     const started = await startPaymentFor(me, id, new Date());
