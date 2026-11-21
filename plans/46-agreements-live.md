@@ -492,6 +492,110 @@ The plan was not sent a third time. Each part's code goes to Astra, as always.
   step: `npm run seed` does it. Until every open branch has this part, a seeded person fits
   either the old step or the new one, not both.
 
+## What building part 2 added (20 November 2026)
+
+- **Who is told:** everyone with an open account who has finished signing up at least once, for
+  the Terms, the Payment Terms, the Community Rules, the Privacy Policy and the Copyright Policy;
+  everyone with a host profile, for the Host Agreement. Nobody for the Identity Check Notice: it
+  is shown in full, in the version in effect, at every check. A paused account is told; a closed
+  one is not. (`src/legal/notices.ts`.)
+- **One email for each document that changes**, not one for all of them: the key is document,
+  version, day and person, as decision 12 says. Three documents changing on one day are three
+  emails.
+- **An email is not sent after its day**, not to an account closed since it was written, and not
+  for a day that has been moved since.
+- **Changed against decision 12: the warning is not in the health report.** That address is
+  watched for money, turns "not healthy" for any line, and would stay so until the day. When the
+  30 days are at risk the founder is written an email, once for each problem, and the founder's
+  Emails page shows for every announced version how many emails went out in time, later, or not
+  at all. Counted: only versions the 30 days are owed for (not the first published one after a
+  draft, not one marked urgent with a reason), and only people who were concerned before the last
+  day for it. Four cases: an email that went out with fewer than 30 days left; one still not out
+  with fewer than 30 days left; one that failed for a reason of ours (a bounced address or an
+  account closed in between is not one); a day moved back to one that was announced before.
+- **The Hosting page** says a coming Host Agreement the way the documents' own pages do, and its
+  box's words follow what is missing.
+
+## What Astra's review of part 2 changed (20 November 2026)
+
+Astra read the first build and said to hold it. Taken:
+
+- **Every future version is announced, not only the next one of a document.** A second change
+  planned behind the first would have had almost no notice. Two versions of one document can no
+  longer take effect on the same day, and "urgent" has to give a reason.
+- **Someone who finishes signing up, or applies to host, while a version is coming is written to
+  in that same database step.** Before, the helper found them within a minute, and not at all in
+  the last minute before the day.
+- **The helper's round of notices no longer waits behind other work**, and is timed by the clock:
+  a failure elsewhere in the helper cannot hold it up.
+- **A helper still running older code during a release could give a good email up for ever.** The
+  next round takes such an email up again.
+- **The founder can have refused emails sent again** (a button on the Emails page). Only emails
+  the sending service refused outright: those certainly did not go out.
+- **Both coming notes are shown before a person agrees:** a coming Host Agreement beside the form
+  that applies to host, and a coming Privacy Policy or Copyright Policy on the last step of
+  sign-up.
+- **The email's words:** the hour (00:00 UTC); a link to the version held today by its own name,
+  so it still shows that text afterwards; for hosts, that they can end hosting by closing the host
+  page and that booked calls and begun membership months are not touched (Host Agreement 19.2);
+  for the Terms, the way to reject a change to how disputes are settled (20.10).
+- An email whose time ran out is asked about once more right before it is handed to the sending
+  service.
+- The check script's checks each prove what their label says (the exact moment an email runs
+  out, a closed account apart from a refusal, two helpers at once, a backlog over several rounds).
+
+**Astra's second review** (of that rework) said to hold it once more, for three ways an email
+could have gone out twice or a warning could have been wrong. Taken:
+
+- An email taken up again keeps its count of tries and the moment of its first try. So if the
+  sending service was asked before and its answer was lost, the sending's own rule decides (a
+  try older than a day is never repeated blindly), and the email waits for a person.
+- The founder's button sends again only an email that was asked **once** and refused outright;
+  not one tried several times, and not one whose answer says an earlier request is still under
+  way. It is one statement, so nothing can change between looking and writing.
+- "People were last told another day" is judged by what was really sent, in the order it was
+  sent, for every coming version and everyone concerned. A day written about and never sent
+  does not count.
+- The notices have a loop of their own in the helper, beside the money work, not in front of it.
+- Applying to host reads the clock with the person's line locked, like finishing sign-up.
+- The email calls the version it links "the version in effect today" (with two changes planned,
+  "until then" would have been wrong for the second).
+- The founder's page counts by what the emails' own keys say, so a day that was announced and
+  then moved keeps its line.
+- Both pages show every coming version, and the last step of sign-up shows them above the
+  button.
+- The check script: an email whose time runs out while emails are being sent; an email given up
+  by an old helper whose earlier try may have gone through; the health address asked while a
+  problem is open.
+
+**Astra's third look** said the button was sound and to hold for two narrow cases, both about
+an answer of the sending service that got lost. Taken:
+
+- **An email that was tried before is judged by the clock once more, as the last thing before
+  the service is asked,** and may only be tried again within 23 hours of its first try, an hour
+  less than the service remembers it. So a slow step can no longer carry a second try past that
+  memory and send a second copy. This holds for every email the app sends, not only notices.
+- **"Last told another day" counts from this day's email's first try,** not from the moment it
+  was written down as sent. If the service accepted that first try and the answer was lost, a
+  later try only confirms it and sends nothing; the other day's email may then be the last one
+  that really arrived. When the order cannot be known, the founder is told.
+- The count on the Emails page takes the 30 days off the day itself before reading it as UTC, so
+  it agrees with the warning to the minute.
+
+Not taken:
+- *Keep the sending service's own times for each email.* The app records when the service
+  accepted an email. If that answer is lost and a second try succeeds later, the later time is
+  kept, which can only make a notice look later than it was, never earlier.
+- *A record of who was never told, kept after the day.* The Emails page counts the emails of a
+  version for about a year; a person with no email at all is only counted while the version is
+  coming.
+- *A day moved back to one already sent sends a correction by itself.* It is said to the founder,
+  who chooses a day that was not announced before; that day is then announced to everyone.
+- *The last look before sending cannot be made in the same instant as the sending.* It is made
+  twice, the second time as the last thing before the service is asked.
+- **Not built:** the phone app's last step of sign-up does not show a coming version (the email
+  and the website do). The phone-apps session is told.
+
 ## What building part 5 added (20 November 2026)
 
 - `src/lib/payments/statement.ts`: the sums, and five questions to the books, one for each way a

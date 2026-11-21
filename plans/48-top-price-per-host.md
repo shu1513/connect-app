@@ -59,7 +59,7 @@ pick and the reason.
    of its own; no host at $1,000 or less notices it.
 10. **The Host Agreement is not changed here.** It says a host sets a price and names only the
     lowest. Whether it should name a highest price, and Connect's right to lower one, is put to
-    the lawyer (`docs/for-the-lawyer.md`, section 17). A new version would ask every host to
+    the lawyer (`docs/for-the-lawyer.md`, section 18). A new version would ask every host to
     accept again, which is the founder's call.
 
 ## What it relies on (each read in the code by the builder)
