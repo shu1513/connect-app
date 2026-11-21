@@ -153,7 +153,7 @@ describe("the other messages", () => {
   it("says what the bank decided when a dispute is lost, never that the customer already has the money", () => {
     const told = endedWords("host", facts, "lost").text;
     expect(told).toContain("the bank decided for the customer, and the $13.33 does not come back");
-    expect(told).toContain("Connect takes it back from your Stripe balance");
+    expect(told).toContain("Connect asks Stripe to take it back from your Stripe balance");
     expect(told).toContain("nothing is taken for 14 days after that");
     for (const role of ["host", "customer", "founder"] as const) expect(all(endedWords(role, facts, "lost"))).not.toMatch(/returned/);
   });

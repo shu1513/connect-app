@@ -29,12 +29,12 @@ export type DebtFacts = {
 const how = (facts: DebtFacts): string =>
   (facts.part
     ? `The bank took back ${facts.part.disputed} of the ${facts.part.of} that was left of the charge, so the same part of the ${facts.sent} you were sent is owed, rounded down to the cent: ${facts.amount}.`
-    : `You were sent ${facts.sent} for this payment, and the bank took the whole payment back, so ${facts.amount} is owed.`) + (facts.capped ? " (It is less than that part, because that is all that is left of the transfer at Stripe.)" : "");
+    : `You were sent ${facts.sent} for this payment, and the bank took the whole payment back, so ${facts.amount} is owed.`) + (facts.capped ? " (It is less than that part: no more than this can be taken out of that transfer.)" : "");
 
 /** To the host, when the take-back is written down: which payment, why, how much and how it is worked out, and their 14 days. */
 export function owedWords(facts: DebtFacts): Told {
   return {
-    subject: `Connect will take back ${facts.amount}: a bank dispute was lost`,
+    subject: `Connect will ask Stripe to take back ${facts.amount}: a bank dispute was lost`,
     text:
       `The dispute ${facts.customerName}'s bank had opened over ${facts.what} is lost: the bank decided for the customer and took the money back from Connect. You had already collected your share of that payment.\n\n` +
       `${how(facts)} The bank's own fees are not charged to you.\n\n` +
@@ -60,7 +60,7 @@ export function takenWords(facts: DebtFacts): Told {
     subject: `Connect has taken back ${facts.amount}`,
     text:
       `Stripe has taken ${facts.amount} back from your Stripe balance, for ${facts.what}: the dispute ${facts.customerName}'s bank had opened over it was lost, and you had already collected your share.\n\n` +
-      `Nothing more is owed for this payment. If you think this is wrong, write to us at ${facts.supportEmail}.`,
+      `Nothing more is owed for this take-back. If you think this is wrong, write to us at ${facts.supportEmail}.`,
   };
 }
 
@@ -71,7 +71,7 @@ export function cancelledWords(facts: DebtFacts, why: "founder" | "won"): Told {
     text:
       `We had written that Connect would take ${facts.amount} back for ${facts.what}. That is called off: ` +
       (why === "won" ? "the bank looked at the dispute again and let the payment stand." : "Connect looked at it and decided not to take it.") +
-      ` Nothing is taken for this payment.`,
+      ` Nothing is taken for this take-back.`,
   };
 }
 

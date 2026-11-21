@@ -21,7 +21,7 @@
  * "taking" exactly while its action is unanswered; every way that action can end as "not done"
  * puts the row back to "told" in the same step.
  */
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Dispute, HostDebt } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
@@ -136,41 +136,55 @@ async function sharesWithoutRow(only?: Only): Promise<Array<{ dispute: Dispute; 
  * A share that owes nothing gets a row that says so, so that Stripe is not asked again every pass.
  */
 async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promise<void> {
-  await db.transaction(async (tx) => {
+  const notLostAtStripe = await db.transaction(async (tx) => {
     const share = await lockPayment(tx, paymentId);
-    if (share.transferStatus !== "sent" || !share.stripeTransferId || (share.transferCents ?? 0) <= 0) return;
+    if (share.transferStatus !== "sent" || !share.stripeTransferId || (share.transferCents ?? 0) <= 0) return false;
     const [current] = await tx.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, dispute.id));
-    if (current?.outcome !== "lost") return;
+    if (current?.outcome !== "lost") return false;
     const others = await tx.select().from(debts).where(eq(debts.paymentId, paymentId));
-    if (others.some((other) => other.disputeId === dispute.id) || others.some((other) => other.status === "taking")) return;
+    if (others.some((other) => other.disputeId === dispute.id) || others.some((other) => other.status === "taking")) return false;
 
-    // One try each, never for long: the share's payment is held meanwhile.
-    const atStripe = await inTime(stripe().disputes.retrieve(dispute.id, { expand: ["charge"] }, { maxNetworkRetries: 0 }));
-    if (outcomeOf(atStripe.status) !== "lost") {
-      // Not lost at Stripe (an appeal, or decided the other way): the record's look brings the dispute up to date.
-      await tx.update(schema.disputes).set({ lookAgain: true }).where(eq(schema.disputes.id, dispute.id));
-      return;
-    }
+    // Both reads at once, one try each, under one limit of time: the share's payment is held meanwhile.
+    const [atStripe, transfer] = await inTime(
+      Promise.all([stripe().disputes.retrieve(dispute.id, { expand: ["charge"] }, { maxNetworkRetries: 0 }), stripe().transfers.retrieve(share.stripeTransferId, {}, { maxNetworkRetries: 0 })]),
+    );
+    // Not lost at Stripe (an appeal, or decided the other way): nothing is written, and the record is read again.
+    if (outcomeOf(atStripe.status) !== "lost") return true;
+    // Without the charge, what was left of it is not known: nothing is worked out on a guess. The next pass asks again.
     const charge = typeof atStripe.charge === "string" ? null : atStripe.charge;
-    const transfer = await inTime(stripe().transfers.retrieve(share.stripeTransferId, {}, { maxNetworkRetries: 0 }));
+    if (!charge) return false;
     const basis: Basis = {
       sentCents: share.transferCents!,
       disputedCents: atStripe.amount,
-      // What was left of the charge: what was taken, less what had been refunded. Not known: the whole share is owed.
-      chargeLeftCents: charge ? charge.amount_captured - charge.amount_refunded : 0,
+      // What was left of the charge: what was taken, less what had been refunded.
+      chargeLeftCents: charge.amount_captured - charge.amount_refunded,
       transferLeftCents: transfer.amount - transfer.amount_reversed,
       othersOpenCents: others.filter((other) => other.status === "told").reduce((sum, other) => sum + other.amountCents, 0),
     };
     const amountCents = owedCents(basis);
+    // The 14 days count from the moment the notice is written, not from when this pass began.
+    const toldAt = now.getTime() > Date.now() ? now : new Date();
     const [debt] = await tx
       .insert(debts)
-      .values({ disputeId: dispute.id, paymentId, hostId: dispute.hostId, stripeTransferId: share.stripeTransferId, amountCents, currency: share.currency, basis: JSON.stringify(basis), status: amountCents > 0 ? "told" : "nothing", toldAt: now, dueAt: new Date(now.getTime() + NOTICE_MS) })
+      .values({ disputeId: dispute.id, paymentId, hostId: dispute.hostId, stripeTransferId: share.stripeTransferId, amountCents, currency: share.currency, basis: JSON.stringify(basis), status: amountCents > 0 ? "told" : "nothing", toldAt, dueAt: new Date(toldAt.getTime() + NOTICE_MS) })
       .onConflictDoNothing()
       .returning();
-    if (!debt || amountCents === 0) return;
+    if (!debt || amountCents === 0) return false;
     await tellHost(tx, debt, dispute, "owed", owedWords);
     await tellFounders(tx, debt, dispute, "owed", owedWordsForFounder);
+    return false;
   });
+  // Written after the share's payment is let go: a dispute's row is never asked for while a payment is held.
+  if (notLostAtStripe) await db.update(schema.disputes).set({ lookAgain: true }).where(eq(schema.disputes.id, dispute.id));
+}
+
+/**
+ * A take-back was called off. Another dispute over the same share may have been told "nothing is owed" only because
+ * this one had the amount set aside: those rows are taken away, so the next look works them out afresh (and writes a
+ * notice of its own if something is owed after all). With the share's payment held.
+ */
+async function freeSetAside(tx: Tx, paymentId: string): Promise<void> {
+  await tx.delete(debts).where(and(eq(debts.paymentId, paymentId), eq(debts.status, "nothing")));
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +202,7 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
     .select({ debt: debts, dispute: schema.disputes })
     .from(debts)
     .innerJoin(schema.disputes, eq(schema.disputes.id, debts.disputeId))
-    .where(and(eq(schema.disputes.outcome, "won"), inArray(debts.status, ["told", "taken"]), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
+    .where(and(eq(schema.disputes.outcome, "won"), or(eq(debts.status, "told"), and(eq(debts.status, "taken"), isNull(debts.leftoverToldAt))), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
   for (const { debt, dispute } of rows) {
     await db
       .transaction(async (tx) => {
@@ -197,6 +211,7 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
         if (!fresh) return;
         if (fresh.status === "told") {
           await tx.update(debts).set({ status: "cancelled", cancelledAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
+          await freeSetAside(tx, fresh.paymentId);
           await tellHost(tx, fresh, dispute, "cancelled", (facts) => cancelledWords(facts, "won"));
         } else if (fresh.status === "taken" && fresh.leftoverToldAt === null) {
           await tx.update(debts).set({ leftoverToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
@@ -240,17 +255,21 @@ export async function backToTold(tx: Tx, debtId: string, message: string): Promi
     .where(and(eq(debts.id, debtId), eq(debts.status, "taking")));
 }
 
-/** The money action of one take-back, on its share's payment. */
-export function takePlan(debt: Pick<HostDebt, "id" | "paymentId">): OperationPlan<TakeParams, null> {
+/** The money action of one take-back, on its share's payment. `now` is the moment it is judged at (the helper's pass). */
+export function takePlan(debt: Pick<HostDebt, "id" | "paymentId">, now: Date = new Date()): OperationPlan<TakeParams, null> {
   return {
     paymentId: debt.paymentId,
     kind: "take_back",
     labelBase: takebackLabel(debt.id),
-    // With the share's payment held: only a take-back that has its notice is started. One that was cancelled, is
-    // already being taken or was taken is refused here, and nothing is written down.
+    // With the share's payment held, everything is judged again on the row as it is now: only a take-back that has
+    // its notice, whose 14 days are over and that was not refused within the last day is started, and only while
+    // its dispute is still recorded as lost. One that was cancelled, is being taken or was taken is refused here,
+    // and nothing is written down.
     prepare: async (_payment, tx) => {
       const [row] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
-      if (!row || row.status !== "told") throw new MoneyError("This take-back is not waiting to be taken.");
+      if (!row || !dueToTake(row, now)) throw new MoneyError("This take-back is not waiting to be taken.");
+      const [dispute] = await tx.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, row.disputeId));
+      if (dispute?.outcome !== "lost") throw new MoneyError("The dispute of this take-back is not lost any more.");
       await tx.update(debts).set({ status: "taking", updatedAt: new Date() }).where(eq(debts.id, row.id));
       return { debtId: row.id, transferId: row.stripeTransferId, amountCents: row.amountCents };
     },
@@ -261,7 +280,7 @@ export function takePlan(debt: Pick<HostDebt, "id" | "paymentId">): OperationPla
 }
 
 /** One take-back whose notice is over. First Stripe is asked whether the dispute is still lost. */
-async function takeOne(debt: HostDebt): Promise<void> {
+async function takeOne(debt: HostDebt, now: Date): Promise<void> {
   const [dispute] = await db.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, debt.disputeId));
   // Not lost in the record any more (an appeal is open, or it was won): nothing is taken while that is so.
   if (dispute?.outcome !== "lost") return;
@@ -271,7 +290,7 @@ async function takeOne(debt: HostDebt): Promise<void> {
     return;
   }
   try {
-    await runMoneyOperation(takePlan(debt));
+    await runMoneyOperation(takePlan(debt, now));
   } catch (error) {
     // A clear "no" put the row back to its notice (tried again tomorrow). No clear answer leaves the action
     // written down: the helper's check of unfinished actions finds out what happened.
@@ -280,27 +299,58 @@ async function takeOne(debt: HostDebt): Promise<void> {
   }
 }
 
-/** For the helper's check of unfinished money actions (payments/jobs.ts): what became of a take-back that got no answer. */
-export async function recoverTakeback(operation: { id: string; paymentId: string | null; label: string }, params: TakeParams, canRepeat: boolean): Promise<void> {
+/** Only after this long is "Stripe's list does not show it" taken as "it did not happen": an hour after the last moment the request may still have been sent. */
+const SETTLED_AFTER_MS = 24 * 3_600_000;
+
+/**
+ * Asking Stripe what it has is not the action itself. If the asking fails, even with a clear "no" (no permission,
+ * say), that proves nothing about the take-back: it stays unanswered and is looked at again.
+ */
+async function lookUp<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    throw new Error(`Could not look this up at Stripe: ${errorSummary(error)}`);
+  }
+}
+
+/**
+ * For the helper's check of unfinished money actions (payments/jobs.ts): what became of a take-back that got no answer.
+ *   - While a repeat is safe AND the dispute is still lost (here and at Stripe): the same request under the same
+ *     label, which gives the first reply back, or does it now. A repeat can be the first time Stripe really does
+ *     it, so it is never sent for a dispute that is no longer lost.
+ *   - Otherwise every page of the transfer's own reversals is searched for this take-back's id.
+ *   - "It did not happen" is concluded only from a search that was read to the end, and only once the request can no
+ *     longer be on its way (24 hours; a repeat is sent up to 23). Before that, nothing is concluded.
+ */
+export async function recoverTakeback(operation: { id: string; paymentId: string | null; label: string; createdAt: Date }, params: TakeParams, canRepeat: boolean): Promise<void> {
   if (!operation.paymentId) return;
+  const [row] = await db.select({ disputeId: debts.disputeId }).from(debts).where(eq(debts.id, params.debtId));
+  const [dispute] = row ? await db.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, row.disputeId)) : [];
+  let resend = canRepeat && dispute?.outcome === "lost";
+  if (resend) resend = outcomeOf((await lookUp(() => stripe().disputes.retrieve(row.disputeId))).status) === "lost";
   let reversalId: string | undefined;
-  if (canRepeat) {
-    // The first request may still be on its way: the same request under the same label gives the first reply back,
-    // or does it now. A clear "no" is thrown, and the caller settles it as refused (`refuseTakeback`).
+  if (resend) {
+    // A clear "no" to the request itself is thrown, and the caller settles it as refused (`refuseTakeback`).
     reversalId = (await reverseAtStripe(params, operation.label)).id;
   } else {
-    // Too old to repeat safely: every page of the transfer's own reversals, searched for this take-back's id. A
-    // list that cannot be read throws, and nothing is concluded.
-    for await (const reversal of stripe().transfers.listReversals(params.transferId, { limit: 100 })) {
-      if (reversal.metadata?.debtId === params.debtId) {
-        reversalId = reversal.id;
-        break;
+    await lookUp(async () => {
+      for await (const reversal of stripe().transfers.listReversals(params.transferId, { limit: 100 })) {
+        if (reversal.metadata?.debtId === params.debtId) {
+          reversalId = reversal.id;
+          break;
+        }
       }
-    }
+    });
   }
-  if (reversalId === undefined) return refuseTakeback(operation, params, "Stripe shows this take-back did not happen.");
-  const found = reversalId;
-  await finishOperation(operation.id, operation.paymentId, found, (_payment, tx) => applyTaken(tx, params, found));
+  if (reversalId !== undefined) {
+    const found = reversalId;
+    await finishOperation(operation.id, operation.paymentId, found, (_payment, tx) => applyTaken(tx, params, found));
+    return;
+  }
+  // Not found, but the request may still be on its way (or another helper may just be sending it): looked at again.
+  if (Date.now() - operation.createdAt.getTime() < SETTLED_AFTER_MS) return;
+  await refuseTakeback(operation, params, "Stripe shows this take-back did not happen.");
 }
 
 /** An unanswered take-back that definitely did not happen: the action is marked failed and the row put back, in one step. */
@@ -319,15 +369,17 @@ export async function refuseTakeback(operation: { id: string; paymentId: string 
  * the host only has their notice; one the app has started cannot be cancelled. Written down as an
  * admin action in the same step, and the host is told.
  */
-export async function cancelDebt(input: { debtId: string; adminId: string; now?: Date }): Promise<boolean> {
+export async function cancelDebt(input: { debtId: string; adminId: string; disputeId?: string; now?: Date }): Promise<boolean> {
   const now = input.now ?? new Date();
-  const [found] = await db.select({ paymentId: debts.paymentId }).from(debts).where(eq(debts.id, input.debtId));
-  if (!found) return false;
+  const [found] = await db.select({ paymentId: debts.paymentId, disputeId: debts.disputeId }).from(debts).where(eq(debts.id, input.debtId));
+  // (A take-back named together with another dispute's page is not this page's to cancel.)
+  if (!found || (input.disputeId !== undefined && found.disputeId !== input.disputeId)) return false;
   return db.transaction(async (tx) => {
     await lockPayment(tx, found.paymentId);
     const [debt] = await tx.select().from(debts).where(eq(debts.id, input.debtId)).for("update");
     if (!debt || !canCancel(debt)) return false;
     await tx.update(debts).set({ status: "cancelled", cancelledAt: now, cancelledBy: input.adminId, updatedAt: now }).where(eq(debts.id, debt.id));
+    await freeSetAside(tx, debt.paymentId);
     await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: "take-back after a lost dispute cancelled", targetUserId: debt.hostId, targetId: debt.id });
     const [dispute] = await tx.select().from(schema.disputes).where(eq(schema.disputes.id, debt.disputeId));
     if (dispute) await tellHost(tx, debt, dispute, "cancelled", (facts) => cancelledWords(facts, "founder"));
@@ -346,8 +398,12 @@ async function tellOfRefusals(now: Date, only?: Only): Promise<void> {
     if (!tellFounderOfRefusals(debt, now)) continue;
     await db
       .transaction(async (tx) => {
-        const marked = await tx.update(debts).set({ founderToldAt: now, updatedAt: now }).where(and(eq(debts.id, debt.id), isNull(debts.founderToldAt))).returning({ id: debts.id });
-        if (marked.length > 0) await tellFounders(tx, debt, dispute, "refused", (facts) => refusedWords(facts, debt.refusal));
+        // Judged again on the row as it is now: one that was cancelled or taken meanwhile is nothing to write about.
+        await lockPayment(tx, debt.paymentId);
+        const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
+        if (!fresh || !tellFounderOfRefusals(fresh, now)) return;
+        await tx.update(debts).set({ founderToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
+        await tellFounders(tx, fresh, dispute, "refused", (facts) => refusedWords(facts, fresh.refusal));
       })
       .catch((error) => log(`could not tell the founder about take-back ${debt.id}`, error));
   }
@@ -370,7 +426,7 @@ export async function takeBackPass(now: Date, only?: Only): Promise<void> {
     .orderBy(asc(debts.dueAt));
   for (const debt of told) {
     if (!dueToTake(debt, now)) continue;
-    await takeOne(debt).catch((error) => log(`could not take back for take-back ${debt.id}`, error));
+    await takeOne(debt, now).catch((error) => log(`could not take back for take-back ${debt.id}`, error));
   }
   await tellOfRefusals(now, only);
 }
@@ -380,8 +436,9 @@ export async function debtsOfDispute(disputeId: string): Promise<HostDebt[]> {
   return db.select().from(debts).where(and(eq(debts.disputeId, disputeId), sql`${debts.status} <> 'nothing'`)).orderBy(asc(debts.toldAt));
 }
 
-/** What a host owes or has paid back, for their earnings: the latest first, with the page of each dispute. */
-export async function debtsOfHost(hostId: string, limit = 20): Promise<Array<HostDebt & { path: string }>> {
-  const rows = await db.select().from(debts).where(and(eq(debts.hostId, hostId), inArray(debts.status, ["told", "taking", "taken"]))).orderBy(sql`${debts.toldAt} desc`).limit(limit);
-  return rows.map((row) => ({ ...row, path: disputePath(row.disputeId) }));
+/** What a host owes or has paid back, for their earnings: everything still open, and the latest that were taken, with the page of each dispute. */
+export async function debtsOfHost(hostId: string, takenShown = 10): Promise<Array<HostDebt & { path: string }>> {
+  const open = await db.select().from(debts).where(and(eq(debts.hostId, hostId), inArray(debts.status, ["told", "taking"]))).orderBy(asc(debts.dueAt));
+  const taken = await db.select().from(debts).where(and(eq(debts.hostId, hostId), eq(debts.status, "taken"))).orderBy(sql`${debts.takenAt} desc`).limit(takenShown);
+  return [...open, ...taken].map((row) => ({ ...row, path: disputePath(row.disputeId) }));
 }

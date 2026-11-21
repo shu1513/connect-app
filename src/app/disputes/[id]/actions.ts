@@ -48,6 +48,6 @@ export async function cancelDebtAction(formData: FormData) {
   const id = String(formData.get("dispute") ?? "");
   if (!DISPUTE_ID.test(id)) redirect("/admin");
   const debtId = String(formData.get("debt") ?? "");
-  const cancelled = /^[0-9a-f-]{36}$/.test(debtId) && (await cancelDebt({ debtId, adminId: admin.id }));
+  const cancelled = /^[0-9a-f-]{36}$/.test(debtId) && (await cancelDebt({ debtId, disputeId: id, adminId: admin.id }));
   redirect(withNotice(`/disputes/${id}`, cancelled ? "Cancelled. Nothing is taken back, and the host has been told." : "This take-back can no longer be cancelled: the app has started it, or it was already settled."));
 }

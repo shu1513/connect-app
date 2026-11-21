@@ -112,7 +112,7 @@ export const PAID_FOR: Record<Source, string> = { call: "Calls paid by card", me
 export function statementCsv(statement: Statement): string {
   const row = (label: string, sums: Sums) => [label, ...COLUMNS.map((column) => plainDollars(sums[column.key]))].join(",");
   return [
-    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. Bank disputes are not included."`,
+    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. A payment a customer's bank took back in a dispute is not in 'Given back'; a share taken back from you after such a dispute is counted as less 'Sent to you', in the month it was taken."`,
     ["Month", ...COLUMNS.map((column) => `"${column.title}"`)].join(","),
     ...statement.months.map((sums, index) => row(MONTH_NAMES[index], sums)),
     row(`Year ${statement.year}`, statement.total),

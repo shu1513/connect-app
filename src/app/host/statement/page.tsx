@@ -126,13 +126,15 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Your share:</strong> what you earned. For a member&apos;s month it is counted as the calls happen, or when unused time runs out, so it can fall in a later month than the payment.
         </li>
         <li>
-          <strong>Sent to you:</strong> what Connect sent to your payout account when you collected, after the collection charge.
+          <strong>Sent to you:</strong> what Connect sent to your payout account when you collected, after the collection charge. A share that was taken back from you after a
+          lost bank dispute is counted here as less sent, in the month it was taken (so a month can be below zero).
         </li>
         <li>
           <strong>Collection charges:</strong> the charge taken each time you collected. It is already off &quot;Sent to you&quot;.
         </li>
         <li>
-          <strong>Not included:</strong> money a customer&apos;s bank took back in a dispute. If you had one, ask us for the amounts.
+          <strong>Not included:</strong> the payment itself that a customer&apos;s bank took back in a dispute (it is not in &quot;Given back&quot;). If you had one, ask us for the
+          amounts.
         </li>
       </ul>
     </SitePage>

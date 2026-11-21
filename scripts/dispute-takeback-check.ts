@@ -199,7 +199,7 @@ async function main() {
       const debt = rows[0];
       check("one take-back for the dispute and the share, however often the look runs", rows.length === 1 && debt.status === "told" && debt.paymentId === c.payment.id && debt.hostId === host.id && debt.stripeTransferId === c.transferId, `${rows.length} ${debt?.status}`);
       check("the whole share is owed: the bank took the whole payment", debt.amountCents === 1238 && JSON.parse(debt.basis).disputedCents === 1333 && JSON.parse(debt.basis).chargeLeftCents === 1333 && JSON.parse(debt.basis).transferLeftCents === 1238, debt.basis);
-      check("it is due 14 days after the host was told", debt.dueAt.getTime() === debt.toldAt.getTime() + NOTICE_MS && debt.toldAt.getTime() === NOW.getTime());
+      check("it is due 14 days after the moment the notice was written (not the moment the look began)", debt.dueAt.getTime() === debt.toldAt.getTime() + NOTICE_MS && debt.toldAt.getTime() >= NOW.getTime() && debt.toldAt.getTime() - NOW.getTime() < 60_000);
       const told = await messagesOf(debt.id);
       check("the host is told once, in the app and by email: which payment, how much, from when, and where to object", told.length === 1 && told[0].userId === host.id && told[0].body.includes("$12.38") && told[0].body.includes("You had already collected your share") && told[0].body.includes("Until then nothing is taken") && told[0].body.includes("write to us at") && told[0].path === `/disputes/${c.disputeId}` && (await emailsOf(debt.id)).filter((mail) => mail.dedupeKey === told[0].key).length === 1, told[0]?.body.slice(0, 200));
       check("the customer is told nothing about it", told.every((one) => one.userId !== customer.id));
@@ -288,6 +288,29 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
+    console.log("\n3b. An amount set aside for one dispute, which is then cancelled, is owed for the other after all");
+    {
+      const customer = await person("customer");
+      const paid = await charged(host, customer, "pm_card_createMultipleDisputes");
+      const both = await disputesOn(paid.payment.stripePaymentIntentId!, 2);
+      const sent = await collect(paid.payment.id);
+      for (const id of both) await lose(id);
+      // Most of the transfer is taken back in Stripe by hand first, so that only one dispute's part is left of it.
+      const part = Math.floor(sent.sentCents / 2) - 1;
+      await stripe().transfers.createReversal(sent.transferId, { amount: sent.sentCents - part });
+      await pass(NOW, ...both);
+      let rows = (await db.select().from(debts).where(inArray(debts.disputeId, both))).sort((a, b) => b.amountCents - a.amountCents);
+      check("one dispute gets what is left of the transfer; the other is told nothing, because nothing more can be taken", rows.length === 2 && rows[0].status === "told" && rows[0].amountCents === part && rows[1].status === "nothing" && (await messagesOf(rows[1].id)).length === 0, rows.map((row) => `${row.status}:${row.amountCents}`).join(" "));
+      if (admins.length > 0) {
+        await cancelDebt({ debtId: rows[0].id, adminId: admins[0].id });
+        await pass(NOW, ...both);
+        rows = await db.select().from(debts).where(inArray(debts.disputeId, both));
+        const freed = rows.find((row) => row.status === "told");
+        check("the first is cancelled: the other dispute's share is worked out afresh, and gets a notice of its own with 14 days", rows.length === 2 && rows.some((row) => row.status === "cancelled") && freed !== undefined && freed.amountCents === part && (await messagesOf(freed.id)).length === 1 && freed.dueAt.getTime() === freed.toldAt.getTime() + NOTICE_MS, rows.map((row) => `${row.status}:${row.amountCents}`).join(" "));
+      }
+    }
+
+    // ----------------------------------------------------------------------
     console.log("\n4. The founder cancels; and a dispute that is won before anything was taken");
     {
       const customer = await person("customer");
@@ -295,8 +318,9 @@ async function main() {
       await pass(NOW, c.disputeId);
       const debt = await debtOf(c.disputeId);
       if (admins.length > 0) {
-        check("the founder cancels a take-back that only has its notice", (await cancelDebt({ debtId: debt.id, adminId: admins[0].id })) === true && (await debtOf(c.disputeId)).status === "cancelled" && (await debtOf(c.disputeId)).cancelledBy === admins[0].id);
-        check("it is written down as an admin action, and the host is told it is called off", (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, debt.id))).length === 1 && (await messagesOf(debt.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("Nothing is taken for this payment")));
+        check("a take-back cannot be cancelled from another dispute's page", (await cancelDebt({ debtId: debt.id, adminId: admins[0].id, disputeId: "du_another_one" })) === false && (await debtOf(c.disputeId)).status === "told");
+        check("the founder cancels a take-back that only has its notice", (await cancelDebt({ debtId: debt.id, adminId: admins[0].id, disputeId: c.disputeId })) === true && (await debtOf(c.disputeId)).status === "cancelled" && (await debtOf(c.disputeId)).cancelledBy === admins[0].id);
+        check("it is written down as an admin action, and the host is told it is called off", (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, debt.id))).length === 1 && (await messagesOf(debt.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("Nothing is taken for this take-back")));
         check("a second press changes nothing", (await cancelDebt({ debtId: debt.id, adminId: admins[0].id })) === false);
         await pass(new Date(debt.dueAt.getTime() + RETRY_MS), c.disputeId);
         check("a cancelled take-back is never taken, and no new one is written for the same share", (await transferAt(c.transferId)).amount_reversed === 0 && (await debtsFor(c.disputeId)).length === 1 && (await operationsOf(c.payment.id)).length === 0);
@@ -353,7 +377,7 @@ async function main() {
         const c = await collectedThenLost(host, await person("customer"));
         await pass(NOW, c.disputeId);
         const debt = await debtOf(c.disputeId);
-        const started = await db.transaction((tx) => startMoneyOperation(tx, takePlan(debt)));
+        const started = await db.transaction((tx) => startMoneyOperation(tx, takePlan(debt, debt.dueAt)));
         if (started === "already_done") throw new Error("The take-back was already done.");
         return { ...c, debt, started };
       };
@@ -365,6 +389,11 @@ async function main() {
       await db.update(schema.disputes).set({ outcome: "won", status: "won" }).where(eq(schema.disputes.id, never.disputeId));
       await pass(new Date(never.debt.dueAt.getTime() + RETRY_MS), never.disputeId);
       check("the dispute is won while it is under way: the row waits for its action", (await debtOf(never.disputeId)).status === "taking");
+      // The helper comes back two minutes later. A repeat could be the first time Stripe really does it, and the dispute
+      // is no longer lost: nothing is sent, and nothing is concluded yet either.
+      await age(never.started.operationId, 2 * 60_000);
+      await reconcileOperations(new Date());
+      check("no request is sent again for a dispute that is no longer lost, and nothing is concluded while the first could still be on its way", (await debtOf(never.disputeId)).status === "taking" && (await operationsOf(never.payment.id))[0].status === "started" && (await transferAt(never.transferId)).amount_reversed === 0);
       await age(never.started.operationId, 25 * 3_600_000);
       await reconcileOperations(new Date());
       let row = await debtOf(never.disputeId);

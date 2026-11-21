@@ -187,7 +187,7 @@ export function endedWords(role: Role, facts: Facts, outcome: Outcome): Told {
   const text =
     role === "host"
       ? `The dispute ${facts.customerName}'s bank had opened over ${facts.what} has ended: the bank decided for the customer, and the ${facts.amount} does not come back to Connect.\n\n` +
-        `Your share of that money is no longer yours, and the money for this payment stays held back. If you had already collected it, Connect takes it back from your Stripe balance: ` +
+        `Your share of that money is no longer yours, and the money for this payment stays held back. If you had already collected it, Connect asks Stripe to take it back from your Stripe balance: ` +
         `you get a message with the amount first, and nothing is taken for 14 days after that.\n\n` +
         `If you think this is wrong, write to us at ${facts.supportEmail}.`
       : role === "customer"

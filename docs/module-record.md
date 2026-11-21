@@ -5048,8 +5048,8 @@ transfer at Stripe, the 14 days, and "the founder can cancel" are the builder's,
 - The yearly statement was not in the plan: a take-back is a line of its own in the money
   record (`host_takeback`), counted as less sent.
 
-**How it was checked.** 958 tests (22 new: the amount in every mix, when it is due, who can
-cancel, every sentence people are told). `scripts/dispute-takeback-check.ts`, new, 46 checks
+**How it was checked.** 959 tests (23 new: the amount in every mix, when it is due, who can
+cancel, every sentence people are told). `scripts/dispute-takeback-check.ts`, new, 50 checks
 with real charges, disputes, transfers and reversals in Stripe's test area: one take-back
 however often the look runs; nothing a second before the 14 days and taken at them; the
 reversal is real at Stripe, the right amount out of the right transfer; never taken twice; two
@@ -5063,6 +5063,33 @@ tried again a day later under a new label, the founder told after 30 days); the 
 before Stripe and after Stripe (found by repeating, and found in Stripe's list when too old to
 repeat). In the browser, with one test take-back: the dispute's page and the earnings as the
 host, the message, and the founder's cancel.
+
+**What Astra found** (gpt-6.2-astra, effort high, before the pull request; "block"). The
+ordinary paths held: a cancelled take-back is never taken, no row stays "being taken" after a
+plain refusal, the pages show nothing to the wrong person. What it found, all taken:
+- *A look-up at Stripe that failed was taken for "Stripe refused".* After a lost reply, a
+  search of the transfer's reversals that could not be read would have marked the take-back as
+  not done, and the next try, under a new label, could have taken the amount a second time.
+  Now a failed look-up concludes nothing, as for every other money action.
+- *A repeat could be the first time Stripe really does it.* It is now sent only while the
+  dispute is still lost, in the record and at Stripe; otherwise the list is searched. And the
+  row is judged again at the moment it is claimed, with its payment held: its 14 days, the day
+  after a refusal, and that the dispute is still lost.
+- *"It did not happen" is concluded only after 24 hours* (a repeat is sent up to 23), so one
+  helper cannot conclude it while another is still sending.
+- *The 14 days* count from the moment the notice is written, not from when the look began.
+- *Never more than the bank took back*: where a refund Connect paid for itself had made the
+  charge smaller than the host's share, the host does not owe more than the bank's loss. With
+  no charge to read, nothing is worked out on a guess.
+- *An amount set aside for a dispute that is then cancelled* is worked out afresh for another
+  dispute over the same share, with a notice of its own.
+- *Smaller ones:* both reads of Stripe happen under one limit of time while the payment is
+  held, and the dispute is marked afterwards; the "30 days of refusals" email is judged again
+  on the row as it is; the words say "asks Stripe to take back" and speak of "this take-back",
+  not of the whole payment; the yearly statement explains the new line; the founder's cancel
+  names its dispute; the earnings show every open take-back and the latest ten that were taken.
+- *Not taken:* the check script's use of the helper's own check of unfinished actions, which
+  looks at every such action in the shared test database (the other check scripts do the same).
 
 **What cannot be tried here.** A host whose Stripe balance is empty when the amount is taken
 (the test account always has money): what Stripe then does, and how fast, is Stripe's. A

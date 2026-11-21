@@ -35,6 +35,11 @@ describe("what a host owes for a share after a lost dispute", () => {
     expect(owedCents({ ...whole, transferLeftCents: Number.NaN })).toBe(0);
   });
 
+  it("is never more than the bank took back, also when a refund Connect paid for had made the charge smaller than the share", () => {
+    // $100 paid, $90 sent to the host, $80 refunded at Connect's cost; the bank takes back the $20 that was left.
+    expect(owedCents({ sentCents: 9000, disputedCents: 2000, chargeLeftCents: 2000, transferLeftCents: 9000, othersOpenCents: 0 })).toBe(2000);
+  });
+
   it("takes the whole share when what was left of the charge is not known", () => {
     expect(owedCents({ ...whole, chargeLeftCents: 0 })).toBe(1238);
   });

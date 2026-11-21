@@ -180,8 +180,8 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
               <p className="font-medium">Give the money back</p>
               <p className="mt-1 opacity-80">
                 Connect tells the bank that it does not contest the dispute. This is not a refund from you: the bank has already taken the {formatMoney(dispute.amountCents)}, and
-                it stays with the customer. Your share of it is no longer yours. If you had already collected it, Connect takes it back from your Stripe
-                balance, after a message with the amount and 14 days.
+                it stays with the customer. Your share of it is no longer yours. If you had already collected it, Connect asks Stripe to take it back from
+                your Stripe balance, after a message with the amount and 14 days.
               </p>
               <button type="submit" className={`${button} mt-3`}>
                 Give the money back
@@ -243,7 +243,7 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             {standing === "lost" && (
               <p>
                 Your share of the {formatMoney(dispute.amountCents)} the bank took back is no longer yours, and the money for this payment stays held back. If you had already
-                collected it, Connect takes it back from your Stripe balance: you get a message with the amount first, and nothing is taken for 14 days after that.
+                collected it, Connect asks Stripe to take it back from your Stripe balance: you get a message with the amount first, and nothing is taken for 14 days after that.
               </p>
             )}
             <p className="mt-3 opacity-70">

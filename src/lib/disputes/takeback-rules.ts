@@ -31,6 +31,8 @@ export type DebtStatus = "told" | "cancelled" | "taking" | "taken";
  * - `transferLeftCents`: what is left of that transfer at Stripe after everything already reversed.
  * - `othersOpenCents`: what other take-backs on the same share are still to take (two disputes can
  *   be lost on one charge). Together they never ask for more than is left.
+ * And never more than the bank took back in this dispute: where a refund Connect paid for itself had made the charge
+ * smaller without making the host's share smaller, the host does not owe more than the bank's loss.
  */
 export function owedCents(input: { sentCents: number; disputedCents: number; chargeLeftCents: number; transferLeftCents: number; othersOpenCents: number }): number {
   const { sentCents, disputedCents, chargeLeftCents, transferLeftCents, othersOpenCents } = input;
@@ -39,7 +41,7 @@ export function owedCents(input: { sentCents: number; disputedCents: number; cha
   const whole = chargeLeftCents <= 0 || disputedCents >= chargeLeftCents;
   const part = whole ? sentCents : Math.floor((sentCents * disputedCents) / chargeLeftCents);
   const room = Math.max(0, Math.floor(transferLeftCents) - Math.max(0, Math.floor(othersOpenCents)));
-  return Math.max(0, Math.min(part, room));
+  return Math.max(0, Math.min(part, room, Math.floor(disputedCents)));
 }
 
 /** Whether a take-back is due to be asked of Stripe now: told, its notice over, and not refused within the last day. */

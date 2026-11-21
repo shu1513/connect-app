@@ -31,7 +31,7 @@ describe("what a host is told when a share is owed back", () => {
   });
 
   it("says so when less than that is asked for, because no more is left of the transfer", () => {
-    expect(owedWords({ ...facts, amount: "$4.00", capped: true }).text).toContain("all that is left of the transfer at Stripe");
+    expect(owedWords({ ...facts, amount: "$4.00", capped: true }).text).toContain("no more than this can be taken out of that transfer");
   });
 
   it("says the bank's fees are not charged to the host", () => {
@@ -44,6 +44,9 @@ describe("what is never promised", () => {
   it("is that Stripe will succeed, or where Stripe gets the money from beyond the host's Stripe balance", () => {
     expect(everything).not.toMatch(/bank account|will be debited|guarantee/i);
     expect(owedWords(facts).text).toContain("will ask Stripe");
+    expect(owedWords(facts).subject).toContain("will ask Stripe to take back");
+    // What is said to be settled is this take-back, never the whole payment: another dispute on the same charge can have one of its own.
+    expect(everything).not.toMatch(/owed for this payment|taken for this payment/);
   });
 
   it("is that the app gives back by itself what it took and the bank later reversed", () => {
@@ -64,7 +67,7 @@ describe("the other messages", () => {
     expect(takenWords(facts).text).toContain("Stripe has taken $12.38 back from your Stripe balance");
     expect(cancelledWords(facts, "won").text).toContain("let the payment stand");
     expect(cancelledWords(facts, "founder").text).toContain("decided not to take it");
-    for (const why of ["won", "founder"] as const) expect(cancelledWords(facts, why).text).toContain("Nothing is taken for this payment");
+    for (const why of ["won", "founder"] as const) expect(cancelledWords(facts, why).text).toContain("Nothing is taken for this take-back");
   });
 
   it("tells the founder after 30 days of refusals, with what Stripe last said", () => {
