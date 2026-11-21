@@ -5,8 +5,9 @@
 before its part 3 is built ("Part 3: refunds by Connect after a host has collected, and
 uncollected earnings"). Astra (GPT, effort high) checked the first draft against the code: "not
 ready", eight points. Its second check, of the second draft: "not ready" again, narrower: exact
-rules for a handful of cases. Both are worked in here; what was taken and what was not is at
-the end. This is the third draft.
+rules for a handful of cases. Its third: "not ready" for one formula that could charge a host 25
+where she owed 20, and a few smaller points. All three are worked in here; what was taken and
+what was not is at the end. This is the fourth draft.
 
 Parts 1, 2, 4 and 5 of plan 46 are merged (pull requests 85, 89, 96, 88).
 
@@ -134,30 +135,41 @@ Everything else here is the builder's.
    before and after, Connect's fee before and after), so that its notice can always be shown
    again exactly, whatever is refunded later.
 
-4. **How much can be taken from one share, over all causes.** Everything is counted against
-   **what was really sent** for that share (`transferCents`), which for a share that carried the
-   collection charge is up to 25 cents less than the share.
-   - **A refund debt** is the number of decision 3, cut down so that all debts ever written on
-     that share (whatever became of them) never add up to more than was sent.
-   - **A dispute debt** starts from what was sent **less every refund debt ever written on that
-     share**, whatever became of it (open, taken, settled outside, or called off). Of that, the
-     part the bank took of what was left of the charge, rounded down, as `owedCents` works it
-     out today. (Astra's example: 100 charged, 80 sent; 50 refunded after, a debt of 40; the
-     bank then takes 25 of the 50 that are left: half of the 40 that remain, 20. With no refund
-     debt on the share the number is what plan 47 gives today, also for a share that carried
-     the charge: half of 79.75 is 39.87.)
-   - **Both** are cut down to the room that is physically left on the transfer: what Stripe
-     shows as not reversed, less the debts on that share that are still open (told, waiting,
-     objected, being taken).
-   - **Under one dispute**, all its shares together never owe more than the bank took (a
-     member's month can pay for three shares: of 40, 24 and 16 when 25 of 100 is lost, they owe
-     10, 6 and 4). Working that out is put behind one lock for the dispute: today two helpers
-     on two of its shares can both count the same room.
+4. **How much can be taken from one share, over all causes.** Three numbers, each kept apart:
+   - **What her share lost to refunds after the sending** ("the reductions"): the sum, over
+     every confirmed refund made after the share was sent, of her share before less her share
+     after (the numbers decision 3 saves on the refund). It is read from the refunds, **never
+     from the debt rows**, and counts whatever became of the debt: written as nothing, cut
+     short, called off, repaid. Refunds before the sending, and the old refunds of Connect's
+     own that left the share whole, are not in it.
+   - **The room on the transfer:** what Stripe shows as not reversed, less the debts on that
+     share that are still open (told, waiting, objected, answered, being taken), less what she
+     paid back outside the app for that share.
+   - **What the bank took**, for a dispute.
+   Then:
+   - **A refund debt** is that refund's reduction, cut down to the room.
+   - **A dispute debt** starts from what was really sent (`transferCents`) less the reductions,
+     never below nothing. Of that, the part the bank took of what was left of the charge,
+     rounded down, as `owedCents` does today; then cut down to what the bank took (over all
+     shares of that dispute) and to the room. (Astra's example: 100 charged, 80 sent; 50
+     refunded after, a reduction of 40; the bank then takes 25 of the 50 that are left: half of
+     the 40 that remain, 20. That is 20 whether the refund's debt is open, taken, called off,
+     repaid, cut short, or not yet written. With no refund after the sending the number is
+     what plan 47 gives today, also for a share that carried the collection charge: half of
+     79.75 is 39.87.)
+   - More examples, as checks: 80 hers and 79.75 sent, half refunded after: a debt of 40; fully
+     refunded: 79.75, all that was sent. Refunds of 30 and then 70 on 100 charged and 80 sent:
+     24 and then 56. A member's month of 100 with shares of 40, 24 and 16, 25 lost: 10, 6
+     and 4.
+   - **Under one dispute**, working out its shares is put behind one lock for the dispute:
+     today two helpers on two of its shares can both count the same room.
    - **Nothing is worked out on a share while money is moving on it:** not while a reversal is
-     being taken, and not while a refund of that payment is still unfinished in the app's own
-     record. And if Stripe's own total of refunds on the charge is not the app's, the look
-     waits for the app's record to catch up, so that both sides of the sum come from the same
-     confirmed refunds.
+     being taken, and not while a refund of that payment is with Stripe and unanswered. A
+     contribution's refund that is only owed and waiting for its next try does not count as
+     moving (it cannot be tried while a dispute is lost, and would block for ever). And if
+     Stripe's own total of refunds on the charge is not the total the app has confirmed for
+     the charge's owner (for a contribution with its old refunds; for a month with what was
+     paid back), the look waits for the app's record to catch up.
    - **An amount once written never rises.** When a debt is called off, rows that said
      "nothing" for lack of room (on that share, and on the other shares of the same dispute)
      are worked out afresh, as today. A row that was written smaller than it could have been
@@ -175,10 +187,13 @@ Everything else here is the builder's.
    both kinds of debt, because it is one row and one piece of code.
    - The notice is the message on her Messages page and the same text by email, written in one
      step under one key; the row keeps which email that is. The due day stays empty until the
-     sending service has accepted that email, and is then 14 days after that moment. Until
-     then her page says "14 days after our email to you goes out". If the email fails (a
-     bounced address, a refusal), the founder is told and the debt waits. The debts there are
-     today are given their email by the same key.
+     sending service has accepted that email, and is then 14 days after that moment. The
+     notice itself, written before that moment is known, says "14 days after this email was
+     sent"; her page shows the day once it is known. If the email fails, or the sending
+     service reports later that it bounced, the due day is emptied again, the founder is told,
+     and the debt waits. The debts there are today are given their email by the same key.
+   - The notice explains the amount as it was worked out: for a dispute after a refund, her
+     share after the refund and the part of it the bank took, not "part of what was sent".
    - Her earnings page and the message carry a button, "I think this is wrong", with a box for
      her reasons, while the debt says "told". Pressing it puts the row in a new state,
      "objected": it is not taken. The helper reads the state under the same lock with which it
@@ -186,11 +201,13 @@ Everything else here is the builder's.
      at once and decides: "Call it off", or "Take it after all" with a written answer. That
      answer goes to her like a notice; the row then says "answered", and is due no earlier
      than its first due day and no earlier than 3 days after that answer was sent. She cannot
-     press the button a second time on an answered debt; she can still write to support.
+     press the button a second time on an answered debt; she can still write to support. A
+     reversal Stripe refuses puts an answered row back to "answered", not to "told".
    - An objection sent to support by email: the founder presses "Hold it: she objected", with
      the same effect, from the moment it is pressed.
    - A lost dispute that is decided the other way calls off its debt by itself whether the row
-     says told, objected or answered.
+     says told, objected or answered. Nothing was lost then, so no cost of Connect's is
+     booked for it.
    This changes plan 47's behaviour (today the days count from the row, and only a
    cancellation stops it); its page, which reads the due day of every "told" row, and its check
    script `scripts/dispute-takeback-check.ts`, which expects 14 days from the row and takes
@@ -200,12 +217,16 @@ Everything else here is the builder's.
 7. **The app takes a refund debt by itself only where the Host Agreement was in force for that
    payment.** (Default A.) That is: a version of the Host Agreement that is published (not a
    draft) and was in effect at the moment of the bank's hold, accepted by her at or before that
-   moment. **The moment is the bank's own**: the time Stripe gives for the charge of that
-   payment (a call's or added time's own payment; a contribution's or tip's payment; a
-   membership month's payment for the shares paid from it), read from Stripe when the row is
-   written. The app's own "held at" is not used: it is the time the app learned of the hold.
-   Where Stripe's time cannot be read, or the version in effect then cannot be shown to have
-   been accepted by then, the row is written in a new state, "waiting", with no due day. She is
+   moment. **The moment is Stripe's**: the time Stripe gives for the creation of the
+   charge that was held and then taken for that payment (a call's or added time's own payment;
+   a contribution's or tip's payment; a membership month's payment for the shares paid from
+   it), found by the charge's number the app saved, and read from Stripe when the row is
+   written. It is the closest record there is of the bank's hold, to the second. The app's own
+   "held at" is not used: it is the time the app learned of the hold. Her acceptance has to be
+   earlier than that second. Where the charge's number is missing or does not fit the payment,
+   where Stripe's time cannot be read, where the acceptance falls in the same second, or where
+   the version in effect then cannot be shown to have been accepted by then, the row is
+   written in a new state, "waiting", with no due day. She is
    told that she owes it and that Connect will write to her. The founder's page offers "Call it
    off" and "Settled outside the app". It is never promoted later, whatever she accepts
    afterwards. Plan 47's dispute debts are not changed by this decision; see "For the founder
@@ -215,7 +236,8 @@ Everything else here is the builder's.
    refund, the change in the fee, the change in her share. Her share in the books is then what
    she is entitled to, and what was sent stays what was sent.
    - Taken back: one line `host_takeback` for the amount, with a note that names the cause.
-   - Called off: one line `connect_cost` for the amount Connect carries, once, in that step.
+   - Called off by the founder: one line `connect_cost` for the amount Connect carries, once,
+     in that step. Called off by the app because the bank decided the other way: no line.
    - Settled outside the app: the founder enters how much she paid and how. A new line,
      `host_repaid`, for what she paid; `connect_cost` only for what was let go, if anything.
    - Example (Astra's): 100 charged, 80 hers, 20 the fee, no collection charge on this share.
@@ -252,8 +274,12 @@ Everything else here is the builder's.
 11. **Stripe can accept a refund and still not pay it at once.** The debt is written only when
     Stripe confirms the refund.
     - **A call:** the page says "paid back", "on its way" (also when Connect's own balance at
-      Stripe is too low), or "refused by Stripe", with Stripe's words. A refused one is over:
-      the founder can try again, or settle it outside the app.
+      Stripe is too low), or "refused by Stripe", with Stripe's words. A refused one is over,
+      and the founder can try again from the form. The page does not tell the founder to pay
+      the customer outside the app: nothing would take such a payment off what can still be
+      refunded, and a later press could pay twice. A refund whose answer never came is called
+      failed only after every refund Stripe holds for that payment was looked through (today
+      only the first hundred are).
     - **A contribution or a tip:** a refund Stripe refuses is owed again and tried every hour,
       as today; it is never dropped. The page says so, and does not tell the founder to pay it
       outside the app, which could pay it twice.
@@ -279,8 +305,11 @@ Everything else here is the builder's.
     - **The email** goes out once the outcome of every transfer of that collection is known,
       or after a day with what is known by then: what was sent, in US dollars, to her Stripe
       account; the charge really taken; what could not be sent; what is "still being checked";
-      and that she can collect herself, once in 24 hours. For a host abroad it says that
-      Stripe turns the dollars into her own money when it pays her bank.
+      and that she can collect herself, once in 24 hours. For a host whose payout account is
+      not in US dollars it says that Stripe turns the dollars into her own money when it pays
+      her bank.
+    - A collection that was accepted and whose transfers all failed starts her 24 hours, as
+      today, and not the 12 months.
     - A paused account is treated like any other open one. A closed account is not touched
       (the founder's "final collection" exists for it).
     - `collections.startedBy` becomes optional, and a new column says who started it: the
@@ -310,14 +339,18 @@ Everything else here is the builder's.
       and a second month may have begun. The button refuses then and says so; the founder
       settles that case by hand. (Named under "Not in this part".)
     - **A late cancellation or a missed call that was already charged stays charged.** By
-      booking, the member asked for the call to take place then. (For the lawyer.)
+      booking, the member asked for the call to take place then. So does a call that takes
+      place, or is charged, between the day the request reached Connect and the moment the
+      founder presses the button: only calls still to come when it is pressed are cancelled.
+      (For the lawyer.)
     - The member is told that it was cancelled within the 14 days and, as today, each amount as
       it goes back; the host is told that it ended and why.
 
 14. **The sentence before joining** becomes: "Where a 14-day right to cancel applies to you (in
     the United Kingdom and Europe): you can cancel a new membership within 14 days of joining
-    by writing to us. Time you used in those days, and a call you cancelled late or missed, is
-    paid for at the member price; the rest of what you paid is given back." With a new wording
+    by writing to us. Time you used in those days, and a call you cancelled late or missed if it
+    was charged under your booking's terms, is paid for at the member price; the rest of what
+    you paid is given back." With a new wording
     version, as every change of that list gets.
 
 15. **No change to the legal documents' texts.** A merged version is never edited. Four
@@ -391,25 +424,31 @@ stand-in for the sending service, and tests of the rules:
 - a share that carried the collection charge, alone and with a half dispute (39.87 of 79.75);
   a share that was sent with nothing: "nothing to take back", looked at once;
 - a refund, then a part dispute lost on the same share: 40 and 20, when the refund debt is
-  open, taken, called off, and settled outside; the dispute found while the refund is still on
-  its way: nothing is worked out until the refund is confirmed in the app; three shares of one
+  open, taken, called off, settled outside, cut short by an earlier debt, written as nothing,
+  and not yet written at all (the dispute is found first); Astra's case of an earlier dispute
+  debt of 60 called off after a win, then a refund of 50, then 25 lost: 20, not 25; the
+  dispute found while the refund is still with Stripe: nothing is worked out until it is
+  confirmed in the app; a contribution's refund that is only owed does not hold a dispute up; three shares of one
   disputed month: 10, 6 and 4, and with two helpers at once never more than the bank took; a
   debt called off: a row that said "nothing" is worked out again, a row that was cut short
   stays;
 - the refund fails at Stripe: no row; still on its way: no row until confirmed; the founder's
-  page says which; a contribution's refund that Stripe refuses is tried again and never paid
-  twice;
+  page says which, and never suggests paying outside the app; a call's refund whose answer
+  never came is not called failed while Stripe still holds it on a later page; a
+  contribution's refund that Stripe refuses is tried again and never paid twice;
 - the host's own button after collection: refused; the founder without a reason: refused;
   while a transfer of that share is under way, or anything about a bank is on the payment:
   refused; after a dispute was won: allowed;
 - "I think this is wrong" a moment before the day: never taken; "Take it after all": due no
   earlier than the first day and 3 days after the answer was sent, and she cannot object
-  again; pressed while it is being taken: refused; an objected dispute debt whose dispute is
-  then won: called off by itself;
+  again, also after Stripe refused the reversal once; pressed while it is being taken:
+  refused; an objected dispute debt whose dispute is then won: called off by itself, with no
+  cost booked; a notice email that bounces after it was accepted: the due day is emptied and
+  the founder is told;
 - a reversal whose answer was lost: found at Stripe and booked once, not sent twice;
 - a host without a published Host Agreement accepted by the bank's time of the charge:
-  "waiting", never taken, also after she accepts one later, and when she accepted between the
-  bank's hold and the app learning of it; "Call it off" books Connect's cost once; "Settled
+  "waiting", never taken, also after she accepts one later, when she accepted between the
+  bank's hold and the app learning of it, and when she accepted in the same second; "Call it off" books Connect's cost once; "Settled
   outside the app" books what she paid and only the rest as Connect's cost. With one accepted
   in time: "told". (The check makes up a published version for its own run, as
   `agreements-check` does.)
@@ -572,6 +611,31 @@ to build from.
    email, the wording for a transfer still being checked, who converts the dollars.*
    **Taken:** decision 12.
 
-Not taken, in either check: nothing was set aside. Two things are deliberately left small and
-named under "Not in this part": a debt written smaller than it could have been is not raised,
-and a 14-day request handled after the first month is settled by hand.
+## What Astra found in the third draft, and what was done
+
+"Not ready", for one formula and a few smaller points.
+
+1. *Measuring what is left of her share from the debt rows can charge 25 where she owes 20*
+   (a debt cut short by an earlier one that was called off, a debt written as nothing, or a
+   dispute found before the refund's debt is written). **Taken, as it proposed:** decision 4
+   now reads the reductions from the refunds themselves, keeps the room on the transfer and the
+   bank's loss as separate ceilings, counts "answered" debts as open, and does not wait for a
+   contribution's refund that is merely owed.
+2. *Stripe's time for a charge is the creation of the charge, to the second, not the bank's
+   exact moment; use the saved charge; leave a same-second acceptance waiting.* **Taken:**
+   decision 7.
+3. *A refused refund of a call must not be paid outside the app, and an unanswered one must not
+   be called failed after looking at only the first hundred of Stripe's refunds.* **Taken:**
+   decision 11.
+4. *A bounce reported after the email was accepted; an answered debt must stay answered after a
+   refusal; a dispute won books no cost; the dispute's notice must explain the amount from her
+   share after the refund, and speak of "14 days after this email".* **Taken:** decisions 6
+   and 8.
+5. *The membership sentence should say "if it was charged"; a call between the request and the
+   founder's press.* **Taken:** decisions 13 and 14.
+6. *A collection whose transfers all failed still starts the 24 hours; the sentence about
+   currency only for an account not in US dollars.* **Taken:** decision 12.
+
+Not taken, in any of the three checks: nothing was set aside. Two things are deliberately left
+small and named under "Not in this part": a debt written smaller than it could have been is not
+raised, and a 14-day request handled after the first month is settled by hand.
