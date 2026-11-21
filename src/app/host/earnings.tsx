@@ -96,7 +96,7 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                 {heldBack === "dispute" ? (
                   disputePage.has(payment.id) ? (
                     <Link href={disputePage.get(payment.id)!.path} className="underline underline-offset-2" data-dispute-link>
-                      {disputePage.get(payment.id)!.lost ? "the customer's bank returned this payment to the customer" : "the customer's bank is disputing this charge"}
+                      {disputePage.get(payment.id)!.lost ? "the customer's bank returned the disputed amount to the customer" : "the customer's bank is disputing this charge"}
                     </Link>
                   ) : (
                     "the customer's bank is disputing this charge"

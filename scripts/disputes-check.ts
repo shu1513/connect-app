@@ -12,7 +12,7 @@
  *
  * For looking at the pages in a browser:
  *   npx tsx scripts/disputes-check.ts --demo       host@test.local gets one open dispute from customer@test.local
- *   npx tsx scripts/disputes-check.ts --demo-off   takes exactly that away again
+ *   npx tsx scripts/disputes-check.ts --demo-off   ends that dispute and takes its messages and emails away
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -147,11 +147,12 @@ async function main() {
       for (const dispute of await demoDisputes()) {
         const current = await stripe().disputes.retrieve(dispute.id).catch(() => null);
         if (current?.status === "needs_response") await stripe().disputes.close(dispute.id).catch(() => undefined);
+        // The dispute is ended at Stripe (given in) and its row brought up to date, so nothing asks about it again.
+        // The row, the call and its payment stay, as a test call's do: a lost dispute, with its money held back.
+        if (dispute.paymentId) await recordDisputesOf({ kind: "payment", id: dispute.paymentId });
         await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
         await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
-        await db.delete(schema.disputes).where(eq(schema.disputes.id, dispute.id));
-        if (dispute.paymentId) await refreshPaymentDispute(dispute.paymentId);
-        console.log(`Taken away: dispute ${dispute.id}, its messages and its emails.`);
+        console.log(`Ended: dispute ${dispute.id}. Its messages and its emails are taken away.`);
       }
     }
     process.exit(0);

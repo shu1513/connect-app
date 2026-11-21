@@ -186,6 +186,9 @@ async function tellAll(tx: Tx, about: About, dispute: Dispute, event: Event): Pr
       customerName: people.customer.name,
       supportEmail: SUPPORT_EMAIL,
     };
+    // A dispute first seen while it is in an appeal: the founder gets the appeal's own words, which do not say
+    // that nothing can be sent.
+    if (role === "founder" && "began" in event && isAppeal(dispute.status)) return appealWords(facts);
     return "began" in event ? beganWords(role, facts) : "ended" in event ? endedWords(role, facts, event.ended) : appealWords(facts);
   };
   if (!("appeal" in event)) {
@@ -268,8 +271,11 @@ export async function noteDispute(owner: Owner, found: Stripe.Dispute, now: Date
   });
 }
 
-/** Stripe is read with a row locked in `writeOne`: never for longer than this. */
-const LOCKED_READ_MS = 15_000;
+/**
+ * Stripe is read with a row locked in `writeOne`: one try, never for longer than this. The handling of a message
+ * from Stripe about the same dispute waits for that row (`noteDispute`), and while it waits no host can collect.
+ */
+const LOCKED_READ_MS = 8_000;
 
 /**
  * One dispute, written into its row, with the messages a change calls for. Gives back whether
@@ -282,7 +288,7 @@ async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now:
     if (!before) return false;
     // The row is ours now. Stripe is read again from here (see the top of this file), and "look again" is cleared in
     // the same step: a message from Stripe that comes in meanwhile waits for this row and then sets it once more.
-    const fresh = await stripe().disputes.retrieve(listed.id, {}, { timeout: LOCKED_READ_MS });
+    const fresh = await stripe().disputes.retrieve(listed.id, {}, { timeout: LOCKED_READ_MS, maxNetworkRetries: 0 });
     const outcome = outcomeOf(fresh.status);
     const [after] = await tx
       .update(schema.disputes)
@@ -349,7 +355,9 @@ export type Only = { disputeIds: string[] };
  *     month and for a contribution go by "the month is open"; a month already marked lost by one
  *     dispute is passed over there although a second dispute on it is still open. Going by dispute
  *     closes that gap.)
- * A dispute that could not be asked about keeps its mark and is tried again a minute later.
+ * A dispute that could not be asked about, in whole or in part, is marked and tried again a minute
+ * later: the record may have been written when the last look at the money failed, and the next
+ * try begins with the money.
  */
 export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> {
   const due = or(
@@ -368,11 +376,15 @@ export async function lookAtOpenDisputes(now: Date, only?: Only): Promise<void> 
     const owner = ownerOf(dispute);
     if (asked.has(ownerKey(owner))) continue;
     asked.add(ownerKey(owner));
-    await refreshOwner(owner, now).catch(async (error) => {
-      console.error(`[disputes] could not ask about dispute ${dispute.id} (${errorSummary(error)}); will retry`);
-      // It still takes its turn, so one that keeps failing cannot keep the others from being asked about.
-      await db.update(schema.disputes).set({ updatedAt: now }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
-    });
+    await refreshOwner(owner, now).then(
+      // It takes its turn also when Stripe's list did not show it (then nothing above wrote to its row), so no
+      // dispute can keep the others from being asked about.
+      () => db.update(schema.disputes).set({ updatedAt: now }).where(eq(schema.disputes.id, dispute.id)),
+      async (error) => {
+        console.error(`[disputes] could not ask about dispute ${dispute.id} (${errorSummary(error)}); will retry`);
+        await db.update(schema.disputes).set({ lookAgain: true, updatedAt: now }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
+      },
+    );
   }
 }
 
@@ -399,7 +411,11 @@ export async function catchUpFromStripe(now: Date, days: number, only?: Only): P
       const owner = owners.get(intentId);
       if (!owner || asked.has(ownerKey(owner))) continue;
       asked.add(ownerKey(owner));
-      await refreshOwner(owner, now).catch((error) => console.error(`[disputes] could not catch up on dispute ${dispute.id} (${errorSummary(error)}); the next look tries again`));
+      await refreshOwner(owner, now).catch(async (error) => {
+        console.error(`[disputes] could not catch up on dispute ${dispute.id} (${errorSummary(error)}); the next look tries again`);
+        // If its row was written before the fault, the helper's look takes it up again within the minute.
+        await db.update(schema.disputes).set({ lookAgain: true }).where(eq(schema.disputes.id, dispute.id)).catch(() => undefined);
+      });
     }
   };
   let page: Stripe.Dispute[] = [];
