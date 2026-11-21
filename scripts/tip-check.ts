@@ -771,7 +771,17 @@ async function main() {
     const monaShare = await shareOf(monaTip.paymentId);
     check("its share waits 30 days from its taking, not 7", Math.abs(monaShare.transferDueAt!.getTime() - ((await PM(monaTip.paymentId)).takenAt!.getTime() + 30 * DAY)) < MIN, monaShare.transferDueAt?.toISOString());
     // A dispute, with Stripe's test card that is always disputed, on a tip for a second call.
-    const disputed = await heldTip(pia, { customer: mona, card: "pm_card_createDispute" });
+    // By a second contributor, Dora: a customer whose bank has an open dispute cannot start anything new that costs
+    // money (plans/47), and Mona tips again further down.
+    const dora = await signUp("Dora");
+    const doraTo = leadsTo((await page(`/h/${pia.handle}/project`, dora)).text, "Contribute every month", { amount: "10.00" }) ?? "";
+    const doraStarted = await press(dora, doraTo, "Continue to the card step", { agreed: "on" }, { drawn: (await page(doraTo, dora)).text });
+    const doraMonthlyId = doraStarted.location.match(/^\/contributions\/([0-9a-f-]{36})$/)?.[1] ?? "";
+    const [doraMonthly] = doraMonthlyId ? await db.select().from(pays).where(eq(pays.contributionId, doraMonthlyId)) : [];
+    if (!doraMonthly) throw new Error(`Dora's monthly contribution did not start: ${noticeOf(doraStarted)}`);
+    await pay(doraMonthly.id);
+    await take(doraMonthly.id);
+    const disputed = await heldTip(pia, { customer: dora, card: "pm_card_createDispute" });
     await take(disputed.paymentId);
     let disputeId: string | undefined;
     for (let i = 0; i < 30 && !disputeId; i++) {
@@ -783,11 +793,13 @@ async function main() {
       await handleStripeEvent({ type: "charge.dispute.created", data: { object: { id: disputeId } } } as Parameters<typeof handleStripeEvent>[0]);
       check("a message about a dispute finds the tip's payment and records it as open", (await PM(disputed.paymentId)).dispute === "open");
       const [recorded] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId));
-      check("the dispute has a record of its own, as the tip's payment's, for this host and this customer (plans/47)", recorded?.contributionPaymentId === disputed.paymentId && recorded.hostId === pia.id && recorded.customerId === mona.id, JSON.stringify(recorded ?? null).slice(0, 160));
+      check("the dispute has a record of its own, as the tip's payment's, for this host and this customer (plans/47)", recorded?.contributionPaymentId === disputed.paymentId && recorded.hostId === pia.id && recorded.customerId === dora.id, JSON.stringify(recorded ?? null).slice(0, 160));
       const toldAbout = await db.select().from(schema.messages).where(like(schema.messages.key, `dispute:${disputeId}:%`));
-      check("the host is told in words about a tip, and the customer's message leads to that call's page", toldAbout.some((one) => one.userId === pia.id && one.body.includes("a tip for the call on")) && toldAbout.some((one) => one.userId === mona.id && one.path === `/calls/${disputed.callId}/results`), toldAbout.map((one) => one.path).join(" "));
+      check("the host is told in words about a tip, and the customer's message leads to that call's page", toldAbout.some((one) => one.userId === pia.id && one.body.includes("a tip for the call on")) && toldAbout.some((one) => one.userId === dora.id && one.path === `/calls/${disputed.callId}/results`), toldAbout.map((one) => one.path).join(" "));
       check("the tip can be neither collected nor refunded", (await unsentEarnings(new Date(Date.now() + 40 * DAY), pia.id)).find((one) => one.payment.contributionPaymentId === disputed.paymentId)?.heldBack === "dispute" && /disputed/.test(await refused(R.refundContribution({ paymentId: disputed.paymentId, amountCents: 100, by: "host", deciderId: pia.id, reason: "a check", requestKey: randomUUID() }))));
-      check("and her monthly contribution goes on", (await CO(monthlyId)).status === "running");
+      check("and her monthly contribution goes on", (await CO(doraMonthlyId)).status === "running");
+      const nextCall = await hadCall(pia, dora);
+      check("while the dispute is open she cannot start another tip, and is told why", /Your bank has an open dispute/.test(await refused(T.startTip({ customerId: dora.id, callId: nextCall, amount: "5", requestKey: randomUUID(), wordingVersion: TIP_WORDING_VERSION, now: new Date() }))) && (await tipsOfCall(nextCall)).length === 0);
       check("the host's results of that call say that the charge is disputed, and offer no refund", (await results(disputed.callId, pia)).words.includes("has disputed this charge") && !formsOf((await results(disputed.callId, pia)).text).some((f) => f.buttons.some((b) => b.words === "Refund")));
     }
 

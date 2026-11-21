@@ -128,7 +128,7 @@ export type Proof = {
 const who = (visit: Visit) => (visit.who === "host" ? "The host" : "The customer");
 
 /** A name somebody typed, if it is plain: with a link, an email address or a web address in it, plain words stand in. */
-const LINKISH = /https?:|www\.|@|[a-z0-9-]\.[a-z]{2,}(?![a-z])|\d+\.\d+\.\d+/i;
+const LINKISH = /https?:|www\.|@|[a-z0-9-]\.[a-z]{2,}(?![a-z])|\d+\.\d+\.\d+|[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,}/i;
 const plain = (name: string | null | undefined, instead: string): string => {
   const clean = (name ?? "").replace(/\s+/g, " ").trim();
   return clean && !LINKISH.test(clean) ? clean.slice(0, 120) : instead;
@@ -275,7 +275,8 @@ export function proofFrom(facts: ProofFacts): Proof {
     // The day of the service and the record of who was in the call, only where the charge is for time in the call: a
     // call cancelled late was not held, and no day is given as the day it was.
     if (about.chargeReason !== "late_cancel") {
-      proof.service_date = day(about.startsAt);
+      // A day is given as the day of the service only when the record shows somebody in the room.
+      if (about.visits.length > 0) proof.service_date = day(about.startsAt);
       proof.access_activity_log = activity(about.visits);
     }
     // Only where it held for this call: a call cancelled late has no refund request in the app.

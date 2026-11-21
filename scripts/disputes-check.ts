@@ -154,10 +154,12 @@ async function main() {
         if (!now?.outcome) {
           // Answered by the app, and Stripe's test area keeps such a dispute "under review" for good. Its row is taken
           // away here, so that it neither keeps the test customer from paying nor is asked about every hour for ever.
-          await db.delete(schema.disputes).where(eq(schema.disputes.id, dispute.id));
-          // Its payment forgets its payment at Stripe, so the catch-up from Stripe's list cannot find the dispute's owner
-          // here and write the row again.
-          if (dispute.paymentId) await db.update(schema.payments).set({ stripePaymentIntentId: null }).where(eq(schema.payments.id, dispute.paymentId));
+          // Its payment forgets its payment at Stripe (first, and in one step with the row), so the catch-up from Stripe's
+          // list cannot find the dispute's owner here and write the row again.
+          await db.transaction(async (tx) => {
+            if (dispute.paymentId) await tx.update(schema.payments).set({ stripePaymentIntentId: null }).where(eq(schema.payments.id, dispute.paymentId));
+            await tx.delete(schema.disputes).where(eq(schema.disputes.id, dispute.id));
+          });
           await db.delete(schema.messages).where(like(schema.messages.key, `dispute:${dispute.id}:%`));
           await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `dispute:${dispute.id}:%`));
           console.log(`Taken away: dispute ${dispute.id} is still open at Stripe (${now?.status}) and cannot be ended in the test area. Its row, messages and emails are removed here.`);

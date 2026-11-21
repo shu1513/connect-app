@@ -450,9 +450,12 @@ async function main() {
       // taken away, with nothing else (the call and its payment stay, as a test call's do).
       const stuck = (await db.select().from(schema.disputes).where(or(...made.map((id) => eq(schema.disputes.id, id))))).filter((row) => !row.outcome);
       for (const row of stuck) {
-        await db.delete(schema.disputes).where(eq(schema.disputes.id, row.id));
-        // Its payment forgets its payment at Stripe, so the catch-up from Stripe's list cannot find the owner and write the row again.
-        if (row.paymentId) await db.update(schema.payments).set({ stripePaymentIntentId: null }).where(eq(schema.payments.id, row.paymentId));
+        // Its payment forgets its payment at Stripe (in one step with the row), so the catch-up from Stripe's list cannot
+        // find the owner and write the row again.
+        await db.transaction(async (tx) => {
+          if (row.paymentId) await tx.update(schema.payments).set({ stripePaymentIntentId: null }).where(eq(schema.payments.id, row.paymentId));
+          await tx.delete(schema.disputes).where(eq(schema.disputes.id, row.id));
+        });
       }
     }
   }

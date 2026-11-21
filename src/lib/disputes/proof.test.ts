@@ -153,6 +153,11 @@ describe("the proof for a charge the app has no totals for", () => {
     expect(proof.uncategorized_text).toContain("$13.33 was charged for this call. The video service's record of the call:");
     expect(proof.uncategorized_text).not.toMatch(/Connect charges only for time that took place|is paid for/);
   });
+
+  it("names no day of the service when the record shows nobody in the room", () => {
+    expect(proofFrom({ ...facts, about: { ...call, charged: null, visits: [] } }).service_date).toBeUndefined();
+    expect(proofFrom({ ...facts, about: { ...call, charged: null } }).service_date).toBe("2027-01-10");
+  });
 });
 
 describe("the proof for a charge Connect set after a review", () => {
@@ -210,7 +215,7 @@ describe("what the proof never says", () => {
     expect(text(project).replace(/ben@example\.test/g, "")).not.toMatch(/https?:|www\.|@|anasite/);
     expect(proofFrom({ ...facts, about: gift }).product_description).toContain('"A record"');
     // Any web address and any internet address, not only the common endings.
-    for (const name of ["Ana example.fr", "Studio 192.0.2.1", "ana.host"]) expect(proofFrom({ ...facts, hostName: name }).product_description).toContain("video call with a host,");
+    for (const name of ["Ana example.fr", "Studio 192.0.2.1", "ana.host", "Ana 2001:db8::1"]) expect(proofFrom({ ...facts, hostName: name }).product_description).toContain("video call with a host,");
     for (const name of ["Ana Host", "Dr. Ana B. Host", "Ana & Co"]) expect(proofFrom({ ...facts, hostName: name }).product_description).toContain(`video call with ${name},`);
   });
 

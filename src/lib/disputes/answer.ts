@@ -53,7 +53,7 @@ async function proofRequest(dispute: Dispute, fresh: Stripe.Dispute): Promise<Re
  * Step 1. Gives back the request to send, or null when there is nothing to send now. Everything it
  * decides is written to the row before it lets go of it.
  */
-async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<string, string>): Promise<Written | null> {
+async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<string, string>): Promise<Written | "moved" | null> {
   return db.transaction(async (tx) => {
     const [dispute] = await tx.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId)).for("update");
     if (!dispute) return null;
@@ -105,7 +105,7 @@ async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<st
       }
       // The dispute stopped waiting and no reply to the app's request ever came: not known who answered.
       await tx.update(schema.disputes).set({ answer: "unknown", proof: null, lookAgain: true }).where(eq(schema.disputes.id, dispute.id));
-      return null;
+      return "moved";
     }
 
     const kind = stillWaiting ? dueNow({ plan, choice: dispute.choice, askUntil: dispute.askUntil, now }) : null;
@@ -113,7 +113,8 @@ async function writeDown(disputeId: string, now: Date, proofForCheck?: Record<st
       // Not waiting in this stage any more (answered from outside, or it moved on), or Stripe now shows a dispute
       // the app leaves alone: the record's look brings the row up to date.
       await tx.update(schema.disputes).set({ lookAgain: true }).where(eq(schema.disputes.id, dispute.id));
-      return null;
+      // "moved": Stripe was read and shows this stage no longer waiting. The row says so only after the record's look.
+      return stillWaiting ? null : "moved";
     }
     const request: Request | null = kind === "give_in" ? { kind } : proofForCheck ? { kind, evidence: proofForCheck } : await proofRequest(dispute, fresh);
     if (!request) {
@@ -197,11 +198,15 @@ async function recordRefusal(written: Written, message: string, now: Date): Prom
  */
 export type ForCheck = { cut?: "before_stripe" | "after_stripe"; proof?: Record<string, string> };
 
-/** One dispute: the three steps. */
-export async function answerOne(disputeId: string, now: Date, check: ForCheck = {}): Promise<void> {
+/**
+ * One dispute: the three steps. Gives back true when Stripe was read and shows the dispute no longer waiting for
+ * an answer in this stage, although the row still says it does (the record's look has not written it yet).
+ */
+export async function answerOne(disputeId: string, now: Date, check: ForCheck = {}): Promise<boolean> {
   const { cut } = check;
   const written = await writeDown(disputeId, now, check.proof);
-  if (!written || cut === "before_stripe") return;
+  if (written === "moved") return true;
+  if (!written || cut === "before_stripe") return false;
   let reply: Stripe.Dispute;
   try {
     reply = await send(written);
@@ -209,10 +214,11 @@ export async function answerOne(disputeId: string, now: Date, check: ForCheck = 
     // A clear "no" is recorded. Anything else leaves the request written down: the next pass sends it again.
     if (isDefiniteRefusal(error)) await recordRefusal(written, stripeErrorMessage(error), now);
     else console.error(`[disputes] no clear answer from Stripe for dispute ${written.id}; the request stays written down (${errorSummary(error)})`);
-    return;
+    return false;
   }
-  if (cut === "after_stripe") return;
+  if (cut === "after_stripe") return false;
   await recordReply(written, reply, now);
+  return false;
 }
 
 /** The founder is told, once, of a dispute that still waits for the app's answer a day before the bank's deadline. */
@@ -220,8 +226,6 @@ async function tellIfLate(disputeId: string, now: Date): Promise<void> {
   // Read now, after the try to answer it: a dispute that was just answered is not late.
   const [dispute] = await db.select().from(schema.disputes).where(eq(schema.disputes.id, disputeId));
   if (!dispute || dispute.outcome || !waits(dispute.status) || !["none", "sending"].includes(dispute.answer)) return;
-  // The row is marked to be read from Stripe again (the try just now may have seen it answered): the next pass decides.
-  if (dispute.lookAgain) return;
   if (!dispute.dueBy || dispute.dueBy <= now || dispute.dueBy.getTime() - now.getTime() > LATE_MS || planFor(dispute) === "leave") return;
   const about = await aboutOwner(db, ownerOf(dispute));
   if (!about) return;
@@ -244,8 +248,13 @@ export async function answerDisputes(now: Date, only?: Only): Promise<void> {
     .where(and(or(eq(schema.disputes.answer, "sending"), and(isNull(schema.disputes.outcome), inArray(schema.disputes.status, WAITING), eq(schema.disputes.answer, "none"))), only ? inArray(schema.disputes.id, only.disputeIds) : undefined))
     .orderBy(asc(schema.disputes.dueBy));
   for (const { id } of rows) {
-    await answerOne(id, moment()).catch((error) => console.error(`[disputes] could not answer dispute ${id} (${errorSummary(error)}); will retry`));
-    await tellIfLate(id, moment()).catch((error) => console.error(`[disputes] could not tell the founder about dispute ${id} (${errorSummary(error)})`));
+    const moved = await answerOne(id, moment()).catch((error) => {
+      console.error(`[disputes] could not answer dispute ${id} (${errorSummary(error)}); will retry`);
+      return false;
+    });
+    // Not for a dispute Stripe just showed as answered or moved on: its row is brought up to date by the record's look.
+    // (When Stripe could not be read at all, the founder is told: better once too often than never.)
+    if (!moved) await tellIfLate(id, moment()).catch((error) => console.error(`[disputes] could not tell the founder about dispute ${id} (${errorSummary(error)})`));
   }
 }
 

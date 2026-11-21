@@ -209,7 +209,7 @@ export async function tellAll(tx: Tx, about: About, dispute: Dispute, event: Eve
     if ("late" in event) return lateWords(facts, event.late);
     return "began" in event ? beganWords(role, facts) : "ended" in event ? endedWords(role, facts, event.ended) : appealWords(facts);
   };
-  if ("began" in event || "ended" in event || "choice" in event || ("plan" in event && dispute.askUntil !== null)) {
+  if ("began" in event || "ended" in event || "choice" in event || ("plan" in event && dispute.askUntil !== null && dispute.choice === null)) {
     const host = wordsFor("host", people.host);
     // The email that asks the host to choose is not worth sending once their time is up. The message in the app stays.
     const asks = ("began" in event || "choice" in event || "plan" in event) && dispute.askUntil !== null;
@@ -351,13 +351,17 @@ async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now:
     // What the app does about a stage that still waits has changed on Stripe's side, with nothing chosen or sent yet
     // (a dispute newly marked as a compliance one, or no longer; another amount): the stage is begun afresh, so the
     // host gets their time when it is now theirs to choose, and nobody is asked when it no longer is.
-    const planChanged = !stageChanged && before.stageBeganAt !== null && waits(before.status) && waits(fresh.status) && before.answer === "none" && before.choice === null && planFor(before) !== planFor(seen);
+    const planDiffers = !stageChanged && before.stageBeganAt !== null && waits(before.status) && waits(fresh.status) && before.answer === "none" && planFor(before) !== planFor(seen);
+    // A choice the host has made stands; only the founder is then told what the app now does.
+    const planChanged = planDiffers && before.choice === null;
     const begins = waits(fresh.status) && (stageChanged || before.stageBeganAt === null || planChanged);
     // Whatever belongs to a stage (the choice, the answer, the proof) is the old stage's and never carried into a new
     // one, also when the new stage is first seen already past waiting: then nobody is asked, and the app has sent
     // nothing in it.
     const start = begins || stageChanged ? await stageStart(tx, { ...seen, hostId: before.hostId }, now) : {};
-    const begun = begins ? start : stageChanged ? { ...start, askUntil: null, answer: "not_ours" } : {};
+    // (A stage begun afresh for a new plan is still the same stage at Stripe: the count of the app's requests in it
+    // goes on, so no label is ever used twice.)
+    const begun = begins ? (planChanged ? { ...start, answerAttempt: before.answerAttempt } : start) : stageChanged ? { ...start, askUntil: null, answer: "not_ours" } : {};
     // What became of the stage that is over is kept, one line for each.
     const history = stageChanged && before.stageBeganAt !== null ? JSON.stringify([...(JSON.parse(before.stageHistory) as unknown[]), { stage: before.stage, choice: before.choice, chosenAs: before.chosenAs, answer: before.answer === "sending" ? "unknown" : before.answer, answeredAt: before.answeredAt }]) : before.stageHistory;
     // The stage stopped waiting and the app has sent nothing: somebody else answered (a person in Stripe, or Stripe
@@ -372,7 +376,7 @@ async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now:
     // A chargeback that was already waiting and can now be chosen about: the host is told once.
     if (begins && !stageChanged && !planChanged && after.askUntil) await tellAll(tx, about, after, { choice: true });
     // The plan changed: the host is asked if it is now theirs to choose, and the founder is told what the app now does.
-    if (planChanged) await tellAll(tx, about, after, { plan: true });
+    if (planDiffers) await tellAll(tx, about, after, { plan: true });
     if (before.status === fresh.status) return begins;
     // A new stage on a row that was there: a bank's question that became a chargeback.
     if (!outcome && stageChanged) await tellAll(tx, about, after, { began: true });

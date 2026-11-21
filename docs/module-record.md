@@ -4937,6 +4937,12 @@ past the page's checks. What it did find, and what was done:
   known" for a request that was never confirmed; the customer of a disputed membership is told
   that it ends; a test dispute that cannot be ended is cut loose in the test database, so it
   is not written again.
+- *A third, short look* at those changes found two more, both taken: the founder is told that
+  a dispute is now theirs also when the host had already chosen (the choice stands, the app
+  sends nothing); and the "this one needs you" email is held back only when Stripe was read
+  and showed the dispute answered, never because Stripe could not be read. Also: a stage begun
+  afresh keeps the count of the app's requests, so no label is used twice; no day of the
+  service without somebody in the room on record.
 - *Kept against its advice:* Stripe is not read a second time between writing the request down
   and sending it (the read is the step right before, and no read can close that gap); Stripe's
   own mark of who submitted (`submission_method`) and its "past due" are not kept; every clear
@@ -4956,7 +4962,9 @@ fault, and no false one. Each place where a customer with an open dispute is ref
 inside that feature's own check script, with a real call, membership or project
 (`scripts/stopped-customer.ts`), and so are a free call, free added time and a host keeping a
 member, which must go through: `booking-check` (145), `now-check` (77), `extend-check` (116),
-`membership-check` (474), `contribution-check` (282), `tip-check`. Also run and passing:
+`membership-check` (474), `contribution-check` (282), `tip-check` (130; its own test dispute
+now has a customer of its own, because the one it used tips again later and is rightly refused).
+Also run and passing:
 `disputes-check` (72), `payments-check` (77), `member-calls-check` (244), `refunds-check` (112).
 In the browser, with one test dispute: the host's two buttons and what the page says after
 "Fight it"; the customer refused on a contribution with the sentence that says why; the founder's
