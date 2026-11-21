@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { chooseAnswer, ChoiceError } from "@/lib/disputes/choose";
 import { allowPayingAgain } from "@/lib/disputes/paying";
+import { cancelDebt } from "@/lib/disputes/takeback";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin, requireUser } from "@/lib/session";
 
@@ -39,4 +40,14 @@ export async function allowPayingAction(formData: FormData) {
   const page = `/disputes/${id}`;
   const changed = await allowPayingAgain({ disputeId: id, adminId: admin.id });
   redirect(withNotice(page, changed ? "Saved. This dispute no longer keeps the customer from starting new bookings and payments." : "Nothing to change: this dispute does not keep its customer from paying."));
+}
+
+/** The founder's button: a take-back that has only its notice is called off. Written down as an admin action; the host is told. */
+export async function cancelDebtAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("dispute") ?? "");
+  if (!DISPUTE_ID.test(id)) redirect("/admin");
+  const debtId = String(formData.get("debt") ?? "");
+  const cancelled = /^[0-9a-f-]{36}$/.test(debtId) && (await cancelDebt({ debtId, adminId: admin.id }));
+  redirect(withNotice(`/disputes/${id}`, cancelled ? "Cancelled. Nothing is taken back, and the host has been told." : "This take-back can no longer be cancelled: the app has started it, or it was already settled."));
 }

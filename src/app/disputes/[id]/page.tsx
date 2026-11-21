@@ -10,12 +10,13 @@ import type { Dispute } from "@/db/schema";
 import { disputeForViewer } from "@/lib/disputes/pages";
 import { aboutOwner, ownerOf } from "@/lib/disputes/record";
 import { canChoose, planFor, stopsPaying } from "@/lib/disputes/rules";
+import { debtsOfDispute } from "@/lib/disputes/takeback";
 import { isAppeal, reasonWords, standingOf } from "@/lib/disputes/status";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 import { SUPPORT_EMAIL } from "@/lib/terms";
-import { allowPayingAction, chooseAction } from "./actions";
+import { allowPayingAction, cancelDebtAction, chooseAction } from "./actions";
 
 // The same title whoever asks: nothing is given away before it is known who may see the page.
 export const metadata: Metadata = { title: "A bank dispute" };
@@ -65,6 +66,8 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
   const standing = standingOf(dispute.status);
   const plan = planFor(dispute);
   const mayChoose = asHost && canChoose(dispute, now);
+  // What is taken back from the host after a loss, if they had collected their share (plans/47, part 3).
+  const takeBacks = await debtsOfDispute(dispute.id);
   const button = "rounded border border-neutral-500 px-4 py-2 text-sm font-medium";
   // What only the founder sees and can do. Shown beside the host's own view when the founder is this dispute's host.
   const founderTools = (
@@ -177,7 +180,8 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
               <p className="font-medium">Give the money back</p>
               <p className="mt-1 opacity-80">
                 Connect tells the bank that it does not contest the dispute. This is not a refund from you: the bank has already taken the {formatMoney(dispute.amountCents)}, and
-                it stays with the customer. Your share of it is no longer yours. If you had already collected it, Connect may ask you to pay it back.
+                it stays with the customer. Your share of it is no longer yours. If you had already collected it, Connect takes it back from your Stripe
+                balance, after a message with the amount and 14 days.
               </p>
               <button type="submit" className={`${button} mt-3`}>
                 Give the money back
@@ -239,7 +243,7 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             {standing === "lost" && (
               <p>
                 Your share of the {formatMoney(dispute.amountCents)} the bank took back is no longer yours, and the money for this payment stays held back. If you had already
-                collected it, Connect may ask you to pay it back.
+                collected it, Connect takes it back from your Stripe balance: you get a message with the amount first, and nothing is taken for 14 days after that.
               </p>
             )}
             <p className="mt-3 opacity-70">
@@ -290,12 +294,77 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             )}
             {(standing === "won" || standing === "closed") && <p>This dispute no longer holds the money for this payment back.</p>}
             {standing === "lost" && (
-              <p>The host&apos;s share of this payment stays held back. If the host had already collected it, the app takes nothing back: that still has to be settled by hand.</p>
+              <p>
+                The host&apos;s share of this payment stays held back. If the host had already collected it, the app tells them the amount and, 14 days later, asks Stripe to take it
+                back out of the transfer. A take-back is listed below once there is one.
+              </p>
             )}
             {founderTools}
           </>
         )}
       </div>
+
+      {takeBacks.length > 0 && (
+        <div className="mt-6 rounded border border-neutral-400 p-4 text-sm" data-take-backs>
+          <h2 className="text-base font-semibold">{asHost ? "Money Connect takes back" : "Taken back from the host"}</h2>
+          <p className="mt-2 opacity-80">
+            {asHost
+              ? "You had collected your share of this payment before the bank decided for the customer. That share is taken back out of what was sent to you."
+              : "The host had collected their share of this payment before the dispute was lost."}
+          </p>
+          <ul className="mt-3 space-y-3">
+            {takeBacks.map((debt) => (
+              <li key={debt.id} data-take-back={debt.status}>
+                <p>
+                  <span className="font-medium">{formatMoney(debt.amountCents)}</span>
+                  {debt.status === "told" && (
+                    <>
+                      {asHost ? ": from " : ": the host was told. From "}
+                      <LocalTime iso={debt.dueAt.toISOString()} />
+                      {asHost ? ", Connect asks Stripe to take it back from your Stripe balance. Until then nothing is taken." : " the app asks Stripe to take it back."}
+                    </>
+                  )}
+                  {debt.status === "taking" && ": Stripe is being asked to take it back now."}
+                  {debt.status === "taken" && debt.takenAt && (
+                    <>
+                      : taken back on <LocalTime iso={debt.takenAt.toISOString()} />.
+                    </>
+                  )}
+                  {debt.status === "cancelled" && ": called off. Nothing is taken."}
+                </p>
+                {debt.status === "told" && debt.refusedAt && (
+                  <p className="mt-1 opacity-80" data-refused>
+                    {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
+                  </p>
+                )}
+                {debt.status === "taken" && debt.leftoverToldAt && (
+                  <p className="mt-1 opacity-80" data-leftover>
+                    {asHost ? "The bank has since let the payment stand. A person at Connect gives this amount back to you." : "The bank has since decided the other way. The app does not give this back by itself: send it to the host in Stripe."}
+                  </p>
+                )}
+                {founder && debt.status === "told" && (
+                  <form action={cancelDebtAction} className="mt-2" data-cancel-take-back>
+                    <input type="hidden" name="dispute" value={dispute.id} />
+                    <input type="hidden" name="debt" value={debt.id} />
+                    <button type="submit" className={button}>
+                      Cancel this take-back
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+          {asHost && takeBacks.some((debt) => debt.status === "told") && (
+            <p className="mt-3 opacity-70">
+              If you think this is wrong, write to{" "}
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2">
+                {SUPPORT_EMAIL}
+              </a>{" "}
+              before that date.
+            </p>
+          )}
+        </div>
+      )}
     </SitePage>
   );
 }

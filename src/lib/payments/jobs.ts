@@ -250,6 +250,11 @@ export async function reconcileOperations(now: Date): Promise<void> {
             await finishOperation(operation.id, payment.id, found, (p, tx) => applyTransferSent(p, params, found, tx));
           }
         }
+      } else if (operation.kind === "take_back") {
+        // A share being taken back from a host after a lost bank dispute. Found out by its own code, which also puts
+        // its row back when it did not happen.
+        const { recoverTakeback } = await import("@/lib/disputes/takeback");
+        await recoverTakeback(operation, params, canRepeat());
       }
       log(`checked unfinished ${operation.kind} on payment ${operation.paymentId}`);
     } catch (error) {
@@ -257,7 +262,11 @@ export async function reconcileOperations(now: Date): Promise<void> {
         // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
         const params = JSON.parse(operation.params);
         if (operation.kind === "refund") await db.transaction((tx) => markRefundFailed(params.refundId, tx));
-        await failOperation(operation.id, paymentId, stripeErrorMessage(error));
+        if (operation.kind === "take_back") {
+          // The action and its take-back's row are settled in one step, so the row never stays "being taken".
+          const { refuseTakeback } = await import("@/lib/disputes/takeback");
+          await refuseTakeback(operation, params, stripeErrorMessage(error));
+        } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
         // A refused charge usually means the hold is gone. Record the hold's real state.
         if (operation.kind === "capture") await syncHold(paymentId, now).catch(() => undefined);
         log(`unfinished ${operation.kind} on payment ${paymentId} was refused by Stripe`);

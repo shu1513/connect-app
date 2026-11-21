@@ -187,12 +187,14 @@ export function endedWords(role: Role, facts: Facts, outcome: Outcome): Told {
   const text =
     role === "host"
       ? `The dispute ${facts.customerName}'s bank had opened over ${facts.what} has ended: the bank decided for the customer, and the ${facts.amount} does not come back to Connect.\n\n` +
-        `Your share of that money is no longer yours, and the money for this payment stays held back. If you had already collected it, Connect may ask you to pay it back.\n\n` +
+        `Your share of that money is no longer yours, and the money for this payment stays held back. If you had already collected it, Connect takes it back from your Stripe balance: ` +
+        `you get a message with the amount first, and nothing is taken for 14 days after that.\n\n` +
         `If you think this is wrong, write to us at ${facts.supportEmail}.`
       : role === "customer"
         ? `The dispute your bank had opened over ${facts.what} has ended: your bank decided in your favour. The ${facts.amount} is yours again; your bank can tell you when it shows on your account.${forCustomer}`
         : `The dispute over ${facts.what} is lost: the bank decided for the customer, and the ${facts.amount} it had taken from Connect does not come back.\n\n` +
-          `The host's share of this payment stays held back. If the host had already collected it, nothing is taken back by the app: that still has to be settled by hand.` +
+          `The host's share of this payment stays held back. If the host had already collected it, the app tells them the amount and, 14 days later, asks Stripe to take it back out of the transfer. ` +
+          `You get an email when that is so, and can cancel it on the dispute's page until the app starts it.` +
           (facts.stopStays ? `\n\nThe customer cannot start new payments until you allow it again, on the dispute's page.` : "");
   return { subject: role === "founder" ? `A bank dispute was lost: ${facts.customerName} and ${facts.hostName}` : role === "customer" ? "A bank dispute has ended: your bank decided in your favour" : "A bank dispute has ended: the bank decided for the customer", text };
 }

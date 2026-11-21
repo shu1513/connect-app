@@ -63,6 +63,8 @@ function add(sums: Sums, line: StatementLine): void {
     else sums.feesCents += line.amountCents;
   } else if (line.kind === "host_share") sums.shareCents += line.amountCents;
   else if (line.kind === "host_transfer") sums.sentCents -= line.amountCents;
+  // A share taken back out of its transfer after a lost bank dispute (plans/47): that much less was sent, in the month it was taken.
+  else if (line.kind === "host_takeback") sums.sentCents -= line.amountCents;
   else if (line.kind === "payout_fee") sums.collectionChargesCents += line.amountCents;
   // A refund given after the host had collected: Connect paid it, and says so beside the refund.
   else if (line.kind === "connect_cost") sums.paidByConnectCents += line.amountCents;

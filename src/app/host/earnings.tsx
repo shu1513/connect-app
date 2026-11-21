@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { formatMoney } from "@/lib/payments/access";
 import { disputePagesOf } from "@/lib/disputes/pages";
+import { debtsOfHost } from "@/lib/disputes/takeback";
 import { DISPUTE_MESSAGE_WAITING, disputeMessageWaiting, lastCollectionOf, unsentEarnings, wouldCollect, type Earning } from "@/lib/payments/collect";
 import { collectEarningsAction } from "./actions";
 
@@ -31,6 +32,8 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
   const waitForStripe = would !== null && payoutsReady && !tooSoon && (await disputeMessageWaiting());
   // Where the host can read about each disputed payment (plans/47). A dispute the app has no record of yet has no page.
   const disputePage = await disputePagesOf(waiting.filter((e) => e.heldBack === "dispute").map((e) => e.payment));
+  // A share collected before a bank dispute was lost is taken back (plans/47, part 3): what is owed, from when, and what was taken.
+  const takeBacks = await debtsOfHost(hostId);
 
   return (
     <div className="mt-5 rounded border border-neutral-400 p-4 text-sm" data-earnings>
@@ -144,6 +147,36 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
             </>
           )}
         </p>
+      )}
+
+      {takeBacks.length > 0 && (
+        <div className="mt-4" data-take-backs>
+          <p className="font-medium">Taken back after a lost bank dispute</p>
+          <ul className="mt-1 space-y-1">
+            {takeBacks.map((debt) => (
+              <li key={debt.id} data-take-back={debt.status}>
+                {formatMoney(debt.amountCents)}
+                {debt.status === "taken" && debt.takenAt ? (
+                  <>
+                    {" "}
+                    was taken back from your Stripe balance on <LocalTime iso={debt.takenAt.toISOString()} />.
+                  </>
+                ) : debt.status === "taking" ? (
+                  " is being taken back now."
+                ) : (
+                  <>
+                    {" "}
+                    is owed back: you had collected your share of a payment the customer&apos;s bank then took back. Connect asks Stripe to take it from your Stripe balance from{" "}
+                    <LocalTime iso={debt.dueAt.toISOString()} />.
+                  </>
+                )}{" "}
+                <Link href={debt.path} className="underline underline-offset-2">
+                  Read about this dispute
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {abroad ? (

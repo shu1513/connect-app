@@ -2393,6 +2393,67 @@ export const disputes = pgTable(
 
 export type Message = typeof messages.$inferSelect;
 export type Dispute = typeof disputes.$inferSelect;
+
+/**
+ * A share that is taken back from a host after a lost bank dispute (plans/47-bank-disputes.md,
+ * part 3). The host had collected their share of a payment; the bank then took the payment back
+ * from Connect. One row for a dispute and a share: the host is told, 14 days pass, and the app
+ * asks Stripe to take the amount back out of the transfer that carried it.
+ */
+export const hostDebts = pgTable(
+  "host_debts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    disputeId: text("dispute_id")
+      .notNull()
+      .references(() => disputes.id, { onDelete: "cascade" }),
+    /** The share: the payment whose transfer carried the money to the host. */
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Stripe's transfer the amount is taken back out of. */
+    stripeTransferId: text("stripe_transfer_id").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull().default("usd"),
+    /** What the amount was worked out from, as it was read then (JSON): what was sent, what the bank disputed of what was left of the charge, what was left of the transfer. */
+    basis: text("basis").notNull().default("{}"),
+    /**
+     * told: the host has their notice. cancelled: called off (by the founder, or because the bank
+     * decided the other way after all). taking: Stripe is being asked. taken: done. nothing: looked
+     * at, and nothing is owed for this share (kept so that Stripe is not asked again every pass).
+     */
+    status: text("status").notNull().default("told"),
+    toldAt: timestamp("told_at", { withTimezone: true }).notNull(),
+    /** From when it is taken: 14 days after the host was told. */
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    stripeReversalId: text("stripe_reversal_id"),
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+    /** The last "no" from Stripe, and when; and the first one since the last success, for telling the founder after 30 days. */
+    refusal: text("refusal"),
+    refusedAt: timestamp("refused_at", { withTimezone: true }),
+    firstRefusedAt: timestamp("first_refused_at", { withTimezone: true }),
+    founderToldAt: timestamp("founder_told_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    /** The admin who called it off. Empty when the app did (the bank decided the other way). */
+    cancelledBy: text("cancelled_by").references(() => user.id),
+    /** Taken, and then the bank decided the other way: the founder and the host were told then, once. */
+    leftoverToldAt: timestamp("leftover_told_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("host_debts_dispute_payment_uq").on(t.disputeId, t.paymentId),
+    index("host_debts_payment_idx").on(t.paymentId),
+    index("host_debts_host_idx").on(t.hostId),
+    index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} = 'told'`),
+    check("host_debts_status", sql`${t.status} in ('told', 'cancelled', 'taking', 'taken', 'nothing')`),
+    check("host_debts_amount", sql`${t.amountCents} >= 0`),
+  ],
+);
+export type HostDebt = typeof hostDebts.$inferSelect;
 export type Call = typeof calls.$inferSelect;
 export type Follow = typeof follows.$inferSelect;
 export type Contribution = typeof contributions.$inferSelect;

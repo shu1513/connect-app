@@ -24,8 +24,11 @@ import type { Payment } from "@/db/schema";
 import { isDefiniteRefusal, stripeErrorMessage } from "./stripe";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-/** "transfer" is only ever a payment's: a month's money reaches a host through the payments under it. */
-export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hold";
+/**
+ * "transfer" is only ever a payment's: a month's money reaches a host through the payments under it. So is
+ * "take_back": taking a share back out of its transfer after a lost bank dispute (src/lib/disputes/takeback.ts).
+ */
+export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hold" | "take_back";
 
 /** An action was refused for a reason a person can read. Nothing was changed. */
 export class MoneyError extends Error {}
