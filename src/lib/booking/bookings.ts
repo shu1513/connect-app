@@ -850,16 +850,22 @@ export async function decline(input: { bookingId: string; hostId: string; now: D
  * payment, for a paid call), the host is now taken for that time, and every
  * other waiting request that the call or its break gets in the way of ends
  * with "the host accepted another request".
+ *
+ * `live` is set by the addresses that people's browsers and phones call: see `finishCardStep`.
  */
-export async function accept(input: { bookingId: string; hostId: string; now: Date }): Promise<{ callId: string }> {
+export async function accept(input: { bookingId: string; hostId: string; now: Date; live?: boolean }): Promise<{ callId: string }> {
   const [seen] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, input.bookingId));
   if (!seen || seen.hostId !== input.hostId) throw new BookingError("Request not found.");
   try {
     return await db.transaction(async (tx) => {
       await lockCalendars(tx, [seen.hostId, seen.customerId]);
       const [booking] = await tx.select().from(schema.bookings).where(eq(schema.bookings.id, seen.id)).for("update");
+      // The moment of deciding. For the addresses people call (`live`), the clock is read here, with the calendars
+      // locked and the request in hand: getting this far can take a while, and the time to answer may have run out
+      // meanwhile. A check script that works with a clock of its own is judged by the `now` it hands in.
+      const at = input.live ? new Date() : input.now;
       if (booking.stage !== "waiting") throw new BookingError("This request is no longer waiting for an answer.");
-      if (!booking.respondBy || booking.respondBy <= input.now) throw new BookingError("The time to answer this request has passed.");
+      if (!booking.respondBy || booking.respondBy <= at) throw new BookingError("The time to answer this request has passed.");
 
       // Both people must still be able to take part. (A hidden profile can still accept what it was asked.)
       const [parties] = await tx
@@ -883,12 +889,12 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
       if (instant) {
         // The host must still be available (on their page), and the call is timed from this moment.
         const offer = await offerOf(booking.hostId, tx);
-        if (!offer || !isAvailableNow(offer, input.now)) throw new BookingError("You are no longer available, so this request cannot be accepted.");
-        startsAt = instantStart(input.now);
+        if (!offer || !isAvailableNow(offer, at)) throw new BookingError("You are no longer available, so this request cannot be accepted.");
+        startsAt = instantStart(at);
         endsAt = new Date(startsAt.getTime() + booking.lengthMinutes * 60_000);
         await tx.update(schema.busyEntries).set({ startsAt, endsAt: takenUntil(endsAt) }).where(and(eq(schema.busyEntries.bookingId, booking.id), eq(schema.busyEntries.userId, booking.customerId)));
         // One instant call at a time: being available ends with accepting. (And with it an announcement to followers that was still waiting, plans/31.)
-        await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, announceAt: null, updatedAt: input.now }).where(eq(schema.hostCalendars.userId, booking.hostId));
+        await tx.update(schema.hostCalendars).set({ availableUntil: null, availableSeenAt: null, announceAt: null, updatedAt: at }).where(eq(schema.hostCalendars.userId, booking.hostId));
       }
 
       // The host is now taken for the call and the break after it. If they already are, the database refuses.
@@ -912,14 +918,14 @@ export async function accept(input: { bookingId: string; hostId: string; now: Da
       if (paid) await createPaymentForCall(tx, call);
       const [accepted] = await tx
         .update(schema.bookings)
-        .set({ stage: "accepted", callId: call.id, decidedAt: input.now, startsAt, endsAt, payBy: instant && paid ? instantPayBy(input.now) : booking.payBy })
+        .set({ stage: "accepted", callId: call.id, decidedAt: at, startsAt, endsAt, payBy: instant && paid ? instantPayBy(at) : booking.payBy })
         .where(eq(schema.bookings.id, booking.id))
         .returning();
       await queueBookingEmails(tx, accepted, "accepted");
 
-      await endRequestsInTheWay(tx, { hostId: booking.hostId, exceptBookingId: booking.id, from: startsAt, until: busyUntil, now: input.now });
+      await endRequestsInTheWay(tx, { hostId: booking.hostId, exceptBookingId: booking.id, from: startsAt, until: busyUntil, now: at });
       // The customer may be a host too: requests to her that this call of her own makes impossible end as well.
-      await endRequestsInTheWay(tx, { hostId: booking.customerId, exceptBookingId: booking.id, from: startsAt, until: takenUntil(endsAt), now: input.now, reason: PASSED_OVER.ownCall });
+      await endRequestsInTheWay(tx, { hostId: booking.customerId, exceptBookingId: booking.id, from: startsAt, until: takenUntil(endsAt), now: at, reason: PASSED_OVER.ownCall });
       return { callId: call.id };
     });
   } catch (error) {

@@ -9,6 +9,9 @@ import { enterCard, type CardOutcome } from "@/lib/card";
 import { useWatch } from "@/lib/here";
 import { localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
+import { blockSent } from "@/lib/requests-fresh";
+import { Asker, askBeforeAccepting } from "@/requests/asker";
+import { NoteBox } from "@/requests/note-box";
 import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Words } from "@/ui/pieces";
 import { Sentence } from "@/ui/sentence";
 import { type, useColors } from "@/ui/theme";
@@ -16,7 +19,11 @@ import { type, useColors } from "@/ui/theme";
 /**
  * One request for a call, for the customer who made it
  * (plans/45-phone-apps/06-asking-for-a-call.md): where it stands, the card step of a paid one, and
- * taking it back. The page asks the server again by itself while the request waits.
+ * taking it back; and for the host it was sent to (07-a-hosts-requests.md): who is asking, as far
+ * as she may know, Accept and Decline, and her private note. Either of them can block the other.
+ * Which of the two is reading, and what they are shown, is decided on the server. The page asks
+ * the server again by itself while the request waits, and after any answer it shows what really
+ * happened, whichever answer won.
  *
  * The card goes into Stripe's own sheet. Whatever the sheet reports, the app then asks the
  * server, which asks Stripe; only the server's answer moves the request on. The same question is
@@ -44,7 +51,7 @@ function OneRequest({ id }: { id: string }) {
    * confirmed yet" never stands under a request that has since been sent.
    */
   const [said, setSaid] = useState<{ words: string; stage: string | null } | null>(null);
-  const [busy, setBusy] = useState<"card" | "check" | "back" | null>(null);
+  const [busy, setBusy] = useState<"card" | "check" | "back" | "accept" | "decline" | "block" | null>(null);
   /**
    * Stripe's sheet finished, and the server has not yet said that the card is saved (it could not be asked, or
    * could not tell yet). The card may well be saved: the screen then offers to ask the server again, without the
@@ -60,6 +67,23 @@ function OneRequest({ id }: { id: string }) {
   const newest = useRef(0);
   /** A step is under way: nothing else is asked meanwhile. */
   const acting = useRef(false);
+  /** A reading that must not be skipped was asked for while a step was under way: it is made when the step is through. */
+  const owed = useRef(false);
+  /**
+   * The note box has asked for the stored note to be read again (after a save, or a refused one), and no plain
+   * reading of the page has come in since. It stays so until one does, whatever overtakes what on the way: a step
+   * that finds it so reads the page again when it is through.
+   */
+  const noteDue = useRef(false);
+  /**
+   * The host's stored note as the latest plain reading of the page found it, and how many such readings have come
+   * in: what the note box goes by. Only a plain reading counts. The answer to a step (Accept, say) may have read
+   * the note before a save that crossed it, and would put the older note back in the box; from such an answer the
+   * stage and what may be done are taken at once, and the note waits for the next plain reading.
+   */
+  const [noteRead, setNoteRead] = useState<{ count: number; text: string | null }>({ count: 0, text: null });
+  /** Whether the page on the screen has a note box. An answer that first brings one is its first reading, whatever kind of answer it is. */
+  const hasNote = useRef(false);
   /** How many readings that also ask about the card are under way: the timer's plain reading does not cut in on them. */
   const checking = useRef(0);
   /** The stage the screen shows, for words that belong to it. */
@@ -73,11 +97,16 @@ function OneRequest({ id }: { id: string }) {
    * that this answer no longer says anything.
    */
   const settle = useCallback(
-    (answer: Answer<AppBooking>, mine: number): AppBooking | null | undefined => {
+    (answer: Answer<AppBooking>, mine: number, plain: boolean): AppBooking | null | undefined => {
       if (mine !== newest.current) return undefined;
       if (answer.ok && isBooking(answer.data) && answer.data.id === id) {
         stage.current = answer.data.stage;
         setPage(answer.data);
+        const stored = answer.data.host?.note ?? null;
+        if (stored && (plain || !hasNote.current)) setNoteRead((was) => ({ count: was.count + 1, text: stored.text }));
+        // A plain reading has come in: what the note box asked for is done.
+        if (plain) noteDue.current = false;
+        hasNote.current = stored !== null;
         setProblem(null);
         setGone(false);
         // What a step just did ("your request was taken back") belongs to the stage it led to.
@@ -109,10 +138,10 @@ function OneRequest({ id }: { id: string }) {
 
   /** One question that is answered with the request's page. The number is taken before it is sent. */
   const asked = useCallback(
-    async (step: "" | "/card-saved" | "/take-back"): Promise<AppBooking | null | undefined> => {
+    async (step: "" | "/card-saved" | "/take-back" | "/accept" | "/decline" | "/block"): Promise<AppBooking | null | undefined> => {
       const mine = ++newest.current;
       const answer = await ask<AppBooking>(`${path}${step}`, step === "" ? {} : { body: {} });
-      return settle(answer, mine);
+      return settle(answer, mine, step === "");
     },
     [path, settle],
   );
@@ -131,17 +160,23 @@ function OneRequest({ id }: { id: string }) {
     [asked],
   );
 
-  /** Reads the page, unless a step is under way. */
+  /**
+   * Reads the page, unless a step is under way. `now`: a reading that must not be skipped (after a step, to
+   * show where the request really stands), even while a fuller reading is still on its way.
+   */
   const look = useCallback(
-    async (andCard: boolean) => {
-      if (acting.current) return;
+    async (andCard: boolean, now = false) => {
+      if (acting.current) {
+        if (now) owed.current = true;
+        return;
+      }
       if (!id) {
         setGone(true);
         return;
       }
       // The timer's plain reading stands back while a fuller one is under way: overtaking it would drop the question
       // about the card that follows it (a card saved while the app was away would then go unnoticed).
-      if (!andCard && checking.current > 0) return;
+      if (!andCard && !now && checking.current > 0) return;
       if (andCard) checking.current++;
       try {
         await read(andCard);
@@ -228,17 +263,24 @@ function OneRequest({ id }: { id: string }) {
     if (!after) void look(false);
   }
 
-  async function takeBack() {
+  /** A step that is answered with the page as it stands afterwards: taking back, accepting, declining, blocking. */
+  async function act(step: "back" | "accept" | "decline" | "block") {
     if (acting.current) return;
     acting.current = true;
     newest.current++;
-    setBusy("back");
+    setBusy(step);
     setSaid(null);
-    const done = await asked("/take-back");
+    // A list of requests kept on its screen from before must not show this person again without a fresh reading.
+    if (step === "block") blockSent();
+    const done = await asked(step === "back" ? "/take-back" : `/${step}`);
     acting.current = false;
     setBusy(null);
-    // Refused (it was answered meanwhile, say): the page is read again, so it shows where the request stands now.
-    if (!done) void look(false);
+    // Refused (it was answered meanwhile, say), or a reading was asked for meanwhile (a note was saved): the page is
+    // read again, so it shows where the request stands now.
+    const wanted = owed.current;
+    owed.current = false;
+    // (Also when the note box is still owed its reading: this step has overtaken whatever reading was on its way.)
+    if (!done || wanted || noteDue.current) void look(false, true);
   }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace("/"));
@@ -256,6 +298,9 @@ function OneRequest({ id }: { id: string }) {
   const takeBackLabel = page.takeBack;
   const sure = page.takeBackSure;
   const hostHandle = page.hostHandle;
+  const host = page.host;
+  const answer = host?.answer ?? null;
+  const block = page.block;
   // Only what belongs to the stage on the screen is said.
   const saying = said && said.stage === page.stage ? said.words : null;
   return (
@@ -288,15 +333,41 @@ function OneRequest({ id }: { id: string }) {
         </View>
         {page.hearBy ? (
           <View>
-            <Text style={[styles.label, { color: colors.soft }]}>You will hear by</Text>
+            <Text style={[styles.label, { color: colors.soft }]}>{page.hearBy.label}</Text>
             <Words>
-              <Text style={styles.bold}>{localTime(page.hearBy)}</Text>
+              <Text style={styles.bold}>{localTime(page.hearBy.at)}</Text>
             </Words>
           </View>
         ) : null}
       </Card>
 
-      {page.card ? (
+      {host ? (
+        <Card>
+          <Asker name={host.customerName} photoId={host.photoId} rating={host.rating} ratingWords={host.ratingWords} idConfirmed={host.idConfirmed} />
+          {host.words ? (
+            <View>
+              <Text style={[styles.label, { color: colors.soft }]}>{host.words.label}</Text>
+              <Words>“{host.words.text}”</Words>
+            </View>
+          ) : null}
+          {saying ? <Notice>{saying}</Notice> : null}
+          {answer?.kind === "booked" ? (
+            <>
+              <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, watch(), () => void act("accept"))} />
+              <Button label={answer.decline} kind="plain" busy={busy === "decline"} disabled={busy !== null} onPress={() => void act("decline")} />
+            </>
+          ) : answer?.elsewhere ? (
+            <Words>{answer.elsewhere}</Words>
+          ) : null}
+        </Card>
+      ) : null}
+      {host?.note ? <NoteBox path={path} note={{ ...host.note, text: noteRead.text }} reading={noteRead.count} onSettled={() => {
+            noteDue.current = true;
+            void look(false, true);
+          }}
+        /> : null}
+
+      {host ? null : page.card ? (
         <Card>
           <Heading>{page.card.title}</Heading>
           <Words soft>{page.card.words}</Words>
@@ -326,7 +397,7 @@ function OneRequest({ id }: { id: string }) {
                 text: sure.yes,
                 style: "destructive",
                 onPress: () => {
-                  if (still()) void takeBack();
+                  if (still()) void act("back");
                 },
               },
             ]);
@@ -340,7 +411,30 @@ function OneRequest({ id }: { id: string }) {
           <Button label="Open your calls" kind="plain" onPress={() => router.push("/calls")} />
         </Card>
       ) : null}
-      {hostHandle ? <TextLink label="Open the host's page" onPress={() => router.push(`/h/${hostHandle}`)} /> : null}
+      {hostHandle && page.role === "customer" ? <TextLink label="Open the host's page" onPress={() => router.push(`/h/${hostHandle}`)} /> : null}
+      {block ? (
+        <Button
+          label={block.label}
+          kind="danger"
+          busy={busy === "block"}
+          disabled={busy !== null}
+          onPress={() => {
+            // Blocking ends what is between the two: it is asked once more, in the server's words. A "yes" only
+            // counts while this request is still the page in front (see the question before taking back).
+            const still = watch();
+            Alert.alert(block.label, block.sure, [
+              { text: block.no, style: "cancel" },
+              {
+                text: block.yes,
+                style: "destructive",
+                onPress: () => {
+                  if (still()) void act("block");
+                },
+              },
+            ]);
+          }}
+        />
+      ) : null}
     </Page>
   );
 }

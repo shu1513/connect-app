@@ -38,7 +38,7 @@ export function WaitingForYou({ toAnswer, toRate, serverNow }: { toAnswer: AppHo
             You have {toAnswer.count} {toAnswer.count === 1 ? "request" : "requests"} for a call waiting for your answer.
           </Text>
           {toAnswer.shown.map((request) => (
-            <View key={request.id} style={[styles.line, { borderTopColor: colors.noticeLine }]}>
+            <Pressable key={request.id} accessibilityRole="link" accessibilityLabel={`${request.name}, ${localTime(request.startsAt)}. Open this request.`} onPress={() => router.push({ pathname: "/bookings/[id]", params: { id: request.id } })} style={[styles.line, { borderTopColor: colors.noticeLine }]}>
               <Text style={[styles.rowTitle, { color: colors.text }]}>
                 {localTime(request.startsAt)} · {request.name}
               </Text>
@@ -50,9 +50,10 @@ export function WaitingForYou({ toAnswer, toRate, serverNow }: { toAnswer: AppHo
                   {Date.parse(request.respondBy) > now ? `Answer within ${leftWords(Date.parse(request.respondBy) - now)} (by ${localTime(request.respondBy)})` : `Answer by ${localTime(request.respondBy)}`}
                 </Text>
               ) : null}
-            </View>
+            </Pressable>
           ))}
           {toAnswer.shown.length < toAnswer.count ? <Text style={[styles.small, { color: colors.soft }]}>And {toAnswer.count - toAnswer.shown.length} more, for later times.</Text> : null}
+          <Button label="Answer requests" kind="plain" onPress={() => router.push("/requests")} />
         </View>
       ) : null}
       {toRate.length > 0 ? (

@@ -1,4 +1,4 @@
-import { chosenTime, isBooking, isBookSummary, isCardStep, isId, isIdentity, isStripeCheckPage, requestScreen, sameId, tickedFor } from "./book-rules";
+import { chosenTime, isBooking, isBookSummary, isCardStep, isId, isIdentity, isNoteSaved, isRequests, isStripeCheckPage, plainWords, requestScreen, sameId, tickedFor } from "./book-rules";
 
 const ID = "157202f9-5fd5-49e8-a4b7-e80af19ab4e8";
 const summary = {
@@ -22,6 +22,9 @@ const summary = {
 };
 const booking = {
   id: ID,
+  role: "customer",
+  host: null,
+  block: null,
   title: "Your request to Maya",
   hostHandle: "maya",
   stage: "card",
@@ -89,7 +92,7 @@ describe("a request's page", () => {
   it("takes a page at the card step and one that waits", () => {
     expect(isBooking(booking)).toBe(true);
     const sure = { words: "The host will no longer be able to accept it.", yes: "Take it back", no: "Keep it" };
-    expect(isBooking({ ...booking, stage: "waiting", card: null, hearBy: "2026-11-21T14:18:00.913Z", takeBack: "Take this request back", takeBackSure: sure, refreshSeconds: 20, waitingWords: "…" })).toBe(true);
+    expect(isBooking({ ...booking, stage: "waiting", card: null, hearBy: { label: "You will hear by", at: "2026-11-21T14:18:00.913Z" }, takeBack: "Take this request back", takeBackSure: sure, refreshSeconds: 20, waitingWords: "…" })).toBe(true);
     expect(isBooking({ ...booking, stage: "accepted", card: null, call: { id: ID } })).toBe(true);
     // A button to take it back without the question to ask first is not taken.
     expect(isBooking({ ...booking, stage: "waiting", card: null, takeBack: "Take this request back", takeBackSure: null })).toBe(false);
@@ -101,6 +104,49 @@ describe("a request's page", () => {
     expect(isBooking({ ...booking, refreshSeconds: 0 })).toBe(false);
     expect(isBooking({ ...booking, call: { id: "x" } })).toBe(false);
     expect(isBooking({ ...booking, price: "$40.00" })).toBe(false);
+  });
+});
+
+describe("a request's page for its host, and her list", () => {
+  const host = {
+    customerName: "Ann",
+    photoId: null,
+    known: true,
+    rating: null,
+    ratingWords: "New: not enough ratings yet",
+    idConfirmed: true,
+    words: { label: "Their note", text: "About my garden." },
+    note: { title: "About Ann", hint: "Your private notes.", text: null, max: 5000, save: "Save", notSaved: "Nothing was saved." },
+    answer: { kind: "booked", accept: "Accept", decline: "Decline", sure: ["Accept a 30-minute call on ", { time: "2026-11-21T17:00:00.000Z" }, ", for free?"], yes: "Accept", no: "Not now", elsewhere: null },
+  };
+  const forHost = { ...booking, role: "host", stage: "waiting", card: null, host, block: { label: "Block Ann", sure: "Ann will not be able to ask you…", yes: "Block", no: "Not now" } };
+  it("takes the host's page, with and without what she may know", () => {
+    expect(isBooking(forHost)).toBe(true);
+    expect(isBooking({ ...forHost, host: { ...host, known: false, ratingWords: null, idConfirmed: false, words: null, note: null, answer: null } })).toBe(true);
+  });
+  it("never a host's part for the customer, nor a host's page without it", () => {
+    expect(isBooking({ ...booking, host })).toBe(false);
+    expect(isBooking({ ...forHost, host: null })).toBe(false);
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, kind: "else" } } })).toBe(false);
+    expect(isBooking({ ...forHost, host: { ...host, note: { title: "About Ann" } } })).toBe(false);
+    expect(isBooking({ ...forHost, block: { label: "Block Ann" } })).toBe(false);
+    expect(isBooking({ ...forHost, role: "admin" })).toBe(false);
+  });
+  const one = { id: ID, kind: "booked", name: "Ann", minutes: 30, price: "free", respondBy: "2026-11-21T14:18:00.913Z", known: true, rating: { average: 4.5, count: 6 }, ratingWords: null, idConfirmed: true, words: "", note: null, photoId: null, answer: host.answer };
+  const requests = { title: "Requests for calls (1)", intro: ["Several people may ask…"], empty: null, groups: [{ startsAt: "2026-11-21T17:00:00.000Z", many: null, requests: [one] }], refreshSeconds: 15 };
+  it("takes the list, and refuses one with a part missing or of the wrong kind", () => {
+    expect(isRequests(requests)).toBe(true);
+    expect(isRequests({ ...requests, groups: [], empty: "Nothing is waiting for your answer." })).toBe(true);
+    expect(isRequests({ ...requests, refreshSeconds: 0 })).toBe(false);
+    expect(isRequests({ ...requests, groups: [{ startsAt: "soon", many: null, requests: [one] }] })).toBe(false);
+    expect(isRequests({ ...requests, groups: [{ startsAt: "2026-11-21T17:00:00.000Z", many: null, requests: [{ ...one, id: "../start" }] }] })).toBe(false);
+    expect(isRequests({ ...requests, groups: [{ startsAt: "2026-11-21T17:00:00.000Z", many: null, requests: [{ ...one, kind: "else" }] }] })).toBe(false);
+  });
+  it("a saved note, and a sentence in parts written out", () => {
+    expect(isNoteSaved({ text: "Likes mornings.", words: "Saved." })).toBe(true);
+    expect(isNoteSaved({ text: null, words: "Saved." })).toBe(true);
+    expect(isNoteSaved({ words: "Saved." })).toBe(false);
+    expect(plainWords(host.answer.sure as never, () => "Saturday at 11:00 AM")).toBe("Accept a 30-minute call on Saturday at 11:00 AM, for free?");
   });
 });
 

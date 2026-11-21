@@ -4,7 +4,7 @@
  * reads them, and deciding which addresses the app may open or hand to Stripe's kit. Plain logic
  * with no phone in it, so it can be tested on its own.
  */
-import type { AppBooking, AppBookSummary, AppCardStep, AppIdentity, AppPart } from "../../../src/lib/app-door/types";
+import type { AppBooking, AppBookSummary, AppCardStep, AppIdentity, AppNoteSaved, AppPart, AppRequests, AppWaitingOne } from "../../../src/lib/app-door/types";
 import { isIdentityNotice } from "./legal-rules";
 
 const isThing = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -57,17 +57,61 @@ export function isBookSummary(data: unknown): data is AppBookSummary {
   return isThing(data.seen) && isWhole(data.seen.price) && isWhole(data.seen.freeCancel);
 }
 
+const isRating = (value: unknown): boolean => value === null || (isThing(value) && typeof value.average === "number" && typeof value.count === "number");
+
+/** What a host may know about the person asking, her note, and how she answers: the host's part of a request's page. */
+function isHostPart(value: unknown): boolean {
+  if (!isThing(value) || !isText(value.customerName) || !isTextOrNull(value.photoId) || typeof value.known !== "boolean" || !isRating(value.rating) || !isTextOrNull(value.ratingWords) || typeof value.idConfirmed !== "boolean") return false;
+  if (value.words !== null && !(isThing(value.words) && isText(value.words.label) && isText(value.words.text))) return false;
+  const note = value.note;
+  if (note !== null && !(isThing(note) && isText(note.title) && isText(note.hint) && isTextOrNull(note.text) && isWhole(note.max) && isText(note.save) && isText(note.notSaved))) return false;
+  return value.answer === null || isAnswer(value.answer);
+}
+
+/** How a host answers a waiting request: the buttons, the question to ask before accepting, and where a call asked for "now" is answered. */
+function isAnswer(answer: unknown): boolean {
+  return isThing(answer) && (answer.kind === "booked" || answer.kind === "now") && isText(answer.accept) && isText(answer.decline) && isSentence(answer.sure) && isText(answer.yes) && isText(answer.no) && isTextOrNull(answer.elsewhere);
+}
+
+/** One waiting request on a host's list. */
+function isWaitingOne(value: unknown): value is AppWaitingOne {
+  if (!isThing(value) || !isId(value.id) || !(value.kind === "booked" || value.kind === "now") || !isText(value.name) || !isWhole(value.minutes) || !isText(value.price)) return false;
+  if (!(value.respondBy === null || isMoment(value.respondBy)) || typeof value.known !== "boolean" || !isRating(value.rating) || !isTextOrNull(value.ratingWords)) return false;
+  return typeof value.idConfirmed === "boolean" && isText(value.words) && isTextOrNull(value.note) && isTextOrNull(value.photoId) && isAnswer(value.answer);
+}
+
+/** Whether an answer really is a host's list of waiting requests, with the parts the screen reads. */
+export function isRequests(data: unknown): data is AppRequests {
+  if (!isThing(data) || !isText(data.title) || !Array.isArray(data.intro) || !data.intro.every(isText) || !isTextOrNull(data.empty)) return false;
+  if (typeof data.refreshSeconds !== "number" || !(data.refreshSeconds > 0) || !Array.isArray(data.groups)) return false;
+  return data.groups.every((group) => isThing(group) && isMoment(group.startsAt) && isTextOrNull(group.many) && Array.isArray(group.requests) && group.requests.every(isWaitingOne));
+}
+
+/** Whether an answer really is "the note is saved": the note as it is now stored (or none), and the words to say. */
+export function isNoteSaved(data: unknown): data is AppNoteSaved {
+  return isThing(data) && isTextOrNull(data.text) && isText(data.words);
+}
+
+/** A sentence in parts, written out as plain words, with each moment written by `when` (the phone's own time zone). */
+export function plainWords(parts: readonly AppPart[], when: (iso: string) => string): string {
+  return parts.map((part) => (typeof part === "string" ? part : "bold" in part ? part.bold : when(part.time))).join("");
+}
+
 /** Whether an answer really is a request's page, with the parts the screen reads. */
 export function isBooking(data: unknown): data is AppBooking {
-  if (!isThing(data) || !isId(data.id) || !isText(data.title) || !isTextOrNull(data.hostHandle) || !isText(data.stage) || !isText(data.stageWords) || !isTextOrNull(data.reason)) return false;
+  if (!isThing(data) || !isId(data.id) || !(data.role === "customer" || data.role === "host") || !isText(data.title) || !isTextOrNull(data.hostHandle) || !isText(data.stage) || !isText(data.stageWords) || !isTextOrNull(data.reason)) return false;
   if (!isMoment(data.startsAt) || !isWhole(data.minutes) || !isThing(data.price) || !isText(data.price.label) || !isText(data.price.words)) return false;
-  if (!(data.hearBy === null || isMoment(data.hearBy)) || !isTextOrNull(data.waitingWords) || !isTextOrNull(data.takeBack) || !isTextOrNull(data.notice)) return false;
+  if (!(data.hearBy === null || (isThing(data.hearBy) && isText(data.hearBy.label) && isMoment(data.hearBy.at))) || !isTextOrNull(data.waitingWords) || !isTextOrNull(data.takeBack) || !isTextOrNull(data.notice)) return false;
   const sure = data.takeBackSure;
   if (sure !== null && !(isThing(sure) && isText(sure.words) && isText(sure.yes) && isText(sure.no))) return false;
   // A request that can be taken back always comes with the question to ask first.
   if (data.takeBack !== null && sure === null) return false;
   if (!(data.refreshSeconds === null || (typeof data.refreshSeconds === "number" && data.refreshSeconds > 0))) return false;
   if (data.call !== null && !(isThing(data.call) && isId(data.call.id))) return false;
+  // The host's part comes for the host, and only for her.
+  if (data.role === "host" ? !isHostPart(data.host) : data.host !== null) return false;
+  const block = data.block;
+  if (block !== null && !(isThing(block) && isText(block.label) && isText(block.sure) && isText(block.yes) && isText(block.no))) return false;
   const card = data.card;
   if (card === null) return true;
   return isThing(card) && isText(card.title) && isText(card.words) && isText(card.button) && isSentence(card.deadline) && isText(card.givenUp) && isText(card.notSaved) && isText(card.notConfirmed) && isText(card.checkAgain);

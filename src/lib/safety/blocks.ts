@@ -37,6 +37,7 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
     // Requests between the two end quietly, whichever way round they were.
     const ended = await tx
       .update(schema.bookings)
+      // (These very words are what the request's page goes by to say "this request has ended": COULD_NOT_GO_AHEAD in booking/request-words.ts.)
       .set({ stage: "ran_out", endedReason: "the request could not go ahead", endedAt: now })
       .where(and(pair, inArray(schema.bookings.stage, ["card", "waiting"])))
       .returning({ id: schema.bookings.id });

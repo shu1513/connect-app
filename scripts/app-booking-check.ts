@@ -524,8 +524,8 @@ async function main() {
       const { reply, body } = await requestPage(freeId, cust.jar);
       const made1 = await row(freeId);
       check("the customer reads their request", reply.status === 200 && body?.id === freeId && body.title === `Your request to ${maya.displayName}` && body.stage === "waiting" && body.stageWords === "Sent. Waiting for the host's answer.", reply.text.slice(0, 160));
-      check("it has exactly the parts the app knows", keys(body) === "call,card,hearBy,hostHandle,id,minutes,notice,price,reason,refreshSeconds,stage,stageWords,startsAt,takeBack,takeBackSure,title,waitingWords", keys(body));
-      check("with when, the price, and by when the answer comes", body?.startsAt === made1.startsAt.toISOString() && body.minutes === 30 && body.price.label === "Price" && body.price.words === "Free" && body.hearBy === made1.respondBy?.toISOString());
+      check("it has exactly the parts the app knows", keys(body) === "block,call,card,hearBy,host,hostHandle,id,minutes,notice,price,reason,refreshSeconds,role,stage,stageWords,startsAt,takeBack,takeBackSure,title,waitingWords" && body?.role === "customer" && body.host === null, keys(body));
+      check("with when, the price, and by when the answer comes", body?.startsAt === made1.startsAt.toISOString() && body.minutes === 30 && body.price.label === "Price" && body.price.words === "Free" && body.hearBy?.at === made1.respondBy?.toISOString() && body.hearBy?.label === "You will hear by");
       check("taking it back is asked about once more, in words that promise only what is true", body?.takeBackSure?.words === "The host will no longer be able to accept it. This cannot be undone." && body.takeBackSure.yes === "Take it back" && body.takeBackSure.no === "Keep it");
       check("it can be taken back, asks again by itself, and has no card step", body?.takeBack === "Take this request back" && body.refreshSeconds === 20 && body.card === null && body.call === null && body.notice === null && body.waitingWords === "This is a request, not a reservation. Other people may ask for the same time, and the host chooses.");
       check("no account id, no email address and no note travels", !reply.text.includes(maya.id) && !reply.text.includes(cust.id) && !reply.text.includes("@example.test") && !reply.text.includes("garden") && body?.hostHandle === maya.handle);
@@ -539,11 +539,14 @@ async function main() {
       check("something that only looks like an id is not found either, at every address", refusal((await requestPage(dashes, cust.jar)).reply) === "not_found" && refusal((await requestPage(almost, cust.jar)).reply) === "not_found" && refusal(await step(dashes, "card", cust.jar)) === "not_found" && refusal(await step(almost, "card-saved", cust.jar)) === "not_found" && refusal(await step(dashes, "take-back", cust.jar)) === "not_found");
       const capitals = await requestPage(freeId.toUpperCase(), cust.jar);
       check("the id written in capitals opens the same request, and the answer names it the server's way", capitals.reply.status === 200 && capitals.body?.id === freeId);
-      // The host's side comes with her own screens: a request to her own page is not answered here yet.
+      // The host of a request reads it as its host (scripts/app-requests-check.ts looks at what she is shown), and never has the customer's steps.
       const self = (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, second.id)))[0];
       await passId(third.id);
       const toSelf = await send(self.handle, await okSummary(self.handle, (await openTimes(self.handle, third.jar))[10], third.jar), third.jar);
-      check("the host's side of a request is not answered at this address", toSelf.status === 200 && refusal((await requestPage((toSelf.json as AppBookSent).id, second.jar)).reply) === "not_found", toSelf.text.slice(0, 160));
+      const asHostOf = (toSelf.json as AppBookSent | null)?.id ?? "";
+      const hostSide = (await requestPage(asHostOf, second.jar)).body;
+      check("the host reads it as the host, without anything that is the customer's to do", toSelf.status === 200 && hostSide?.role === "host" && hostSide.takeBack === null && hostSide.takeBackSure === null && hostSide.card === null && hostSide.waitingWords === null && hostSide.host !== null);
+      check("and the customer's steps are not hers: the same 'not found' as for a stranger", refusal(await step(asHostOf, "take-back", second.jar)) === "not_found" && refusal(await step(asHostOf, "card", second.jar)) === "not_found" && refusal(await step(asHostOf, "card-saved", second.jar)) === "not_found" && (await row(asHostOf)).stage === "waiting");
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
       check("a paused person can still read their own request", (await requestPage(freeId, cust.jar)).reply.status === 200);
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
@@ -594,7 +597,7 @@ async function main() {
       const after = saved.json as AppBooking;
       made1 = await row(id);
       check("once Stripe says the card is saved, the request goes to the host", saved.status === 200 && after.stage === "waiting" && made1.stage === "waiting" && made1.requestedAt !== null && Boolean(made1.stripePaymentMethodId), `${saved.status} ${after.stage}`);
-      check("the answer is the request's page as it stands now", keys(after) === keys(page) && after.card === null && after.takeBack === "Take this request back" && after.hearBy === made1.respondBy?.toISOString() && after.waitingWords?.endsWith("Nothing is held on your card unless you are accepted.") === true);
+      check("the answer is the request's page as it stands now", keys(after) === keys(page) && after.card === null && after.takeBack === "Take this request back" && after.hearBy?.at === made1.respondBy?.toISOString() && after.waitingWords?.endsWith("Nothing is held on your card unless you are accepted.") === true);
       check("with the website's deadlines for a paid call", made1.payBy?.getTime() === payCutoff(new Date(slot), 60).getTime() && Math.abs((made1.respondBy?.getTime() ?? 0) - answerDeadline({ startsAt: new Date(slot), paid: true, freeCancelMinutes: 60, requestedAt: made1.requestedAt! }).getTime()) < 1000);
       check("the customer's time is kept and the email has gone", (await busyOf(second.id)).some((b) => b.bookingId === id) && (await emailsTo(second.email, `Your request to ${noor.displayName} was sent`)) === 1);
       const repeat = await step(id, "card-saved", second.jar);

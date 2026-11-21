@@ -44,11 +44,12 @@ function Opened() {
       // Every screen belongs to whoever is signed in. When that becomes someone else, every screen is made anew, so
       // nothing one person was shown (calls, notes, photos) can still stand on the next person's screen.
       <Stack key={opening.start.me?.id ?? "nobody"} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.page } }}>
-        {/* The app itself, and the screens only someone signed in has: asking for a call, a request, the ID check. */}
+        {/* The app itself, and the screens only someone signed in has: asking for a call, a request, a host's list of requests, the ID check. */}
         <Stack.Protected guard={where === "home"}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="book/[handle]" />
           <Stack.Screen name="bookings/[id]" />
+          <Stack.Screen name="requests" />
           <Stack.Screen name="identity" />
         </Stack.Protected>
         <Stack.Protected guard={where === "welcome"}>
