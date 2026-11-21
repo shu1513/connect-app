@@ -62,7 +62,7 @@ describe("a page of calls", () => {
 });
 
 describe("what the card sheet is given to place a hold", () => {
-  const step = { clientSecret: "pi_3UdsdcDLvGtpPRHZ1abc_secret_VfD35J03bq3tMvByskUeoWnYU", publishableKey: "pk_test_51Abc", merchant: "Connect" };
+  const step = { clientSecret: "pi_MadeUp123_secret_MadeUp456", publishableKey: "pk_test_51Abc", merchant: "Connect" };
   it("takes a payment's secret and a key that may be shown", () => {
     expect(isPayStep(step)).toBe(true);
   });
