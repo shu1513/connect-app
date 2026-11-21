@@ -71,7 +71,7 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             {standing === "with_bank" && !isAppeal(dispute.status) && "The bank is deciding. That can take up to three months."}
             {standing === "with_bank" && isAppeal(dispute.status) && "The bank is looking at it once more (an appeal)."}
             {standing === "won" && "It has ended: the payment stands."}
-            {standing === "lost" && "It has ended: the bank returned the money to the customer."}
+            {standing === "lost" && "It has ended: the bank decided for the customer."}
             {standing === "closed" && (question ? "The bank closed its question. It did not become a dispute." : "It was closed without a decision by the bank.")}
           </dd>
           {founder && !asHost && standing === "waiting" && (
@@ -103,7 +103,7 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             )}
             {standing === "lost" && (
               <p>
-                Your share of the {formatMoney(dispute.amountCents)} the bank returned is no longer yours, and the money for this payment stays held back. If you had already
+                Your share of the {formatMoney(dispute.amountCents)} the bank took back is no longer yours, and the money for this payment stays held back. If you had already
                 collected it, Connect may ask you to pay it back.
               </p>
             )}

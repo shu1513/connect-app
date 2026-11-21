@@ -3,7 +3,7 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
-import { messagesOf, MESSAGES_SHOWN } from "@/lib/messages/messages";
+import { messagesOf, MESSAGES_SHOWN, unreadCount } from "@/lib/messages/messages";
 import { requireUser } from "@/lib/session";
 import { MessagesShown } from "./shown";
 
@@ -21,13 +21,14 @@ export default async function MessagesPage() {
   const messages = await messagesOf(user.id);
   // Nothing is written while the page is drawn. The messages count as read once the person's own browser says it has
   // shown them (shown.tsx); until their next page, the top bar and the "New" marks still show what was new on this visit.
-  const anyNew = messages.some((message) => !message.readAt);
+  // Asked for whenever anything of theirs is unread, also when none of it is on this page (older than the page shows).
+  const anyNew = messages.length > 0 && (await unreadCount(user.id)) > 0;
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <h1 className={warm.title}>Messages</h1>
       <p className="mt-2 text-sm opacity-70">What Connect has written to you. Each message is also emailed to you.</p>
-      {anyNew && <MessagesShown newestId={messages[0].id} />}
+      {anyNew && <MessagesShown shownIds={messages.map((message) => message.id)} pageWasFull={messages.length === MESSAGES_SHOWN} />}
 
       {messages.length === 0 ? (
         <p className="mt-6 text-sm" data-no-messages>

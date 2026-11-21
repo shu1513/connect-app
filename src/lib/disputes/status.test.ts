@@ -92,7 +92,7 @@ describe("the bank's reason in words", () => {
   it("has words for the reasons a card can give, and plain ones for anything else", () => {
     expect(reasonWords("fraudulent")).toContain("did not make");
     expect(reasonWords("product_not_received")).toContain("did not get");
-    expect(reasonWords("general")).toBe("the bank gave no particular reason");
+    expect(reasonWords("general")).toBe('a reason Stripe only files under "general"');
     expect(reasonWords("something_new")).toBe('a reason this app has no words for (Stripe calls it "something_new")');
   });
 });

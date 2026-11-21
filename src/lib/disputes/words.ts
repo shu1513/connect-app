@@ -26,6 +26,10 @@ export type Facts = {
   reason: string;
   /** The bank's deadline for an answer, written for this reader, when Stripe gives one. */
   dueBy: string | null;
+  /** That deadline is behind us, although Stripe still shows the dispute as waiting. */
+  duePassed: boolean;
+  /** In an appeal: the bank waits for an answer (true), or is already looking at one (false). */
+  appealWaits: boolean;
   hostName: string;
   customerName: string;
   supportEmail: string;
@@ -37,6 +41,8 @@ export type Told = { subject: string; text: string };
 function answerWords(facts: Facts): string {
   if (facts.standing !== "waiting") return "Stripe shows it as with the bank already, so nothing can be sent to the bank now.";
   if (facts.noAnswer) return "The bank takes no answer to this one, so there is nothing to send. It decides by itself.";
+  // Never an instruction that cannot be followed.
+  if (facts.dueBy && facts.duePassed) return `The bank's date for an answer, ${facts.dueBy}, has passed. Stripe still shows the dispute as waiting, but an answer may no longer be taken.`;
   return `${facts.dueBy ? `The bank wants an answer by ${facts.dueBy}.` : "Stripe gives no date for an answer."} The app does not answer the bank yet: for now that still has to be done by hand in Stripe.`;
 }
 
@@ -116,14 +122,14 @@ export function endedWords(role: Role, facts: Facts, outcome: Outcome): Told {
   }
   const text =
     role === "host"
-      ? `The dispute ${facts.customerName}'s bank had opened over ${facts.what} has ended: the bank returned ${facts.amount} to the customer.\n\n` +
+      ? `The dispute ${facts.customerName}'s bank had opened over ${facts.what} has ended: the bank decided for the customer, and the ${facts.amount} does not come back to Connect.\n\n` +
         `Your share of that money is no longer yours, and the money for this payment stays held back. If you had already collected it, Connect may ask you to pay it back.\n\n` +
         `If you think this is wrong, write to us at ${facts.supportEmail}.`
       : role === "customer"
-        ? `The dispute your bank had opened over ${facts.what} has ended: your bank returned ${facts.amount} to you.`
-        : `The dispute over ${facts.what} is lost: the bank returned ${facts.amount} to the customer.\n\n` +
+        ? `The dispute your bank had opened over ${facts.what} has ended: your bank decided in your favour. The ${facts.amount} is yours again; your bank can tell you when it shows on your account.`
+        : `The dispute over ${facts.what} is lost: the bank decided for the customer, and the ${facts.amount} it had taken from Connect does not come back.\n\n` +
           `The host's share of this payment stays held back. If the host had already collected it, nothing is taken back by the app: that still has to be settled by hand.`;
-  return { subject: role === "founder" ? `A bank dispute was lost: ${facts.customerName} and ${facts.hostName}` : "A bank dispute has ended: the bank returned the money", text };
+  return { subject: role === "founder" ? `A bank dispute was lost: ${facts.customerName} and ${facts.hostName}` : role === "customer" ? "A bank dispute has ended: your bank decided in your favour" : "A bank dispute has ended: the bank decided for the customer", text };
 }
 
 /** To the founder only: a dispute that was lost is being looked at by the bank once more. */
@@ -132,6 +138,9 @@ export function appealWords(facts: Facts): Told {
     subject: `A bank is looking at a lost dispute again: ${facts.customerName} and ${facts.hostName}`,
     text:
       `The dispute over ${facts.what} (${facts.amount}) is in an appeal at the bank.\n\n` +
-      `The app sends nothing to the bank in an appeal, and keeps the money for this payment where it is until the bank has decided. If something has to be sent, that is done by hand in Stripe.`,
+      (facts.appealWaits
+        ? `The bank waits for an answer in this appeal${facts.dueBy && !facts.duePassed ? `, by ${facts.dueBy}` : ""}. The app sends nothing to the bank in an appeal: if you want to answer, that is done by hand in Stripe.`
+        : `The bank is already looking at what was sent, so nothing more can be sent now.`) +
+      ` The app keeps the money for this payment where it is until the bank has decided.`,
   };
 }

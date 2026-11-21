@@ -38,7 +38,7 @@ async function main() {
   const { refreshPaymentDispute } = await import("../src/lib/payments/disputes");
   const { catchUpFromStripe, lookAtOpenDisputes, recordDisputesOf, refreshOwner, disputesForFounder } = await import("../src/lib/disputes/record");
   const { disputeForViewer, disputePagesOf } = await import("../src/lib/disputes/pages");
-  const { markReadUpTo, messagesOf, unreadCount } = await import("../src/lib/messages/messages");
+  const { markShown, messagesOf, unreadCount } = await import("../src/lib/messages/messages");
 
   const RUN = randomUUID().slice(0, 8);
   const PRICE = 2000; // $20 per 15 minutes
@@ -221,13 +221,13 @@ async function main() {
       check("the host's Messages page has the message", mine.length === 1 && mine[0].readAt === null && (await unreadCount(host.id)) === 1);
       check("someone else's page has none of it", (await messagesOf(stranger.id)).length === 0 && (await unreadCount(stranger.id)) === 0);
       check("looking it up marks nothing as read (the page writes nothing while it is drawn)", (await messagesOf(host.id))[0].readAt === null);
-      await markReadUpTo(stranger.id, mine[0].id);
+      await markShown(stranger.id, [mine[0].id], mine[0].id);
       check("nobody else can mark it as read", (await unreadCount(host.id)) === 1);
-      await markReadUpTo(host.id, mine[0].id);
+      await markShown(host.id, [mine[0].id]);
       const after = await messagesOf(host.id);
       check("once their own browser has shown it, it is read and no longer counted", after[0].readAt !== null && (await unreadCount(host.id)) === 0);
       const readAt = after[0].readAt!.getTime();
-      await markReadUpTo(host.id, mine[0].id, new Date(Date.now() + 60_000));
+      await markShown(host.id, [mine[0].id], null, new Date(Date.now() + 60_000));
       check("the moment it was first read is kept", (await messagesOf(host.id))[0].readAt!.getTime() === readAt);
     }
 
@@ -257,7 +257,7 @@ async function main() {
       check("an hour later the look records the ending", row.outcome === "lost" && row.endedAt !== null && row.status === "lost", `${row.outcome} ${row.status}`);
       check("the money stays held back after a lost dispute", (await reload(first.payment.id)).disputeOpen === true);
       const ended = (await messagesAbout(d1.id)).filter((m) => m.key.includes(":ended:lost:"));
-      check("the host and the customer are told how it ended, once", ended.length === both && ended.some((m) => m.userId === host.id && m.body.includes("no longer yours") && m.body.includes("returned $13.33 to the customer")) && ended.some((m) => m.userId === customer.id && m.body.includes("returned $13.33 to you")), `${ended.length}`);
+      check("the host and the customer are told how it ended, once", ended.length === both && ended.some((m) => m.userId === host.id && m.body.includes("no longer yours") && m.body.includes("decided for the customer") && m.body.includes("$13.33")) && ended.some((m) => m.userId === customer.id && m.body.includes("decided in your favour") && m.body.includes("$13.33")), `${ended.length}`);
       check("the host is promised nothing the app does not do: no \"we will write\", no take-back", ended.filter((m) => m.userId === host.id).every((m) => m.body.includes("may ask you to pay it back") && !/will write|taken back/i.test(m.body)));
       check("and each admin is told by email, that it is settled by hand", (await emailsAbout(d1.id)).filter((mail) => mail.dedupeKey?.includes(":ended:lost:founder:") && mail.body.includes("settled by hand")).length === admins.length);
       await handleStripeEvent(message("charge.dispute.closed", d1.id));
@@ -407,7 +407,8 @@ async function main() {
       }
       await pause(4000);
       const rows = await db.select().from(schema.disputes).where(or(...madeDisputes.map((id) => eq(schema.disputes.id, id))));
-      for (const row of rows) if (!row.outcome && row.paymentId) await recordDisputesOf({ kind: "payment", id: row.paymentId }).catch(() => undefined);
+      // The money and the record both: a bank's question that ended lets its payment's money go again.
+      for (const row of rows) if (!row.outcome && row.paymentId) await refreshOwner({ kind: "payment", id: row.paymentId }).catch(() => undefined);
       await db.delete(schema.messages).where(or(...madeDisputes.map((id) => like(schema.messages.key, `dispute:${id}:%`))));
       await db.delete(schema.emailOutbox).where(or(...madeDisputes.map((id) => like(schema.emailOutbox.dedupeKey, `dispute:${id}:%`))));
     }

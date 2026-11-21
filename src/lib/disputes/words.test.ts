@@ -9,6 +9,8 @@ const facts: Facts = {
   amount: "$13.33",
   reason: "the cardholder says they did not make this payment",
   dueBy: "Friday, November 27 at 6:59 PM EST",
+  duePassed: false,
+  appealWaits: false,
   hostName: "Ana",
   customerName: "Ben",
   supportEmail: "support@connect.example",
@@ -33,6 +35,23 @@ describe("what the founder is told when a dispute opens", () => {
     const told = beganWords("founder", { ...facts, noAnswer: true, dueBy: null }).text;
     expect(told).toContain("takes no answer");
     expect(told).not.toContain("by hand");
+  });
+
+  it("never asks for an answer by a date that has passed", () => {
+    const told = beganWords("founder", { ...facts, duePassed: true }).text;
+    expect(told).toContain("Friday, November 27 at 6:59 PM EST, has passed");
+    expect(told).not.toContain("by hand");
+    expect(told).not.toContain("wants an answer by");
+  });
+
+  it("says in an appeal whether the bank waits for an answer or is already looking at one", () => {
+    const waits = appealWords({ ...facts, appealWaits: true }).text;
+    expect(waits).toContain("waits for an answer in this appeal, by Friday, November 27");
+    expect(waits).toContain("by hand in Stripe");
+    const looking = appealWords(facts).text;
+    expect(looking).toContain("nothing more can be sent now");
+    expect(looking).not.toContain("by hand");
+    for (const told of [waits, looking]) expect(told).toContain("keeps the money for this payment where it is");
   });
 
   it("never asks for an answer when the dispute was first seen with the bank already", () => {
@@ -67,10 +86,14 @@ describe("what a host and a customer are told", () => {
 
   it("speaks of the disputed amount when a dispute is lost, and promises no letter and no take-back", () => {
     const told = endedWords("host", facts, "lost").text;
-    expect(told).toContain("returned $13.33 to the customer");
+    expect(told).toContain("the bank decided for the customer, and the $13.33 does not come back");
     expect(told).toContain("may ask you to pay it back");
     expect(told).not.toMatch(/will write|taken back|undoes the payment/);
-    expect(endedWords("customer", facts, "lost").text).toContain("returned $13.33 to you");
+  });
+
+  it("says what the bank decided, never that the customer already has the money (the bank pays when it pays)", () => {
+    for (const role of ["host", "customer", "founder"] as const) expect(all(endedWords(role, facts, "lost"))).not.toMatch(/returned/);
+    expect(endedWords("customer", facts, "lost").text).toContain("your bank decided in your favour");
   });
 
   it("does not call a dispute that was closed without a decision a question", () => {

@@ -93,7 +93,8 @@ export function reasonWords(reason: string): string {
     case "noncompliant":
       return "the bank says the payment did not follow the card network's rules";
     case "general":
-      return "the bank gave no particular reason";
+      // Stripe files several of the card networks' own reasons under this one word.
+      return 'a reason Stripe only files under "general"';
     default:
       // A reason is there; this app only has no words for it yet.
       return `a reason this app has no words for (Stripe calls it "${reason}")`;

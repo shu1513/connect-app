@@ -221,7 +221,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
                   {standing === "waiting" && dispute.noAnswer && "The bank takes no answer to this one."}
                   {standing === "with_bank" && "The bank is deciding."}
                   {standing === "won" && "Ended: the payment stands."}
-                  {standing === "lost" && "Ended: the bank returned the money to the customer."}
+                  {standing === "lost" && "Ended: the bank decided for the customer."}
                   {standing === "closed" && (dispute.stage === "question" ? "The bank closed its question." : "Closed without a decision by the bank.")}
                   {dispute.compliance ? " A compliance dispute: fighting it costs 500 dollars." : ""}
                 </li>

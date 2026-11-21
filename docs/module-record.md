@@ -4611,7 +4611,8 @@ part 1".
 
 **What the reviewers found.** Astra (gpt-6.2-astra, effort high) read the plan three times
 before any code ("not ready", "not ready", "ready with changes"; the plan lists each round).
-Then it read the code three times, and each time said "not ready":
+Then it read the code four times: "not ready" three times, and "ready with changes" at the
+fourth, narrow look:
 - *First look.* Eight points, all taken. The serious ones: the money step and the record each
   read Stripe on their own, so lost money could stay collectible for a moment; the founder's
   message named both people and sat behind an ordinary login; sentences that promised more than
@@ -4628,6 +4629,11 @@ Then it read the code three times, and each time said "not ready":
   again a minute later; the helper waits at most 8 seconds, once, for Stripe while it holds a
   dispute's row; "returned the disputed amount" where a bank may have disputed only part; the
   right words for the founder when a dispute is first seen in an appeal.
+- *Fourth look.* "Ready with changes", four small ones, all taken: a hard 8-second deadline
+  around the read made while a row is held (Stripe's own library can try once more after a
+  broken connection); a failed catch-up waits a minute before the next try, like a failed look;
+  not being able to note one dispute's turn no longer stops the others; the demo mode says so
+  when a dispute could not be ended, and leaves its messages.
 - *Not taken, with the reason.* A counter on each payment that orders two readings of Stripe
   (the money steps keep the loop they always had: ask, write, ask again until it says the same;
   Astra agreed this was there before this part). The 300-item limit in the month's and the
@@ -4637,9 +4643,30 @@ Then it read the code three times, and each time said "not ready":
   (nobody is told of an appeal that changed nothing); a dispute that Stripe decides between two
   readings milliseconds apart (the two messages are then both true, in order).
 
-**How it was checked.** 865 tests (23 new: every status Stripe has, two disputes on one charge in
+CodeRabbit read the pull request (number 94) once, in full: eight comments, all taken, three in
+another form than it proposed.
+- *The one that matters.* Two readings of Stripe at the same moment could, for a short time,
+  write an older answer over a newer one and leave disputed money collectible. Astra had named
+  the same thing three times and the builder had answered that it heals by itself within the
+  minute. With a second reviewer saying it, it is closed: Stripe is now read with the payment's
+  row held, so readings stand in a line and a later writer has always read later. (CodeRabbit
+  proposed a counter on the payment; holding the row needs no new column, and collecting and
+  refunding, which take the same row, wait for the dispute check instead of racing it.)
+- *What counts as read.* Exactly the messages that were on the page; when the page was full,
+  also everything older than it. Before, a message written in the same moment could be marked
+  read without having been shown, and an unread one older than the page could never be cleared.
+- *Words.* A lost dispute is "the bank decided for the customer", not "the bank returned the
+  money to the customer": the bank pays its customer when it pays. "General" is a word Stripe
+  files several reasons under, not "no particular reason". The founder is no longer asked to
+  answer by a date that has passed (taken from the date itself; CodeRabbit pointed at a field of
+  Stripe's that means something else), and an appeal says whether the bank waits for an answer
+  or is already looking at one.
+- The check script's clean-up now brings the money up to date too, not only the record.
+
+**How it was checked.** 868 tests (26 new: every status Stripe has, two disputes on one charge in
 every mix, and the wording, which must never say the app answers the bank or takes anything
-back). `scripts/disputes-check.ts`, new, 72 checks with real disputes in Stripe's test area:
+back). `scripts/disputes-check.ts`, new, 72 checks with real disputes in Stripe's test area (run
+again after each round of review changes, the last time after CodeRabbit's):
 recorded once however often the message comes; two messages at the same moment; lost and won;
 a bank's question; a dispute no message announced, found from Stripe's own list; a known
 dispute that changed with no message; a fault in the middle of telling people, which undoes the

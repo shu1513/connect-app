@@ -5,7 +5,7 @@
  * database step and under one key. So what a person reads on their "Messages" page is what
  * was emailed to them, and neither exists twice.
  */
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Message } from "@/db/schema";
 import { queueEmail } from "@/lib/email";
@@ -73,18 +73,22 @@ export async function unreadCount(userId: string): Promise<number> {
 }
 
 /**
- * The person's browser has shown their Messages page down from this message, its newest: that
- * message and every older one of theirs count as read from now. Only ever their own, and only ones
- * not read before (the first time stays). Older than the page shows are read too: they were emailed,
- * and a number in the top bar that nothing on the page can clear would only mislead.
+ * The person's own browser has shown these messages: they count as read from now. Only ever their
+ * own, and only ones not read before (the first time stays). Exactly the messages that were on the
+ * page: one that was written in the same moment and was not on it stays new for the next visit.
+ *
+ * `alsoOlderThan` is given when the page was full: the oldest message on it. Every unread message
+ * older than that one counts as read too. Nothing on the page could ever show those (they were
+ * emailed), and a number in the top bar that no page can clear would only mislead. The moment is
+ * compared inside the database, never carried through this code: the database keeps it to the
+ * microsecond and a date here only to the millisecond.
  */
-export async function markReadUpTo(userId: string, newestId: string, now: Date = new Date()): Promise<void> {
-  // The moment of the newest message is compared inside the database, never carried through this code: the database
-  // keeps it to the microsecond and a date here only to the millisecond, which would leave out the very message shown.
-  // A message that is not this person's gives no moment, and then nothing is marked.
-  const upTo = sql`(select anchor.created_at from messages anchor where anchor.id = ${newestId} and anchor.user_id = ${userId})`;
-  await db
-    .update(schema.messages)
-    .set({ readAt: now })
-    .where(and(eq(schema.messages.userId, userId), isNull(schema.messages.readAt), sql`${schema.messages.createdAt} <= ${upTo}`));
+export async function markShown(userId: string, shownIds: string[], alsoOlderThan: string | null = null, now: Date = new Date()): Promise<void> {
+  const mine = and(eq(schema.messages.userId, userId), isNull(schema.messages.readAt));
+  if (shownIds.length > 0) await db.update(schema.messages).set({ readAt: now }).where(and(mine, inArray(schema.messages.id, shownIds)));
+  if (alsoOlderThan) {
+    // A message that is not this person's gives no moment, and then nothing is marked.
+    const before = sql`(select anchor.created_at from messages anchor where anchor.id = ${alsoOlderThan} and anchor.user_id = ${userId})`;
+    await db.update(schema.messages).set({ readAt: now }).where(and(mine, sql`${schema.messages.createdAt} < ${before}`));
+  }
 }

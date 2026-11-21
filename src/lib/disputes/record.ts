@@ -29,7 +29,7 @@ import { refreshDispute } from "@/lib/contributions/dispute";
 import { errorSummary, queueEmail } from "@/lib/email";
 import { refreshMonthDispute } from "@/lib/membership/ending";
 import { appUrl, tell } from "@/lib/messages/messages";
-import { allDisputesOf, refreshPaymentDispute } from "@/lib/payments/disputes";
+import { allDisputesOf, inTime, refreshPaymentDispute } from "@/lib/payments/disputes";
 import type { Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
@@ -182,6 +182,8 @@ async function tellAll(tx: Tx, about: About, dispute: Dispute, event: Event): Pr
       amount: money(dispute.amountCents),
       reason: reasonWords(dispute.reason),
       dueBy: dispute.dueBy ? whenFor(person, dispute.dueBy) : null,
+      duePassed: dispute.dueBy !== null && dispute.dueBy.getTime() <= Date.now(),
+      appealWaits: dispute.status === "appeal_needs_response",
       hostName: people.hostName,
       customerName: people.customer.name,
       supportEmail: SUPPORT_EMAIL,
@@ -271,11 +273,6 @@ export async function noteDispute(owner: Owner, found: Stripe.Dispute, now: Date
   });
 }
 
-/**
- * Stripe is read with a row locked in `writeOne`: one try, never for longer than this. The handling of a message
- * from Stripe about the same dispute waits for that row (`noteDispute`), and while it waits no host can collect.
- */
-const LOCKED_READ_MS = 8_000;
 
 /**
  * One dispute, written into its row, with the messages a change calls for. Gives back whether
@@ -288,13 +285,9 @@ async function writeOne(owner: Owner, about: About, listed: Stripe.Dispute, now:
     if (!before) return false;
     // The row is ours now. Stripe is read again from here (see the top of this file), and "look again" is cleared in
     // the same step: a message from Stripe that comes in meanwhile waits for this row and then sets it once more.
-    // Stripe's library is told to try once and to give up in time; the deadline here holds whatever it does
-    // (it can still try again after a broken connection). Giving up undoes this step and frees the row.
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    const fresh = await Promise.race([
-      stripe().disputes.retrieve(listed.id, {}, { timeout: LOCKED_READ_MS, maxNetworkRetries: 0 }),
-      new Promise<never>((_, reject) => (deadline = setTimeout(() => reject(new Error("Stripe did not answer in time while a dispute's row was held.")), LOCKED_READ_MS))),
-    ]).finally(() => clearTimeout(deadline));
+    // One try, and never for long (`inTime`): the handling of a message from Stripe about the same dispute waits for
+    // this row (`noteDispute`), and while it waits no host can collect.
+    const fresh = await inTime(stripe().disputes.retrieve(listed.id, {}, { maxNetworkRetries: 0 }));
     const outcome = outcomeOf(fresh.status);
     const [after] = await tx
       .update(schema.disputes)

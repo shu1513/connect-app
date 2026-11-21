@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db, schema } from "@/db";
 import { anyBlocksMoney } from "@/lib/disputes/status";
+import { lockPayment } from "./operations";
 import { stripe } from "./stripe";
 
 /** Every dispute Stripe has on one charge, however many pages that is. */
@@ -20,36 +21,52 @@ export async function allDisputesOf(intentId: string): Promise<Stripe.Dispute[]>
   return found;
 }
 
+/** How long Stripe may take to answer while a row is held for it. */
+export const LOCKED_READ_MS = 8_000;
+
+/**
+ * Waits for an answer from Stripe, but never longer than this: used while a row is held, so that
+ * whoever waits for that row never waits long. Stripe's library can still try again by itself
+ * (after a broken connection); this deadline holds whatever it does. Giving up throws, which
+ * undoes the caller's step and frees the row.
+ */
+export async function inTime<T>(answer: Promise<T>, ms: number = LOCKED_READ_MS): Promise<T> {
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => (deadline = setTimeout(() => reject(new Error("Stripe did not answer in time while a row was held for it.")), ms)));
+  return Promise.race([answer, late]).finally(() => clearTimeout(deadline));
+}
+
 /**
  * Asks Stripe where the disputes over a call's card payment stand, ALL of them together, and
  * records whether any of them still blocks the money. A bank can dispute one charge more than
  * once: a win on one must never unfreeze money that another still holds (plans/47, decision 1).
  *
- * Messages can arrive out of order, and two can be handled at the same moment. So Stripe is asked,
- * that is recorded, and Stripe is asked once more: only when it still says the same is the work
- * done. An answer that went stale while we waited is never the last word.
+ * Stripe is read with the payment's row held. Messages can arrive out of order, and two can be
+ * handled at the same moment; holding the row puts them in a line, and whoever writes after us has
+ * read Stripe after us. So an older answer can never be written over a newer one, not even for a
+ * moment: a dispute that has just opened is never un-frozen by a reading taken before it existed.
+ * (Collecting and refunding take the same row, so they wait for this too, at most for the few
+ * seconds `inTime` allows.)
  *
  * `known` is a dispute the caller has just read from Stripe by its id (the one a message was
  * about). If Stripe's list does not show it yet, it is counted all the same. So is every dispute
- * on this payment that the app has on record as holding the money (plans/47) and that the list
- * leaves out: money is never released on a list that omits a dispute we know of.
+ * on this payment that the app has on record (plans/47) and that the list leaves out: money is
+ * never released on a list that omits a dispute we know of.
  */
 export async function refreshPaymentDispute(paymentId: string, now: Date = new Date(), known?: { id: string; status: string }): Promise<void> {
   const [payment] = await db.select({ intentId: schema.payments.stripePaymentIntentId }).from(schema.payments).where(eq(schema.payments.id, paymentId));
   if (!payment?.intentId) return;
-  let recorded: boolean | null = null;
-  for (let round = 0; round < 4; round++) {
-    const disputes = await allDisputesOf(payment.intentId);
+  const intentId = payment.intentId;
+  await db.transaction(async (tx) => {
+    await lockPayment(tx, paymentId);
+    const disputes = await inTime(allDisputesOf(intentId));
     const statuses = disputes.map((dispute) => dispute.status);
     const listed = new Set(disputes.map((dispute) => dispute.id));
     if (known && !listed.has(known.id)) statuses.push(known.status);
-    const onRecord = await db.select({ id: schema.disputes.id, status: schema.disputes.status }).from(schema.disputes).where(eq(schema.disputes.paymentId, paymentId));
+    const onRecord = await tx.select({ id: schema.disputes.id, status: schema.disputes.status }).from(schema.disputes).where(eq(schema.disputes.paymentId, paymentId));
     for (const row of onRecord) if (!listed.has(row.id) && row.id !== known?.id) statuses.push(row.status);
     // Stripe shows none: there is nothing to record, and nothing that was recorded is taken back on that word alone.
     if (statuses.length === 0) return;
-    const blocked = anyBlocksMoney(statuses);
-    if (blocked === recorded) return;
-    await db.update(schema.payments).set({ disputeOpen: blocked, updatedAt: now }).where(eq(schema.payments.id, paymentId));
-    recorded = blocked;
-  }
+    await tx.update(schema.payments).set({ disputeOpen: anyBlocksMoney(statuses), updatedAt: now }).where(eq(schema.payments.id, paymentId));
+  });
 }
