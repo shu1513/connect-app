@@ -11,6 +11,8 @@
  * after all" is tried by writing that into the local record.
  *
  * Usage: npx tsx scripts/dispute-takeback-check.ts
+ *        npx tsx scripts/dispute-takeback-check.ts --demo       host@test.local gets one take-back that has its notice
+ *        npx tsx scripts/dispute-takeback-check.ts --demo-off   calls it off and takes its messages and emails away
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -144,6 +146,41 @@ async function main() {
     const sent = await collect(paid.payment.id);
     await lose(disputeId);
     return { ...paid, disputeId, ...sent };
+  }
+
+  // For a look in the browser: host@test.local collected a share, the dispute over it was lost, and the take-back has
+  // its notice. And taking that away again. What the demo made is known by its host and its room name.
+  if (process.argv.includes("--demo") || process.argv.includes("--demo-off")) {
+    const [seededCustomer] = await db.select().from(schema.user).where(eq(schema.user.email, "customer@test.local"));
+    if (!seededCustomer) throw new Error("Run `npm run seed` first.");
+    if (process.argv.includes("--demo")) {
+      const c = await collectedThenLost(seeded, seededCustomer);
+      await pass(new Date(), c.disputeId);
+      const debt = await debtOf(c.disputeId);
+      console.log(`Made: a lost dispute whose share (${debt?.amountCents} cents) is taken back from host@test.local from ${debt?.dueAt.toISOString()}: /disputes/${c.disputeId}, and "Your earnings" on /host.`);
+    } else {
+      const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(and(eq(schema.calls.hostId, seeded.id), like(schema.calls.roomName, "takebackcheck-%")));
+      for (const call of calls) {
+        const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.callId, call.id));
+        if (!payment) continue;
+        const rows = await db.select().from(debts).where(eq(debts.paymentId, payment.id));
+        // Nothing of the demo is left for the helper to take, and what is left of the share it sent is taken back here.
+        await db.update(debts).set({ status: "cancelled", cancelledAt: new Date() }).where(and(eq(debts.paymentId, payment.id), eq(debts.status, "told")));
+        if (payment.stripeTransferId) {
+          const transfer = await stripe().transfers.retrieve(payment.stripeTransferId).catch(() => null);
+          const left = transfer ? transfer.amount - transfer.amount_reversed : 0;
+          if (left > 0) await stripe().transfers.createReversal(payment.stripeTransferId, { amount: left }).catch(() => undefined);
+        }
+        const disputes = await db.select({ id: schema.disputes.id }).from(schema.disputes).where(eq(schema.disputes.paymentId, payment.id));
+        const keys = [...disputes.map((dispute) => `dispute:${dispute.id}:%`), ...rows.map((row) => `takeback:${row.id}:%`)];
+        if (keys.length > 0) {
+          await db.delete(schema.messages).where(or(...keys.map((key) => like(schema.messages.key, key))));
+          await db.delete(schema.emailOutbox).where(or(...keys.map((key) => like(schema.emailOutbox.dedupeKey, key))));
+        }
+        console.log(`Taken away: the demo's take-back${rows.length === 1 ? "" : "s"} for call ${call.id} (${rows.length}), with the messages and emails.`);
+      }
+    }
+    process.exit(0);
   }
 
   try {
