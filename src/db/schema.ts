@@ -2421,14 +2421,35 @@ export const hostDebts = pgTable(
     /** What the amount was worked out from, as it was read then (JSON): what was sent, what the bank disputed of what was left of the charge, what was left of the transfer. */
     basis: text("basis").notNull().default("{}"),
     /**
-     * told: the host has their notice. cancelled: called off (by the founder, or because the bank
-     * decided the other way after all). taking: Stripe is being asked. taken: done. nothing: looked
-     * at, and nothing is owed for this share (kept so that Stripe is not asked again every pass).
+     * told: the host has their notice. objected: the host said it is wrong; nothing is taken until
+     * the founder has decided. answered: the founder answered the objection and it is taken after
+     * all. cancelled: called off (by the founder, or because the bank decided the other way after
+     * all). taking: Stripe is being asked. taken: done. nothing: looked at, and nothing is owed for
+     * this share (kept so that Stripe is not asked again every pass).
      */
     status: text("status").notNull().default("told"),
     toldAt: timestamp("told_at", { withTimezone: true }).notNull(),
-    /** From when it is taken: 14 days after the host was told. */
-    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    /**
+     * From when it is taken: 14 days after the notice email was handed to the sending service
+     * (plans/46-part-3-money-owed.md, decision 6). Empty until that is known, and emptied again
+     * when the email turns out not to have arrived. After an answered objection: no earlier than
+     * the first due day, and no earlier than 3 days after the answer was sent.
+     */
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    /** The due day the first notice gave, kept when an objection empties `dueAt`. */
+    firstDueAt: timestamp("first_due_at", { withTimezone: true }),
+    /** The email that carries the notice: the days count from its sending. */
+    noticeEmailId: uuid("notice_email_id").references(() => emailOutbox.id, { onDelete: "set null" }),
+    /** The founder was told that the notice (or the answer) could not be sent, or bounced: once for each such email. */
+    noticeProblemToldAt: timestamp("notice_problem_told_at", { withTimezone: true }),
+    /** "I think this is wrong": when, and the host's own words (or the founder's note of an objection that came by email). */
+    objectedAt: timestamp("objected_at", { withTimezone: true }),
+    objection: text("objection"),
+    /** The founder's written answer when it is taken after all, the email that carries it, and who answered. */
+    answer: text("answer"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answerEmailId: uuid("answer_email_id").references(() => emailOutbox.id, { onDelete: "set null" }),
+    answeredBy: text("answered_by").references(() => user.id),
     stripeReversalId: text("stripe_reversal_id"),
     takenAt: timestamp("taken_at", { withTimezone: true }),
     /** The last "no" from Stripe, and when; and the first one since the last success, for telling the founder after 30 days. */
@@ -2448,8 +2469,8 @@ export const hostDebts = pgTable(
     uniqueIndex("host_debts_dispute_payment_uq").on(t.disputeId, t.paymentId),
     index("host_debts_payment_idx").on(t.paymentId),
     index("host_debts_host_idx").on(t.hostId),
-    index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} = 'told'`),
-    check("host_debts_status", sql`${t.status} in ('told', 'cancelled', 'taking', 'taken', 'nothing')`),
+    index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} in ('told', 'answered')`),
+    check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing')`),
     check("host_debts_amount", sql`${t.amountCents} >= 0`),
   ],
 );

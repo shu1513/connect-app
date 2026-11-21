@@ -163,11 +163,22 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                   </>
                 ) : debt.status === "taking" ? (
                   " is being taken back now."
+                ) : debt.status === "objected" ? (
+                  " is owed back, and you told us this is wrong. Nothing is taken until we have answered you."
                 ) : (
                   <>
                     {" "}
-                    is owed back: you had collected your share of a payment the customer&apos;s bank then took back. Connect asks Stripe to take it from your Stripe balance from{" "}
-                    <LocalTime iso={debt.dueAt.toISOString()} />.
+                    is owed back: you had collected your share of a payment the customer&apos;s bank then took back. Connect asks Stripe to take it from your Stripe balance{" "}
+                    {debt.dueAt ? (
+                      <>
+                        from <LocalTime iso={debt.dueAt.toISOString()} />.
+                      </>
+                    ) : debt.status === "answered" ? (
+                      "not before 3 days after our answer to your objection was sent to you by email."
+                    ) : (
+                      "not before 14 days after our email about it was sent to you."
+                    )}
+                    {debt.status === "told" && " If you think this is wrong, you can say so on the dispute's page; nothing is taken then until we have answered you."}
                   </>
                 )}{" "}
                 <Link href={debt.path} className="underline underline-offset-2">

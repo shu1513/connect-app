@@ -65,6 +65,10 @@ it.
 - 21 November 2026, asked whether to write this plan next and have Astra check it: "Yes, write
   the plan".
 
+- 21 November 2026, after the plan was merged, asked which way a debt should be recovered and
+  told the builder's recommendation (the reversal at Stripe, plan 47's way): "do what you think
+  is the best". **So part 3a is built with the reversal at Stripe.**
+
 Everything else here is the builder's.
 
 ## What is there today (read in the code)
@@ -384,6 +388,13 @@ Everything else here is the builder's.
 ## The parts (one pull request each, in this order)
 
 ### Part 3a: refunds after collection, and the debt
+
+**Built in two steps, each a pull request of its own** (decided when building began, to keep
+each small enough to check well):
+- **Step 1, the notice and the objection** (decision 6, and the one lock for a dispute of
+  decision 4), for the debts there are today, which are all from lost bank disputes. Nothing
+  about refunds yet.
+- **Step 2, refunds after collection**: everything else of part 3a.
 
 **Not started until the founder has said yes to the reversal at Stripe as the one way.**
 

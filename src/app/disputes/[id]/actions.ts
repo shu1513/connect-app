@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { chooseAnswer, ChoiceError } from "@/lib/disputes/choose";
 import { allowPayingAgain } from "@/lib/disputes/paying";
-import { cancelDebt } from "@/lib/disputes/takeback";
+import { answerObjection, cancelDebt, DebtError, holdDebt, objectToDebt } from "@/lib/disputes/takeback";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin, requireUser } from "@/lib/session";
 
@@ -51,3 +51,54 @@ export async function cancelDebtAction(formData: FormData) {
   const cancelled = /^[0-9a-f-]{36}$/.test(debtId) && (await cancelDebt({ debtId, disputeId: id, adminId: admin.id }));
   redirect(withNotice(`/disputes/${id}`, cancelled ? "Cancelled. Nothing is taken back, and the host has been told." : "This take-back can no longer be cancelled: the app has started it, or it was already settled."));
 }
+
+const DEBT_ID = /^[0-9a-f-]{36}$/;
+
+/**
+ * The host's "I think this is wrong" on a take-back (plans/46-part-3-money-owed.md, decision 6). The library checks that
+ * it is this host's and that it still only has its notice. From this moment nothing is taken until the founder has decided.
+ */
+export async function objectAction(formData: FormData) {
+  const user = await requireUser();
+  const id = String(formData.get("dispute") ?? "");
+  if (!DISPUTE_ID.test(id)) redirect("/host");
+  const debtId = String(formData.get("debt") ?? "");
+  let notice: string;
+  try {
+    if (!DEBT_ID.test(debtId)) throw new DebtError("This is not one of your take-backs.");
+    await objectToDebt({ debtId, hostId: user.id, objection: String(formData.get("objection") ?? "") });
+    notice = "We have your objection. Nothing is taken until a person at Connect has answered you.";
+  } catch (error) {
+    if (!(error instanceof DebtError)) console.error("[disputes] an objection to a take-back failed", error);
+    notice = error instanceof DebtError ? error.message : "Something went wrong. Nothing was changed. Please try again.";
+  }
+  redirect(withNotice(`/disputes/${id}`, notice));
+}
+
+/** The founder's button for an objection that came by email: the take-back is held, as if the host had pressed their own. */
+export async function holdDebtAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("dispute") ?? "");
+  if (!DISPUTE_ID.test(id)) redirect("/admin");
+  const debtId = String(formData.get("debt") ?? "");
+  const held = DEBT_ID.test(debtId) && (await holdDebt({ debtId, disputeId: id, adminId: admin.id, note: String(formData.get("note") ?? "") }));
+  redirect(withNotice(`/disputes/${id}`, held ? "Held. Nothing is taken until you have decided: answer the host, or cancel the take-back." : "This take-back cannot be held any more: the app has started it, or it is already held, answered or cancelled."));
+}
+
+/** The founder's answer to an objection: it is taken after all, and the host is sent the answer as written. */
+export async function answerObjectionAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("dispute") ?? "");
+  if (!DISPUTE_ID.test(id)) redirect("/admin");
+  const debtId = String(formData.get("debt") ?? "");
+  let notice: string;
+  try {
+    const answered = DEBT_ID.test(debtId) && (await answerObjection({ debtId, disputeId: id, adminId: admin.id, answer: String(formData.get("answer") ?? "") }));
+    notice = answered ? "Sent. The host has your answer. It is taken no earlier than the first day, and no earlier than 3 days after the answer's email has gone out." : "There is no objection to answer here any more.";
+  } catch (error) {
+    if (!(error instanceof DebtError)) console.error("[disputes] answering an objection failed", error);
+    notice = error instanceof DebtError ? error.message : "Something went wrong. Nothing was changed. Please try again.";
+  }
+  redirect(withNotice(`/disputes/${id}`, notice));
+}
+

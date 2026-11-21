@@ -16,7 +16,7 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 import { SUPPORT_EMAIL } from "@/lib/terms";
-import { allowPayingAction, cancelDebtAction, chooseAction } from "./actions";
+import { allowPayingAction, answerObjectionAction, cancelDebtAction, chooseAction, holdDebtAction, objectAction } from "./actions";
 
 // The same title whoever asks: nothing is given away before it is known who may see the page.
 export const metadata: Metadata = { title: "A bank dispute" };
@@ -317,13 +317,25 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
               <li key={debt.id} data-take-back={debt.status}>
                 <p>
                   <span className="font-medium">{formatMoney(debt.amountCents)}</span>
-                  {debt.status === "told" && (
-                    <>
-                      {asHost ? ": from " : ": the host was told. From "}
-                      <LocalTime iso={debt.dueAt.toISOString()} />
-                      {asHost ? ", Connect asks Stripe to take it back from your Stripe balance. Until then nothing is taken." : " the app asks Stripe to take it back."}
-                    </>
-                  )}
+                  {(debt.status === "told" || debt.status === "answered") &&
+                    (debt.dueAt ? (
+                      <>
+                        {asHost ? ": from " : debt.status === "answered" ? ": the objection was answered. From " : ": the host was told. From "}
+                        <LocalTime iso={debt.dueAt.toISOString()} />
+                        {asHost ? ", Connect asks Stripe to take it back from your Stripe balance. Until then nothing is taken." : " the app asks Stripe to take it back."}
+                      </>
+                    ) : debt.status === "answered" ? (
+                      asHost ? (
+                        ": we have answered your objection. Connect asks Stripe to take it back, not before 3 days after our answer was sent to you by email."
+                      ) : (
+                        ": the objection was answered. It gets its day once the answer's email has gone out (3 days after that, and not before the first day)."
+                      )
+                    ) : asHost ? (
+                      ": Connect asks Stripe to take it back from your Stripe balance, not before 14 days after our email about it was sent to you. Until then nothing is taken."
+                    ) : (
+                      ": the host was told. It gets its day once the notice's email has gone out (14 days after that)."
+                    ))}
+                  {debt.status === "objected" && (asHost ? ": you told us this is wrong. Nothing is taken until we have answered you." : ": the host objected. Nothing is taken until you have decided.")}
                   {debt.status === "taking" && ": Stripe is being asked to take it back now."}
                   {debt.status === "taken" && debt.takenAt && (
                     <>
@@ -332,17 +344,73 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                   )}
                   {debt.status === "cancelled" && ": called off. Nothing is taken."}
                 </p>
-                {debt.status === "told" && debt.refusedAt && (
+                {debt.objection && (debt.status === "objected" || debt.status === "answered") && (
+                  <p className="mt-1 whitespace-pre-wrap opacity-80" data-objection>
+                    {asHost ? "What you wrote: " : "What the host wrote: "}
+                    {debt.objection}
+                  </p>
+                )}
+                {debt.answer && debt.status === "answered" && (
+                  <p className="mt-1 whitespace-pre-wrap opacity-80" data-answer-to-objection>
+                    {asHost ? "Our answer: " : "Your answer: "}
+                    {debt.answer}
+                  </p>
+                )}
+                {!asHost && (debt.status === "told" || debt.status === "answered") && !debt.dueAt && debt.noticeProblemToldAt && (
+                  <p className="mt-1 opacity-80" data-not-delivered>
+                    The email about this did not reach the host, so nothing is taken. Reach the host another way, or cancel the take-back.
+                  </p>
+                )}
+                {(debt.status === "told" || debt.status === "answered") && debt.refusedAt && (
                   <p className="mt-1 opacity-80" data-refused>
                     {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
                   </p>
                 )}
                 {debt.status === "taken" && debt.leftoverToldAt && (
                   <p className="mt-1 opacity-80" data-leftover>
-                    {asHost ? "The bank has since let the payment stand. A person at Connect gives this amount back to you." : "The bank has since decided the other way. The app does not give this back by itself: send it to the host in Stripe."}
+                    {asHost ? "The bank has since let the payment stand. A person at Connect gives this amount back to you." : "The bank has since decided the other way. The app does not give this back by itself: send it to the host by hand."}
                   </p>
                 )}
+                {asHost && debt.status === "told" && (
+                  <form action={objectAction} className="mt-2 max-w-md space-y-2" data-object>
+                    <input type="hidden" name="dispute" value={dispute.id} />
+                    <input type="hidden" name="debt" value={debt.id} />
+                    <label className="block">
+                      If you think this is wrong, tell us why. Nothing is taken until a person at Connect has answered you.
+                      <textarea name="objection" required minLength={10} maxLength={2000} rows={3} className="mt-1 block w-full rounded border border-neutral-400 p-2" />
+                    </label>
+                    <button type="submit" className={button}>
+                      I think this is wrong
+                    </button>
+                  </form>
+                )}
+                {founder && debt.status === "objected" && (
+                  <form action={answerObjectionAction} className="mt-2 max-w-md space-y-2" data-answer-objection>
+                    <input type="hidden" name="dispute" value={dispute.id} />
+                    <input type="hidden" name="debt" value={debt.id} />
+                    <label className="block">
+                      Your answer to the host, if it is taken after all. The host reads it as written. It is then taken no earlier than the first day, and no earlier than 3 days after this answer has gone out.
+                      <textarea name="answer" required minLength={10} maxLength={2000} rows={3} className="mt-1 block w-full rounded border border-neutral-400 p-2" />
+                    </label>
+                    <button type="submit" className={button}>
+                      Answer, and take it after all
+                    </button>
+                  </form>
+                )}
                 {founder && debt.status === "told" && (
+                  <form action={holdDebtAction} className="mt-2 max-w-md space-y-2" data-hold-take-back>
+                    <input type="hidden" name="dispute" value={dispute.id} />
+                    <input type="hidden" name="debt" value={debt.id} />
+                    <label className="block">
+                      The host objected by email? Note what they said. Nothing is taken until you have decided.
+                      <input type="text" name="note" maxLength={2000} className="mt-1 block w-full rounded border border-neutral-400 p-2" />
+                    </label>
+                    <button type="submit" className={button}>
+                      Hold it: the host objected
+                    </button>
+                  </form>
+                )}
+                {founder && (debt.status === "told" || debt.status === "objected" || debt.status === "answered") && (
                   <form action={cancelDebtAction} className="mt-2" data-cancel-take-back>
                     <input type="hidden" name="dispute" value={dispute.id} />
                     <input type="hidden" name="debt" value={debt.id} />
@@ -354,13 +422,13 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
               </li>
             ))}
           </ul>
-          {asHost && takeBacks.some((debt) => debt.status === "told") && (
+          {asHost && takeBacks.some((debt) => debt.status === "answered") && (
             <p className="mt-3 opacity-70">
-              If you think this is wrong, write to{" "}
+              If you still think this is wrong, write to{" "}
               <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2">
                 {SUPPORT_EMAIL}
-              </a>{" "}
-              before that date.
+              </a>
+              .
             </p>
           )}
         </div>

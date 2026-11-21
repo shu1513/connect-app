@@ -1,5 +1,6 @@
 /**
- * Testing tool for taking a share back after a lost bank dispute (plans/47-bank-disputes.md, part 3).
+ * Testing tool for taking a share back after a lost bank dispute (plans/47-bank-disputes.md, part 3), and for
+ * the 14 days from the notice really sent and the host's objection (plans/46-part-3-money-owed.md, decision 6).
  *
  * It makes real charges, disputes, transfers and reversals in Stripe's test area and checks every
  * result at Stripe and in the local database. No real money moves. It makes its own host and
@@ -18,7 +19,7 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, like, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { requireLocalDatabase } from "./local-only";
 
 let failures = 0;
@@ -40,8 +41,8 @@ async function main() {
   const { getHostSettings, refreshPayoutsReady } = await import("../src/lib/payments/hosts");
   const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
   const { lookAtOpenDisputes } = await import("../src/lib/disputes/record");
-  const { cancelDebt, reverseAtStripe, takeBackPass, takePlan, debtsOfDispute, debtsOfHost } = await import("../src/lib/disputes/takeback");
-  const { NOTICE_MS, RETRY_MS, TELL_FOUNDER_AFTER_MS } = await import("../src/lib/disputes/takeback-rules");
+  const { answerObjection, backToTold, cancelDebt, dateNotices, DebtError, holdDebt, objectToDebt, reverseAtStripe, takeBackPass, takePlan, debtsOfDispute, debtsOfHost } = await import("../src/lib/disputes/takeback");
+  const { AFTER_ANSWER_MS, NOTICE_MS, RETRY_MS, TELL_FOUNDER_AFTER_MS } = await import("../src/lib/disputes/takeback-rules");
 
   const [seeded] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
   const account = seeded ? (await getHostSettings(seeded.id))?.stripeAccountId : null;
@@ -77,7 +78,31 @@ async function main() {
   const message = (type: string, disputeId: string) => ({ type, data: { object: { id: disputeId } } });
   let looks = 0;
   const helperLooks = (...disputeIds: string[]) => lookAtOpenDisputes(new Date(Date.now() + 120_000 * ++looks), { disputeIds });
-  const pass = (at: Date, ...disputeIds: string[]) => takeBackPass(at, { disputeIds });
+  /** The helper's pass alone, with nothing sent: a take-back gets its due day only once its notice email has gone out. */
+  const passOnly = (at: Date, ...disputeIds: string[]) => takeBackPass(at, { disputeIds });
+  /**
+   * In the place of the sending service: the notice (or the answer to an objection) of these disputes' take-backs that
+   * is still waiting is marked as sent, at the moment the row was written (or the answer was given) unless a moment is
+   * named. Exactly those emails, by their own numbers; no other email in the database is touched.
+   */
+  async function sendNotices(disputeIds: string[], sentAt?: Date) {
+    const waiting = await db.select().from(debts).where(and(inArray(debts.disputeId, disputeIds), isNull(debts.dueAt), inArray(debts.status, ["told", "answered"])));
+    for (const row of waiting) {
+      const emailId = row.status === "answered" ? row.answerEmailId : row.noticeEmailId;
+      if (!emailId) continue;
+      await db
+        .update(schema.emailOutbox)
+        .set({ status: "sent", sentAt: sentAt ?? (row.status === "answered" ? (row.answeredAt ?? new Date()) : row.toldAt) })
+        .where(and(eq(schema.emailOutbox.id, emailId), eq(schema.emailOutbox.status, "queued")));
+    }
+  }
+  /** One pass as it goes with a sending service that works: what is owed is written, its notice goes out, and it gets its day. */
+  const pass = async (at: Date, ...disputeIds: string[]) => {
+    await passOnly(at, ...disputeIds);
+    await sendNotices(disputeIds);
+    // Only the step that gives the due days, not a second whole pass: one pass is one try at Stripe.
+    await dateNotices(at, { disputeIds });
+  };
   /** Makes an unanswered money action look older, as if the helper had been away. */
   const age = (operationId: string, ms: number) => db.update(schema.moneyOperations).set({ createdAt: new Date(Date.now() - ms) }).where(eq(schema.moneyOperations.id, operationId));
 
@@ -157,7 +182,7 @@ async function main() {
       const c = await collectedThenLost(seeded, seededCustomer);
       await pass(new Date(), c.disputeId);
       const debt = await debtOf(c.disputeId);
-      console.log(`Made: a lost dispute whose share (${debt?.amountCents} cents) is taken back from host@test.local from ${debt?.dueAt.toISOString()}: /disputes/${c.disputeId}, and "Your earnings" on /host.`);
+      console.log(`Made: a lost dispute whose share (${debt?.amountCents} cents) is taken back from host@test.local from ${debt?.dueAt!.toISOString()}: /disputes/${c.disputeId}, and "Your earnings" on /host.`);
     } else {
       const calls = await db.select({ id: schema.calls.id }).from(schema.calls).where(and(eq(schema.calls.hostId, seeded.id), like(schema.calls.roomName, "takebackcheck-%")));
       for (const call of calls) {
@@ -165,7 +190,7 @@ async function main() {
         if (!payment) continue;
         const rows = await db.select().from(debts).where(eq(debts.paymentId, payment.id));
         // Nothing of the demo is left for the helper to take, and what is left of the share it sent is taken back here.
-        await db.update(debts).set({ status: "cancelled", cancelledAt: new Date() }).where(and(eq(debts.paymentId, payment.id), eq(debts.status, "told")));
+        await db.update(debts).set({ status: "cancelled", cancelledAt: new Date() }).where(and(eq(debts.paymentId, payment.id), inArray(debts.status, ["told", "objected", "answered"])));
         if (payment.stripeTransferId) {
           const transfer = await stripe().transfers.retrieve(payment.stripeTransferId).catch(() => null);
           const left = transfer ? transfer.amount - transfer.amount_reversed : 0;
@@ -199,17 +224,17 @@ async function main() {
       const debt = rows[0];
       check("one take-back for the dispute and the share, however often the look runs", rows.length === 1 && debt.status === "told" && debt.paymentId === c.payment.id && debt.hostId === host.id && debt.stripeTransferId === c.transferId, `${rows.length} ${debt?.status}`);
       check("the whole share is owed: the bank took the whole payment", debt.amountCents === 1238 && JSON.parse(debt.basis).disputedCents === 1333 && JSON.parse(debt.basis).chargeLeftCents === 1333 && JSON.parse(debt.basis).transferLeftCents === 1238, debt.basis);
-      check("it is due 14 days after the moment the notice was written (not the moment the look began)", debt.dueAt.getTime() === debt.toldAt.getTime() + NOTICE_MS && debt.toldAt.getTime() >= NOW.getTime() && debt.toldAt.getTime() - NOW.getTime() < 60_000);
+      check("it is due 14 days after its notice email went out (here: at the moment the notice was written)", debt.dueAt!.getTime() === debt.toldAt.getTime() + NOTICE_MS && debt.firstDueAt?.getTime() === debt.dueAt!.getTime() && debt.noticeEmailId !== null && debt.toldAt.getTime() >= NOW.getTime() && debt.toldAt.getTime() - NOW.getTime() < 60_000);
       const told = await messagesOf(debt.id);
       check("the host is told once, in the app and by email: which payment, how much, from when, and where to object", told.length === 1 && told[0].userId === host.id && told[0].body.includes("$12.38") && told[0].body.includes("You had already collected your share") && told[0].body.includes("Until then nothing is taken") && told[0].body.includes("write to us at") && told[0].path === `/disputes/${c.disputeId}` && (await emailsOf(debt.id)).filter((mail) => mail.dedupeKey === told[0].key).length === 1, told[0]?.body.slice(0, 200));
       check("the customer is told nothing about it", told.every((one) => one.userId !== customer.id));
       const toFounders = (await emailsOf(debt.id)).filter((mail) => mail.dedupeKey?.includes(":owed:founder:"));
-      check("each admin gets one email: what the app will do, and that it can be cancelled", toFounders.length === admins.length && toFounders.every((mail) => mail.body.includes("you can cancel the take-back") && mail.body.includes(`/disputes/${c.disputeId}`)), toFounders.length);
+      check("each admin gets one email: what the app will do, and that it can be cancelled", toFounders.length === admins.length && toFounders.every((mail) => mail.body.includes("cancel the take-back on the dispute's page") && mail.body.includes("The host can object with a button") && mail.body.includes(`/disputes/${c.disputeId}`)), toFounders.length);
       check("the host's earnings and the dispute's page show it", (await debtsOfHost(host.id)).some((one) => one.id === debt.id && one.path === `/disputes/${c.disputeId}`) && (await debtsOfDispute(c.disputeId)).length === 1);
 
-      await pass(new Date(debt.dueAt.getTime() - 1000), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() - 1000), c.disputeId);
       check("a second before the 14 days are over, nothing is taken", (await transferAt(c.transferId)).amount_reversed === 0 && (await debtOf(c.disputeId)).status === "told" && (await operationsOf(c.payment.id)).length === 0);
-      await pass(debt.dueAt, c.disputeId);
+      await pass(debt.dueAt!, c.disputeId);
       const after = await debtOf(c.disputeId);
       const atStripe = await transferAt(c.transferId);
       const reversals = (await stripe().transfers.listReversals(c.transferId, { limit: 10 })).data;
@@ -219,14 +244,14 @@ async function main() {
       check("it went through the steps of a money action: one, succeeded, under the take-back's own label", operations.length === 1 && operations[0].status === "succeeded" && operations[0].label === `takeback:${debt.id}:1` && operations[0].stripeId === after.stripeReversalId);
       check("the money record adds up: $12.38 sent, $12.38 taken back", (await ledgerOf(c.payment.id, "host_transfer")) === -1238 && (await ledgerOf(c.payment.id, "host_takeback")) === 1238);
       check("the host is told that it was taken", (await messagesOf(debt.id)).some((one) => one.key.includes(":taken:") && one.body.includes("Stripe has taken $12.38 back")));
-      await pass(new Date(debt.dueAt.getTime() + 3 * RETRY_MS), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() + 3 * RETRY_MS), c.disputeId);
       check("nothing is ever taken a second time", (await transferAt(c.transferId)).amount_reversed === 1238 && (await operationsOf(c.payment.id)).length === 1 && (await debtsFor(c.disputeId)).length === 1);
       check("a take-back that was taken cannot be cancelled", (await cancelDebt({ debtId: debt.id, adminId: admins[0]?.id ?? host.id })) === false && (await debtOf(c.disputeId)).status === "taken");
 
       // Taken, and then the bank decides the other way (written into the local record: the test area cannot do it).
       await db.update(schema.disputes).set({ outcome: "won", status: "won" }).where(eq(schema.disputes.id, c.disputeId));
-      await pass(new Date(debt.dueAt.getTime() + 4 * RETRY_MS), c.disputeId);
-      await pass(new Date(debt.dueAt.getTime() + 5 * RETRY_MS), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() + 4 * RETRY_MS), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() + 5 * RETRY_MS), c.disputeId);
       const leftover = await messagesOf(debt.id);
       check("taken, and then the dispute is won: the app gives nothing back by itself, and the host is told once that a person will", (await debtOf(c.disputeId)).status === "taken" && (await debtOf(c.disputeId)).leftoverToldAt !== null && leftover.filter((one) => one.key.includes(":leftover:")).length === 1 && leftover.some((one) => one.key.includes(":leftover:") && one.body.includes("A person at Connect will look at this")) && (await transferAt(c.transferId)).amount_reversed === 1238);
       check("and each admin is told once that this one needs them", (await emailsOf(debt.id)).filter((mail) => mail.dedupeKey?.includes(":leftover:founder:") && mail.body.includes("This one needs you")).length === admins.length);
@@ -281,8 +306,8 @@ async function main() {
       check("each dispute was over a part of the charge, and takes the same part of the share, rounded down", rows.length === 2 && rows.every((row, i) => row.status === "told" && parts[i].disputedCents < parts[i].chargeLeftCents && row.amountCents === Math.floor((sent.sentCents * parts[i].disputedCents) / parts[i].chargeLeftCents)), rows.map((row, i) => `${row.status}:${row.amountCents} of ${parts[i].disputedCents}/${parts[i].chargeLeftCents}`).join(" "));
       check("the second was worked out with the first one still to take: together never more than was sent", rows[0].amountCents + rows[1].amountCents <= sent.sentCents && parts.some((part) => (part as { othersOpenCents?: number }).othersOpenCents === rows[0].amountCents || (part as { othersOpenCents?: number }).othersOpenCents === rows[1].amountCents));
       check("the host is told of each, and how the part is worked out", (await messagesOf(rows[0].id)).length === 1 && (await messagesOf(rows[1].id)).length === 1 && (await messagesOf(rows[0].id))[0].body.includes("the same part of the"));
-      await pass(rows[0].dueAt, ...both);
-      await pass(new Date(rows[0].dueAt.getTime() + 1000), ...both);
+      await pass(rows[0].dueAt!, ...both);
+      await pass(new Date(rows[0].dueAt!.getTime() + 1000), ...both);
       const taken = await db.select().from(debts).where(inArray(debts.disputeId, both));
       check("both are taken, one after the other, each with its own reversal; what is taken is never more than was sent", taken.every((row) => row.status === "taken") && (await transferAt(sent.transferId)).amount_reversed === rows[0].amountCents + rows[1].amountCents && (await transferAt(sent.transferId)).amount_reversed <= sent.sentCents && (await ledgerOf(paid.payment.id, "host_takeback")) === rows[0].amountCents + rows[1].amountCents && (await stripe().transfers.listReversals(sent.transferId, { limit: 10 })).data.length === 2, taken.map((row) => row.status).join(" "));
     }
@@ -306,7 +331,7 @@ async function main() {
         await pass(NOW, ...both);
         rows = await db.select().from(debts).where(inArray(debts.disputeId, both));
         const freed = rows.find((row) => row.status === "told");
-        check("the first is cancelled: the other dispute's share is worked out afresh, and gets a notice of its own with 14 days", rows.length === 2 && rows.some((row) => row.status === "cancelled") && freed !== undefined && freed.amountCents === part && (await messagesOf(freed.id)).length === 1 && freed.dueAt.getTime() === freed.toldAt.getTime() + NOTICE_MS, rows.map((row) => `${row.status}:${row.amountCents}`).join(" "));
+        check("the first is cancelled: the other dispute's share is worked out afresh, and gets a notice of its own with 14 days", rows.length === 2 && rows.some((row) => row.status === "cancelled") && freed !== undefined && freed.amountCents === part && (await messagesOf(freed.id)).length === 1 && freed.dueAt!.getTime() === freed.toldAt.getTime() + NOTICE_MS, rows.map((row) => `${row.status}:${row.amountCents}`).join(" "));
       }
     }
 
@@ -322,7 +347,7 @@ async function main() {
         check("the founder cancels a take-back that only has its notice", (await cancelDebt({ debtId: debt.id, adminId: admins[0].id, disputeId: c.disputeId })) === true && (await debtOf(c.disputeId)).status === "cancelled" && (await debtOf(c.disputeId)).cancelledBy === admins[0].id);
         check("it is written down as an admin action, and the host is told it is called off", (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, debt.id))).length === 1 && (await messagesOf(debt.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("Nothing is taken for this take-back")));
         check("a second press changes nothing", (await cancelDebt({ debtId: debt.id, adminId: admins[0].id })) === false);
-        await pass(new Date(debt.dueAt.getTime() + RETRY_MS), c.disputeId);
+        await pass(new Date(debt.dueAt!.getTime() + RETRY_MS), c.disputeId);
         check("a cancelled take-back is never taken, and no new one is written for the same share", (await transferAt(c.transferId)).amount_reversed === 0 && (await debtsFor(c.disputeId)).length === 1 && (await operationsOf(c.payment.id)).length === 0);
       }
 
@@ -331,7 +356,7 @@ async function main() {
       await pass(NOW, w.disputeId);
       const waiting = await debtOf(w.disputeId);
       await db.update(schema.disputes).set({ outcome: "won", status: "won" }).where(eq(schema.disputes.id, w.disputeId));
-      await pass(waiting.dueAt, w.disputeId);
+      await pass(waiting.dueAt!, w.disputeId);
       check("the bank decided the other way before anything was taken: the take-back is called off by itself, and the host is told why", (await debtOf(w.disputeId)).status === "cancelled" && (await debtOf(w.disputeId)).cancelledBy === null && (await messagesOf(waiting.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("let the payment stand")) && (await transferAt(w.transferId)).amount_reversed === 0);
     }
 
@@ -344,24 +369,24 @@ async function main() {
       const debt = await debtOf(c.disputeId);
       // Somebody takes the whole transfer back in Stripe meanwhile, so the app's request cannot be met.
       await stripe().transfers.createReversal(c.transferId, { amount: c.sentCents });
-      await pass(debt.dueAt, c.disputeId);
+      await pass(debt.dueAt!, c.disputeId);
       let row = await debtOf(c.disputeId);
       let operations = await operationsOf(c.payment.id);
       check("a clear \"no\" from Stripe: the action is marked as not done, and the row is back at its notice with what Stripe said", row.status === "told" && Boolean(row.refusal) && row.refusedAt !== null && row.firstRefusedAt !== null && operations.length === 1 && operations[0].status === "failed", `${row.status} ${row.refusal}`);
       // As if that refusal had come at the moment the notice ended.
-      await db.update(debts).set({ refusedAt: debt.dueAt, firstRefusedAt: debt.dueAt }).where(eq(debts.id, debt.id));
-      await pass(new Date(debt.dueAt.getTime() + RETRY_MS - 1000), c.disputeId);
+      await db.update(debts).set({ refusedAt: debt.dueAt!, firstRefusedAt: debt.dueAt! }).where(eq(debts.id, debt.id));
+      await pass(new Date(debt.dueAt!.getTime() + RETRY_MS - 1000), c.disputeId);
       check("it is not tried again within a day", (await operationsOf(c.payment.id)).length === 1);
-      await pass(new Date(debt.dueAt.getTime() + RETRY_MS), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() + RETRY_MS), c.disputeId);
       row = await debtOf(c.disputeId);
       operations = await operationsOf(c.payment.id);
       check("a day later it is tried again, under a new label, and is back at its notice once more", operations.length === 2 && operations[1].label === `takeback:${debt.id}:2` && operations[1].status === "failed" && row.status === "told", `${operations.length} ${row.status}`);
-      check("the first refusal's date is kept", row.firstRefusedAt?.getTime() === debt.dueAt.getTime());
-      await db.update(debts).set({ refusedAt: new Date(debt.dueAt.getTime() + TELL_FOUNDER_AFTER_MS) }).where(eq(debts.id, debt.id));
-      await pass(new Date(debt.dueAt.getTime() + TELL_FOUNDER_AFTER_MS - 1000), c.disputeId);
+      check("the first refusal's date is kept", row.firstRefusedAt?.getTime() === debt.dueAt!.getTime());
+      await db.update(debts).set({ refusedAt: new Date(debt.dueAt!.getTime() + TELL_FOUNDER_AFTER_MS) }).where(eq(debts.id, debt.id));
+      await pass(new Date(debt.dueAt!.getTime() + TELL_FOUNDER_AFTER_MS - 1000), c.disputeId);
       check("before 30 days of refusals the founder is not told", (await emailsOf(debt.id)).every((mail) => !mail.dedupeKey?.includes(":refused:")));
-      await pass(new Date(debt.dueAt.getTime() + TELL_FOUNDER_AFTER_MS), c.disputeId);
-      await pass(new Date(debt.dueAt.getTime() + TELL_FOUNDER_AFTER_MS + 1000), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() + TELL_FOUNDER_AFTER_MS), c.disputeId);
+      await pass(new Date(debt.dueAt!.getTime() + TELL_FOUNDER_AFTER_MS + 1000), c.disputeId);
       const toldRefused = (await emailsOf(debt.id)).filter((mail) => mail.dedupeKey?.includes(":refused:founder:"));
       check("after 30 days each admin is told once, with what Stripe last said", toldRefused.length === admins.length && toldRefused.every((mail) => mail.body.includes("For 30 days Stripe has refused") && mail.body.includes("What Stripe last said")), toldRefused.length);
       check("the host is told nothing about refusals", (await messagesOf(debt.id)).every((one) => !one.key.includes(":refused:")));
@@ -377,7 +402,7 @@ async function main() {
         const c = await collectedThenLost(host, await person("customer"));
         await pass(NOW, c.disputeId);
         const debt = await debtOf(c.disputeId);
-        const started = await db.transaction((tx) => startMoneyOperation(tx, takePlan(debt, debt.dueAt)));
+        const started = await db.transaction((tx) => startMoneyOperation(tx, takePlan(debt, debt.dueAt!)));
         if (started === "already_done") throw new Error("The take-back was already done.");
         return { ...c, debt, started };
       };
@@ -387,7 +412,7 @@ async function main() {
       check("writing the action down moves the row to \"being taken\"", (await debtOf(never.disputeId)).status === "taking");
       check("a take-back that is being taken cannot be cancelled", (await cancelDebt({ debtId: never.debt.id, adminId: admins[0]?.id ?? host.id })) === false && (await debtOf(never.disputeId)).status === "taking");
       await db.update(schema.disputes).set({ outcome: "won", status: "won" }).where(eq(schema.disputes.id, never.disputeId));
-      await pass(new Date(never.debt.dueAt.getTime() + RETRY_MS), never.disputeId);
+      await pass(new Date(never.debt.dueAt!.getTime() + RETRY_MS), never.disputeId);
       check("the dispute is won while it is under way: the row waits for its action", (await debtOf(never.disputeId)).status === "taking");
       // The helper comes back two minutes later. A repeat could be the first time Stripe really does it, and the dispute
       // is no longer lost: nothing is sent, and nothing is concluded yet either.
@@ -399,7 +424,7 @@ async function main() {
       let row = await debtOf(never.disputeId);
       let [operation] = await operationsOf(never.payment.id);
       check("the helper's check finds \"it did not happen\": the action is failed and the row is back at its notice, never left \"being taken\"", operation.status === "failed" && row.status === "told" && /did not happen/.test(row.refusal ?? "") && (await transferAt(never.transferId)).amount_reversed === 0, `${operation.status} ${row.status}`);
-      await pass(new Date(never.debt.dueAt.getTime() + 2 * RETRY_MS), never.disputeId);
+      await pass(new Date(never.debt.dueAt!.getTime() + 2 * RETRY_MS), never.disputeId);
       check("and then, the dispute being won, it is called off", (await debtOf(never.disputeId)).status === "cancelled" && (await transferAt(never.transferId)).amount_reversed === 0);
 
       // Stripe did it and the reply was lost: the same request again gives the first reply back.
@@ -420,6 +445,118 @@ async function main() {
       [operation] = await operationsOf(old.payment.id);
       check("found too late to repeat: the reversal is found by the take-back's id, and recorded once", operation.status === "succeeded" && row.status === "taken" && row.stripeReversalId !== null && (await transferAt(old.transferId)).amount_reversed === old.sentCents && (await ledgerOf(old.payment.id, "host_takeback")) === old.sentCents, `${operation.status} ${row.status}`);
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n8. The 14 days count from the notice really sent, and an objection stops the taking (plans/46-part-3, decision 6)");
+    {
+      const admin = admins[0]?.id ?? host.id;
+      const customer = await person("customer");
+      const c = await collectedThenLost(host, customer);
+      const founderMail = async (debtId: string, what: string) => (await emailsOf(debtId)).filter((mail) => mail.dedupeKey?.includes(`:${what}`) && mail.dedupeKey.includes(":founder:"));
+      await passOnly(NOW, c.disputeId);
+      let debt = await debtOf(c.disputeId);
+      const noticeId = debt.noticeEmailId!;
+      const [notice] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.id, noticeId));
+      check("a take-back whose notice has not gone out has no due day, and its notice names none", debt.status === "told" && debt.dueAt === null && notice?.status === "queued" && notice.to === host.email && notice.body.includes("From 14 days after this message was sent to you by email"), `${debt.dueAt} ${notice?.status}`);
+      await passOnly(new Date(NOW.getTime() + 10 * NOTICE_MS), c.disputeId);
+      check("it is never taken while that is so, however much time passes", (await debtOf(c.disputeId)).status === "told" && (await transferAt(c.transferId)).amount_reversed === 0 && (await operationsOf(c.payment.id)).length === 0);
+
+      // The email fails: the founder is told once, and there is still no day.
+      await db.update(schema.emailOutbox).set({ status: "failed", lastError: "422 made up for this check" }).where(eq(schema.emailOutbox.id, noticeId));
+      await passOnly(NOW, c.disputeId);
+      await passOnly(NOW, c.disputeId);
+      debt = await debtOf(c.disputeId);
+      const undelivered = await founderMail(debt.id, "undelivered:");
+      check("a notice that could not be sent leaves it without a day, and each admin is told once", debt.dueAt === null && debt.noticeProblemToldAt !== null && undelivered.length === admins.length && undelivered.every((mail) => mail.body.includes("could not be delivered by email: 422 made up for this check") && mail.body.includes("nothing is taken while this is so")), `${undelivered.length}`);
+
+      // It goes out after all, two days later: the days count from then.
+      const sentAt = new Date(NOW.getTime() + 2 * 24 * 3_600_000);
+      await db.update(schema.emailOutbox).set({ status: "sent", sentAt, lastError: null }).where(eq(schema.emailOutbox.id, noticeId));
+      await passOnly(NOW, c.disputeId);
+      debt = await debtOf(c.disputeId);
+      const firstDue = new Date(sentAt.getTime() + NOTICE_MS);
+      check("once the email has gone out, it is due 14 days after that moment, not after the row was written", debt.dueAt?.getTime() === firstDue.getTime() && debt.firstDueAt?.getTime() === firstDue.getTime(), `${debt.dueAt?.toISOString()}`);
+
+      // The address turns out to bounce: the day is taken away again.
+      await db.insert(schema.emailSuppressions).values({ address: host.email, reason: "bounced (permanent)" });
+      await passOnly(NOW, c.disputeId);
+      check("when the sending service says later that the address bounces, the day is taken away again", (await debtOf(c.disputeId)).dueAt === null);
+      await passOnly(new Date(firstDue.getTime() + 1000), c.disputeId);
+      check("and nothing is taken while it bounces", (await debtOf(c.disputeId)).status === "told" && (await transferAt(c.transferId)).amount_reversed === 0);
+      await db.delete(schema.emailSuppressions).where(eq(schema.emailSuppressions.address, host.email));
+      await passOnly(NOW, c.disputeId);
+      check("(with the address working again, it has its day back)", (await debtOf(c.disputeId)).dueAt?.getTime() === firstDue.getTime());
+
+      // "I think this is wrong", a second before the day.
+      const refused = async (attempt: Promise<unknown>) => attempt.then(() => null, (error: Error) => (error instanceof DebtError ? error.message : `not a DebtError: ${error.message}`));
+      check("somebody else cannot object to it", /not one of your take-backs/.test((await refused(objectToDebt({ debtId: debt.id, hostId: customer.id, objection: "This is not mine to object to at all." }))) ?? ""));
+      check("an objection needs a reason", /why you think this is wrong/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, objection: "no" }))) ?? ""));
+      await objectToDebt({ debtId: debt.id, hostId: host.id, objection: "The call took place in full. The customer told me so afterwards.", now: new Date(firstDue.getTime() - 1000) });
+      await passOnly(firstDue, c.disputeId);
+      await passOnly(new Date(firstDue.getTime() + 30 * 24 * 3_600_000), c.disputeId);
+      debt = await debtOf(c.disputeId);
+      check("an objection a second before the day stops it: nothing is taken at the day, or a month later", debt.status === "objected" && debt.dueAt === null && (await transferAt(c.transferId)).amount_reversed === 0 && (await operationsOf(c.payment.id)).length === 0, debt.status);
+      const objected = await founderMail(debt.id, "objected");
+      check("the host is told it is with a person, and each admin gets the host's own words", (await messagesOf(debt.id)).some((one) => one.key.includes(":objected:") && one.body.includes("nothing is taken for this take-back")) && objected.length === admins.length && objected.every((mail) => mail.body.includes("The call took place in full.")), `${objected.length}`);
+      check("the host cannot object a second time while it is open", /already have your objection/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, objection: "Once more, with other words this time." }))) ?? ""));
+      check("the earnings page still lists it, as objected", (await debtsOfHost(host.id)).some((one) => one.id === debt.id && one.status === "objected"));
+
+      // The founder answers: taken after all, but not before the answer has gone out and 3 days have passed.
+      check("an answer needs words", /Write the answer/.test((await refused(answerObjection({ debtId: debt.id, adminId: admin, answer: "no" }))) ?? ""));
+      const answeredAt = new Date(firstDue.getTime() + 5 * 24 * 3_600_000);
+      check("the founder answers the objection", (await answerObjection({ debtId: debt.id, adminId: admin, answer: "The bank's decision stands whatever happened in the call. We sent it your record of the call.", now: answeredAt })) === true);
+      debt = await debtOf(c.disputeId);
+      check("answered: the host has the answer in writing, and there is no day until that answer has gone out", debt.status === "answered" && debt.dueAt === null && debt.answerEmailId !== null && debt.answeredBy === admin && (await messagesOf(debt.id)).some((one) => one.key.includes(":answered:") && one.body.includes("The bank's decision stands whatever happened in the call.")));
+      await passOnly(new Date(answeredAt.getTime() + 60 * 24 * 3_600_000), c.disputeId);
+      check("and it is not taken while the answer has not gone out", (await debtOf(c.disputeId)).status === "answered" && (await transferAt(c.transferId)).amount_reversed === 0);
+      await sendNotices([c.disputeId], answeredAt);
+      await passOnly(answeredAt, c.disputeId);
+      debt = await debtOf(c.disputeId);
+      const dueAgain = new Date(answeredAt.getTime() + AFTER_ANSWER_MS);
+      check("its day is 3 days after the answer went out (the first day has passed by then)", debt.dueAt?.getTime() === dueAgain.getTime(), debt.dueAt?.toISOString());
+      check("an answered take-back cannot be objected to again in the app", /We have answered your objection/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, objection: "I still think that this is wrong, please look again." }))) ?? ""));
+      await passOnly(new Date(dueAgain.getTime() - 1000), c.disputeId);
+      check("a second before that day nothing is taken", (await transferAt(c.transferId)).amount_reversed === 0);
+      await passOnly(dueAgain, c.disputeId);
+      debt = await debtOf(c.disputeId);
+      check("at that day it is taken, really, at Stripe", debt.status === "taken" && (await transferAt(c.transferId)).amount_reversed === c.sentCents, `${debt.status} ${debt.refusal ?? ""}`);
+
+      // An answer given early: the first day still holds.
+      const early = await collectedThenLost(host, await person("customer"));
+      await pass(NOW, early.disputeId);
+      let second = await debtOf(early.disputeId);
+      const itsFirstDay = second.dueAt!;
+      await objectToDebt({ debtId: second.id, hostId: host.id, objection: "Please look at this one again, I think it is wrong.", now: new Date(NOW.getTime() + 24 * 3_600_000) });
+      await answerObjection({ debtId: second.id, adminId: admin, answer: "We looked at it again and the bank's decision stands.", now: new Date(NOW.getTime() + 2 * 24 * 3_600_000) });
+      await sendNotices([early.disputeId], new Date(NOW.getTime() + 2 * 24 * 3_600_000));
+      await passOnly(NOW, early.disputeId);
+      second = await debtOf(early.disputeId);
+      check("an objection answered early does not bring the day forward: it stays the first day", second.status === "answered" && second.dueAt?.getTime() === itsFirstDay.getTime(), second.dueAt?.toISOString());
+      // Stripe refuses a reversal on an answered take-back: it goes back to "answered", not to "told" (which could be objected to again).
+      await db.update(debts).set({ status: "taking" }).where(eq(debts.id, second.id));
+      await db.transaction((tx) => backToTold(tx, second.id, "made up for this check"));
+      second = await debtOf(early.disputeId);
+      check("a refused reversal puts an answered take-back back to answered, with the refusal noted", second.status === "answered" && second.refusal === "made up for this check" && second.refusedAt !== null);
+      // The bank decides the other way while it is answered: called off by itself.
+      await db.update(schema.disputes).set({ outcome: "won", status: "won" }).where(eq(schema.disputes.id, early.disputeId));
+      await passOnly(new Date(itsFirstDay.getTime() + 2 * RETRY_MS), early.disputeId);
+      second = await debtOf(early.disputeId);
+      check("an answered take-back whose dispute is then won is called off by itself, and nothing is taken", second.status === "cancelled" && (await transferAt(early.transferId)).amount_reversed === 0 && (await messagesOf(second.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("let the payment stand")));
+
+      // An objection that came by email: the founder holds it, and then calls it off.
+      const byMail = await collectedThenLost(host, await person("customer"));
+      await pass(NOW, byMail.disputeId);
+      let third = await debtOf(byMail.disputeId);
+      check("the founder holds a take-back for an objection that came by email", (await holdDebt({ debtId: third.id, adminId: admin, note: "She wrote to support on Monday: the customer was happy." })) === true && (await debtOf(byMail.disputeId)).status === "objected");
+      await passOnly(new Date(third.dueAt!.getTime() + RETRY_MS), byMail.disputeId);
+      check("held: nothing is taken at its day", (await debtOf(byMail.disputeId)).status === "objected" && (await transferAt(byMail.transferId)).amount_reversed === 0);
+      check("one that is held cannot be held again", (await holdDebt({ debtId: third.id, adminId: admin, note: "again" })) === false);
+      check("the founder calls an objected take-back off", (await cancelDebt({ debtId: third.id, adminId: admin })) === true);
+      await passOnly(new Date(third.dueAt!.getTime() + 5 * RETRY_MS), byMail.disputeId);
+      third = await debtOf(byMail.disputeId);
+      check("called off: never taken, and the host is told", third.status === "cancelled" && (await transferAt(byMail.transferId)).amount_reversed === 0 && (await messagesOf(third.id)).some((one) => one.key.includes(":cancelled:")));
+      check("there is nothing to answer on a take-back that was called off", (await answerObjection({ debtId: third.id, adminId: admin, answer: "Too late to answer this one, it was called off." })) === false);
+    }
   } finally {
     // What THIS run made, by the exact ids: open test disputes are ended, what is left of the shares it sent is taken
     // back, and the messages, emails and admin actions about its own disputes and take-backs are removed.
@@ -439,7 +576,8 @@ async function main() {
       await db.delete(schema.emailOutbox).where(or(...keys.map((key) => like(schema.emailOutbox.dedupeKey, key))));
       if (mine.length > 0) await db.delete(schema.adminActions).where(inArray(schema.adminActions.targetId, mine.map((row) => row.id)));
       // Nothing of this run is left for the helper to act on later.
-      await db.update(debts).set({ status: "cancelled", cancelledAt: new Date() }).where(and(inArray(debts.disputeId, made), inArray(debts.status, ["told"])));
+      await db.update(debts).set({ status: "cancelled", cancelledAt: new Date() }).where(and(inArray(debts.disputeId, made), inArray(debts.status, ["told", "objected", "answered"])));
+      await db.delete(schema.emailSuppressions).where(like(schema.emailSuppressions.address, `takebackcheck-${RUN}-%`));
     }
   }
 

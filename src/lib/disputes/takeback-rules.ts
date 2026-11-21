@@ -18,8 +18,43 @@ export const RETRY_MS = DAY_MS;
 /** After this long of refusals the founder is told. It keeps being tried. */
 export const TELL_FOUNDER_AFTER_MS = 30 * DAY_MS;
 
-/** told: the host has their notice. cancelled: the founder called it off. taking: Stripe is being asked. taken: done. */
-export type DebtStatus = "told" | "cancelled" | "taking" | "taken";
+/** After the founder has answered an objection and it is taken after all: not before this long after that answer was sent. */
+export const AFTER_ANSWER_MS = 3 * DAY_MS;
+
+/**
+ * told: the host has their notice. objected: the host said it is wrong, and nothing is taken until the founder has
+ * decided. answered: the founder answered and it is taken after all. cancelled: called off. taking: Stripe is being
+ * asked. taken: done.
+ */
+export type DebtStatus = "told" | "objected" | "answered" | "cancelled" | "taking" | "taken";
+
+/** The states in which a take-back can become due: it has its notice, or its objection was answered. */
+export const TAKEABLE: readonly string[] = ["told", "answered"];
+/** The states in which the amount is still to take and so is set aside on its share: everything but done, called off and nothing. */
+export const OPEN: readonly string[] = ["told", "objected", "answered"];
+
+/**
+ * From when a take-back is taken, once its notice email has really gone out (plans/46-part-3-money-owed.md, decision
+ * 6): 14 days after the sending service accepted that email.
+ */
+export const dueAfterNotice = (noticeSentAt: Date): Date => new Date(noticeSentAt.getTime() + NOTICE_MS);
+
+/**
+ * From when it is taken after the founder answered an objection: no earlier than the day the first notice gave, and
+ * no earlier than 3 days after the answer was sent.
+ */
+export function dueAfterAnswer(firstDueAt: Date | null, answerSentAt: Date): Date {
+  const afterAnswer = answerSentAt.getTime() + AFTER_ANSWER_MS;
+  return new Date(Math.max(afterAnswer, firstDueAt?.getTime() ?? afterAnswer));
+}
+
+/** The host can say "I think this is wrong" while they only have their notice. Not twice: an answered take-back cannot be objected to again in the app. */
+export const canObject = (debt: { status: string }): boolean => debt.status === "told";
+/** The founder can answer an objection, or hold a take-back for one that came by email, in these states. */
+export const canAnswer = (debt: { status: string }): boolean => debt.status === "objected";
+export const canHold = (debt: { status: string }): boolean => debt.status === "told";
+/** What a take-back goes back to when Stripe did not take it: where it stood before. */
+export const stateBeforeTaking = (debt: { answer: string | null }): "told" | "answered" => (debt.answer !== null ? "answered" : "told");
 
 /**
  * What a host owes for one share that was sent to them, after a dispute over its payment was lost.
@@ -47,18 +82,19 @@ export function owedCents(input: { sentCents: number; disputedCents: number; cha
 }
 
 /** Whether a take-back is due to be asked of Stripe now: told, its notice over, and not refused within the last day. */
-export function dueToTake(debt: { status: string; dueAt: Date; refusedAt: Date | null }, now: Date): boolean {
-  if (debt.status !== "told") return false;
-  if (now < debt.dueAt) return false;
+export function dueToTake(debt: { status: string; dueAt: Date | null; refusedAt: Date | null }, now: Date): boolean {
+  if (!TAKEABLE.includes(debt.status)) return false;
+  // No due day yet: the notice (or the answer to an objection) has not been sent, or did not arrive.
+  if (debt.dueAt === null || now < debt.dueAt) return false;
   return debt.refusedAt === null || now.getTime() - debt.refusedAt.getTime() >= RETRY_MS;
 }
 
 /** The founder can call a take-back off until the app starts it. One that has started, or is done, cannot be cancelled. */
-export const canCancel = (debt: { status: string }): boolean => debt.status === "told";
+export const canCancel = (debt: { status: string }): boolean => OPEN.includes(debt.status);
 
 /** Whether the founder is due to be told that Stripe keeps refusing: 30 days after the first refusal, once. */
 export function tellFounderOfRefusals(debt: { status: string; firstRefusedAt: Date | null; founderToldAt: Date | null }, now: Date): boolean {
-  return debt.status === "told" && debt.firstRefusedAt !== null && debt.founderToldAt === null && now.getTime() - debt.firstRefusedAt.getTime() >= TELL_FOUNDER_AFTER_MS;
+  return TAKEABLE.includes(debt.status) && debt.firstRefusedAt !== null && debt.founderToldAt === null && now.getTime() - debt.firstRefusedAt.getTime() >= TELL_FOUNDER_AFTER_MS;
 }
 
 /** The label of the request to Stripe is made from this (the money action adds the attempt's number). */

@@ -9,9 +9,17 @@
  *      has no row yet gets one, with the amount worked out from what Stripe shows at that moment,
  *      and the host is told in writing (and the founder by email);
  *   2. brings rows up to date when the bank decided the other way after all;
- *   3. takes what is due: 14 days after the notice, a money action of its own kind ("take_back")
- *      on the share's payment asks Stripe to reverse that amount of that transfer;
- *   4. tells the founder when Stripe has refused for 30 days.
+ *   3. gives each take-back its due day once its notice has really gone out by email: 14 days after
+ *      the sending service accepted it (plans/46-part-3-money-owed.md, decision 6). A notice that
+ *      did not arrive leaves it without a day, and the founder is told;
+ *   4. takes what is due: a money action of its own kind ("take_back") on the share's payment asks
+ *      Stripe to reverse that amount of that transfer;
+ *   5. tells the founder when Stripe has refused for 30 days.
+ *
+ * The host can say "I think this is wrong" while the take-back has its notice. It is then
+ * "objected" and nothing is taken until the founder has decided: call it off, or answer in
+ * writing and have it taken after all ("answered"), no earlier than the first due day and 3 days
+ * after that answer went out.
  *
  * The order of locks: the share's payment first (the money action locks it, and so does every step
  * here), then the take-back's row. A dispute is read here and never locked.
@@ -19,9 +27,9 @@
  * A reversal cannot be undone by the app, so it goes through the steps every money action takes
  * (operations.ts): written down under a label, asked of Stripe with that label, recorded. A row is
  * "taking" exactly while its action is unanswered; every way that action can end as "not done"
- * puts the row back to "told" in the same step.
+ * puts the row back to where it stood ("told", or "answered") in the same step.
  */
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, like, lte, notExists, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Dispute, HostDebt } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
@@ -34,8 +42,8 @@ import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { aboutOwner, disputePath, ownerOf, peopleFor, type Only } from "./record";
 import { outcomeOf } from "./status";
-import { canCancel, dueToTake, NOTICE_MS, owedCents, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
-import { cancelledWords, leftoverWords, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { canAnswer, canCancel, canHold, canObject, dueAfterAnswer, dueAfterNotice, dueToTake, OPEN, owedCents, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
+import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const debts = schema.hostDebts;
 
@@ -69,7 +77,7 @@ async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" |
     part: whole ? null : { disputed: formatMoney(basis.disputedCents!), of: formatMoney(basis.chargeLeftCents!) },
     // Less than that part, and why: no more is owed than the bank took back, or no more is left of the transfer.
     capped: debt.amountCents >= part ? null : debt.amountCents >= Math.max(0, (basis.disputedCents ?? 0) - (basis.sameDisputeCents ?? 0)) ? "bank" : "transfer",
-    dueOn: whenFor(person, debt.dueAt),
+    dueOn: debt.dueAt ? whenFor(person, debt.dueAt) : null,
     hostName: people.hostName,
     customerName: people.customer.name,
     supportEmail: SUPPORT_EMAIL,
@@ -77,12 +85,19 @@ async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" |
   return { people, facts };
 }
 
-/** One message to the host (in the app and by email, as a pair) under a key of this take-back. */
-async function tellHost(tx: Tx, debt: HostDebt, dispute: Dispute, what: string, words: (facts: DebtFacts) => { subject: string; text: string }): Promise<void> {
+/**
+ * One message to the host (in the app and by email, as a pair) under a key of this take-back. Gives back the email's
+ * own number, for the two messages whose sending starts a count of days (the notice, the answer to an objection).
+ */
+async function tellHost(tx: Tx, debt: HostDebt, dispute: Dispute, what: string, words: (facts: DebtFacts) => { subject: string; text: string }): Promise<string | null> {
   const telling = await tellingFor(tx, debt, dispute);
-  if (!telling) return;
+  if (!telling) return null;
   const told = words(telling.facts("host", telling.people.host));
-  await tell(tx, { to: telling.people.host, key: `takeback:${debt.id}:${what}:host:${telling.people.host.id}`, subject: told.subject, text: told.text, path: disputePath(dispute.id) });
+  const key = `takeback:${debt.id}:${what}:host:${telling.people.host.id}`;
+  await tell(tx, { to: telling.people.host, key, subject: told.subject, text: told.text, path: disputePath(dispute.id) });
+  // The email that pairs with the message is written under the same key (messages.ts).
+  const [email] = await tx.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, key));
+  return email?.id ?? null;
 }
 
 /** One email to each admin. What the founder is told names both people, so it is not on the Messages page. */
@@ -139,6 +154,10 @@ async function sharesWithoutRow(only?: Only): Promise<Array<{ dispute: Dispute; 
 async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promise<void> {
   const notLostAtStripe = await db.transaction(async (tx) => {
     const share = await lockPayment(tx, paymentId);
+    // One dispute can reach several shares (a member's month pays for several calls). Their amounts are worked out
+    // one after the other, never at the same moment: each must see what the others already owe. Taken after the
+    // share's payment, and never the other way round, so two helpers on two shares cannot wait for each other.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`takeback-dispute:${dispute.id}`}))`);
     if (share.transferStatus !== "sent" || !share.stripeTransferId || (share.transferCents ?? 0) <= 0) return false;
     const [current] = await tx.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, dispute.id));
     if (current?.outcome !== "lost") return false;
@@ -146,7 +165,7 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
     if (others.some((other) => other.disputeId === dispute.id) || others.some((other) => other.status === "taking")) return false;
     // What other shares under the same dispute already owe or have paid back (a membership's month has several):
     // all of them together never owe more than the bank took back in this dispute.
-    const sameDispute = await tx.select({ amountCents: debts.amountCents }).from(debts).where(and(eq(debts.disputeId, dispute.id), inArray(debts.status, ["told", "taking", "taken"])));
+    const sameDispute = await tx.select({ amountCents: debts.amountCents }).from(debts).where(and(eq(debts.disputeId, dispute.id), inArray(debts.status, [...OPEN, "taking", "taken"])));
 
     // Both reads at once, one try each, under one limit of time: the share's payment is held meanwhile.
     const [atStripe, transfer] = await inTime(
@@ -163,19 +182,21 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
       // What was left of the charge: what was taken, less what had been refunded.
       chargeLeftCents: charge.amount_captured - charge.amount_refunded,
       transferLeftCents: transfer.amount - transfer.amount_reversed,
-      othersOpenCents: others.filter((other) => other.status === "told").reduce((sum, other) => sum + other.amountCents, 0),
+      othersOpenCents: others.filter((other) => OPEN.includes(other.status)).reduce((sum, other) => sum + other.amountCents, 0),
       sameDisputeCents: sameDispute.reduce((sum, other) => sum + other.amountCents, 0),
     };
     const amountCents = owedCents(basis);
-    // The 14 days count from the moment the notice is written, not from when this pass began.
+    // When the notice is written, not when this pass began. The 14 days do not count from here: they count from the
+    // notice email really going out, so the row has no due day yet (dateNotices gives it one).
     const toldAt = now.getTime() > Date.now() ? now : new Date();
     const [debt] = await tx
       .insert(debts)
-      .values({ disputeId: dispute.id, paymentId, hostId: dispute.hostId, stripeTransferId: share.stripeTransferId, amountCents, currency: share.currency, basis: JSON.stringify(basis), status: amountCents > 0 ? "told" : "nothing", toldAt, dueAt: new Date(toldAt.getTime() + NOTICE_MS) })
+      .values({ disputeId: dispute.id, paymentId, hostId: dispute.hostId, stripeTransferId: share.stripeTransferId, amountCents, currency: share.currency, basis: JSON.stringify(basis), status: amountCents > 0 ? "told" : "nothing", toldAt, dueAt: null })
       .onConflictDoNothing()
       .returning();
     if (!debt || amountCents === 0) return false;
-    await tellHost(tx, debt, dispute, "owed", owedWords);
+    const noticeEmailId = await tellHost(tx, debt, dispute, "owed", owedWords);
+    await tx.update(debts).set({ noticeEmailId }).where(eq(debts.id, debt.id));
     await tellFounders(tx, debt, dispute, "owed", owedWordsForFounder);
     return false;
   });
@@ -207,14 +228,15 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
     .select({ debt: debts, dispute: schema.disputes })
     .from(debts)
     .innerJoin(schema.disputes, eq(schema.disputes.id, debts.disputeId))
-    .where(and(eq(schema.disputes.outcome, "won"), or(eq(debts.status, "told"), and(eq(debts.status, "taken"), isNull(debts.leftoverToldAt))), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
+    .where(and(eq(schema.disputes.outcome, "won"), or(inArray(debts.status, [...OPEN]), and(eq(debts.status, "taken"), isNull(debts.leftoverToldAt))), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
   for (const { debt, dispute } of rows) {
     await db
       .transaction(async (tx) => {
         await lockPayment(tx, debt.paymentId);
         const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
         if (!fresh) return;
-        if (fresh.status === "told") {
+        // With its notice only, objected to, or answered: all called off. Nothing was lost after all.
+        if (OPEN.includes(fresh.status)) {
           await tx.update(debts).set({ status: "cancelled", cancelledAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
           await freeSetAside(tx, fresh.paymentId);
           await tellHost(tx, fresh, dispute, "cancelled", (facts) => cancelledWords(facts, "won"));
@@ -229,7 +251,136 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Taking it
+// 3. The due day: from the notice really sent
+// ---------------------------------------------------------------------------
+
+/** Whether the sending service has told us that this address does not work (a complaint is not that: the email arrived). */
+async function bounces(address: string): Promise<string | null> {
+  const [bad] = await db.select({ reason: schema.emailSuppressions.reason }).from(schema.emailSuppressions).where(and(eq(schema.emailSuppressions.address, address), like(schema.emailSuppressions.reason, "bounced%")));
+  return bad?.reason ?? null;
+}
+
+/**
+ * Gives a take-back its due day, and takes it away again. The days count from the moment the sending service
+ * accepted the email that carries the notice (14 days), or the founder's answer to an objection (3 days, and never
+ * before the first due day). So:
+ *   - no day while that email is still waiting, as it is in a copy of the app with no sending service;
+ *   - no day when it failed, or when the address is known to bounce: the founder is told, once for that email;
+ *   - a day that was given is taken away again when the address turns out to bounce afterwards.
+ * A take-back from before this rule keeps the day its notice named.
+ */
+export async function dateNotices(now: Date, only?: Only): Promise<void> {
+  const rows = await db
+    .select({ debt: debts, dispute: schema.disputes })
+    .from(debts)
+    .innerJoin(schema.disputes, eq(schema.disputes.id, debts.disputeId))
+    .where(and(inArray(debts.status, [...TAKEABLE]), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
+  for (const { debt, dispute } of rows) {
+    const which = debt.status === "answered" ? ("answer" as const) : ("notice" as const);
+    const emailId = which === "answer" ? debt.answerEmailId : debt.noticeEmailId;
+    const [email] = emailId ? await db.select({ to: schema.emailOutbox.to, status: schema.emailOutbox.status, sentAt: schema.emailOutbox.sentAt, lastError: schema.emailOutbox.lastError }).from(schema.emailOutbox).where(eq(schema.emailOutbox.id, emailId)) : [];
+    // (An emptied email has no address left; it is years old by then, and its take-back long settled.)
+    const bounced = email?.to ? await bounces(email.to) : null;
+    const sentAt = email?.status === "sent" && !bounced ? email.sentAt : null;
+    const problem = bounced ? `the address bounces (${bounced})` : email?.status === "failed" ? (email.lastError ?? "it could not be sent") : !email ? "there is no email for it" : null;
+    // Nothing to do: it has its day and its email is fine, or the email is still on its way.
+    if (debt.dueAt !== null ? problem === null : sentAt === null && (problem === null || debt.noticeProblemToldAt !== null)) continue;
+    await db
+      .transaction(async (tx) => {
+        await lockPayment(tx, debt.paymentId);
+        const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
+        // Judged again on the row as it is now, and only if it still waits on the same email.
+        if (!fresh || fresh.status !== debt.status || (which === "answer" ? fresh.answerEmailId : fresh.noticeEmailId) !== emailId) return;
+        if (problem !== null) {
+          await tx.update(debts).set({ dueAt: null, noticeProblemToldAt: fresh.noticeProblemToldAt ?? now, updatedAt: now }).where(eq(debts.id, fresh.id));
+          if (fresh.noticeProblemToldAt === null) await tellFounders(tx, fresh, dispute, `undelivered:${emailId ?? "none"}`, (facts) => notDeliveredWords(facts, which, problem));
+          return;
+        }
+        if (fresh.dueAt !== null || sentAt === null) return;
+        const dueAt = which === "answer" ? dueAfterAnswer(fresh.firstDueAt, sentAt) : dueAfterNotice(sentAt);
+        await tx.update(debts).set({ dueAt, firstDueAt: fresh.firstDueAt ?? dueAt, updatedAt: now }).where(eq(debts.id, fresh.id));
+      })
+      .catch((error) => log(`could not give take-back ${debt.id} its due day`, error));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4. An objection, and the founder's answer
+// ---------------------------------------------------------------------------
+
+export class DebtError extends Error {}
+
+const tidy = (text: string): string => text.replace(/\r\n/g, "\n").trim();
+
+/** One take-back with its dispute, both read with the share's payment held and the row locked. */
+async function lockedDebt(tx: Tx, debtId: string): Promise<{ debt: HostDebt; dispute: Dispute } | null> {
+  const [found] = await tx.select({ paymentId: debts.paymentId }).from(debts).where(eq(debts.id, debtId));
+  if (!found) return null;
+  await lockPayment(tx, found.paymentId);
+  const [debt] = await tx.select().from(debts).where(eq(debts.id, debtId)).for("update");
+  if (!debt) return null;
+  const [dispute] = await tx.select().from(schema.disputes).where(eq(schema.disputes.id, debt.disputeId));
+  return dispute ? { debt, dispute } : null;
+}
+
+/**
+ * "I think this is wrong", pressed by the host: nothing is taken until the founder has decided. Judged with the share's
+ * payment held, the same lock the taking starts under, so an objection made a moment before the due day always wins.
+ * Only while the take-back has its notice: one whose objection was answered cannot be objected to again here.
+ */
+export async function objectToDebt(input: { debtId: string; hostId: string; objection: string; now?: Date }): Promise<void> {
+  const now = input.now ?? new Date();
+  const objection = tidy(input.objection);
+  if (objection.length < 10) throw new DebtError("Please say in a sentence or two why you think this is wrong.");
+  if (objection.length > 2000) throw new DebtError("Please keep it under 2,000 characters.");
+  await db.transaction(async (tx) => {
+    const found = await lockedDebt(tx, input.debtId);
+    if (!found || found.debt.hostId !== input.hostId) throw new DebtError("This is not one of your take-backs.");
+    const { debt, dispute } = found;
+    if (!canObject(debt)) throw new DebtError(debt.status === "objected" ? "We already have your objection. Nothing is taken until we have answered you." : debt.status === "answered" ? "We have answered your objection. If you still think this is wrong, please write to us." : "This can no longer be objected to here. Please write to us.");
+    const [held] = await tx.update(debts).set({ status: "objected", objectedAt: now, objection, dueAt: null, updatedAt: now }).where(eq(debts.id, debt.id)).returning();
+    await tellHost(tx, held, dispute, "objected", objectedWords);
+    await tellFounders(tx, held, dispute, "objected", (facts) => objectedWordsForFounder(facts, objection));
+  });
+}
+
+/** The founder holds a take-back for an objection that came by email: the same as the host's own button, from this moment. */
+export async function holdDebt(input: { debtId: string; adminId: string; note: string; disputeId?: string; now?: Date }): Promise<boolean> {
+  const now = input.now ?? new Date();
+  const note = tidy(input.note) || "The host objected by email.";
+  return db.transaction(async (tx) => {
+    const found = await lockedDebt(tx, input.debtId);
+    if (!found || (input.disputeId !== undefined && found.debt.disputeId !== input.disputeId) || !canHold(found.debt)) return false;
+    await tx.update(debts).set({ status: "objected", objectedAt: now, objection: note.slice(0, 2000), dueAt: null, updatedAt: now }).where(eq(debts.id, found.debt.id));
+    await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: "take-back held for an objection", targetUserId: found.debt.hostId, targetId: found.debt.id });
+    return true;
+  });
+}
+
+/**
+ * The founder has read the objection and it is taken after all. The answer goes to the host in writing; the take-back
+ * gets no due day here: that comes from the answer's email really going out (3 days after it, and never before the
+ * first due day).
+ */
+export async function answerObjection(input: { debtId: string; adminId: string; answer: string; disputeId?: string; now?: Date }): Promise<boolean> {
+  const now = input.now ?? new Date();
+  const answer = tidy(input.answer);
+  if (answer.length < 10) throw new DebtError("Write the answer the host will read: why it is taken after all.");
+  if (answer.length > 2000) throw new DebtError("Please keep the answer under 2,000 characters.");
+  return db.transaction(async (tx) => {
+    const found = await lockedDebt(tx, input.debtId);
+    if (!found || (input.disputeId !== undefined && found.debt.disputeId !== input.disputeId) || !canAnswer(found.debt)) return false;
+    const { debt, dispute } = found;
+    const [answered] = await tx.update(debts).set({ status: "answered", answer, answeredAt: now, answeredBy: input.adminId, dueAt: null, noticeProblemToldAt: null, updatedAt: now }).where(eq(debts.id, debt.id)).returning();
+    const answerEmailId = await tellHost(tx, answered, dispute, "answered", (facts) => answeredWords(facts, answer));
+    await tx.update(debts).set({ answerEmailId }).where(eq(debts.id, debt.id));
+    await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: "objection to a take-back answered: taken after all", targetUserId: debt.hostId, targetId: debt.id });
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 5. Taking it
 // ---------------------------------------------------------------------------
 
 /** Asks Stripe to take the amount back out of the transfer. The take-back's id goes with it, so it can be found again. */
@@ -251,12 +402,16 @@ export async function applyTaken(tx: Tx, params: TakeParams, reversalId: string)
   if (dispute) await tellHost(tx, debt, dispute, "taken", takenWords);
 }
 
-/** It did not happen: the row is back at its notice, with what Stripe said. Tried again a day later. With the share's payment held. */
+/**
+ * It did not happen: the row is back where it stood (at its notice, or "answered" if an objection had been answered,
+ * so that it cannot be objected to a second time), with what Stripe said. Tried again a day later. With the share's
+ * payment held.
+ */
 export async function backToTold(tx: Tx, debtId: string, message: string): Promise<void> {
   const now = new Date();
   await tx
     .update(debts)
-    .set({ status: "told", refusal: message, refusedAt: now, firstRefusedAt: sql`coalesce(${debts.firstRefusedAt}, ${now.toISOString()}::timestamptz)`, updatedAt: now })
+    .set({ status: sql`case when ${debts.answer} is not null then 'answered' else 'told' end`, refusal: message, refusedAt: now, firstRefusedAt: sql`coalesce(${debts.firstRefusedAt}, ${now.toISOString()}::timestamptz)`, updatedAt: now })
     .where(and(eq(debts.id, debtId), eq(debts.status, "taking")));
 }
 
@@ -412,7 +567,7 @@ async function tellOfRefusals(now: Date, only?: Only): Promise<void> {
     .select({ debt: debts, dispute: schema.disputes })
     .from(debts)
     .innerJoin(schema.disputes, eq(schema.disputes.id, debts.disputeId))
-    .where(and(eq(debts.status, "told"), isNotNull(debts.firstRefusedAt), isNull(debts.founderToldAt), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
+    .where(and(inArray(debts.status, [...TAKEABLE]), isNotNull(debts.firstRefusedAt), isNull(debts.founderToldAt), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
   for (const { debt, dispute } of refused) {
     if (!tellFounderOfRefusals(debt, now)) continue;
     await db
@@ -438,10 +593,11 @@ export async function takeBackPass(now: Date, only?: Only): Promise<void> {
     await writeDebt(dispute, paymentId, now).catch((error) => log(`could not work out what is owed for dispute ${dispute.id}`, error));
   }
   await settleChanged(now, only);
+  await dateNotices(now, only);
   const told = await db
     .select()
     .from(debts)
-    .where(and(eq(debts.status, "told"), lte(debts.dueAt, now), only ? inArray(debts.disputeId, only.disputeIds) : undefined))
+    .where(and(inArray(debts.status, [...TAKEABLE]), lte(debts.dueAt, now), only ? inArray(debts.disputeId, only.disputeIds) : undefined))
     .orderBy(asc(debts.dueAt));
   for (const debt of told) {
     if (!dueToTake(debt, now)) continue;
@@ -457,7 +613,7 @@ export async function debtsOfDispute(disputeId: string): Promise<HostDebt[]> {
 
 /** What a host owes or has paid back, for their earnings: everything still open, and the latest that were taken, with the page of each dispute. */
 export async function debtsOfHost(hostId: string, takenShown = 10): Promise<Array<HostDebt & { path: string }>> {
-  const open = await db.select().from(debts).where(and(eq(debts.hostId, hostId), inArray(debts.status, ["told", "taking"]))).orderBy(asc(debts.dueAt));
+  const open = await db.select().from(debts).where(and(eq(debts.hostId, hostId), inArray(debts.status, [...OPEN, "taking"]))).orderBy(sql`${debts.dueAt} asc nulls last`, asc(debts.toldAt));
   const taken = await db.select().from(debts).where(and(eq(debts.hostId, hostId), eq(debts.status, "taken"))).orderBy(sql`${debts.takenAt} desc`).limit(takenShown);
   // (One that was taken between the two reads is shown once, as taken.)
   const settled = new Set(taken.map((row) => row.id));

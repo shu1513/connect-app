@@ -5149,3 +5149,55 @@ of another room and again before the pass, reads the clock last, and reads a cal
 looks up once more before refusing it. From the newer main (the legal change #78): the join
 check reads the person's own account again while holding their line, so an account paused or
 closed in that moment gets no pass. `scripts/app-room-check.ts` now has 59 checks.
+
+## Taking money back from a host: the notice really sent, and her objection (plan 46, part 3a, step 1, 21 November 2026)
+
+**Why.** Part 3 of plan 46 (`plans/46-part-3-money-owed.md`) lets the founder refund a customer
+after the host collected, and the host then owes her share. The founder, asked which way such a
+debt should be recovered and told the builder's recommendation: "do what you think is the
+best". So it is recovered the way plan 47 already recovers a lost bank dispute: Stripe is asked
+to take the amount back out of what it sent her. Part 3a is built in two steps; this is the
+first, and it changes how that existing way treats a host. Refunds come in the second step.
+
+**What was built** (decision 6 of that plan, and the lock of decision 4), for the debts there
+are today, all from lost bank disputes:
+- **The 14 days count from the notice email really going out**, not from the moment the app
+  wrote the debt down. A take-back has no due day until the sending service has accepted that
+  email. If the email fails, or the address is later reported as bouncing, the day is empty (or
+  emptied again), nothing is taken, and the founder is told once. The notice itself says "14
+  days after this message was sent to you by email"; her pages show the day once it is known.
+  The debts there were keep the day their notice named.
+- **"I think this is wrong."** On the dispute's page a host can say why, while the take-back
+  has only its notice. It is then "objected" and nothing is taken. The founder is told with her
+  words and either calls it off or answers in writing and has it taken after all ("answered"):
+  no earlier than the first day, and no earlier than 3 days after that answer has gone out. She
+  cannot object a second time in the app. The founder can also hold a take-back for an objection
+  that came by email. An objection is judged under the same lock the taking starts under.
+- A dispute that is won after all calls off a take-back that is objected or answered too. A
+  reversal Stripe refuses puts an answered take-back back to "answered".
+- **One lock for a dispute** when what its shares owe is worked out: two helpers on two shares
+  of one disputed membership month can no longer count the same room.
+- Migration `0055_host_debt_notice`.
+
+**The builder's own choices:** the objection form is on the dispute's page (linked from "Your
+earnings"), not on the earnings page itself; an objection needs at least a sentence; an answer
+cannot be withdrawn; no way yet to send a notice again to an address that bounced (the founder
+calls it off or reaches her another way).
+
+**How it was checked.** Type check, lint, 971 automatic tests (the rules of the due day, of
+objecting and answering, and every new sentence). The real script against Stripe's test mode,
+`scripts/dispute-takeback-check.ts`, 80 checks: its 57 from plan 47 still pass with a stand-in
+for the sending service, and 23 are new: no day and never taken while the notice has not gone
+out; a failed notice told to the founder once; the day from the moment of sending; a bounce
+takes the day away; an objection a second before the day stops it for good; the founder's
+answer, its own 3 days, and the first day kept when the answer comes early; no second
+objection; taken for real at Stripe after an answer; a refused reversal on an answered one; a
+won dispute calls an answered one off; held for an email, then called off. `disputes-check` was
+run too. In a browser as the test host: the notice with its day, the objection, and what the
+dispute's page and "Your earnings" then say.
+
+**What cannot be tested here.** The founder's side of the dispute's page (the answer, the
+hold) was type-checked and its actions are checked by the script, but not looked at in a
+browser: the test admin's login is not set up. A real email going out, and a real bounce
+reported by the sending service: both are stood in for by writing them into the database.
+
