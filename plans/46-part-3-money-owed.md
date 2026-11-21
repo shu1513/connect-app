@@ -6,8 +6,10 @@ before its part 3 is built ("Part 3: refunds by Connect after a host has collect
 uncollected earnings"). Astra (GPT, effort high) checked the first draft against the code: "not
 ready", eight points. Its second check, of the second draft: "not ready" again, narrower: exact
 rules for a handful of cases. Its third: "not ready" for one formula that could charge a host 25
-where she owed 20, and a few smaller points. All three are worked in here; what was taken and
-what was not is at the end. This is the fourth draft.
+where she owed 20, and a few smaller points. Its fourth: everything before settled, and one last
+case of 20 cents, with the fix. All four are worked in here; what was taken and what was not is
+at the end. This is the fifth draft; its last change was made as Astra proposed and was not
+checked a fifth time. Astra reviews the code of each part when it is built.
 
 Parts 1, 2, 4 and 5 of plan 46 are merged (pull requests 85, 89, 96, 88).
 
@@ -144,10 +146,19 @@ Everything else here is the builder's.
      own that left the share whole, are not in it.
    - **The room on the transfer:** what Stripe shows as not reversed, less the debts on that
      share that are still open (told, waiting, objected, answered, being taken), less what she
-     paid back outside the app for that share.
+     paid back outside Stripe for that share (a bank payment to Connect). A reversal the
+     founder made by hand at Stripe is not entered as paid back: Stripe already shows it, and
+     it must be counted once.
    - **What the bank took**, for a dispute.
    Then:
-   - **A refund debt** is that refund's reduction, cut down to the room.
+   - **A refund debt** is what that refund adds to the reductions, where the reductions are
+     never counted beyond what was really sent; then cut down to the room. (In numbers: the
+     smaller of "sent" and "the reductions after this refund", less the smaller of "sent" and
+     "the reductions before it".) So once refunds have used up all that was sent, a further
+     refund adds nothing, whatever became of the earlier debts. (Astra's case: 100 charged, 80
+     hers, 79.75 sent. A refund of 99.75 takes 79.80 off her share: a debt of 79.75, which the
+     founder calls off. Refunding the last 25 cents takes another 20 cents off her share, and
+     adds nothing to her debt.)
    - **A dispute debt** starts from what was really sent (`transferCents`) less the reductions,
      never below nothing. Of that, the part the bank took of what was left of the charge,
      rounded down, as `owedCents` does today; then cut down to what the bank took (over all
@@ -170,9 +181,9 @@ Everything else here is the builder's.
      Stripe's own total of refunds on the charge is not the total the app has confirmed for
      the charge's owner (for a contribution with its old refunds; for a month with what was
      paid back), the look waits for the app's record to catch up.
-   - **An amount once written never rises.** When a debt is called off, rows that said
-     "nothing" for lack of room (on that share, and on the other shares of the same dispute)
-     are worked out afresh, as today. A row that was written smaller than it could have been
+   - **An amount once written never rises.** Whenever room comes free (a debt is called off, or
+     is settled outside for less than it was), rows that said "nothing" for lack of room (on
+     that share, and on the other shares of the same dispute) are worked out afresh. A row that was written smaller than it could have been
      stays as it is: the app forgoes the difference, and the founder's page shows it.
    - A share "sent" with nothing sent has no transfer: the refund is marked "nothing to take
      back", once.
@@ -192,8 +203,9 @@ Everything else here is the builder's.
      sent"; her page shows the day once it is known. If the email fails, or the sending
      service reports later that it bounced, the due day is emptied again, the founder is told,
      and the debt waits. The debts there are today are given their email by the same key.
-   - The notice explains the amount as it was worked out: for a dispute after a refund, her
-     share after the refund and the part of it the bank took, not "part of what was sent".
+   - The notice explains the amount as it was worked out, with the numbers that were used: for
+     a dispute after a refund, what was left of what was sent after the refund (39.75 of 79.75
+     in the example above) and the part of it the bank took, not "part of what was sent".
    - Her earnings page and the message carry a button, "I think this is wrong", with a box for
      her reasons, while the debt says "told". Pressing it puts the row in a new state,
      "objected": it is not taken. The helper reads the state under the same lock with which it
@@ -207,7 +219,9 @@ Everything else here is the builder's.
      the same effect, from the moment it is pressed.
    - A lost dispute that is decided the other way calls off its debt by itself whether the row
      says told, objected or answered. Nothing was lost then, so no cost of Connect's is
-     booked for it.
+     booked for it; a cost the founder's own waiver had booked for that debt is taken off
+     again; and if she had already paid it back, outside or by a reversal, the founder and she
+     are both told, as plan 47 does today for a debt that was taken.
    This changes plan 47's behaviour (today the days count from the row, and only a
    cancellation stops it); its page, which reads the due day of every "told" row, and its check
    script `scripts/dispute-takeback-check.ts`, which expects 14 days from the row and takes
@@ -348,9 +362,10 @@ Everything else here is the builder's.
 
 14. **The sentence before joining** becomes: "Where a 14-day right to cancel applies to you (in
     the United Kingdom and Europe): you can cancel a new membership within 14 days of joining
-    by writing to us. Time you used in those days, and a call you cancelled late or missed if it
-    was charged under your booking's terms, is paid for at the member price; the rest of what
-    you paid is given back." With a new wording
+    by writing to us. Time you used before we have dealt with your request, and a call you
+    cancelled late or missed if it was charged under your booking's terms, is paid for at the
+    member price; the rest of what you paid is given back." The email that confirms the
+    cancellation names the calls that stayed charged. With a new wording
     version, as every change of that list gets.
 
 15. **No change to the legal documents' texts.** A merged version is never edited. Four
@@ -426,7 +441,10 @@ stand-in for the sending service, and tests of the rules:
 - a refund, then a part dispute lost on the same share: 40 and 20, when the refund debt is
   open, taken, called off, settled outside, cut short by an earlier debt, written as nothing,
   and not yet written at all (the dispute is found first); Astra's case of an earlier dispute
-  debt of 60 called off after a win, then a refund of 50, then 25 lost: 20, not 25; the
+  debt of 60 called off after a win, then a refund of 50, then 25 lost: 20, not 25; its case
+  of 79.75 sent, 99.75 refunded and waived, then the last 25 cents refunded: nothing more is
+  owed; a debt of 80 settled outside for 50: a row that said "nothing" is worked out again; a
+  reversal made by hand at Stripe is not counted twice; the
   dispute found while the refund is still with Stripe: nothing is worked out until it is
   confirmed in the app; a contribution's refund that is only owed does not hold a dispute up; three shares of one
   disputed month: 10, 6 and 4, and with two helpers at once never more than the bank took; a
@@ -636,6 +654,26 @@ to build from.
 6. *A collection whose transfers all failed still starts the 24 hours; the sentence about
    currency only for an account not in US dollars.* **Taken:** decision 12.
 
-Not taken, in any of the three checks: nothing was set aside. Two things are deliberately left
+## What Astra found in the fourth draft, and what was done
+
+"Not ready", for one case; the five other points of its third check were settled, and its
+arithmetic for the examples of decision 4 agreed with the plan's.
+
+1. *After the founder waived a debt for all that was sent, refunding the last cents asked the
+   host for 20 cents more.* **Taken, as it proposed:** a refund's debt is what it adds to the
+   reductions, which are never counted beyond what was sent (decision 4).
+2. *Money paid back outside must be counted once: a reversal made by hand at Stripe already
+   shows at Stripe.* **Taken:** decision 4. *Rows that said "nothing" must be looked at again
+   whenever room comes free, also after a settlement for less.* **Taken.**
+3. *A dispute won after the debt was repaid outside, or after a waiver's cost was booked.*
+   **Taken:** decision 6.
+4. *The member must be told that calls stay chargeable while a request waits.* **Taken:**
+   decision 14 and the confirming email.
+5. *The notice should show the real basis for a share that carried the charge.* **Taken:**
+   decision 6.
+
+This last round of changes was made as Astra wrote them and was not sent back a fifth time.
+
+Not taken, in any of the four checks: nothing was set aside. Two things are deliberately left
 small and named under "Not in this part": a debt written smaller than it could have been is not
 raised, and a 14-day request handled after the first month is settled by hand.
