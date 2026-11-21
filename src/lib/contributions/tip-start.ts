@@ -9,6 +9,7 @@
  * is asked again here, by the server, from the call and the login alone.
  */
 import { eq } from "drizzle-orm";
+import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { db, schema } from "@/db";
 import { lockPeople } from "@/lib/membership/join";
 import { CARD_STEP_MS } from "@/lib/membership/rules";
@@ -76,6 +77,9 @@ export async function startTip(input: { customerId: string; callId: string; amou
       // Everything the box asks, asked again with every lock held and read through this step.
       const why = whyNoTip(await tipFacts(tx, customerId, call, now));
       if (why) throw new ContributionError(refusal(why));
+      // A tip is a new payment: a customer with a chargeback cannot start one (plans/47, decision 9).
+      const stopped = await whyNoNewPayment(tx, customerId);
+      if (stopped) throw new ContributionError(stopped);
 
       const amountCents = chargeFor(tipCents);
       const [tip] = await tx.insert(schema.contributions).values({ callId, hostId: call.hostId, contributorId: customerId, kind: "tip", amountCents, tipCents, requestKey }).returning();

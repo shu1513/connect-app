@@ -447,13 +447,17 @@ written here.
 
 ## 16. Bank disputes handled by the app (new, plan 47)
 
-From `plans/47-bank-disputes.md`. Today a bank dispute is answered by the founder by hand; the
-plan has the app do it. Nothing of this is built yet.
+From `plans/47-bank-disputes.md`. The app answers a bank dispute by itself (built, parts 1 and
+2). Taking a share back from a host (the fourth point) is not built yet.
 
 - **What is sent to a bank without a person looking first.** To fight a dispute, the app sends
-  the customer's bank, through Stripe: the customer's name and email address, the internet
-  address and device their account was used from, when they joined and left the call, what they
-  paid, the version of the terms they accepted, and any refund request with its answer. Does the
+  the customer's bank, through Stripe: the customer's name and email address, since when they
+  have an account, when they and the host
+  joined and left the call, what they paid, the version of the terms they accepted (only once
+  a published version exists), and any refund request with its answer. When the bank's reason is that the
+  cardholder did not make or does not recognise the payment, and only then, it also says how
+  many earlier payments of the same account Connect has no dispute on record for (when there
+  are any). As built it sends no internet address and no device. Does the
   privacy policy say this clearly enough (payment terms draft, section 9.7, says only "we may
   give the bank our records")? Is anything in that list more than a bank should get?
 - **A statement written by a machine.** The letter to the bank is put together by the app from
@@ -474,6 +478,14 @@ plan has the app do it. Nothing of this is built yet.
   stays that way until the founder allows it again. May a customer be treated so for using a
   right their card gives them (in the United Kingdom also a right by law for credit cards)? The
   payment terms draft speaks only of a pause while the dispute is open.
+- **Two sentences in the drafts that must change before they are published.** Payment terms
+  9.7 must say what is built: while a chargeback is open the customer cannot start a new
+  booking or payment, what they have already booked goes on, and after a dispute the bank
+  decided for them although Connect had sent its record it stays so until Connect allows it
+  again. Host agreement 9.1 must say that the host is asked to choose within 24 hours, that no
+  answer means Connect sends its record to the bank, and that "give the money back" means the
+  host's share of that payment is gone. The app's code did not change the drafts; the wording
+  is the lawyer's.
 - **How long things are kept.** The proof that was sent is kept with the dispute, and the
   messages Connect writes to a person are kept in the app ("Messages"). For how long may each be
   kept, and what happens to them when an account is closed?

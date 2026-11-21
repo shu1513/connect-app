@@ -10,6 +10,7 @@ import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
 import { loadAttendance } from "@/lib/attendance/load";
 import { contributionHealthProblems } from "@/lib/contributions/health";
+import { disputeHealthProblems } from "@/lib/disputes/answer";
 import { membershipHealthProblems } from "@/lib/membership/health";
 import { moneyTiming } from "@/lib/payments/rules";
 import { isFrozen } from "@/lib/membership/rules";
@@ -105,6 +106,7 @@ export async function healthProblems(now: Date): Promise<string[]> {
 
   problems.push(...(await membershipHealthProblems(now)));
   problems.push(...(await contributionHealthProblems(now)));
+  problems.push(...(await disputeHealthProblems(now)));
 
   return problems;
 }

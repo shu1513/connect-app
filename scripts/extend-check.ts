@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
+import { refusalWhileDisputed, whileDisputed } from "./stopped-customer";
 
 const RUN = randomUUID().slice(0, 8);
 const MINUTE = 60_000;
@@ -162,7 +163,8 @@ async function main() {
       check("more than 60 minutes in one request is refused", await refusedWith(ask(callId, cust, 61, 80), "up to 60"));
       check("none of those left a request behind", (await extensionsOf(callId)).length === 0);
 
-      const asked = await ask(callId, cust, 10, 80);
+      // Asked by someone whose bank has an open dispute: more time on a free call is no new agreement to pay.
+      const asked = await whileDisputed(cust.id, fred.id, () => ask(callId, cust, 10, 80));
       const view = await X.extensionView(callId);
       check("with 1 minute 20 left the customer asks for 10 minutes; the host is asked at once", asked.state === "waiting" && view.open?.id === asked.extensionId && view.open.ready && view.open.minutes === 10 && view.open.priceCents === 0);
       check("a second request while one is waiting is refused", await refusedWith(ask(callId, cust, 5, 70), "already asked"));
@@ -338,6 +340,7 @@ async function main() {
       const savedCard = (await bookingOf(callId)).stripePaymentMethodId;
       check("the saved card is kept while the call is still to come", savedCard !== null);
 
+      check("a customer whose bank has an open dispute cannot add paid time, and is told why; no request is written", /Your bank has an open dispute/.test((await refusalWhileDisputed(cust.id, hana.id, () => ask(callId, cust, 10, 80))) ?? "") && (await extensionsOf(callId)).length === 0);
       const asked = await ask(callId, cust, 10, 80);
       const extra = async () => paymentOfExtension(asked.extensionId);
       check("the customer asks for 10 more minutes: $13.33 is held before the host is asked", asked.state === "waiting" && (await extra()).status === "held" && (await extra()).bookedCents === 1333 && (await X.extensionView(callId)).open?.ready === true);

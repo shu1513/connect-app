@@ -8,6 +8,7 @@
  * pressed button calls; a page that is only being loaded uses `secretToPay`, which only reads.
  */
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { db, schema } from "@/db";
 import type { Contribution, ContributionPayment, Project } from "@/db/schema";
 import { lockPeople } from "@/lib/membership/join";
@@ -105,6 +106,9 @@ export async function startContribution(input: { contributorId: string; projectI
       const [project] = await tx.select().from(schema.projects).where(eq(schema.projects.id, projectId)).for("share");
       const cannot = await whyNotContribute(tx, { contributorId, project });
       if (cannot) throw new ContributionError(cannot);
+      // A new contribution is a new agreement to pay: a person with a chargeback cannot make one (plans/47, decision 9).
+      const stopped = await whyNoNewPayment(tx, contributorId);
+      if (stopped) throw new ContributionError(stopped);
       if (!kindsOffered(project).includes(kind)) throw new ContributionError(kind === "monthly" ? "This project does not take monthly contributions at the moment." : "This project only takes monthly contributions at the moment.");
       await lockPair(tx, contributorId, project.hostId);
       // Asked once more with the pair's lock held: a block that was being saved at this very moment holds

@@ -9,6 +9,7 @@
  * "Cancel now", the host's own "End membership", the offer of less time).
  */
 import { and, eq, gt, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
 import { blocksMoney } from "@/lib/disputes/status";
@@ -17,7 +18,7 @@ import { MoneyError, type Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
 import { abandonMonth, giveUpInStep, letHoldGo } from "./charge";
 import { queueLessTimeOutcomeEmail, queueRenewalBackEmail, queueRenewalStoppedEmail } from "./emails";
-import { endInvitation, lockPeople, mustBeOpen } from "./join";
+import { endInvitation, lockPeople, mustBeFreeToAgree, mustBeOpen } from "./join";
 import { lockCalendar, lockForMonth, lockMembership, lockMonth, type LockedMonth } from "./locks";
 import { finishIfSettled, owePayBack, setDispute } from "./months";
 import { wouldKeepPlace } from "./room";
@@ -271,6 +272,8 @@ export async function undoStop(input: { membershipId: string; by: "member" | "ho
     const [month] = await tx.select({ endsAt: months.endsAt }).from(months).where(eq(months.id, membership.currentMonthId));
     if (!month?.endsAt || afterTheWait(now) >= month.endsAt) throw new MembershipError("The month has ended. A paused membership can be resumed.");
     await mustBeOpen(tx, membership.hostId, membership.customerId, { forTheHost: by === "host" });
+    // Renewals back on is a new promise to pay: it is the member who is looked at, also when the host presses.
+    await mustBeFreeToAgree(tx, membership.customerId, { forTheHost: by === "host" });
     // What still stops the renewal afterwards, if anything. Room is needed only if nothing does.
     const left = by === "member" ? (membership.hostStoppedAt ? (membership.pausedReason === "offer" ? ("declined" as const) : ("host" as const)) : null) : membership.memberStoppedAt ? ("member" as const) : membership.offerStoppedAt ? ("offer_off" as const) : null;
     if (!left && !(await wouldKeepPlace(tx, membership, membership.ownMinutes ?? 0))) {
@@ -353,6 +356,10 @@ export async function acceptLessTime(input: { membershipId: string; memberId: st
       .from(schema.membershipAgreements)
       .where(and(eq(schema.membershipAgreements.requestId, offerId), eq(schema.membershipAgreements.membershipId, membershipId), eq(schema.membershipAgreements.kind, "less_time")));
     if (before) return;
+    // Taking the host's offer writes a new agreement to pay: a member with a chargeback cannot (plans/47, decision 9).
+    // Asked after the look above, so a press repeated after it went through is still answered "done".
+    const stopped = await whyNoNewPayment(tx, input.memberId);
+    if (stopped) throw new MembershipError(stopped);
     const { offeredMinutes } = await openOffer(tx, membership, offerId, now);
     const [last] = await tx.select({ number: sql<number>`coalesce(max(${months.number}), 0)::int` }).from(months).where(eq(months.membershipId, membershipId));
     const [offer] = await tx.select({ version: schema.membershipOffers.version }).from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, membership.hostId));

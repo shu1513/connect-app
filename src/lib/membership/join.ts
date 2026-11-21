@@ -9,6 +9,7 @@
  * `payNow` in charge.ts.
  */
 import { randomUUID } from "node:crypto";
+import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { and, eq, gt, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership, MembershipOffer } from "@/db/schema";
@@ -48,6 +49,17 @@ export async function lockPeople(tx: Tx, ids: string[]): Promise<Map<string, { p
  * "confirmed ID only" rule met. Throws a plain sentence if not; returns the host's membership.
  * The caller holds the host's calendar lock.
  */
+/**
+ * A customer with a chargeback cannot make a NEW agreement to pay (plans/47-bank-disputes.md, decision 9). Asked in
+ * the steps that write one: joining, resuming, switching renewals back on. Not part of `mustBeOpen`, which steps
+ * that carry an existing agreement on also go through (a host who withdraws an offer of less time).
+ */
+export async function mustBeFreeToAgree(tx: Tx, customerId: string, opts: { forTheHost?: boolean } = {}): Promise<void> {
+  const stopped = await whyNoNewPayment(tx, customerId);
+  // The host is told no more than for anything else that stands in the way.
+  if (stopped) throw new MembershipError(opts.forTheHost ? "This person's renewal cannot be switched back on at the moment." : stopped);
+}
+
 export async function mustBeOpen(tx: Tx, hostId: string, customerId: string, opts: { forTheHost?: boolean } = {}): Promise<MembershipOffer> {
   const people = await lockPeople(tx, [hostId, customerId]);
   const host = people.get(hostId);
@@ -227,6 +239,7 @@ export async function join(input: { customerId: string; inviteId: string; reques
     if (before) return before;
     if (input.wordingVersion !== MEMBERSHIP_WORDING_VERSION) throw new MembershipError(STALE_WORDING);
     const offer = await mustBeOpen(tx, found.hostId, customerId);
+    await mustBeFreeToAgree(tx, customerId);
     const membership = await lockMembership(tx, found.id);
     const now = afterTheWait(input.now);
     if (membership.status !== "invited" || membership.inviteId !== inviteId) throw new MembershipError(NOT_OPEN);
@@ -259,6 +272,7 @@ export async function resume(input: { customerId: string; membershipId: string; 
     if (before) return before;
     if (input.wordingVersion !== MEMBERSHIP_WORDING_VERSION) throw new MembershipError(STALE_WORDING);
     const offer = await mustBeOpen(tx, found.hostId, customerId);
+    await mustBeFreeToAgree(tx, customerId);
     const membership = await lockMembership(tx, membershipId);
     const now = afterTheWait(input.now);
     if (membership.status !== "paused") throw new MembershipError(membership.status === "ended" ? "This membership has ended. Coming back needs a new invitation from the host." : "This membership is not paused.");
