@@ -290,11 +290,36 @@ Five of the six points of the third look were found closed. What was left:
 2. *A call whose time looks up,* at any of the first looks, is asked about for sure (waiting
    for a step that may be adding time) before anyone is told it has ended; if time was
    added, the join starts afresh, once. This is done in a step of its own that holds nothing
-   afterwards, so "End call and report" never waits behind it.
+   afterwards, so "End call and report" waits at most for that one short reading, never
+   while someone is being taken out of another room.
 3. *The look for a block comes first* among the early looks, so the clock is read right
    before anyone is taken out of another room.
 4. Left as it is, as before: a pause of an account waits while the video service takes that
    person out of another room.
+
+## Astra's sixth look at the code (21 November 2026): "not ready", now worked in
+
+The points of the fifth look were found closed. Two more orderings of the camera choice were
+left, both in the instant the camera check hands over to the call. They are closed by
+changing how the choice is kept, not by one more patch:
+
+1. *The choice lives in one place.* What the camera check on the screen says is kept by the
+   call's screen itself, and the call enters with exactly that. Nothing is copied when the
+   pass arrives any more, so a switch pressed "off" at any moment the camera check can still
+   be pressed is off in the call. Until a camera check has spoken, both are off.
+2. *A "Join" belongs to the camera check it was pressed on.* If that camera check is gone
+   when the pass arrives (the screen was left; or near the call's end the screen showed "One
+   moment…" and then a new camera check), the pass is not used: entering takes a fresh press.
+   So a new camera check, whose switches start "on", can never be entered with unasked.
+3. A camera check says that it has left in the very step that takes it off the screen, so no
+   late answer of the phone's about a permission can slip in between.
+4. Smaller: if the call cannot be read when its time looks up, the answer is "could not
+   connect, try again", not "this call has ended".
+
+**Walked again on the Android test phone after this change (21 November 2026):** the camera
+switched off on the camera check, then "Join call": the call opened with the camera off and
+the microphone on. Left, and joined again with the camera on and the microphone off: the
+call opened exactly so.
 
 ## Astra's check (20 November 2026): "not ready", now worked in
 

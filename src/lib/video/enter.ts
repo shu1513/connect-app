@@ -98,7 +98,12 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
   if (!decision.allowed) {
     if (decision.reason === "not_on_call") return no(404, "not_found", "Call not found.");
     // Its time looks up: nobody is told so before it is certain. If time was added, everything starts afresh, once.
-    if (decision.reason === "closed" && !again && (await openForSure(call.id).catch(() => false))) return enterCall(user, callId, true);
+    if (decision.reason === "closed" && !again) {
+      const sure = await openForSure(call.id).then((open) => (open ? "open" : "ended"), () => "unknown" as const);
+      if (sure === "open") return enterCall(user, callId, true);
+      // The call could not be read just now: nothing is known, so nothing is said about its end.
+      if (sure === "unknown") return no(503, "failed", "Could not connect you just now. Please try again.");
+    }
     return no(409, "not_now", MESSAGES[decision.reason]);
   }
 
@@ -160,7 +165,11 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
     if (error instanceof Error && error.message === "ended") return no(409, "not_now", MESSAGES.closed);
     if (error instanceof Error && error.message === "recheck") {
       // Nobody was taken out of anywhere. If time was added, everything starts afresh, once; otherwise it has ended.
-      if (!again && (await openForSure(call.id).catch(() => false))) return enterCall(user, callId, true);
+      if (!again) {
+        const sure = await openForSure(call.id).then((open) => (open ? "open" : "ended"), () => "unknown" as const);
+        if (sure === "open") return enterCall(user, callId, true);
+        if (sure === "unknown") return no(503, "failed", "Could not connect you just now. Please try again.");
+      }
       return no(409, "not_now", MESSAGES.closed);
     }
     if (error instanceof Error && error.message === "paused") return no(403, "paused", PAUSED);

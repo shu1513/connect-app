@@ -1,6 +1,6 @@
 import { VideoView } from "@livekit/react-native";
 import { createLocalAudioTrack, createLocalVideoTrack, type LocalVideoTrack } from "livekit-client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState, Linking, PermissionsAndroid, Platform, StyleSheet, View } from "react-native";
 import type { AppRoom } from "../../../src/lib/app-door/types";
 import { Button, Loading, Notice, Tick, Words } from "@/ui/pieces";
@@ -30,12 +30,15 @@ export function Lobby({
   words,
   joining,
   onChoice,
+  onLeft,
   onJoin,
 }: {
   words: AppRoom["words"];
   joining: boolean;
   /** Told what is chosen whenever it changes, also while "Joining…" is shown: the person enters with what is chosen at that moment. */
   onChoice: (wanted: { camera: boolean; microphone: boolean }) => void;
+  /** This camera check has left the screen. Said in the very step that takes it away, so nothing of it counts afterwards. */
+  onLeft: () => void;
   /** The person pressed "Join". With what, the screen already knows: it was told through `onChoice`. */
   onJoin: () => void;
 }) {
@@ -51,13 +54,16 @@ export function Lobby({
   // Only the camera check that is on the screen has a say. One that was left (the person went to another screen and
   // came back to a new one) may still get a late answer from the phone about a permission: that answer is dropped,
   // so it can never put back "camera on" over what the person sees and chose on the new one.
+  // (Cleared in the same step that takes this camera check off the screen, not a moment later: no answer of the
+  // phone's can slip in between.)
   const alive = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
+      onLeft();
     };
-  }, []);
+  }, [onLeft]);
   const tell = useCallback(() => {
     if (!alive.current) return;
     const now = latest.current;

@@ -47,11 +47,23 @@ function OneRoom({ id }: { id: string }) {
   const [gone, setGone] = useState(false);
   /** The entry pass while the person is in the call; null before, after, and whenever they are out of the room. */
   const [pass, setPass] = useState<AppPass | null>(null);
-  const [choices, setChoices] = useState({ camera: true, microphone: true });
-  /** What is chosen on the camera check right now. The pass takes a moment to come; the person enters with what is chosen when it is there, not with what was chosen when they pressed. */
-  const wantedNow = useRef({ camera: false, microphone: false });
+  /**
+   * What the camera check on the screen says right now: the one place the choice lives. The call enters with
+   * exactly this (nothing is copied when the pass arrives), so a camera or microphone switched off at any moment
+   * the camera check can still be pressed is off in the call. Both off until a camera check has said otherwise.
+   */
+  const [choices, setChoices] = useState({ camera: false, microphone: false });
   const noteChoice = useCallback((wanted: { camera: boolean; microphone: boolean }) => {
-    wantedNow.current = wanted;
+    setChoices((was) => (was.camera === wanted.camera && was.microphone === wanted.microphone ? was : wanted));
+  }, []);
+  /**
+   * Counts the camera checks that have left the screen. A "Join" belongs to the camera check it was pressed on:
+   * if that one is gone when the pass arrives (the screen was left, or showed something else for a moment),
+   * the pass is not used, and entering takes a fresh press on the camera check that is there now.
+   */
+  const lobbiesLeft = useRef(0);
+  const lobbyLeft = useCallback(() => {
+    lobbiesLeft.current++;
   }, []);
   const [joining, setJoining] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -164,8 +176,6 @@ function OneRoom({ id }: { id: string }) {
         front.current = false;
         newest.current++;
         setPass(null);
-        // The camera check goes with the screen; the next one says its own choice afresh.
-        wantedNow.current = { camera: false, microphone: false };
         // The last question about the end is put again when the screen is back in front.
         lastCheck.current = null;
       };
@@ -236,6 +246,7 @@ function OneRoom({ id }: { id: string }) {
     if (joiningNow.current) return;
     joiningNow.current = true;
     const still = watch();
+    const pressedOn = lobbiesLeft.current;
     setJoining(true);
     setNotice(null);
     setLeft(false);
@@ -244,14 +255,14 @@ function OneRoom({ id }: { id: string }) {
     const receivedAt = performance.now();
     joiningNow.current = false;
     setJoining(false);
-    // The person left this screen while the pass was on its way: nothing is entered.
-    if (!still()) return;
+    // The person left this screen while the pass was on its way, or the camera check it was pressed on is no
+    // longer the one on the screen: nothing is entered.
+    if (!still() || pressedOn !== lobbiesLeft.current) return;
     if (answer.ok && isPass(answer.data, { plain: PLAIN_HTTP_ALLOWED })) {
       // The pass carries the server's clock and the call's end as they are now (time may have been added since).
       setClock(answer.data.serverNow, receivedAt, askedAt);
       followEnd(answer.data.endsAt);
-      // As chosen now: the camera or the microphone may have been switched off while "Joining…" was shown.
-      setChoices(wantedNow.current);
+      // (Entered with `choices` as the camera check says them at the moment the call is drawn.)
       setPass(answer.data);
     } else if (!answer.ok && answer.code === "not_found") {
       setGone(true);
@@ -432,7 +443,7 @@ function OneRoom({ id }: { id: string }) {
           {aboutOpen ? <Words>{room.about.text}</Words> : null}
         </Card>
       ) : null}
-      <Lobby words={words} joining={joining} onChoice={noteChoice} onJoin={() => void join()} />
+      <Lobby words={words} joining={joining} onChoice={noteChoice} onLeft={lobbyLeft} onJoin={() => void join()} />
       <Button label={words.backToCall} kind="plain" onPress={toCall} />
     </Page>
   );
