@@ -4531,10 +4531,15 @@ do; two runs at once on one database are already ruled out. Astra also asked whe
 host" means one at a time across Connect: it does not, several hosts can each have a top price
 of their own.
 
-**How it was checked.** Type check, lint and the automatic tests (826 after merging main, 11
-of them new) pass. The browser try below was made before Astra's changes; after them the check
-script was run again (42 checks, on a fresh database built from all migrations), but the
-founder's form was not tried in a browser again, because the session ran out of time. A
+*CodeRabbit* did not review: it answered that its limit was reached. As agreed for that case,
+the builder read the whole change line by line instead. One thing came of it: a comment in
+`setTopPrice` named the wrong locks and was corrected.
+
+**How it was checked.** Type check, lint and the automatic tests (842 after merging main, 11
+of them new) pass. After Astra's changes and the last merge of main, the check script was run
+again (42 checks, on a fresh database built from all migrations), and the founder's form was
+tried in a browser again: "20,00" is refused, "$1,500" is read and brings a price of $1,800
+down with the email, and "Put back" works with other text left in the field. A
 new check script, `scripts/top-price-check.ts` (42 checks), goes through the app's own
 functions on a real database: the limit for everyone, a raise for one host, the other host
 still refused, the founder's record, the lowering with its email, the member price that stops
