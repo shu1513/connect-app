@@ -125,8 +125,8 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Payment fees on tips:</strong> the card fee your customer paid on top of a tip. You got the tip whole.
         </li>
         <li>
-          <strong>Your share:</strong> what you earned, after refunds. For a member&apos;s month it is counted as the calls happen, or when unused time runs out, so it can fall in a later month than the payment. A refund lowers
-          it, also when Connect then does not take the money back from you. These columns are a record of the year, not a balance: what is still owed to you, or by you, is on your Hosting page under &quot;Your earnings&quot;.
+          <strong>Your share:</strong> what you earned, after refunds. For a member&apos;s month it is counted as the calls happen, or when unused time runs out, so it can fall in a later month than the payment. A refund of a call
+          lowers it, also when Connect then does not take the money back from you. A contribution or a tip that Connect refunds after you collected does not lower it (that is in &quot;Carried by Connect&quot;). These columns are a record of the year, not a balance: what is still owed to you, or by you, is on your Hosting page under &quot;Your earnings&quot;.
         </li>
         <li>
           <strong>Sent to you:</strong> what Connect sent to your payout account when you collected, after the collection charge. Nothing is taken off here for money that went back later.

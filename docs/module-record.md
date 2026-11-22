@@ -5400,7 +5400,9 @@ words: "Carried by Connect" also holds what was waived after a lost bank dispute
 column counts by the month Connect recorded a line, not the day the money moved; "a tip is
 small" was untrue; the draft agreement does describe a refund lowering the host's share; and
 the plan still said this step built contributions and tips. All taken, with a sentence on the
-page that the columns are a record of the year and not a balance.
+page that the columns are a record of the year and not a balance. CodeRabbit asked for two
+small things, both taken: the page now says that a contribution's or a tip's refund does not
+lower "Your share", and two older lines of the plan no longer promise them for this step.
 
 **How it was checked.** Type check, lint, the automatic tests (the sums for a call that is
 taken back, paid back, waived, and a waiver taken off again; the file's columns). The real

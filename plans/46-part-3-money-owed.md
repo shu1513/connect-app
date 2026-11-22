@@ -818,7 +818,7 @@ Migrations 0060 and 0061. Against the lists above:
 
 - **Names.** Stripe's time for the charge is `charge_at` (the list says `held_at_bank`); the
   founder's answer keeps step 1's `answered_at` and `answered_by`. `contribution_refund_id` and
-  the contribution's refund lines come with 2b.
+  the contribution's refund lines were not built (left for the founder to decide; see the end of this file).
 - **"While her share is on its way, no refund."** No rule of its own was needed: a payment has
   one money action in flight at a time, so a refund is not begun while a sending is unanswered.
   The check script keeps watch over it.
@@ -930,7 +930,7 @@ be staged; it is found afterwards and recorded as paid twice, which is checked);
 across several shares of one disputed membership month after one of them was settled or paid
 by hand (the rule has its own tests). The fill-in of migration 0061 for older rows ran on the
 local test database, which held 120 such refunds and 45 such take-backs; no other database has
-any, because nothing of this part was merged before. Contributions, tips and the yearly statement are 2b's.
+any, because nothing of this part was merged before. The yearly statement is 2b's; contributions and tips were left for the founder to decide (see the end of this file).
 
 ## What Astra found in the code of part 3a, step 2a, and what was done
 
@@ -1112,7 +1112,7 @@ are not forgotten.
    fails afterwards.* **Not done.** It needs a refund after collection, then a bank dispute lost
    on the rest, then that refund failing after Stripe had confirmed it; the difference is the
    rounding of one cent. The refund's own take-backs are worked out again in that case; the
-   dispute's is not. To do with step 2b or later.
+   dispute's is not. To do in a later change.
 6. *The call page's refund button could say "nothing was changed, try again" after Stripe had
    paid.* **Fixed:** the answer is read from what was written down whatever the call did; when it
    cannot be known, it says to look at the payment first.
