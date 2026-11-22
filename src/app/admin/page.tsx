@@ -113,6 +113,12 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         <Link href="/admin/memberships" className="ml-4 underline underline-offset-2">
           Memberships
         </Link>
+        <Link href="/admin/refund" className="ml-4 underline underline-offset-2">
+          Refund a call
+        </Link>
+        <Link href="/admin/debts" className="ml-4 underline underline-offset-2">
+          Money hosts owe back
+        </Link>
       </p>
 
       {notice && (

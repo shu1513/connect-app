@@ -5241,3 +5241,66 @@ and "Your earnings" then say.
 hold) was type-checked and its actions are checked by the script, but not looked at in a
 browser: the test admin's login is not set up. A real email going out, and a real bounce
 reported by the sending service: both are stood in for by writing them into the database.
+
+## A refund after the host collected, and what she then owes: calls (plan 46, part 3a, step 2a, 21 November 2026)
+
+**Why.** The draft Host Agreement lets Connect refund a customer in the host's place, also
+after she has collected. Until now the app refused every refund once a share had been sent
+("this has to go through support"), and nothing could bring that share back. This is the
+second step of part 3a of `plans/46-part-3-money-owed.md`, for a call's payment. Contributions,
+tips and the yearly statement are the next pull request (2b).
+
+**What was built.**
+- **The founder's refund page** (`/admin/refund`, linked from the admin page): find a payment
+  by the call or by the customer's email address, see whether the host has collected, choose
+  one of six grounds (the Host Agreement's 8.3 and 8.4, in short words) and add a sentence. It
+  shows an estimate of what the host will owe before the button is pressed, and afterwards says
+  what Stripe really did: paid back, on its way, or refused. The host's own refund button, and
+  the founder's ordinary one, still refuse after collection.
+- **What the host owes** is written by the helper within a minute: what her share of that
+  payment lost to this refund, never more than was really sent to her, and never more than is
+  left on the transfer. Several refunds give several debts that together never pass what was
+  sent. A share that carried the collection charge owes what was sent, not the charge.
+- **It is taken back like a lost bank dispute** (step 1's rules): a written notice in the app
+  and by email with the reason; 14 days from the email's arrival; "I think this is wrong"
+  holds it until the founder answers; Stripe is then asked to reverse that amount of that
+  transfer. A refund and a lost dispute on the same share never ask twice for the same money:
+  the dispute starts from what her share still had after the refunds.
+- **Only under a published Host Agreement accepted before the charge.** Otherwise the debt is
+  "waiting": written down, told to her and to the founder, and never taken by the app. All
+  hosts are in this state today, because the agreements are drafts.
+- **The founder's list of take-backs** (`/admin/debts`) and **a page for each** (`/debts/...`,
+  for the host and the founder): answer an objection, hold, send the notice again, call it off
+  (Connect carries it, booked once as Connect's cost), or "Settled outside the app" (what she
+  paid back, and only the rest as Connect's cost). The host's earnings page lists refund debts
+  with their cause, also waiting and settled ones.
+- Migration 0060: the refund's line keeps her share and the fee before and after and what her
+  share lost; a take-back can come from a refund; the states "waiting" and "settled".
+
+**The founder's rule:** recover by the reversal at Stripe ("do what you think is the best",
+after the builder recommended it). **The builder's own choices:** the six grounds and their
+wording; "accepted strictly before the second of the charge"; the debt is written by the
+helper and not in the click; a waiting debt cannot be objected to in the app (nothing will be
+taken); the note for "settled outside" needs at least a few words; the page for a refund's
+take-back is its own (`/debts/...`), a dispute's stays on the dispute's page.
+
+**How it was checked.** Type check, lint, the automatic tests (990, with the sums and every
+new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 65
+checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
+the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 115,
+`disputes-check` 72), and `payments-check` (77).
+
+In a browser, as the test host and as the test admin (`owed-check.ts --demo` makes the two
+take-backs): the take-back's page for both, "Your earnings", the founder's list, the refund
+page with its search and its estimate, a real refund of $1.00 through the form with its true
+answer, and "Record as settled". That look found three things, all fixed: a doubled word, a
+customer's email address in the page's address (the search now leads to an address with the
+account's number), and an answer that said "nothing was given back" when Stripe had not yet
+replied (the answer is now always read from what was written down).
+
+**What cannot be tested here.** A real email going out is stood in for. A part dispute cannot
+be made in Stripe's test area.
+
+**Before going live.** Nothing new: the sending service's delivery reports must be switched on
+(step 1), or no take-back ever gets its day.
+

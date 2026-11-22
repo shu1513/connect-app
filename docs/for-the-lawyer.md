@@ -591,3 +591,37 @@ Questions:
 - Should the Host Agreement's section 9.4 describe the objection and the answer, and say that a
   second objection goes to support?
 
+## 21. A refund by Connect after the host collected, and what she then owes (new, plan 46 part 3a, 21 November 2026)
+
+How it works since this change, for a call's payment (contributions and tips follow):
+
+- Once a host has collected her share, **only Connect can refund the customer**. The founder
+  names one of the grounds the Host Agreement gives for deciding in the host's place (sections
+  8.3 and 8.4) and adds a sentence; the host is told both. The customer is paid back from
+  Connect's own money at once.
+- **The host then owes what her share of that payment lost**, never more than was really sent
+  to her. She is told in writing, and after 14 days Stripe is asked to take it back out of what
+  it sent her, by the same rules as section 20 (the notice must have arrived; she can object;
+  an answer gives 3 more days).
+- **Only under a published Host Agreement she had accepted before the charge.** If the version
+  in force when the customer's card was charged was a draft, or she accepted it later, the debt
+  is written down and she is told, but the app never takes it. The founder can call it off
+  (Connect carries it) or record that it was settled with her outside the app.
+- The books say which it was: taken back through Stripe, paid back by her outside the app, or
+  carried by Connect.
+
+Questions:
+- Is asking Stripe to reverse part of a transfer, after 14 days' written notice, covered by the
+  Host Agreement's 9.4 as drafted, and by Stripe's own agreement with the host, in each country
+  hosts are in? Should 9.4 name it?
+- Must the host be heard **before the refund** is given, and not only before the money is
+  taken from her? Today she is told after the refund, and can object before the taking.
+- Is "accepted before the customer's card was charged" the right test for whether the
+  agreement covers this payment, or should it be the time the call was booked?
+- A debt from before the agreements are published: can it be recovered at all, and how? Today
+  the app only writes it down.
+- The six grounds the founder can choose from are the app's own short wording of sections 8.3
+  and 8.4. Do they match what those sections will say when published?
+- When the host pays Connect back outside the app, what proof should be kept, and does such a
+  payment need an invoice or a receipt?
+

@@ -151,7 +151,7 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
 
       {takeBacks.length > 0 && (
         <div className="mt-4" data-take-backs>
-          <p className="font-medium">Taken back after a lost bank dispute</p>
+          <p className="font-medium">Money you owe back, or that was taken back</p>
           <ul className="mt-1 space-y-1">
             {takeBacks.map((debt) => (
               <li key={debt.id} data-take-back={debt.status}>
@@ -163,12 +163,16 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                   </>
                 ) : debt.status === "taking" ? (
                   " is being taken back now."
+                ) : debt.status === "settled" ? (
+                  " was settled with Connect outside the app. Nothing more is owed for it."
+                ) : debt.status === "waiting" ? (
+                  " is owed back: Connect refunded a payment you had already collected. Connect does not take it by itself; a person at Connect will write to you about it."
                 ) : debt.status === "objected" ? (
                   " is owed back, and you told us this is wrong. Nothing is taken until we have answered you."
                 ) : (
                   <>
                     {" "}
-                    is owed back: you had collected your share of a payment the customer&apos;s bank then took back. Connect asks Stripe to take it from your Stripe balance{" "}
+                    is owed back: you had collected your share of a payment {debt.refundId ? "that Connect then refunded" : "the customer's bank then took back"}. Connect asks Stripe to take it from your Stripe balance{" "}
                     {debt.dueAt ? (
                       <>
                         from <LocalTime iso={debt.dueAt.toISOString()} />.
@@ -179,11 +183,11 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                       "not before 14 days after our email about it was sent to you."
                     )}
                     {!debt.dueAt && debt.noticeProblemToldAt && " We could not reach you by email about this, so nothing is taken for now; please check the email address of your account."}
-                    {debt.status === "told" && " If you think this is wrong, you can say so on the dispute's page; nothing is taken then until we have answered you."}
+                    {debt.status === "told" && " If you think this is wrong, you can say so on its page; nothing is taken then until we have answered you."}
                   </>
                 )}{" "}
                 <Link href={debt.path} className="underline underline-offset-2">
-                  Read about this dispute
+                  {debt.refundId ? "Read about this" : "Read about this dispute"}
                 </Link>
               </li>
             ))}

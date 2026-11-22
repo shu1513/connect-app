@@ -328,7 +328,17 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
   const nothingOwedNow = after.hostShareCents === 0 && payment.transferStatus !== "sent";
   await tx
     .update(schema.refunds)
-    .set({ status: "done", stripeRefundId, finishedAt: new Date() })
+    // A refund given after the host had collected (plans/46-part-3-money-owed.md, decision 3): what her share was
+    // before and after, and what it lost, are written here, at the moment Stripe confirms the refund. The helper
+    // writes her take-back from these numbers; they are never read back from that take-back.
+    .set({
+      status: "done",
+      stripeRefundId,
+      finishedAt: new Date(),
+      ...(refund.afterCollection
+        ? { shareBeforeCents: before.hostShareCents, shareAfterCents: after.hostShareCents, feeBeforeCents: before.feeCents, feeAfterCents: after.feeCents, hostOwesCents: Math.max(0, before.hostShareCents - after.hostShareCents) }
+        : {}),
+    })
     .where(eq(schema.refunds.id, refundId));
   await tx
     .update(schema.payments)
@@ -349,8 +359,11 @@ export async function markRefundFailed(refundId: string, tx: Tx): Promise<void> 
 }
 
 /**
- * Gives money back to the customer. Allowed until the host's share has been
- * sent. Our fee shrinks in the same proportion, so a full refund is truly full.
+ * Gives money back to the customer. Our fee shrinks in the same proportion, so a full refund is truly full.
+ *
+ * Until the host's share has been sent, the host or the founder can do it. After that only the founder can
+ * (`afterCollection`, set by the founder's own refund page and nowhere else), with a reason: the customer is then
+ * paid back from Connect's money, and the host owes what her share shrank by (plans/46-part-3-money-owed.md).
  */
 export async function refundPayment(input: {
   paymentId: string;
@@ -358,6 +371,8 @@ export async function refundPayment(input: {
   decidedBy: string;
   decidedAs: "host" | "admin";
   reason: string | null;
+  /** The founder's refund after the host collected. Never set for a host's own refund. */
+  afterCollection?: boolean;
   /**
    * One ID per refund request, made when the form is shown. Sending the same
    * request again (a double click, a retry after a lost answer) cannot refund twice.
@@ -375,9 +390,13 @@ export async function refundPayment(input: {
     prepare: async (payment, tx) => {
       cardPayment(payment);
       if (payment.status !== "charged" || payment.chargedCents === null) throw new MoneyError("Nothing has been charged for this call.");
-      if (payment.transferStatus === "sent") {
-        throw new MoneyError("The host has already been paid for this call. A refund now has to go through support.");
+      const collected = payment.transferStatus === "sent";
+      if (collected) {
+        if (!(input.afterCollection && input.decidedAs === "admin")) throw new MoneyError("The host has already been paid for this call. A refund now has to go through support.");
+        if (!input.reason?.trim()) throw new MoneyError("Say why Connect refunds this in the host's place: the host is told the reason.");
       }
+      // (Never while the share is on its way to the host: a payment has one money action in flight at a time, so a
+      // refund is not even begun while a sending is unanswered. scripts/owed-check.ts keeps watch over that.)
       if (payment.disputeOpen) throw new MoneyError("The customer's bank has disputed this charge, so it cannot be refunded as well.");
       const [pending] = await tx
         .select({ total: sql<number>`coalesce(sum(${schema.refunds.amountCents}), 0)::int` })
@@ -395,6 +414,7 @@ export async function refundPayment(input: {
         decidedBy: input.decidedBy,
         decidedAs: input.decidedAs,
         reason: input.reason,
+        afterCollection: collected,
       });
       return { refundId, amountCents: input.amountCents };
     },

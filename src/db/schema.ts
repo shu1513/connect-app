@@ -1047,8 +1047,22 @@ export const refunds = pgTable(
     stripeRefundId: text("stripe_refund_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /**
+     * Asked for after the host's share had been sent (plans/46-part-3-money-owed.md): the customer is paid back from
+     * Connect's own money, and the host owes what her share shrank by.
+     */
+    afterCollection: boolean("after_collection").notNull().default(false),
+    /** For such a refund, written when Stripe confirms it: her share and Connect's fee before and after, so its notice can always be shown again exactly. */
+    shareBeforeCents: integer("share_before_cents"),
+    shareAfterCents: integer("share_after_cents"),
+    feeBeforeCents: integer("fee_before_cents"),
+    feeAfterCents: integer("fee_after_cents"),
+    /** What her share lost to this refund (before less after). Read from here, never from a take-back's row, whatever became of that row. */
+    hostOwesCents: integer("host_owes_cents").notNull().default(0),
+    /** The helper has looked at this refund and written its take-back, or found nothing to take back. Emptied when room comes free on the share. */
+    debtLookedAt: timestamp("debt_looked_at", { withTimezone: true }),
   },
-  (t) => [index("refunds_payment_idx").on(t.paymentId)],
+  (t) => [index("refunds_payment_idx").on(t.paymentId), index("refunds_debt_look_idx").on(t.finishedAt).where(sql`${t.afterCollection} and ${t.debtLookedAt} is null`)],
 );
 
 /**
@@ -2421,9 +2435,12 @@ export const hostDebts = pgTable(
   "host_debts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    disputeId: text("dispute_id")
-      .notNull()
-      .references(() => disputes.id, { onDelete: "cascade" }),
+    /**
+     * What it comes from: a lost bank dispute, or a refund Connect gave after the host had collected. Exactly one of
+     * the two is set.
+     */
+    disputeId: text("dispute_id").references(() => disputes.id, { onDelete: "cascade" }),
+    refundId: uuid("refund_id").references(() => refunds.id, { onDelete: "cascade" }),
     /** The share: the payment whose transfer carried the money to the host. */
     paymentId: uuid("payment_id")
       .notNull()
@@ -2442,7 +2459,9 @@ export const hostDebts = pgTable(
      * the founder has decided. answered: the founder answered the objection and it is taken after
      * all. cancelled: called off (by the founder, or because the bank decided the other way after
      * all). taking: Stripe is being asked. taken: done. nothing: looked at, and nothing is owed for
-     * this share (kept so that Stripe is not asked again every pass).
+     * this share (kept so that Stripe is not asked again every pass). waiting: written down and told, and never
+     * taken by the app (the Host Agreement was not in force for that payment); the founder settles it. settled:
+     * the founder settled it with the host outside the app.
      */
     status: text("status").notNull().default("told"),
     toldAt: timestamp("told_at", { withTimezone: true }).notNull(),
@@ -2479,6 +2498,16 @@ export const hostDebts = pgTable(
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     /** The admin who called it off. Empty when the app did (the bank decided the other way). */
     cancelledBy: text("cancelled_by").references(() => user.id),
+    /** Settled outside the app: what the host paid back (the rest was let go), and the founder's note of how. */
+    repaidCents: integer("repaid_cents"),
+    settledNote: text("settled_note"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    /**
+     * For a refund's take-back: Stripe's time for the charge (the nearest record of the bank's hold), and the version
+     * of the Host Agreement that was in force and accepted by then. Empty version: it waits for the founder.
+     */
+    chargeAt: timestamp("charge_at", { withTimezone: true }),
+    agreementVersion: text("agreement_version"),
     /** Taken, and then the bank decided the other way: the founder and the host were told then, once. */
     leftoverToldAt: timestamp("leftover_told_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2486,13 +2515,15 @@ export const hostDebts = pgTable(
   },
   (t) => [
     uniqueIndex("host_debts_dispute_payment_uq").on(t.disputeId, t.paymentId),
+    uniqueIndex("host_debts_refund_payment_uq").on(t.refundId, t.paymentId),
+    check("host_debts_one_cause", sql`num_nonnulls(${t.disputeId}, ${t.refundId}) = 1`),
     index("host_debts_payment_idx").on(t.paymentId),
     index("host_debts_host_idx").on(t.hostId),
     index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} in ('told', 'answered')`),
     // A report about an email looks for the take-back whose notice or answer it is.
     index("host_debts_notice_email_idx").on(t.noticeEmailId),
     index("host_debts_answer_email_idx").on(t.answerEmailId),
-    check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing')`),
+    check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing', 'waiting', 'settled')`),
     check("host_debts_amount", sql`${t.amountCents} >= 0`),
   ],
 );

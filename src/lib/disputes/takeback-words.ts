@@ -27,6 +27,12 @@ export type DebtFacts = {
   hostName: string;
   customerName: string;
   supportEmail: string;
+  /**
+   * Only for a take-back that comes from a refund Connect gave after the host had collected (plans/46-part-3-money-owed.md):
+   * what was given back to the customer, her share of the payment before and after it, the reason the founder gave,
+   * and whether less than the difference is asked for because no more is left of what was sent.
+   */
+  refund?: { refunded: string; shareBefore: string; shareAfter: string; reason: string; cutShort: boolean };
 };
 
 const how = (facts: DebtFacts): string =>
@@ -124,7 +130,7 @@ export function objectedWordsForFounder(facts: DebtFacts, objection: string): To
     text:
       `${facts.hostName} says that taking ${facts.amount} back for ${facts.what} is wrong. Nothing is taken until you have decided.\n\n` +
       `What the host wrote:\n${objection}\n\n` +
-      `On the dispute's page you can call the take-back off, or answer the host in writing and have it taken after all.`,
+      `On its page (linked below) you can call the take-back off, or answer the host in writing and have it taken after all.`,
   };
 }
 
@@ -149,7 +155,7 @@ export function notDeliveredWords(facts: DebtFacts, which: "notice" | "answer", 
     subject: `A take-back is waiting: its ${which} is not confirmed as delivered to ${facts.hostName}`,
     text:
       `The ${which === "notice" ? "notice about" : "answer to the objection against"} taking ${facts.amount} back from ${facts.hostName} (for ${facts.what}) is not confirmed as delivered by email: ${why}\n\n` +
-      `The days before it is taken count from that email arriving, so nothing is taken while this is so. The message is on the host's Messages page in the app. On the dispute's page you can send it again (after the host has corrected their address, say), or call the take-back off.`,
+      `The days before it is taken count from that email arriving, so nothing is taken while this is so. The message is on the host's Messages page in the app. On its page (linked below) you can send it again (after the host has corrected their address, say), or call the take-back off.`,
   };
 }
 
@@ -161,19 +167,120 @@ export function notDeliveredWords(facts: DebtFacts, which: "notice" | "answer", 
 export function noticeAgainWords(facts: DebtFacts, answer: string | null): Told {
   // (The first one may have arrived all the same: what is known is only that its arrival was never confirmed.)
   const why = "We are sending this again because we could not confirm that our first message about it reached you by email.";
-  if (answer === null) {
-    const first = owedWords(facts);
-    return { subject: first.subject, text: `${why}\n\n${first.text}` };
-  }
+  const first = facts.refund ? refundOwedWords(facts) : owedWords(facts);
+  if (answer === null) return { subject: first.subject, text: `${why}\n\n${first.text}` };
   return {
-    subject: `Connect will ask Stripe to take back ${facts.amount}: a bank dispute was lost`,
+    subject: first.subject,
     text:
       `${why}\n\n` +
-      `The dispute ${facts.customerName}'s bank had opened over ${facts.what} is lost: the bank decided for the customer and took the money back from Connect. You had already collected your share of that payment.\n\n` +
-      `${how(facts)} The bank's own fees are not charged to you.\n\n` +
+      (facts.refund
+        ? `${refundStory(facts)}\n\n${refundHow(facts)}\n\n`
+        : `The dispute ${facts.customerName}'s bank had opened over ${facts.what} is lost: the bank decided for the customer and took the money back from Connect. You had already collected your share of that payment.\n\n` + `${how(facts)} The bank's own fees are not charged to you.\n\n`) +
       `You told us this is wrong, and we answered:\n\n${answer}\n\n` +
       `So Connect will ask Stripe to take ${facts.amount} back from your Stripe balance: not before 14 days after this message was sent to you by email. "Your earnings" on your Hosting page shows the day.\n\n` +
       `If you still think this is wrong, write to us at ${facts.supportEmail}.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A take-back that comes from a refund Connect gave after the host had collected
+// (plans/46-part-3-money-owed.md). The same rule: never more than is known.
+// ---------------------------------------------------------------------------
+
+/** What happened, for the host: Connect gave the customer money back for a payment she had already collected, and why. */
+const refundStory = (facts: DebtFacts): string =>
+  `Connect has given ${facts.customerName} ${facts.refund!.refunded} back for ${facts.what}. You had already collected your share of that payment, so the money came from Connect.\n\n` +
+  `Why Connect decided this refund: ${facts.refund!.reason}`;
+
+/** How the amount is worked out, with the numbers that were used. */
+const refundHow = (facts: DebtFacts): string =>
+  `Your share of that payment was ${facts.refund!.shareBefore} before this refund and is ${facts.refund!.shareAfter} after it. The difference is what you owe back: ${facts.amount}.` +
+  (facts.refund!.cutShort ? ` (It is less than the difference: no more than that is left of the ${facts.sent} that was sent to you for this payment.)` : "");
+
+/** To the host, when the take-back is written down and the app will take it: what, why, how much, the 14 days, and how to object. */
+export function refundOwedWords(facts: DebtFacts): Told {
+  return {
+    subject: `Connect will ask Stripe to take back ${facts.amount}: a payment you had collected was refunded`,
+    text:
+      `${refundStory(facts)}\n\n${refundHow(facts)}\n\n` +
+      `${facts.dueOn ? `From ${facts.dueOn}` : "From 14 days after this message was sent to you by email"}, Connect will ask Stripe to take ${facts.amount} back from your Stripe balance. Until then nothing is taken. "Your earnings" on your Hosting page shows the day.\n\n` +
+      `If you think this is wrong, say so before that day: press "I think this is wrong" on this take-back's page in the app (it is linked from this message and from "Your earnings"). From the moment you press it, nothing is taken until a person at Connect has looked at it and answered you.\n\n` +
+      `You can also write to us at ${facts.supportEmail}. An email does not stop the taking by itself: it stops only when a person at Connect has put a hold on it, which can take a working day or longer. If the day is near, use the button.`,
+  };
+}
+
+/** To the founder, at the same moment. */
+export function refundOwedWordsForFounder(facts: DebtFacts): Told {
+  return {
+    subject: `A host owes ${facts.amount} back after your refund: ${facts.hostName}`,
+    text:
+      `You refunded ${facts.refund!.refunded} for ${facts.what} after ${facts.hostName} had collected their share. The customer was paid from Connect's money.\n\n` +
+      `The app has told the host that ${facts.amount} is owed (their share was ${facts.refund!.shareBefore} and is ${facts.refund!.shareAfter}), and ${facts.dueOn ? `from ${facts.dueOn}` : "from 14 days after that notice arrived by email"} it asks Stripe to take that amount back out of the transfer.\n\n` +
+      `Nothing is needed from you. The host can object with a button; you are then told, and nothing is taken until you have decided. If the host objects by email instead, press "Hold it: the host objected" on the take-back's page at once: an email alone stops nothing. You can also call the take-back off there, or record that it was settled outside the app.`,
+  };
+}
+
+/**
+ * To the host, when the take-back is written down and the app will NOT take it by itself: the Host Agreement was not
+ * in force for that payment (plans/46-part-3-money-owed.md, decision 7). Nothing is promised about a date or a taking.
+ */
+export function refundWaitingWords(facts: DebtFacts): Told {
+  return {
+    subject: `You owe Connect ${facts.amount}: a payment you had collected was refunded`,
+    text:
+      `${refundStory(facts)}\n\n${refundHow(facts)}\n\n` +
+      `Connect does not take this amount by itself. A person at Connect will write to you about how it is settled. Until then nothing is taken.\n\n` +
+      `If you think this is wrong, write to us at ${facts.supportEmail}.`,
+  };
+}
+
+/** To the founder, at the same moment: this one is theirs to settle. */
+export function refundWaitingWordsForFounder(facts: DebtFacts): Told {
+  return {
+    subject: `To settle with a host: ${facts.hostName} owes ${facts.amount} after your refund`,
+    text:
+      `You refunded ${facts.refund!.refunded} for ${facts.what} after ${facts.hostName} had collected their share. The customer was paid from Connect's money, and the host owes ${facts.amount} (their share was ${facts.refund!.shareBefore} and is ${facts.refund!.shareAfter}).\n\n` +
+      `The app does not take this one by itself: it takes money back only where the host had accepted a published Host Agreement before the customer's payment was held, and that cannot be shown for this payment. The host has been told that they owe it and that a person at Connect will write to them.\n\n` +
+      `Settle it with the host, and then, on the take-back's page, record what they paid back ("Settled outside the app") or call it off.`,
+  };
+}
+
+/** To the host, when Stripe has done it. */
+export function refundTakenWords(facts: DebtFacts): Told {
+  return {
+    subject: `Connect has taken back ${facts.amount}`,
+    text:
+      `Stripe has taken ${facts.amount} back from your Stripe balance, for ${facts.what}: Connect had refunded ${facts.customerName} after you had collected your share.\n\n` +
+      `Nothing more is owed for this take-back. If you think this is wrong, write to us at ${facts.supportEmail}.`,
+  };
+}
+
+/** To the host, when the founder calls it off. */
+export function refundCancelledWords(facts: DebtFacts): Told {
+  return {
+    subject: `Nothing is owed after all: ${facts.amount}`,
+    text: `We had written that you owe Connect ${facts.amount} for ${facts.what}, after a refund. That is called off: Connect looked at it and decided to carry it. Nothing is taken, and nothing is owed for it.`,
+  };
+}
+
+/** To the host, when the founder records that it was settled outside the app: what was paid, and that it is over. */
+export function refundSettledWords(facts: DebtFacts, repaid: string, letGo: string | null): Told {
+  return {
+    subject: `Settled: the ${facts.amount} you owed Connect`,
+    text:
+      `Connect has recorded that the ${facts.amount} you owed for ${facts.what} is settled: you paid back ${repaid}${letGo ? `, and Connect carries the remaining ${letGo}` : ""}.\n\n` +
+      `Nothing is taken from your Stripe balance for it, and nothing more is owed. If this is not right, write to us at ${facts.supportEmail}.`,
+  };
+}
+
+/** To the founder, when Stripe has refused for 30 days. It keeps being tried. */
+export function refundRefusedWords(facts: DebtFacts, lastRefusal: string | null): Told {
+  return {
+    subject: `A take-back has been refused for 30 days: ${facts.hostName}, ${facts.amount}`,
+    text:
+      `For 30 days Stripe has refused to take ${facts.amount} back from ${facts.hostName} (for ${facts.what}, after your refund).` +
+      (lastRefusal ? ` What Stripe last said: ${lastRefusal}` : "") +
+      `\n\nThe app keeps trying once a day. If the money is not to be taken, call the take-back off on its page, or settle it with the host and record that there.`,
   };
 }
 

@@ -394,7 +394,11 @@ each small enough to check well):
 - **Step 1, the notice and the objection** (decision 6, and the one lock for a dispute of
   decision 4), for the debts there are today, which are all from lost bank disputes. Nothing
   about refunds yet.
-- **Step 2, refunds after collection**: everything else of part 3a.
+- **Step 2, refunds after collection**: everything else of part 3a. Built as two pull
+  requests in turn, for the same reason: **2a**, a call's payment (the migration, the
+  founder's refund, the debt, the pages); **2b**, contributions and tips, the yearly
+  statement, the host's project page and the founder's contribution form. What 2a built, and
+  where it differs from the lists below, is at the end of this file.
 
 **Not started until the founder has said yes to the reversal at Stripe as the one way.**
 
@@ -806,4 +810,55 @@ taken.
 - The founder is told an email is "not confirmed as delivered", never that it did not arrive: it
   may have.
 - Indexes for the two lookups a report makes.
+
+## Part 3a, step 2a, as built (refunds of a call's payment after collection)
+
+Migration 0060. Against the lists above:
+
+- **Names.** Stripe's time for the charge is `charge_at` (the list says `held_at_bank`); the
+  founder's answer keeps step 1's `answered_at` and `answered_by`. `contribution_refund_id` and
+  the contribution's refund lines come with 2b.
+- **"While her share is on its way, no refund."** No rule of its own was needed: a payment has
+  one money action in flight at a time, so a refund is not begun while a sending is unanswered.
+  The check script keeps watch over it.
+- **"Told" or "waiting"** (decision 7) is decided when the debt is written: the Host Agreement
+  version in force at Stripe's time of the charge must be a published one, and she must have
+  accepted that version strictly before that second. Otherwise the debt waits, and the app
+  never takes it: the founder calls it off or records that it was settled outside the app.
+- **A refund's debt is written by the helper's next pass**, not in the founder's click: the
+  click's answer is what Stripe did with the refund (paid back, on its way, refused).
+- **The founder's list of ended take-backs** is sorted by when each ended.
+
+**What `scripts/owed-check.ts` checks at Stripe's test mode** (65 checks): a call refunded
+before collection (ordinary, nothing owed) and twice after it (two debts, together exactly what
+was sent, each told once, no day before the notice is reported as delivered, nothing a day
+early, then two real reversals and the lines in the books); the refusals (the host's own
+button, the founder without the special form or without a reason, a sending under way); the
+founder's page reading back the true outcome; a share that paid a collection charge (she owes
+what was sent, not the charge); a share sent with nothing (looked at once, no debt); the
+objection, the answer and its days, calling off (Connect's cost, once); "settled outside the
+app" (what she paid, and only the rest as Connect's cost), and a later refund on that share
+taken for its own part only; a host with no published agreement accepted before the charge,
+one who accepts afterwards, one who accepted in the very second, and one who accepted a second
+before; a refund still on its way (nothing worked out) and then refused (no debt); Stripe
+refusing the reversal, tried again, the founder told once after 30 days; a refund and a lost
+dispute on one share in four orders (open, found in one pass, settled outside for half,
+everything used up); and a reversal whose answer was lost, found at Stripe and booked once.
+
+**Two stand-ins**, each named in the script: the sending service (the script marks the notice
+email as sent and as reported delivered), and, for "a refund and a dispute on one share" only,
+the refund's line. Stripe's dispute test cards dispute a charge the moment it is taken, and a
+disputed charge cannot be refunded, so in the test area a real refund can never come before a
+dispute on the same payment. The charge, the transfer, the dispute and the reversals there are
+real.
+
+**Checked by the rules' own tests and not at Stripe**, because the test area cannot make a
+part dispute: 40 and 20; the share with the collection charge and a half dispute (39.87 of
+79.75); 79.75 sent, 99.75 refunded, then the last 25 cents; the room after a payment outside
+the app and after a reversal by hand.
+
+**Not checked:** Stripe not answering at the moment a debt is to be written (the code writes
+nothing and the next pass asks again; it cannot be staged against the real service); two
+helpers at once on one refund (the share's payment is locked, and the database allows one row
+for a refund and a share). Contributions, tips and the yearly statement are 2b's.
 

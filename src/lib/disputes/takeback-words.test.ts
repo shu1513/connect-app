@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, noticeAgainWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const facts: DebtFacts = {
   what: "the payment for your call with Ben on Monday",
@@ -97,7 +97,7 @@ describe("an objection", () => {
     const founder = all(objectedWordsForFounder(facts, "The call took place. I have the recording of my calendar."));
     expect(founder).toContain("A host objects to a take-back: Ana, $12.38");
     expect(founder).toContain("What the host wrote:\nThe call took place. I have the recording of my calendar.");
-    expect(founder).toContain("you can call the take-back off, or answer the host in writing and have it taken after all");
+    expect(founder).toContain("On its page (linked below) you can call the take-back off, or answer the host in writing and have it taken after all");
   });
 
   it("gives the host the founder's answer in full, and from when it is taken after all", () => {
@@ -112,7 +112,7 @@ describe("an objection", () => {
     expect(notice).toContain("A take-back is waiting: its notice is not confirmed as delivered to Ana");
     expect(notice).toContain("is not confirmed as delivered by email: the address bounces (bounced (permanent))");
     expect(notice).toContain("nothing is taken while this is so");
-    expect(notice).toContain("On the dispute's page you can send it again");
+    expect(notice).toContain("On its page (linked below) you can send it again");
     expect(all(notDeliveredWords(facts, "answer", "it could not be sent"))).toContain("The answer to the objection against taking $12.38 back from Ana");
   });
 });
@@ -133,6 +133,70 @@ describe("a notice that is sent again", () => {
     expect(again).toContain("If you still think this is wrong, write to us at support@connect.example.");
     expect(again).not.toContain("I think this is wrong\"");
     expect(again).not.toContain("press");
+  });
+});
+
+describe("a take-back that comes from a refund given after the host had collected", () => {
+  const owed: DebtFacts = {
+    ...facts,
+    what: "the payment for your call with Ben on Monday",
+    amount: "$40.00",
+    sent: "$80.00",
+    dueOn: null,
+    refund: { refunded: "$50.00", shareBefore: "$80.00", shareAfter: "$40.00", reason: "The host did not join the call. Ben waited ten minutes.", cutShort: false },
+  };
+
+  it("tells the host what was refunded and why, how the amount is worked out, the 14 days, and both ways to object", () => {
+    const told = all(refundOwedWords(owed));
+    expect(told).toContain("Connect will ask Stripe to take back $40.00: a payment you had collected was refunded");
+    expect(told).toContain("Connect has given Ben $50.00 back for the payment for your call with Ben on Monday. You had already collected your share of that payment, so the money came from Connect.");
+    expect(told).toContain("Why Connect decided this refund: The host did not join the call. Ben waited ten minutes.");
+    expect(told).toContain("Your share of that payment was $80.00 before this refund and is $40.00 after it. The difference is what you owe back: $40.00.");
+    expect(told).toContain("From 14 days after this message was sent to you by email, Connect will ask Stripe to take $40.00 back from your Stripe balance. Until then nothing is taken.");
+    expect(told).toContain('press "I think this is wrong" on this take-back\'s page in the app');
+    expect(told).toContain("An email does not stop the taking by itself");
+    expect(told).not.toContain("bank");
+  });
+
+  it("says so when less than the difference is asked for, because no more is left of what was sent", () => {
+    const told = refundOwedWords({ ...owed, amount: "$79.75", sent: "$79.75", refund: { ...owed.refund!, shareAfter: "$0.00", cutShort: true } }).text;
+    expect(told).toContain("The difference is what you owe back: $79.75. (It is less than the difference: no more than that is left of the $79.75 that was sent to you for this payment.)");
+  });
+
+  it("tells a host whose debt the app will not take by itself that she owes it, and promises no date and no taking", () => {
+    const told = all(refundWaitingWords(owed));
+    expect(told).toContain("You owe Connect $40.00: a payment you had collected was refunded");
+    expect(told).toContain("Connect does not take this amount by itself. A person at Connect will write to you about how it is settled. Until then nothing is taken.");
+    expect(told).not.toContain("Stripe");
+    expect(told).not.toContain("14 days");
+    expect(told).not.toContain("I think this is wrong");
+  });
+
+  it("tells the founder what the app does, and when the debt is theirs to settle", () => {
+    expect(all(refundOwedWordsForFounder(owed))).toContain("The app has told the host that $40.00 is owed (their share was $80.00 and is $40.00), and from 14 days after that notice arrived by email it asks Stripe");
+    const waiting = all(refundWaitingWordsForFounder(owed));
+    expect(waiting).toContain("To settle with a host: Ana owes $40.00 after your refund");
+    expect(waiting).toContain("it takes money back only where the host had accepted a published Host Agreement before the customer's payment was held");
+    expect(waiting).toContain('record what they paid back ("Settled outside the app") or call it off');
+  });
+
+  it("tells the host when it is taken, called off, or settled outside the app", () => {
+    expect(all(refundTakenWords(owed))).toContain("Stripe has taken $40.00 back from your Stripe balance, for the payment for your call with Ben on Monday: Connect had refunded Ben after you had collected your share.");
+    expect(all(refundCancelledWords(owed))).toContain("That is called off: Connect looked at it and decided to carry it. Nothing is taken, and nothing is owed for it.");
+    expect(all(refundSettledWords(owed, "$25.00", "$15.00"))).toContain("you paid back $25.00, and Connect carries the remaining $15.00");
+    expect(all(refundSettledWords(owed, "$40.00", null))).toContain("you paid back $40.00.");
+    expect(all(refundRefusedWords(owed, "balance_insufficient"))).toContain("after your refund). What Stripe last said: balance_insufficient");
+  });
+
+  it("sent again, it is the refund's own notice; for an answered objection it repeats the answer and points to no button", () => {
+    const again = noticeAgainWords(owed, null);
+    expect(again.subject).toBe(refundOwedWords(owed).subject);
+    expect(again.text).toContain("Connect has given Ben $50.00 back");
+    const answered = all(noticeAgainWords(owed, "The refund stands."));
+    expect(answered).toContain("You told us this is wrong, and we answered:\n\nThe refund stands.");
+    expect(answered).toContain("Your share of that payment was $80.00 before this refund and is $40.00 after it.");
+    expect(answered).not.toContain("press");
+    expect(answered).not.toContain("bank dispute");
   });
 });
 

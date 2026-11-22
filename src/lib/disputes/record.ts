@@ -432,7 +432,7 @@ export async function refreshOwner(owner: Owner, now: Date = new Date()): Promis
 }
 
 /** For test scripts only: touch nothing but these disputes, so a check never changes other rows of a shared database. */
-export type Only = { disputeIds: string[] };
+export type Only = { disputeIds: string[]; /** For the take-backs that come from refunds (plans/46-part-3): these refunds only. */ refundIds?: string[] };
 
 /**
  * The helper's look, every few seconds. Two kinds of dispute are asked about again:

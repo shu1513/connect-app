@@ -421,6 +421,13 @@
       "when": 1795308663446,
       "tag": "0059_email_report_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1795310253668,
+      "tag": "0060_refund_debts",
+      "breakpoints": true
     }
   ]
 }
