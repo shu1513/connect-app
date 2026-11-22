@@ -34,18 +34,26 @@ export const TAKEABLE: readonly string[] = ["told", "answered"];
 export const OPEN: readonly string[] = ["told", "objected", "answered"];
 
 /**
- * From when a take-back is taken, once its notice email has really gone out (plans/46-part-3-money-owed.md, decision
- * 6): 14 days after the sending service accepted that email.
+ * The day from which a take-back is taken, or null while there is none (plans/46-part-3-money-owed.md, decision 6).
+ *
+ *   - Never without proof that the notice email really went out: `noticeSentAt` is the moment the sending service
+ *     accepted it, and is empty while it waits, failed or bounced.
+ *   - 14 days after that moment.
+ *   - Never earlier than a day an earlier notice named (`promisedAt`: a take-back from before this rule, or the first
+ *     day this one was given).
+ *   - After an objection the founder answered: also never earlier than 3 days after that answer really went out, and
+ *     none at all while the answer has not gone out. An objection can only make the day later, never earlier.
+ *   - None while the host's objection is open, or once it is being taken, taken or called off.
  */
-export const dueAfterNotice = (noticeSentAt: Date): Date => new Date(noticeSentAt.getTime() + NOTICE_MS);
-
-/**
- * From when it is taken after the founder answered an objection: no earlier than the day the first notice gave, and
- * no earlier than 3 days after the answer was sent.
- */
-export function dueAfterAnswer(firstDueAt: Date | null, answerSentAt: Date): Date {
-  const afterAnswer = answerSentAt.getTime() + AFTER_ANSWER_MS;
-  return new Date(Math.max(afterAnswer, firstDueAt?.getTime() ?? afterAnswer));
+export function dueDay(input: { status: string; promisedAt: Date | null; noticeSentAt: Date | null; answerSentAt: Date | null }): Date | null {
+  if (!TAKEABLE.includes(input.status) || input.noticeSentAt === null) return null;
+  let due = input.noticeSentAt.getTime() + NOTICE_MS;
+  if (input.promisedAt !== null) due = Math.max(due, input.promisedAt.getTime());
+  if (input.status === "answered") {
+    if (input.answerSentAt === null) return null;
+    due = Math.max(due, input.answerSentAt.getTime() + AFTER_ANSWER_MS);
+  }
+  return new Date(due);
 }
 
 /** The host can say "I think this is wrong" while they only have their notice. Not twice: an answered take-back cannot be objected to again in the app. */

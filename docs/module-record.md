@@ -5162,42 +5162,56 @@ first, and it changes how that existing way treats a host. Refunds come in the s
 **What was built** (decision 6 of that plan, and the lock of decision 4), for the debts there
 are today, all from lost bank disputes:
 - **The 14 days count from the notice email really going out**, not from the moment the app
-  wrote the debt down. A take-back has no due day until the sending service has accepted that
-  email. If the email fails, or the address is later reported as bouncing, the day is empty (or
-  emptied again), nothing is taken, and the founder is told once. The notice itself says "14
+  wrote the debt down. One rule works the day out, afresh on every pass, from the emails
+  themselves: 14 days after the notice went out; never earlier than a day an earlier notice
+  named; none while that email waits, failed or bounced. When there is no day because of a
+  failure, the founder is told once and the host's pages say so. The notice itself says "14
   days after this message was sent to you by email"; her pages show the day once it is known.
-  The debts there were keep the day their notice named.
+- **A bounce is recorded on the email it is about** (the sending service names it), not judged
+  by the address.
 - **"I think this is wrong."** On the dispute's page a host can say why, while the take-back
   has only its notice. It is then "objected" and nothing is taken. The founder is told with her
   words and either calls it off or answers in writing and has it taken after all ("answered"):
-  no earlier than the first day, and no earlier than 3 days after that answer has gone out. She
-  cannot object a second time in the app. The founder can also hold a take-back for an objection
-  that came by email. An objection is judged under the same lock the taking starts under.
+  never earlier than its notice's own 14 days, and never earlier than 3 days after that answer
+  has gone out. She cannot object a second time in the app. The founder can also hold a
+  take-back for an objection that came by email; the notice says plainly that an email stops
+  the taking only once a person has read it.
+- **The taking looks once more** at the emails, under its own lock, at the last moment; and a
+  request to Stripe that got no answer is not repeated once its notice has failed.
 - A dispute that is won after all calls off a take-back that is objected or answered too. A
   reversal Stripe refuses puts an answered take-back back to "answered".
 - **One lock for a dispute** when what its shares owe is worked out: two helpers on two shares
   of one disputed membership month can no longer count the same room.
-- Migration `0055_host_debt_notice`.
+- Migrations `0055_host_debt_notice` and `0056_email_bounced`.
 
 **The builder's own choices:** the objection form is on the dispute's page (linked from "Your
 earnings"), not on the earnings page itself; an objection needs at least a sentence; an answer
 cannot be withdrawn; no way yet to send a notice again to an address that bounced (the founder
 calls it off or reaches her another way).
 
-**How it was checked.** Type check, lint, 971 automatic tests (the rules of the due day, of
+**What the reviewer found.** Astra said to hold it, for five points that all came to one
+thing: money could have been taken before the host had truly been told (an early objection
+moved the day from 14 days to 3; a bounce was judged by the address and could lose a race with
+the taking; an old take-back kept its day while its email had not gone out; the notice promised
+that an email to support stops the taking). All are fixed; the list is in the plan.
+
+**How it was checked.** Type check, lint and the automatic tests (the rule of the due day, of
 objecting and answering, and every new sentence). The real script against Stripe's test mode,
-`scripts/dispute-takeback-check.ts`, 80 checks: its 57 from plan 47 still pass with a stand-in
-for the sending service, and 23 are new: no day and never taken while the notice has not gone
-out; a failed notice told to the founder once; the day from the moment of sending; a bounce
-takes the day away; an objection a second before the day stops it for good; the founder's
-answer, its own 3 days, and the first day kept when the answer comes early; no second
-objection; taken for real at Stripe after an answer; a refused reversal on an answered one; a
-won dispute calls an answered one off; held for an email, then called off. `disputes-check` was
-run too. In a browser as the test host: the notice with its day, the objection, and what the
-dispute's page and "Your earnings" then say.
+`scripts/dispute-takeback-check.ts`, 98 checks: plan 47's own still pass, with the due days
+coming from the helper's real pass, and the new part covers: no day and never taken while the notice
+has not gone out; a failed notice told to each admin once; the day from the moment of sending;
+a bounce of this very email takes the day away and is told, and a bounce of another email at
+the same address does not; an objection a second before the day stops it for good; the
+founder's answer and its 3 days; an answer that comes early, or on day zero before any day was
+given, never makes it earlier than the notice's 14 days; no second objection; taken for real at
+Stripe after an answer; a real refusal by Stripe leaves an answered one answered; a won dispute
+calls an answered one off; held for an email, then called off; no objection while it is being
+taken; an unanswered request is not sent once its notice bounced; a day on the row is not
+enough when the notice is not confirmed as sent. `disputes-check` (72 checks) passes too. In a
+browser as the test host: the notice with its day, the objection, and what the dispute's page
+and "Your earnings" then say.
 
 **What cannot be tested here.** The founder's side of the dispute's page (the answer, the
 hold) was type-checked and its actions are checked by the script, but not looked at in a
 browser: the test admin's login is not set up. A real email going out, and a real bounce
 reported by the sending service: both are stood in for by writing them into the database.
-

@@ -66,7 +66,7 @@ export async function objectAction(formData: FormData) {
   let notice: string;
   try {
     if (!DEBT_ID.test(debtId)) throw new DebtError("This is not one of your take-backs.");
-    await objectToDebt({ debtId, hostId: user.id, objection: String(formData.get("objection") ?? "") });
+    await objectToDebt({ debtId, disputeId: id, hostId: user.id, objection: String(formData.get("objection") ?? "") });
     notice = "We have your objection. Nothing is taken until a person at Connect has answered you.";
   } catch (error) {
     if (!(error instanceof DebtError)) console.error("[disputes] an objection to a take-back failed", error);
@@ -94,7 +94,7 @@ export async function answerObjectionAction(formData: FormData) {
   let notice: string;
   try {
     const answered = DEBT_ID.test(debtId) && (await answerObjection({ debtId, disputeId: id, adminId: admin.id, answer: String(formData.get("answer") ?? "") }));
-    notice = answered ? "Sent. The host has your answer. It is taken no earlier than the first day, and no earlier than 3 days after the answer's email has gone out." : "There is no objection to answer here any more.";
+    notice = answered ? "Saved. Your answer is on the host's Messages page and goes out by email. It is taken no earlier than the first day, and no earlier than 3 days after that email has really gone out." : "There is no objection to answer here any more.";
   } catch (error) {
     if (!(error instanceof DebtError)) console.error("[disputes] answering an objection failed", error);
     notice = error instanceof DebtError ? error.message : "Something went wrong. Nothing was changed. Please try again.";

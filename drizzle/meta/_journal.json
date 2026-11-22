@@ -393,6 +393,13 @@
       "when": 1795304112215,
       "tag": "0055_host_debt_notice",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795305327357,
+      "tag": "0056_email_bounced",
+      "breakpoints": true
     }
   ]
 }

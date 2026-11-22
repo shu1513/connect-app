@@ -356,12 +356,14 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     {debt.answer}
                   </p>
                 )}
-                {!asHost && (debt.status === "told" || debt.status === "answered") && !debt.dueAt && debt.noticeProblemToldAt && (
+                {(debt.status === "told" || debt.status === "answered") && !debt.dueAt && debt.noticeProblemToldAt && (
                   <p className="mt-1 opacity-80" data-not-delivered>
-                    The email about this did not reach the host, so nothing is taken. Reach the host another way, or cancel the take-back.
+                    {asHost
+                      ? "We could not reach you by email about this, so nothing is taken for now. Please check the email address of your account, or write to us."
+                      : "The email about this did not reach the host, so nothing is taken. Reach the host another way, or cancel the take-back."}
                   </p>
                 )}
-                {(debt.status === "told" || debt.status === "answered") && debt.refusedAt && (
+                {(debt.status === "told" || debt.status === "answered") && debt.dueAt && debt.refusedAt && (
                   <p className="mt-1 opacity-80" data-refused>
                     {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
                   </p>

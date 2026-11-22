@@ -41,7 +41,7 @@ async function main() {
   const { getHostSettings, refreshPayoutsReady } = await import("../src/lib/payments/hosts");
   const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
   const { lookAtOpenDisputes } = await import("../src/lib/disputes/record");
-  const { answerObjection, backToTold, cancelDebt, dateNotices, DebtError, holdDebt, objectToDebt, reverseAtStripe, takeBackPass, takePlan, debtsOfDispute, debtsOfHost } = await import("../src/lib/disputes/takeback");
+  const { answerObjection, cancelDebt, DebtError, holdDebt, objectToDebt, reverseAtStripe, takeBackPass, takePlan, debtsOfDispute, debtsOfHost } = await import("../src/lib/disputes/takeback");
   const { AFTER_ANSWER_MS, NOTICE_MS, RETRY_MS, TELL_FOUNDER_AFTER_MS } = await import("../src/lib/disputes/takeback-rules");
 
   const [seeded] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
@@ -100,8 +100,10 @@ async function main() {
   const pass = async (at: Date, ...disputeIds: string[]) => {
     await passOnly(at, ...disputeIds);
     await sendNotices(disputeIds);
-    // Only the step that gives the due days, not a second whole pass: one pass is one try at Stripe.
-    await dateNotices(at, { disputeIds });
+    // The helper's own pass once more, as of long ago: it gives the due days (which is part of every pass), and
+    // nothing can be due or be tried at Stripe at that moment. So one `pass` stays one try at Stripe, and the due
+    // days still come from the real pass: if the helper stopped giving them, every check below would fail.
+    await passOnly(new Date(0), ...disputeIds);
   };
   /** Makes an unanswered money action look older, as if the helper had been away. */
   const age = (operationId: string, ms: number) => db.update(schema.moneyOperations).set({ createdAt: new Date(Date.now() - ms) }).where(eq(schema.moneyOperations.id, operationId));
@@ -210,6 +212,7 @@ async function main() {
 
   try {
     const host = await person("host");
+    const customerOfNobody = await person("somebody else");
     const NOW = new Date();
 
     // ----------------------------------------------------------------------
@@ -449,67 +452,65 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log("\n8. The 14 days count from the notice really sent, and an objection stops the taking (plans/46-part-3, decision 6)");
     {
+      check("(there is an admin in this database to tell: the checks of what the founder is told need one)", admins.length > 0);
       const admin = admins[0]?.id ?? host.id;
-      const customer = await person("customer");
-      const c = await collectedThenLost(host, customer);
+      const DAYS = 24 * 3_600_000;
       const founderMail = async (debtId: string, what: string) => (await emailsOf(debtId)).filter((mail) => mail.dedupeKey?.includes(`:${what}`) && mail.dedupeKey.includes(":founder:"));
+      const toldEachAdmin = (mails: Awaited<ReturnType<typeof founderMail>>) => admins.length > 0 && mails.length === admins.length && admins.every((one) => mails.some((mail) => mail.to === one.email));
+      const mailRow = async (id: string) => (await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.id, id)))[0];
+      const setMail = (id: string, values: Partial<typeof schema.emailOutbox.$inferInsert>) => db.update(schema.emailOutbox).set(values).where(eq(schema.emailOutbox.id, id));
+      const refused = async (attempt: Promise<unknown>) => attempt.then(() => null, (error: Error) => (error instanceof DebtError ? error.message : `not a DebtError: ${error.message}`));
+
+      // ---- A. The notice has to have gone out; then an objection, an answer, and the taking.
+      const c = await collectedThenLost(host, await person("customer"));
       await passOnly(NOW, c.disputeId);
       let debt = await debtOf(c.disputeId);
       const noticeId = debt.noticeEmailId!;
-      const [notice] = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.id, noticeId));
+      const notice = await mailRow(noticeId);
       check("a take-back whose notice has not gone out has no due day, and its notice names none", debt.status === "told" && debt.dueAt === null && notice?.status === "queued" && notice.to === host.email && notice.body.includes("From 14 days after this message was sent to you by email"), `${debt.dueAt} ${notice?.status}`);
+      check("the notice says what each way of objecting does: the button at once, an email only once a person has read it", notice.body.includes("From the moment you press it, nothing is taken") && notice.body.includes("An email stops the taking only once a person at Connect has read it"));
       await passOnly(new Date(NOW.getTime() + 10 * NOTICE_MS), c.disputeId);
       check("it is never taken while that is so, however much time passes", (await debtOf(c.disputeId)).status === "told" && (await transferAt(c.transferId)).amount_reversed === 0 && (await operationsOf(c.payment.id)).length === 0);
 
       // The email fails: the founder is told once, and there is still no day.
-      await db.update(schema.emailOutbox).set({ status: "failed", lastError: "422 made up for this check" }).where(eq(schema.emailOutbox.id, noticeId));
+      await setMail(noticeId, { status: "failed", lastError: "422 made up for this check" });
       await passOnly(NOW, c.disputeId);
       await passOnly(NOW, c.disputeId);
       debt = await debtOf(c.disputeId);
       const undelivered = await founderMail(debt.id, "undelivered:");
-      check("a notice that could not be sent leaves it without a day, and each admin is told once", debt.dueAt === null && debt.noticeProblemToldAt !== null && undelivered.length === admins.length && undelivered.every((mail) => mail.body.includes("could not be delivered by email: 422 made up for this check") && mail.body.includes("nothing is taken while this is so")), `${undelivered.length}`);
+      check("a notice that could not be sent leaves it without a day, and each admin is told once", debt.dueAt === null && debt.noticeProblemToldAt !== null && toldEachAdmin(undelivered) && undelivered.every((mail) => mail.body.includes("could not be delivered by email: 422 made up for this check") && mail.body.includes("nothing is taken while this is so")), `${undelivered.length}`);
 
       // It goes out after all, two days later: the days count from then.
-      const sentAt = new Date(NOW.getTime() + 2 * 24 * 3_600_000);
-      await db.update(schema.emailOutbox).set({ status: "sent", sentAt, lastError: null }).where(eq(schema.emailOutbox.id, noticeId));
+      const sentAt = new Date(NOW.getTime() + 2 * DAYS);
+      await setMail(noticeId, { status: "sent", sentAt, lastError: null });
       await passOnly(NOW, c.disputeId);
       debt = await debtOf(c.disputeId);
       const firstDue = new Date(sentAt.getTime() + NOTICE_MS);
-      check("once the email has gone out, it is due 14 days after that moment, not after the row was written", debt.dueAt?.getTime() === firstDue.getTime() && debt.firstDueAt?.getTime() === firstDue.getTime(), `${debt.dueAt?.toISOString()}`);
-
-      // The address turns out to bounce: the day is taken away again.
-      await db.insert(schema.emailSuppressions).values({ address: host.email, reason: "bounced (permanent)" });
-      await passOnly(NOW, c.disputeId);
-      check("when the sending service says later that the address bounces, the day is taken away again", (await debtOf(c.disputeId)).dueAt === null);
-      await passOnly(new Date(firstDue.getTime() + 1000), c.disputeId);
-      check("and nothing is taken while it bounces", (await debtOf(c.disputeId)).status === "told" && (await transferAt(c.transferId)).amount_reversed === 0);
-      await db.delete(schema.emailSuppressions).where(eq(schema.emailSuppressions.address, host.email));
-      await passOnly(NOW, c.disputeId);
-      check("(with the address working again, it has its day back)", (await debtOf(c.disputeId)).dueAt?.getTime() === firstDue.getTime());
+      check("once the email has gone out, it is due 14 days after that moment, not after the row was written", debt.dueAt?.getTime() === firstDue.getTime() && debt.firstDueAt?.getTime() === firstDue.getTime() && debt.noticeProblemToldAt === null, `${debt.dueAt?.toISOString()}`);
 
       // "I think this is wrong", a second before the day.
-      const refused = async (attempt: Promise<unknown>) => attempt.then(() => null, (error: Error) => (error instanceof DebtError ? error.message : `not a DebtError: ${error.message}`));
-      check("somebody else cannot object to it", /not one of your take-backs/.test((await refused(objectToDebt({ debtId: debt.id, hostId: customer.id, objection: "This is not mine to object to at all." }))) ?? ""));
+      check("somebody else cannot object to it", /not one of your take-backs/.test((await refused(objectToDebt({ debtId: debt.id, hostId: customerOfNobody.id, objection: "This is not mine to object to at all." }))) ?? ""));
+      check("nor can its own host through another dispute's page", /not one of your take-backs/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, disputeId: "du_another_one", objection: "Named with another dispute's page." }))) ?? ""));
       check("an objection needs a reason", /why you think this is wrong/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, objection: "no" }))) ?? ""));
-      await objectToDebt({ debtId: debt.id, hostId: host.id, objection: "The call took place in full. The customer told me so afterwards.", now: new Date(firstDue.getTime() - 1000) });
+      await objectToDebt({ debtId: debt.id, hostId: host.id, disputeId: c.disputeId, objection: "The call took place in full. The customer told me so afterwards.", now: new Date(firstDue.getTime() - 1000) });
       await passOnly(firstDue, c.disputeId);
-      await passOnly(new Date(firstDue.getTime() + 30 * 24 * 3_600_000), c.disputeId);
+      await passOnly(new Date(firstDue.getTime() + 30 * DAYS), c.disputeId);
       debt = await debtOf(c.disputeId);
       check("an objection a second before the day stops it: nothing is taken at the day, or a month later", debt.status === "objected" && debt.dueAt === null && (await transferAt(c.transferId)).amount_reversed === 0 && (await operationsOf(c.payment.id)).length === 0, debt.status);
       const objected = await founderMail(debt.id, "objected");
-      check("the host is told it is with a person, and each admin gets the host's own words", (await messagesOf(debt.id)).some((one) => one.key.includes(":objected:") && one.body.includes("nothing is taken for this take-back")) && objected.length === admins.length && objected.every((mail) => mail.body.includes("The call took place in full.")), `${objected.length}`);
+      check("the host is told it is with a person, and each admin gets the host's own words", (await messagesOf(debt.id)).some((one) => one.key.includes(":objected:") && one.body.includes("nothing is taken for this take-back")) && toldEachAdmin(objected) && objected.every((mail) => mail.body.includes("The call took place in full.")), `${objected.length}`);
       check("the host cannot object a second time while it is open", /already have your objection/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, objection: "Once more, with other words this time." }))) ?? ""));
       check("the earnings page still lists it, as objected", (await debtsOfHost(host.id)).some((one) => one.id === debt.id && one.status === "objected"));
 
       // The founder answers: taken after all, but not before the answer has gone out and 3 days have passed.
       check("an answer needs words", /Write the answer/.test((await refused(answerObjection({ debtId: debt.id, adminId: admin, answer: "no" }))) ?? ""));
-      const answeredAt = new Date(firstDue.getTime() + 5 * 24 * 3_600_000);
+      const answeredAt = new Date(firstDue.getTime() + 5 * DAYS);
       check("the founder answers the objection", (await answerObjection({ debtId: debt.id, adminId: admin, answer: "The bank's decision stands whatever happened in the call. We sent it your record of the call.", now: answeredAt })) === true);
       debt = await debtOf(c.disputeId);
       check("answered: the host has the answer in writing, and there is no day until that answer has gone out", debt.status === "answered" && debt.dueAt === null && debt.answerEmailId !== null && debt.answeredBy === admin && (await messagesOf(debt.id)).some((one) => one.key.includes(":answered:") && one.body.includes("The bank's decision stands whatever happened in the call.")));
-      await passOnly(new Date(answeredAt.getTime() + 60 * 24 * 3_600_000), c.disputeId);
-      check("and it is not taken while the answer has not gone out", (await debtOf(c.disputeId)).status === "answered" && (await transferAt(c.transferId)).amount_reversed === 0);
-      await sendNotices([c.disputeId], answeredAt);
+      await passOnly(new Date(answeredAt.getTime() + 60 * DAYS), c.disputeId);
+      check("and it is not taken while the answer has not gone out", (await debtOf(c.disputeId)).status === "answered" && (await debtOf(c.disputeId)).dueAt === null && (await transferAt(c.transferId)).amount_reversed === 0);
+      await setMail(debt.answerEmailId!, { status: "sent", sentAt: answeredAt });
       await passOnly(answeredAt, c.disputeId);
       debt = await debtOf(c.disputeId);
       const dueAgain = new Date(answeredAt.getTime() + AFTER_ANSWER_MS);
@@ -521,29 +522,51 @@ async function main() {
       debt = await debtOf(c.disputeId);
       check("at that day it is taken, really, at Stripe", debt.status === "taken" && (await transferAt(c.transferId)).amount_reversed === c.sentCents, `${debt.status} ${debt.refusal ?? ""}`);
 
-      // An answer given early: the first day still holds.
+      // ---- B. A bounce reported for this very email; an answer that comes early; a refusal; a dispute won after all.
       const early = await collectedThenLost(host, await person("customer"));
       await pass(NOW, early.disputeId);
       let second = await debtOf(early.disputeId);
       const itsFirstDay = second.dueAt!;
-      await objectToDebt({ debtId: second.id, hostId: host.id, objection: "Please look at this one again, I think it is wrong.", now: new Date(NOW.getTime() + 24 * 3_600_000) });
-      await answerObjection({ debtId: second.id, adminId: admin, answer: "We looked at it again and the bank's decision stands.", now: new Date(NOW.getTime() + 2 * 24 * 3_600_000) });
-      await sendNotices([early.disputeId], new Date(NOW.getTime() + 2 * 24 * 3_600_000));
+      check("(it has its day: 14 days after its notice went out)", itsFirstDay.getTime() === second.toldAt.getTime() + NOTICE_MS);
+      // The sending service says later that this email bounced. (Another email bouncing at the same address would not count.)
+      await db.insert(schema.emailSuppressions).values({ address: host.email, reason: "bounced (made up: another email)" });
+      await passOnly(NOW, early.disputeId);
+      check("an address that is only known to bounce for another email does not take the day away", (await debtOf(early.disputeId)).dueAt?.getTime() === itsFirstDay.getTime());
+      await db.delete(schema.emailSuppressions).where(eq(schema.emailSuppressions.address, host.email));
+      await setMail(second.noticeEmailId!, { bouncedAt: new Date(), lastError: "bounced: Permanent General" });
+      await passOnly(NOW, early.disputeId);
+      await passOnly(NOW, early.disputeId);
+      second = await debtOf(early.disputeId);
+      const bounced = await founderMail(second.id, "undelivered:");
+      check("when the sending service says later that this very email bounced, the day is taken away again and each admin is told once", second.dueAt === null && second.noticeProblemToldAt !== null && toldEachAdmin(bounced) && bounced.every((mail) => mail.body.includes("it bounced (bounced: Permanent General)")), `${second.dueAt} ${bounced.length}`);
+      await passOnly(new Date(itsFirstDay.getTime() + DAYS), early.disputeId);
+      check("and nothing is taken while that is so, also after its old day", (await debtOf(early.disputeId)).status === "told" && (await transferAt(early.transferId)).amount_reversed === 0 && (await operationsOf(early.payment.id)).length === 0);
+      await setMail(second.noticeEmailId!, { bouncedAt: null, lastError: null });
+      await passOnly(NOW, early.disputeId);
+      second = await debtOf(early.disputeId);
+      check("(reported as delivered after all: it has its day back, and the warning is cleared)", second.dueAt?.getTime() === itsFirstDay.getTime() && second.noticeProblemToldAt === null);
+
+      await objectToDebt({ debtId: second.id, hostId: host.id, objection: "Please look at this one again, I think it is wrong.", now: new Date(NOW.getTime() + DAYS) });
+      await answerObjection({ debtId: second.id, adminId: admin, answer: "We looked at it again and the bank's decision stands.", now: new Date(NOW.getTime() + 2 * DAYS) });
+      second = await debtOf(early.disputeId);
+      await setMail(second.answerEmailId!, { status: "sent", sentAt: new Date(NOW.getTime() + 2 * DAYS) });
       await passOnly(NOW, early.disputeId);
       second = await debtOf(early.disputeId);
       check("an objection answered early does not bring the day forward: it stays the first day", second.status === "answered" && second.dueAt?.getTime() === itsFirstDay.getTime(), second.dueAt?.toISOString());
-      // Stripe refuses a reversal on an answered take-back: it goes back to "answered", not to "told" (which could be objected to again).
-      await db.update(debts).set({ status: "taking" }).where(eq(debts.id, second.id));
-      await db.transaction((tx) => backToTold(tx, second.id, "made up for this check"));
+      // Stripe refuses the reversal (somebody took the whole transfer back by hand): through the money action, as it really goes.
+      await stripe().transfers.createReversal(early.transferId, { amount: early.sentCents });
+      await passOnly(itsFirstDay, early.disputeId);
       second = await debtOf(early.disputeId);
-      check("a refused reversal puts an answered take-back back to answered, with the refusal noted", second.status === "answered" && second.refusal === "made up for this check" && second.refusedAt !== null);
+      const itsOperations = await operationsOf(early.payment.id);
+      check("a reversal Stripe refuses puts an answered take-back back to answered, not to told, with the refusal noted", second.status === "answered" && Boolean(second.refusal) && second.refusedAt !== null && itsOperations.length === 1 && itsOperations[0].status === "failed", `${second.status} ${itsOperations.map((one) => one.status)}`);
+      check("so it still cannot be objected to a second time", /We have answered your objection/.test((await refused(objectToDebt({ debtId: second.id, hostId: host.id, objection: "Trying to object again after the refusal." }))) ?? ""));
       // The bank decides the other way while it is answered: called off by itself.
       await db.update(schema.disputes).set({ outcome: "won", status: "won" }).where(eq(schema.disputes.id, early.disputeId));
       await passOnly(new Date(itsFirstDay.getTime() + 2 * RETRY_MS), early.disputeId);
       second = await debtOf(early.disputeId);
-      check("an answered take-back whose dispute is then won is called off by itself, and nothing is taken", second.status === "cancelled" && (await transferAt(early.transferId)).amount_reversed === 0 && (await messagesOf(second.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("let the payment stand")));
+      check("an answered take-back whose dispute is then won is called off by itself, and nothing was taken by the app", second.status === "cancelled" && (await ledgerOf(early.payment.id, "host_takeback")) === 0 && (await operationsOf(early.payment.id)).length === 1 && (await messagesOf(second.id)).some((one) => one.key.includes(":cancelled:") && one.body.includes("let the payment stand")));
 
-      // An objection that came by email: the founder holds it, and then calls it off.
+      // ---- C. An objection that came by email: the founder holds it, and then calls it off.
       const byMail = await collectedThenLost(host, await person("customer"));
       await pass(NOW, byMail.disputeId);
       let third = await debtOf(byMail.disputeId);
@@ -556,6 +579,61 @@ async function main() {
       third = await debtOf(byMail.disputeId);
       check("called off: never taken, and the host is told", third.status === "cancelled" && (await transferAt(byMail.transferId)).amount_reversed === 0 && (await messagesOf(third.id)).some((one) => one.key.includes(":cancelled:")));
       check("there is nothing to answer on a take-back that was called off", (await answerObjection({ debtId: third.id, adminId: admin, answer: "Too late to answer this one, it was called off." })) === false);
+
+      // ---- D. An objection before the day was ever given; and a take-back that is being taken when its notice bounces.
+      const fast = await collectedThenLost(host, await person("customer"));
+      await passOnly(NOW, fast.disputeId);
+      let fourth = await debtOf(fast.disputeId);
+      // The host objects from the Messages page at once, and the founder answers at once: all on day zero.
+      await objectToDebt({ debtId: fourth.id, hostId: host.id, objection: "Objecting at once, before any day was given.", now: NOW });
+      await answerObjection({ debtId: fourth.id, adminId: admin, answer: "Answered at once: the bank's decision stands.", now: NOW });
+      fourth = await debtOf(fast.disputeId);
+      await setMail(fourth.answerEmailId!, { status: "sent", sentAt: NOW });
+      await passOnly(NOW, fast.disputeId);
+      check("answered on day zero, with the notice itself not out yet: no day at all", (await debtOf(fast.disputeId)).status === "answered" && (await debtOf(fast.disputeId)).dueAt === null);
+      await passOnly(new Date(NOW.getTime() + 60 * DAYS), fast.disputeId);
+      check("and nothing is taken, however long it is left", (await transferAt(fast.transferId)).amount_reversed === 0 && (await operationsOf(fast.payment.id)).length === 0);
+      await setMail(fourth.noticeEmailId!, { status: "sent", sentAt: NOW });
+      await passOnly(NOW, fast.disputeId);
+      fourth = await debtOf(fast.disputeId);
+      const fourteen = new Date(NOW.getTime() + NOTICE_MS);
+      check("an objection and an answer on day zero do not make it 3 days: it is the notice's own 14", fourth.dueAt?.getTime() === fourteen.getTime(), fourth.dueAt?.toISOString());
+      await passOnly(new Date(NOW.getTime() + 4 * DAYS), fast.disputeId);
+      check("on day 4 nothing is taken", (await transferAt(fast.transferId)).amount_reversed === 0 && (await operationsOf(fast.payment.id)).length === 0);
+
+      // Written down as a money action at its day, and not yet asked of Stripe (the helper stopped there).
+      const begun = await db.transaction((tx) => startMoneyOperation(tx, takePlan(fourth, fourteen)));
+      if (begun === "already_done") throw new Error("The take-back was already done.");
+      check("(it is being taken)", (await debtOf(fast.disputeId)).status === "taking");
+      check("while it is being taken it cannot be objected to", /can no longer be objected to here/.test((await refused(objectToDebt({ debtId: fourth.id, hostId: host.id, objection: "Objecting while it is being taken." }))) ?? ""));
+      // Now the sending service reports that the notice bounced. The helper finds the unanswered action.
+      await setMail(fourth.noticeEmailId!, { bouncedAt: new Date(), lastError: "bounced: Permanent General" });
+      await age(begun.operationId, 2 * 60_000);
+      await reconcileOperations(new Date());
+      let [itsOperation] = await operationsOf(fast.payment.id);
+      check("a notice that bounced meanwhile: the unanswered request is NOT sent to Stripe after all", (await transferAt(fast.transferId)).amount_reversed === 0 && itsOperation.status === "started", `${itsOperation.status}`);
+      await age(begun.operationId, 25 * 3_600_000);
+      await reconcileOperations(new Date());
+      [itsOperation] = await operationsOf(fast.payment.id);
+      fourth = await debtOf(fast.disputeId);
+      check("once it can no longer be on its way it is closed as not done: nothing taken, and the take-back is answered again, not told", itsOperation.status === "failed" && fourth.status === "answered" && (await transferAt(fast.transferId)).amount_reversed === 0, `${itsOperation.status} ${fourth.status}`);
+      await passOnly(new Date(fourteen.getTime() + 30 * DAYS), fast.disputeId);
+      fourth = await debtOf(fast.disputeId);
+      check("and with its notice bounced it has no day, and is not taken", fourth.dueAt === null && fourth.status === "answered" && (await transferAt(fast.transferId)).amount_reversed === 0 && (await operationsOf(fast.payment.id)).length === 1);
+
+      // A take-back whose notice is still waiting cannot even be written down as a money action.
+      const waitingOne = await collectedThenLost(host, await person("customer"));
+      await passOnly(NOW, waitingOne.disputeId);
+      const fifth = await debtOf(waitingOne.disputeId);
+      // (As a take-back from before this rule would look: a day on the row, and an email that never went out.)
+      await db.update(debts).set({ dueAt: new Date(NOW.getTime() - DAYS), firstDueAt: new Date(NOW.getTime() - DAYS) }).where(eq(debts.id, fifth.id));
+      const notStarted = await db.transaction((tx) => startMoneyOperation(tx, takePlan(fifth, NOW))).then(() => "started", (error: Error) => error.message);
+      check("a day on the row is not enough: with its notice not confirmed as sent, the taking refuses at the last moment", /not confirmed as sent/.test(notStarted) && (await debtOf(waitingOne.disputeId)).status === "told", notStarted);
+      await passOnly(NOW, waitingOne.disputeId);
+      check("and the helper's pass takes that day away again", (await debtOf(waitingOne.disputeId)).dueAt === null && (await operationsOf(waitingOne.payment.id)).length === 0);
+      await setMail(fifth.noticeEmailId!, { status: "sent", sentAt: new Date(NOW.getTime() - 20 * DAYS) });
+      await passOnly(new Date(0), waitingOne.disputeId);
+      check("an old take-back whose email is confirmed as sent keeps the day its notice named as the earliest", (await debtOf(waitingOne.disputeId)).dueAt?.getTime() === NOW.getTime() - DAYS);
     }
   } finally {
     // What THIS run made, by the exact ids: open test disputes are ended, what is left of the shares it sent is taken

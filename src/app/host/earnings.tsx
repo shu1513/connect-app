@@ -178,6 +178,7 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                     ) : (
                       "not before 14 days after our email about it was sent to you."
                     )}
+                    {!debt.dueAt && debt.noticeProblemToldAt && " We could not reach you by email about this, so nothing is taken for now; please check the email address of your account."}
                     {debt.status === "told" && " If you think this is wrong, you can say so on the dispute's page; nothing is taken then until we have answered you."}
                   </>
                 )}{" "}

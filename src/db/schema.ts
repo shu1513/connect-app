@@ -151,6 +151,12 @@ export const emailOutbox = pgTable(
     /** After this, an unsent email is no longer worth sending (a reminder for a call that has passed). */
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /**
+     * The sending service reported that THIS email bounced (any kind of bounce), after it had accepted it. Emptied
+     * again if it later reports the email as delivered. A notice whose sending starts a count of days (a take-back's)
+     * does not count as sent while this is set. It names nobody, so it stays when an old email is emptied.
+     */
+    bouncedAt: timestamp("bounced_at", { withTimezone: true }),
     providerId: text("provider_id"),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

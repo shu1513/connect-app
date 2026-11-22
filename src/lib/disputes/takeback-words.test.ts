@@ -22,7 +22,9 @@ describe("what a host is told when a share is owed back", () => {
     expect(told).toContain("the bank took the whole payment back, so $12.38 is owed");
     expect(told).toContain("From Saturday, December 5, Connect will ask Stripe to take $12.38 back from your Stripe balance. Until then nothing is taken.");
     expect(told).toContain('press "I think this is wrong" on this dispute\'s page in the app');
-    expect(told).toContain("or write to us at support@connect.example. Nothing is taken then until a person at Connect has looked at it and answered you.");
+    expect(told).toContain("From the moment you press it, nothing is taken until a person at Connect has looked at it and answered you.");
+    // Writing to support is not promised to stop it by itself: only once a person has read it.
+    expect(told).toContain("You can also write to us at support@connect.example. An email stops the taking only once a person at Connect has read it, so if the day is near, use the button.");
   });
 
   it("names no day while the day is not known: it counts from the email really going out", () => {
@@ -70,6 +72,7 @@ describe("the other messages", () => {
     expect(told).toContain("Ana had already collected their share ($12.38)");
     expect(told).toContain("from Saturday, December 5 it asks Stripe");
     expect(told).toContain("The host can object with a button; you are then told, and nothing is taken until you have decided.");
+    expect(told).toContain('If the host objects by email instead, press "Hold it: the host objected" on the dispute\'s page at once: an email alone stops nothing.');
     expect(told).toContain("You can also cancel the take-back on the dispute's page until the app starts it.");
   });
 

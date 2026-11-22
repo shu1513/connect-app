@@ -42,7 +42,8 @@ export function owedWords(facts: DebtFacts): Told {
       `The dispute ${facts.customerName}'s bank had opened over ${facts.what} is lost: the bank decided for the customer and took the money back from Connect. You had already collected your share of that payment.\n\n` +
       `${how(facts)} The bank's own fees are not charged to you.\n\n` +
       `${facts.dueOn ? `From ${facts.dueOn}` : "From 14 days after this message was sent to you by email"}, Connect will ask Stripe to take ${facts.amount} back from your Stripe balance. Until then nothing is taken. "Your earnings" on your Hosting page shows the day.\n\n` +
-      `If you think this is wrong, say so before that day: press "I think this is wrong" on this dispute's page in the app (it is linked from this message and from "Your earnings"), or write to us at ${facts.supportEmail}. Nothing is taken then until a person at Connect has looked at it and answered you.`,
+      `If you think this is wrong, say so before that day: press "I think this is wrong" on this dispute's page in the app (it is linked from this message and from "Your earnings"). From the moment you press it, nothing is taken until a person at Connect has looked at it and answered you.\n\n` +
+      `You can also write to us at ${facts.supportEmail}. An email stops the taking only once a person at Connect has read it, so if the day is near, use the button.`,
   };
 }
 
@@ -53,7 +54,7 @@ export function owedWordsForFounder(facts: DebtFacts): Told {
     text:
       `The dispute over ${facts.what} is lost, and ${facts.hostName} had already collected their share (${facts.sent}).\n\n` +
       `The app has told the host that ${facts.amount} is owed${facts.part ? ` (the bank took back ${facts.part.disputed} of ${facts.part.of})` : ""}, and ${facts.dueOn ? `from ${facts.dueOn}` : "from 14 days after that notice went out by email"} it asks Stripe to take that amount back out of the transfer.\n\n` +
-      `Nothing is needed from you. The host can object with a button; you are then told, and nothing is taken until you have decided. You can also cancel the take-back on the dispute's page until the app starts it.`,
+      `Nothing is needed from you. The host can object with a button; you are then told, and nothing is taken until you have decided. If the host objects by email instead, press "Hold it: the host objected" on the dispute's page at once: an email alone stops nothing. You can also cancel the take-back on the dispute's page until the app starts it.`,
   };
 }
 

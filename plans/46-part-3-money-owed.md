@@ -703,3 +703,34 @@ Two points, both taken.
 Not taken, in any of the four checks: nothing was set aside. Two things are deliberately left
 small and named under "Not in this part": a debt written smaller than it could have been is not
 raised, and a 14-day request handled after the first month is settled by hand.
+
+## What Astra found in the code of part 3a, step 1, and what was done
+
+"Hold the merge": five points that had to be fixed, three that should be. All taken.
+
+1. *An objection could move the day from 14 days to 3:* a host who objected before the day was
+   ever given, and was answered at once, was due 3 days after the answer. **Fixed:** there is one
+   rule for the day now (`dueDay`): 14 days after the notice really went out, never earlier
+   than a day an earlier notice named, and, after an answer, also never earlier than 3 days
+   after that answer went out. An objection can only make it later.
+2. *A bounce could lose a race with the taking.* **Fixed:** the day is worked out with the
+   share's payment locked, the taking reads the emails once more under that same lock at the
+   last moment, and a request that got no answer is not sent again once its notice has failed.
+3. *Whether an address bounces does not say whether this notice bounced.* **Fixed:** the bounce
+   is written on the very email the sending service names (a new column, migration 0056), and a
+   take-back is judged by its own emails. An emptied old email keeps that mark.
+4. *A take-back from before this rule could be taken before its email went out.* **Fixed:** no
+   take-back has a day unless its notice is confirmed as sent; the day its old notice named is
+   kept as the earliest.
+5. *The notice promised that writing to support stops the taking.* **Fixed:** it says the button
+   stops it at once and an email only once a person has read it; the founder's email says to
+   press "Hold it" for an objection that came by email.
+6. *The warning about a failed notice was marked as given even when there was nobody to give it
+   to.* **Fixed.** 7. *The pages said "sent" for an answer that was only written, and spoke of
+   retries while nothing can be taken.* **Fixed.** 8. *Some checks could pass with the app
+   wrong.* **Fixed:** the due days in the old checks come from the helper's real pass; the new
+   ones use a fresh sent notice for the bounce, a real refusal by Stripe, an objection before
+   any day was given, one while it is being taken, and a notice that bounces while a request
+   is unanswered. Also: a host's objection names its dispute, so one page cannot object to
+   another dispute's take-back.
+
