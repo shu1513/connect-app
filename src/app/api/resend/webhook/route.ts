@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { suppressAddress } from "@/lib/notifications/delivery";
+import { recordEmailEvent } from "@/lib/notifications/provider-events";
 
 /**
  * Resend's messages about emails we sent: delivered, bounced, complained.
@@ -44,8 +45,22 @@ export async function POST(request: Request) {
     // Marking our email as spam is the clearest "stop": reminders are switched off for that account too.
     await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.email, address.trim().toLowerCase()));
   }
-  if (event.type === "email.delivered" && event.data.email_id) {
-    await db.update(schema.emailOutbox).set({ lastError: null }).where(eq(schema.emailOutbox.providerId, event.data.email_id));
+  // Delivered or bounced is also written on the very email it is about (provider-events.ts): a notice whose arrival
+  // starts a count of days must be judged by that email, not by its address. The report can arrive a moment before
+  // the sender has saved the service's number for the email, so an email that is not known is looked for a few times
+  // more. After that the report is accepted and let go: refusing reports again and again can make the sending service
+  // switch this address off, and a report for an email this app never stored (another copy of the app, say) would
+  // never be known. What is lost by letting one go is safe: without a report of delivery a take-back gets no day,
+  // the founder is told after two days, and the notice is sent again.
+  if ((event.type === "email.delivered" || event.type === "email.bounced") && event.data.email_id) {
+    const note = event.type === "email.bounced" ? `bounced: ${event.data.bounce?.type ?? "unknown"} ${event.data.bounce?.subType ?? ""}`.trim() : null;
+    const kind = event.type === "email.bounced" ? "bounced" : "delivered";
+    let known = await recordEmailEvent(event.data.email_id, kind, note);
+    for (let tries = 0; !known && tries < 4; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      known = await recordEmailEvent(event.data.email_id, kind, note);
+    }
+    if (!known) console.warn(`[email] a "${kind}" report for an email this app does not know (${event.data.email_id}) was let go`);
   }
   return new Response("ok");
 }

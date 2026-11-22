@@ -5149,3 +5149,95 @@ of another room and again before the pass, reads the clock last, and reads a cal
 looks up once more before refusing it. From the newer main (the legal change #78): the join
 check reads the person's own account again while holding their line, so an account paused or
 closed in that moment gets no pass. `scripts/app-room-check.ts` now has 59 checks.
+
+## Taking money back from a host: the notice really sent, and her objection (plan 46, part 3a, step 1, 21 November 2026)
+
+**Why.** Part 3 of plan 46 (`plans/46-part-3-money-owed.md`) lets the founder refund a customer
+after the host collected, and the host then owes her share. The founder, asked which way such a
+debt should be recovered and told the builder's recommendation: "do what you think is the
+best". So it is recovered the way plan 47 already recovers a lost bank dispute: Stripe is asked
+to take the amount back out of what it sent her. Part 3a is built in two steps; this is the
+first, and it changes how that existing way treats a host. Refunds come in the second step.
+
+**What was built** (decision 6 of that plan, and the lock of decision 4), for the debts there
+are today, all from lost bank disputes:
+- **The 14 days count from the notice email's arrival**, not from the moment the app wrote the
+  debt down, **and there is a day only once that email has provably arrived**: the sending
+  service reported it as delivered, and never as bounced. "Arrival" is the later of sent and
+  reported as delivered. One rule works the day out, afresh on every pass, from the emails
+  themselves: 14 days after the notice arrived; never earlier than a day an earlier notice
+  named; none while that email waits, failed, bounced, or
+  was never reported as delivered. When there is no day because something is wrong, the founder
+  is told once for that email, the host's pages say so, and the founder can send the notice
+  again. The notice itself says "14 days after this message was sent to you by email"; her
+  pages show the day once it is known.
+- **Delivered and bounced are recorded on the email they are about** (the sending service
+  names it), in one place (`src/lib/notifications/provider-events.ts`), and never emptied
+  again, so the order of the service's reports cannot matter. A report about an email the app
+  does not know is looked for a few times and then let go.
+- **"I think this is wrong."** On the dispute's page a host can say why, while the take-back
+  has only its notice. It is then "objected" and nothing is taken. The founder is told with her
+  words and either calls it off or answers in writing and has it taken after all ("answered"):
+  never earlier than its notice's own 14 days, and never earlier than 3 days after that answer
+  arrived. She cannot object a second time in the app. The founder can also hold a
+  take-back for an objection that came by email; the notice says plainly that an email stops
+  the taking only once a person has read it.
+- **The taking looks once more** at the emails, under its own lock, at the last moment; and a
+  request to Stripe that got no answer is not repeated once its notice has failed.
+- A dispute that is won after all calls off a take-back that is objected or answered too. A
+  reversal Stripe refuses puts an answered take-back back to "answered".
+- **One lock for a dispute** when what its shares owe is worked out: two helpers on two shares
+  of one disputed membership month can no longer count the same room.
+- **Take-backs from before this change wait for a fresh notice:** whether their old email
+  arrived cannot be shown any more. The migration takes their day away; the founder is told and
+  sends the notice again.
+- Migrations `0055_host_debt_notice`, `0056_email_bounced`, `0057_email_delivered`,
+  `0058_host_debt_fresh_notice` and `0059_email_report_indexes`.
+- **For going live:** the sending service's reports must be switched on (the webhook and its
+  secret). Without them no notice is ever reported as delivered and no take-back is ever taken;
+  the founder is told after two days.
+
+**The builder's own choices:** the objection form is on the dispute's page (linked from "Your
+earnings"), not on the earnings page itself; an objection needs at least a sentence; an answer
+cannot be withdrawn; a day needs a report of delivery, which is stricter than the plan's
+decision 6 as first written; two days without that report before the founder is told.
+
+**What the reviewer found.** Astra said to hold it, for five points that all came to one
+thing: money could have been taken before the host had truly been told (an early objection
+moved the day from 14 days to 3; a bounce was judged by the address and could lose a race with
+the taking; an old take-back kept its day while its email had not gone out; the notice promised
+that an email to support stops the taking). All are fixed. Its second look found the rule for
+the day right and asked for more certainty about bounces; that led to the stricter rule above
+(a day only after a report of delivery) and to "send it again". Its third look asked for
+three narrow things: the helper's repeat of an unanswered request decides under the lock,
+older take-backs wait for a fresh notice, and a notice sent again fits where the take-back
+stands. A fourth look closed four small gaps. CodeRabbit then asked that the days count from
+the arrival and not from the sending, that an unknown report is not refused for ever, and three
+smaller things; all taken. Every list is in the plan.
+
+**How it was checked.** Type check, lint and the automatic tests (the rule of the due day, of
+objecting and answering, and every new sentence). The real script against Stripe's test mode,
+`scripts/dispute-takeback-check.ts`, 115 checks: plan 47's own still pass, with the due days
+coming from the helper's real pass, and the new part covers: no day and never taken while the notice
+has not gone out; a failed notice told to each admin once; the day from the moment of sending;
+sent but not yet reported as delivered gives no day; a bounce of this very email, reported
+through the same door the real reports use, takes the day away for good and is told, a later
+report of delivery does not bring it back, and a bounce of another email at the same address
+does not count; the founder sends the notice again and the days count from that one; an objection a second before the day stops it for good; the
+founder's answer and its 3 days; an answer that comes early, or on day zero before any day was
+given, never makes it earlier than the notice's 14 days; no second objection; taken for real at
+Stripe after an answer; a real refusal by Stripe leaves an answered one answered; a won dispute
+calls an answered one off; held for an email, then called off; no objection while it is being
+taken; of two unanswered requests that are really due, the helper sends one again and does not
+send the one whose notice bounced meanwhile; a day on the row is not enough when the notice is
+not confirmed as delivered; an email never reported as delivered is told to the founder after
+two days; with the notice and the answer both failed, the founder is told about each, and a
+notice sent again to a host whose objection was answered repeats the answer and points to no
+button. `disputes-check` (72 checks) passes too. In a
+browser as the test host: the notice with its day, the objection, and what the dispute's page
+and "Your earnings" then say.
+
+**What cannot be tested here.** The founder's side of the dispute's page (the answer, the
+hold) was type-checked and its actions are checked by the script, but not looked at in a
+browser: the test admin's login is not set up. A real email going out, and a real bounce
+reported by the sending service: both are stood in for by writing them into the database.

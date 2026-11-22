@@ -151,11 +151,28 @@ export const emailOutbox = pgTable(
     /** After this, an unsent email is no longer worth sending (a reminder for a call that has passed). */
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /**
+     * The sending service reported that THIS email bounced (any kind of bounce), after it had accepted it. A notice
+     * whose sending starts a count of days (a take-back's) does not count as arrived once this is set. It names
+     * nobody, so it stays when an old email is emptied.
+     */
+    bouncedAt: timestamp("bounced_at", { withTimezone: true }),
+    /**
+     * The sending service reported that THIS email was delivered to the receiving side. Neither this nor `bouncedAt`
+     * is ever emptied again: whatever order the service's reports arrive in, an email counts as having arrived only
+     * when it was reported delivered and never reported bounced.
+     */
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     providerId: text("provider_id"),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("email_outbox_to_idx").on(t.to, t.createdAt), index("email_outbox_due_idx").on(t.status, t.nextAttemptAt)],
+  (t) => [
+    index("email_outbox_to_idx").on(t.to, t.createdAt),
+    index("email_outbox_due_idx").on(t.status, t.nextAttemptAt),
+    // A report from the sending service names the email by the service's own number.
+    index("email_outbox_provider_idx").on(t.providerId),
+  ],
 );
 
 /** Addresses we must not write to again: the sending service told us they bounce or complained. */
@@ -2421,14 +2438,37 @@ export const hostDebts = pgTable(
     /** What the amount was worked out from, as it was read then (JSON): what was sent, what the bank disputed of what was left of the charge, what was left of the transfer. */
     basis: text("basis").notNull().default("{}"),
     /**
-     * told: the host has their notice. cancelled: called off (by the founder, or because the bank
-     * decided the other way after all). taking: Stripe is being asked. taken: done. nothing: looked
-     * at, and nothing is owed for this share (kept so that Stripe is not asked again every pass).
+     * told: the host has their notice. objected: the host said it is wrong; nothing is taken until
+     * the founder has decided. answered: the founder answered the objection and it is taken after
+     * all. cancelled: called off (by the founder, or because the bank decided the other way after
+     * all). taking: Stripe is being asked. taken: done. nothing: looked at, and nothing is owed for
+     * this share (kept so that Stripe is not asked again every pass).
      */
     status: text("status").notNull().default("told"),
     toldAt: timestamp("told_at", { withTimezone: true }).notNull(),
-    /** From when it is taken: 14 days after the host was told. */
-    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    /**
+     * From when it is taken: 14 days after the notice email was handed to the sending service
+     * (plans/46-part-3-money-owed.md, decision 6). Empty until that is known, and emptied again
+     * when the email turns out not to have arrived. After an answered objection: no earlier than
+     * the first due day, and no earlier than 3 days after the answer was sent.
+     */
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    /** The due day the first notice gave, kept when an objection empties `dueAt`. */
+    firstDueAt: timestamp("first_due_at", { withTimezone: true }),
+    /** The email that carries the notice: the days count from its sending. */
+    noticeEmailId: uuid("notice_email_id").references(() => emailOutbox.id, { onDelete: "set null" }),
+    /** Set while the notice (or the answer) has not arrived and the founder was told so: the pages say it. Emptied when all is well again. */
+    noticeProblemToldAt: timestamp("notice_problem_told_at", { withTimezone: true }),
+    /** The emails the founder has been told about (their numbers, separated by spaces; "no-notice" or "no-answer" where there is no email at all): each once, however long it lasts. */
+    noticeProblemsTold: text("notice_problems_told").notNull().default(""),
+    /** "I think this is wrong": when, and the host's own words (or the founder's note of an objection that came by email). */
+    objectedAt: timestamp("objected_at", { withTimezone: true }),
+    objection: text("objection"),
+    /** The founder's written answer when it is taken after all, the email that carries it, and who answered. */
+    answer: text("answer"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answerEmailId: uuid("answer_email_id").references(() => emailOutbox.id, { onDelete: "set null" }),
+    answeredBy: text("answered_by").references(() => user.id),
     stripeReversalId: text("stripe_reversal_id"),
     takenAt: timestamp("taken_at", { withTimezone: true }),
     /** The last "no" from Stripe, and when; and the first one since the last success, for telling the founder after 30 days. */
@@ -2448,8 +2488,11 @@ export const hostDebts = pgTable(
     uniqueIndex("host_debts_dispute_payment_uq").on(t.disputeId, t.paymentId),
     index("host_debts_payment_idx").on(t.paymentId),
     index("host_debts_host_idx").on(t.hostId),
-    index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} = 'told'`),
-    check("host_debts_status", sql`${t.status} in ('told', 'cancelled', 'taking', 'taken', 'nothing')`),
+    index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} in ('told', 'answered')`),
+    // A report about an email looks for the take-back whose notice or answer it is.
+    index("host_debts_notice_email_idx").on(t.noticeEmailId),
+    index("host_debts_answer_email_idx").on(t.answerEmailId),
+    check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing')`),
     check("host_debts_amount", sql`${t.amountCents} >= 0`),
   ],
 );

@@ -65,6 +65,10 @@ it.
 - 21 November 2026, asked whether to write this plan next and have Astra check it: "Yes, write
   the plan".
 
+- 21 November 2026, after the plan was merged, asked which way a debt should be recovered and
+  told the builder's recommendation (the reversal at Stripe, plan 47's way): "do what you think
+  is the best". **So part 3a is built with the reversal at Stripe.**
+
 Everything else here is the builder's.
 
 ## What is there today (read in the code)
@@ -385,6 +389,13 @@ Everything else here is the builder's.
 
 ### Part 3a: refunds after collection, and the debt
 
+**Built in two steps, each a pull request of its own** (decided when building began, to keep
+each small enough to check well):
+- **Step 1, the notice and the objection** (decision 6, and the one lock for a dispute of
+  decision 4), for the debts there are today, which are all from lost bank disputes. Nothing
+  about refunds yet.
+- **Step 2, refunds after collection**: everything else of part 3a.
+
 **Not started until the founder has said yes to the reversal at Stripe as the one way.**
 
 **Migration** (the next free number when it is built; 0054 is the last on `main` today):
@@ -692,3 +703,107 @@ Two points, both taken.
 Not taken, in any of the four checks: nothing was set aside. Two things are deliberately left
 small and named under "Not in this part": a debt written smaller than it could have been is not
 raised, and a 14-day request handled after the first month is settled by hand.
+
+## What Astra found in the code of part 3a, step 1, and what was done
+
+"Hold the merge": five points that had to be fixed, three that should be. All taken.
+
+1. *An objection could move the day from 14 days to 3:* a host who objected before the day was
+   ever given, and was answered at once, was due 3 days after the answer. **Fixed:** there is one
+   rule for the day now (`dueDay`): 14 days after the notice really went out, never earlier
+   than a day an earlier notice named, and, after an answer, also never earlier than 3 days
+   after that answer went out. An objection can only make it later.
+2. *A bounce could lose a race with the taking.* **Fixed:** the day is worked out with the
+   share's payment locked, the taking reads the emails once more under that same lock at the
+   last moment, and a request that got no answer is not sent again once its notice has failed.
+3. *Whether an address bounces does not say whether this notice bounced.* **Fixed:** the bounce
+   is written on the very email the sending service names (a new column, migration 0056), and a
+   take-back is judged by its own emails. An emptied old email keeps that mark.
+4. *A take-back from before this rule could be taken before its email went out.* **Fixed:** no
+   take-back has a day unless its notice is confirmed as sent; the day its old notice named is
+   kept as the earliest.
+5. *The notice promised that writing to support stops the taking.* **Fixed:** it says the button
+   stops it at once and an email only once a person has read it; the founder's email says to
+   press "Hold it" for an objection that came by email.
+6. *The warning about a failed notice was marked as given even when there was nobody to give it
+   to.* **Fixed.** 7. *The pages said "sent" for an answer that was only written, and spoke of
+   retries while nothing can be taken.* **Fixed.** 8. *Some checks could pass with the app
+   wrong.* **Fixed:** the due days in the old checks come from the helper's real pass; the new
+   ones use a fresh sent notice for the bounce, a real refusal by Stripe, an objection before
+   any day was given, one while it is being taken, and a notice that bounces while a request
+   is unanswered. Also: a host's objection names its dispute, so one page cannot object to
+   another dispute's take-back.
+
+**Astra's second look at that step** said to hold it once more: the rule for the day was now
+right, but how reliably a bounce is known was not. Taken, with one rule that is stricter than
+decision 6 as first written:
+
+- **A take-back gets its day only once the sending service has reported its notice as
+  delivered**, and loses it for good once that email is ever reported as bounced. The two marks
+  are only ever set, never emptied, so the order in which the service's reports arrive cannot
+  matter. The days still count from the sending. A report that arrives before the app knows the
+  email is not accepted, so the service sends it again. A notice that is not reported as
+  delivered within two days is told to the founder like one that failed.
+- **The founder can send a notice (or an answer) again** when the first did not arrive; the days
+  count from the new one arriving, never before a day an earlier notice named. This is also how
+  a take-back from before these reports were kept is released: its old email has no such report.
+- **A report from the sending service is written under the same lock the taking starts under**,
+  so a bounce is either seen by the taking's last look or written after the taking has started.
+- The notice says an email to support stops nothing until a person at Connect has put a hold on
+  it. The warning to the founder is given once for each email that has something wrong, so a
+  failed answer is told even after a failed notice. Talk of "tried again once a day" is shown
+  only while something is being tried.
+- The checks of an unanswered request now use take-backs that are really due by the real clock:
+  one the helper has to send again, and one it must not because its notice bounced meanwhile.
+
+Left as it is, and why: a bounce reported while a repeated request is already on its way to
+Stripe cannot stop that request. Bounces come within hours of sending; a take-back is at least 14
+days after its notice arrived.
+
+**In production this needs the sending service's reports to be switched on** (the webhook and
+its secret, `RESEND_WEBHOOK_SECRET`). Without them no notice is ever reported as delivered, and
+no take-back is ever taken: the founder is told after two days that delivery was not confirmed.
+
+**Astra's third look at that step** found the stricter rule sound and said to hold for three
+narrow points. All taken:
+
+- **The helper's repeat of a request that got no answer** now does everything that takes time
+  first (asking Stripe about the dispute) and only then, with the share locked, looks at the
+  emails one last time and decides. A bounce recorded before that moment stops the repeat.
+- **A take-back from before this change waits for a fresh notice.** Its old email has no
+  delivery history that can be trusted (a bounce was only noted against the address, or only
+  logged), and a late report of delivery for it could have made it due at once. The migration
+  takes away its link to that email and its day; the founder is told and sends the notice again.
+- **A notice that is sent again fits where the take-back stands.** For one whose objection was
+  already answered it repeats the answer and does not point to a button that is gone.
+- Also: when the notice and the answer have both failed, the founder is told about each; the
+  founder is not told "it keeps trying" while a day lies ahead again.
+
+Left as it is, and why: a report about an email the app will never know (a test email, one
+emptied after two years) is refused each time the sending service repeats it. The service gives
+up after its own number of tries; nothing is lost by it.
+
+**Astra's fourth look**, at those last changes only: the three points are fixed, and two small
+gaps in the new code, both taken. A take-back that was being taken at the moment of the change
+is made to wait for a fresh notice too; and the helper's repeat looks, under the lock, once more
+at whether the dispute is still recorded as lost. Also: a missing notice and a missing answer
+are told to the founder under names of their own, and a notice sent again says "we could not
+confirm that our first message reached you", since it may have. These four were made as Astra
+wrote them and not sent back a fifth time.
+
+**CodeRabbit's review of that step's pull request**: five points and a smaller remark, all
+taken.
+- **The days count from the arrival**: the later of "sent" and "reported as delivered", for the
+  notice's 14 days and for the answer's 3. So a report that comes a day after the sending gives
+  the host that day too, and it is never less than 14 days after the sending, which is what the
+  notice says. (Where this plan says "from the sending", this is now the rule.)
+- **A report about an email the app does not know is no longer refused.** Refusing again and
+  again can make the sending service switch the address off. The app looks a few times more
+  (the report can come a moment before the email's number is saved) and then lets it go. What is
+  lost is safe: with no report of delivery there is no day, the founder is told after two days,
+  and the notice is sent again.
+- The 30-day "it keeps trying" email reads the emails as they are at that moment.
+- The founder is told an email is "not confirmed as delivered", never that it did not arrive: it
+  may have.
+- Indexes for the two lookups a report makes.
+

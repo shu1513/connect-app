@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, dueToTake, NOTICE_MS, owedCents, RETRY_MS, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
+import { AFTER_ANSWER_MS, canAnswer, canCancel, canHold, canObject, dueDay, dueToTake, NOTICE_MS, OPEN, owedCents, RETRY_MS, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
 
 const at = (iso: string) => new Date(iso);
 const NOW = at("2027-02-01T12:00:00Z");
@@ -74,12 +74,81 @@ describe("when a take-back is asked of Stripe", () => {
   it("is never for one that was cancelled, is being taken, or was taken", () => {
     for (const status of ["cancelled", "taking", "taken"]) expect(dueToTake({ ...debt, status }, new Date(debt.dueAt.getTime() + 1))).toBe(false);
   });
+
+  it("is never while it has no due day: the notice has not gone out yet, or did not arrive", () => {
+    expect(dueToTake({ ...debt, dueAt: null }, new Date(NOW.getTime() + 10 * NOTICE_MS))).toBe(false);
+  });
+
+  it("is never while the host's objection is open, and is again once it was answered and its day has come", () => {
+    expect(dueToTake({ ...debt, status: "objected" }, new Date(debt.dueAt.getTime() + 1))).toBe(false);
+    expect(dueToTake({ ...debt, status: "objected", dueAt: null }, new Date(debt.dueAt.getTime() + 1))).toBe(false);
+    expect(dueToTake({ ...debt, status: "answered", dueAt: null }, new Date(debt.dueAt.getTime() + 1))).toBe(false);
+    expect(dueToTake({ ...debt, status: "answered" }, debt.dueAt)).toBe(true);
+  });
+});
+
+describe("the due day", () => {
+  const sent = at("2027-03-01T10:00:00Z");
+  const told = { status: "told", promisedAt: null, noticeArrivedAt: sent, answerArrivedAt: null };
+  it("is 14 days after the notice email was really sent", () => {
+    expect(dueDay(told)?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
+  });
+
+  it("is none while the notice has not gone out, whatever else is known", () => {
+    expect(dueDay({ ...told, noticeArrivedAt: null })).toBeNull();
+    expect(dueDay({ ...told, noticeArrivedAt: null, promisedAt: at("2027-03-10T00:00:00Z") })).toBeNull();
+    expect(dueDay({ status: "answered", promisedAt: null, noticeArrivedAt: null, answerArrivedAt: at("2027-03-02T10:00:00Z") })).toBeNull();
+  });
+
+  it("is never earlier than a day an earlier notice named", () => {
+    // A take-back from before this rule: its notice named 20 March; the email is confirmed as sent on 1 March.
+    expect(dueDay({ ...told, promisedAt: at("2027-03-20T00:00:00Z") })?.toISOString()).toBe("2027-03-20T00:00:00.000Z");
+    // Its email only went out on 12 March: 14 days from then, later than the day it named.
+    expect(dueDay({ ...told, promisedAt: at("2027-03-20T00:00:00Z"), noticeArrivedAt: at("2027-03-12T10:00:00Z") })?.toISOString()).toBe("2027-03-26T10:00:00.000Z");
+  });
+
+  it("after an answered objection is also never earlier than 3 days after the answer was sent", () => {
+    const answered = { status: "answered", promisedAt: null, noticeArrivedAt: sent, answerArrivedAt: at("2027-03-05T10:00:00Z") };
+    // Answered early: the notice's own 14 days still hold. An objection never brings the day forward.
+    expect(dueDay(answered)?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
+    // Objected and answered on the very first day: still 14 days from the notice, not 3 from the answer.
+    expect(dueDay({ ...answered, answerArrivedAt: sent })?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
+    // Answered late: 3 days from the answer.
+    expect(dueDay({ ...answered, answerArrivedAt: at("2027-03-20T10:00:00Z") })?.toISOString()).toBe("2027-03-23T10:00:00.000Z");
+    expect(AFTER_ANSWER_MS).toBe(3 * 24 * 3_600_000);
+  });
+
+  it("is none while the answer has not gone out, and none while the objection is open or the take-back is over", () => {
+    expect(dueDay({ status: "answered", promisedAt: null, noticeArrivedAt: sent, answerArrivedAt: null })).toBeNull();
+    for (const status of ["objected", "taking", "taken", "cancelled", "nothing"]) expect(dueDay({ ...told, status })).toBeNull();
+  });
+});
+
+describe("objecting", () => {
+  it("is possible while the host only has their notice, and not a second time after an answer", () => {
+    expect(canObject({ status: "told" })).toBe(true);
+    for (const status of ["objected", "answered", "taking", "taken", "cancelled"]) expect(canObject({ status })).toBe(false);
+  });
+
+  it("can be answered by the founder only while it is open, and held by the founder only while there is just the notice", () => {
+    expect(canAnswer({ status: "objected" })).toBe(true);
+    for (const status of ["told", "answered", "taking", "taken", "cancelled"]) expect(canAnswer({ status })).toBe(false);
+    expect(canHold({ status: "told" })).toBe(true);
+    for (const status of ["objected", "answered", "taking", "taken", "cancelled"]) expect(canHold({ status })).toBe(false);
+  });
+
+  it("goes back to where it stood when Stripe does not take it: answered stays answered", () => {
+    expect(stateBeforeTaking({ answer: null })).toBe("told");
+    expect(stateBeforeTaking({ answer: "We looked at it." })).toBe("answered");
+  });
 });
 
 describe("cancelling, and telling the founder", () => {
-  it("can be cancelled only while the host has their notice", () => {
-    expect(canCancel({ status: "told" })).toBe(true);
-    for (const status of ["cancelled", "taking", "taken"]) expect(canCancel({ status })).toBe(false);
+  it("can be cancelled until the app starts taking it: with its notice, objected to, or answered", () => {
+    for (const status of ["told", "objected", "answered"]) expect(canCancel({ status })).toBe(true);
+    for (const status of ["cancelled", "taking", "taken", "nothing"]) expect(canCancel({ status })).toBe(false);
+    expect([...OPEN]).toEqual(["told", "objected", "answered"]);
+    expect([...TAKEABLE]).toEqual(["told", "answered"]);
   });
 
   it("tells the founder once, 30 days after the first refusal", () => {
@@ -90,6 +159,13 @@ describe("cancelling, and telling the founder", () => {
     expect(tellFounderOfRefusals({ ...refused, founderToldAt: NOW }, new Date(first.getTime() + 2 * TELL_FOUNDER_AFTER_MS))).toBe(false);
     expect(tellFounderOfRefusals({ ...refused, firstRefusedAt: null }, NOW)).toBe(false);
     expect(tellFounderOfRefusals({ ...refused, status: "taken" }, new Date(first.getTime() + 2 * TELL_FOUNDER_AFTER_MS))).toBe(false);
+    expect(tellFounderOfRefusals({ ...refused, status: "answered" }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(true);
+    expect(tellFounderOfRefusals({ ...refused, status: "objected" }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(false);
+    // Not while it has no due day (its notice did not arrive): nothing is being tried then.
+    expect(tellFounderOfRefusals({ ...refused, dueAt: null }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(false);
+    expect(tellFounderOfRefusals({ ...refused, dueAt: first }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(true);
+    // Nor while its day lies ahead again (its notice was sent again after the refusals).
+    expect(tellFounderOfRefusals({ ...refused, dueAt: new Date(first.getTime() + 2 * TELL_FOUNDER_AFTER_MS) }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(false);
   });
 
   it("names the request to Stripe after the take-back", () => {
