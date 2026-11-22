@@ -5,7 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
-import { paymentsForRefund, REFUND_GROUNDS, refundEstimate } from "@/lib/payments/founder-refund";
+import { paymentsForRefund, REFUND_GROUNDS, REFUND_SEARCH_PAGE, refundEstimate } from "@/lib/payments/founder-refund";
 import { requireAdmin } from "@/lib/session";
 import { findForRefundAction, refundAsFounderAction } from "./actions";
 
@@ -26,7 +26,9 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
   const customer = typeof query.customer === "string" ? query.customer : "";
   const where = call ? `call=${encodeURIComponent(call)}` : customer ? `customer=${encodeURIComponent(customer)}` : "";
   const notice = readNotice("/admin/refund", query);
-  const found = call ? await paymentsForRefund({ callId: call }) : customer ? await paymentsForRefund({ customerId: customer }) : [];
+  // "Older": the calls that began before this moment.
+  const beforeAt = typeof query.before === "string" && !Number.isNaN(Date.parse(query.before)) ? new Date(query.before) : undefined;
+  const found = call ? await paymentsForRefund({ callId: call }) : customer ? await paymentsForRefund({ customerId: customer }, beforeAt) : [];
   const box = "mt-1 block w-full rounded border border-neutral-400 p-2";
 
   return (
@@ -90,8 +92,10 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                   <input type="hidden" name="request" value={randomUUID()} />
                   {one.collected ? (
                     <p className="rounded border border-neutral-400 p-2" data-refund-estimate>
-                      <strong>The host has collected this share.</strong> The customer is paid back from Connect&apos;s money. If you refund all that is left, the host will owe about {formatMoney(estimate.hostOwesCents)} (less for a part,
-                      and never more than was sent to them). The host is told, with your reason, and has 14 days to object before anything is taken.
+                      <strong>The host has collected this share.</strong> The customer is paid back from Connect&apos;s money.{" "}
+                      {estimate.hostOwesCents > 0
+                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (less for a part, and never more than is left of the ${formatMoney(one.payment.transferCents ?? 0)} that was sent to them). The host is told, with your reason, and can object before anything is taken.`
+                        : "Nothing was sent to the host for this share (the charge for collecting used it up), so the host will owe nothing: Connect carries this refund."}
                     </p>
                   ) : (
                     <p className="opacity-80">The host has not collected this share: the refund comes out of it and of our fee, and nobody owes anything.</p>
@@ -101,7 +105,7 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                     <input type="text" name="amount" inputMode="decimal" required pattern="\d{1,7}(\.\d{1,2})?" defaultValue={(estimate.leftCents / 100).toFixed(2)} className={box} />
                   </label>
                   <label className="block">
-                    Why Connect decides this refund
+                    Why Connect decides this refund (the customer and the host both read it)
                     <select name="ground" required defaultValue="" className={box}>
                       <option value="" disabled>
                         Choose one
@@ -114,7 +118,7 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                     </select>
                   </label>
                   <label className="block">
-                    A sentence of your own about what happened (the host reads it)
+                    A sentence of your own about what happened. The customer reads it in the email about the refund, and the host too if they had collected: write nothing that only one of them should know.
                     <textarea name="sentence" required minLength={10} maxLength={1000} rows={2} className={box} />
                   </label>
                   <button type="submit" className="rounded border border-neutral-500 px-4 py-2 font-medium">
@@ -126,6 +130,13 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
           );
         })}
       </ul>
+      {customer && found.length === REFUND_SEARCH_PAGE && (
+        <p className="mt-6 text-sm">
+          <Link href={`/admin/refund?customer=${encodeURIComponent(customer)}&before=${encodeURIComponent(found[found.length - 1].startsAt.toISOString())}`} className="underline underline-offset-2">
+            Older payments of this customer
+          </Link>
+        </p>
+      )}
     </SitePage>
   );
 }

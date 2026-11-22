@@ -11,8 +11,11 @@
  *   - the sending service: the script marks a notice email as sent and as reported delivered;
  *   - in part 6 only, the refund's line. Stripe's dispute test cards dispute a charge the moment it is taken, and a
  *     disputed charge cannot be refunded, so in the test area a real refund can never come before a dispute on the
- *     same payment. There the refund's line is written by the script (the charge, the transfer, the dispute and
- *     the reversals are real). A part dispute cannot be made there at all; its sums are in takeback-rules.test.ts.
+ *     same payment. There the refund's line is written by the script and points at a real, confirmed refund of
+ *     another test charge (the charge, the transfer, the dispute and the reversals are real). A part dispute cannot
+ *     be made there at all; its sums are in takeback-rules.test.ts.
+ * A refund that is still on its way, and one that fails after Stripe confirmed it, are real: Stripe's own test cards
+ * for those two change about two minutes after the refund, so they are started first and looked at last.
  *
  * Usage: npx tsx scripts/owed-check.ts
  *        npx tsx scripts/owed-check.ts --demo       (for a look in the browser as host@test.local)
@@ -44,8 +47,8 @@ async function main() {
   const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
   const { lookAtOpenDisputes } = await import("../src/lib/disputes/record");
   const { getHostSettings, refreshPayoutsReady } = await import("../src/lib/payments/hosts");
-  const { refundEstimate, refundOutcome, refundReason, refundSearchFor, paymentsForRefund } = await import("../src/lib/payments/founder-refund");
-  const { answerObjection, cancelDebt, DebtError, debtForPage, debtsForFounder, debtsOfHost, objectToDebt, reverseAtStripe, settleOutside, takeBackPass, takePlan } = await import("../src/lib/disputes/takeback");
+  const { refundAnswer, refundEstimate, refundOutcome, refundReason, refundSearchFor, paymentsForRefund } = await import("../src/lib/payments/founder-refund");
+  const { answerObjection, cancelDebt, countHandReversal, DebtError, debtForPage, debtsForFounder, debtsOfHost, handReversalsOpen, objectToDebt, reverseAtStripe, settleOutside, takeBackPass, takePlan } = await import("../src/lib/disputes/takeback");
   const { NOTICE_MS } = await import("../src/lib/disputes/takeback-rules");
   const { DOCUMENTS } = await import("../src/legal/versions");
   const { formatMoney } = await import("../src/lib/payments/access");
@@ -162,12 +165,24 @@ async function main() {
     for (const row of waiting) if (row.noticeEmailId) await db.update(schema.emailOutbox).set({ status: "sent", sentAt: row.toldAt, deliveredAt: row.toldAt }).where(and(eq(schema.emailOutbox.id, row.noticeEmailId), eq(schema.emailOutbox.status, "queued")));
   }
   /** Part 6's stand-in: a refund's line as the app writes it when Stripe confirms a refund after collection, with no refund at Stripe. */
+  let realRefund = "";
   async function refundLine(paymentId: string, sentCents: number, lostCents: number) {
+    if (!realRefund) throw new Error("Part 1 has to run first: part 6's lines point at its confirmed refund.");
     const id = randomUUID();
     refundIds.push(id);
-    await db.insert(schema.refunds).values({ id, paymentId, amountCents: lostCents, decidedBy: admin!, decidedAs: "admin", reason: refundReason("mistake", WHY), status: "done", finishedAt: new Date(), afterCollection: true, shareBeforeCents: sentCents, shareAfterCents: sentCents - lostCents, feeBeforeCents: 0, feeAfterCents: 0, hostOwesCents: lostCents });
+    await db.insert(schema.refunds).values({ id, paymentId, amountCents: lostCents, decidedBy: admin!, decidedAs: "admin", reason: refundReason("mistake", WHY), status: "done", stripeRefundId: realRefund, finishedAt: new Date(), afterCollection: true, afterCollectionNo: 1, shareBeforeCents: sentCents, shareAfterCents: sentCents - lostCents, feeBeforeCents: 0, feeAfterCents: 0, hostOwesCents: lostCents });
     return id;
   }
+  /** Waits until Stripe shows a refund in this state (its test cards change a refund by themselves after about two minutes). */
+  async function stripeShows(stripeRefundId: string, status: string) {
+    for (let i = 0; i < 100; i++) {
+      if ((await stripe().refunds.retrieve(stripeRefundId)).status === status) return true;
+      await pause(3000);
+    }
+    return false;
+  }
+  const failedLateMail = (refundId: string) => db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-failed-late:${refundId}:founder:%`));
+  const books = async (paymentId: string) => ({ refund: await ledgerOf(paymentId, "customer_refund"), fee: await ledgerOf(paymentId, "platform_fee"), share: await ledgerOf(paymentId, "host_share") });
 
   /** A call that took place and was charged to a test card. */
   async function charged(host: Person, customer: Person, card: string) {
@@ -253,6 +268,28 @@ async function main() {
     await accept(host, new Date(Date.now() - 3_600_000));
     const reader = { timeZone: "America/New_York" };
 
+    // Started first, looked at last (parts 8 and 9): three payments on Stripe's test cards whose refunds change by
+    // themselves about two minutes after they are made.
+    const slow = async (card: string) => {
+      const paid = await charged(host, await person("customer"), card);
+      const sent = await collect(paid.payment.id);
+      const before = { payment: await reload(paid.payment.id), books: await books(paid.payment.id) };
+      const first = await refund(paid.payment.id, 500);
+      return { ...paid, ...sent, before, first, refundId: first.id };
+    };
+    const failsOpen = await slow("pm_card_refundFail");
+    const failsTaken = await slow("pm_card_refundFail");
+    const pending = await slow("pm_card_pendingRefund");
+    // While Stripe still shows the two as paid: their take-backs are written and told, and the second is taken (as if its 14 days were over).
+    await pass(failsOpen.refundId, failsTaken.refundId);
+    const openDebt = await debtOf(failsOpen.refundId);
+    const takenDebt = await debtOf(failsTaken.refundId);
+    if (takenDebt?.dueAt) await passOnly(new Date(takenDebt.dueAt.getTime() + 60_000), failsTaken.refundId);
+    const takenEarly = { status: (await debtOf(failsTaken.refundId))?.status, reversed: (await transferAt(failsTaken.transferId)).amount_reversed };
+    // The third is still on its way at Stripe.
+    await passOnly(new Date(), pending.refundId);
+    const pendingEarly = { answer: refundAnswer(await refundOutcome(pending.refundId), "founder"), debts: (await debtsFor(pending.refundId)).length, underWay: (await paymentsForRefund({ callId: pending.call.id }))[0]?.refundUnderWay };
+
     // ----------------------------------------------------------------------
     console.log("\n1. The founder refunds a collected call in two parts: told once each, no day before the notice arrived, taken after 14 days and not before");
     {
@@ -263,7 +300,8 @@ async function main() {
       const sent = await collect(paid.payment.id);
       check("(the share, less that early refund's part, was really sent)", sent.sentCents > 0 && (await transferAt(sent.transferId)).amount === sent.sentCents && (await reload(paid.payment.id)).transferStatus === "sent", sent.sentCents);
 
-      const hers = await said(refund(paid.payment.id, 200, { host: host.id }, false, null));
+      // (The host sends the founder's flag herself: it gives her nothing.)
+      const hers = await said(refund(paid.payment.id, 200, { host: host.id }, true, "The customer asked me for this."));
       const plain = await said(refund(paid.payment.id, 200, "founder", false));
       const silent = await said(refund(paid.payment.id, 200, "founder", true, "  "));
       check("after collection the host cannot refund, nor the founder by the ordinary way, nor without a reason", /^money: .*already been paid/.test(hers) && /^money: .*already been paid/.test(plain) && /^money: Say why/.test(silent), `${hers} | ${plain} | ${silent}`);
@@ -280,8 +318,14 @@ async function main() {
       const atStripe = first.stripeRefundId ? await stripe().refunds.retrieve(first.stripeRefundId) : null;
       check("the founder's refund after collection really goes back to the customer at Stripe", first.status === "done" && atStripe?.status === "succeeded" && atStripe.amount === 500, `${first.status} ${atStripe?.status}`);
       check("it is written down as one after collection, with the host's share before and after, and what her share lost", first.afterCollection && first.hostOwesCents > 0 && first.hostOwesCents === estimate.hostOwesCents && first.shareBeforeCents === sent.sentCents && first.shareAfterCents === sent.sentCents - first.hostOwesCents && first.feeBeforeCents !== null && first.feeAfterCents !== null && first.reason?.includes(WHY) === true, `${first.hostOwesCents} of ${first.shareBeforeCents}`);
+      realRefund = first.stripeRefundId ?? "";
       const outcome = await refundOutcome(first.id);
-      check("the founder's page reads back what really happened", outcome?.status === "done" && outcome.hostOwesCents === first.hostOwesCents && outcome.afterCollection && (await refundOutcome(randomUUID())) === null);
+      const answer = refundAnswer(outcome, "founder");
+      check("the founder's page reads back what really happened, from what was written down", outcome?.status === "done" && outcome.paymentId === paid.payment.id && outcome.amountCents === 500 && outcome.hostOwesCents === first.hostOwesCents && outcome.afterCollection && outcome.takeBack === "not_yet" && answer.includes("$5.00 was given back to the customer from Connect's money") && answer.includes(`never more than the ${formatMoney(sent.sentCents)} that was sent to them`) && (await refundOutcome(randomUUID())) === null, answer);
+      // The same form sent again with another amount typed in: nothing more is refunded, and the answer is the amount that was written down.
+      const again = await said(refundPayment({ paymentId: paid.payment.id, amountCents: 900, decidedBy: admin, decidedAs: "admin", reason: refundReason("mistake", WHY), afterCollection: true, requestId: first.id }));
+      const answerAgain = refundAnswer(await refundOutcome(first.id), "founder", again);
+      check("a form sent a second time with another amount refunds nothing more, and is answered with the amount that was really refunded", (await stripe().refunds.list({ payment_intent: paid.payment.stripePaymentIntentId!, limit: 10 })).data.length === 2 && (await reload(paid.payment.id)).refundedCents === 800 && (await refundRow(first.id)).amountCents === 500 && answerAgain.includes("$5.00 was given back") && !answerAgain.includes("$9.00"), `${again} | ${answerAgain.slice(0, 60)}`);
       check("(nothing was taken from the host by the refund itself)", (await transferAt(sent.transferId)).amount_reversed === 0);
 
       await passOnly(new Date(), early.id, first.id);
@@ -295,12 +339,18 @@ async function main() {
       check("the host is told once, with the amount, the reason and the page of the take-back", notices.length === 1 && notices[0].body.includes(formatMoney(debt.amountCents)) && notices[0].body.includes(WHY) && notices[0].path === `/debts/${debt.id}` && debt.noticeEmailId !== null, notices[0]?.body.slice(0, 160));
       check("each admin is told once", admins.length > 0 && toldEachAdmin(await founderMail(debt.id, "owed")));
       check("no day while its notice has not gone out", debt.dueAt === null);
+      check("the founder's page now says what the host owes, and that they were told", refundAnswer(await refundOutcome(first.id), "founder").includes(`The host owes ${formatMoney(debt.amountCents)} and has been told.`));
       await passOnly(new Date(Date.now() + 30 * DAYS), first.id);
       check("and so nothing is taken, however much time passes", (await debtOf(first.id)).status === "told" && (await debtOf(first.id)).dueAt === null && (await transferAt(sent.transferId)).amount_reversed === 0 && (await operationsOf(paid.payment.id)).length === 0);
-      await sendNotices(first.id);
+      // The sending service takes the email an hour after it was written, and reports it as delivered an hour after that.
+      const HOUR = 3_600_000;
+      await db.update(schema.emailOutbox).set({ status: "sent", sentAt: new Date(debt.toldAt.getTime() + HOUR) }).where(eq(schema.emailOutbox.id, debt.noticeEmailId!));
+      await passOnly(new Date(0), first.id);
+      check("sent, and not yet reported as delivered: still no day", (await debtOf(first.id)).dueAt === null);
+      await db.update(schema.emailOutbox).set({ deliveredAt: new Date(debt.toldAt.getTime() + 2 * HOUR) }).where(eq(schema.emailOutbox.id, debt.noticeEmailId!));
       await passOnly(new Date(0), first.id);
       const dated = await debtOf(first.id);
-      check("once the notice is reported as delivered, its day is 14 days after it arrived", dated.dueAt?.getTime() === dated.toldAt.getTime() + NOTICE_MS, dated.dueAt?.toISOString());
+      check("once the notice is reported as delivered, its day is 14 days after it arrived, not after it was written or sent", dated.dueAt?.getTime() === dated.toldAt.getTime() + 2 * HOUR + NOTICE_MS, dated.dueAt?.toISOString());
       await passOnly(new Date(dated.dueAt!.getTime() - DAYS), first.id);
       check("a day before that day nothing is taken", (await debtOf(first.id)).status === "told" && (await transferAt(sent.transferId)).amount_reversed === 0);
       const page = await debtForPage(debt.id, "host", reader);
@@ -367,8 +417,15 @@ async function main() {
       const paid = await charged(host, await person("customer"), CARD);
       const sent = await collect(paid.payment.id);
       const part = await refund(paid.payment.id, 400);
+      // (As if Stripe knew of one more refund on this charge than the app has confirmed: the two totals differ.)
+      const real = (await reload(paid.payment.id)).refundedCents;
+      await db.update(schema.payments).set({ refundedCents: real - 100 }).where(eq(schema.payments.id, paid.payment.id));
+      await passOnly(new Date(), part.id);
+      check("while Stripe's total of refunds on the charge is not the app's, nothing is worked out, and it is asked again", (await debtsFor(part.id)).length === 0 && (await refundRow(part.id)).debtLookedAt === null);
+      await db.update(schema.payments).set({ refundedCents: real }).where(eq(schema.payments.id, paid.payment.id));
       await pass(part.id);
       const debt = await debtOf(part.id);
+      check("once the two totals agree, the take-back is written", debt?.status === "told" && debt.amountCents === part.hostOwesCents);
       const tooMuch = await said(settleOutside({ debtId: debt.id, adminId: admin, repaidCents: debt.amountCents + 1, note: "Paid by bank transfer." }));
       const noNote = await said(settleOutside({ debtId: debt.id, adminId: admin, repaidCents: 0, note: "ok" }));
       check("the founder cannot record more as paid back than is owed, nor without a note", /^debt: What the host paid back/.test(tooMuch) && /^debt: Note how it was settled/.test(noNote) && (await debtOf(part.id)).status === "told", `${tooMuch} | ${noNote}`);
@@ -420,11 +477,37 @@ async function main() {
       await pass(four.id);
       const told4 = await debtOf(four.id);
       check("accepted a second before the charge: told, with the version named and a day once its notice arrived", told4?.status === "told" && told4.agreementVersion === published.version && told4.dueAt !== null, `${told4?.status}`);
+      // A host who accepted the Host Agreement as it really is today, a draft. (For this one look the made-up published
+      // version is taken away, so the version in force at the charge is the draft she accepted.)
+      const draft = DOCUMENTS["host-agreement"].versions.find((one) => one.draft);
+      const drafted = await person("host");
+      const draftPaid = await charged(drafted, await person("customer"), CARD);
+      await db.insert(schema.agreementAcceptances).values({ userId: drafted.id, document: "host-agreement", version: draft!.version, occasion: "host_application", acceptedAt: new Date(Date.now() - 3_600_000) });
+      await collect(draftPaid.payment.id);
+      const five = await refund(draftPaid.payment.id, 500);
+      DOCUMENTS["host-agreement"].versions.splice(DOCUMENTS["host-agreement"].versions.indexOf(published), 1);
+      try {
+        await pass(five.id);
+      } finally {
+        DOCUMENTS["host-agreement"].versions.push(published);
+      }
+      const underDraft = await debtOf(five.id);
+      check("a host who accepted the agreement while it is a draft, an hour before the charge: a draft is not in force, so it waits", draft !== undefined && underDraft?.status === "waiting" && underDraft.agreementVersion === null && underDraft.chargeAt !== null, `${underDraft?.status}`);
+      // A charge Stripe says, for good, that it does not have (the number the app saved leads nowhere): there is no
+      // proof of the bank's time, so it waits for the founder, although this host had accepted the agreement in time.
+      const lostCharge = await charged(host, await person("customer"), CARD);
+      await collect(lostCharge.payment.id);
+      const six = await refund(lostCharge.payment.id, 500);
+      await db.update(schema.payments).set({ stripeChargeId: `ch_owedcheck_${RUN}_none` }).where(eq(schema.payments.id, lostCharge.payment.id));
+      await pass(six.id);
+      await db.update(schema.payments).set({ stripeChargeId: lostCharge.payment.stripeChargeId }).where(eq(schema.payments.id, lostCharge.payment.id));
+      const noProof = await debtOf(six.id);
+      check("Stripe has no such charge: the take-back is written all the same, and waits for the founder", noProof?.status === "waiting" && noProof.chargeAt === null && noProof.agreementVersion === null && noProof.amountCents === six.hostOwesCents, `${noProof?.status}`);
       check("and calls the second off: Connect carries that too", (await cancelDebt({ debtId: next.id, adminId: admin })) === true && (await debtOf(two.id)).status === "cancelled" && (await ledgerOf(paid.payment.id, "connect_cost")) === debt.amountCents + next.amountCents && (await transferAt(sent.transferId)).amount_reversed === 0);
     }
 
     // ----------------------------------------------------------------------
-    console.log("\n5. Stripe refuses the take-back: nothing is recorded as taken, it is tried again, and after 30 days the founder is told once");
+    console.log("\n5. A reversal made by hand at Stripe: never taken twice; Stripe's refusal; and room that comes free");
     {
       const paid = await charged(host, await person("customer"), CARD);
       // (As if her share were on its way at this moment: a sending written down and not yet answered.)
@@ -434,7 +517,8 @@ async function main() {
       check("while the share is on its way to the host, no refund is started", /already in progress/.test(midway) && (await db.select().from(schema.refunds).where(eq(schema.refunds.paymentId, paid.payment.id))).length === 0, midway);
       const sent = await collect(paid.payment.id);
       const one = await refund(paid.payment.id, 500);
-      // (As if a second refund of this payment were still with Stripe: a line the script writes, with no request to Stripe.)
+      // (As if a second refund of this payment were still with Stripe: a line the script writes, with no request to Stripe.
+      // What a real refund on its way does is part 8.)
       const moving = randomUUID();
       refundIds.push(moving);
       await db.insert(schema.refunds).values({ id: moving, paymentId: paid.payment.id, amountCents: 100, decidedBy: admin, decidedAs: "admin", reason: WHY, status: "in_progress", afterCollection: true });
@@ -444,16 +528,58 @@ async function main() {
       await pass(one.id, moving);
       check("once that one is refused: no take-back for it, the page says \"refused\", and the confirmed refund gets its own", (await debtsFor(moving)).length === 0 && (await refundOutcome(moving))?.status === "failed" && (await debtOf(one.id))?.status === "told");
       const debt = await debtOf(one.id);
-      // (As if the share had been taken back by hand at Stripe meanwhile: nothing is left of the transfer.)
-      await stripe().transfers.createReversal(sent.transferId, { amount: sent.sentCents });
+      // Somebody reverses $2.00 of the transfer by hand at Stripe, meaning it for this take-back, and tells the app nothing.
+      const byHand = await stripe().transfers.createReversal(sent.transferId, { amount: 200 });
       const due = new Date(debt.dueAt!.getTime() + 60_000);
       await passOnly(due, one.id);
-      const refused = await debtOf(one.id);
-      check("refused by Stripe: still owed, nothing recorded as taken, and the refusal is kept", refused.status === "told" && refused.refusal !== null && refused.firstRefusedAt !== null && (await ledgerOf(paid.payment.id, "host_takeback")) === 0 && (await operationsOf(paid.payment.id)).length === 1, `${refused.status} ${refused.refusal}`);
-      await passOnly(new Date(due.getTime() + 31 * DAYS), one.id);
-      await passOnly(new Date(due.getTime() + 33 * DAYS), one.id);
-      const mails = await founderMail(debt.id, "refused");
-      check("it was tried again, and after 30 days of refusals each admin is told, once, in words about a refund", (await operationsOf(paid.payment.id)).length >= 2 && toldEachAdmin(mails) && mails.every((mail) => /refund/i.test(mail.body) && !/bank dispute/i.test(mail.body)), `${mails.length}`);
+      await passOnly(new Date(due.getTime() + 60_000), one.id);
+      const held = await debtOf(one.id);
+      check("a reversal made by hand that nobody has accounted for: the app takes nothing more from that transfer, and tells each admin once", held.status === "told" && held.handToldAt !== null && (await transferAt(sent.transferId)).amount_reversed === 200 && (await operationsOf(paid.payment.id)).length === 0 && admins.length > 0 && toldEachAdmin(await founderMail(debt.id, `hand:${byHand.id}`)), `${held.status} ${(await founderMail(debt.id, `hand:${byHand.id}`)).length}`);
+      const seen = await handReversalsOpen(held);
+      check("the founder's page finds that reversal at Stripe, with its amount", seen.length === 1 && seen[0].id === byHand.id && seen[0].amountCents === 200);
+      check("the founder says it paid this take-back; a second press finds nothing left to account for", (await countHandReversal({ debtId: debt.id, adminId: admin, reversalId: byHand.id, forThis: true })) === true && /^debt: That reversal is not one that is waiting/.test(await said(countHandReversal({ debtId: debt.id, adminId: admin, reversalId: byHand.id, forThis: true }))));
+      const counted = await debtOf(one.id);
+      check("it is counted once: $2.00 less is owed, the books have it as taken back, and the host is told", counted.status === "told" && counted.amountCents === debt.amountCents - 200 && counted.byHandCents === 200 && (await ledgerOf(paid.payment.id, "host_takeback")) === 200 && (await hostTold(debt.id, `hand:${byHand.id}`)).length === 1, `${counted.amountCents}`);
+      await passOnly(new Date(due.getTime() + 2 * 60_000), one.id);
+      const after = await debtOf(one.id);
+      check("then the app takes only what is left: together exactly what was owed, and not a cent more", after.status === "taken" && after.handToldAt === null && (await transferAt(sent.transferId)).amount_reversed === debt.amountCents && (await ledgerOf(paid.payment.id, "host_takeback")) === debt.amountCents, `${after.status} ${(await transferAt(sent.transferId)).amount_reversed} of ${debt.amountCents}`);
+
+      // Stripe refuses. The whole transfer was reversed by hand for a reason of its own, and the founder says so: the
+      // app goes on by its usual rules, and Stripe has nothing left to give.
+      const paid2 = await charged(host, await person("customer"), CARD);
+      const sent2 = await collect(paid2.payment.id);
+      const two = await refund(paid2.payment.id, 500);
+      await pass(two.id);
+      const debt2 = await debtOf(two.id);
+      await stripe().transfers.createReversal(sent2.transferId, { amount: sent2.sentCents });
+      for (const open of await handReversalsOpen(debt2)) await countHandReversal({ debtId: debt2.id, adminId: admin, reversalId: open.id, forThis: false });
+      check("a reversal the founder marks as nothing to do with a take-back: nothing is counted and nothing is booked", (await debtOf(two.id)).amountCents === debt2.amountCents && (await debtOf(two.id)).byHandCents === 0 && (await ledgerOf(paid2.payment.id, "host_takeback")) === 0 && (await handReversalsOpen(debt2)).length === 0);
+      const due2 = new Date(debt2.dueAt!.getTime() + 60_000);
+      await passOnly(due2, two.id);
+      const refused = await debtOf(two.id);
+      check("refused by Stripe: still owed, nothing recorded as taken, and the refusal is kept", refused.status === "told" && refused.refusal !== null && refused.firstRefusedAt !== null && (await ledgerOf(paid2.payment.id, "host_takeback")) === 0 && (await operationsOf(paid2.payment.id)).length === 1, `${refused.status} ${refused.refusal}`);
+      await passOnly(new Date(due2.getTime() + 31 * DAYS), two.id);
+      await passOnly(new Date(due2.getTime() + 33 * DAYS), two.id);
+      const mails = await founderMail(debt2.id, "refused");
+      check("it was tried again, and after 30 days of refusals each admin is told, once, in words about a refund", (await operationsOf(paid2.payment.id)).length >= 2 && toldEachAdmin(mails) && mails.every((mail) => /refund/i.test(mail.body) && !/bank dispute/i.test(mail.body)), `${mails.length}`);
+
+      // Room that comes free. Most of a transfer is gone (by hand), so a second refund's take-back finds no room.
+      const paid3 = await charged(host, await person("customer"), CARD);
+      const sent3 = await collect(paid3.payment.id);
+      const r1 = await refund(paid3.payment.id, 500);
+      await pass(r1.id);
+      const a1 = await debtOf(r1.id);
+      await stripe().transfers.createReversal(sent3.transferId, { amount: sent3.sentCents - a1.amountCents });
+      const now3 = await reload(paid3.payment.id);
+      const r2 = await refund(paid3.payment.id, now3.chargedCents! - now3.refundedCents);
+      await passOnly(new Date(), r2.id);
+      await passOnly(new Date(), r2.id);
+      const none = await debtsFor(r2.id);
+      check("no room is left on the transfer for the second refund's take-back: written as nothing, looked at once, and nobody is told", none.length === 1 && none[0].status === "nothing" && none[0].amountCents === 0 && (await messagesOf(none[0].id)).length === 0 && (await refundRow(r2.id)).debtLookedAt !== null && refundAnswer(await refundOutcome(r2.id), "founder").includes("Nothing can be taken back for it"), none.map((row) => `${row.status}:${row.amountCents}`).join(" "));
+      check("the founder calls the first off", (await cancelDebt({ debtId: a1.id, adminId: admin })) === true);
+      await pass(r2.id);
+      const freed = await debtOf(r2.id);
+      check("room is free again: the second is worked out afresh, for no more than that room, and its host is told then", freed?.status === "told" && freed.amountCents === a1.amountCents && freed.amountCents < r2.hostOwesCents && (await hostTold(freed.id, "owed")).length === 1, `${freed?.status} ${freed?.amountCents}`);
     }
 
     // ----------------------------------------------------------------------
@@ -522,10 +648,55 @@ async function main() {
       check("(written down as being taken, and not yet asked of Stripe)", (await debtOf(one.id)).status === "taking" && (await transferAt(sent.transferId)).amount_reversed === 0);
       await reverseAtStripe(started.params, started.label);
       await age(started.operationId, 25 * 3_600_000);
-      await reconcileOperations(new Date());
+      // (Only this run's own action: the helper's look is not let loose on other runs' money.)
+      await reconcileOperations(new Date(), { operationIds: [started.operationId] });
       const row = await debtOf(one.id);
       const [operation] = await operationsOf(paid.payment.id);
       check("found too late to ask again: the reversal is found at Stripe by the take-back's own number, and recorded once", operation.status === "succeeded" && row.status === "taken" && row.stripeReversalId !== null && (await transferAt(sent.transferId)).amount_reversed === debt.amountCents && (await stripe().transfers.listReversals(sent.transferId, { limit: 10 })).data.length === 1 && (await ledgerOf(paid.payment.id, "host_takeback")) === debt.amountCents && (await hostTold(debt.id, "taken")).length === 1, `${operation.status} ${row.status}`);
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n8. A refund that is still on its way at Stripe (its test card for that): nothing is worked out until it is confirmed");
+    {
+      check("(Stripe took the refund and had not finished it)", pending.first.status === "in_progress" && pending.first.stripeRefundId !== null && pending.first.hostOwesCents === 0, `${pending.first.status}`);
+      check("the founder is told that it is on its way, not that it was given back; no take-back is written; the page offers no second refund meanwhile", /on its way: Stripe has accepted it and has not confirmed it yet/.test(pendingEarly.answer) && !/was given back/.test(pendingEarly.answer) && pendingEarly.debts === 0 && pendingEarly.underWay === true, pendingEarly.answer);
+      check("(Stripe confirmed it by itself)", await stripeShows(pending.first.stripeRefundId!, "succeeded"));
+      await reconcileOperations(new Date(), { operationIds: [], refundIds: [pending.refundId] });
+      const confirmed = await refundRow(pending.refundId);
+      check("the helper finishes it: confirmed, with what her share lost and its place among this payment's refunds", confirmed.status === "done" && confirmed.afterCollection && confirmed.hostOwesCents > 0 && confirmed.afterCollectionNo === 1 && (await reload(pending.payment.id)).refundedCents === 500, `${confirmed.status} ${confirmed.hostOwesCents}`);
+      await pass(pending.refundId);
+      const written = await debtOf(pending.refundId);
+      check("and only then is the host's take-back written and told", written?.status === "told" && written.amountCents === confirmed.hostOwesCents && (await hostTold(written.id, "owed")).length === 1 && refundAnswer(await refundOutcome(pending.refundId), "founder").includes("and has been told"));
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n9. A refund that Stripe confirmed and that then failed (its test card for that): the host never pays for it");
+    {
+      check("(Stripe confirmed both refunds at first; both take-backs were written, and one was taken at once)", failsOpen.first.status === "done" && failsTaken.first.status === "done" && openDebt?.status === "told" && takenEarly.status === "taken" && takenEarly.reversed === takenDebt?.amountCents, `${openDebt?.status} ${takenEarly.status}`);
+      check("(Stripe then failed both refunds by itself)", (await stripeShows(failsOpen.first.stripeRefundId!, "failed")) && (await stripeShows(failsTaken.first.stripeRefundId!, "failed")));
+
+      // The first: its take-back is still open. The helper asks Stripe about the refund at the moment it would take the money.
+      await passOnly(new Date(openDebt.dueAt!.getTime() + 60_000), failsOpen.refundId);
+      await passOnly(new Date(openDebt.dueAt!.getTime() + 2 * DAYS), failsOpen.refundId);
+      const undone = await refundRow(failsOpen.refundId);
+      const called = await debtOf(failsOpen.refundId);
+      check("nothing is taken for a refund that failed after all: the take-back is called off by the app, at no cost to anyone", called.status === "cancelled" && called.cancelledBy === null && (await transferAt(failsOpen.transferId)).amount_reversed === 0 && (await operationsOf(failsOpen.payment.id)).length === 0 && (await ledgerOf(failsOpen.payment.id, "connect_cost")) === 0 && (await ledgerOf(failsOpen.payment.id, "host_takeback")) === 0, `${called.status}`);
+      const booksNow = await books(failsOpen.payment.id);
+      check("the app's record of the refund is undone: the line says failed with Stripe's reason, the payment counts as not refunded again, and the books are as before it", undone.status === "failed" && undone.failedLateAt !== null && Boolean(undone.failure) && (await reload(failsOpen.payment.id)).refundedCents === failsOpen.before.payment.refundedCents && booksNow.refund === failsOpen.before.books.refund && booksNow.fee === failsOpen.before.books.fee && booksNow.share === failsOpen.before.books.share, `${undone.status} ${undone.failure}`);
+      const fell = await hostTold(called.id, "fell-away");
+      const toFounders = await failedLateMail(failsOpen.refundId);
+      check("the host is told once that nothing is owed after all; each admin is told once that the customer did not get the money", fell.length === 1 && fell[0].body.includes("Nothing is taken for it") && toFounders.length === admins.length && toFounders.every((mail) => mail.body.includes("The customer did not get the money") && mail.body.includes("nothing was taken")), `${fell.length} ${toFounders.length}`);
+      check("the founder's page now says that Stripe refused it, with Stripe's reason", /^Stripe refused the refund of \$5\.00 \(.+\)\. Nothing was given back\./.test(refundAnswer(await refundOutcome(failsOpen.refundId), "founder")), refundAnswer(await refundOutcome(failsOpen.refundId), "founder"));
+
+      // The second: already taken from her when the refund failed. Stripe's message about it arrives (twice, as messages do).
+      const message = { type: "refund.failed", data: { object: { id: failsTaken.first.stripeRefundId! } } };
+      await handleStripeEvent(message);
+      await handleStripeEvent(message);
+      const kept = await debtOf(failsTaken.refundId);
+      const owedToHer = await hostTold(kept.id, "fell-away");
+      const toSend = await failedLateMail(failsTaken.refundId);
+      check("already taken when the refund failed: Stripe's message undoes the refund, and the app gives nothing back by itself", (await refundRow(failsTaken.refundId)).status === "failed" && kept.status === "taken" && kept.leftoverToldAt !== null && (await transferAt(failsTaken.transferId)).amount_reversed === kept.amountCents && (await reload(failsTaken.payment.id)).refundedCents === failsTaken.before.payment.refundedCents, `${kept.status}`);
+      check("she is told once that Connect owes it back to her, and each admin once to send it", owedToHer.length === 1 && owedToHer[0].subject.includes(`Connect owes you ${formatMoney(kept.amountCents)} back`) && toSend.length === admins.length && toSend.every((mail) => mail.body.includes(`send ${formatMoney(kept.amountCents)} to the host in Stripe`)), `${owedToHer.length} ${toSend.length}`);
     }
   } finally {
     // What THIS run made, by the exact ids: what is left of the shares it sent is taken back, the messages, emails and
@@ -558,7 +729,8 @@ async function main() {
       // A refund of this run that was never looked at is not left for the helper either.
       await db.update(schema.refunds).set({ debtLookedAt: new Date() }).where(and(inArray(schema.refunds.id, refundIds), isNull(schema.refunds.debtLookedAt)));
     }
-    await db.delete(schema.agreementAcceptances).where(eq(schema.agreementAcceptances.version, published.version));
+    if (refundIds.length > 0) await db.delete(schema.emailOutbox).where(or(...refundIds.map((id) => like(schema.emailOutbox.dedupeKey, `refund-failed-late:${id}:%`))));
+    await db.delete(schema.agreementAcceptances).where(or(eq(schema.agreementAcceptances.version, published.version), like(schema.agreementAcceptances.userId, `ow-${RUN}-%`)));
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

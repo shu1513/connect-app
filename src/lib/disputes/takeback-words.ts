@@ -15,6 +15,11 @@ export type DebtFacts = {
   amount: string;
   /** What had been sent to the host for it. */
   sent: string;
+  /**
+   * For a lost dispute on a share that had refunds after it was sent: what those refunds had already taken off her
+   * share, and what was left of it for this take-back to start from. Absent when there was no such refund.
+   */
+  afterRefunds?: { took: string; left: string } | null;
   /** The bank disputed only a part of the charge: that part, and what was left of the charge. Null when it was all of it. */
   part: { disputed: string; of: string } | null;
   /** Less than that part is asked for, and why: no more is owed than the bank took back ("bank"), or no more can be taken out of the transfer ("transfer"). */
@@ -35,10 +40,18 @@ export type DebtFacts = {
   refund?: { refunded: string; shareBefore: string; shareAfter: string; reason: string; cutShort: boolean };
 };
 
-const how = (facts: DebtFacts): string =>
-  (facts.part
-    ? `The bank took back ${facts.part.disputed} of the ${facts.part.of} that was left of the charge, so the same part of the ${facts.sent} you were sent is owed, rounded down to the cent: ${facts.amount}.`
-    : `You were sent ${facts.sent} for this payment, and the bank took the whole payment back, so ${facts.amount} is owed.`) + (facts.capped === "bank" ? " (It is less than that: no more is owed than the bank took back.)" : facts.capped === "transfer" ? " (It is less than that: no more than this can be taken out of that transfer.)" : "");
+const how = (facts: DebtFacts): string => {
+  // What was really sent is always named as that. Where refunds had already taken part of it, that is said, and the
+  // sum starts from what was left: the same money is never asked for twice.
+  const lead = facts.afterRefunds ? `You were sent ${facts.sent} for this payment. Refunds given after that had already taken ${facts.afterRefunds.took} off your share, which left ${facts.afterRefunds.left}. ` : "";
+  const of = facts.afterRefunds ? `the ${facts.afterRefunds.left} that was left of your share` : `the ${facts.sent} you were sent`;
+  const sum = facts.part
+    ? `${lead}The bank took back ${facts.part.disputed} of the ${facts.part.of} that was left of the charge, so the same part of ${of} is owed, rounded down to the cent: ${facts.amount}.`
+    : facts.afterRefunds
+      ? `${lead}The bank took back all that was left of the payment, so ${facts.amount} is owed.`
+      : `You were sent ${facts.sent} for this payment, and the bank took the whole payment back, so ${facts.amount} is owed.`;
+  return sum + (facts.capped === "bank" ? " (It is less than that: no more is owed than the bank took back.)" : facts.capped === "transfer" ? " (It is less than that: no more than this can be taken out of that transfer.)" : "");
+};
 
 /** To the host, when the take-back is written down: which payment, why, how much and how it is worked out, and their 14 days. */
 export function owedWords(facts: DebtFacts): Told {
@@ -96,19 +109,22 @@ export function refusedWords(facts: DebtFacts, lastRefusal: string | null): Told
   };
 }
 
-/** A share was taken back, and then the bank decided the other way. The app does not give it back by itself. */
-export function leftoverWords(role: "host" | "founder", facts: DebtFacts): Told {
+/**
+ * A share was taken back (or the host paid it back herself, `how` "paid"), and then the bank decided the other way.
+ * The app does not give it back by itself. `facts.amount` is what she really paid back, whichever way.
+ */
+export function leftoverWords(role: "host" | "founder", facts: DebtFacts, how: "taken" | "paid" = "taken"): Told {
   return role === "host"
     ? {
         subject: `A bank dispute was decided for you after all: ${facts.amount}`,
         text:
-          `Connect had taken ${facts.amount} back from you for ${facts.what}, after the bank decided for the customer. The bank has now looked at it again and let the payment stand.\n\n` +
+          `${how === "taken" ? `Connect had taken ${facts.amount} back from you` : `You had paid ${facts.amount} back to Connect`} for ${facts.what}, after the bank decided for the customer. The bank has now looked at it again and let the payment stand.\n\n` +
           `A person at Connect will look at this and give the ${facts.amount} back to you. You do not need to do anything; if you hear nothing within a few days, write to us at ${facts.supportEmail}.`,
       }
     : {
-        subject: `To settle by hand: ${facts.amount} was taken back from ${facts.hostName}, and the dispute is now won`,
+        subject: `To settle by hand: ${facts.amount} ${how === "taken" ? "was taken back from" : "was paid back by"} ${facts.hostName}, and the dispute is now won`,
         text:
-          `The app took ${facts.amount} back from ${facts.hostName} for ${facts.what} after the dispute was lost. The bank has now decided the other way.\n\n` +
+          `${how === "taken" ? `The app took ${facts.amount} back from ${facts.hostName}` : `${facts.hostName} paid ${facts.amount} back`} for ${facts.what} after the dispute was lost. The bank has now decided the other way.\n\n` +
           `The app does not give the amount back by itself. This one needs you: send ${facts.amount} to the host in Stripe. The host has been told that a person will do that.`,
       };
 }
@@ -194,8 +210,10 @@ const refundStory = (facts: DebtFacts): string =>
 
 /** How the amount is worked out, with the numbers that were used. */
 const refundHow = (facts: DebtFacts): string =>
-  `Your share of that payment was ${facts.refund!.shareBefore} before this refund and is ${facts.refund!.shareAfter} after it. The difference is what you owe back: ${facts.amount}.` +
-  (facts.refund!.cutShort ? ` (It is less than the difference: no more than that is left of the ${facts.sent} that was sent to you for this payment.)` : "");
+  `Your share of that payment was ${facts.refund!.shareBefore} before this refund and is ${facts.refund!.shareAfter} after it. ` +
+  (facts.refund!.cutShort
+    ? `That difference is more than is left of the ${facts.sent} that was really sent to you for this payment, so what you owe back is less than the difference: ${facts.amount}.`
+    : `The difference is what you owe back: ${facts.amount}.`);
 
 /** To the host, when the take-back is written down and the app will take it: what, why, how much, the 14 days, and how to object. */
 export function refundOwedWords(facts: DebtFacts): Told {
@@ -284,3 +302,74 @@ export function refundRefusedWords(facts: DebtFacts, lastRefusal: string | null)
   };
 }
 
+/** Settled outside the app: the same sentence for a take-back after a refund and after a lost dispute. */
+export const settledWords = refundSettledWords;
+
+// ---------------------------------------------------------------------------
+// A reversal somebody made by hand at Stripe
+// ---------------------------------------------------------------------------
+
+/**
+ * To the founder: a transfer has a reversal the app did not make, and nobody has said what it was for. The app takes
+ * nothing more from that transfer by itself until the founder has said, because the same money could be taken twice.
+ */
+export function handHeldWordsForFounder(facts: DebtFacts, byHand: string): Told {
+  return {
+    subject: `A take-back is on hold: a reversal was made by hand at Stripe (${facts.hostName}, ${facts.amount})`,
+    text:
+      `${byHand} of the transfer to ${facts.hostName} for ${facts.what} was reversed by hand at Stripe, not by the app. The app cannot know what that was for, so it takes nothing more from this transfer by itself: the same money could be taken twice.\n\n` +
+      `On the take-back's page (linked below), say for each such reversal whether it paid this take-back or had nothing to do with it. Once each one is accounted for, the app takes what is then still owed (${facts.amount} today), by its usual rules.`,
+  };
+}
+
+/** To the host, when the founder records that a reversal made by hand paid (part of) the take-back. */
+export function handCountedWords(facts: DebtFacts, counted: string, left: string | null): Told {
+  return {
+    subject: `${counted} was taken back from your Stripe balance`,
+    text:
+      `${counted} was taken back from your Stripe balance for ${facts.what}, by a person at Connect. It is counted for the money you owed back for that payment.\n\n` +
+      (left ? `${left} of it is still owed.` : "Nothing more is owed for it.") +
+      ` If this is not right, write to us at ${facts.supportEmail}.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A refund that Stripe first confirmed and that then failed after all
+// ---------------------------------------------------------------------------
+
+/**
+ * To the host, when the refund her take-back came from did not go through after all. `paidBack` is what she had
+ * already paid for it (taken by the app, by hand, or paid outside), or null when nothing was.
+ */
+export function refundFellAwayWords(facts: DebtFacts, paidBack: string | null): Told {
+  const story = `Connect had refunded ${facts.customerName} for ${facts.what} after you had collected your share. That refund did not go through after all: the customer's bank sent the money back.`;
+  return paidBack === null
+    ? {
+        subject: `Nothing is owed after all: ${facts.amount}`,
+        text: `${story}\n\nSo your share of that payment is whole again, and the ${facts.amount} we had written that you owe is not owed. Nothing is taken for it.`,
+      }
+    : {
+        subject: `Connect owes you ${paidBack} back`,
+        text:
+          `${story}\n\nYou had already paid ${paidBack} back for it (taken from your Stripe balance, or paid by you). That money is yours.\n\n` +
+          `A person at Connect will look at this and give the ${paidBack} back to you. You do not need to do anything; if you hear nothing within a few days, write to us at ${facts.supportEmail}.`,
+      };
+}
+
+/**
+ * To the founder, always, when a refund fails after Stripe had confirmed it: the customer did not get the money, the
+ * app has undone its record of the refund, and what became of the host's take-back.
+ */
+export function refundFellAwayWordsForFounder(input: { what: string; customerName: string; hostName: string; refunded: string; reason: string; debt: { amount: string; paidBack: string | null } | null }): Told {
+  return {
+    subject: `A refund failed after Stripe had confirmed it: ${input.customerName}, ${input.refunded}`,
+    text:
+      `The refund of ${input.refunded} to ${input.customerName} for ${input.what} first went through at Stripe and then failed. What Stripe says: ${input.reason}\n\n` +
+      `The customer did not get the money; it is back in Connect's Stripe balance. The app has undone its record of the refund: that payment counts as refunded by ${input.refunded} less, and the host's share and Connect's fee are as they were before it. The customer had been told by email that the refund was on its way. If they should still get the money, refund them again; if their card no longer takes refunds, ask them how they want it.` +
+      (input.debt === null
+        ? ""
+        : input.debt.paidBack === null
+          ? `\n\n${input.hostName} had been told that ${input.debt.amount} is owed back for this refund. That is called off, and nothing was taken. The host has been told.`
+          : `\n\n${input.hostName} had already paid ${input.debt.paidBack} back for this refund. The app does not give it back by itself. This one needs you: send ${input.debt.paidBack} to the host in Stripe. The host has been told that a person will do that.`),
+  };
+}

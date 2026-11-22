@@ -36,7 +36,7 @@ export default async function DebtsPage() {
   const nameOf = (id: string) => hosts.find((host) => host.id === id)?.name ?? "a host";
   const row = (debt: HostDebt & { path: string }) => (
     <li key={debt.id} data-debt={debt.id} data-debt-status={debt.status}>
-      <Link href={debt.path} className="underline underline-offset-2">
+      <Link href={debt.refundId ? `${debt.path}?as=founder` : debt.path} className="underline underline-offset-2">
         {formatMoney(debt.amountCents)} from {nameOf(debt.hostId)}
       </Link>
       , after {debt.refundId ? "a refund" : "a lost bank dispute"}: {STATE[debt.status] ?? debt.status}

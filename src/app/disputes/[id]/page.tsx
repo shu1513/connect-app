@@ -426,9 +426,16 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     <input type="hidden" name="dispute" value={dispute.id} />
                     <input type="hidden" name="debt" value={debt.id} />
                     <button type="submit" className={button}>
-                      Cancel this take-back
+                      Cancel this take-back (Connect carries {formatMoney(debt.amountCents)})
                     </button>
                   </form>
+                )}
+                {founder && (debt.status === "told" || debt.status === "objected" || debt.status === "answered") && (
+                  <p className="mt-2 text-sm">
+                    <Link href={`/debts/${debt.id}?as=founder`} className="underline underline-offset-2">
+                      The host paid it back outside the app, or you reversed it by hand at Stripe: record that
+                    </Link>
+                  </p>
                 )}
               </li>
             ))}

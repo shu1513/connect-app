@@ -5274,8 +5274,27 @@ tips and the yearly statement are the next pull request (2b).
   (Connect carries it, booked once as Connect's cost), or "Settled outside the app" (what she
   paid back, and only the rest as Connect's cost). The host's earnings page lists refund debts
   with their cause, also waiting and settled ones.
-- Migration 0060: the refund's line keeps her share and the fee before and after and what her
-  share lost; a take-back can come from a refund; the states "waiting" and "settled".
+- **A refund that fails after all.** Stripe can confirm a refund and say later that it failed
+  (the customer's bank sent it back). The app then undoes its record of the refund, calls the
+  host's take-back off at no cost to anyone, and tells the founder that the customer got
+  nothing. It asks Stripe whether the refund still stands before it writes a debt and again
+  before it takes any money. If the host had already paid, nothing is sent back by itself: she
+  and the founder are told.
+- **A reversal made by hand at Stripe.** While a transfer has a reversal the app did not make
+  and nobody has said what it was for, the app takes nothing more from that transfer and tells
+  the founder. The founder says on the take-back's page whether it paid this take-back (then
+  it is counted, and only the rest stays owed) or had nothing to do with it.
+- **The same for a lost bank dispute's take-back:** the founder's waiver is booked as Connect's
+  cost, "Settled outside the app" is offered (from the dispute's page), and if the bank later
+  decides the other way the cost is taken off again and what she had paid is flagged.
+- **True answers.** After a refund the founder (and a host using the call page's own button)
+  is told what was written down: given back, accepted by Stripe and on its way, not answered
+  yet, or refused with Stripe's reason.
+- Migrations 0060 and 0061: the refund's line keeps her share and the fee before and after,
+  what her share lost, its place among the payment's refunds, and Stripe's reason when it
+  failed; a take-back can come from a refund; the states "waiting" and "settled"; what was
+  counted from a reversal by hand, and what the books hold as Connect's cost; a table of the
+  reversals made by hand that the founder has accounted for.
 
 **The founder's rule:** recover by the reversal at Stripe ("do what you think is the best",
 after the builder recommended it). **The builder's own choices:** the six grounds and their
@@ -5284,11 +5303,22 @@ helper and not in the click; a waiting debt cannot be objected to in the app (no
 taken); the note for "settled outside" needs at least a few words; the page for a refund's
 take-back is its own (`/debts/...`), a dispute's stays on the dispute's page.
 
-**How it was checked.** Type check, lint, the automatic tests (990, with the sums and every
-new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 65
+**What the reviewer found.** Astra said to hold it. Two of its points could have cost a host
+real money: a refund that Stripe confirms and later fails would still have been taken from
+her, and a reversal somebody made by hand at Stripe could have paid a debt that the app then
+took in full a second time. Both are fixed as described above, and both are now in the real
+check (the first with Stripe's own test card for it). It also found that the helper could
+call a real refund failed (it read only the first 100 of a charge's refunds), that the
+founder's answer could say "accepted" before Stripe had answered, that a lost dispute's
+take-back could not be waived or settled with the books right, and smaller things. All 16
+points were taken; the list is at the end of the plan.
+
+**How it was checked.** Type check, lint, the automatic tests (1009, with the sums and every
+new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 94
 checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
-the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 115,
-`disputes-check` 72), and `payments-check` (77).
+the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 123, with the
+new checks for a waiver, a settlement and a win afterwards; `disputes-check` 72), and
+`payments-check` (77).
 
 In a browser, as the test host and as the test admin (`owed-check.ts --demo` makes the two
 take-backs): the take-back's page for both, "Your earnings", the founder's list, the refund
@@ -5301,6 +5331,8 @@ replied (the answer is now always read from what was written down).
 **What cannot be tested here.** A real email going out is stood in for. A part dispute cannot
 be made in Stripe's test area.
 
-**Before going live.** Nothing new: the sending service's delivery reports must be switched on
-(step 1), or no take-back ever gets its day.
+**Before going live.** The sending service's delivery reports must be switched on (step 1), or
+no take-back ever gets its day. And Stripe's messages to the app must include the two about
+refunds, `refund.failed` and `refund.updated` (in Stripe, under the webhook's events): without
+them a refund that fails later is only noticed when the app is about to take money for it.
 

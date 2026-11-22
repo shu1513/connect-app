@@ -5,12 +5,12 @@ import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
 import type { Refund } from "@/db/schema";
-import { debtForPage, pageOfDebt } from "@/lib/disputes/takeback";
+import { debtForPage, handReversalsOpen, pageOfDebt } from "@/lib/disputes/takeback";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 import { SUPPORT_EMAIL } from "@/lib/terms";
-import { answerDebtAction, cancelDebtAction, holdDebtAction, objectDebtAction, sendAgainDebtAction, settleDebtAction } from "./actions";
+import { answerDebtAction, cancelDebtAction, countReversalAction, holdDebtAction, objectDebtAction, sendAgainDebtAction, settleDebtAction } from "./actions";
 
 // The same title whoever asks: nothing is given away before it is known who may see the page.
 export const metadata: Metadata = { title: "Money owed back" };
@@ -20,10 +20,11 @@ export const dynamic = "force-dynamic";
 const DEBT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
- * One take-back that comes from a refund Connect gave after the host had collected (plans/46-part-3-money-owed.md):
- * for the host who owes it, and for the founder. What was refunded and why, how the amount is worked out, where it
- * stands, and what each of the two can do. Someone else's and one that does not exist are both "not found". A
- * take-back that comes from a bank dispute is shown on that dispute's page.
+ * One take-back (plans/46-part-3-money-owed.md): for the host who owes it, and for the founder. For one that comes
+ * from a refund Connect gave after the host had collected: what was refunded and why, how the amount is worked out,
+ * where it stands, and what each of the two can do. One that comes from a bank dispute is shown to its host on the
+ * dispute's page; here the founder settles it outside the app, or says what a reversal made by hand at Stripe was
+ * for. Someone else's and one that does not exist are both "not found".
  */
 export default async function DebtPage(props: PageProps<"/debts/[id]">) {
   const { id } = await props.params;
@@ -32,18 +33,30 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
   const founder = await isAdminSession(await getSignedIn());
   const found = await debtForPage(id, "host", user);
   if (!found || (found.debt.hostId !== user.id && !founder)) notFound();
-  const asHost = found.debt.hostId === user.id;
+  const isHost = found.debt.hostId === user.id;
+  const query = await props.searchParams;
+  // A founder who is also this take-back's host sees the host's view, and can ask for the founder's (the founder's
+  // list links to it): otherwise nobody could settle or call off that one.
+  const asFounder = founder && (!isHost || query.as === "founder");
+  const asHost = !asFounder;
   const { debt, cause } = found;
-  if (debt.disputeId) redirect(pageOfDebt(debt));
-  // (Read again in the founder's words when the founder is not this take-back's host.)
+  const refund = debt.refundId ? (cause as Refund) : null;
+  // A dispute's take-back is its host's to read, and to object to, on the dispute's page.
+  if (!refund && asHost) redirect(pageOfDebt(debt));
+  // (Read again in the founder's words for the founder's view.)
   const what = asHost ? found.what : ((await debtForPage(id, "founder", user))?.what ?? found.what);
-  const refund = cause as Refund;
-  const notice = readNotice(`/debts/${debt.id}`, await props.searchParams);
+  const notice = readNotice(`/debts/${debt.id}`, query);
+  // Keeps the founder's view through a form, for a founder who is also the host.
+  const view = asFounder && isHost ? <input type="hidden" name="as" value="founder" /> : null;
+  const reserved = ["told", "waiting", "objected", "answered"].includes(debt.status);
+  // Reversals somebody made by hand at Stripe on this transfer that nobody has accounted for. Asked of Stripe as the
+  // page is made; null when Stripe could not be asked.
+  const byHand = asFounder && reserved ? await handReversalsOpen(debt).catch(() => null) : [];
   const now = new Date();
   const button = "rounded border border-neutral-500 px-4 py-2 text-sm font-medium";
   const box = "mt-1 block w-full rounded border border-neutral-400 p-2";
   const waitingForDay = (debt.status === "told" || debt.status === "answered") && !debt.dueAt;
-  const cutShort = debt.amountCents < refund.hostOwesCents;
+  const cutShort = refund !== null && debt.amountCents + debt.byHandCents < refund.hostOwesCents;
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
@@ -52,7 +65,15 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
           ← {asHost ? "Hosting" : "Money hosts owe back"}
         </Link>
       </p>
-      <h1 className={warm.title}>Money owed back after a refund</h1>
+      <h1 className={warm.title}>Money owed back after {refund ? "a refund" : "a lost bank dispute"}</h1>
+      {isHost && founder && asHost && (
+        <p className="mt-2 text-sm">
+          You are also the founder.{" "}
+          <Link href={`/debts/${debt.id}?as=founder`} className="underline underline-offset-2">
+            See the founder&apos;s view of this take-back
+          </Link>
+        </p>
+      )}
 
       {notice && (
         <p role="status" className="mt-4 rounded border border-neutral-400 p-3 text-sm">
@@ -61,21 +82,38 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
       )}
 
       <div className="mt-6 rounded border border-neutral-400 p-4 text-sm" data-debt={debt.id} data-debt-status={debt.status}>
-        <p>
-          {asHost ? `Connect has given ${found.customerName} ` : `You gave ${found.customerName} `}
-          <span className="font-medium">{formatMoney(refund.amountCents)}</span> back for {what}.{" "}
-          {asHost ? "You had already collected your share of that payment, so the money came from Connect." : `${found.hostName} had already collected their share, so the money came from Connect.`}
-        </p>
-        <p className="mt-2 whitespace-pre-wrap" data-debt-reason>
-          {asHost ? "Why Connect decided this refund: " : "The reason you gave: "}
-          {refund.reason}
-        </p>
-        <p className="mt-2" data-debt-how>
-          {asHost ? "Your" : "The host's"} share of that payment was {formatMoney(refund.shareBeforeCents ?? 0)} before this refund and is {formatMoney(refund.shareAfterCents ?? 0)} after it.{" "}
-          {asHost ? "What you owe back: " : "What the host owes back: "}
-          <span className="font-medium">{formatMoney(debt.amountCents)}</span>.
-          {cutShort && " (It is less than the difference: no more than that is left of what was sent for this payment.)"}
-        </p>
+        {refund ? (
+          <>
+            <p>
+              {asHost ? `Connect has given ${found.customerName} ` : `You gave ${found.customerName} `}
+              <span className="font-medium">{formatMoney(refund.amountCents)}</span> back for {what}.{" "}
+              {asHost ? "You had already collected your share of that payment, so the money came from Connect." : `${found.hostName} had already collected their share, so the money came from Connect.`}
+            </p>
+            <p className="mt-2 whitespace-pre-wrap" data-debt-reason>
+              {asHost ? "Why Connect decided this refund: " : "The reason you gave: "}
+              {refund.reason}
+            </p>
+            <p className="mt-2" data-debt-how>
+              {asHost ? "Your" : "The host's"} share of that payment was {formatMoney(refund.shareBeforeCents ?? 0)} before this refund and is {formatMoney(refund.shareAfterCents ?? 0)} after it.{" "}
+              {asHost ? "What you owe back: " : "What the host owes back: "}
+              <span className="font-medium">{formatMoney(debt.amountCents)}</span>.
+              {cutShort && " (It is less than the difference: no more than that is left of what was really sent for this payment.)"}
+            </p>
+          </>
+        ) : (
+          <p data-debt-how>
+            The bank dispute over {what} was lost, and {found.hostName} had already collected their share. What the host owes back: <span className="font-medium">{formatMoney(debt.amountCents)}</span>.{" "}
+            <Link href={pageOfDebt(debt)} className="underline underline-offset-2">
+              The dispute&apos;s page
+            </Link>{" "}
+            shows how it was worked out, and has the host&apos;s objection and your answer.
+          </p>
+        )}
+        {debt.byHandCents > 0 && (
+          <p className="mt-2" data-by-hand>
+            {formatMoney(debt.byHandCents)} more was owed and has been taken already, by a reversal a person at Connect made at Stripe.
+          </p>
+        )}
 
         <p className="mt-3 font-medium" data-debt-state>
           {debt.status === "waiting" &&
@@ -131,7 +169,7 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
           </p>
         )}
-        {!asHost && debt.settledNote && debt.status === "settled" && (
+        {asFounder && debt.settledNote && debt.status === "settled" && (
           <p className="mt-2 whitespace-pre-wrap opacity-80" data-settled-note>
             Your note: {debt.settledNote}
           </p>
@@ -159,9 +197,56 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
           </p>
         )}
 
-        {founder && !asHost && debt.status === "objected" && (
+        {asHost && debt.handToldAt && (debt.status === "told" || debt.status === "answered") && (
+          <p className="mt-2 opacity-80" data-hand-hold>
+            A person at Connect is checking something about this one. Nothing is taken until they have.
+          </p>
+        )}
+
+        {asFounder && reserved && debt.handToldAt && (
+          <p className="mt-3 rounded border border-neutral-400 p-2" data-hand-hold>
+            <strong>On hold.</strong> A reversal was made by hand at Stripe on this transfer, and the app does not know what it was for. It takes nothing more from this transfer until each such reversal is accounted for below.
+          </p>
+        )}
+        {asFounder && byHand === null && <p className="mt-3 opacity-80">Stripe could not be asked just now whether a reversal was made by hand on this transfer. Reload the page to ask again.</p>}
+        {asFounder && byHand !== null && byHand.length > 0 && (
+          <div className="mt-4" data-hand-reversals>
+            <p className="font-medium">Reversals made by hand at Stripe on this transfer</p>
+            <p className="mt-1 opacity-80">Say for each what it was for. One that paid this take-back is counted for it, and only the rest stays owed. A reversal is accounted for once.</p>
+            <ul className="mt-2 space-y-3">
+              {byHand.map((one) => (
+                <li key={one.id} data-hand-reversal={one.id}>
+                  {formatMoney(one.amountCents)}, made <LocalTime iso={one.at.toISOString()} />
+                  <span className="flex flex-wrap gap-2 pt-1">
+                    <form action={countReversalAction}>
+                      <input type="hidden" name="debt" value={debt.id} />
+                      <input type="hidden" name="reversal" value={one.id} />
+                      <input type="hidden" name="for" value="this" />
+                      {view}
+                      <button type="submit" className={button}>
+                        It paid this take-back{one.amountCents > debt.amountCents ? ` (${formatMoney(debt.amountCents)} of it)` : ""}
+                      </button>
+                    </form>
+                    <form action={countReversalAction}>
+                      <input type="hidden" name="debt" value={debt.id} />
+                      <input type="hidden" name="reversal" value={one.id} />
+                      <input type="hidden" name="for" value="other" />
+                      {view}
+                      <button type="submit" className={button}>
+                        It had nothing to do with a take-back
+                      </button>
+                    </form>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {asFounder && refund && debt.status === "objected" && (
           <form action={answerDebtAction} className="mt-4 max-w-md space-y-2" data-answer-objection>
             <input type="hidden" name="debt" value={debt.id} />
+            {view}
             <label className="block">
               Your answer to the host, if it is taken after all. The host reads it as written. It is then taken no earlier than the first day, and no earlier than 3 days after this answer has arrived.
               <textarea name="answer" required minLength={10} maxLength={2000} rows={3} className={box} />
@@ -171,9 +256,10 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             </button>
           </form>
         )}
-        {founder && !asHost && debt.status === "told" && (
+        {asFounder && refund && debt.status === "told" && (
           <form action={holdDebtAction} className="mt-4 max-w-md space-y-2" data-hold-take-back>
             <input type="hidden" name="debt" value={debt.id} />
+            {view}
             <label className="block">
               The host objected by email? Note what they said. Nothing is taken until you have decided.
               <input type="text" name="note" maxLength={2000} className={box} />
@@ -183,21 +269,23 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             </button>
           </form>
         )}
-        {founder && !asHost && waitingForDay && debt.noticeProblemToldAt && (
+        {asFounder && refund && waitingForDay && debt.noticeProblemToldAt && (
           <form action={sendAgainDebtAction} className="mt-4" data-send-again>
             <input type="hidden" name="debt" value={debt.id} />
+            {view}
             <button type="submit" className={button}>
               Send it again
             </button>
           </form>
         )}
-        {founder && !asHost && ["told", "waiting", "objected", "answered"].includes(debt.status) && (
+        {asFounder && reserved && (
           <>
             <form action={settleDebtAction} className="mt-4 max-w-md space-y-2" data-settle>
               <input type="hidden" name="debt" value={debt.id} />
+            {view}
               <p className="font-medium">Settled outside the app</p>
               <label className="block">
-                What the host paid back to Connect, in dollars (0 if nothing). The rest is carried by Connect. Do not enter a reversal you made by hand in Stripe: Stripe already shows it.
+                What the host paid back to Connect outside Stripe, in dollars (0 if nothing). The rest is carried by Connect. Do not enter a reversal you made by hand in Stripe here: it is listed above on this page, to be counted on its own.
                 <input type="text" name="repaid" inputMode="decimal" required pattern="\d{1,7}(\.\d{1,2})?" className={box} />
               </label>
               <label className="block">
@@ -210,6 +298,7 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             </form>
             <form action={cancelDebtAction} className="mt-4" data-cancel-take-back>
               <input type="hidden" name="debt" value={debt.id} />
+            {view}
               <button type="submit" className={button}>
                 Call it off (Connect carries {formatMoney(debt.amountCents)})
               </button>

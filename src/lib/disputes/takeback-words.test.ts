@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, leftoverWords, refundFellAwayWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const facts: DebtFacts = {
   what: "the payment for your call with Ben on Monday",
@@ -160,7 +160,9 @@ describe("a take-back that comes from a refund given after the host had collecte
 
   it("says so when less than the difference is asked for, because no more is left of what was sent", () => {
     const told = refundOwedWords({ ...owed, amount: "$79.75", sent: "$79.75", refund: { ...owed.refund!, shareAfter: "$0.00", cutShort: true } }).text;
-    expect(told).toContain("The difference is what you owe back: $79.75. (It is less than the difference: no more than that is left of the $79.75 that was sent to you for this payment.)");
+    // $80.00 before, $0.00 after: the notice never calls $79.75 "the difference".
+    expect(told).toContain("Your share of that payment was $80.00 before this refund and is $0.00 after it. That difference is more than is left of the $79.75 that was really sent to you for this payment, so what you owe back is less than the difference: $79.75.");
+    expect(told).not.toContain("The difference is what you owe back");
   });
 
   it("tells a host whose debt the app will not take by itself that she owes it, and promises no date and no taking", () => {
@@ -197,6 +199,79 @@ describe("a take-back that comes from a refund given after the host had collecte
     expect(answered).toContain("Your share of that payment was $80.00 before this refund and is $40.00 after it.");
     expect(answered).not.toContain("press");
     expect(answered).not.toContain("bank dispute");
+  });
+});
+
+describe("a lost dispute on a share that had refunds after it was sent", () => {
+  it("names what was really sent, what the refunds took, and starts the sum from what was left", () => {
+    // $79.75 sent; refunds took $40.00; the bank took 25 of the 50 left of the charge: half of the $39.75 that was left.
+    const told = owedWords({ ...facts, amount: "$19.87", sent: "$79.75", afterRefunds: { took: "$40.00", left: "$39.75" }, part: { disputed: "$25.00", of: "$50.00" } }).text;
+    expect(told).toContain("You were sent $79.75 for this payment. Refunds given after that had already taken $40.00 off your share, which left $39.75.");
+    expect(told).toContain("so the same part of the $39.75 that was left of your share is owed, rounded down to the cent: $19.87.");
+    expect(told).not.toContain("the $79.75 you were sent is owed");
+  });
+
+  it("says it plainly when the bank took all that was left", () => {
+    const told = owedWords({ ...facts, amount: "$39.75", sent: "$79.75", afterRefunds: { took: "$40.00", left: "$39.75" } }).text;
+    expect(told).toContain("which left $39.75. The bank took back all that was left of the payment, so $39.75 is owed.");
+  });
+
+  it("is unchanged where no refund came first", () => {
+    expect(owedWords(facts).text).toContain("You were sent $12.38 for this payment, and the bank took the whole payment back, so $12.38 is owed.");
+  });
+});
+
+describe("a reversal somebody made by hand at Stripe", () => {
+  it("tells the founder why the app stops taking from that transfer, and what to do", () => {
+    const told = all(handHeldWordsForFounder(facts, "$10.00"));
+    expect(told).toContain("on hold");
+    expect(told).toContain("$10.00 of the transfer to Ana");
+    expect(told).toContain("the same money could be taken twice");
+    expect(told).toContain("say for each such reversal whether it paid this take-back or had nothing to do with it");
+  });
+
+  it("tells the host what was counted, and whether anything is still owed", () => {
+    expect(handCountedWords(facts, "$10.00", "$2.38").text).toContain("$2.38 of it is still owed.");
+    expect(handCountedWords(facts, "$12.38", null).text).toContain("Nothing more is owed for it.");
+    expect(handCountedWords(facts, "$12.38", null).subject).toBe("$12.38 was taken back from your Stripe balance");
+  });
+});
+
+describe("a refund that failed after Stripe had confirmed it", () => {
+  it("tells a host who had paid nothing that nothing is owed", () => {
+    const told = all(refundFellAwayWords(facts, null));
+    expect(told).toContain("Nothing is owed after all: $12.38");
+    expect(told).toContain("That refund did not go through after all");
+    expect(told).toContain("Nothing is taken for it.");
+  });
+
+  it("tells a host who had already paid that the money is hers and that a person gives it back", () => {
+    const told = all(refundFellAwayWords(facts, "$12.38"));
+    expect(told).toContain("Connect owes you $12.38 back");
+    expect(told).toContain("A person at Connect will look at this and give the $12.38 back to you.");
+  });
+
+  it("always tells the founder that the customer got nothing, and what became of the take-back", () => {
+    const base = { what: "the call of Ana (host) and Ben (customer) on Monday", customerName: "Ben", hostName: "Ana", refunded: "$50.00", reason: "lost_or_stolen_card" };
+    const none = all(refundFellAwayWordsForFounder({ ...base, debt: null }));
+    expect(none).toContain("A refund failed after Stripe had confirmed it: Ben, $50.00");
+    expect(none).toContain("The customer did not get the money");
+    expect(none).toContain("What Stripe says: lost_or_stolen_card");
+    expect(none).not.toContain("owed back");
+    expect(all(refundFellAwayWordsForFounder({ ...base, debt: { amount: "$40.00", paidBack: null } }))).toContain("That is called off, and nothing was taken.");
+    expect(all(refundFellAwayWordsForFounder({ ...base, debt: { amount: "$40.00", paidBack: "$40.00" } }))).toContain("send $40.00 to the host in Stripe");
+  });
+});
+
+describe("settled outside the app, and a dispute won afterwards", () => {
+  it("uses one sentence for a refund's and a dispute's take-back", () => {
+    expect(settledWords(facts, "$10.00", "$2.38").text).toContain("you paid back $10.00, and Connect carries the remaining $2.38");
+  });
+
+  it("says that she paid it back herself when that is how it was", () => {
+    expect(leftoverWords("host", facts, "paid").text).toContain("You had paid $12.38 back to Connect");
+    expect(leftoverWords("founder", facts, "paid").subject).toContain("was paid back by Ana");
+    expect(leftoverWords("host", facts).text).toContain("Connect had taken $12.38 back from you");
   });
 });
 

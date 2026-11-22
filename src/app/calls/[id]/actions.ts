@@ -6,6 +6,7 @@ import { withNotice } from "@/lib/notice";
 import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
+import { refundAnswer, refundOutcome } from "@/lib/payments/founder-refund";
 import { CALL_WORDS, cancelledWords } from "@/lib/call-page/words";
 import { cancelCallWith, CancelChangedError } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
@@ -91,7 +92,9 @@ export async function refundAction(formData: FormData) {
       notice = to === "free" ? "The time was given back. It is in the member's membership again." : "The time was given back. Its money will be paid back to the member's card.";
     } else {
       await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-      notice = "The refund was sent.";
+      // What really came of it, read from what was written down: sent, still on its way, or refused by Stripe.
+      const outcome = await refundOutcome(requestId);
+      notice = outcome && outcome.paymentId !== paymentId ? "That form is no longer valid. Reload the page and try again." : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host");
     }
     if (decidedAs === "admin") {
       await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` }).catch((error) => {

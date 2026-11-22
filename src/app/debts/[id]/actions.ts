@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { answerObjection, cancelDebt, DebtError, holdDebt, objectToDebt, sendNoticeAgain, settleOutside } from "@/lib/disputes/takeback";
+import { answerObjection, cancelDebt, countHandReversal, DebtError, holdDebt, objectToDebt, sendNoticeAgain, settleOutside } from "@/lib/disputes/takeback";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin, requireUser } from "@/lib/session";
 
@@ -11,7 +11,8 @@ const DEBT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function debtOf(formData: FormData, elseTo: string): { id: string; page: string } {
   const id = String(formData.get("debt") ?? "");
   if (!DEBT_ID.test(id)) redirect(elseTo);
-  return { id, page: `/debts/${id}` };
+  // (A founder who is also the take-back's host stays in the founder's view.)
+  return { id, page: `/debts/${id}${formData.get("as") === "founder" ? "?as=founder" : ""}` };
 }
 
 const said = (error: unknown, what: string): string => {
@@ -58,7 +59,7 @@ export async function answerDebtAction(formData: FormData) {
   redirect(withNotice(page, notice));
 }
 
-/** The founder calls a take-back off. For one that comes from a refund, Connect then carries the amount. */
+/** The founder calls a take-back off. Connect then carries the amount. */
 export async function cancelDebtAction(formData: FormData) {
   const admin = await requireAdmin();
   const { id, page } = debtOf(formData, "/admin");
@@ -89,3 +90,25 @@ export async function settleDebtAction(formData: FormData) {
   }
   redirect(withNotice(page, notice));
 }
+
+/** The founder says what a reversal made by hand at Stripe was for: this take-back, or nothing to do with one. */
+export async function countReversalAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const { id, page } = debtOf(formData, "/admin");
+  const reversalId = String(formData.get("reversal") ?? "");
+  const forThis = formData.get("for") === "this";
+  let notice: string;
+  try {
+    if (!/^[A-Za-z0-9_]{5,100}$/.test(reversalId)) throw new DebtError("That form is no longer valid. Reload the page and try again.");
+    const counted = await countHandReversal({ debtId: id, adminId: admin.id, reversalId, forThis });
+    notice = !counted
+      ? "That reversal is already accounted for."
+      : forThis
+        ? "Counted for this take-back: it is in the books as taken back, the host has been told, and only what is left stays owed."
+        : "Noted: that reversal had nothing to do with a take-back. The app goes on by its usual rules.";
+  } catch (error) {
+    notice = said(error, "accounting for a reversal made by hand");
+  }
+  redirect(withNotice(page, notice));
+}
+

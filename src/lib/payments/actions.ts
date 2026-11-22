@@ -326,6 +326,11 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
   });
 
   const nothingOwedNow = after.hostShareCents === 0 && payment.transferStatus !== "sent";
+  // Its place among this payment's refunds after the sending. The payment is held here, so two confirmations can
+  // never get the same number or swap places.
+  const [last] = refund.afterCollection
+    ? await tx.select({ no: sql<number>`coalesce(max(${schema.refunds.afterCollectionNo}), 0)::int` }).from(schema.refunds).where(eq(schema.refunds.paymentId, payment.id))
+    : [{ no: 0 }];
   await tx
     .update(schema.refunds)
     // A refund given after the host had collected (plans/46-part-3-money-owed.md, decision 3): what her share was
@@ -336,7 +341,7 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
       stripeRefundId,
       finishedAt: new Date(),
       ...(refund.afterCollection
-        ? { shareBeforeCents: before.hostShareCents, shareAfterCents: after.hostShareCents, feeBeforeCents: before.feeCents, feeAfterCents: after.feeCents, hostOwesCents: Math.max(0, before.hostShareCents - after.hostShareCents) }
+        ? { shareBeforeCents: before.hostShareCents, shareAfterCents: after.hostShareCents, feeBeforeCents: before.feeCents, feeAfterCents: after.feeCents, hostOwesCents: Math.max(0, before.hostShareCents - after.hostShareCents), afterCollectionNo: last.no + 1 }
         : {}),
     })
     .where(eq(schema.refunds.id, refundId));
@@ -351,10 +356,10 @@ export async function applyRefundDone(payment: Payment, refundId: string, stripe
   await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: stripeRefundId });
 }
 
-export async function markRefundFailed(refundId: string, tx: Tx): Promise<void> {
+export async function markRefundFailed(refundId: string, tx: Tx, failure: string | null = null): Promise<void> {
   await tx
     .update(schema.refunds)
-    .set({ status: "failed", finishedAt: new Date() })
+    .set({ status: "failed", finishedAt: new Date(), ...(failure ? { failure: failure.slice(0, 500) } : {}) })
     .where(and(eq(schema.refunds.id, refundId), eq(schema.refunds.status, "in_progress")));
 }
 
@@ -383,7 +388,7 @@ export async function refundPayment(input: {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(refundId)) {
     throw new MoneyError("This refund request is not valid. Reload the page and try again.");
   }
-  await runMoneyOperation<RefundParams, { status: string | null }>({
+  await runMoneyOperation<RefundParams, { status: string | null; failure?: string | null }>({
     paymentId: input.paymentId,
     kind: "refund",
     labelBase: `refund:${refundId}`,
@@ -428,19 +433,19 @@ export async function refundPayment(input: {
         },
         { idempotencyKey: label },
       );
-      return { stripeId: refund.id, result: { status: refund.status } };
+      return { stripeId: refund.id, result: { status: refund.status, failure: refund.failure_reason ?? null } };
     },
     apply: async (payment, params, outcome, tx) => {
       if (outcome.result.status === "succeeded") {
         await applyRefundDone(payment, params.refundId, outcome.stripeId, tx);
       } else if (outcome.result.status === "failed" || outcome.result.status === "canceled") {
-        await markRefundFailed(params.refundId, tx);
+        await markRefundFailed(params.refundId, tx, outcome.result.failure ?? `Stripe says: ${outcome.result.status}`);
       } else {
         // Still on its way. reconcile.ts finishes it once Stripe confirms.
         await tx.update(schema.refunds).set({ stripeRefundId: outcome.stripeId }).where(eq(schema.refunds.id, params.refundId));
       }
     },
-    onRefused: (_payment, params, _message, tx) => markRefundFailed(params.refundId, tx),
+    onRefused: (_payment, params, message, tx) => markRefundFailed(params.refundId, tx, message),
   });
 }
 

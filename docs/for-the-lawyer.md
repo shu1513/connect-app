@@ -609,6 +609,13 @@ How it works since this change, for a call's payment (contributions and tips fol
   (Connect carries it) or record that it was settled with her outside the app.
 - The books say which it was: taken back through Stripe, paid back by her outside the app, or
   carried by Connect.
+- **If the refund fails after all** (Stripe first confirms it, then the customer's bank sends it
+  back), the host owes nothing: the app undoes its record and calls the take-back off. If she
+  had already paid, the app does not send the money back by itself: she is told that Connect
+  owes it to her, and the founder is told to send it.
+- **If somebody at Connect reverses part of her transfer by hand at Stripe**, the app takes
+  nothing more from that transfer until the founder has said what that reversal was for, so
+  the same money is never taken twice.
 
 Questions:
 - Is asking Stripe to reverse part of a transfer, after 14 days' written notice, covered by the
@@ -624,4 +631,8 @@ Questions:
   and 8.4. Do they match what those sections will say when published?
 - When the host pays Connect back outside the app, what proof should be kept, and does such a
   payment need an invoice or a receipt?
+- When money was taken from a host for a refund that then failed, within what time must
+  Connect give it back, and does she get interest or anything else?
+- The customer was told by email that a refund was on its way, and it then failed. Must
+  Connect tell the customer, and within what time must the money reach them another way?
 

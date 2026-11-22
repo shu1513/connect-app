@@ -2,8 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { refundPayment } from "@/lib/payments/actions";
-import { formatMoney } from "@/lib/payments/access";
-import { isRefundGround, refundOutcome, refundReason, refundSearchFor } from "@/lib/payments/founder-refund";
+import { isRefundGround, refundAnswer, refundOutcome, refundReason, refundSearchFor } from "@/lib/payments/founder-refund";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin } from "@/lib/session";
@@ -36,7 +35,7 @@ export async function refundAsFounderAction(formData: FormData) {
   const typed = String(formData.get("amount") ?? "").trim();
   if (!UUID.test(paymentId) || !UUID.test(requestId)) back("That form is no longer valid. Reload the page and try again.");
   if (!isRefundGround(ground)) back("Choose why Connect decides this refund.");
-  if (sentence.length < 10) back("Add a sentence of your own about what happened: the host reads it.");
+  if (sentence.length < 10) back("Add a sentence of your own about what happened: the customer and the host read it.");
   if (sentence.length > 1000) back("Please keep your sentence under 1,000 characters.");
   if (!/^\d{1,7}(\.\d{1,2})?$/.test(typed)) back("Type the amount in dollars, like 12.50.");
   const amountCents = Math.round(Number(typed) * 100);
@@ -50,11 +49,8 @@ export async function refundAsFounderAction(formData: FormData) {
     else if (!(error instanceof OutcomeUnknownError)) console.error("[refunds] the founder's refund failed", error);
   }
   const outcome = await refundOutcome(requestId);
-  const amount = formatMoney(amountCents);
-  // No line: nothing was begun and nothing was asked of Stripe.
-  if (!outcome) back(said ?? "No refund was started: another money action on this payment is still being confirmed with Stripe, or something went wrong before anything was sent. Nothing was given back. Look at the payment again in a minute.");
-  else if (outcome.status === "failed") back(`Stripe refused the refund of ${amount}${said ? ` (${said})` : ""}. Nothing was given back. You can try again.`);
-  else if (outcome.status === "in_progress") back(`The refund of ${amount} is on its way: Stripe has accepted it and has not confirmed it yet. The app finishes it by itself.${outcome.afterCollection ? " What the host owes is worked out once it is confirmed." : ""}`);
-  else if (!outcome.afterCollection) back(`${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.`);
-  else back(`${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}; within a minute the app works out what the host owes and tells them. It is listed under "Money hosts owe back".`);
+  // A request's number belongs to one payment: a form sent again with another payment's number is not answered with
+  // that other refund's outcome.
+  if (outcome && outcome.paymentId !== paymentId) back("That form is no longer valid. Reload the page and try again.");
+  back(refundAnswer(outcome, "founder", said));
 }
