@@ -334,17 +334,23 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           const why = stripeErrorMessage(error);
           await failOwnedOperation(operation.id, { column: "paymentId", id: paymentId, lock: (tx) => lockPayment(tx, paymentId) }, why, (_payment, tx) => markRefundFailed(params.refundId, tx, why));
         } else if (operation.kind === "transfer") {
-          // A "no" to this repeat does not undo an earlier request that went through (the key's rights can have
-          // changed in between): Stripe's own list is asked first, and a transfer that is there is recorded.
+          // A "no" here (to this repeat, or to the look at Stripe's list) does not undo an earlier request that went
+          // through, and another sender's request may still be on its way. So the one rule of every search holds
+          // here too: a transfer that is on Stripe's list is recorded; "not there" lets the share go only when the
+          // search began 24 hours after the action was written down. Until then the action stays open. That costs
+          // the host nothing: her next collection is 24 hours after this one at the earliest.
+          const settled = Date.now() - operation.createdAt.getTime() >= SETTLED_AFTER_MS;
           const made = await transferMadeFor(paymentId, params).catch(() => null);
           if (made === null) {
             log(`unfinished transfer on payment ${paymentId} was refused by Stripe, and Stripe's list could not be read; looked at again`);
             continue;
           }
-          if (made !== undefined) {
-            const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
-            if (payment) await finishOperation(operation.id, paymentId, made, (p, tx) => applyTransferSent(p, params, made, tx));
-          } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
+          if (made !== undefined) await finishOperation(operation.id, paymentId, made, (p, tx) => applyTransferSent(p, params, made, tx));
+          else if (settled) await failOperation(operation.id, paymentId, stripeErrorMessage(error));
+          else {
+            log(`unfinished transfer on payment ${paymentId} was refused by Stripe and is not on Stripe's list; it stays open until no request can still be on its way`);
+            continue;
+          }
         } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
         // A refused charge usually means the hold is gone. Record the hold's real state.
         if (operation.kind === "capture") await syncHold(paymentId, now).catch(() => undefined);

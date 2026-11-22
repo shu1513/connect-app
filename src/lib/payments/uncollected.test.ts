@@ -59,18 +59,19 @@ describe("what the host is told", () => {
     expect(told.text).not.toContain("exchange rate");
     expect(told.text).not.toContain("Not sent");
     expect(told.text).not.toContain("Still being checked");
-    expect(told.text).not.toContain("shows how things stand now");
+    expect(told.text).not.toContain("shows what is yours to collect now");
   });
 
   it("names a share that did not go as not sent, and an unanswered one as still being checked, and promises nothing about either", () => {
     const told = uncollectedWords({ ...nothing, sent: "$12.38", notSent: "$12.38", checking: "$12.38" });
-    expect(told.text).toContain("Not sent: $12.38. It is still yours.");
-    expect(told.text).toContain("Still being checked: $12.38. We have no clear answer from Stripe for it yet. If it went through, it is in your Stripe payout account; if it did not, it is still yours.");
-    expect(told.text).toContain('"Your earnings" on your Hosting page shows how things stand now, and what you can collect.');
+    expect(told.text).toContain("Not sent in this collection: $12.38.");
+    expect(told.text).toContain("Still being checked: $12.38. We have no clear answer from Stripe for it yet. If it went through, it is in your Stripe payout account.");
+    expect(told.text).toContain('"Your earnings" on your Hosting page shows what is yours to collect now.');
     expect(told.text).not.toContain("The collection charge that was taken");
-    // Why it did not go is not always known, and whether it can be collected later is not ours to promise.
+    // Why it did not go is not always known, and what is hers by the time she reads this is not ours to promise.
     expect(told.text).not.toContain("refused");
     expect(told.text).not.toContain("stays ready");
+    expect(told.text).not.toContain("still yours");
   });
 
   it("names a collection charge whose share has no answer yet", () => {

@@ -239,6 +239,13 @@ export async function acceptCollection(input: CollectionInput): Promise<{ existi
   const notAsked = await countPairsOf(input.hostId, input.now ?? new Date());
 
   return db.transaction(async (tx) => {
+    if (input.openAccountOnly) {
+      // The person's row is held (shared) until this step ends: closing the account changes that row, so it
+      // either is seen here or waits until the collection is accepted. Taken before the host's collection row:
+      // person rows come first in the one order of locks (membership/locks.ts).
+      const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.hostId)).for("share");
+      if (!person || person.closedAt) throw new MoneyError(CLOSED_ACCOUNT);
+    }
     const [host] = await tx.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, input.hostId)).for("update");
     // The moment of acceptance is read here, with the host's row locked, not when the press arrived:
     // the 24 hours until the next collection are counted from it.
@@ -248,13 +255,6 @@ export async function acceptCollection(input: CollectionInput): Promise<{ existi
     if (same) {
       if (same.hostId !== input.hostId) throw new MoneyError(NOT_VALID);
       return { existing: true, started: [] };
-    }
-
-    if (input.openAccountOnly) {
-      // The person's row is held (shared) until this step ends: closing the account changes that row, so it
-      // either is seen here or waits until the collection is accepted.
-      const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.hostId)).for("share");
-      if (!person || person.closedAt) throw new MoneyError(CLOSED_ACCOUNT);
     }
 
     if (!host?.stripeAccountId || !host.payoutsReady) {
@@ -608,6 +608,22 @@ export async function lastCollectionThrough(reader: Reader, hostId: string): Pro
     .orderBy(desc(schema.collections.acceptedAt))
     .limit(1);
   return row?.acceptedAt ?? null;
+}
+
+/**
+ * Whether a collection of this host accepted since that moment has a share, for more than nothing, whose transfer
+ * has no answer yet. Such a collection may turn out to have gone through: until it is answered, nobody can say
+ * that she has not collected.
+ */
+export async function collectionUnansweredSince(reader: Reader, hostId: string, since: Date): Promise<boolean> {
+  const [row] = await reader
+    .select({ id: schema.collections.id })
+    .from(schema.collections)
+    .innerJoin(schema.collectionItems, eq(schema.collectionItems.collectionId, schema.collections.id))
+    .innerJoin(schema.moneyOperations, eq(schema.moneyOperations.id, schema.collectionItems.operationId))
+    .where(and(eq(schema.collections.hostId, hostId), gt(schema.collections.acceptedAt, since), gt(schema.collectionItems.amountCents, 0), eq(schema.moneyOperations.status, "started")))
+    .limit(1);
+  return Boolean(row);
 }
 
 /** When this host's latest collection of any kind was accepted: her 24 hours count from it. */

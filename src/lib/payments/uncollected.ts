@@ -28,7 +28,7 @@ import { tell } from "@/lib/messages/messages";
 import { HOME_COUNTRY } from "@/lib/profiles/countries";
 import { monthsBefore } from "@/lib/retention";
 import { formatMoney } from "./access";
-import { collectEarnings, hostsWithDatedShares, lastAcceptedAt, lastCollectionThrough, oldestDatedShare, viewOfCollection } from "./collect";
+import { collectEarnings, collectionUnansweredSince, hostsWithDatedShares, lastAcceptedAt, lastCollectionThrough, oldestDatedShare, viewOfCollection } from "./collect";
 import { getHostSettings } from "./hosts";
 import { MoneyError, type Tx } from "./operations";
 import { canCollectAgainAt } from "./rules";
@@ -48,13 +48,17 @@ export const TELL_ANYWAY_AFTER_MS = DAY_MS;
 
 const NOT_DUE = "She has collected in the last 12 months, or nothing that is ready has waited that long.";
 const TRY_OVER = "This try has already ended.";
+const NOT_ANSWERED = "A collection of hers from the last 12 months has no answer from Stripe yet. Until it has, nobody can say that she has not collected.";
+
+/** The same day and time, this many months later. A day the later month does not have becomes its last day. */
+const monthsAfter = (from: Date, months: number): Date => monthsBefore(from, -months);
+
+/** Whether a collection of hers from the last 12 months is still without its answer: it may yet turn out to have gone through. */
+const recentUnanswered = (reader: Reader, hostId: string, now: Date) => collectionUnansweredSince(reader, hostId, monthsBefore(now, UNCOLLECTED_MONTHS));
 
 type Reader = Pick<Tx, "select">;
 /** Only the check scripts pass this: only these hosts are looked at. */
 export type OnlyHosts = { hostIds: string[] };
-
-/** The same day and time, this many months later. A day the later month does not have becomes its last day. */
-const monthsAfter = (from: Date, months: number): Date => monthsBefore(from, -months);
 
 /**
  * Whether a host who has not collected since this moment is due: its anniversary, 12 months on, has passed.
@@ -90,6 +94,9 @@ export async function uncollectedSince(reader: Reader, hostId: string, now: Date
 async function mayCollect(tx: Tx, tryId: string, hostId: string, now: Date, ready: Payment[]): Promise<string | null> {
   const [tried] = await tx.select().from(schema.uncollectedTries).where(eq(schema.uncollectedTries.id, tryId)).for("update");
   if (!tried || tried.hostId !== hostId || tried.outcome !== null) return TRY_OVER;
+  // Her own press of yesterday may have gone through at Stripe with its answer lost: no second collection, and no
+  // second charge, on top of one that is not answered.
+  if (await recentUnanswered(tx, hostId, now)) return NOT_ANSWERED;
   // Her last collection that went through is read again here: the money helper may have finished one meanwhile.
   const oldestReady = ready.reduce<Date | null>((oldest, payment) => (payment.transferDueAt && (!oldest || payment.transferDueAt < oldest) ? payment.transferDueAt : oldest), null);
   const since = (await lastCollectionThrough(tx, hostId)) ?? oldestReady;
@@ -113,6 +120,9 @@ export async function claimTry(hostId: string, at?: Date): Promise<UncollectedTr
     if (!person || person.closedAt) return null;
     const since = await uncollectedSince(tx, hostId, now);
     if (!since || !uncollectedDue(since, now)) return null;
+    // A recent collection without its answer: no try is written, and the next round looks again (by then the
+    // money helper has usually found the answer).
+    if (await recentUnanswered(tx, hostId, now)) return null;
     // Within her 24 hours a collection would be refused. No try is written: the next round looks again.
     const again = canCollectAgainAt(await lastAcceptedAt(tx, hostId));
     if (again && now < again) return null;

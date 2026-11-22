@@ -660,11 +660,15 @@ Added with the yearly statement's new columns (plan 46, part 3a, step 2b, 22 Nov
 How it works since this change: when a host with an open account has not had a collection that
 went through for more than 12 months (or never had one, and her oldest ready share is more than
 12 months old), the app starts the collection for her. It is the same collection her own button
-makes: to her own Stripe payout account, with the 25-cent collection charge, and nothing is
-sent that a bank dispute, a refund on its way or a refund request holds back. She is told by
-email and in the app what was really sent. If nothing can be sent (her payout account is not
-ready, say), the app writes that down and tries again a week later, for as long as it lasts.
-A closed account is not touched; the founder's final collection is for it.
+makes: to her own Stripe payout account, with the collection charge (25 cents; less when the
+shares are very small), and nothing is sent that a bank dispute, a refund on its way or a
+refund request holds back. She is told once, by email and in the app, what was sent; if a
+transfer still has no clear answer a day later, she is told what is known by then, with that
+part named as still being checked. If nothing can be sent (her payout account is not ready,
+say), the app writes that down and tries again at its first daily round at least seven days
+later, for as long as it lasts. A collection is never started for a closed account (the
+founder's final collection is for it); one that was accepted while the account was open is
+finished, and its message written, also if the account is closed afterwards.
 
 - Is 12 months the right period (Host Agreement 7.7 as drafted says "[12]")?
 - The app does this today whether or not a Host Agreement has been published and accepted. The

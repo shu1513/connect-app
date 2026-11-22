@@ -135,11 +135,14 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
           </span>{" "}
           {collection.last.sentCents > 0 || collection.last.feeCents > 0
             ? `${formatMoney(collection.last.sentCents)} sent to your Stripe payout account${collection.last.feeCents > 0 ? `, after the ${formatMoney(collection.last.feeCents)} collection charge` : ""}.`
-            : collection.last.checkingCents > 0
+            : collection.last.unanswered > 0
               ? "Nothing is confirmed as sent yet."
               : "Nothing was sent, and no collection charge was taken."}
           {collection.last.checkingCents > 0 && ` ${formatMoney(collection.last.checkingCents)} is being checked.${collection.last.startedAs === "helper" ? "" : " You do not need to press again."}`}
-          {collection.last.refusedCents > 0 && ` ${formatMoney(collection.last.refusedCents)} could not be sent; it stays ready.`}
+          {/* A share that only carries the charge: nothing of it is "being checked" in cents, and the charge is not known yet. */}
+          {collection.last.checkingCents === 0 && collection.last.checkingFeeCents > 0 && ` The collection charge of ${formatMoney(collection.last.checkingFeeCents)} is still being checked.`}
+          {/* What is hers to collect now is in the lists above: a refund or a dispute can have changed a share since. */}
+          {collection.last.refusedCents > 0 && ` ${formatMoney(collection.last.refusedCents)} was not sent in this collection.`}
           {/* A collection the helper started, after 12 months without one (plans/46, part 3b). */}
           {collection.last.startedAs === "helper" && <span data-started-by-connect> {STARTED_BY_CONNECT}</span>}
           {/* Said once: beside the money that is ready when there is some, otherwise here. */}

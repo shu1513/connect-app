@@ -1044,7 +1044,7 @@ async function main() {
           check("while one transfer has no clear answer, she is not told yet", (await toldOf(h9)).length === 0);
           await followUp(new Date(N9.getTime() + DAY + MIN), h9);
           const [told9] = await toldOf(h9);
-          check("after a day she is told what is known: one sent, one not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Not sent: $12.38. It is still yours.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
+          check("after a day she is told what is known: one sent, one not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Not sent in this collection: $12.38.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
           await reconcileOperations(soon());
           await reconcileOperations(soon());
           await followUp(new Date(N9.getTime() + 2 * DAY), h9);
@@ -1074,6 +1074,25 @@ async function main() {
           await followUp(N11, h11);
           const [after11] = await triesOf(h11);
           check("one collection, one transfer, and the try says so", (await collectionsOf(h11)).length === 1 && (await sent(twice)).transfers.length === 1 && after11?.outcome === "collected" && (await toldOf(h11)).length === 1, `${after11?.outcome} ${after11?.reason}`);
+
+          console.log("   …her own collection of two days ago went through at Stripe, and its answer was lost");
+          const h14 = await freshHost();
+          const first14 = await chargedCall(h14);
+          const T14 = await readyAt(first14);
+          await press(h14, T14); // her last collection that went through: more than 12 months before what follows
+          const unheard = await chargedCall(h14);
+          const later = await chargedCall(h14);
+          const N14 = yearAfter(new Date(Math.max(T14.getTime(), (await readyAt(unheard, later)).getTime())));
+          // The third share becomes ready only a day before the helper's round, after her own press.
+          await db.update(schema.payments).set({ transferDueAt: new Date(N14.getTime() - DAY) }).where(eq(schema.payments.id, later.payment.id));
+          const own14 = await acceptCollection({ collectionId: randomUUID(), hostId: h14, startedBy: h14, now: new Date(N14.getTime() - 2 * DAY) });
+          await transferAtStripe(await reload(own14.started[0].paymentId), own14.started[0].params, own14.started[0].label); // Stripe did it; the answer never came back
+          await round(N14, h14);
+          check("while her own collection has no answer, the helper starts nothing: no try, no second collection, no second charge", own14.started.length === 1 && (await triesOf(h14)).length === 0 && (await collectionsOf(h14)).length === 2 && (await sent(later)).transfers.length === 0, `${own14.started.length} ${(await triesOf(h14)).length} ${(await collectionsOf(h14)).length}`);
+          await reconcileOperations(soon());
+          await reconcileOperations(soon());
+          await round(new Date(N14.getTime() + DAY), h14);
+          check("once the answer is found, she has collected two days ago: the helper leaves her alone", (await sent(unheard)).status === "sent" && (await triesOf(h14)).length === 0 && (await collectionsOf(h14)).length === 2 && (await sent(later)).status === "not_due");
 
           console.log("   …a share that only carries the charge and has no answer yet");
           const h13 = await freshHost();

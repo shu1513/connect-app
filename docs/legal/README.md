@@ -174,7 +174,7 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 11 | Tax details from hosts and the yearly reports | No code: Stripe's tools on the company's own Stripe account. See `docs/research/tax-forms-for-hosts.md`. A yearly statement a host can download is **built** (plan 46, part 5); it is a summary, not a tax form. |
 | 12 | Refunds by Connect in the host's place, also after she collected | **Built for a call's payment** (part 3a, steps 1 and 2a): the founder refunds from a page of their own, names the ground, and the host then owes what her share lost; it is taken back through Stripe after 14 days' written notice, and she can object. Under a draft agreement it is written down and told, and never taken by the app. A contribution or a tip refunded after collection stays Connect's own cost, as before (left out on purpose; see the plan). |
 | 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
-| 14 | Sending earnings not collected for 12 months | **Built** (part 3b): the helper starts the host's own collection for her, with the same charge and the same rules, tries again a week later when nothing could be sent, tells her what really went, and never touches a closed account. |
+| 14 | Sending earnings not collected for 12 months | **Built** (part 3b): the helper starts the host's own collection for her, with the same charge and the same rules, tries again no sooner than a week later when nothing could be sent, tells her once what went (and what is still being checked), and never starts one for a closed account. |
 
 **To carry into the first published version** (a merged version is never edited, so these wait
 for the next one):

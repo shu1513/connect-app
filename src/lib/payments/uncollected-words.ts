@@ -3,11 +3,12 @@
  * collected for 12 months (plans/46-part-3-money-owed.md, decision 12). Plain functions, so every
  * sentence is tested.
  *
- * The rule for these: only what is known. What was sent is what Stripe confirmed. A share that did
- * not go is named as not sent, without a reason the record may not hold (Stripe may have refused
- * it, or the request may never have left). A share with no clear answer yet is named as still being
- * checked, and never as sent. What she can collect afterwards is never promised: something else
- * can hold a share back by then, and her Hosting page shows how it stands.
+ * The rule for these: only what is known, about this collection. What was sent is what Stripe
+ * confirmed. A share that did not go is named as not sent in this collection, without a reason the
+ * record may not hold (Stripe may have refused it, or the request may never have left). A share
+ * with no clear answer yet is named as still being checked, and never as sent. Nothing is said
+ * about what is hers afterwards: a refund or a bank dispute can change a share by the time she
+ * reads this, and her Hosting page shows how it stands.
  */
 
 export type UncollectedFacts = {
@@ -37,15 +38,15 @@ export function uncollectedWords(facts: UncollectedFacts): { subject: string; te
     if (facts.charge) lines.push(`The collection charge that was taken: ${facts.charge}. The amount above is what was sent after it.`);
   } else if (open) lines.push("Nothing is confirmed as sent yet.");
   else lines.push("Nothing was sent, and no collection charge was taken.");
-  if (facts.notSent) lines.push(`Not sent: ${facts.notSent}. It is still yours.`);
+  if (facts.notSent) lines.push(`Not sent in this collection: ${facts.notSent}.`);
   if (facts.checking) {
     lines.push(
-      `Still being checked: ${facts.checking}${facts.checkingCharge ? `, with a collection charge of ${facts.checkingCharge}` : ""}. We have no clear answer from Stripe for it yet. If it went through, it is in your Stripe payout account; if it did not, it is still yours.`,
+      `Still being checked: ${facts.checking}${facts.checkingCharge ? `, with a collection charge of ${facts.checkingCharge}` : ""}. We have no clear answer from Stripe for it yet. If it went through, it is in your Stripe payout account.`,
     );
   } else if (facts.checkingCharge) {
     lines.push(`Still being checked: a collection charge of ${facts.checkingCharge}. We do not know yet whether it is taken.`);
   }
-  if (facts.notSent || open) lines.push('"Your earnings" on your Hosting page shows how things stand now, and what you can collect.');
+  if (facts.notSent || open) lines.push('"Your earnings" on your Hosting page shows what is yours to collect now.');
   if (facts.sent || facts.checking) {
     lines.push(
       "",

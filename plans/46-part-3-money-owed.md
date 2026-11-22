@@ -1276,3 +1276,41 @@ Astra read the first build and said "hold the merge", with nine points. All nine
 
 New cases in the real check for 3, 5 and 6. Points 1 and 2 need two processes at the same
 instant and are not played by the script; they were checked by reading.
+
+### Astra's second look at the code of part 3b, and what was done
+
+Astra read the fixes and held the merge once more, with five points. It found points 1, 4, 5,
+6, 7 and 8 of its first list closed.
+
+1. **The recovery of a transfer, again: a "no" to a repeated request** was taken as final at
+   once when Stripe's list showed nothing, although another sender's request could still be on
+   its way. Now one rule holds for every search: a transfer that is on the list is recorded;
+   "not there" lets the share go only when the search began 24 hours after the action was
+   written down. Until then the action stays open. That costs the host nothing: her next
+   collection is 24 hours after this one at the earliest.
+   **Left as it is, on the builder's own judgment:** a "no" that comes back to the *first*
+   sender (the press itself, within seconds of the acceptance) still ends the transfer at
+   once. For that to go wrong, two processes would have to hold different rights at Stripe in
+   the same seconds, and one of them be refused what the other is granted, under one
+   idempotency key. Making every refused share wait a day would also change what the host
+   sees after an ordinary refusal. The same kind of point was left open in step 2a.
+2. **A collection of the last days whose answer was lost** did not count as "collected", so
+   the helper could start a second collection, with a second charge, on top of it. Now a
+   collection of the last 12 months with an unanswered transfer (for more than nothing) stops
+   the helper: no try is written, and the accepting step refuses too.
+3. **The migration was rewritten in place** (same number, new content). That is only safe
+   because the first 0062 was never pushed: it was applied to the one local test database,
+   taken out by hand there, and the new one applied. Nothing to change.
+4. **Words:** "It is still yours" can be untrue by the time she reads it (a refund can take a
+   share away). The message now says "Not sent in this collection" and points to "Your
+   earnings" for what is hers to collect. Her Hosting page says the same ("was not sent in
+   this collection", no longer "it stays ready"), and names a charge that is still being
+   checked.
+5. **The documents promised a little more than the helper does.** Made exact: the next try is
+   at the first daily round at least seven days later, if she still seems due; a collection
+   accepted while the account was open is finished, and its message written, also if the
+   account is closed afterwards; after a day she can be told amounts that are not final, and
+   she is told once; the charge is 25 cents or, for very small shares, less.
+
+A new case in the real check for point 2. No third look was asked for: the two points about
+money are closed by a rule that is the same as the refund's, which had five looks.
