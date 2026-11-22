@@ -42,22 +42,23 @@ export const OPEN: readonly string[] = ["told", "objected", "answered"];
 /**
  * The day from which a take-back is taken, or null while there is none (plans/46-part-3-money-owed.md, decision 6).
  *
- *   - Never without proof that the notice email really went out: `noticeSentAt` is the moment the sending service
- *     accepted it, and is empty while it waits, failed or bounced.
- *   - 14 days after that moment.
+ *   - Never without proof that the notice email arrived: `noticeArrivedAt` is the moment it had been sent AND reported
+ *     as delivered (the later of the two), and is empty while it waits, failed, bounced or is unconfirmed.
+ *   - 14 days after that moment. So never less than 14 days after it was sent, which is what the notice says, and
+ *     never less than 14 days after it reached her.
  *   - Never earlier than a day an earlier notice named (`promisedAt`: a take-back from before this rule, or the first
  *     day this one was given).
- *   - After an objection the founder answered: also never earlier than 3 days after that answer really went out, and
- *     none at all while the answer has not gone out. An objection can only make the day later, never earlier.
+ *   - After an objection the founder answered: also never earlier than 3 days after that answer arrived, and none at
+ *     all while the answer has not arrived. An objection can only make the day later, never earlier.
  *   - None while the host's objection is open, or once it is being taken, taken or called off.
  */
-export function dueDay(input: { status: string; promisedAt: Date | null; noticeSentAt: Date | null; answerSentAt: Date | null }): Date | null {
-  if (!TAKEABLE.includes(input.status) || input.noticeSentAt === null) return null;
-  let due = input.noticeSentAt.getTime() + NOTICE_MS;
+export function dueDay(input: { status: string; promisedAt: Date | null; noticeArrivedAt: Date | null; answerArrivedAt: Date | null }): Date | null {
+  if (!TAKEABLE.includes(input.status) || input.noticeArrivedAt === null) return null;
+  let due = input.noticeArrivedAt.getTime() + NOTICE_MS;
   if (input.promisedAt !== null) due = Math.max(due, input.promisedAt.getTime());
   if (input.status === "answered") {
-    if (input.answerSentAt === null) return null;
-    due = Math.max(due, input.answerSentAt.getTime() + AFTER_ANSWER_MS);
+    if (input.answerArrivedAt === null) return null;
+    due = Math.max(due, input.answerArrivedAt.getTime() + AFTER_ANSWER_MS);
   }
   return new Date(due);
 }

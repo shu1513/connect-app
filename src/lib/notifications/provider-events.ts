@@ -17,8 +17,8 @@ import { db, schema } from "@/db";
 import { lockPayment } from "@/lib/payments/operations";
 
 /**
- * Records one report. False when no email with this number of the sending service is known yet: the report can
- * arrive before the app has saved that number, and the caller then asks the service to send the report again.
+ * Records one report. False when no email with this number of the sending service is known: the report can arrive a
+ * moment before the app has saved that number, so the caller looks again a few times before letting the report go.
  */
 export async function recordEmailEvent(providerId: string, kind: "delivered" | "bounced", note: string | null, now: Date = new Date()): Promise<boolean> {
   return db.transaction(async (tx) => {

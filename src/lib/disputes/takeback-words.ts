@@ -139,13 +139,17 @@ export function answeredWords(facts: DebtFacts, answer: string): Told {
   };
 }
 
-/** To the founder: the notice (or the answer to an objection) did not reach the host, so the take-back has no due day. */
+/**
+ * To the founder: the notice (or the answer to an objection) is not confirmed as having reached the host, so the
+ * take-back has no due day. It may have failed or bounced, or the sending service may simply never have said that it
+ * was delivered; `why` says which. So it never says that the email did not arrive, only that its arrival is not shown.
+ */
 export function notDeliveredWords(facts: DebtFacts, which: "notice" | "answer", why: string): Told {
   return {
-    subject: `A take-back is waiting: its ${which} did not reach ${facts.hostName}`,
+    subject: `A take-back is waiting: its ${which} is not confirmed as delivered to ${facts.hostName}`,
     text:
-      `The ${which === "notice" ? "notice about" : "answer to the objection against"} taking ${facts.amount} back from ${facts.hostName} (for ${facts.what}) could not be delivered by email: ${why}\n\n` +
-      `The days before it is taken count from that email really arriving, so nothing is taken while this is so. The message is on the host's Messages page in the app. On the dispute's page you can send it again (after the host has corrected their address, say), or call the take-back off.`,
+      `The ${which === "notice" ? "notice about" : "answer to the objection against"} taking ${facts.amount} back from ${facts.hostName} (for ${facts.what}) is not confirmed as delivered by email: ${why}\n\n` +
+      `The days before it is taken count from that email arriving, so nothing is taken while this is so. The message is on the host's Messages page in the app. On the dispute's page you can send it again (after the host has corrected their address, say), or call the take-back off.`,
   };
 }
 

@@ -791,3 +791,19 @@ are told to the founder under names of their own, and a notice sent again says "
 confirm that our first message reached you", since it may have. These four were made as Astra
 wrote them and not sent back a fifth time.
 
+**CodeRabbit's review of that step's pull request**: five points and a smaller remark, all
+taken.
+- **The days count from the arrival**: the later of "sent" and "reported as delivered", for the
+  notice's 14 days and for the answer's 3. So a report that comes a day after the sending gives
+  the host that day too, and it is never less than 14 days after the sending, which is what the
+  notice says. (Where this plan says "from the sending", this is now the rule.)
+- **A report about an email the app does not know is no longer refused.** Refusing again and
+  again can make the sending service switch the address off. The app looks a few times more
+  (the report can come a moment before the email's number is saved) and then lets it go. What is
+  lost is safe: with no report of delivery there is no day, the founder is told after two days,
+  and the notice is sent again.
+- The 30-day "it keeps trying" email reads the emails as they are at that moment.
+- The founder is told an email is "not confirmed as delivered", never that it did not arrive: it
+  may have.
+- Indexes for the two lookups a report makes.
+

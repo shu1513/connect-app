@@ -167,7 +167,12 @@ export const emailOutbox = pgTable(
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("email_outbox_to_idx").on(t.to, t.createdAt), index("email_outbox_due_idx").on(t.status, t.nextAttemptAt)],
+  (t) => [
+    index("email_outbox_to_idx").on(t.to, t.createdAt),
+    index("email_outbox_due_idx").on(t.status, t.nextAttemptAt),
+    // A report from the sending service names the email by the service's own number.
+    index("email_outbox_provider_idx").on(t.providerId),
+  ],
 );
 
 /** Addresses we must not write to again: the sending service told us they bounce or complained. */
@@ -2484,6 +2489,9 @@ export const hostDebts = pgTable(
     index("host_debts_payment_idx").on(t.paymentId),
     index("host_debts_host_idx").on(t.hostId),
     index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} in ('told', 'answered')`),
+    // A report about an email looks for the take-back whose notice or answer it is.
+    index("host_debts_notice_email_idx").on(t.noticeEmailId),
+    index("host_debts_answer_email_idx").on(t.answerEmailId),
     check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing')`),
     check("host_debts_amount", sql`${t.amountCents} >= 0`),
   ],

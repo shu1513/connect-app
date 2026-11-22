@@ -258,7 +258,7 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
 type Reader = Pick<typeof db, "select">;
 
 /**
- * What became of one email: the moment it was sent, counted only once it has really arrived, or why it has not.
+ * What became of one email: the moment it arrived (sent, and reported as delivered), or why it has not.
  * Both are empty while it is still on its way.
  *
  * "Arrived" is judged by this very email, not by its address: the sending service accepted it, reported it as
@@ -266,17 +266,19 @@ type Reader = Pick<typeof db, "select">;
  * service's reports cannot matter). An email from before those reports were kept has neither mark and so has not
  * arrived as far as the app can show: the founder sends it again.
  */
-async function deliveryOf(reader: Reader, emailId: string | null, now: Date): Promise<{ sentAt: Date | null; problem: string | null }> {
+async function deliveryOf(reader: Reader, emailId: string | null, now: Date): Promise<{ arrivedAt: Date | null; problem: string | null }> {
   const mail = schema.emailOutbox;
   const [email] = emailId ? await reader.select({ status: mail.status, sentAt: mail.sentAt, deliveredAt: mail.deliveredAt, bouncedAt: mail.bouncedAt, lastError: mail.lastError }).from(mail).where(eq(mail.id, emailId)) : [];
-  if (!email) return { sentAt: null, problem: "there is no email for it" };
-  if (email.bouncedAt) return { sentAt: null, problem: `it bounced${email.lastError ? ` (${email.lastError})` : ""}` };
-  if (email.status === "failed") return { sentAt: null, problem: email.lastError ?? "it could not be sent" };
-  if (email.status !== "sent") return { sentAt: null, problem: null };
-  if (!email.sentAt) return { sentAt: null, problem: "it is marked as sent, with no time of sending" };
-  if (email.deliveredAt) return { sentAt: email.sentAt, problem: null };
+  if (!email) return { arrivedAt: null, problem: "there is no email for it" };
+  if (email.bouncedAt) return { arrivedAt: null, problem: `it bounced${email.lastError ? ` (${email.lastError})` : ""}` };
+  if (email.status === "failed") return { arrivedAt: null, problem: email.lastError ?? "it could not be sent" };
+  if (email.status !== "sent") return { arrivedAt: null, problem: null };
+  if (!email.sentAt) return { arrivedAt: null, problem: "it is marked as sent, with no time of sending" };
+  // Arrived: sent, and reported as delivered. The days count from the later of the two moments, so a report that
+  // comes a day after the sending gives the host that day too.
+  if (email.deliveredAt) return { arrivedAt: new Date(Math.max(email.sentAt.getTime(), email.deliveredAt.getTime())), problem: null };
   // Sent, and the sending service has not said that it was delivered. For a while that is simply waiting.
-  return { sentAt: null, problem: now.getTime() - email.sentAt.getTime() > CONFIRM_WITHIN_MS ? "the sending service has not confirmed that it was delivered" : null };
+  return { arrivedAt: null, problem: now.getTime() - email.sentAt.getTime() > CONFIRM_WITHIN_MS ? "the sending service has not confirmed that it was delivered" : null };
 }
 
 /**
@@ -290,7 +292,7 @@ async function dayOf(reader: Reader, debt: HostDebt, now: Date, as: string = deb
   const problems: Array<{ which: "notice" | "answer"; emailId: string | null; problem: string }> = [];
   if (notice.problem) problems.push({ which: "notice", emailId: debt.noticeEmailId, problem: notice.problem });
   if (answer?.problem) problems.push({ which: "answer", emailId: debt.answerEmailId, problem: answer.problem });
-  return { day: dueDay({ status: as, promisedAt: debt.firstDueAt, noticeSentAt: notice.sentAt, answerSentAt: answer?.sentAt ?? null }), problems };
+  return { day: dueDay({ status: as, promisedAt: debt.firstDueAt, noticeArrivedAt: notice.arrivedAt, answerArrivedAt: answer?.arrivedAt ?? null }), problems };
 }
 
 /** The emails the founder has been told about, as kept on the row. */
@@ -678,6 +680,10 @@ async function tellOfRefusals(now: Date, only?: Only): Promise<void> {
         await lockPayment(tx, debt.paymentId);
         const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
         if (!fresh || !tellFounderOfRefusals(fresh, now)) return;
+        // "It keeps trying" is only true while it can be tried: the emails are read as they are now, not as the day
+        // on the row was worked out a moment ago (a bounce may have been recorded since).
+        const { day } = await dayOf(tx, fresh, now);
+        if (day === null || day.getTime() > now.getTime()) return;
         await tx.update(debts).set({ founderToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
         await tellFounders(tx, fresh, dispute, "refused", (facts) => refusedWords(facts, fresh.refusal));
       })

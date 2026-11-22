@@ -89,37 +89,37 @@ describe("when a take-back is asked of Stripe", () => {
 
 describe("the due day", () => {
   const sent = at("2027-03-01T10:00:00Z");
-  const told = { status: "told", promisedAt: null, noticeSentAt: sent, answerSentAt: null };
+  const told = { status: "told", promisedAt: null, noticeArrivedAt: sent, answerArrivedAt: null };
   it("is 14 days after the notice email was really sent", () => {
     expect(dueDay(told)?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
   });
 
   it("is none while the notice has not gone out, whatever else is known", () => {
-    expect(dueDay({ ...told, noticeSentAt: null })).toBeNull();
-    expect(dueDay({ ...told, noticeSentAt: null, promisedAt: at("2027-03-10T00:00:00Z") })).toBeNull();
-    expect(dueDay({ status: "answered", promisedAt: null, noticeSentAt: null, answerSentAt: at("2027-03-02T10:00:00Z") })).toBeNull();
+    expect(dueDay({ ...told, noticeArrivedAt: null })).toBeNull();
+    expect(dueDay({ ...told, noticeArrivedAt: null, promisedAt: at("2027-03-10T00:00:00Z") })).toBeNull();
+    expect(dueDay({ status: "answered", promisedAt: null, noticeArrivedAt: null, answerArrivedAt: at("2027-03-02T10:00:00Z") })).toBeNull();
   });
 
   it("is never earlier than a day an earlier notice named", () => {
     // A take-back from before this rule: its notice named 20 March; the email is confirmed as sent on 1 March.
     expect(dueDay({ ...told, promisedAt: at("2027-03-20T00:00:00Z") })?.toISOString()).toBe("2027-03-20T00:00:00.000Z");
     // Its email only went out on 12 March: 14 days from then, later than the day it named.
-    expect(dueDay({ ...told, promisedAt: at("2027-03-20T00:00:00Z"), noticeSentAt: at("2027-03-12T10:00:00Z") })?.toISOString()).toBe("2027-03-26T10:00:00.000Z");
+    expect(dueDay({ ...told, promisedAt: at("2027-03-20T00:00:00Z"), noticeArrivedAt: at("2027-03-12T10:00:00Z") })?.toISOString()).toBe("2027-03-26T10:00:00.000Z");
   });
 
   it("after an answered objection is also never earlier than 3 days after the answer was sent", () => {
-    const answered = { status: "answered", promisedAt: null, noticeSentAt: sent, answerSentAt: at("2027-03-05T10:00:00Z") };
+    const answered = { status: "answered", promisedAt: null, noticeArrivedAt: sent, answerArrivedAt: at("2027-03-05T10:00:00Z") };
     // Answered early: the notice's own 14 days still hold. An objection never brings the day forward.
     expect(dueDay(answered)?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
     // Objected and answered on the very first day: still 14 days from the notice, not 3 from the answer.
-    expect(dueDay({ ...answered, answerSentAt: sent })?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
+    expect(dueDay({ ...answered, answerArrivedAt: sent })?.toISOString()).toBe("2027-03-15T10:00:00.000Z");
     // Answered late: 3 days from the answer.
-    expect(dueDay({ ...answered, answerSentAt: at("2027-03-20T10:00:00Z") })?.toISOString()).toBe("2027-03-23T10:00:00.000Z");
+    expect(dueDay({ ...answered, answerArrivedAt: at("2027-03-20T10:00:00Z") })?.toISOString()).toBe("2027-03-23T10:00:00.000Z");
     expect(AFTER_ANSWER_MS).toBe(3 * 24 * 3_600_000);
   });
 
   it("is none while the answer has not gone out, and none while the objection is open or the take-back is over", () => {
-    expect(dueDay({ status: "answered", promisedAt: null, noticeSentAt: sent, answerSentAt: null })).toBeNull();
+    expect(dueDay({ status: "answered", promisedAt: null, noticeArrivedAt: sent, answerArrivedAt: null })).toBeNull();
     for (const status of ["objected", "taking", "taken", "cancelled", "nothing"]) expect(dueDay({ ...told, status })).toBeNull();
   });
 });

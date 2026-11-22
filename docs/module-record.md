@@ -5161,23 +5161,25 @@ first, and it changes how that existing way treats a host. Refunds come in the s
 
 **What was built** (decision 6 of that plan, and the lock of decision 4), for the debts there
 are today, all from lost bank disputes:
-- **The 14 days count from the notice email really going out**, not from the moment the app
-  wrote the debt down, **and there is a day only once that email has provably arrived**: the
-  sending service reported it as delivered, and never as bounced. One rule works the day out,
-  afresh on every pass, from the emails themselves: 14 days after the notice was sent; never
-  earlier than a day an earlier notice named; none while that email waits, failed, bounced, or
+- **The 14 days count from the notice email's arrival**, not from the moment the app wrote the
+  debt down, **and there is a day only once that email has provably arrived**: the sending
+  service reported it as delivered, and never as bounced. "Arrival" is the later of sent and
+  reported as delivered. One rule works the day out, afresh on every pass, from the emails
+  themselves: 14 days after the notice arrived; never earlier than a day an earlier notice
+  named; none while that email waits, failed, bounced, or
   was never reported as delivered. When there is no day because something is wrong, the founder
   is told once for that email, the host's pages say so, and the founder can send the notice
   again. The notice itself says "14 days after this message was sent to you by email"; her
   pages show the day once it is known.
 - **Delivered and bounced are recorded on the email they are about** (the sending service
   names it), in one place (`src/lib/notifications/provider-events.ts`), and never emptied
-  again, so the order of the service's reports cannot matter.
+  again, so the order of the service's reports cannot matter. A report about an email the app
+  does not know is looked for a few times and then let go.
 - **"I think this is wrong."** On the dispute's page a host can say why, while the take-back
   has only its notice. It is then "objected" and nothing is taken. The founder is told with her
   words and either calls it off or answers in writing and has it taken after all ("answered"):
   never earlier than its notice's own 14 days, and never earlier than 3 days after that answer
-  has gone out. She cannot object a second time in the app. The founder can also hold a
+  arrived. She cannot object a second time in the app. The founder can also hold a
   take-back for an objection that came by email; the notice says plainly that an email stops
   the taking only once a person has read it.
 - **The taking looks once more** at the emails, under its own lock, at the last moment; and a
@@ -5189,8 +5191,8 @@ are today, all from lost bank disputes:
 - **Take-backs from before this change wait for a fresh notice:** whether their old email
   arrived cannot be shown any more. The migration takes their day away; the founder is told and
   sends the notice again.
-- Migrations `0055_host_debt_notice`, `0056_email_bounced`, `0057_email_delivered` and
-  `0058_host_debt_fresh_notice`.
+- Migrations `0055_host_debt_notice`, `0056_email_bounced`, `0057_email_delivered`,
+  `0058_host_debt_fresh_notice` and `0059_email_report_indexes`.
 - **For going live:** the sending service's reports must be switched on (the webhook and its
   secret). Without them no notice is ever reported as delivered and no take-back is ever taken;
   the founder is told after two days.
@@ -5209,7 +5211,9 @@ the day right and asked for more certainty about bounces; that led to the strict
 (a day only after a report of delivery) and to "send it again". Its third look asked for
 three narrow things: the helper's repeat of an unanswered request decides under the lock,
 older take-backs wait for a fresh notice, and a notice sent again fits where the take-back
-stands. All three lists are in the plan.
+stands. A fourth look closed four small gaps. CodeRabbit then asked that the days count from
+the arrival and not from the sending, that an unknown report is not refused for ever, and three
+smaller things; all taken. Every list is in the plan.
 
 **How it was checked.** Type check, lint and the automatic tests (the rule of the due day, of
 objecting and answering, and every new sentence). The real script against Stripe's test mode,

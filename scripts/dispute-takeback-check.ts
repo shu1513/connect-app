@@ -482,7 +482,7 @@ async function main() {
       await passOnly(NOW, c.disputeId);
       debt = await debtOf(c.disputeId);
       const undelivered = await founderMail(debt.id, "undelivered:");
-      check("a notice that could not be sent leaves it without a day, and each admin is told once", debt.dueAt === null && debt.noticeProblemToldAt !== null && toldEachAdmin(undelivered) && undelivered.every((mail) => mail.body.includes("could not be delivered by email: 422 made up for this check") && mail.body.includes("nothing is taken while this is so")), `${undelivered.length}`);
+      check("a notice that could not be sent leaves it without a day, and each admin is told once", debt.dueAt === null && debt.noticeProblemToldAt !== null && toldEachAdmin(undelivered) && undelivered.every((mail) => mail.subject.includes("is not confirmed as delivered") && mail.body.includes("is not confirmed as delivered by email: 422 made up for this check") && mail.body.includes("nothing is taken while this is so")), `${undelivered.length}`);
 
       // It goes out after all, two days later. Accepted by the sending service is not yet arrived.
       const sentAt = new Date(NOW.getTime() + 2 * DAYS);
@@ -490,12 +490,14 @@ async function main() {
       await passOnly(NOW, c.disputeId);
       check("sent, and not yet reported as delivered: still no day", (await debtOf(c.disputeId)).dueAt === null && (await debtOf(c.disputeId)).noticeProblemToldAt === null);
       // The sending service's own report, through the same door the real reports come through.
-      check("a report about an email the app does not know is not accepted (the service sends it again later)", (await recordEmailEvent(`takebackcheck-${RUN}-unknown`, "delivered", null)) === false);
-      check("the sending service reports it as delivered", (await recordEmailEvent(`takebackcheck-${RUN}-a`, "delivered", null)) === true && (await mailRow(noticeId)).deliveredAt !== null);
+      check("a report about an email the app does not know records nothing", (await recordEmailEvent(`takebackcheck-${RUN}-unknown`, "delivered", null)) === false);
+      // Reported as delivered a day after it was sent: the days count from that arrival.
+      const arrivedAt = new Date(sentAt.getTime() + DAYS);
+      check("the sending service reports it as delivered, a day after the sending", (await recordEmailEvent(`takebackcheck-${RUN}-a`, "delivered", null, arrivedAt)) === true && (await mailRow(noticeId)).deliveredAt?.getTime() === arrivedAt.getTime());
       await passOnly(NOW, c.disputeId);
       debt = await debtOf(c.disputeId);
-      const firstDue = new Date(sentAt.getTime() + NOTICE_MS);
-      check("once the email has gone out, it is due 14 days after that moment, not after the row was written", debt.dueAt?.getTime() === firstDue.getTime() && debt.firstDueAt?.getTime() === firstDue.getTime() && debt.noticeProblemToldAt === null, `${debt.dueAt?.toISOString()}`);
+      const firstDue = new Date(arrivedAt.getTime() + NOTICE_MS);
+      check("it is due 14 days after it arrived: not after the row was written, and not after the sending alone", debt.dueAt?.getTime() === firstDue.getTime() && debt.firstDueAt?.getTime() === firstDue.getTime() && debt.noticeProblemToldAt === null, `${debt.dueAt?.toISOString()}`);
 
       // "I think this is wrong", a second before the day.
       check("somebody else cannot object to it", /not one of your take-backs/.test((await refused(objectToDebt({ debtId: debt.id, hostId: customerOfNobody.id, objection: "This is not mine to object to at all." }))) ?? ""));
@@ -519,11 +521,13 @@ async function main() {
       check("answered: the host has the answer in writing, and there is no day until that answer has gone out", debt.status === "answered" && debt.dueAt === null && debt.answerEmailId !== null && debt.answeredBy === admin && (await messagesOf(debt.id)).some((one) => one.key.includes(":answered:") && one.body.includes("The bank's decision stands whatever happened in the call.")));
       await passOnly(new Date(answeredAt.getTime() + 60 * DAYS), c.disputeId);
       check("and it is not taken while the answer has not gone out", (await debtOf(c.disputeId)).status === "answered" && (await debtOf(c.disputeId)).dueAt === null && (await transferAt(c.transferId)).amount_reversed === 0);
-      await setMail(debt.answerEmailId!, { status: "sent", sentAt: answeredAt, deliveredAt: answeredAt });
+      // The answer is sent at once and reported as delivered four days later: its 3 days count from the arrival.
+      const answerArrived = new Date(answeredAt.getTime() + 4 * DAYS);
+      await setMail(debt.answerEmailId!, { status: "sent", sentAt: answeredAt, deliveredAt: answerArrived });
       await passOnly(answeredAt, c.disputeId);
       debt = await debtOf(c.disputeId);
-      const dueAgain = new Date(answeredAt.getTime() + AFTER_ANSWER_MS);
-      check("its day is 3 days after the answer went out (the first day has passed by then)", debt.dueAt?.getTime() === dueAgain.getTime(), debt.dueAt?.toISOString());
+      const dueAgain = new Date(answerArrived.getTime() + AFTER_ANSWER_MS);
+      check("its day is 3 days after the answer arrived, not after it was sent (the first day has passed by then)", debt.dueAt?.getTime() === dueAgain.getTime(), debt.dueAt?.toISOString());
       check("an answered take-back cannot be objected to again in the app", /We have answered your objection/.test((await refused(objectToDebt({ debtId: debt.id, hostId: host.id, objection: "I still think that this is wrong, please look again." }))) ?? ""));
       await passOnly(new Date(dueAgain.getTime() - 1000), c.disputeId);
       check("a second before that day nothing is taken", (await transferAt(c.transferId)).amount_reversed === 0);
@@ -705,7 +709,7 @@ async function main() {
       await passOnly(NOW, waitingOne.disputeId);
       const unconfirmed = await founderMail(fifth.id, "undelivered:");
       check("an email the sending service never reported as delivered gives no day, and after two days each admin is told", (await debtOf(waitingOne.disputeId)).dueAt === null && toldEachAdmin(unconfirmed) && unconfirmed.every((mail) => mail.body.includes("has not confirmed that it was delivered")), `${unconfirmed.length}`);
-      await recordEmailEvent(`takebackcheck-${RUN}-e`, "delivered", null);
+      await recordEmailEvent(`takebackcheck-${RUN}-e`, "delivered", null, new Date(NOW.getTime() - 20 * DAYS));
       await passOnly(new Date(0), waitingOne.disputeId);
       check("once it is reported as delivered, an old take-back keeps the day its notice named as the earliest", (await debtOf(waitingOne.disputeId)).dueAt?.getTime() === NOW.getTime() - DAYS && (await debtOf(waitingOne.disputeId)).noticeProblemToldAt === null);
     }

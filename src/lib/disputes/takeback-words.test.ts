@@ -109,8 +109,8 @@ describe("an objection", () => {
 
   it("tells the founder when the notice or the answer did not reach the host, and that nothing is taken meanwhile", () => {
     const notice = all(notDeliveredWords(facts, "notice", "the address bounces (bounced (permanent))"));
-    expect(notice).toContain("A take-back is waiting: its notice did not reach Ana");
-    expect(notice).toContain("could not be delivered by email: the address bounces (bounced (permanent))");
+    expect(notice).toContain("A take-back is waiting: its notice is not confirmed as delivered to Ana");
+    expect(notice).toContain("is not confirmed as delivered by email: the address bounces (bounced (permanent))");
     expect(notice).toContain("nothing is taken while this is so");
     expect(notice).toContain("On the dispute's page you can send it again");
     expect(all(notDeliveredWords(facts, "answer", "it could not be sent"))).toContain("The answer to the objection against taking $12.38 back from Ana");
