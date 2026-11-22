@@ -27,9 +27,10 @@ export type Sums = {
   /** Refunds, in the month they were written into the books. */
   givenBackCents: number;
   /**
-   * What Connect carried itself of refunds given after the host had collected: a contribution's or a tip's refund at
-   * once (her share is not touched for those), and for a call what Connect waived of the share she owed back, in the
-   * month it was waived. With its sign: a waiver that is taken off the books again shows as a minus.
+   * What Connect carried itself after the host had collected: a contribution's or a tip's refund that Connect gave from
+   * its own money (her share is not touched for those), and what Connect waived of a share she owed back (after a
+   * refund of a call, or after a lost bank dispute), in the month it was waived. With its sign: a waiver that is taken
+   * off the books again (the bank decided for her after all, say) shows as a minus.
    */
   paidByConnectCents: number;
   /** Connect's fees, with their signs: a fee returned with a refund is taken off again. */
@@ -42,7 +43,8 @@ export type Sums = {
   sentCents: number;
   /**
    * What went back from her after it had been sent: taken back out of a transfer (after a lost bank dispute, or after a
-   * refund Connect gave once she had collected), or paid back by her outside the app. In the month it went back.
+   * refund Connect gave once she had collected), or paid back by her outside the app. In the month the line was
+   * written into the books, which can be later than the day the money moved.
    */
   takenBackCents: number;
   /** The collection charges really taken from those transfers. Already off "sent". */
@@ -73,7 +75,7 @@ function add(sums: Sums, line: StatementLine): void {
   } else if (line.kind === "host_share") sums.shareCents += line.amountCents;
   else if (line.kind === "host_transfer") sums.sentCents -= line.amountCents;
   // What went back from her (plans/46-part-3-money-owed.md, decision 8): taken back out of a transfer, or paid back
-  // by her outside the app. In a column of its own, in the month it went back: "Sent to you" stays what was sent,
+  // by her outside the app. In a column of its own, in the month it was written into the books: "Sent to you" stays what was sent,
   // so a share sent in December and taken back in January no longer makes January's "Sent to you" a minus.
   else if (line.kind === "host_takeback" || line.kind === "host_repaid") sums.takenBackCents += line.amountCents;
   else if (line.kind === "payout_fee") sums.collectionChargesCents += line.amountCents;
@@ -124,7 +126,7 @@ export const PAID_FOR: Record<Source, string> = { call: "Calls paid by card", me
 export function statementCsv(statement: Statement): string {
   const row = (label: string, sums: Sums) => [label, ...COLUMNS.map((column) => plainDollars(sums[column.key]))].join(",");
   return [
-    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. A payment a customer's bank took back in a dispute is not in 'Given back'. 'Sent to you' is what was sent; what went back from you afterwards (taken back out of a transfer, or paid back by you) is in 'Taken back or paid back', in the month it went back."`,
+    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. A payment a customer's bank took back in a dispute is not in 'Given back'. 'Sent to you' is what was sent; what went back from you afterwards (taken back out of a transfer, or paid back by you) is in 'Taken back or paid back', in the month Connect recorded it."`,
     ["Month", ...COLUMNS.map((column) => `"${column.title}"`)].join(","),
     ...statement.months.map((sums, index) => row(MONTH_NAMES[index], sums)),
     row(`Year ${statement.year}`, statement.total),

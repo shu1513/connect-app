@@ -594,7 +594,7 @@ Questions:
 
 ## 21. A refund by Connect after the host collected, and what she then owes (new, plan 46 part 3a, 21 November 2026)
 
-How it works since this change, for a call's payment (contributions and tips follow):
+How it works since this change, for a call's payment (for a contribution or a tip it is not built: see the end of this section):
 
 - Once a host has collected her share, **only Connect can refund the customer**. The founder
   names one of the grounds the Host Agreement gives for deciding in the host's place (sections
@@ -645,9 +645,12 @@ Questions:
 Added with the yearly statement's new columns (plan 46, part 3a, step 2b, 22 November 2026):
 
 - A **contribution or a tip** refunded by Connect after the host collected is still paid by
-  Connect itself, and nothing is asked back from the host (only a call's payment is). Is it
-  right that the Host Agreement lets Connect ask it back and Connect chooses not to, or should
-  the agreement say that for contributions and tips Connect carries it?
+  Connect itself: the host's share and Connect's fee stay as they were, and nothing is asked
+  back from the host (only a call's payment is treated the new way). The draft Host Agreement
+  (sections 6.5 and 8.5) says that a refund lowers the host's share and Connect's fee, so the
+  app does not do what the draft describes for these two. Should the agreement say that Connect
+  carries such a refund, or must the app change before the agreements are published? Such a
+  refund can be large.
 - The host's yearly summary now shows, apart from "Sent to you", what went back from her
   ("Taken back or paid back") and what Connect carried. It is a summary for her own records,
   not a tax form. Is that split the right one for her tax return in each country hosts are in?

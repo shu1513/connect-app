@@ -5381,16 +5381,26 @@ off "Sent to you", so a share sent in December and taken back in January made Ja
 to you" a minus, and a payment she made outside the app was not in it at all.
 
 **What was built.** "Sent to you" is what was sent. A new column, "Taken back or paid back",
-holds what went back from her, in the month it went back. "Of that, paid by Connect" is now
-"Carried by Connect": for a contribution or a tip the refund itself, for a call what Connect
-waived. On the page (`/host/statement`) and in the file. No migration.
+holds what went back from her, in the month Connect wrote it into its books. "Of that, paid
+by Connect" is now "Carried by Connect": a contribution's or a tip's refund that Connect gave
+from its own money, and what Connect waived of a share owed back after a call's refund or a
+lost bank dispute, with its sign. On the page (`/host/statement`) and in the file. No migration.
 
 **What was left out, and why (the builder's own judgment).** The plan also said that a
 contribution or a tip refunded after collection should make the host owe her share, like a
-call. That is not built: such a refund stays Connect's own cost, as before. It is the safe
-side for the agreements, it would mean building the take-back machinery a second time for the
-contributions' own kind of refund, and the call's side alone took five rounds of review. It
-is written at the end of the plan as a part of its own for the founder to decide.
+call. That is not built: such a refund stays Connect's own cost, as before. It asks nothing
+of a host, but it is not what the draft Host Agreement describes (a refund lowers her share and
+the fee), so it is a question for the lawyer. Building it would mean building the take-back
+machinery a second time for the contributions' own kind of refund, and the call's side alone
+took five rounds of review. Such a refund can be large. It is written at the end of the plan
+as a part of its own for the founder to decide.
+
+**What the reviewer found.** Astra found the sums right and asked for five corrections of
+words: "Carried by Connect" also holds what was waived after a lost bank dispute; the new
+column counts by the month Connect recorded a line, not the day the money moved; "a tip is
+small" was untrue; the draft agreement does describe a refund lowering the host's share; and
+the plan still said this step built contributions and tips. All taken, with a sentence on the
+page that the columns are a record of the year and not a balance.
 
 **How it was checked.** Type check, lint, the automatic tests (the sums for a call that is
 taken back, paid back, waived, and a waiver taken off again; the file's columns). The real

@@ -8,7 +8,7 @@ import { buildStatement, COLUMNS, plainDollars, readYear, statementCsv, type Sou
 const line = (kind: string, amountCents: number, at: string, source: Source = "call"): StatementLine => ({ kind, amountCents, at: new Date(at), source });
 
 describe("a host's yearly statement", () => {
-  it("keeps what was sent as it was, and shows what went back in a column of its own, in the month it went back", () => {
+  it("keeps what was sent as it was, and shows what went back in a column of its own, in the month it was recorded", () => {
     const s = buildStatement([line("host_transfer", -4435, "2026-03-20T09:00:00Z"), line("payout_fee", 25, "2026-03-20T09:00:00Z"), line("host_takeback", 4435, "2026-05-02T09:00:00Z")], 2026);
     expect(s.months[2].sentCents).toBe(4435);
     // May's "Sent to you" is not a minus: the money that went back is beside it.

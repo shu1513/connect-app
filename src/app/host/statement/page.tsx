@@ -114,8 +114,9 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Given back:</strong> refunds, in the month the refund was written into our books. A payment of December given back in January is in two different years.
         </li>
         <li>
-          <strong>Carried by Connect:</strong> what Connect paid itself of refunds given after you had collected your share. For a contribution or a tip that is the refund itself (your share was not touched). For a call
-          it is what Connect decided not to take back from you, in the month it decided so.
+          <strong>Carried by Connect:</strong> what Connect paid itself after you had collected your share. Two things are in it: a refund of a contribution or a tip that Connect gave from its own money (your share
+          was not touched), and what Connect decided not to take back from you of a share you owed back (after a refund of a call, or after a bank dispute that was lost), in the month it decided so. If Connect later takes such a
+          decision off its books again (the bank decided for you after all, say), that shows as a minus.
         </li>
         <li>
           <strong>Connect&apos;s fees:</strong> our fee on calls, memberships and contributions. A fee we returned with a refund is taken off again, so a month can show a minus.
@@ -124,14 +125,15 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Payment fees on tips:</strong> the card fee your customer paid on top of a tip. You got the tip whole.
         </li>
         <li>
-          <strong>Your share:</strong> what you earned. For a member&apos;s month it is counted as the calls happen, or when unused time runs out, so it can fall in a later month than the payment.
+          <strong>Your share:</strong> what you earned, after refunds. For a member&apos;s month it is counted as the calls happen, or when unused time runs out, so it can fall in a later month than the payment. A refund lowers
+          it, also when Connect then does not take the money back from you. These columns are a record of the year, not a balance: what is still owed to you, or by you, is on your Hosting page under &quot;Your earnings&quot;.
         </li>
         <li>
           <strong>Sent to you:</strong> what Connect sent to your payout account when you collected, after the collection charge. Nothing is taken off here for money that went back later.
         </li>
         <li>
-          <strong>Taken back or paid back:</strong> what went back from you after it had been sent, in the month it went back: a share taken back out of a transfer (after a lost bank dispute, or after a refund Connect gave once you had
-          collected), or what you paid back to Connect yourself.
+          <strong>Taken back or paid back:</strong> what went back from you after it had been sent: a share taken back out of a transfer (after a lost bank dispute, or after a refund Connect gave once you had collected), or what you
+          paid back to Connect yourself. It is counted in the month Connect wrote it into its books, which can be later than the day the money moved (a payment you made on 31 December and we recorded on 2 January is in January).
         </li>
         <li>
           <strong>Collection charges:</strong> the charge taken each time you collected. It is already off &quot;Sent to you&quot;.
