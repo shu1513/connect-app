@@ -1072,6 +1072,8 @@ export const refunds = pgTable(
     failedLateAt: timestamp("failed_late_at", { withTimezone: true }),
     /** Stripe says it failed after all, and the app could not undo its record at that moment (money was moving on the payment): the helper does it as soon as it can. */
     undoPendingAt: timestamp("undo_pending_at", { withTimezone: true }),
+    /** This refund, given before the host collected, failed after all: the part of her share it had kept from being sent, which she and the founder were told is owed to her. */
+    underpaidCents: integer("underpaid_cents").notNull().default(0),
   },
   (t) => [index("refunds_payment_idx").on(t.paymentId), index("refunds_debt_look_idx").on(t.finishedAt).where(sql`${t.afterCollection} and ${t.debtLookedAt} is null`)],
 );

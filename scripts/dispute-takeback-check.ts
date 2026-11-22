@@ -36,12 +36,12 @@ async function main() {
   const { createPaymentForCall, startHold, syncHold } = await import("../src/lib/payments/hold");
   const { settleOrdinaryCharges } = await import("../src/lib/payments/take");
   const { applyTransferSent, currentSplit, transferAtStripe } = await import("../src/lib/payments/actions");
-  const { startMoneyOperation } = await import("../src/lib/payments/operations");
+  const { MoneyError, runMoneyOperation, startMoneyOperation } = await import("../src/lib/payments/operations");
   const { reconcileOperations } = await import("../src/lib/payments/jobs");
   const { getHostSettings, refreshPayoutsReady } = await import("../src/lib/payments/hosts");
   const { handleStripeEvent } = await import("../src/lib/payments/stripe-events");
   const { lookAtOpenDisputes } = await import("../src/lib/disputes/record");
-  const { answerObjection, cancelDebt, countHandReversal, DebtError, handReversalsOpen, holdDebt, objectToDebt, reverseAtStripe, sendNoticeAgain, settleOutside, takeBackPass, takePlan, debtsOfDispute, debtsOfHost } = await import("../src/lib/disputes/takeback");
+  const { answerObjection, cancelDebt, countHandReversal, DebtError, holdDebt, objectToDebt, reverseAtStripe, sendNoticeAgain, settleOutside, takeBackPass, takePlan, debtsOfDispute, debtsOfHost } = await import("../src/lib/disputes/takeback");
   const { recordEmailEvent } = await import("../src/lib/notifications/provider-events");
   const { AFTER_ANSWER_MS, NOTICE_MS, RETRY_MS, TELL_FOUNDER_AFTER_MS } = await import("../src/lib/disputes/takeback-rules");
 
@@ -110,14 +110,15 @@ async function main() {
     await passOnly(new Date(0), ...disputeIds);
   };
   /**
-   * As the founder does it on the take-back's page: every reversal somebody made by hand on this take-back's transfer
-   * is marked as having nothing to do with a take-back. (While one is unaccounted for, the app takes nothing more
-   * from that transfer by itself; these checks want Stripe's own answer to the app's request.)
+   * The taking itself, without the helper's look before it. That look holds a take-back whose transfer has a reversal
+   * made by hand that nobody has accounted for; these checks want Stripe's own "no", as it comes when such a reversal
+   * is made in the moment between that look and the app's request. A refusal for a reason a person can read (not due,
+   * refused by Stripe) is the expected end and is not an error here.
    */
-  async function handReversalsAreOther(debt: { id: string; paymentId: string; stripeTransferId: string }) {
-    if (admins.length === 0) throw new Error("This check needs an admin (`npm run seed`).");
-    for (const one of await handReversalsOpen(debt)) await countHandReversal({ debtId: debt.id, adminId: admins[0].id, reversalId: one.id, as: "other" });
-  }
+  const takeDirect = (debt: { id: string; paymentId: string }, at: Date) =>
+    runMoneyOperation(takePlan(debt, at)).catch((error) => {
+      if (!(error instanceof MoneyError)) throw error;
+    });
   /** Makes an unanswered money action look older, as if the helper had been away. */
   const age = (operationId: string, ms: number) => db.update(schema.moneyOperations).set({ createdAt: new Date(Date.now() - ms) }).where(eq(schema.moneyOperations.id, operationId));
 
@@ -422,16 +423,15 @@ async function main() {
       await pass(debt.dueAt!, c.disputeId);
       const heldMail = (await emailsOf(debt.id)).filter((mail) => mail.dedupeKey?.includes(":hand:") && mail.dedupeKey.includes(":founder:"));
       check("a reversal made by hand that nobody has accounted for: the app asks Stripe for nothing, holds the take-back, and tells each admin once", (await debtOf(c.disputeId)).status === "told" && (await debtOf(c.disputeId)).handToldAt !== null && (await operationsOf(c.payment.id)).length === 0 && admins.length > 0 && heldMail.length === admins.length && heldMail.every((mail) => mail.body.includes("the same money could be taken twice")), `${heldMail.length}`);
-      await handReversalsAreOther(debt);
-      await pass(debt.dueAt!, c.disputeId);
+      await takeDirect(debt, debt.dueAt!);
       let row = await debtOf(c.disputeId);
       let operations = await operationsOf(c.payment.id);
       check("a clear \"no\" from Stripe: the action is marked as not done, and the row is back at its notice with what Stripe said", row.status === "told" && Boolean(row.refusal) && row.refusedAt !== null && row.firstRefusedAt !== null && operations.length === 1 && operations[0].status === "failed", `${row.status} ${row.refusal}`);
       // As if that refusal had come at the moment the notice ended.
       await db.update(debts).set({ refusedAt: debt.dueAt!, firstRefusedAt: debt.dueAt! }).where(eq(debts.id, debt.id));
-      await pass(new Date(debt.dueAt!.getTime() + RETRY_MS - 1000), c.disputeId);
+      await takeDirect(debt, new Date(debt.dueAt!.getTime() + RETRY_MS - 1000));
       check("it is not tried again within a day", (await operationsOf(c.payment.id)).length === 1);
-      await pass(new Date(debt.dueAt!.getTime() + RETRY_MS), c.disputeId);
+      await takeDirect(debt, new Date(debt.dueAt!.getTime() + RETRY_MS));
       row = await debtOf(c.disputeId);
       operations = await operationsOf(c.payment.id);
       check("a day later it is tried again, under a new label, and is back at its notice once more", operations.length === 2 && operations[1].label === `takeback:${debt.id}:2` && operations[1].status === "failed" && row.status === "told", `${operations.length} ${row.status}`);
@@ -629,8 +629,7 @@ async function main() {
       check("an objection answered early does not bring the day forward: it stays the notice's own day", second.status === "answered" && second.dueAt?.getTime() === itsDay.getTime(), second.dueAt?.toISOString());
       // Stripe refuses the reversal (somebody took the whole transfer back by hand): through the money action, as it really goes.
       await stripe().transfers.createReversal(early.transferId, { amount: early.sentCents });
-      await handReversalsAreOther(second);
-      await passOnly(itsDay, early.disputeId);
+      await takeDirect(second, itsDay);
       second = await debtOf(early.disputeId);
       const itsOperations = await operationsOf(early.payment.id);
       check("a reversal Stripe refuses puts an answered take-back back to answered, not to told, with the refusal noted", second.status === "answered" && Boolean(second.refusal) && second.refusedAt !== null && itsOperations.length === 1 && itsOperations[0].status === "failed", `${second.status} ${itsOperations.map((one) => one.status)}`);

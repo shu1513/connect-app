@@ -94,9 +94,21 @@ export async function refundAction(formData: FormData) {
       notice = to === "free" ? "The time was given back. It is in the member's membership again." : "The time was given back. Its money will be paid back to the member's card.";
     } else {
       await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-      // What really came of it, read from what was written down: sent, still on its way, or refused by Stripe.
-      const outcome = await refundOutcome(requestId);
-      notice = outcome && outcome.paymentId !== paymentId ? "That form is no longer valid. Reload the page and try again." : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host");
+      // What really came of it, read from what was written down: sent, still on its way, or refused by Stripe. If
+      // that cannot be read just now, it is not known, and "nothing was changed, try again" would be untrue.
+      const read = await refundOutcome(requestId).then(
+        (found) => ({ outcome: found }),
+        (error) => {
+          console.error("[payments] what came of a refund could not be read", error);
+          return null;
+        },
+      );
+      const outcome = read?.outcome ?? null;
+      notice = !read
+        ? "The refund was asked for, and what came of it could not be read just now. Look at the payment before you try again: it may have gone through."
+        : outcome && outcome.paymentId !== paymentId
+          ? "That form is no longer valid. Reload the page and try again."
+          : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host");
       // For the admin record: the amount that was written down, and where it stands.
       if (outcome && outcome.paymentId === paymentId) recorded = `$${(outcome.amountCents / 100).toFixed(2)} (${outcome.status === "done" ? "given back" : outcome.status === "in_progress" ? "on its way" : "refused by Stripe"})`;
     }

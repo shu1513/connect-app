@@ -97,7 +97,7 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                     <p className="rounded border border-neutral-400 p-2" data-refund-estimate>
                       <strong>The host has collected this share.</strong> The customer is paid back from Connect&apos;s money.{" "}
                       {estimate.hostOwesCents > 0
-                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (less for a part, and never more than is left of the ${formatMoney(estimate.sentCents)} that was sent to them). The host is told, with your reason, and can object before anything is taken.`
+                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (less for a part, and never more than is left of the ${formatMoney(estimate.sentCents)} that was sent to them). If the host then owes something, they are told, with your reason, and can object before anything is taken.`
                         : estimate.sentCents <= 0
                           ? "Nothing was sent to the host for this share (the charge for collecting used it up), so the host will owe nothing: Connect carries this refund."
                           : one.reductionsCents >= estimate.sentCents

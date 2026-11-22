@@ -113,8 +113,23 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             </p>
             <p className="mt-2" data-debt-how>
               {asHost ? "Your" : "The host's"} share of that payment was {formatMoney(refund.shareBeforeCents ?? 0)} before this refund and is {formatMoney(refund.shareAfterCents ?? 0)} after it.{" "}
-              {asHost ? "What you owe back: " : "What the host owes back: "}
-              <span className="font-medium">{formatMoney(debt.amountCents)}</span>.
+              {/* One label for each state: what is owed now, what was written before the refund fell away, what was paid. */}
+              {fellAway
+                ? "What had been written as owed back: "
+                : debt.status === "taken" || debt.status === "settled"
+                  ? asHost
+                    ? "What you owed back: "
+                    : "What the host owed back: "
+                  : debt.status === "cancelled"
+                    ? "What had been written as owed back: "
+                    : debt.byHandCents > 0
+                      ? asHost
+                        ? "What you still owe back: "
+                        : "What the host still owes back: "
+                      : asHost
+                        ? "What you owe back: "
+                        : "What the host owes back: "}
+              <span className="font-medium">{formatMoney(fellAway || debt.status === "taken" ? debt.amountCents + debt.byHandCents : debt.amountCents)}</span>.
               {cutShort && " (It is less than the difference: no more than that is left of what was really sent for this payment.)"}
             </p>
           </>
@@ -129,7 +144,9 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
         )}
         {debt.byHandCents > 0 && (
           <p className="mt-2" data-by-hand>
-            {formatMoney(debt.byHandCents)} more was owed and has been taken already, by a reversal a person at Connect made at Stripe.
+            {fellAway || debt.status === "taken"
+              ? `Of that, ${formatMoney(debt.byHandCents)} was taken by a reversal a person at Connect made at Stripe.`
+              : `${formatMoney(debt.byHandCents)} more was owed and has been taken already, by a reversal a person at Connect made at Stripe.`}
           </p>
         )}
         {debt.overpaidCents > 0 && (
@@ -240,33 +257,29 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             <p className="mt-1 opacity-80">
               {reserved
                 ? "Say for each what it was for. One that paid this take-back is counted for it, up to what is still owed, and only the rest stays owed. A part of a reversal that is left over stays here until you have said what that part was for; the app takes nothing from this transfer meanwhile."
-                : "This take-back has ended. If a reversal below was meant for it, the host has paid twice: say so, and the host is told that the money is owed back to them."}
+                : "This take-back has ended. If a reversal below, or a part of it, was taken for it all the same, that money is owed back to the host: say so, and the host is told."}
             </p>
             <ul className="mt-2 space-y-3">
               {byHand.map((one) => (
                 <li key={one.id} data-hand-reversal={one.id}>
                   {formatMoney(one.openCents)}
                   {one.openCents < one.amountCents ? ` (what is left of a reversal of ${formatMoney(one.amountCents)})` : ""}, made <LocalTime iso={one.at.toISOString()} />
-                  <span className="flex flex-wrap gap-2 pt-1">
-                    <form action={countReversalAction}>
-                      <input type="hidden" name="debt" value={debt.id} />
-                      <input type="hidden" name="reversal" value={one.id} />
-                      <input type="hidden" name="for" value={reserved ? "paid" : "twice"} />
-                      {view}
-                      <button type="submit" className={button}>
-                        {reserved ? `It paid this take-back${one.openCents > debt.amountCents ? ` (${formatMoney(debt.amountCents)} of it)` : ""}` : "It was meant for this take-back: the host has paid twice"}
-                      </button>
-                    </form>
-                    <form action={countReversalAction}>
-                      <input type="hidden" name="debt" value={debt.id} />
-                      <input type="hidden" name="reversal" value={one.id} />
-                      <input type="hidden" name="for" value="other" />
-                      {view}
-                      <button type="submit" className={button}>
-                        It had nothing to do with a take-back
-                      </button>
-                    </form>
-                  </span>
+                  <form action={countReversalAction} className="flex flex-wrap items-end gap-2 pt-1">
+                    <input type="hidden" name="debt" value={debt.id} />
+                    <input type="hidden" name="reversal" value={one.id} />
+                    {view}
+                    <label className="block">
+                      The part of it, in dollars
+                      {/* What fits: all that is open of the reversal; for a take-back that is still open, no more than it still owes. */}
+                      <input type="text" name="part" inputMode="decimal" required pattern="\d{1,7}(\.\d{1,2})?" defaultValue={((reserved ? Math.min(one.openCents, debt.amountCents) : one.openCents) / 100).toFixed(2)} className="mt-1 block w-28 rounded border border-neutral-400 p-2" />
+                    </label>
+                    <button type="submit" name="for" value={reserved ? "paid" : "twice"} className={button}>
+                      {reserved ? "It paid this take-back" : debt.status === "cancelled" ? "It was taken for this take-back, after it was called off" : "It was meant for this take-back: the host has paid twice"}
+                    </button>
+                    <button type="submit" name="for" value="other" className={button}>
+                      It had nothing to do with a take-back
+                    </button>
+                  </form>
                 </li>
               ))}
             </ul>

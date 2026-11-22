@@ -1,5 +1,5 @@
 {
-  "id": "1e90392c-84d7-456a-b4f2-a2628ec418c1",
+  "id": "cd516a0b-d7f2-464b-b810-5cb75b819b25",
   "prevId": "6d0cc1e2-af19-4646-9e22-d6783c8d03a2",
   "version": "7",
   "dialect": "postgresql",
@@ -9087,6 +9087,13 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "underpaid_cents": {
+          "name": "underpaid_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {

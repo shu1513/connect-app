@@ -209,7 +209,7 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
         if (canRepeat()) {
           try {
             const replayed = await stripe().refunds.create(
-              { payment_intent: payment.stripePaymentIntentId!, amount: params.amountCents, metadata: { paymentId: payment.id, refundId: params.refundId } },
+              { payment_intent: params.intentId ?? payment.stripePaymentIntentId!, amount: params.amountCents, metadata: { paymentId: payment.id, refundId: params.refundId } },
               { idempotencyKey: operation.label },
             );
             // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
@@ -228,7 +228,8 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           // next pass, so one long list never holds every other action up.
           const until = Date.now() + SEARCH_WITHIN_MS;
           await lookUp(async () => {
-            for await (const one of stripe().refunds.list({ payment_intent: payment.stripePaymentIntentId!, limit: 100 })) {
+            // (Each page has its own limit of time too: a page that does not come is not waited for.)
+            for await (const one of stripe().refunds.list({ payment_intent: payment.stripePaymentIntentId!, limit: 100 }, { timeout: SEARCH_WITHIN_MS })) {
               if (one.metadata?.refundId === params.refundId) {
                 refund = one;
                 break;
@@ -324,7 +325,10 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           await applyRefundDone(payment, refund.id, latest.id, tx);
         });
       } else if (latest.status === "failed" || latest.status === "canceled") {
-        await db.transaction((tx) => markRefundFailed(refund.id, tx, latest.failure_reason ?? `Stripe says: ${latest.status}`));
+        // With the payment held, by what the refund's line says at that moment (it may have been confirmed
+        // meanwhile by another look that read "paid" a moment earlier: then it is undone, not left as paid).
+        const { refundFailedAtStripe } = await import("@/lib/disputes/takeback");
+        await refundFailedAtStripe(refund.id, latest.failure_reason ?? `Stripe says: ${latest.status}`, now);
       }
     } catch (error) {
       log(`could not check refund ${refund.id}; will retry`, error);

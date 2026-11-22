@@ -311,7 +311,7 @@ export async function releasePayment(input: { paymentId: string; note: string } 
 // ---------------------------------------------------------------------------
 
 /** `sendByMs`: the last moment the request may first be sent to Stripe by the one who wrote it down (see refundPlan). */
-export type RefundParams = { refundId: string; amountCents: number; sendByMs?: number };
+export type RefundParams = { refundId: string; amountCents: number; sendByMs?: number; /** The charge's PaymentIntent at Stripe, kept with the action so that sending needs no further look into the database. */ intentId?: string };
 type RefundResult = { status: string | null; failure?: string | null };
 export type RefundInput = {
   paymentId: string;
@@ -404,11 +404,16 @@ export async function refundPayment(input: RefundInput): Promise<void> {
  * The steps of one refund, as a money action: written down, asked of Stripe, recorded. (Exported so that a check can
  * stop between the steps, as a helper that dies does.)
  *
- * The one who writes it down sends it to Stripe at once, and never later than half the time the helper leaves an
- * unfinished action alone. So when the helper looks, the first request has either reached Stripe or was never sent:
- * a clear "no" to the helper's repeat, with Stripe's own list of the charge's refunds showing nothing, then really
- * means that it did not happen.
+ * The one who writes it down sends it to Stripe at once: one request, begun no later than half the time the helper
+ * leaves an unfinished action alone (REFUND_SEND_WITHIN_MS), and given up after REFUND_SEND_TIMEOUT_MS. The clock is
+ * read as the very last thing before the request leaves, with nothing awaited in between. Together the two are
+ * shorter than the time before the helper first looks. So when the helper looks, the writer's request has either
+ * reached Stripe or will never be sent: a clear "no" to the helper's own repeat, with Stripe's complete list of the
+ * charge's refunds showing nothing, then really means that it did not happen. (A writer that is too late leaves the
+ * action to the helper, which sends it under the same label.)
  */
+const REFUND_SEND_WITHIN_MS = RECONCILE_AFTER_MS / 2;
+const REFUND_SEND_TIMEOUT_MS = RECONCILE_AFTER_MS / 3;
 export function refundPlan(input: RefundInput, refundId: string): OperationPlan<RefundParams, RefundResult> {
   return {
     paymentId: input.paymentId,
@@ -443,18 +448,21 @@ export function refundPlan(input: RefundInput, refundId: string): OperationPlan<
         reason: input.reason,
         afterCollection: collected,
       });
-      return { refundId, amountCents: input.amountCents, sendByMs: Date.now() + RECONCILE_AFTER_MS / 2 };
+      if (!payment.stripePaymentIntentId) throw new MoneyError("This payment has nothing to refund from.");
+      return { refundId, amountCents: input.amountCents, sendByMs: Date.now() + REFUND_SEND_WITHIN_MS, intentId: payment.stripePaymentIntentId };
     },
     execute: async (params, label) => {
+      // (An action written down before the PaymentIntent was kept with it is looked up, before the clock is read.)
+      const intentId = params.intentId ?? (await paymentById(input.paymentId))[0].stripePaymentIntentId!;
       if (params.sendByMs !== undefined && Date.now() > params.sendByMs) throw new NotSentError("The refund was not sent to Stripe in time, so it was not sent. Nothing was given back; please try again.");
-      const [payment] = await paymentById(input.paymentId);
       const refund = await stripe().refunds.create(
         {
-          payment_intent: payment.stripePaymentIntentId!,
+          payment_intent: intentId,
           amount: params.amountCents,
-          metadata: { paymentId: payment.id, refundId: params.refundId },
+          metadata: { paymentId: input.paymentId, refundId: params.refundId },
         },
-        { idempotencyKey: label },
+        // One try, with a limit of time: it never goes out a second time later, after the helper has begun to look.
+        { idempotencyKey: label, maxNetworkRetries: 0, timeout: REFUND_SEND_TIMEOUT_MS },
       );
       return { stripeId: refund.id, result: { status: refund.status, failure: refund.failure_reason ?? null } };
     },

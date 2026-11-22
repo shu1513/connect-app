@@ -5322,8 +5322,14 @@ take-back was written was taken off twice; one meant for two take-backs; one mad
 ended). It also found that the cap across the shares of one dispute forgot shares that were
 settled or paid by hand. All taken; the list is at the end of the plan.
 
-**How it was checked.** Type check, lint, the automatic tests (1020, with the sums and every
-new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 121
+Its third look said to hold it once more, with 13 narrower points: a failure arriving in the
+moment between a helper's reading "paid" and writing it; a take-back that had become larger
+than what was left on its transfer after the founder recorded a payment outside the app; one
+reversal by hand that belonged partly to an open take-back and partly to an ended one; and
+several amounts and labels on the pages. All taken; the list is at the end of the plan.
+
+**How it was checked.** Type check, lint, the automatic tests (1025, with the sums and every
+new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 134
 checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
 the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 124, with the
 new checks for a waiver, a settlement and a win afterwards; `disputes-check` 72), and

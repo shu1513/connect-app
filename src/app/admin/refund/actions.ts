@@ -48,7 +48,12 @@ export async function refundAsFounderAction(formData: FormData) {
     if (error instanceof MoneyError) said = error.message;
     else if (!(error instanceof OutcomeUnknownError)) console.error("[refunds] the founder's refund failed", error);
   }
-  const outcome = await refundOutcome(requestId);
+  // Once the request was begun, "nothing happened" is never said without reading what was written down. If that
+  // cannot be read just now, the answer is that it is not known: look before trying again.
+  const outcome = await refundOutcome(requestId).catch((error) => {
+    console.error("[refunds] what came of a refund could not be read", error);
+    return back("The refund was asked for, and what came of it could not be read just now. Look at the payment before you try again: it may have gone through.");
+  });
   // A request's number belongs to one payment: a form sent again with another payment's number is not answered with
   // that other refund's outcome.
   if (outcome && outcome.paymentId !== paymentId) back("That form is no longer valid. Reload the page and try again.");

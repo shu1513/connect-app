@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, handTwiceWords, leftoverWords, refundFellAwayWords, shareRestoredWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, handTwiceWords, leftoverWords, loweredWords, noRoomWordsForFounder, refundFellAwayWords, shareRestoredWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const facts: DebtFacts = {
   what: "the payment for your call with Ben on Monday",
@@ -319,6 +319,44 @@ describe("a reversal by hand on a take-back that had ended, and a share that was
     expect(told).toContain("so $20.00 of their share was never sent to them");
     expect(told).toContain("send $0.01 more to the host in Stripe");
     expect(all(refundFellAwayWordsForFounder(base))).not.toContain("never sent");
+  });
+});
+
+describe("more is owed than can still be taken, a take-back that comes out lower, and money taken after a waiver", () => {
+  it("tells the founder what is left to take, how that is worked out, and that the app does not try again", () => {
+    const told = all(noRoomWordsForFounder(facts, "$6.38"));
+    expect(told).toContain("more is owed than can still be taken");
+    expect(told).toContain("only $6.38 can still be taken out of that transfer");
+    expect(told).toContain("less what the host paid back outside the app");
+    expect(told).toContain("nothing is taken, and the app does not try again by itself");
+  });
+
+  it("tells the host the new, lower amount, and that everything else stays", () => {
+    const told = all(loweredWords({ ...facts, amount: "$40.02" }, "$40.03", false));
+    expect(told).toContain("Less is owed than we wrote: $40.02 instead of $40.03");
+    expect(told).toContain("did not go through after all");
+    expect(told).toContain("Everything else stays as it was");
+  });
+
+  it("names what a reversal by hand already took of the lowered amount", () => {
+    const told = loweredWords({ ...facts, amount: "$38.02", byHand: { assessed: "$40.02", taken: "$2.00" } }, "$40.03", false).text;
+    expect(told).toContain("What you owe for it is now $40.02, of which $2.00 has already been taken.");
+  });
+
+  it("tells the host when nothing is left of it", () => {
+    const told = all(loweredWords(facts, "$0.01", true));
+    expect(told).toContain("Nothing is owed after all: $0.01");
+    expect(told).toContain("nothing is taken");
+  });
+
+  it("says that money was taken after the take-back was called off, not that it was paid twice", () => {
+    const host = all(handTwiceWords("host", facts, "$1.00", "called_off"));
+    expect(host).toContain("although Connect had called that take-back off");
+    expect(host).not.toContain("already been settled");
+    const founder = all(handTwiceWords("founder", facts, "$1.00", "called_off"));
+    expect(founder).toContain("after the take-back was called off");
+    expect(founder).toContain("although nothing was owed for it any more");
+    expect(founder).not.toContain("twice");
   });
 });
 
