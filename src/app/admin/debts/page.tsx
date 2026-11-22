@@ -6,7 +6,7 @@ import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import type { HostDebt } from "@/db/schema";
 import { debtsForFounder } from "@/lib/disputes/takeback";
-import { paidBackCents } from "@/lib/disputes/takeback-rules";
+import { toGiveBackCents } from "@/lib/disputes/takeback-rules";
 import { formatMoney } from "@/lib/payments/access";
 import { requireAdmin } from "@/lib/session";
 
@@ -41,7 +41,7 @@ export default async function DebtsPage() {
         {formatMoney(["told", "waiting", "objected", "answered", "taking"].includes(debt.status) ? debt.amountCents : debt.amountCents + debt.byHandCents)} from {nameOf(debt.hostId)}
       </Link>
       , after {debt.refundId ? "a refund" : "a lost bank dispute"}: {STATE[debt.status] ?? debt.status}
-      {debt.leftoverToldAt && paidBackCents(debt) > 0 ? `; it has since turned out not to be owed: ${formatMoney(paidBackCents(debt))} to give back to the host` : ""}
+      {debt.leftoverToldAt && toGiveBackCents(debt) > 0 ? `; it has since turned out not to be owed: ${formatMoney(toGiveBackCents(debt))} to give back to the host${debt.excessToldCents > 0 ? ` (besides the ${formatMoney(debt.excessToldCents)} you were told about earlier)` : ""}` : ""}
       {debt.overpaidCents > 0 ? `; ${formatMoney(debt.overpaidCents)} was taken on top of it by hand: to give back to the host` : ""}
       {(debt.status === "told" || debt.status === "answered") &&
         (debt.dueAt ? (

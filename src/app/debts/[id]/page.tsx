@@ -6,7 +6,7 @@ import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
 import type { Refund } from "@/db/schema";
 import { debtForPage, handReversalsOpen, pageOfDebt } from "@/lib/disputes/takeback";
-import { paidBackCents } from "@/lib/disputes/takeback-rules";
+import { paidBackCents, toGiveBackCents } from "@/lib/disputes/takeback-rules";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
@@ -57,7 +57,9 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
   const byHand = asFounder && (reserved || ended) ? await handReversalsOpen(debt).catch(() => null) : [];
   // The refund this take-back came from failed at Stripe after all: the customer got nothing.
   const fellAway = refund?.failedLateAt != null;
+  // What she paid for it, and what of that is still to give back (what the founder was already told to give back is not asked again).
   const paid = paidBackCents(debt);
+  const giveBack = toGiveBackCents(debt);
   const now = new Date();
   const button = "rounded border border-neutral-500 px-4 py-2 text-sm font-medium";
   const box = "mt-1 block w-full rounded border border-neutral-400 p-2";
@@ -93,7 +95,9 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
           {paid > 0
             ? asHost
               ? `You had already paid ${formatMoney(paid)} back for it. That money is yours: a person at Connect gives it back to you.`
-              : `The host had already paid ${formatMoney(paid)} back for it. The app does not give it back by itself: send it to the host in Stripe.`
+              : giveBack < paid
+                ? `The host had already paid ${formatMoney(paid)} back for it. You were told earlier to send ${formatMoney(paid - giveBack)} of that back; ${giveBack > 0 ? `send the remaining ${formatMoney(giveBack)} to the host in Stripe` : "nothing more is to send"}. The app does not give it back by itself.`
+                : `The host had already paid ${formatMoney(paid)} back for it. The app does not give it back by itself: send it to the host in Stripe.`
             : ""}
           {asFounder ? " The customer did not get the money: refund them again if they should still have it." : ""}
         </p>
@@ -188,9 +192,10 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             ))}
           {debt.status === "objected" && (asHost ? "You told us this is wrong. Nothing is taken until we have answered you." : "The host objected. Nothing is taken until you have decided.")}
           {debt.status === "taking" && "Stripe is being asked to take it back now."}
-          {debt.status === "taken" && debt.takenAt && !fellAway && (
+          {/* A day only for what the app itself took: what a person at Connect took by hand has its own day at Stripe. */}
+          {debt.status === "taken" && debt.takenAt && debt.amountCents > 0 && !fellAway && (
             <>
-              Taken back from {asHost ? "your" : "the host's"} Stripe balance on <LocalTime iso={debt.takenAt.toISOString()} />. Nothing more is owed for it.
+              Taken back from {asHost ? "your" : "the host's"} Stripe balance{debt.byHandCents > 0 ? `, the last ${formatMoney(debt.amountCents)}` : ""} on <LocalTime iso={debt.takenAt.toISOString()} />. Nothing more is owed for it.
             </>
           )}
           {debt.status === "cancelled" && !fellAway && "Called off. Nothing is taken, and nothing is owed for it."}
@@ -199,7 +204,7 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             !fellAway &&
             `Settled outside the app: ${formatMoney(debt.repaidCents ?? 0)} was paid back${debt.costBookedCents > 0 ? `, and Connect carries the remaining ${formatMoney(debt.costBookedCents)}` : ""}. Nothing more is owed for it.`}
           {debt.status === "settled" && fellAway && `It had been settled outside the app: ${formatMoney(debt.repaidCents ?? 0)} was paid back, and the rest was let go.`}
-          {debt.status === "taken" && !debt.takenAt && !fellAway && "Paid in full. Nothing more is owed for it."}
+          {debt.status === "taken" && (!debt.takenAt || debt.amountCents === 0) && !fellAway && "Paid in full. Nothing more is owed for it."}
         </p>
         {debt.objection && (debt.status === "objected" || debt.status === "answered") && (
           <p className="mt-2 whitespace-pre-wrap opacity-80" data-objection>

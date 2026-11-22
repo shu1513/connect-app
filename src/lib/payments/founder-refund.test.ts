@@ -21,8 +21,11 @@ describe("what the founder is told about a refund (plans/46-part-3-money-owed.md
   it("tells a refund Stripe has accepted from one it has not answered about", () => {
     expect(refundAnswer({ ...done, status: "in_progress" }, "founder")).toContain("Stripe has accepted it and has not confirmed it yet");
     const unknown = refundAnswer({ ...done, status: "in_progress", stripeRefundId: null }, "founder");
-    expect(unknown).toContain("it is not known whether Stripe received the request");
-    expect(unknown).toContain("do not refund it a second time meanwhile");
+    // Nothing is said that is not known: neither that Stripe was asked, nor that an answer comes in minutes.
+    expect(unknown).toContain("what came of it at Stripe is not confirmed yet: it may have gone through, or it may not have reached Stripe");
+    expect(unknown).toContain("at the longest a day");
+    expect(unknown).toContain("do not refund it a second time before that");
+    expect(unknown).not.toContain("the app asked Stripe");
     expect(unknown).not.toContain("accepted");
   });
 

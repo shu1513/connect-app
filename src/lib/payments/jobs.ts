@@ -208,6 +208,10 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
       } else if (operation.kind === "refund") {
         let refund: { id: string; status: string | null; failure_reason?: string | null } | undefined;
         let refusal: string | null = null;
+        // Looked at once more right before a repeat goes out: another helper may have ended this action since it
+        // was picked up here (it found the refund, or a clear "no"). Then nothing is sent from this older look.
+        const [stillOpen] = await db.select({ status: schema.moneyOperations.status }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operation.id));
+        if (stillOpen?.status !== "started") continue;
         if (canRepeat()) {
           try {
             const replayed = await stripe().refunds.create(

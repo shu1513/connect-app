@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AFTER_ANSWER_MS, againstBank, paidBackCents, canAnswer, canCancel, canHold, canObject, canSettle, dueDay, dueToTake, leftAfterRefunds, NOTICE_MS, OPEN, owedCents, refundOwes, RESERVED, RETRY_MS, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
+import { AFTER_ANSWER_MS, againstBank, paidBackCents, repaidOutsideStanding, toGiveBackCents, canAnswer, canCancel, canHold, canObject, canSettle, dueDay, dueToTake, leftAfterRefunds, NOTICE_MS, OPEN, owedCents, refundOwes, RESERVED, RETRY_MS, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
 
 const at = (iso: string) => new Date(iso);
 const NOW = at("2027-02-01T12:00:00Z");
@@ -259,6 +259,24 @@ describe("what a take-back counts for, once money has moved in more than one way
     expect(againstBank(row("cancelled", 4000))).toBe(0);
     expect(againstBank(row("waiting", 4000))).toBe(0);
     expect(againstBank(row("nothing", 0))).toBe(0);
+  });
+});
+
+describe("what is still to give back, and what an outside payment still uses up", () => {
+  it("does not ask twice for what the founder was already told to give back", () => {
+    // She paid 47 cents; one cent was told when an earlier refund failed; then this one fails too: 46 more, 47 in all.
+    expect(toGiveBackCents({ status: "settled", amountCents: 47, repaidCents: 47, byHandCents: 0, excessToldCents: 1 })).toBe(46);
+    expect(toGiveBackCents({ status: "taken", amountCents: 4000, repaidCents: null, byHandCents: 0, excessToldCents: 0 })).toBe(4000);
+    expect(toGiveBackCents({ status: "cancelled", amountCents: 4000, repaidCents: null, byHandCents: 0, excessToldCents: 0 })).toBe(0);
+    expect(toGiveBackCents({ status: "taken", amountCents: 0, repaidCents: null, byHandCents: 83, excessToldCents: 83 })).toBe(0);
+  });
+
+  it("counts an outside payment against the room only while its take-back's cause stands", () => {
+    const settled = { status: "settled", repaidCents: 8000, leftoverToldAt: null as Date | null };
+    expect(repaidOutsideStanding([settled])).toBe(8000);
+    // The refund failed after all: the founder gives the 80 back, and a second refund's take-back has all the room again.
+    expect(repaidOutsideStanding([{ ...settled, leftoverToldAt: new Date() }])).toBe(0);
+    expect(repaidOutsideStanding([{ status: "told", repaidCents: null, leftoverToldAt: null }, settled])).toBe(8000);
   });
 });
 

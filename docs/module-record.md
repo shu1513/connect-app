@@ -5333,8 +5333,14 @@ or tells someone something false. It named nine such cases; the plainest was a f
 of a reversal that, sent twice, was counted twice. All taken; the list is at the end of the
 plan.
 
-**How it was checked.** Type check, lint, the automatic tests (1026, with the sums and every
-new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 145
+Its fifth look named nine more, mostly amounts and words on pages that did not agree with the
+emails. Seven are taken. Two are not closed, on the builder's own judgment, and are written
+down at the end of the plan: a case that needs two helpers with different rights at Stripe in
+the same second, and a one-cent rounding in a lost dispute's take-back after a refund that
+fails later. After five rounds the change goes to the pull request and to CodeRabbit.
+
+**How it was checked.** Type check, lint, the automatic tests (1028, with the sums and every
+new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 148
 checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
 the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 124, with the
 new checks for a waiver, a settlement and a win afterwards; `disputes-check` 72), and

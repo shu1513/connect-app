@@ -84,7 +84,7 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
               ) : one.refundUnderWay === "accepted" ? (
                 <p className="mt-2">A refund of this payment is on its way: Stripe has accepted it and has not confirmed it yet. Wait for it to finish before another.</p>
               ) : one.refundUnderWay === "unanswered" ? (
-                <p className="mt-2">A refund of this payment is being checked: the app asked Stripe and has no answer yet, so it is not known whether Stripe received the request. The app finds out by itself within a few minutes. Do not refund it again meanwhile.</p>
+                <p className="mt-2">A refund of this payment was recorded, and what came of it at Stripe is not confirmed yet: it may have gone through, or it may not have reached Stripe. The app finds out by itself; mostly that takes a few minutes, at the longest a day. Do not refund it again before this page shows what happened.</p>
               ) : estimate.leftCents === 0 ? (
                 <p className="mt-2">All of it has been refunded.</p>
               ) : (

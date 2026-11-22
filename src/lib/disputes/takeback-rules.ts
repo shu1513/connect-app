@@ -185,3 +185,20 @@ export const paidBackCents = (debt: { status: string; amountCents: number; repai
 export const againstBank = (row: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number }): number =>
   ([...OPEN, "taking", "taken"].includes(row.status) ? row.amountCents : 0) + (row.status === "settled" ? (row.repaidCents ?? 0) : 0) + row.byHandCents;
 
+/**
+ * Of what a host paid for a take-back whose cause has fallen away: what is still to give back to her. What the
+ * founder was already told to give back of it (because less had turned out to be owed) is not told a second time.
+ * The emails and the pages all use this one sum.
+ */
+export const toGiveBackCents = (debt: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number; excessToldCents: number }): number =>
+  Math.max(0, paidBackCents(debt) - debt.excessToldCents);
+
+/**
+ * What a host paid back outside Stripe for a share and still stands as paid: the payments of settled take-backs
+ * whose cause has NOT fallen away. Once it has (the refund failed after all, the bank decided the other way), the
+ * founder is told to give that money back, and it no longer uses up room on the transfer: a new take-back on the same
+ * share (the customer is refunded a second time, say) is written for its full amount again.
+ */
+export const repaidOutsideStanding = (rows: Array<{ status: string; repaidCents: number | null; leftoverToldAt: Date | null }>): number =>
+  rows.filter((row) => row.status === "settled" && row.leftoverToldAt === null).reduce((sum, row) => sum + (row.repaidCents ?? 0), 0);
+

@@ -45,7 +45,7 @@ import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { aboutOwner, disputePath, ownerOf, peopleFor, type Only } from "./record";
 import { outcomeOf } from "./status";
-import { againstBank, canAnswer, canCancel, canHold, canObject, canSettle, CONFIRM_WITHIN_MS, dueDay, dueToTake, leftAfterRefunds, OPEN, owedCents, paidBackCents, refundOwes, RESERVED, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
+import { againstBank, canAnswer, canCancel, canHold, canObject, canSettle, CONFIRM_WITHIN_MS, dueDay, dueToTake, leftAfterRefunds, OPEN, owedCents, paidBackCents, refundOwes, repaidOutsideStanding, RESERVED, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals, toGiveBackCents } from "./takeback-rules";
 import {
   answeredWords,
   cancelledWords,
@@ -311,7 +311,7 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
     // For a call's own payment: Stripe's total of refunds on the charge has to be the app's. If Stripe knows of a
     // refund the app has not confirmed yet, the look waits for the app's record to catch up.
     if (dispute.paymentId === paymentId && charge.amount_refunded !== share.refundedCents) return false;
-    const settledOutside = others.filter((other) => other.status === "settled").reduce((sum, other) => sum + (other.repaidCents ?? 0), 0);
+    const settledOutside = repaidOutsideStanding(others);
     const reductions = await reductionsOn(tx, paymentId);
     const basis: Basis = {
       // What was sent, less what her share already lost to refunds given after the sending: a refund's take-back and
@@ -449,7 +449,7 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
       reductionsBeforeCents: await reductionsOn(tx, share.id, refund),
       transferLeftCents: await leftOnTransfer(tx, share.id, transfer.amount, others),
       othersOpenCents: others.filter((other) => RESERVED.includes(other.status)).reduce((sum, other) => sum + other.amountCents, 0),
-      repaidOutsideCents: others.filter((other) => other.status === "settled").reduce((sum, other) => sum + (other.repaidCents ?? 0), 0),
+      repaidOutsideCents: repaidOutsideStanding(others),
     };
     const amountCents = refundOwes({ ...basis, roomCents: roomOn({ transferLeftCents: basis.transferLeftCents, reservedCents: basis.othersOpenCents, repaidOutsideCents: basis.repaidOutsideCents }) });
     // The bank's hold, as near as it is recorded: Stripe's time for the charge that was held and then taken for this
@@ -510,7 +510,7 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
         }
         await fellAway(tx, fresh, now, `the bank decided dispute ${dispute.id} the other way after all`);
         // What she had really paid back for it, whichever way: the app does not give it back by itself.
-        const paid = Math.max(0, paidBackCents(fresh) - fresh.excessToldCents);
+        const paid = toGiveBackCents(fresh);
         if (paid > 0) {
           const how = (fresh.repaidCents ?? 0) > 0 ? "paid" : "taken";
           const asPaid = { ...fresh, amountCents: paid, byHandCents: 0 };
@@ -1085,10 +1085,23 @@ export async function refundChangedAtStripe(stripeRefundId: string, now: Date = 
       throw error;
     });
   if (!atStripe || (atStripe.status !== "failed" && atStripe.status !== "canceled")) return;
-  // Found by Stripe's number, or by the app's own number that the refund carries AT STRIPE (read from Stripe, not from
-  // the message): the app may not have recorded Stripe's number for it yet.
+  // Which line it is: the one that carries Stripe's number for it. Only when no line does (the app has not recorded
+  // Stripe's answer to its request yet) is it found by the app's own number, which the refund carries AT STRIPE (read
+  // from Stripe, not from the message), and then only a line that is still on its way, has no Stripe number of its
+  // own, and is for the same charge and the same amount. A number somebody typed onto another refund by hand can
+  // therefore never reach a refund that Stripe has already answered about.
+  let rows = await db.select({ id: schema.refunds.id }).from(schema.refunds).where(eq(schema.refunds.stripeRefundId, atStripe.id));
   const ours = atStripe.metadata?.refundId;
-  const rows = await db.select({ id: schema.refunds.id }).from(schema.refunds).where(ours && IS_ID.test(ours) ? or(eq(schema.refunds.stripeRefundId, atStripe.id), eq(schema.refunds.id, ours)) : eq(schema.refunds.stripeRefundId, atStripe.id));
+  if (rows.length === 0 && ours && IS_ID.test(ours)) {
+    const intentId = typeof atStripe.payment_intent === "string" ? atStripe.payment_intent : (atStripe.payment_intent?.id ?? null);
+    rows = intentId
+      ? await db
+          .select({ id: schema.refunds.id })
+          .from(schema.refunds)
+          .innerJoin(schema.payments, eq(schema.payments.id, schema.refunds.paymentId))
+          .where(and(eq(schema.refunds.id, ours), eq(schema.refunds.status, "in_progress"), isNull(schema.refunds.stripeRefundId), eq(schema.refunds.amountCents, atStripe.amount), eq(schema.payments.stripePaymentIntentId, intentId)))
+      : [];
+  }
   for (const refund of rows) await refundFailedAtStripe(refund.id, atStripe.failure_reason ?? `Stripe says: ${atStripe.status}`, now, atStripe.id);
 }
 
@@ -1107,6 +1120,8 @@ export async function refundFailedAtStripe(refundId: string, reason: string, now
     await lockPayment(tx, seen.paymentId);
     const [refund] = await tx.select().from(schema.refunds).where(eq(schema.refunds.id, refundId)).for("update");
     if (!refund) return null;
+    // Looked at again with the payment held: a line that has meanwhile got Stripe's number for ANOTHER refund is not this one.
+    if (stripeRefundId !== null && refund.stripeRefundId !== null && refund.stripeRefundId !== stripeRefundId) return null;
     if (refund.status !== "in_progress") return refund.status;
     await tx.update(schema.refunds).set({ status: "failed", finishedAt: now, failure: reason.slice(0, 500), stripeRefundId: refund.stripeRefundId ?? stripeRefundId }).where(eq(schema.refunds.id, refund.id));
     return "in_progress";
@@ -1173,7 +1188,7 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
     if (debt && debt.leftoverToldAt === null) {
       const wasOpen = RESERVED.includes(debt.status);
       // What she really paid for it, less what the founder was already told to give back of it.
-      const paid = Math.max(0, paidBackCents(debt) - debt.excessToldCents);
+      const paid = toGiveBackCents(debt);
       // What was first written as owed, whatever a reversal by hand has since paid of it.
       const first = { ...debt, amountCents: debt.amountCents + debt.byHandCents, byHandCents: 0 };
       if (wasOpen) await tx.update(debts).set({ status: "cancelled", cancelledAt: now, dueAt: null, updatedAt: now }).where(eq(debts.id, debt.id));
@@ -1294,7 +1309,7 @@ type Attempt = { label: string; debtId: string; amountCents: number; labelled: b
 function isAttempt(reversal: { amount: number; metadata?: Record<string, string> | null }, attempt: Attempt): boolean {
   const meta = reversal.metadata ?? {};
   if (reversal.amount !== attempt.amountCents) return false;
-  return attempt.labelled ? meta.attempt === attempt.label : !meta.attempt && meta.debtId === attempt.debtId;
+  return meta.attempt ? meta.attempt === attempt.label : !attempt.labelled && meta.debtId === attempt.debtId;
 }
 
 /**
@@ -1358,7 +1373,7 @@ async function tellOfHand(debt: HostDebt, open: HandReversalSeen[], now: Date): 
     if (!cause) return;
     if (TAKEABLE.includes(fresh.status) && fresh.handToldAt === null) await tx.update(debts).set({ handToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
     const total = still.reduce((sum, one) => sum + one.openCents, 0);
-    await tellFounders(tx, fresh, cause, `hand:${still[0].id}`, (facts) => handHeldWordsForFounder(facts, formatMoney(total), !RESERVED.includes(fresh.status)), true);
+    await tellFounders(tx, fresh, cause, `hand:${still[0].id}`, (facts) => handHeldWordsForFounder(facts, formatMoney(total), ["taken", "settled", "cancelled"].includes(fresh.status)), true);
   });
 }
 
@@ -1384,8 +1399,7 @@ export async function reversalSeenOnTransfer(stripeTransferId: string, now: Date
 async function roomToTake(tx: Tx, debt: Pick<HostDebt, "paymentId">): Promise<number> {
   const rows = await tx.select().from(debts).where(eq(debts.paymentId, debt.paymentId));
   const [share] = await tx.select({ transferCents: schema.payments.transferCents }).from(schema.payments).where(eq(schema.payments.id, debt.paymentId));
-  const repaidOutside = rows.filter((row) => row.status === "settled").reduce((sum, row) => sum + (row.repaidCents ?? 0), 0);
-  return Math.max(0, (await leftOnTransfer(tx, debt.paymentId, share?.transferCents ?? 0, rows)) - repaidOutside);
+  return Math.max(0, (await leftOnTransfer(tx, debt.paymentId, share?.transferCents ?? 0, rows)) - repaidOutsideStanding(rows));
 }
 
 /**

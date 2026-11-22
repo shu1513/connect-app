@@ -93,9 +93,19 @@ export async function refundAction(formData: FormData) {
       const to = await giveTimeBack({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
       notice = to === "free" ? "The time was given back. It is in the member's membership again." : "The time was given back. Its money will be paid back to the member's card.";
     } else {
-      await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-      // What really came of it, read from what was written down: sent, still on its way, or refused by Stripe. If
-      // that cannot be read just now, it is not known, and "nothing was changed, try again" would be untrue.
+      // Whatever the call says or throws, the answer is read from what was written down: a refund that was begun has
+      // its line. "Nothing was changed, try again" is only ever said when there is no line at all.
+      let refused: string | null = null;
+      let unclear = false;
+      try {
+        await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+      } catch (error) {
+        if (error instanceof MoneyError) refused = error.message;
+        else {
+          unclear = true;
+          if (!(error instanceof OutcomeUnknownError)) console.error("[payments] a refund failed", error);
+        }
+      }
       const read = await refundOutcome(requestId).then(
         (found) => ({ outcome: found }),
         (error) => {
@@ -104,11 +114,15 @@ export async function refundAction(formData: FormData) {
         },
       );
       const outcome = read?.outcome ?? null;
+      const notKnown = "The refund was asked for, and what came of it could not be confirmed just now. Look at the payment before you try again: it may have gone through.";
       notice = !read
-        ? "The refund was asked for, and what came of it could not be read just now. Look at the payment before you try again: it may have gone through."
+        ? notKnown
         : outcome && outcome.paymentId !== paymentId
           ? "That form is no longer valid. Reload the page and try again."
-          : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host");
+          : // No line, and the call ended in something that was not a plain refusal: then it is not known either.
+            !outcome && unclear
+            ? notKnown
+            : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host", refused);
       // For the admin record: the amount that was written down, and where it stands.
       if (outcome && outcome.paymentId === paymentId) recorded = `$${(outcome.amountCents / 100).toFixed(2)} (${outcome.status === "done" ? "given back" : outcome.status === "in_progress" ? "on its way" : "refused by Stripe"})`;
     }

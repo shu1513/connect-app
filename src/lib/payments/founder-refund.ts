@@ -189,7 +189,7 @@ export function refundAnswer(outcome: RefundOutcome | null, as: "founder" | "hos
     // With Stripe's number: Stripe has the request and has not finished it. Without: the app asked and has no answer.
     return outcome.stripeRefundId
       ? `The refund of ${amount} is on its way: Stripe has accepted it and has not confirmed it yet. The app finishes it by itself.${outcome.afterCollection ? " What the host owes is worked out once it is confirmed." : ""}`
-      : `The refund of ${amount} is being checked: the app asked Stripe and has no answer yet, so it is not known whether Stripe received the request. The app finds out by itself within a few minutes. Look at the payment again then, and do not refund it a second time meanwhile.`;
+      : `The refund of ${amount} was recorded, and what came of it at Stripe is not confirmed yet: it may have gone through, or it may not have reached Stripe. The app finds out by itself; mostly that takes a few minutes, at the longest a day. Wait until the payment's page shows what happened, and do not refund it a second time before that.`;
   }
   if (!outcome.afterCollection) return as === "founder" ? `${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.` : `The refund of ${amount} was sent to the customer.`;
   const shrank = `${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`;

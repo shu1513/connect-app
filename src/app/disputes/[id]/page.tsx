@@ -11,7 +11,7 @@ import { disputeForViewer } from "@/lib/disputes/pages";
 import { aboutOwner, ownerOf } from "@/lib/disputes/record";
 import { canChoose, planFor, stopsPaying } from "@/lib/disputes/rules";
 import { debtsOfDispute } from "@/lib/disputes/takeback";
-import { paidBackCents } from "@/lib/disputes/takeback-rules";
+import { toGiveBackCents } from "@/lib/disputes/takeback-rules";
 import { isAppeal, reasonWords, standingOf } from "@/lib/disputes/status";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
@@ -343,15 +343,19 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     ))}
                   {debt.status === "objected" && (asHost ? ": you told us this is wrong. Nothing is taken until we have answered you." : ": the host objected. Nothing is taken until you have decided.")}
                   {debt.status === "taking" && ": Stripe is being asked to take it back now."}
-                  {debt.status === "taken" && debt.takenAt && (
+                  {/* A day only for what the app itself took: what a person at Connect took by hand has its own day at Stripe. */}
+                  {debt.status === "taken" && debt.takenAt && debt.amountCents > 0 && (
                     <>
-                      : taken back on <LocalTime iso={debt.takenAt.toISOString()} />.
+                      : taken back{debt.byHandCents > 0 ? `, the last ${formatMoney(debt.amountCents)}` : ""} on <LocalTime iso={debt.takenAt.toISOString()} />.
                     </>
                   )}
-                  {debt.status === "taken" && !debt.takenAt && ": taken back."}
+                  {debt.status === "taken" && (!debt.takenAt || debt.amountCents === 0) && ": taken back."}
                   {debt.status === "cancelled" && ": called off. Nothing is taken."}
+                  {/* What Connect carries is what the books hold for it now: nothing, once the bank has decided the other way. */}
                   {debt.status === "settled" &&
-                    `: settled outside the app. ${formatMoney(debt.repaidCents ?? 0)} was paid back${debt.amountCents - (debt.repaidCents ?? 0) > 0 ? `, and Connect carries the remaining ${formatMoney(debt.amountCents - (debt.repaidCents ?? 0))}` : ""}. Nothing more is owed for it.`}
+                    (debt.leftoverToldAt
+                      ? `: it had been settled outside the app. ${formatMoney(debt.repaidCents ?? 0)} was paid back, and the rest was let go.`
+                      : `: settled outside the app. ${formatMoney(debt.repaidCents ?? 0)} was paid back${debt.costBookedCents > 0 ? `, and Connect carries the remaining ${formatMoney(debt.costBookedCents)}` : ""}. Nothing more is owed for it.`)}
                 </p>
                 {debt.overpaidCents > 0 && (
                   <p className="mt-1 opacity-80" data-overpaid>
@@ -393,12 +397,12 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
                   </p>
                 )}
-                {debt.leftoverToldAt && paidBackCents(debt) > 0 && (
+                {debt.leftoverToldAt && toGiveBackCents(debt) > 0 && (
                   <p className="mt-1 opacity-80" data-leftover>
                     {/* The amount she really paid back, whichever way: never the row's own number, which can be nothing. */}
                     {asHost
-                      ? `The bank has since let the payment stand. A person at Connect gives the ${formatMoney(paidBackCents(debt))} you paid back to you again.`
-                      : `The bank has since decided the other way. The app does not give anything back by itself: send ${formatMoney(paidBackCents(debt))} to the host by hand.`}
+                      ? `The bank has since let the payment stand. A person at Connect gives the ${formatMoney(toGiveBackCents(debt))} you paid back to you again.`
+                      : `The bank has since decided the other way. The app does not give anything back by itself: send ${formatMoney(toGiveBackCents(debt))} to the host by hand.`}
                   </p>
                 )}
                 {asHost && debt.status === "told" && (

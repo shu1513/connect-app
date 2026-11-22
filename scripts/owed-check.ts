@@ -306,6 +306,14 @@ async function main() {
     await settleOutside({ debtId: centSettled.debtB.id, adminId: admin, repaidCents: centSettled.debtB.amountCents, note: "Paid in full by bank transfer." });
     const centWaived = await twoSmall();
     await cancelDebt({ debtId: centWaived.debtB.id, adminId: admin });
+    // A full refund after she collected, whose take-back she pays in full to Connect's bank account (the founder
+    // records it); on the card whose refunds fail later.
+    const repaidPaid = await charged(host, await person("customer"), "pm_card_refundFail");
+    const repaidSent = await collect(repaidPaid.payment.id);
+    const repaidRefund = await refund(repaidPaid.payment.id, repaidPaid.payment.chargedCents!);
+    await pass(repaidRefund.id);
+    const repaidDebt = await debtOf(repaidRefund.id);
+    await settleOutside({ debtId: repaidDebt.id, adminId: admin, repaidCents: repaidDebt.amountCents, note: "Paid in full by bank transfer." });
     // A refund Stripe has taken and whose line says "on its way" with Stripe's number (as when Stripe first answers
     // "pending"), on the card whose refunds fail later. Written by the script: the first answer of this card is "paid".
     const knownPaid = await charged(host, await person("customer"), "pm_card_refundFail");
@@ -935,6 +943,19 @@ async function main() {
       await failed(centWaived.b.stripeRefundId!);
       check("and nothing once the second has failed too", (await ledgerOf(centWaived.payment.id, "connect_cost")) === 0 && (await ledgerOf(centWaived.payment.id, "host_takeback")) === 0);
 
+      // She had paid a whole take-back to the bank account; the refund fails; the founder gives the money back and
+      // refunds the customer a second time. The second refund's take-back is written for all of it again.
+      check("(the take-back for all that was sent was settled in full outside the app, and Stripe failed the refund)", repaidDebt.amountCents === repaidSent.sentCents && (await debtOf(repaidRefund.id)).status === "settled" && (await stripeShows(repaidRefund.stripeRefundId!, "failed")));
+      await failed(repaidRefund.stripeRefundId!);
+      const backToHer = await hostTold(repaidDebt.id, "fell-away");
+      check("she is told that all she paid is owed back to her", backToHer.length === 1 && backToHer[0].subject === `Connect owes you ${formatMoney(repaidDebt.amountCents)} back` && (await reload(repaidPaid.payment.id)).refundedCents === 0);
+      // (Stripe's test card refuses a second refund of a charge whose refund failed. So the second refund's line is
+      // the script's, as in part 6: it points at a real, confirmed refund of another test charge.)
+      const secondTime = await refundLine(repaidPaid.payment.id, repaidSent.sentCents, repaidSent.sentCents);
+      await pass(secondTime);
+      const secondDebt = await debtOf(secondTime);
+      check("the customer is refunded a second time: its take-back is for all that was sent again, not for nothing because of the payment that goes back to her", secondDebt?.status === "told" && secondDebt.amountCents === repaidSent.sentCents, `${secondDebt?.status} ${secondDebt?.amountCents}`);
+
       // The refund given before she collected: she was sent the smaller share, and then the refund failed.
       check("(the early refund was an ordinary one, and she collected the share it had made smaller)", earlyRefund.status === "done" && !earlyRefund.afterCollection && earlySent.sentCents > 0 && earlySent.sentCents < earlyBefore.share, `${earlySent.sentCents} of ${earlyBefore.share}`);
       check("(Stripe failed that refund too)", await stripeShows(earlyRefund.stripeRefundId!, "failed"));
@@ -988,7 +1009,7 @@ async function main() {
       if (startedO === "already_done") throw new Error("The refund was already done.");
       await age(startedO.operationId, 40_000);
       const hung = await said(completeMoneyOperation({ ...startedO, params: { ...startedO.params, sendByMs: Date.now() - 1 } }, planO));
-      check("a writer that hangs past its time sends nothing and leaves the refund open: it is not known yet, and nothing is at Stripe", /^unknown: /.test(hung) && (await refundRow(idO)).status === "in_progress" && (await stripe().refunds.list({ payment_intent: paidN.payment.stripePaymentIntentId!, limit: 3 })).data.length === 0 && refundAnswer(await refundOutcome(idO), "founder").includes("it is not known whether Stripe received the request"), hung);
+      check("a writer that hangs past its time sends nothing and leaves the refund open: it is not known yet, and nothing is at Stripe", /^unknown: /.test(hung) && (await refundRow(idO)).status === "in_progress" && (await stripe().refunds.list({ payment_intent: paidN.payment.stripePaymentIntentId!, limit: 3 })).data.length === 0 && refundAnswer(await refundOutcome(idO), "founder").includes("what came of it at Stripe is not confirmed yet"), hung);
       await age(startedO.operationId, 2 * 60_000);
       await reconcileOperations(new Date(), { operationIds: [startedO.operationId] });
       check("the helper sends it under the same label, once, and records it", (await refundRow(idO)).status === "done" && (await stripe().refunds.list({ payment_intent: paidN.payment.stripePaymentIntentId!, limit: 3 })).data.length === 1 && (await reload(paidN.payment.id)).refundedCents === 150);
