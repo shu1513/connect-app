@@ -5409,3 +5409,35 @@ taken back, paid back, waived, and a waiver taken off again; the file's columns)
 script `scripts/statement-check.ts`, 17 checks, with a share that goes back the year after it
 was sent. Not looked at in a browser: only two sentences and one column changed on the page.
 
+## Earnings not collected for 12 months (plan 46, part 3b, 21 November 2026)
+
+**Why.** The draft Host Agreement (7.7) says that earnings a host does not collect for 12
+months are sent to her without being asked. Until now nothing was ever sent without a press,
+so a host who forgot would have left her money with Connect for good.
+
+**What was built.** The always-on helper has a loop for it. About once a day it looks at every
+host who has a share whose date has come. One whose last collection that went through is more
+than 12 months ago (or who never had one, and whose oldest such share is more than 12 months
+old) gets a try: a line in `uncollected_tries`, written under her lock before Stripe is asked
+anything. The try then runs what her own button runs (`collectEarnings`), under the try's own
+id, with nobody as the one who pressed; `collections.started_as` says "helper". Under her lock
+the collection asks once more that the account is open and that the 12 months still hold. A
+try that makes no collection is written down with the reason, and the next one is a week
+later. About once a minute the helper runs a try again that it stopped in the middle of, and
+tells a host whose transfers all have their answer what was sent, what the charge was, what
+Stripe refused and what is still being checked (after a day at the latest). Her Hosting page
+says beside her last collection that Connect started it. Migration 0062.
+
+**What was not built.** No page for the founder that lists the tries that sent nothing. No
+warning before the 12 months are over. Nothing about the law on unclaimed property (in the
+lawyer's file, section 22).
+
+**How it was checked.** Type check, lint, the automatic tests (the 12 months to the moment,
+the week between tries, every sentence of the message). The real script
+`scripts/payments-check.ts --payouts` (all of it passes; section 29 is new), against Stripe's
+test mode: a host at 11
+months is left and at 12 months and a day is sent everything, once; one whose collection in
+between sent nothing counts from the one before; a refused try is written down and tried again
+after a week and not before; two helpers at once and her own button in the same minute make
+one collection; a closed account and a held-back share are left; the message names a refused
+transfer as not sent and an unanswered one as still being checked.

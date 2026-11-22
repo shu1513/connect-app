@@ -655,3 +655,27 @@ Added with the yearly statement's new columns (plan 46, part 3a, step 2b, 22 Nov
   ("Taken back or paid back") and what Connect carried. It is a summary for her own records,
   not a tax form. Is that split the right one for her tax return in each country hosts are in?
 
+## 22. Earnings a host has not collected for 12 months (new, plan 46 part 3b, 21 November 2026)
+
+How it works since this change: when a host with an open account has not had a collection that
+went through for more than 12 months (or never had one, and her oldest ready share is more than
+12 months old), the app starts the collection for her. It is the same collection her own button
+makes: to her own Stripe payout account, with the 25-cent collection charge, and nothing is
+sent that a bank dispute, a refund on its way or a refund request holds back. She is told by
+email and in the app what was really sent. If nothing can be sent (her payout account is not
+ready, say), the app writes that down and tries again a week later, for as long as it lasts.
+A closed account is not touched; the founder's final collection is for it.
+
+- Is 12 months the right period (Host Agreement 7.7 as drafted says "[12]")?
+- The app does this today whether or not a Host Agreement has been published and accepted. The
+  money is the host's own and goes to her own account; the 25-cent charge is taken as with her
+  own button. Is a charge on a collection she did not ask for all right before 7.7 is in force
+  for her, or should the charge be waived for these?
+- A host whose payout account never becomes ready keeps her earnings with Connect, and the app
+  only keeps trying. The law on unclaimed property (in the United States, by state; elsewhere,
+  its like) may ask for more: a notice to her, and after some years handing the money to the
+  state. Nothing of that is built. From what amount and after how long does it apply to us?
+- For a host abroad the email says that Stripe turns the dollars into her own money when it
+  pays her bank, at Stripe's rate. She did not choose the day. Is that all right, or should she
+  be warned before, with time to collect herself?
+- No warning is sent before the 12 months are over. Should one be (30 days before, say)?

@@ -48,6 +48,7 @@ async function main() {
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
   const { runNoticeRound } = await import("../src/legal/notices");
   const { runRetention } = await import("../src/lib/retention");
+  const { collectUncollected, followUpUncollected } = await import("../src/lib/payments/uncollected");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -213,6 +214,22 @@ async function main() {
     await runNoticeRound(new Date()).catch((error) => console.error("[agreements] the round of notices of a coming version failed; will retry", error));
   }
 
+  /**
+   * Earnings a host has not collected for 12 months are sent to her without being asked (plans/46, part 3b), in a
+   * loop of its own: it asks Stripe about each such host's payout account, and that must never delay closing a room
+   * or the money work. About once a day, and when the helper starts: every such host gets a try. About once a
+   * minute: a try the helper stopped in the middle of is run again, and a host whose transfers are all answered is
+   * told what was sent.
+   */
+  let uncollectedPasses = 0;
+  async function uncollectedPass() {
+    if (!stripeConfigured()) return;
+    const round = uncollectedPasses++;
+    if (round % 12 !== 0) return;
+    if (round % 17_280 === 0) await collectUncollected().catch((error) => console.error("[uncollected] the daily round failed; will retry", error));
+    await followUpUncollected().catch((error) => console.error("[uncollected] the follow-up failed; will retry", error));
+  }
+
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
   async function sendPass() {
     await deliverEmails(new Date()).catch((error) => console.error("[email] delivery failed; will retry", error));
@@ -238,6 +255,7 @@ async function main() {
     await followPass();
     await disputePass();
     await noticePass();
+    await uncollectedPass();
     process.exit(0);
   }
 
@@ -257,7 +275,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass), loop("uncollected", uncollectedPass)]);
   process.exit(0);
 }
 

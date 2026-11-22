@@ -1190,3 +1190,44 @@ nothing will be taken back from her. The reasons:
 
 If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of its own.
 
+## Part 3b, as built: earnings not collected for 12 months
+
+**Built:** decision 12, with these differences from the text above.
+
+- **The table of tries** (`uncollected_tries`, migration 0062) has no "week". A try is the
+  host, the moment it was written down, and an id. "One try a week" is asked under her lock:
+  no new try while her latest one is less than 7 days old or has no outcome yet. The database
+  refuses a second try without an outcome for the same host on top of that.
+- **The try's id is the collection's id.** So a try that is run again is the same collection,
+  by the rule her own button already has ("the same press, sent again").
+- **What is asked under her lock when the collection is accepted** (not only when the try is
+  written down): that the account is open and that the 12 months still hold. So a host who
+  pressed her own button, or whose account was closed, between the two steps gets nothing
+  from the helper. Her 24 hours and everything that holds a share back are asked there as for
+  any collection.
+- **A try whose run fails for another reason than a refusal** (Stripe does not answer) stays
+  without an outcome and is run again about a minute later; after a day it is written down as
+  "nothing", and the next try is a week later.
+- **`collections.started_as`** has the database's own default "host", for a server still
+  running the older code while a new version is put in place. The code always says which. The
+  rows that exist are filled in: "founder" where somebody else than the host started it.
+- **When the 12 months count from her last collection**, any share whose date has come is
+  sent, also one that became ready yesterday. That is what decision 12 says ("her last
+  collection that went through is more than 12 months ago").
+- **The email** is also a message on her Messages page (one pair, as every message since plan
+  47), and her Hosting page says beside her last collection that Connect started it. The
+  sentence about her own money is said to a host whose profile is in another country than the
+  United States, with an "if": the app does not know the currency of her bank account.
+- **The founder is not told** of a try that sent nothing. The lines are in the table; no page
+  shows them yet.
+
+**Rhythm:** a loop of its own in the helper. About once a day, and when the helper starts:
+every host with a share whose date has come is looked at, and one who is due gets a try. About
+once a minute: a try without an outcome is run again, and a host whose transfers all have their
+answer is told (after a day at the latest, with what is known by then).
+
+**Checked by** `scripts/payments-check.ts --payouts`, section 29, against Stripe's test mode
+(the collections' own script, so its hosts and calls are used): every case of the list under
+"Part 3b" above, with a bank dispute standing in for "a share that is held back" (a flag on the
+payment, as section 22 does), and the account closed between the writing down and the
+collection.

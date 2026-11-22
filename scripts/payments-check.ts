@@ -11,7 +11,7 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { requireLocalDatabase } from "./local-only";
 
 let failures = 0;
@@ -862,7 +862,7 @@ async function main() {
           const pk = await sent(k);
           const [record] = await db.select().from(schema.collections).where(eq(schema.collections.id, id));
           check("the founder's final collection sends it to that host's own account, under the same rules", pressed === null && pk.status === "sent" && pk.cents === 1238 - 25 && pk.transfers[0]?.destination === account, pressed?.message);
-          check("and the record says who pressed", record?.hostId === h && record.startedBy === founder.id);
+          check("and the record says who pressed", record?.hostId === h && record.startedBy === founder.id && record.startedAs === "founder");
           check("nothing is left on the founder's list for that host", !(await unsentEarnings(T)).some((e) => e.hostId === h));
         }
 
@@ -901,6 +901,154 @@ async function main() {
             const refused = await refundPayment({ paymentId: g.payment.id, amountCents: 100, decidedBy: h, decidedAs: "host", reason: null }).catch((e) => e);
             check("and it cannot be refunded on top", refused instanceof MoneyError);
           }
+        }
+
+        console.log("\n29. Earnings not collected for 12 months: the helper starts the collection (plans/46, part 3b)");
+        {
+          const { claimTry, collectUncollected, followUpUncollected, runTry } = await import("../src/lib/payments/uncollected");
+          const MIN = 60_000;
+          const triesOf = (hostId: string) => db.select().from(schema.uncollectedTries).where(eq(schema.uncollectedTries.hostId, hostId)).orderBy(schema.uncollectedTries.claimedAt);
+          const toldOf = (hostId: string) => db.select().from(schema.messages).where(and(eq(schema.messages.userId, hostId), sql`${schema.messages.key} like 'uncollected:%'`));
+          /** More than 12 months after this moment, whatever the year. */
+          const yearAfter = (from: Date) => new Date(from.getTime() + 367 * DAY);
+          const round = (now: Date, ...hostIds: string[]) => collectUncollected(now, { hostIds });
+          const followUp = (now: Date, ...hostIds: string[]) => followUpUncollected(now, { hostIds });
+
+          console.log("   …a host who never collected");
+          const h1 = await freshHost();
+          const k = await chargedCall(h1);
+          const R = await readyAt(k);
+          await round(new Date(R.getTime() + 330 * DAY), h1);
+          check("at 11 months she is left alone: no try, no collection", (await triesOf(h1)).length === 0 && (await collectionsOf(h1)).length === 0 && (await sent(k)).transfers.length === 0);
+          const N1 = yearAfter(R);
+          await round(N1, h1);
+          const [try1] = await triesOf(h1);
+          const [made1] = await collectionsOf(h1);
+          const pk = await sent(k);
+          check("after 12 months, counted from her oldest ready share, everything ready is sent, with the charge", pk.status === "sent" && pk.cents === 1238 - 25 && pk.fee === 25 && pk.transfers.length === 1 && pk.transfers[0]?.destination === account, `${pk.status} ${pk.cents} ${pk.fee} ${pk.transfers.length}`);
+          check("the collection is the try's own, and the record says the helper started it, with nobody who pressed", made1?.id === try1?.id && made1?.startedAs === "helper" && made1?.startedBy === null && try1?.outcome === "collected", `${made1?.startedAs} ${try1?.outcome}`);
+          await followUp(N1, h1);
+          const [told1] = await toldOf(h1);
+          check("she is told what really went: the amount in US dollars, and the charge", (await toldOf(h1)).length === 1 && Boolean(told1?.body.includes("Sent to your Stripe payout account: $12.13, in US dollars.")) && Boolean(told1?.body.includes("The collection charge that was taken: $0.25.")) && told1?.path === "/host", told1?.body);
+          check("and an email with the same words is written", (await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, told1?.key ?? ""))).length === 1);
+          await round(N1, h1);
+          await followUp(new Date(N1.getTime() + 2 * DAY), h1);
+          await round(new Date(N1.getTime() + 8 * DAY), h1);
+          check("once: later rounds make no second try, collection or message", (await triesOf(h1)).length === 1 && (await collectionsOf(h1)).length === 1 && (await toldOf(h1)).length === 1);
+          check("her Hosting page is told who started it", (await lastCollectionOf(h1))?.last.startedAs === "helper");
+          check("her 24 hours count from it, as from her own", (await press(h1, new Date(N1.getTime() + HOUR))) instanceof MoneyError);
+
+          console.log("   …a host whose last collection that went through is 12 months old; one that sent nothing in between does not count");
+          const h2 = await freshHost();
+          const a = await chargedCall(h2);
+          const T0 = await readyAt(a);
+          await press(h2, T0);
+          const b = await chargedCall(h2);
+          const T1 = new Date(Math.max(T0.getTime(), (await readyAt(b)).getTime()) + 60 * DAY);
+          const restoreB = await breakCharge(b);
+          const empty = await press(h2, T1);
+          await restoreB();
+          check("(her own collection two months later is accepted, and Stripe refuses all of it)", empty === null && (await collectionsOf(h2)).length === 2 && (await sent(b)).status === "not_due", empty?.message);
+          await round(new Date(T0.getTime() + 330 * DAY), h2);
+          check("at 11 months after the one that went through: left alone", (await triesOf(h2)).length === 0 && (await collectionsOf(h2)).length === 2);
+          const N2 = yearAfter(T0);
+          await round(N2, h2);
+          const pb = await sent(b);
+          check("12 months after the one that went through, not after the one that sent nothing: sent", pb.status === "sent" && pb.cents === 1238 - 25 && (await collectionsOf(h2)).length === 3 && (await collectionsOf(h2)).filter((c) => c.startedAs === "helper").length === 1 && (await collectionsOf(h2)).filter((c) => c.startedAs === "host").length === 2, `${pb.status} ${pb.cents}`);
+
+          console.log("   …a try that sends nothing: written down, not a collection, tried again a week later and not before");
+          const h3 = await freshHost();
+          const c = await chargedCall(h3);
+          const N3 = yearAfter(await readyAt(c));
+          await db.update(schema.hostSettings).set({ stripeAccountId: null, payoutsReady: false }).where(eq(schema.hostSettings.userId, h3));
+          await round(N3, h3);
+          const [refusedTry] = await triesOf(h3);
+          check("a payout account that is not ready: the try is written down with the reason, and nothing is collected", (await triesOf(h3)).length === 1 && refusedTry?.outcome === "nothing" && /not ready/.test(refusedTry?.reason ?? "") && (await collectionsOf(h3)).length === 0 && (await sent(c)).transfers.length === 0, `${refusedTry?.outcome} ${refusedTry?.reason}`);
+          await followUp(new Date(N3.getTime() + 2 * DAY), h3);
+          check("she is not told of a try that sent nothing", (await toldOf(h3)).length === 0);
+          await db.update(schema.hostSettings).set({ stripeAccountId: account, payoutsReady: true }).where(eq(schema.hostSettings.userId, h3));
+          await round(new Date(N3.getTime() + 6 * DAY), h3);
+          check("six days later: no new try", (await triesOf(h3)).length === 1 && (await collectionsOf(h3)).length === 0);
+          await round(new Date(N3.getTime() + 7 * DAY + MIN), h3);
+          const tries3 = await triesOf(h3);
+          check("a week later: a second try, and now it is sent", tries3.length === 2 && tries3[1]?.outcome === "collected" && (await sent(c)).status === "sent" && (await collectionsOf(h3)).length === 1, `${tries3.length} ${tries3[1]?.outcome}`);
+
+          console.log("   …two helpers at once; a try the helper stopped in the middle of; her own button in the same minute");
+          const h4 = await freshHost();
+          const d = await chargedCall(h4);
+          const N4 = yearAfter(await readyAt(d));
+          await Promise.all([round(N4, h4), round(N4, h4)]);
+          await Promise.all([followUp(N4, h4), followUp(N4, h4)]);
+          check("two helpers at once: one try, one collection, one transfer, one message", (await triesOf(h4)).length === 1 && (await collectionsOf(h4)).length === 1 && (await sent(d)).transfers.length === 1 && (await toldOf(h4)).length === 1, `${(await triesOf(h4)).length} ${(await collectionsOf(h4)).length} ${(await toldOf(h4)).length}`);
+
+          const h5 = await freshHost();
+          const e = await chargedCall(h5);
+          const N5 = yearAfter(await readyAt(e));
+          const stopped = await claimTry(h5, N5); // written down; the helper "stopped" before running it
+          check("a try is written down before Stripe is asked anything", stopped !== null && stopped.outcome === null && (await collectionsOf(h5)).length === 0);
+          check("while it has no outcome, no second try is written", (await claimTry(h5, N5)) === null && (await triesOf(h5)).length === 1);
+          await followUp(new Date(N5.getTime() + MIN), h5);
+          check("a minute later it is left: the helper that wrote it may still be at it", (await collectionsOf(h5)).length === 0);
+          await followUp(new Date(N5.getTime() + 3 * MIN), h5);
+          const [made5] = await collectionsOf(h5);
+          check("then it is run again, under its own id", made5?.id === stopped?.id && (await sent(e)).status === "sent" && (await triesOf(h5))[0]?.outcome === "collected");
+          await runTry(stopped!, new Date(N5.getTime() + 4 * MIN));
+          check("run once more: the same collection, nothing sent twice", (await collectionsOf(h5)).length === 1 && (await sent(e)).transfers.length === 1);
+
+          const h6 = await freshHost();
+          const f = await chargedCall(h6);
+          const N6 = yearAfter(await readyAt(f));
+          const beaten = await claimTry(h6, N6);
+          const own = await press(h6, N6); // her own button, between the helper's writing down and its collection
+          await followUp(new Date(N6.getTime() + 3 * MIN), h6);
+          const [try6] = await triesOf(h6);
+          const made6 = await collectionsOf(h6);
+          check("her own button in the same minute: one collection, hers; the helper's try sends nothing and tells her nothing", own === null && beaten !== null && made6.length === 1 && made6[0]?.startedAs === "host" && made6[0]?.startedBy === h6 && try6?.outcome === "nothing" && (await sent(f)).transfers.length === 1 && (await toldOf(h6)).length === 0, `${made6.length} ${try6?.outcome} ${try6?.reason}`);
+
+          console.log("   …what is left alone: a closed account, and a share that is held back");
+          const h7 = await freshHost();
+          const g = await chargedCall(h7);
+          const N7 = yearAfter(await readyAt(g));
+          await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, h7));
+          await round(N7, h7);
+          check("a closed account is not touched: no try, no collection", (await triesOf(h7)).length === 0 && (await collectionsOf(h7)).length === 0 && (await sent(g)).transfers.length === 0);
+          await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, h7));
+          const closing = await claimTry(h7, N7);
+          await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, h7));
+          await runTry(closing!, N7);
+          check("closed between the writing down and the collection: nothing is sent", (await triesOf(h7))[0]?.outcome === "nothing" && /closed/.test((await triesOf(h7))[0]?.reason ?? "") && (await collectionsOf(h7)).length === 0);
+
+          const h8 = await freshHost();
+          const held = await chargedCall(h8);
+          const free = await chargedCall(h8);
+          const N8 = yearAfter(await readyAt(held, free));
+          await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, held.payment.id)); // stands in for a bank dispute
+          await round(N8, h8);
+          check("a share a bank dispute holds back stays; the other is sent", (await sent(held)).status === "not_due" && (await sent(held)).transfers.length === 0 && (await sent(free)).status === "sent" && (await itemsOf((await collectionsOf(h8))[0]!.id)).length === 1);
+          await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, held.payment.id));
+
+          console.log("   …the message when Stripe refuses one share and has no clear answer for another");
+          const h9 = await freshHost();
+          const three = [await chargedCall(h9), await chargedCall(h9), await chargedCall(h9)];
+          const N9 = yearAfter(await readyAt(...three));
+          const try9 = (await claimTry(h9, N9))!;
+          const accepted = await acceptCollection({ collectionId: try9.id, hostId: h9, startedBy: null, now: N9 });
+          const carrier = accepted.started.find((x) => x.params.payoutFeeCents > 0)!;
+          const [through, lost] = accepted.started.filter((x) => x !== carrier);
+          const restore9 = await breakCharge(three.find((x) => x.payment.id === carrier.paymentId)!);
+          await sendCollection([through, carrier]);
+          await transferAtStripe(await reload(lost.paymentId), lost.params, lost.label); // Stripe did it; we "stopped" before hearing back
+          await restore9();
+          await followUp(new Date(N9.getTime() + 3 * MIN), h9); // finds the try without an outcome, and the collection that is there
+          check("the try is known as a collection", (await triesOf(h9))[0]?.outcome === "collected" && (await collectionsOf(h9)).length === 1);
+          check("while one transfer has no clear answer, she is not told yet", (await toldOf(h9)).length === 0);
+          await followUp(new Date(N9.getTime() + DAY + MIN), h9);
+          const [told9] = await toldOf(h9);
+          check("after a day she is told what is known: one sent, one refused as not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Could not be sent: $12.38. Stripe refused it.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
+          await reconcileOperations(soon());
+          await reconcileOperations(soon());
+          await followUp(new Date(N9.getTime() + 2 * DAY), h9);
+          check("the money helper finishes the unanswered one, and she is not told twice", (await sent(three.find((x) => x.payment.id === lost.paymentId)!)).status === "sent" && (await toldOf(h9)).length === 1);
         }
       } finally {
         // Give the test payout account back to host@test.local, whatever happened above.

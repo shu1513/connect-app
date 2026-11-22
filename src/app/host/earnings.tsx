@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { disputePagesOf } from "@/lib/disputes/pages";
 import { debtsOfHost } from "@/lib/disputes/takeback";
 import { DISPUTE_MESSAGE_WAITING, disputeMessageWaiting, lastCollectionOf, unsentEarnings, wouldCollect, type Earning } from "@/lib/payments/collect";
+import { STARTED_BY_CONNECT } from "@/lib/payments/uncollected-words";
 import { collectEarningsAction } from "./actions";
 
 const sum = (earnings: Earning[]) => earnings.reduce((total, e) => total + e.shareCents, 0);
@@ -137,8 +138,10 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
             : collection.last.checkingCents > 0
               ? "Nothing is confirmed as sent yet."
               : "Nothing was sent, and no collection charge was taken."}
-          {collection.last.checkingCents > 0 && ` ${formatMoney(collection.last.checkingCents)} is being checked. You do not need to press again.`}
+          {collection.last.checkingCents > 0 && ` ${formatMoney(collection.last.checkingCents)} is being checked.${collection.last.startedAs === "helper" ? "" : " You do not need to press again."}`}
           {collection.last.refusedCents > 0 && ` ${formatMoney(collection.last.refusedCents)} could not be sent; it stays ready.`}
+          {/* A collection the helper started, after 12 months without one (plans/46, part 3b). */}
+          {collection.last.startedAs === "helper" && <span data-started-by-connect> {STARTED_BY_CONNECT}</span>}
           {/* Said once: beside the money that is ready when there is some, otherwise here. */}
           {tooSoon && !would && (
             <>
