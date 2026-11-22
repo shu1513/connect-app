@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AFTER_ANSWER_MS, canAnswer, canCancel, canHold, canObject, canSettle, dueDay, dueToTake, leftAfterRefunds, NOTICE_MS, OPEN, owedCents, refundOwes, RESERVED, RETRY_MS, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
+import { AFTER_ANSWER_MS, againstBank, paidBackCents, canAnswer, canCancel, canHold, canObject, canSettle, dueDay, dueToTake, leftAfterRefunds, NOTICE_MS, OPEN, owedCents, refundOwes, RESERVED, RETRY_MS, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
 
 const at = (iso: string) => new Date(iso);
 const NOW = at("2027-02-01T12:00:00Z");
@@ -232,6 +232,33 @@ describe("what a refund after the sending makes a host owe (plans/46-part-3-mone
     for (const status of ["taking", "taken", "cancelled", "settled", "nothing"]) expect(canSettle({ status }) || canCancel({ status })).toBe(false);
     // One that waits for the founder is never due, whatever day is on it.
     expect(dueToTake({ status: "waiting", dueAt: new Date(0), refusedAt: null }, NOW)).toBe(false);
+  });
+});
+
+describe("what a take-back counts for, once money has moved in more than one way", () => {
+  const row = (status: string, amountCents: number, more: { repaidCents?: number | null; byHandCents?: number } = {}) => ({ status, amountCents, repaidCents: more.repaidCents ?? null, byHandCents: more.byHandCents ?? 0 });
+
+  it("counts what was really paid back, whichever way", () => {
+    expect(paidBackCents(row("taken", 4000))).toBe(4000);
+    // Paid in full by a reversal made by hand: "taken" with nothing left on the row.
+    expect(paidBackCents(row("taken", 0, { byHandCents: 4000 }))).toBe(4000);
+    // $10 by hand, then the rest settled outside for $20 of $30.
+    expect(paidBackCents(row("settled", 3000, { repaidCents: 2000, byHandCents: 1000 }))).toBe(3000);
+    expect(paidBackCents(row("cancelled", 3000))).toBe(0);
+    expect(paidBackCents(row("told", 3000, { byHandCents: 1000 }))).toBe(1000);
+  });
+
+  it("counts against what the bank took: what is still reserved and what was paid, and not what was waived", () => {
+    expect(againstBank(row("told", 2000))).toBe(2000);
+    expect(againstBank(row("taking", 2000))).toBe(2000);
+    expect(againstBank(row("taken", 2000))).toBe(2000);
+    // The bank took 30 and the first share repaid 20 outside (10 let go): only 20 is used up, 10 is room again.
+    expect(againstBank(row("settled", 3000, { repaidCents: 2000 }))).toBe(2000);
+    // Fully paid by hand: the row has nothing left on it, and still counts for all of it.
+    expect(againstBank(row("taken", 0, { byHandCents: 4000 }))).toBe(4000);
+    expect(againstBank(row("cancelled", 4000))).toBe(0);
+    expect(againstBank(row("waiting", 4000))).toBe(0);
+    expect(againstBank(row("nothing", 0))).toBe(0);
   });
 });
 

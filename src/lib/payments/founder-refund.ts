@@ -3,11 +3,12 @@
  * decisions 9 to 11): finding the payment, the grounds the founder can name, an estimate of what the host will
  * owe, and what really came of the refund at Stripe.
  */
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment } from "@/db/schema";
 import { formatMoney } from "./access";
 import { currentSplit } from "./actions";
+import { refundOwes } from "@/lib/disputes/takeback-rules";
 import { splitAfterRefunds } from "./pricing";
 
 /**
@@ -36,17 +37,35 @@ export function refundReason(ground: RefundGround, sentence: string): string {
  * for it (nothing, when the share was collected with nothing sent). An estimate: the real numbers are written when
  * Stripe confirms the refund, and what is still left on the transfer can make it less.
  */
-export function refundEstimate(payment: Pick<Payment, "chargedCents" | "refundedCents" | "originalHostShareCents" | "transferStatus" | "transferCents">, amountCents?: number): { leftCents: number; hostOwesCents: number } {
-  if (payment.chargedCents === null || payment.originalHostShareCents === null) return { leftCents: 0, hostOwesCents: 0 };
+export function refundEstimate(
+  payment: Pick<Payment, "chargedCents" | "refundedCents" | "originalHostShareCents" | "transferStatus" | "transferCents">,
+  amountCents?: number,
+  /** What her share has already lost to earlier refunds given after the sending. */
+  reductionsSoFarCents = 0,
+): { leftCents: number; hostOwesCents: number; sentCents: number } {
+  const sentCents = payment.transferStatus === "sent" ? (payment.transferCents ?? 0) : 0;
+  if (payment.chargedCents === null || payment.originalHostShareCents === null) return { leftCents: 0, hostOwesCents: 0, sentCents };
   const leftCents = Math.max(0, payment.chargedCents - payment.refundedCents);
   const amount = Math.max(0, Math.min(leftCents, amountCents ?? leftCents));
   const before = currentSplit(payment as Payment).hostShareCents;
   const after = splitAfterRefunds({ chargeCents: payment.chargedCents, refundedCents: payment.refundedCents + amount, originalHostShareCents: payment.originalHostShareCents }).hostShareCents;
-  const sent = payment.transferStatus === "sent" ? (payment.transferCents ?? 0) : 0;
-  return { leftCents, hostOwesCents: Math.min(Math.max(0, before - after), sent) };
+  // The same rule the real sum uses: once refunds have used up all that was sent, a further refund adds nothing.
+  return { leftCents, sentCents, hostOwesCents: refundOwes({ sentCents, reductionsBeforeCents: reductionsSoFarCents, reductionCents: Math.max(0, before - after), roomCents: Number.MAX_SAFE_INTEGER }) };
 }
 
-export type FoundPayment = { payment: Payment; callId: string; startsAt: Date; hostName: string; customerName: string; customerEmail: string; collected: boolean; refundUnderWay: boolean };
+export type FoundPayment = {
+  payment: Payment;
+  callId: string;
+  startsAt: Date;
+  hostName: string;
+  customerName: string;
+  customerEmail: string;
+  collected: boolean;
+  /** A refund of it that is not finished: "accepted" by Stripe and on its way, or "unanswered" (the app asked and does not know yet whether Stripe got the request). */
+  refundUnderWay: "no" | "accepted" | "unanswered";
+  /** What the host's share has already lost to refunds given after it was sent. */
+  reductionsCents: number;
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -71,7 +90,10 @@ export async function refundSearchFor(typed: string): Promise<RefundSearch | nul
  */
 export const REFUND_SEARCH_PAGE = 50;
 
-export async function paymentsForRefund(search: RefundSearch, before?: Date): Promise<FoundPayment[]> {
+/** Where a page of the search ends: the next page holds what comes after it in the list's own order (the call's start, then the payment's number). */
+export type RefundSearchCursor = { startsAt: Date; paymentId: string };
+
+export async function paymentsForRefund(search: RefundSearch, before?: RefundSearchCursor): Promise<FoundPayment[]> {
   const host = schema.user;
   const byCall = "callId" in search;
   if (byCall && !UUID.test(search.callId)) return [];
@@ -80,8 +102,9 @@ export async function paymentsForRefund(search: RefundSearch, before?: Date): Pr
     .select({ payment: schema.payments, callId: schema.calls.id, startsAt: schema.calls.startsAt, hostId: schema.calls.hostId, customerId: schema.calls.customerId })
     .from(schema.payments)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(and(eq(schema.payments.kind, "card"), eq(schema.payments.status, "charged"), byCall ? eq(schema.calls.id, search.callId) : eq(schema.calls.customerId, customerId!), before ? lt(schema.calls.startsAt, before) : undefined))
-    // A page at a time, newest call first; "older" asks for the calls that began before the last one shown.
+    .where(and(eq(schema.payments.kind, "card"), eq(schema.payments.status, "charged"), byCall ? eq(schema.calls.id, search.callId) : eq(schema.calls.customerId, customerId!), before ? or(lt(schema.calls.startsAt, before.startsAt), and(eq(schema.calls.startsAt, before.startsAt), lt(schema.payments.id, before.paymentId))) : undefined))
+    // A page at a time, newest call first. "Older" asks for what comes after the last one shown, by both keys of the
+    // order, so two payments of one call (its own and one for added time) are never split from each other and lost.
     .orderBy(desc(schema.calls.startsAt), desc(schema.payments.id))
     .limit(REFUND_SEARCH_PAGE);
   if (rows.length === 0) return [];
@@ -89,10 +112,16 @@ export async function paymentsForRefund(search: RefundSearch, before?: Date): Pr
     .select({ id: host.id, name: host.name, email: host.email })
     .from(host)
     .where(inArray(host.id, [...new Set(rows.flatMap((row) => [row.hostId, row.customerId]))]));
+  const ids = rows.map((row) => row.payment.id);
   const moving = await db
-    .select({ paymentId: schema.refunds.paymentId, n: sql<number>`count(*)::int` })
+    .select({ paymentId: schema.refunds.paymentId, unanswered: sql<number>`count(*) filter (where ${schema.refunds.stripeRefundId} is null)::int` })
     .from(schema.refunds)
-    .where(and(inArray(schema.refunds.paymentId, rows.map((row) => row.payment.id)), eq(schema.refunds.status, "in_progress")))
+    .where(and(inArray(schema.refunds.paymentId, ids), eq(schema.refunds.status, "in_progress")))
+    .groupBy(schema.refunds.paymentId);
+  const reduced = await db
+    .select({ paymentId: schema.refunds.paymentId, cents: sql<number>`coalesce(sum(${schema.refunds.hostOwesCents}), 0)::int` })
+    .from(schema.refunds)
+    .where(and(inArray(schema.refunds.paymentId, ids), eq(schema.refunds.status, "done"), eq(schema.refunds.afterCollection, true)))
     .groupBy(schema.refunds.paymentId);
   const nameOf = (id: string) => people.find((person) => person.id === id)?.name ?? "someone";
   return rows.map((row) => ({
@@ -103,7 +132,8 @@ export async function paymentsForRefund(search: RefundSearch, before?: Date): Pr
     customerName: nameOf(row.customerId),
     customerEmail: people.find((person) => person.id === row.customerId)?.email ?? "",
     collected: row.payment.transferStatus === "sent",
-    refundUnderWay: moving.some((one) => one.paymentId === row.payment.id),
+    refundUnderWay: ((one) => (!one ? "no" : one.unanswered > 0 ? "unanswered" : "accepted"))(moving.find((one) => one.paymentId === row.payment.id)),
+    reductionsCents: reduced.find((one) => one.paymentId === row.payment.id)?.cents ?? 0,
   }));
 }
 
@@ -164,9 +194,29 @@ export function refundAnswer(outcome: RefundOutcome | null, as: "founder" | "hos
   if (!outcome.afterCollection) return as === "founder" ? `${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.` : `The refund of ${amount} was sent to the customer.`;
   const shrank = `${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`;
   if (outcome.takeBack === "nothing" || outcome.sentCents <= 0 || outcome.hostOwesCents <= 0) return `${shrank} Nothing can be taken back for it: nothing was sent to the host for this share, or nothing is left of what was sent.`;
-  if (outcome.takeBack === "not_yet") return `${shrank} The app now works out what the host owes (never more than the ${formatMoney(outcome.sentCents)} that was sent to them) and tells them, usually within a minute. It is then listed under "Money hosts owe back".`;
+  // Nothing is promised that is not known yet: earlier refunds may have used up everything that was sent.
+  if (outcome.takeBack === "not_yet") return `${shrank} The app now works out whether the host owes anything for it (never more than is left of the ${formatMoney(outcome.sentCents)} that was sent to them), usually within a minute. If they do, they are told, and it is listed under "Money hosts owe back".`;
   const owed = formatMoney(outcome.takeBack.amountCents);
-  return outcome.takeBack.status === "waiting"
-    ? `${shrank} The host owes ${owed}. The app does not take it by itself: it waits for you under "Money hosts owe back".`
-    : `${shrank} The host owes ${owed} and has been told. It is listed under "Money hosts owe back".`;
+  const where = 'It is listed under "Money hosts owe back".';
+  // Where the take-back stands now, whatever it is: this is also what a form sent a second time is answered with.
+  switch (outcome.takeBack.status) {
+    case "waiting":
+      return `${shrank} The host owes ${owed}. The app does not take it by itself: it waits for you under "Money hosts owe back".`;
+    case "told":
+      return `${shrank} The host owes ${owed} and has been told. ${where}`;
+    case "objected":
+      return `${shrank} The host was told that they owe ${owed}, and has objected: nothing is taken until you have decided. ${where}`;
+    case "answered":
+      return `${shrank} The host owes ${owed}; their objection was answered, and it is taken after its day. ${where}`;
+    case "taking":
+      return `${shrank} Stripe is being asked right now to take what the host owes for it back. ${where}`;
+    case "taken":
+      return `${shrank} What the host owed for it has been taken back. ${where}`;
+    case "settled":
+      return `${shrank} What the host owed for it was settled outside the app. ${where}`;
+    case "cancelled":
+      return `${shrank} The take-back for it was called off: the host owes nothing for it. ${where}`;
+    default:
+      return `${shrank} ${where}`;
+  }
 }

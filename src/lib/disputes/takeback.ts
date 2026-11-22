@@ -29,7 +29,7 @@
  * "taking" exactly while its action is unanswered; every way that action can end as "not done"
  * puts the row back to where it stood ("told", or "answered") in the same step.
  */
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Dispute, HostDebt, Refund } from "@/db/schema";
 import { currentVersion, dayOf as dayOfVersion } from "@/legal/versions";
@@ -45,12 +45,13 @@ import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { aboutOwner, disputePath, ownerOf, peopleFor, type Only } from "./record";
 import { outcomeOf } from "./status";
-import { canAnswer, canCancel, canHold, canObject, canSettle, CONFIRM_WITHIN_MS, dueDay, dueToTake, leftAfterRefunds, OPEN, owedCents, refundOwes, RESERVED, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
+import { againstBank, canAnswer, canCancel, canHold, canObject, canSettle, CONFIRM_WITHIN_MS, dueDay, dueToTake, leftAfterRefunds, OPEN, owedCents, paidBackCents, refundOwes, RESERVED, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
 import {
   answeredWords,
   cancelledWords,
   handCountedWords,
   handHeldWordsForFounder,
+  handTwiceWords,
   leftoverWords,
   notDeliveredWords,
   noticeAgainWords,
@@ -69,11 +70,15 @@ import {
   refundWaitingWordsForFounder,
   refusedWords,
   settledWords,
+  shareRestoredWords,
   takenWords,
   type DebtFacts,
 } from "./takeback-words";
 
 const debts = schema.hostDebts;
+const counts = schema.handReversalCounts;
+/** How long one search through a list at Stripe may take before it is given up as unfinished. */
+const SEARCH_WITHIN_MS = 20_000;
 
 /** What the amount was worked out from, kept with the row. */
 export type Basis = {
@@ -124,7 +129,7 @@ const within = (only?: Only): SQL | undefined => (only ? or(inArray(debts.disput
 // ---------------------------------------------------------------------------
 
 /** The people of a take-back and the words' facts for each reader. Null when the money or the people are gone. */
-async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" | "basis">, cause: Cause) {
+async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" | "basis"> & { byHandCents?: number }, cause: Cause) {
   const about = await aboutOwner(tx, isRefund(cause) ? { kind: "payment", id: cause.paymentId } : ownerOf(cause));
   if (!about) return null;
   const people = await peopleFor(tx, about);
@@ -136,6 +141,10 @@ async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" |
   const whole = !basis.chargeLeftCents || !basis.disputedCents || basis.disputedCents >= basis.chargeLeftCents;
   const part = whole ? sent : Math.floor((sent * basis.disputedCents!) / basis.chargeLeftCents!);
   const names = { host: people.hostName, customer: people.customer.name };
+  // What was first owed: what is still owed, and what a reversal made by hand has already paid of it. The sums and
+  // the reasons for a smaller amount are about that first amount, never about what is left of it.
+  const byHand = debt.byHandCents ?? 0;
+  const assessed = debt.amountCents + byHand;
   const facts = (role: "host" | "founder", person: { timeZone: string | null }): DebtFacts => ({
     what: about.what(role, person, names),
     amount: formatMoney(debt.amountCents),
@@ -143,7 +152,8 @@ async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" |
     afterRefunds: reallySent > sent ? { took: formatMoney(reallySent - sent), left: formatMoney(sent) } : null,
     part: whole ? null : { disputed: formatMoney(basis.disputedCents!), of: formatMoney(basis.chargeLeftCents!) },
     // Less than that part, and why: no more is owed than the bank took back, or no more is left of the transfer.
-    capped: debt.amountCents >= part ? null : debt.amountCents >= Math.max(0, (basis.disputedCents ?? 0) - (basis.sameDisputeCents ?? 0)) ? "bank" : "transfer",
+    capped: assessed >= part ? null : assessed >= Math.max(0, (basis.disputedCents ?? 0) - (basis.sameDisputeCents ?? 0)) ? "bank" : "transfer",
+    byHand: byHand > 0 ? { assessed: formatMoney(assessed), taken: formatMoney(byHand) } : null,
     dueOn: debt.dueAt ? whenFor(person, debt.dueAt) : null,
     hostName: people.hostName,
     customerName: people.customer.name,
@@ -155,7 +165,7 @@ async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" |
             shareBefore: formatMoney(cause.shareBeforeCents ?? 0),
             shareAfter: formatMoney(cause.shareAfterCents ?? 0),
             reason: cause.reason?.trim() || "Connect decided it in the host's place.",
-            cutShort: debt.amountCents < cause.hostOwesCents,
+            cutShort: assessed < cause.hostOwesCents,
           },
         }
       : {}),
@@ -190,17 +200,33 @@ async function tellFounders(tx: Tx, debt: HostDebt, cause: Cause, what: string, 
 }
 
 /** What her share of a payment lost to refunds given after it was sent to her: read from the refunds, never from the take-backs (decision 4). */
+/**
+ * The order of a payment's refunds given after the sending: by the place each got when Stripe's confirmation was
+ * written down, with the payment held, so it never rests on a clock. (A line without a place stands after every line
+ * that has one; among such lines the time and the number decide.)
+ */
+function earlier(a: Refund, b: Refund): boolean {
+  const place = (one: Refund): [number, number, string] => [one.afterCollectionNo ?? Number.MAX_SAFE_INTEGER, one.finishedAt?.getTime() ?? 0, one.id];
+  const [x, y] = [place(a), place(b)];
+  return x[0] !== y[0] ? x[0] < y[0] : x[1] !== y[1] ? x[1] < y[1] : x[2] < y[2];
+}
+
 async function reductionsOn(reader: Reader, paymentId: string, before?: Refund): Promise<number> {
   const done = await reader.select().from(schema.refunds).where(and(eq(schema.refunds.paymentId, paymentId), eq(schema.refunds.afterCollection, true), eq(schema.refunds.status, "done")));
-  // "Before" one refund: the ones with a smaller place among this payment's refunds after the sending. The place is
-  // given when Stripe's confirmation is written down, with the payment held, so it never rests on a clock. (A line
-  // without a place stands after every line that has one; among such lines the time and the number decide.)
-  const place = (one: Refund): [number, number, string] => [one.afterCollectionNo ?? Number.MAX_SAFE_INTEGER, one.finishedAt?.getTime() ?? 0, one.id];
-  const earlier = (a: Refund, b: Refund) => {
-    const [x, y] = [place(a), place(b)];
-    return x[0] !== y[0] ? x[0] < y[0] : x[1] !== y[1] ? x[1] < y[1] : x[2] < y[2];
-  };
   return done.filter((one) => !before || (one.id !== before.id && earlier(one, before))).reduce((sum, one) => sum + one.hostOwesCents, 0);
+}
+
+/**
+ * What is left on a share's transfer, as the app knows it: what was sent, less what the app itself took back for this
+ * share's take-backs, less every part of a reversal made by hand that the founder has accounted for. A reversal made
+ * by hand that nobody has accounted for yet is NOT taken off here. Until the founder has said what it was for the app
+ * takes nothing from that transfer (takeOne), and it may turn out to be the payment of the very take-back that is
+ * being written: taken off here and counted there, it would be taken off twice.
+ */
+async function leftOnTransfer(tx: Tx, paymentId: string, transferAmountCents: number, rows: HostDebt[]): Promise<number> {
+  const [{ counted }] = await tx.select({ counted: sql<number>`coalesce(sum(${counts.cents}), 0)::int` }).from(counts).where(eq(counts.paymentId, paymentId));
+  const taken = rows.filter((row) => row.status === "taken").reduce((sum, row) => sum + row.amountCents, 0);
+  return Math.max(0, transferAmountCents - taken - counted);
 }
 
 /** Whether a refund of this payment is with Stripe and unanswered: nothing is worked out on a share while money is moving on it. */
@@ -267,7 +293,7 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
     if (await refundUnderWay(tx, paymentId)) return false;
     // What other shares under the same dispute already owe or have paid back (a membership's month has several):
     // all of them together never owe more than the bank took back in this dispute.
-    const sameDispute = await tx.select({ amountCents: debts.amountCents }).from(debts).where(and(eq(debts.disputeId, dispute.id), inArray(debts.status, [...OPEN, "taking", "taken"])));
+    const sameDispute = await tx.select().from(debts).where(eq(debts.disputeId, dispute.id));
 
     // Both reads at once, one try each, under one limit of time: the share's payment is held meanwhile.
     const [atStripe, transfer] = await inTime(
@@ -292,10 +318,10 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
       disputedCents: atStripe.amount,
       // What was left of the charge: what was taken, less what had been refunded.
       chargeLeftCents: charge.amount_captured - charge.amount_refunded,
-      transferLeftCents: transfer.amount - transfer.amount_reversed,
+      transferLeftCents: await leftOnTransfer(tx, paymentId, transfer.amount, others),
       // Everything still set aside on this share (open or waiting for the founder), and what she paid back outside Stripe.
       othersOpenCents: others.filter((other) => RESERVED.includes(other.status)).reduce((sum, other) => sum + other.amountCents, 0) + settledOutside,
-      sameDisputeCents: sameDispute.reduce((sum, other) => sum + other.amountCents, 0),
+      sameDisputeCents: sameDispute.reduce((sum, other) => sum + againstBank(other), 0),
     };
     const amountCents = owedCents(basis);
     // When the notice is written, not when this pass began. The 14 days do not count from here: they count from the
@@ -321,8 +347,9 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
  * this one had the amount set aside: those rows are taken away, so the next look works them out afresh (and writes a
  * notice of its own if something is owed after all). With the share's payment held.
  */
-async function freeSetAside(tx: Tx, paymentId: string): Promise<void> {
-  await tx.delete(debts).where(and(eq(debts.paymentId, paymentId), eq(debts.status, "nothing")));
+async function freeSetAside(tx: Tx, paymentId: string, disputeId: string | null = null): Promise<void> {
+  // On this share; and, for a dispute's take-back, on the other shares of the same dispute too: they share what the bank took.
+  await tx.delete(debts).where(and(eq(debts.status, "nothing"), disputeId ? or(eq(debts.paymentId, paymentId), eq(debts.disputeId, disputeId)) : eq(debts.paymentId, paymentId)));
   // A refund on this share that was looked at and got nothing is looked at again too.
   await tx
     .update(schema.refunds)
@@ -413,7 +440,7 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
       sentCents: share.transferCents!,
       reductionCents: refund.hostOwesCents,
       reductionsBeforeCents: await reductionsOn(tx, share.id, refund),
-      transferLeftCents: transfer.amount - transfer.amount_reversed,
+      transferLeftCents: await leftOnTransfer(tx, share.id, transfer.amount, others),
       othersOpenCents: others.filter((other) => RESERVED.includes(other.status)).reduce((sum, other) => sum + other.amountCents, 0),
       repaidOutsideCents: others.filter((other) => other.status === "settled").reduce((sum, other) => sum + (other.repaidCents ?? 0), 0),
     };
@@ -471,7 +498,7 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
         // With its notice only, objected to, or answered: called off. Nothing was lost after all.
         if (open) {
           await tx.update(debts).set({ status: "cancelled", cancelledAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
-          await freeSetAside(tx, fresh.paymentId);
+          await freeSetAside(tx, fresh.paymentId, fresh.disputeId);
           await tellHost(tx, fresh, dispute, "cancelled", (facts) => cancelledWords(facts, "won"));
         }
         await fellAway(tx, fresh, now, `the bank decided dispute ${dispute.id} the other way after all`);
@@ -479,7 +506,7 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
         const paid = paidBackCents(fresh);
         if (paid > 0) {
           const how = (fresh.repaidCents ?? 0) > 0 ? "paid" : "taken";
-          const asPaid = { ...fresh, amountCents: paid };
+          const asPaid = { ...fresh, amountCents: paid, byHandCents: 0 };
           await tellHost(tx, asPaid, dispute, "leftover", (facts) => leftoverWords("host", facts, how));
           await tellFounders(tx, asPaid, dispute, "leftover", (facts) => leftoverWords("founder", facts, how));
         }
@@ -488,10 +515,6 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
   }
 }
 
-/** What a host has really paid back for one take-back: taken by the app, counted from a reversal made by hand, or paid outside the app. */
-const paidBackCents = (debt: Pick<HostDebt, "status" | "amountCents" | "repaidCents" | "byHandCents" | "stripeReversalId">): number =>
-  // (A row that a reversal by hand paid in full is "taken" with nothing left on it: all of it is in `byHandCents`.)
-  (debt.status === "taken" ? debt.amountCents : 0) + (debt.repaidCents ?? 0) + debt.byHandCents;
 
 /**
  * The cause of a take-back fell away (the bank decided the other way; the refund failed at Stripe after all): a cost
@@ -795,7 +818,7 @@ async function takeOne(debt: HostDebt, now: Date): Promise<void> {
   // this very take-back. Nothing more is taken from the transfer until the founder has said what it was for.
   const byHand = await handReversalsOpen(debt);
   if (byHand.length > 0) {
-    await holdForHand(debt, byHand, now);
+    await tellOfHand(debt, byHand, now);
     return;
   }
   if (debt.handToldAt) await db.update(debts).set({ handToldAt: null, updatedAt: now }).where(eq(debts.id, debt.id));
@@ -887,12 +910,15 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
   // Only a search that BEGAN after the request could no longer be on its way can say "it did not happen".
   const conclusive = age() >= SETTLED_AFTER_MS;
   if (reversalId === undefined) {
+    const until = Date.now() + SEARCH_WITHIN_MS;
     await lookUp(async () => {
       for await (const reversal of stripe().transfers.listReversals(params.transferId, { limit: 100 })) {
-        if (reversal.metadata?.debtId === params.debtId) {
+        // The app's own request, by the take-back it carries AND its amount: a reversal that only carries the id is not booked as this one.
+        if (reversal.metadata?.debtId === params.debtId && reversal.amount === params.amountCents) {
           reversalId = reversal.id;
           break;
         }
+        if (Date.now() > until) throw new Error("the search through this transfer's reversals took too long");
       }
     });
   }
@@ -935,7 +961,7 @@ export async function cancelDebt(input: { debtId: string; adminId: string; dispu
     // Connect carries it, and the books say so, once (decision 8), whatever the take-back came from. The amount is
     // kept on the row, so that it can be taken off again if the cause falls away (the bank decides the other way).
     await tx.update(debts).set({ status: "cancelled", cancelledAt: now, cancelledBy: input.adminId, dueAt: null, costBookedCents: debt.costBookedCents + debt.amountCents, updatedAt: now }).where(eq(debts.id, debt.id));
-    await freeSetAside(tx, debt.paymentId);
+    await freeSetAside(tx, debt.paymentId, debt.disputeId);
     await addLedgerEntry(tx, { paymentId: debt.paymentId, kind: "connect_cost", amountCents: debt.amountCents, stripeRef: null, note: debt.refundId ? `Connect carries the host's part of a refund given after collection (${debt.refundId}): the take-back was called off.` : `Connect carries the host's share after a lost bank dispute (${debt.disputeId}): the take-back was called off.` });
     await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: debt.refundId ? "take-back after a refund called off" : "take-back after a lost dispute cancelled", targetUserId: debt.hostId, targetId: debt.id });
     if (cause) await tellHost(tx, debt, cause, "cancelled", isRefund(cause) ? refundCancelledWords : (facts) => cancelledWords(facts, "founder"));
@@ -965,7 +991,7 @@ export async function settleOutside(input: { debtId: string; adminId: string; re
     if (input.repaidCents > 0) await addLedgerEntry(tx, { paymentId: debt.paymentId, kind: "host_repaid", amountCents: input.repaidCents, stripeRef: null, note: `Paid back by the host outside the app, for ${why}.` });
     if (letGo > 0) await addLedgerEntry(tx, { paymentId: debt.paymentId, kind: "connect_cost", amountCents: letGo, stripeRef: null, note: `Connect carries the rest of the host's part of ${why}.` });
     // What was let go is room again for another take-back on this share that had got nothing.
-    await freeSetAside(tx, debt.paymentId);
+    await freeSetAside(tx, debt.paymentId, debt.disputeId);
     await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: debt.refundId ? "take-back after a refund settled outside the app" : "take-back after a lost dispute settled outside the app", targetUserId: debt.hostId, targetId: debt.id });
     await tellHost(tx, settled, cause, "settled", (facts) => settledWords(facts, formatMoney(input.repaidCents), letGo > 0 ? formatMoney(letGo) : null));
     return true;
@@ -1020,11 +1046,20 @@ export async function refundStands(refundId: string, now: Date = new Date()): Pr
  * Stripe's message that a refund changed (its failure, above all): what Stripe says now is read from Stripe, never
  * from the message. A refund still on its way that failed is marked so; a confirmed one that failed is undone.
  */
-export async function refundChangedAtStripe(stripeRefundId: string, now: Date = new Date()): Promise<void> {
-  const rows = await db.select().from(schema.refunds).where(eq(schema.refunds.stripeRefundId, stripeRefundId));
+export async function refundChangedAtStripe(stripeRefundId: string, ourRefundId: string | null = null, now: Date = new Date()): Promise<void> {
+  // Found by Stripe's number, or by the app's own number that the refund carries at Stripe (the app may not have
+  // learned Stripe's number yet).
+  const rows = await db.select().from(schema.refunds).where(ourRefundId ? or(eq(schema.refunds.stripeRefundId, stripeRefundId), eq(schema.refunds.id, ourRefundId)) : eq(schema.refunds.stripeRefundId, stripeRefundId));
   for (const refund of rows) {
-    if (refund.status === "done") await refundStands(refund.id, now);
-    // (One still on its way is finished by the helper's own look at pending refunds, within the minute.)
+    if (refund.status === "done") {
+      await refundStands(refund.id, now);
+    } else if (refund.status === "in_progress" && !refund.stripeRefundId) {
+      // The app is still finding out what Stripe answered to its request. If Stripe says this refund failed, the
+      // message must not be lost meanwhile: it is kept (by failing here) and handled again once the answer is recorded.
+      const atStripe = await stripe().refunds.retrieve(stripeRefundId);
+      if (atStripe.status === "failed" || atStripe.status === "canceled") throw new Error(`refund ${refund.id} failed at Stripe before the app had recorded Stripe's answer to its request; this message is handled again once it has`);
+    }
+    // (One on its way with Stripe's number is finished by the helper's own look at pending refunds, within the minute.)
   }
 }
 
@@ -1043,13 +1078,19 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
     const [refund] = await tx.select().from(schema.refunds).where(eq(schema.refunds.id, refundId)).for("update");
     if (!refund || refund.status !== "done" || payment.chargedCents === null || payment.originalHostShareCents === null) return false;
     const rows = await tx.select().from(debts).where(eq(debts.paymentId, payment.id));
-    // Not while a taking on this share is unanswered: what came of it is found out first.
-    if (rows.some((row) => row.status === "taking")) return false;
+    // Not while money is moving on this payment (a taking, a sending of the share, another refund): what comes of
+    // that is found out first. The failure is kept on the refund's line, and the helper comes back to it on every
+    // pass until it is undone: it is never lost because the moment was wrong.
+    const [moving] = await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started"))).limit(1);
+    if (moving || rows.some((row) => row.status === "taking")) {
+      if (refund.undoPendingAt === null) await tx.update(schema.refunds).set({ undoPendingAt: now, failure: reason.slice(0, 500) }).where(eq(schema.refunds.id, refund.id));
+      return false;
+    }
 
     const before = currentSplit(payment);
     const refundedCents = Math.max(0, payment.refundedCents - refund.amountCents);
     const after = splitAfterRefunds({ chargeCents: payment.chargedCents, refundedCents, originalHostShareCents: payment.originalHostShareCents });
-    await tx.update(schema.refunds).set({ status: "failed", failure: reason.slice(0, 500), failedLateAt: now }).where(eq(schema.refunds.id, refund.id));
+    await tx.update(schema.refunds).set({ status: "failed", failure: reason.slice(0, 500), failedLateAt: now, undoPendingAt: null }).where(eq(schema.refunds.id, refund.id));
     // A share that this refund had left with nothing is owed again, and waits for its day like any other.
     await tx
       .update(schema.payments)
@@ -1060,26 +1101,50 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
     await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: refund.stripeRefundId, note });
     await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: refund.stripeRefundId, note });
 
+    // A refund given BEFORE she collected had made her share smaller, and that smaller share is what was sent. Now
+    // the share is whole again in the books, and the part the refund had taken off was never sent to her. The app
+    // does not send it by itself: she and the founder are told the amount.
+    const underpaid = !refund.afterCollection && payment.transferStatus === "sent" ? Math.max(0, after.hostShareCents - before.hostShareCents) : 0;
+
     // Its take-back, if one was written and shown to anyone.
     const debt = rows.find((row) => row.refundId === refund.id && row.status !== "nothing") ?? null;
     let forFounder: { amount: string; paidBack: string | null } | null = null;
     if (debt && debt.leftoverToldAt === null) {
       const wasOpen = RESERVED.includes(debt.status);
       const paid = paidBackCents(debt);
+      // What was first written as owed, whatever a reversal by hand has since paid of it.
+      const first = { ...debt, amountCents: debt.amountCents + debt.byHandCents, byHandCents: 0 };
       if (wasOpen) await tx.update(debts).set({ status: "cancelled", cancelledAt: now, dueAt: null, updatedAt: now }).where(eq(debts.id, debt.id));
       await fellAway(tx, debt, now, `refund ${refund.id} failed at Stripe after all`);
       // She is told when she still had it before her as owed, or had paid something for it.
-      if (wasOpen || paid > 0) await tellHost(tx, debt, refund, "fell-away", (facts) => refundFellAwayWords(facts, paid > 0 ? formatMoney(paid) : null));
-      forFounder = { amount: formatMoney(debt.amountCents + debt.byHandCents), paidBack: paid > 0 ? formatMoney(paid) : null };
+      if (wasOpen || paid > 0) await tellHost(tx, first, refund, "fell-away", (facts) => refundFellAwayWords(facts, paid > 0 ? formatMoney(paid) : null));
+      forFounder = { amount: formatMoney(first.amountCents), paidBack: paid > 0 ? formatMoney(paid) : null };
     }
+    // The refunds that are left: what each takes off her share is worked out again, in their order, now that this
+    // one is gone (the cents can fall differently). A take-back never rises by this; one that was a little too high
+    // is lowered, and what was already paid too much is told to the founder.
+    const excess = await reworkRefundsLeft(tx, payment, refundedCents, now);
     await freeSetAside(tx, payment.id);
 
     const about = await aboutOwner(tx, { kind: "payment", id: payment.id });
     const people = about ? await peopleFor(tx, about) : null;
     if (about && people) {
       const names = { host: people.hostName, customer: people.customer.name };
+      if (underpaid > 0) {
+        const told = shareRestoredWords({ what: about.what("host", people.host, names), customerName: people.customer.name, underpaid: formatMoney(underpaid), supportEmail: SUPPORT_EMAIL });
+        await tell(tx, { to: people.host, key: `refund-failed-late:${refund.id}:host:${people.host.id}`, subject: told.subject, text: told.text, path: "/host" });
+      }
       for (const founder of people.founders) {
-        const told = refundFellAwayWordsForFounder({ what: about.what("founder", founder, names), customerName: people.customer.name, hostName: people.hostName, refunded: formatMoney(refund.amountCents), reason, debt: forFounder });
+        const told = refundFellAwayWordsForFounder({
+          what: about.what("founder", founder, names),
+          customerName: people.customer.name,
+          hostName: people.hostName,
+          refunded: formatMoney(refund.amountCents),
+          reason,
+          debt: forFounder,
+          underpaid: underpaid > 0 ? formatMoney(underpaid) : null,
+          excess: excess > 0 ? formatMoney(excess) : null,
+        });
         await queueEmail(tx, { to: founder.email, key: `refund-failed-late:${refund.id}:founder:${founder.id}`, subject: told.subject, text: `${told.text}\n\n${debt ? `The take-back's page (admin login):\n${appUrl()}${debtPath(debt.id)}` : `The refund page (admin login):\n${appUrl()}/admin/refund`}\n` });
       }
     }
@@ -1087,80 +1152,150 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
   });
 }
 
+/**
+ * After a refund was undone: the refunds of the payment that are left, given after the sending, in their order. What
+ * each takes off her share is worked out again from the payment as it now stands, and written on the refund. Where
+ * that is less than before, an open take-back for it is lowered by the difference (never raised), and what a
+ * take-back that was already paid had asked too much is added up and given back as the answer.
+ */
+async function reworkRefundsLeft(tx: Tx, payment: { id: string; chargedCents: number | null; originalHostShareCents: number | null }, refundedCents: number, now: Date): Promise<number> {
+  if (payment.chargedCents === null || payment.originalHostShareCents === null) return 0;
+  const left = (await tx.select().from(schema.refunds).where(and(eq(schema.refunds.paymentId, payment.id), eq(schema.refunds.afterCollection, true), eq(schema.refunds.status, "done")))).sort((a, b) => (earlier(a, b) ? -1 : 1));
+  const split = (refunded: number) => splitAfterRefunds({ chargeCents: payment.chargedCents!, refundedCents: refunded, originalHostShareCents: payment.originalHostShareCents! });
+  // Everything refunded that is not one of these (before the sending) comes first.
+  let running = Math.max(0, refundedCents - left.reduce((sum, one) => sum + one.amountCents, 0));
+  let excess = 0;
+  for (const one of left) {
+    const [before, after] = [split(running), split(running + one.amountCents)];
+    running += one.amountCents;
+    const owes = Math.max(0, before.hostShareCents - after.hostShareCents);
+    if (owes === one.hostOwesCents && one.shareBeforeCents === before.hostShareCents && one.shareAfterCents === after.hostShareCents) continue;
+    await tx.update(schema.refunds).set({ shareBeforeCents: before.hostShareCents, shareAfterCents: after.hostShareCents, feeBeforeCents: before.feeCents, feeAfterCents: after.feeCents, hostOwesCents: owes }).where(eq(schema.refunds.id, one.id));
+    const less = one.hostOwesCents - owes;
+    if (less <= 0) continue;
+    const [debt] = await tx.select().from(debts).where(and(eq(debts.refundId, one.id), ne(debts.status, "nothing"))).for("update");
+    if (!debt) continue;
+    if (RESERVED.includes(debt.status)) {
+      const lowered = Math.max(0, debt.amountCents - less);
+      await tx.update(debts).set({ amountCents: lowered, ...(lowered === 0 ? { status: "cancelled", cancelledAt: now, dueAt: null } : {}), updatedAt: now }).where(eq(debts.id, debt.id));
+    } else if (debt.status === "taken" || debt.status === "settled") {
+      excess += Math.min(less, paidBackCents(debt));
+    }
+  }
+  return excess;
+}
+
 // ---------------------------------------------------------------------------
 // A reversal somebody made by hand at Stripe
 // ---------------------------------------------------------------------------
 
-export type HandReversalSeen = { id: string; amountCents: number; at: Date };
+export type HandReversalSeen = { id: string; amountCents: number; /** The part of it nobody has accounted for yet. */ openCents: number; at: Date };
 
 /**
- * The reversals of a transfer that the app did not make for a take-back of this share, and that the founder has not
- * accounted for yet. While there is one, the app takes nothing more from that transfer by itself: such a reversal may
- * already have paid the very take-back the app is about to take. Asks Stripe (every page); throws when it cannot.
+ * The reversals of a transfer that the app did not make for a take-back of this share, with the part of each that the
+ * founder has not accounted for yet. While there is such a part, the app takes nothing more from that transfer by
+ * itself: it may already have paid the very take-back the app is about to take. Asks Stripe (every page, within a
+ * limit of time); throws when it cannot, and the caller then does nothing for now.
+ *
+ * The app's own reversals are known by their numbers, which the take-backs keep. One that is being recorded at this
+ * moment (its take-back says "being taken", and it carries that take-back's id) is the app's too.
  */
 export async function handReversalsOpen(debt: Pick<HostDebt, "paymentId" | "stripeTransferId">): Promise<HandReversalSeen[]> {
-  const ours = new Set((await db.select({ id: debts.id }).from(debts).where(eq(debts.paymentId, debt.paymentId))).map((row) => row.id));
-  const known = new Set((await db.select({ id: schema.handReversals.stripeReversalId }).from(schema.handReversals).where(eq(schema.handReversals.stripeTransferId, debt.stripeTransferId))).map((row) => row.id));
+  const rows = await db.select({ id: debts.id, status: debts.status, stripeReversalId: debts.stripeReversalId }).from(debts).where(eq(debts.paymentId, debt.paymentId));
+  const recorded = new Set(rows.map((row) => row.stripeReversalId).filter((id): id is string => id !== null));
+  const beingTaken = new Set(rows.filter((row) => row.status === "taking").map((row) => row.id));
+  const counted = new Map<string, number>();
+  for (const line of await db.select({ id: counts.stripeReversalId, cents: counts.cents }).from(counts).where(eq(counts.stripeTransferId, debt.stripeTransferId))) counted.set(line.id, (counted.get(line.id) ?? 0) + line.cents);
   const open: HandReversalSeen[] = [];
+  const until = Date.now() + SEARCH_WITHIN_MS;
   for await (const reversal of stripe().transfers.listReversals(debt.stripeTransferId, { limit: 100 })) {
-    // The app's own reversals carry the take-back they were made for.
-    if ((reversal.metadata?.debtId && ours.has(reversal.metadata.debtId)) || known.has(reversal.id)) continue;
-    open.push({ id: reversal.id, amountCents: reversal.amount, at: new Date(reversal.created * 1000) });
+    if (Date.now() > until) throw new Error("the search through this transfer's reversals took too long");
+    if (recorded.has(reversal.id) || (reversal.metadata?.debtId && beingTaken.has(reversal.metadata.debtId))) continue;
+    const openCents = reversal.amount - (counted.get(reversal.id) ?? 0);
+    if (openCents > 0) open.push({ id: reversal.id, amountCents: reversal.amount, openCents, at: new Date(reversal.created * 1000) });
   }
   return open;
 }
 
-/** Puts a due take-back on hold because of such a reversal, and tells the founder, once for that reversal. */
-async function holdForHand(debt: HostDebt, open: HandReversalSeen[], now: Date): Promise<void> {
+/**
+ * Tells the founder, once for that reversal, that a reversal made by hand is unaccounted for on a take-back's
+ * transfer. A take-back that would be taken now is marked as held for it.
+ */
+async function tellOfHand(debt: HostDebt, open: HandReversalSeen[], now: Date): Promise<void> {
   await db.transaction(async (tx) => {
     await lockPayment(tx, debt.paymentId);
     const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
-    if (!fresh || !TAKEABLE.includes(fresh.status) || fresh.handToldAt !== null) return;
+    if (!fresh || fresh.status === "nothing") return;
     const cause = await causeOf(tx, fresh);
     if (!cause) return;
-    await tx.update(debts).set({ handToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
-    const total = open.reduce((sum, one) => sum + one.amountCents, 0);
-    await tellFounders(tx, fresh, cause, `hand:${open[0].id}`, (facts) => handHeldWordsForFounder(facts, formatMoney(total)));
+    if (TAKEABLE.includes(fresh.status) && fresh.handToldAt === null) await tx.update(debts).set({ handToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
+    const total = open.reduce((sum, one) => sum + one.openCents, 0);
+    await tellFounders(tx, fresh, cause, `hand:${open[0].id}`, (facts) => handHeldWordsForFounder(facts, formatMoney(total), !RESERVED.includes(fresh.status)));
   });
 }
 
 /**
- * The founder says what a reversal made by hand was for: this take-back (then it is counted for it, in the books as
- * taken back, and only the rest stays owed), or nothing to do with any take-back. A reversal is accounted for once,
- * ever. One that is larger than what this take-back still owes is counted up to that amount; the rest of it is then
- * taken to have had another reason.
+ * Stripe's message that a transfer was reversed. The app's own reversals are known; one made by hand is not, and the
+ * founder is told at once, also when every take-back of that share has already ended: if it was meant for one of
+ * them, the host has paid twice.
  */
-export async function countHandReversal(input: { debtId: string; adminId: string; reversalId: string; forThis: boolean; now?: Date }): Promise<boolean> {
+export async function reversalSeenOnTransfer(stripeTransferId: string, now: Date = new Date()): Promise<void> {
+  const rows = await db.select().from(debts).where(and(eq(debts.stripeTransferId, stripeTransferId), ne(debts.status, "nothing"))).orderBy(sql`${debts.createdAt} desc`);
+  if (rows.length === 0) return;
+  const open = await handReversalsOpen(rows[0]);
+  if (open.length === 0) return;
+  await tellOfHand(rows.find((row) => TAKEABLE.includes(row.status)) ?? rows.find((row) => RESERVED.includes(row.status)) ?? rows[0], open, now);
+}
+
+/**
+ * The founder says what a reversal made by hand was for, or a part of it:
+ *   - "paid": it paid this take-back, which is still open. It is counted for it (in the books as taken back), up to
+ *     what the take-back still owes; only the rest of the take-back stays owed. A part of the reversal that is left
+ *     over stays unaccounted for, and the hold stays, until the founder says what that part was for.
+ *   - "twice": it was meant for this take-back, which had already ended (taken, settled or called off). The host has
+ *     paid twice: the whole open part is booked as taken back and marked as owed back to her, and she and the
+ *     founder are told. The app does not send it back by itself.
+ *   - "other": the open part had nothing to do with a take-back.
+ * Each part of a reversal is counted once, ever: what is still open is read again with the share's payment held.
+ */
+export async function countHandReversal(input: { debtId: string; adminId: string; reversalId: string; as: "paid" | "twice" | "other"; now?: Date }): Promise<boolean> {
   const now = input.now ?? new Date();
   const [seen] = await db.select().from(debts).where(eq(debts.id, input.debtId));
   if (!seen) return false;
-  // Asked of Stripe first, outside any lock: it has to be a reversal of this very transfer that is still unaccounted for.
+  // Asked of Stripe first, outside any lock: it has to be a reversal of this very transfer with a part still open.
   const reversal = (await handReversalsOpen(seen)).find((one) => one.id === input.reversalId);
   if (!reversal) throw new DebtError("That reversal is not one that is waiting to be accounted for on this transfer.");
   return db.transaction(async (tx) => {
     const found = await lockedDebt(tx, input.debtId);
     if (!found) return false;
     const { debt, dispute: cause } = found;
-    if (input.forThis && !RESERVED.includes(debt.status)) throw new DebtError("This take-back is no longer open, so a reversal cannot be counted for it.");
-    const counted = input.forThis ? Math.min(reversal.amountCents, debt.amountCents) : 0;
-    const written = await tx
-      .insert(schema.handReversals)
-      .values({ stripeReversalId: reversal.id, stripeTransferId: debt.stripeTransferId, paymentId: debt.paymentId, debtId: input.forThis ? debt.id : null, amountCents: reversal.amountCents, countedCents: counted, decidedBy: input.adminId })
-      .onConflictDoNothing()
-      .returning({ id: schema.handReversals.stripeReversalId });
-    if (written.length === 0) return false;
-    await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: input.forThis ? "reversal made by hand counted for a take-back" : "reversal made by hand marked as not for a take-back", targetUserId: debt.hostId, targetId: debt.id });
-    if (counted > 0) {
-      const left = debt.amountCents - counted;
-      await addLedgerEntry(tx, { paymentId: debt.paymentId, kind: "host_takeback", amountCents: counted, stripeRef: reversal.id, note: `Taken back from the host by a reversal made by hand at Stripe, counted for take-back ${debt.id}.` });
+    const [{ already }] = await tx.select({ already: sql<number>`coalesce(sum(${counts.cents}), 0)::int` }).from(counts).where(eq(counts.stripeReversalId, reversal.id));
+    const open = reversal.amountCents - already;
+    if (open <= 0) return false;
+    if (input.as === "paid" && !RESERVED.includes(debt.status)) throw new DebtError("This take-back is no longer open, so a reversal cannot be counted as having paid it. If it was meant for it all the same, the host has paid twice: say so instead.");
+    if (input.as === "twice" && !["taken", "settled", "cancelled"].includes(debt.status)) throw new DebtError("This take-back has not ended. If the reversal was for it, count it as having paid it.");
+    const cents = input.as === "paid" ? Math.min(open, debt.amountCents) : open;
+    if (cents <= 0) return false;
+    await tx.insert(counts).values({ stripeReversalId: reversal.id, stripeTransferId: debt.stripeTransferId, paymentId: debt.paymentId, kind: input.as, debtId: input.as === "other" ? null : debt.id, cents, decidedBy: input.adminId });
+    const action = input.as === "paid" ? "reversal made by hand counted for a take-back" : input.as === "twice" ? "reversal made by hand recorded as a second payment of a take-back" : "reversal made by hand marked as not for a take-back";
+    await tx.insert(schema.adminActions).values({ adminId: input.adminId, action, targetUserId: debt.hostId, targetId: debt.id });
+    if (input.as === "paid") {
+      const left = debt.amountCents - cents;
+      await addLedgerEntry(tx, { paymentId: debt.paymentId, kind: "host_takeback", amountCents: cents, stripeRef: reversal.id, note: `Taken back from the host by a reversal made by hand at Stripe, counted for take-back ${debt.id}.` });
       const [after] = await tx
         .update(debts)
-        .set({ amountCents: left, byHandCents: debt.byHandCents + counted, ...(left === 0 ? { status: "taken", takenAt: now, stripeReversalId: reversal.id, dueAt: null } : {}), updatedAt: now })
+        // (A take-back that a reversal by hand paid in full is "taken" with nothing left on it and no reversal of the app's own.)
+        .set({ amountCents: left, byHandCents: debt.byHandCents + cents, ...(left === 0 ? { status: "taken", takenAt: now, dueAt: null } : {}), updatedAt: now })
         .where(eq(debts.id, debt.id))
         .returning();
-      // The same money was set aside twice until now (once at Stripe, once on the row): that room is free again.
-      await freeSetAside(tx, debt.paymentId);
-      await tellHost(tx, after, cause, `hand:${reversal.id}`, (facts) => handCountedWords(facts, formatMoney(counted), left > 0 ? formatMoney(left) : null));
+      // Where a take-back was written with less than its due because this reversal had not been counted, room is free again.
+      await freeSetAside(tx, debt.paymentId, debt.disputeId);
+      await tellHost(tx, after, cause, `hand:${reversal.id}`, (facts) => handCountedWords(facts, formatMoney(cents), left > 0 ? formatMoney(left) : null));
+    } else if (input.as === "twice") {
+      await addLedgerEntry(tx, { paymentId: debt.paymentId, kind: "host_takeback", amountCents: cents, stripeRef: reversal.id, note: `Taken from the host by a reversal made by hand at Stripe on top of take-back ${debt.id}, which had ended: owed back to the host.` });
+      const [after] = await tx.update(debts).set({ overpaidCents: debt.overpaidCents + cents, updatedAt: now }).where(eq(debts.id, debt.id)).returning();
+      await tellHost(tx, after, cause, `twice:${reversal.id}`, (facts) => handTwiceWords("host", facts, formatMoney(cents)));
+      await tellFounders(tx, after, cause, `twice:${reversal.id}`, (facts) => handTwiceWords("founder", facts, formatMoney(cents)));
     }
     return true;
   });
@@ -1180,6 +1315,10 @@ export async function takeBackPass(now: Date, only?: Only): Promise<void> {
     await refundStands(refundId, now)
       .then((stands) => (stands ? writeRefundDebt(refundId, now) : undefined))
       .catch((error) => log(`could not work out what is owed for refund ${refundId}`, error));
+  }
+  // A refund that failed after all and could not be undone at that moment (money was moving on its payment).
+  for (const waiting of await db.select({ id: schema.refunds.id, failure: schema.refunds.failure }).from(schema.refunds).where(and(isNotNull(schema.refunds.undoPendingAt), eq(schema.refunds.status, "done"), only ? inArray(schema.refunds.id, only.refundIds ?? []) : undefined))) {
+    await undoFailedRefund(waiting.id, waiting.failure ?? "Stripe says it failed.", now).catch((error) => log(`could not undo refund ${waiting.id}, which failed at Stripe after all`, error));
   }
   await settleChanged(now, only);
   await dateNotices(now, only);

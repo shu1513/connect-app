@@ -168,3 +168,20 @@ export function leftAfterRefunds(sentCents: number, reductionsCents: number): nu
 /** The founder can settle a take-back outside the app while it is open or waiting: not once the app has started taking it. */
 export const canSettle = (debt: { status: string }): boolean => RESERVED.includes(debt.status);
 
+/**
+ * What a host has really paid back for one take-back, whichever way: taken by the app, counted from a reversal made
+ * by hand at Stripe, or paid to Connect outside the app. (A take-back that a reversal by hand paid in full is "taken"
+ * with nothing left on it: all of it is in `byHandCents`.) What a reversal by hand took ON TOP of a take-back that
+ * had ended (`overpaidCents`) is not part of it: that is owed back to her in any case, and told on its own.
+ */
+export const paidBackCents = (debt: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number }): number =>
+  (debt.status === "taken" ? debt.amountCents : 0) + (debt.repaidCents ?? 0) + debt.byHandCents;
+
+/**
+ * What one take-back counts against what the bank took in its dispute (all shares of a dispute together never owe
+ * more than that): what it still reserves, and what was really paid for it, whichever way. A waived amount, and the
+ * part of a settlement that was let go, count for nothing: that is room for another share again.
+ */
+export const againstBank = (row: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number }): number =>
+  ([...OPEN, "taking", "taken"].includes(row.status) ? row.amountCents : 0) + (row.status === "settled" ? (row.repaidCents ?? 0) : 0) + row.byHandCents;
+

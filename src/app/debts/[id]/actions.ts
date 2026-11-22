@@ -96,16 +96,19 @@ export async function countReversalAction(formData: FormData) {
   const admin = await requireAdmin();
   const { id, page } = debtOf(formData, "/admin");
   const reversalId = String(formData.get("reversal") ?? "");
-  const forThis = formData.get("for") === "this";
+  const what = String(formData.get("for") ?? "");
   let notice: string;
   try {
     if (!/^[A-Za-z0-9_]{5,100}$/.test(reversalId)) throw new DebtError("That form is no longer valid. Reload the page and try again.");
-    const counted = await countHandReversal({ debtId: id, adminId: admin.id, reversalId, forThis });
+    if (what !== "paid" && what !== "twice" && what !== "other") throw new DebtError("That form is no longer valid. Reload the page and try again.");
+    const counted = await countHandReversal({ debtId: id, adminId: admin.id, reversalId, as: what });
     notice = !counted
       ? "That reversal is already accounted for."
-      : forThis
+      : what === "paid"
         ? "Counted for this take-back: it is in the books as taken back, the host has been told, and only what is left stays owed."
-        : "Noted: that reversal had nothing to do with a take-back. The app goes on by its usual rules.";
+        : what === "twice"
+          ? "Recorded: the host has paid twice. They have been told that the money is owed back to them. Send it to them in Stripe."
+          : "Noted: that reversal had nothing to do with a take-back. The app goes on by its usual rules.";
   } catch (error) {
     notice = said(error, "accounting for a reversal made by hand");
   }

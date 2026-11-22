@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, leftoverWords, refundFellAwayWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, handTwiceWords, leftoverWords, refundFellAwayWords, shareRestoredWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const facts: DebtFacts = {
   what: "the payment for your call with Ben on Monday",
@@ -272,6 +272,53 @@ describe("settled outside the app, and a dispute won afterwards", () => {
     expect(leftoverWords("host", facts, "paid").text).toContain("You had paid $12.38 back to Connect");
     expect(leftoverWords("founder", facts, "paid").subject).toContain("was paid back by Ana");
     expect(leftoverWords("host", facts).text).toContain("Connect had taken $12.38 back from you");
+  });
+});
+
+describe("what was first owed, and what a reversal made by hand has already paid of it", () => {
+  it("gives the sum for what was first owed, then the part already taken and what is still owed", () => {
+    const told = owedWords({ ...facts, amount: "$10.38", byHand: { assessed: "$12.38", taken: "$2.00" } }).text;
+    expect(told).toContain("the bank took the whole payment back, so $12.38 is owed. Of that, $2.00 has already been taken from your Stripe balance by a person at Connect, so $10.38 is still owed.");
+    // What is taken from now on is what is still owed.
+    expect(told).toContain("Connect will ask Stripe to take $10.38 back");
+  });
+
+  it("does the same for a refund's take-back", () => {
+    const owed: DebtFacts = { ...facts, amount: "$40.00", sent: "$80.00", dueOn: null, refund: { refunded: "$50.00", shareBefore: "$80.00", shareAfter: "$40.00", reason: "The host did not join the call.", cutShort: false } };
+    const told = refundOwedWords({ ...owed, amount: "$38.00", byHand: { assessed: "$40.00", taken: "$2.00" } }).text;
+    expect(told).toContain("The difference is what you owe back: $40.00. Of that, $2.00 has already been taken from your Stripe balance by a person at Connect, so $38.00 is still owed.");
+  });
+});
+
+describe("a reversal by hand on a take-back that had ended, and a share that was sent too small", () => {
+  it("tells the founder that the host may have paid twice", () => {
+    const told = all(handHeldWordsForFounder(facts, "$1.00", true));
+    expect(told).toContain("whose take-back had ended");
+    expect(told).toContain("the host has paid twice");
+    expect(told).not.toContain("is on hold");
+  });
+
+  it("tells the founder, for an open one, to hold before reversing by hand another time", () => {
+    expect(handHeldWordsForFounder(facts, "$1.00").text).toContain("hold the take-back on its page BEFORE you reverse anything by hand");
+  });
+
+  it("tells the host that the money is hers, and the founder to send it", () => {
+    expect(all(handTwiceWords("host", facts, "$1.00"))).toContain("Connect owes you $1.00 back");
+    expect(all(handTwiceWords("founder", facts, "$1.00"))).toContain("send $1.00 to the host in Stripe");
+  });
+
+  it("tells a host whose share was sent smaller because of a refund that then failed", () => {
+    const told = all(shareRestoredWords({ what: "the payment for your call with Ben on Monday", customerName: "Ben", underpaid: "$20.00", supportEmail: "support@connect.example" }));
+    expect(told).toContain("Connect owes you $20.00");
+    expect(told).toContain("So $20.00 of your share was never sent to you.");
+  });
+
+  it("adds what was never sent, and what a later take-back asked too much, to the founder's email", () => {
+    const base = { what: "the call", customerName: "Ben", hostName: "Ana", refunded: "$25.00", reason: "expired_or_canceled_card", debt: null };
+    const told = all(refundFellAwayWordsForFounder({ ...base, underpaid: "$20.00", excess: "$0.01" }));
+    expect(told).toContain("so $20.00 of their share was never sent to them");
+    expect(told).toContain("send $0.01 more to the host in Stripe");
+    expect(all(refundFellAwayWordsForFounder(base))).not.toContain("never sent");
   });
 });
 

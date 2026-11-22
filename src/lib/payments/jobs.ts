@@ -47,6 +47,8 @@ import { handleStripeEvent } from "./stripe-events";
  * result, or does it now if it never arrived.
  */
 const LABEL_SAFE_MS = 23 * 3_600_000;
+/** How long one search through a list at Stripe may take before it is given up as unfinished. */
+const SEARCH_WITHIN_MS = 20_000;
 /**
  * A charge attempt we wrote off as refused can still have gone through at
  * Stripe. Before anything else is decided about a held payment with such an
@@ -206,10 +208,13 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
         let refusal: string | null = null;
         if (canRepeat()) {
           try {
-            refund = await stripe().refunds.create(
+            const replayed = await stripe().refunds.create(
               { payment_intent: payment.stripePaymentIntentId!, amount: params.amountCents, metadata: { paymentId: payment.id, refundId: params.refundId } },
               { idempotencyKey: operation.label },
             );
+            // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
+            // asked by its own number: one that was paid at first can have failed since.
+            refund = await lookUp(() => stripe().refunds.retrieve(replayed.id));
           } catch (error) {
             // A clear "no" to the repeat proves nothing about the first request (it may have gone through before,
             // say, a permission was taken away): Stripe's own list of this charge's refunds settles it, below.
@@ -219,12 +224,16 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
         }
         if (!refund) {
           // Every page: a refund that really happened is never called failed because newer ones stand before it.
+          // And within a limit of time: a search that is not finished by then proves nothing, and is made again on the
+          // next pass, so one long list never holds every other action up.
+          const until = Date.now() + SEARCH_WITHIN_MS;
           await lookUp(async () => {
             for await (const one of stripe().refunds.list({ payment_intent: payment.stripePaymentIntentId!, limit: 100 })) {
               if (one.metadata?.refundId === params.refundId) {
                 refund = one;
                 break;
               }
+              if (Date.now() > until) throw new Error("the search through this charge's refunds took too long");
             }
           });
         }

@@ -31,14 +31,29 @@ describe("what the founder is told about a refund (plans/46-part-3-money-owed.md
     expect(refundAnswer({ ...done, status: "failed" }, "founder")).toBe("Stripe refused the refund of $5.00. Nothing was given back. You can try again.");
   });
 
-  it("promises a notice only where something can be owed", () => {
-    expect(refundAnswer(done, "founder")).toContain("never more than the $12.38 that was sent to them");
+  it("promises a notice only where something can be owed, and nothing it does not know yet", () => {
+    const early = refundAnswer(done, "founder");
+    expect(early).toContain("works out whether the host owes anything for it (never more than is left of the $12.38 that was sent to them)");
+    expect(early).toContain("If they do, they are told");
+    expect(early).not.toContain("and tells them");
     const none = refundAnswer({ ...done, sentCents: 0 }, "founder");
     expect(none).toContain("Nothing can be taken back for it");
     expect(none).not.toContain("tells them");
     expect(refundAnswer({ ...done, takeBack: "nothing" }, "founder")).toContain("Nothing can be taken back for it");
     expect(refundAnswer({ ...done, takeBack: { status: "told", amountCents: 464 } }, "founder")).toContain("The host owes $4.64 and has been told.");
     expect(refundAnswer({ ...done, takeBack: { status: "waiting", amountCents: 464 } }, "founder")).toContain("The app does not take it by itself");
+  });
+
+  it("says where the take-back stands now, also when the same form is sent again later", () => {
+    const at = (status: string, amountCents = 464) => refundAnswer({ ...done, takeBack: { status, amountCents } }, "founder");
+    expect(at("objected")).toContain("has objected: nothing is taken until you have decided");
+    expect(at("answered")).toContain("their objection was answered");
+    expect(at("taking")).toContain("Stripe is being asked right now");
+    expect(at("taken", 0)).toContain("What the host owed for it has been taken back.");
+    expect(at("settled")).toContain("was settled outside the app");
+    expect(at("cancelled")).toContain("was called off: the host owes nothing for it");
+    // Never "owes ... and has been told" once it is over.
+    for (const status of ["taken", "settled", "cancelled", "taking"]) expect(at(status)).not.toContain("and has been told");
   });
 
   it("before collection nobody owes anything, and a host is told only that it was sent", () => {
@@ -51,8 +66,16 @@ describe("the estimate before the button is pressed", () => {
   const payment = { chargedCents: 10000, refundedCents: 0, originalHostShareCents: 8000, transferStatus: "sent", transferCents: 7975 };
 
   it("is what her share would lose, and never more than was really sent", () => {
-    expect(refundEstimate(payment, 5000)).toEqual({ leftCents: 10000, hostOwesCents: 4000 });
-    expect(refundEstimate(payment)).toEqual({ leftCents: 10000, hostOwesCents: 7975 });
+    expect(refundEstimate(payment, 5000)).toEqual({ leftCents: 10000, hostOwesCents: 4000, sentCents: 7975 });
+    expect(refundEstimate(payment)).toEqual({ leftCents: 10000, hostOwesCents: 7975, sentCents: 7975 });
+  });
+
+  it("counts what earlier refunds already took: once they have used up all that was sent, a further refund adds nothing", () => {
+    // 99.75 of 100 was refunded after the sending and took 79.80 off her share; the last 25 cents take 20 cents more.
+    const late = { ...payment, refundedCents: 9975 };
+    expect(refundEstimate(late, undefined, 7980).hostOwesCents).toBe(0);
+    // Half was refunded and took 40.00: the other half can still cost her 39.75, not 40.00.
+    expect(refundEstimate({ ...payment, refundedCents: 5000 }, undefined, 4000).hostOwesCents).toBe(3975);
   });
 
   it("is nothing when nothing was sent, or the host has not collected", () => {

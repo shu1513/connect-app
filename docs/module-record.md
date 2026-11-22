@@ -5283,7 +5283,9 @@ tips and the yearly statement are the next pull request (2b).
 - **A reversal made by hand at Stripe.** While a transfer has a reversal the app did not make
   and nobody has said what it was for, the app takes nothing more from that transfer and tells
   the founder. The founder says on the take-back's page whether it paid this take-back (then
-  it is counted, and only the rest stays owed) or had nothing to do with it.
+  it is counted, and only the rest stays owed), was meant for one that had already ended (the
+  host paid twice and is owed it back), or had nothing to do with one. One reversal can pay
+  two take-backs. **Hold a take-back on its page before reversing anything by hand for it.**
 - **The same for a lost bank dispute's take-back:** the founder's waiver is booked as Connect's
   cost, "Settled outside the app" is offered (from the dispute's page), and if the bank later
   decides the other way the cost is taken off again and what she had paid is flagged.
@@ -5313,10 +5315,17 @@ founder's answer could say "accepted" before Stripe had answered, that a lost di
 take-back could not be waived or settled with the books right, and smaller things. All 16
 points were taken; the list is at the end of the plan.
 
-**How it was checked.** Type check, lint, the automatic tests (1009, with the sums and every
-new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 94
+Its second look said to hold it again, with 17 points, mostly rare races around the same two
+things: a refund's failure arriving at an awkward moment (while money was being taken, or
+before the app had recorded Stripe's answer), and reversals made by hand (one made before the
+take-back was written was taken off twice; one meant for two take-backs; one made after it had
+ended). It also found that the cap across the shares of one dispute forgot shares that were
+settled or paid by hand. All taken; the list is at the end of the plan.
+
+**How it was checked.** Type check, lint, the automatic tests (1020, with the sums and every
+new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 121
 checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
-the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 123, with the
+the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 124, with the
 new checks for a waiver, a settlement and a win afterwards; `disputes-check` 72), and
 `payments-check` (77).
 
@@ -5333,6 +5342,8 @@ be made in Stripe's test area.
 
 **Before going live.** The sending service's delivery reports must be switched on (step 1), or
 no take-back ever gets its day. And Stripe's messages to the app must include the two about
-refunds, `refund.failed` and `refund.updated` (in Stripe, under the webhook's events): without
-them a refund that fails later is only noticed when the app is about to take money for it.
+refunds, `refund.failed` and `refund.updated`, and the one about a reversed transfer,
+`transfer.reversed` (in Stripe, under the webhook's events). Without the first two a refund
+that fails later is only noticed when the app is about to take money for it; without the third
+a reversal made by hand is only noticed then too.
 

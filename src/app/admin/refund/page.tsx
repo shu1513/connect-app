@@ -26,9 +26,10 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
   const customer = typeof query.customer === "string" ? query.customer : "";
   const where = call ? `call=${encodeURIComponent(call)}` : customer ? `customer=${encodeURIComponent(customer)}` : "";
   const notice = readNotice("/admin/refund", query);
-  // "Older": the calls that began before this moment.
-  const beforeAt = typeof query.before === "string" && !Number.isNaN(Date.parse(query.before)) ? new Date(query.before) : undefined;
-  const found = call ? await paymentsForRefund({ callId: call }) : customer ? await paymentsForRefund({ customerId: customer }, beforeAt) : [];
+  // "Older": what comes after the last payment shown, by the list's own order (the call's start, then the payment's number).
+  const [beforeTime, beforeId] = typeof query.before === "string" ? query.before.split("~") : [];
+  const cursor = beforeTime && beforeId && !Number.isNaN(Date.parse(beforeTime)) && /^[0-9a-f-]{36}$/i.test(beforeId) ? { startsAt: new Date(beforeTime), paymentId: beforeId } : undefined;
+  const found = call ? await paymentsForRefund({ callId: call }, cursor) : customer ? await paymentsForRefund({ customerId: customer }, cursor) : [];
   const box = "mt-1 block w-full rounded border border-neutral-400 p-2";
 
   return (
@@ -65,7 +66,7 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
 
       <ul className="mt-6 space-y-6">
         {found.map((one) => {
-          const estimate = refundEstimate(one.payment);
+          const estimate = refundEstimate(one.payment, undefined, one.reductionsCents);
           return (
             <li key={one.payment.id} className="rounded border border-neutral-400 p-4 text-sm" data-refund-payment={one.payment.id} data-collected={one.collected ? "yes" : "no"}>
               <p className="font-medium">
@@ -80,8 +81,10 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
               </p>
               {one.payment.disputeOpen ? (
                 <p className="mt-2">The customer&apos;s bank has a question or a dispute on this payment, so it cannot be refunded as well.</p>
-              ) : one.refundUnderWay ? (
-                <p className="mt-2">A refund of this payment is on its way at Stripe. Wait for it to finish before another.</p>
+              ) : one.refundUnderWay === "accepted" ? (
+                <p className="mt-2">A refund of this payment is on its way: Stripe has accepted it and has not confirmed it yet. Wait for it to finish before another.</p>
+              ) : one.refundUnderWay === "unanswered" ? (
+                <p className="mt-2">A refund of this payment is being checked: the app asked Stripe and has no answer yet, so it is not known whether Stripe received the request. The app finds out by itself within a few minutes. Do not refund it again meanwhile.</p>
               ) : estimate.leftCents === 0 ? (
                 <p className="mt-2">All of it has been refunded.</p>
               ) : (
@@ -94,8 +97,12 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                     <p className="rounded border border-neutral-400 p-2" data-refund-estimate>
                       <strong>The host has collected this share.</strong> The customer is paid back from Connect&apos;s money.{" "}
                       {estimate.hostOwesCents > 0
-                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (less for a part, and never more than is left of the ${formatMoney(one.payment.transferCents ?? 0)} that was sent to them). The host is told, with your reason, and can object before anything is taken.`
-                        : "Nothing was sent to the host for this share (the charge for collecting used it up), so the host will owe nothing: Connect carries this refund."}
+                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (less for a part, and never more than is left of the ${formatMoney(estimate.sentCents)} that was sent to them). The host is told, with your reason, and can object before anything is taken.`
+                        : estimate.sentCents <= 0
+                          ? "Nothing was sent to the host for this share (the charge for collecting used it up), so the host will owe nothing: Connect carries this refund."
+                          : one.reductionsCents >= estimate.sentCents
+                            ? `Earlier refunds have already used up the ${formatMoney(estimate.sentCents)} that was sent to the host for this share, so the host will owe nothing more: Connect carries this refund.`
+                            : "This refund takes nothing off the host's share, so the host will owe nothing for it."}
                     </p>
                   ) : (
                     <p className="opacity-80">The host has not collected this share: the refund comes out of it and of our fee, and nobody owes anything.</p>
@@ -130,10 +137,10 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
           );
         })}
       </ul>
-      {customer && found.length === REFUND_SEARCH_PAGE && (
+      {where && found.length === REFUND_SEARCH_PAGE && (
         <p className="mt-6 text-sm">
-          <Link href={`/admin/refund?customer=${encodeURIComponent(customer)}&before=${encodeURIComponent(found[found.length - 1].startsAt.toISOString())}`} className="underline underline-offset-2">
-            Older payments of this customer
+          <Link href={`/admin/refund?${where}&before=${encodeURIComponent(`${found[found.length - 1].startsAt.toISOString()}~${found[found.length - 1].payment.id}`)}`} className="underline underline-offset-2">
+            Older payments
           </Link>
         </p>
       )}

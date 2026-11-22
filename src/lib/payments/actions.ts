@@ -12,7 +12,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import { queueRefundEmail } from "@/lib/refunds/emails";
 import type { Payment } from "@/db/schema";
-import { addLedgerEntry, MoneyError, runMoneyOperation, type OperationPlan, type Tx } from "./operations";
+import { addLedgerEntry, MoneyError, NotSentError, RECONCILE_AFTER_MS, runMoneyOperation, type OperationPlan, type Tx } from "./operations";
 import { cardPayment } from "./own";
 import { MIN_CHARGE_CENTS, splitAfterRefunds, splitCharge } from "./pricing";
 import { canMovePayment, decisionDeadline, readyToCollectAt } from "./rules";
@@ -310,12 +310,34 @@ export async function releasePayment(input: { paymentId: string; note: string } 
 // Refund
 // ---------------------------------------------------------------------------
 
-type RefundParams = { refundId: string; amountCents: number };
+/** `sendByMs`: the last moment the request may first be sent to Stripe by the one who wrote it down (see refundPlan). */
+export type RefundParams = { refundId: string; amountCents: number; sendByMs?: number };
+type RefundResult = { status: string | null; failure?: string | null };
+export type RefundInput = {
+  paymentId: string;
+  amountCents: number;
+  decidedBy: string;
+  decidedAs: "host" | "admin";
+  reason: string | null;
+  /** The founder's refund after the host collected. Never set for a host's own refund. */
+  afterCollection?: boolean;
+  /**
+   * One ID per refund request, made when the form is shown. Sending the same
+   * request again (a double click, a retry after a lost answer) cannot refund twice.
+   */
+  requestId?: string;
+};
 
 /** Records a refund that Stripe has confirmed, and shrinks the host's share and our fee to match. */
 export async function applyRefundDone(payment: Payment, refundId: string, stripeRefundId: string, tx: Tx): Promise<void> {
   const [refund] = await tx.select().from(schema.refunds).where(eq(schema.refunds.id, refundId)).for("update");
-  if (!refund || refund.status === "done") return;
+  // Only a refund that is still on its way is confirmed. One that is done stays done, and one that was marked failed
+  // is never brought back by an answer that was read earlier: a refund Stripe confirmed can fail afterwards, and a
+  // success read before that failure must not undo the undoing (plans/46-part-3-money-owed.md).
+  if (!refund || refund.status !== "in_progress") {
+    if (refund && refund.status === "failed") console.error(`[payments] refund ${refundId} is recorded as failed and Stripe refund ${stripeRefundId} was reported as paid: not changed. Look at it in Stripe.`);
+    return;
+  }
 
   const before = currentSplit(payment);
   const refundedCents = payment.refundedCents + refund.amountCents;
@@ -370,25 +392,25 @@ export async function markRefundFailed(refundId: string, tx: Tx, failure: string
  * (`afterCollection`, set by the founder's own refund page and nowhere else), with a reason: the customer is then
  * paid back from Connect's money, and the host owes what her share shrank by (plans/46-part-3-money-owed.md).
  */
-export async function refundPayment(input: {
-  paymentId: string;
-  amountCents: number;
-  decidedBy: string;
-  decidedAs: "host" | "admin";
-  reason: string | null;
-  /** The founder's refund after the host collected. Never set for a host's own refund. */
-  afterCollection?: boolean;
-  /**
-   * One ID per refund request, made when the form is shown. Sending the same
-   * request again (a double click, a retry after a lost answer) cannot refund twice.
-   */
-  requestId?: string;
-}): Promise<void> {
+export async function refundPayment(input: RefundInput): Promise<void> {
   const refundId = input.requestId ?? randomUUID();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(refundId)) {
     throw new MoneyError("This refund request is not valid. Reload the page and try again.");
   }
-  await runMoneyOperation<RefundParams, { status: string | null; failure?: string | null }>({
+  await runMoneyOperation(refundPlan(input, refundId));
+}
+
+/**
+ * The steps of one refund, as a money action: written down, asked of Stripe, recorded. (Exported so that a check can
+ * stop between the steps, as a helper that dies does.)
+ *
+ * The one who writes it down sends it to Stripe at once, and never later than half the time the helper leaves an
+ * unfinished action alone. So when the helper looks, the first request has either reached Stripe or was never sent:
+ * a clear "no" to the helper's repeat, with Stripe's own list of the charge's refunds showing nothing, then really
+ * means that it did not happen.
+ */
+export function refundPlan(input: RefundInput, refundId: string): OperationPlan<RefundParams, RefundResult> {
+  return {
     paymentId: input.paymentId,
     kind: "refund",
     labelBase: `refund:${refundId}`,
@@ -421,9 +443,10 @@ export async function refundPayment(input: {
         reason: input.reason,
         afterCollection: collected,
       });
-      return { refundId, amountCents: input.amountCents };
+      return { refundId, amountCents: input.amountCents, sendByMs: Date.now() + RECONCILE_AFTER_MS / 2 };
     },
     execute: async (params, label) => {
+      if (params.sendByMs !== undefined && Date.now() > params.sendByMs) throw new NotSentError("The refund was not sent to Stripe in time, so it was not sent. Nothing was given back; please try again.");
       const [payment] = await paymentById(input.paymentId);
       const refund = await stripe().refunds.create(
         {
@@ -446,7 +469,7 @@ export async function refundPayment(input: {
       }
     },
     onRefused: (_payment, params, message, tx) => markRefundFailed(params.refundId, tx, message),
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------

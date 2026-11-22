@@ -1,5 +1,5 @@
 {
-  "id": "ab820e9f-dbbe-4749-b6ed-0b30ddef9c9e",
+  "id": "1e90392c-84d7-456a-b4f2-a2628ec418c1",
   "prevId": "6d0cc1e2-af19-4646-9e22-d6783c8d03a2",
   "version": "7",
   "dialect": "postgresql",
@@ -3657,14 +3657,21 @@
       },
       "isRLSEnabled": false
     },
-    "public.hand_reversals": {
-      "name": "hand_reversals",
+    "public.hand_reversal_counts": {
+      "name": "hand_reversal_counts",
       "schema": "",
       "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
         "stripe_reversal_id": {
           "name": "stripe_reversal_id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true
         },
         "stripe_transfer_id": {
@@ -3679,24 +3686,23 @@
           "primaryKey": false,
           "notNull": true
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "debt_id": {
           "name": "debt_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
-        "amount_cents": {
-          "name": "amount_cents",
+        "cents": {
+          "name": "cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
-        },
-        "counted_cents": {
-          "name": "counted_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "decided_by": {
           "name": "decided_by",
@@ -3713,11 +3719,11 @@
         }
       },
       "indexes": {
-        "hand_reversals_transfer_idx": {
-          "name": "hand_reversals_transfer_idx",
+        "hand_reversal_counts_reversal_idx": {
+          "name": "hand_reversal_counts_reversal_idx",
           "columns": [
             {
-              "expression": "stripe_transfer_id",
+              "expression": "stripe_reversal_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3728,8 +3734,8 @@
           "method": "btree",
           "with": {}
         },
-        "hand_reversals_payment_idx": {
-          "name": "hand_reversals_payment_idx",
+        "hand_reversal_counts_payment_idx": {
+          "name": "hand_reversal_counts_payment_idx",
           "columns": [
             {
               "expression": "payment_id",
@@ -3745,9 +3751,9 @@
         }
       },
       "foreignKeys": {
-        "hand_reversals_payment_id_payments_id_fk": {
-          "name": "hand_reversals_payment_id_payments_id_fk",
-          "tableFrom": "hand_reversals",
+        "hand_reversal_counts_payment_id_payments_id_fk": {
+          "name": "hand_reversal_counts_payment_id_payments_id_fk",
+          "tableFrom": "hand_reversal_counts",
           "tableTo": "payments",
           "columnsFrom": [
             "payment_id"
@@ -3758,9 +3764,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "hand_reversals_debt_id_host_debts_id_fk": {
-          "name": "hand_reversals_debt_id_host_debts_id_fk",
-          "tableFrom": "hand_reversals",
+        "hand_reversal_counts_debt_id_host_debts_id_fk": {
+          "name": "hand_reversal_counts_debt_id_host_debts_id_fk",
+          "tableFrom": "hand_reversal_counts",
           "tableTo": "host_debts",
           "columnsFrom": [
             "debt_id"
@@ -3771,9 +3777,9 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "hand_reversals_decided_by_user_id_fk": {
-          "name": "hand_reversals_decided_by_user_id_fk",
-          "tableFrom": "hand_reversals",
+        "hand_reversal_counts_decided_by_user_id_fk": {
+          "name": "hand_reversal_counts_decided_by_user_id_fk",
+          "tableFrom": "hand_reversal_counts",
           "tableTo": "user",
           "columnsFrom": [
             "decided_by"
@@ -3788,7 +3794,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "hand_reversal_counts_kind": {
+          "name": "hand_reversal_counts_kind",
+          "value": "\"hand_reversal_counts\".\"kind\" in ('paid', 'twice', 'other')"
+        },
+        "hand_reversal_counts_cents": {
+          "name": "hand_reversal_counts_cents",
+          "value": "\"hand_reversal_counts\".\"cents\" > 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.helper_beats": {
@@ -4159,6 +4174,13 @@
         },
         "by_hand_cents": {
           "name": "by_hand_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "overpaid_cents": {
+          "name": "overpaid_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -9056,6 +9078,12 @@
         },
         "failed_late_at": {
           "name": "failed_late_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "undo_pending_at": {
+          "name": "undo_pending_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

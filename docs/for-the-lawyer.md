@@ -615,7 +615,12 @@ How it works since this change, for a call's payment (contributions and tips fol
   owes it to her, and the founder is told to send it.
 - **If somebody at Connect reverses part of her transfer by hand at Stripe**, the app takes
   nothing more from that transfer until the founder has said what that reversal was for, so
-  the same money is never taken twice.
+  the same money is never taken twice. If it turns out that she paid twice, she is told that
+  the money is owed back to her.
+- In three cases the app finds that Connect owes a host money and does **not** send it by
+  itself; it tells her and tells the founder to send it: money taken for a refund that then
+  failed; a reversal by hand on top of a take-back that had ended; and a share that was sent
+  smaller because of a refund that then failed.
 
 Questions:
 - Is asking Stripe to reverse part of a transfer, after 14 days' written notice, covered by the

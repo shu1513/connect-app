@@ -1070,6 +1070,8 @@ export const refunds = pgTable(
     failure: text("failure"),
     /** Stripe first confirmed this refund and later said it failed after all: when the app undid its record of it. */
     failedLateAt: timestamp("failed_late_at", { withTimezone: true }),
+    /** Stripe says it failed after all, and the app could not undo its record at that moment (money was moving on the payment): the helper does it as soon as it can. */
+    undoPendingAt: timestamp("undo_pending_at", { withTimezone: true }),
   },
   (t) => [index("refunds_payment_idx").on(t.paymentId), index("refunds_debt_look_idx").on(t.finishedAt).where(sql`${t.afterCollection} and ${t.debtLookedAt} is null`)],
 );
@@ -2524,8 +2526,10 @@ export const hostDebts = pgTable(
     leftoverToldAt: timestamp("leftover_told_at", { withTimezone: true }),
     /** What the books hold as Connect's cost for this take-back (a waiver, or the part let go when it was settled). Taken off again if the cause falls away. */
     costBookedCents: integer("cost_booked_cents").notNull().default(0),
-    /** Of what was owed: what a reversal the founder made by hand at Stripe covered, as the founder recorded it. */
+    /** Of what was owed: what a reversal the founder made by hand at Stripe covered, as the founder recorded it. `amountCents` is what is then still owed. */
     byHandCents: integer("by_hand_cents").notNull().default(0),
+    /** Taken by a reversal made by hand on top of a take-back that was already paid: the host paid twice, and Connect owes this back to her. */
+    overpaidCents: integer("overpaid_cents").notNull().default(0),
     /** Held because a reversal was made by hand on its transfer and nobody has said what it was for: when the founder was told. */
     handToldAt: timestamp("hand_told_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2547,32 +2551,42 @@ export const hostDebts = pgTable(
 );
 
 /**
- * A reversal of a host's transfer that somebody made by hand at Stripe, and what the founder said it was for
- * (plans/46-part-3-money-owed.md). While a transfer has such a reversal that is not written down here, the app takes
- * nothing more from that transfer by itself: it cannot know whether the reversal already paid a take-back.
+ * What the founder said a reversal was for that somebody made by hand at Stripe on a host's transfer
+ * (plans/46-part-3-money-owed.md). One reversal can pay several take-backs, so each line counts a part of it. While a
+ * reversal has a part that no line counts, the app takes nothing more from that transfer by itself: it cannot know
+ * whether that part already paid a take-back.
  */
-export const handReversals = pgTable(
-  "hand_reversals",
+export const handReversalCounts = pgTable(
+  "hand_reversal_counts",
   {
-    /** Stripe's number of the reversal. One line for a reversal, ever. */
-    stripeReversalId: text("stripe_reversal_id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stripe's number of the reversal, and of the transfer it took from. */
+    stripeReversalId: text("stripe_reversal_id").notNull(),
     stripeTransferId: text("stripe_transfer_id").notNull(),
     paymentId: uuid("payment_id")
       .notNull()
       .references(() => payments.id, { onDelete: "cascade" }),
-    /** The take-back it paid (wholly or in part). Empty: it had nothing to do with a take-back. */
+    /**
+     * paid: it paid (part of) a take-back that was open. twice: it was for a take-back that had already been paid,
+     * so the host paid twice and is owed it back. other: it had nothing to do with a take-back.
+     */
+    kind: text("kind").notNull(),
     debtId: uuid("debt_id").references(() => hostDebts.id, { onDelete: "set null" }),
-    /** What Stripe shows for the reversal, and how much of it was counted for the take-back. */
-    amountCents: integer("amount_cents").notNull(),
-    countedCents: integer("counted_cents").notNull().default(0),
+    /** The part of the reversal this line counts. */
+    cents: integer("cents").notNull(),
     decidedBy: text("decided_by")
       .notNull()
       .references(() => user.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("hand_reversals_transfer_idx").on(t.stripeTransferId), index("hand_reversals_payment_idx").on(t.paymentId)],
+  (t) => [
+    index("hand_reversal_counts_reversal_idx").on(t.stripeReversalId),
+    index("hand_reversal_counts_payment_idx").on(t.paymentId),
+    check("hand_reversal_counts_kind", sql`${t.kind} in ('paid', 'twice', 'other')`),
+    check("hand_reversal_counts_cents", sql`${t.cents} > 0`),
+  ],
 );
-export type HandReversal = typeof handReversals.$inferSelect;
+export type HandReversalCount = typeof handReversalCounts.$inferSelect;
 export type HostDebt = typeof hostDebts.$inferSelect;
 export type Call = typeof calls.$inferSelect;
 export type Follow = typeof follows.$inferSelect;

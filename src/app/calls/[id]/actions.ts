@@ -79,6 +79,8 @@ export async function refundAction(formData: FormData) {
   const back = admin && !access ? "/admin" : `/calls/${callId}/results`;
 
   let notice: string;
+  // What the admin record says about it: the amount the form named, until the refund's own line says otherwise.
+  let recorded = `$${Number.isFinite(dollars) ? dollars.toFixed(2) : "?"}`;
   try {
     // The host of this very call, or the founder, and only for a payment that belongs to this call.
     const found = await paymentToRefund({ callId, paymentId, userId: user.id, adminLogin: admin });
@@ -95,11 +97,14 @@ export async function refundAction(formData: FormData) {
       // What really came of it, read from what was written down: sent, still on its way, or refused by Stripe.
       const outcome = await refundOutcome(requestId);
       notice = outcome && outcome.paymentId !== paymentId ? "That form is no longer valid. Reload the page and try again." : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host");
+      // For the admin record: the amount that was written down, and where it stands.
+      if (outcome && outcome.paymentId === paymentId) recorded = `$${(outcome.amountCents / 100).toFixed(2)} (${outcome.status === "done" ? "given back" : outcome.status === "in_progress" ? "on its way" : "refused by Stripe"})`;
     }
     if (decidedAs === "admin") {
-      await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` }).catch((error) => {
-        console.error("[admin] the refund went through but could not be written to the admin record", error);
-        notice = "The refund was sent, but it could not be written to the admin record. Please note it by hand.";
+      await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: recorded }).catch((error) => {
+        console.error("[admin] a refund could not be written to the admin record", error);
+        // What came of the refund stays as it was said; only this is added.
+        notice = `${notice} It could not be written to the admin record: please note it by hand.`;
       });
     }
   } catch (error) {

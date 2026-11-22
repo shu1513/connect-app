@@ -55,8 +55,21 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     // (plans/46-part-3-money-owed.md). What Stripe says now is read from Stripe there, not from this message.
     const refundId = String(object.id ?? "");
     if (!refundId.startsWith("re_")) return;
+    // The app's own number for the refund, which it carries at Stripe: so it is found even before the app has
+    // recorded Stripe's number for it.
+    const ours = (object.metadata as Record<string, string> | undefined)?.refundId;
     const { refundChangedAtStripe } = await import("@/lib/disputes/takeback");
-    await refundChangedAtStripe(refundId);
+    await refundChangedAtStripe(refundId, ours && IS_ID.test(ours) ? ours : null);
+    return;
+  }
+
+  if (event.type === "transfer.reversed") {
+    // A host's transfer was reversed. The app knows its own reversals; one that somebody made by hand at Stripe
+    // may have paid a take-back, or paid one twice: the founder is told, and nothing more is taken meanwhile.
+    const transferId = String(object.id ?? "");
+    if (!transferId.startsWith("tr_")) return;
+    const { reversalSeenOnTransfer } = await import("@/lib/disputes/takeback");
+    await reversalSeenOnTransfer(transferId);
     return;
   }
 
