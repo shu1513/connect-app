@@ -11,12 +11,8 @@ CREATE TABLE "uncollected_tries" (
 );
 --> statement-breakpoint
 ALTER TABLE "collections" ALTER COLUMN "started_by" DROP NOT NULL;--> statement-breakpoint
-ALTER TABLE "collections" ADD COLUMN "started_as" text DEFAULT 'host' NOT NULL;--> statement-breakpoint
+ALTER TABLE "collections" ADD COLUMN "started_as" text GENERATED ALWAYS AS (case when started_by is null then 'helper' when started_by = host_id then 'host' else 'founder' end) STORED NOT NULL;--> statement-breakpoint
 ALTER TABLE "uncollected_tries" ADD CONSTRAINT "uncollected_tries_host_id_user_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "uncollected_tries_host_idx" ON "uncollected_tries" USING btree ("host_id","claimed_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "uncollected_tries_open_idx" ON "uncollected_tries" USING btree ("host_id") WHERE "uncollected_tries"."outcome" is null;--> statement-breakpoint
-CREATE INDEX "uncollected_tries_untold_idx" ON "uncollected_tries" USING btree ("claimed_at") WHERE "uncollected_tries"."outcome" = 'collected' and "uncollected_tries"."told_at" is null;--> statement-breakpoint
-ALTER TABLE "collections" ADD CONSTRAINT "collections_started_as" CHECK ("collections"."started_as" in ('host', 'founder', 'helper'));--> statement-breakpoint
-ALTER TABLE "collections" ADD CONSTRAINT "collections_started_by" CHECK (("collections"."started_as" = 'helper') = ("collections"."started_by" is null));--> statement-breakpoint
--- The collections that exist: the founder's final collections are the ones somebody else than the host started.
-UPDATE "collections" SET "started_as" = 'founder' WHERE "started_by" <> "host_id";
+CREATE INDEX "uncollected_tries_untold_idx" ON "uncollected_tries" USING btree ("claimed_at") WHERE "uncollected_tries"."outcome" = 'collected' and "uncollected_tries"."told_at" is null;

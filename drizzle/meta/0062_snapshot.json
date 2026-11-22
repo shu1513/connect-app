@@ -1,5 +1,5 @@
 {
-  "id": "00ec77e3-1e87-451e-9f77-bc67e4d4e5f4",
+  "id": "0c4d04ba-410a-4f4c-a4bd-77c3e2fb144f",
   "prevId": "bd6c0f9c-ce4e-4599-9602-d51bbfc0eb15",
   "version": "7",
   "dialect": "postgresql",
@@ -1634,7 +1634,10 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'host'"
+          "generated": {
+            "as": "case when started_by is null then 'helper' when started_by = host_id then 'host' else 'founder' end",
+            "type": "stored"
+          }
         },
         "accepted_at": {
           "name": "accepted_at",
@@ -1697,16 +1700,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "collections_started_as": {
-          "name": "collections_started_as",
-          "value": "\"collections\".\"started_as\" in ('host', 'founder', 'helper')"
-        },
-        "collections_started_by": {
-          "name": "collections_started_by",
-          "value": "(\"collections\".\"started_as\" = 'helper') = (\"collections\".\"started_by\" is null)"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.connection_tests": {

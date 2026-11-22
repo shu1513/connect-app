@@ -30,6 +30,7 @@ import {
   releasePayment,
   transferAtStripe,
   transferGroup,
+  type TransferParams,
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
@@ -103,6 +104,17 @@ function log(message: string, error?: unknown) {
 
 /** For check scripts: only these unfinished actions and these pending refunds, so a check never acts on another run's money. */
 export type OnlyThese = { operationIds: string[]; refundIds?: string[] };
+
+/**
+ * The transfer Stripe has for this payment's share, or undefined when its list shows none. Every page: a
+ * membership's month can have many transfers in its group.
+ */
+async function transferMadeFor(paymentId: string, params: TransferParams): Promise<string | undefined> {
+  for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 })) {
+    if (transfer.metadata?.paymentId === paymentId) return transfer.id;
+  }
+  return undefined;
+}
 
 export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<void> {
   const stuck = await db
@@ -279,18 +291,19 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           if (!(await settleEmptyShare({ id: operation.id, paymentId }, params))) continue; // the rest is not known yet: look again next pass
         } else {
           let transferId: string | undefined;
+          // Whether "not found" may be final is decided BEFORE the search begins, as for a refund above: another
+          // helper may have sent a repeat just before the last moment for repeats, and until that one has had its
+          // time, a search that finds nothing proves nothing.
+          let settled = true;
           if (canRepeat()) {
             transferId = (await transferAtStripe(payment, params, operation.label)) ?? undefined;
           } else {
-            // Every page: a membership's month can have many transfers in its group.
-            await lookUp(async () => {
-              for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 })) {
-                if (transfer.metadata?.paymentId === payment.id) {
-                  transferId = transfer.id;
-                  break;
-                }
-              }
-            });
+            settled = Date.now() - operation.createdAt.getTime() >= SETTLED_AFTER_MS;
+            transferId = await transferMadeFor(payment.id, params);
+          }
+          if (transferId === undefined && !settled) {
+            log(`unfinished transfer on payment ${operation.paymentId}: not found at Stripe yet, and a repeat may still be on its way; looked at again`);
+            continue;
           }
           if (transferId === undefined) {
             // The share was never sent. It is simply ready again for a later collection.
@@ -320,6 +333,18 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           // line and its action end in one step.
           const why = stripeErrorMessage(error);
           await failOwnedOperation(operation.id, { column: "paymentId", id: paymentId, lock: (tx) => lockPayment(tx, paymentId) }, why, (_payment, tx) => markRefundFailed(params.refundId, tx, why));
+        } else if (operation.kind === "transfer") {
+          // A "no" to this repeat does not undo an earlier request that went through (the key's rights can have
+          // changed in between): Stripe's own list is asked first, and a transfer that is there is recorded.
+          const made = await transferMadeFor(paymentId, params).catch(() => null);
+          if (made === null) {
+            log(`unfinished transfer on payment ${paymentId} was refused by Stripe, and Stripe's list could not be read; looked at again`);
+            continue;
+          }
+          if (made !== undefined) {
+            const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId));
+            if (payment) await finishOperation(operation.id, paymentId, made, (p, tx) => applyTransferSent(p, params, made, tx));
+          } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
         } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
         // A refused charge usually means the hold is gone. Record the hold's real state.
         if (operation.kind === "capture") await syncHold(paymentId, now).catch(() => undefined);

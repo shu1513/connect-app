@@ -1200,17 +1200,21 @@ If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of
   refuses a second try without an outcome for the same host on top of that.
 - **The try's id is the collection's id.** So a try that is run again is the same collection,
   by the rule her own button already has ("the same press, sent again").
-- **What is asked under her lock when the collection is accepted** (not only when the try is
-  written down): that the account is open and that the 12 months still hold. So a host who
-  pressed her own button, or whose account was closed, between the two steps gets nothing
-  from the helper. Her 24 hours and everything that holds a share back are asked there as for
-  any collection.
+- **What decides is asked when the collection is accepted** (the writing down of the try is
+  only a first look, by the dates the shares carry). In that one step, with her row locked:
+  her account is open (her own row is held, so it cannot be closed in between); the try is
+  still open; and the 12 months hold for the shares that are **really ready** at that moment
+  (her last collection that went through, read again; if none, the oldest share that would be
+  sent). The try is marked "collected" in the same step. So a host who pressed her own button,
+  whose account was closed, or whose only old share is held back gets nothing from the
+  helper. Her 24 hours and everything that holds a share back are asked there as for any
+  collection.
 - **A try whose run fails for another reason than a refusal** (Stripe does not answer) stays
   without an outcome and is run again about a minute later; after a day it is written down as
   "nothing", and the next try is a week later.
-- **`collections.started_as`** has the database's own default "host", for a server still
-  running the older code while a new version is put in place. The code always says which. The
-  rows that exist are filled in: "founder" where somebody else than the host started it.
+- **`collections.started_as`** is worked out by the database itself from who pressed
+  (nobody: the helper; the host: the host; anybody else: the founder). So it is right for the
+  rows that exist, and for one written by a server still running the older code.
 - **When the 12 months count from her last collection**, any share whose date has come is
   sent, also one that became ready yesterday. That is what decision 12 says ("her last
   collection that went through is more than 12 months ago").
@@ -1221,13 +1225,54 @@ If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of
 - **The founder is not told** of a try that sent nothing. The lines are in the table; no page
   shows them yet.
 
-**Rhythm:** a loop of its own in the helper. About once a day, and when the helper starts:
-every host with a share whose date has come is looked at, and one who is due gets a try. About
-once a minute: a try without an outcome is run again, and a host whose transfers all have their
-answer is told (after a day at the latest, with what is known by then).
+**Rhythm:** two loops of their own in the helper, so that a long daily round never keeps the
+follow-up waiting. About once a day, and when the helper starts: every host with a share whose
+date has come is looked at, and one who seems due gets a try. About once a minute: a try
+without an outcome is run again, and a host whose shares all have their answer is told. From a
+day after the try she is told with what is known by then; that day is when a notice with
+something still open may go, not a promise of when it arrives.
 
 **Checked by** `scripts/payments-check.ts --payouts`, section 29, against Stripe's test mode
-(the collections' own script, so its hosts and calls are used): every case of the list under
-"Part 3b" above, with a bank dispute standing in for "a share that is held back" (a flag on the
-payment, as section 22 does), and the account closed between the writing down and the
-collection.
+(the collections' own script, so its hosts and calls are used): the cases of the list under
+"Part 3b" above, with these limits. "A share that is held back" is a bank dispute, played by a
+flag on the payment (as section 22 does). "A payout account that is not ready" is a host whose
+account is taken away in the database; Stripe itself answering "not ready" for a linked account
+is not played here (`abroad-check` plays that for the button). The account is closed between
+the writing down and the collection, not during the accepting step itself.
+
+## What Astra found in the code of part 3b, and what was done
+
+Astra read the first build and said "hold the merge", with nine points. All nine were taken.
+
+1. **An account closed while the collection is being accepted** could still be sent money: the
+   look at "closed" and the closing did not share a lock. The accepting step now holds the
+   person's own row (shared) from the look to the end.
+2. **An older weakness, in the recovery of a transfer whose answer was lost** (the button's own
+   path, which the helper now uses too): with two helpers, one could repeat the request just
+   before the last moment for repeats while the other, just after it, found nothing at Stripe
+   and called the transfer failed; the share would then be "ready" again although Stripe sent
+   it. Now "not found" is only final for a search that began 24 hours after the action was
+   written down (the rule a refund's recovery already had). And a "no" to a repeat is not
+   taken as final before Stripe's own list was read: a transfer that is there is recorded.
+3. **The 12 months were judged by the dates the shares carry, before the shares were locked.**
+   A host whose only old share was held back (or refunded in that moment) could get a share
+   from yesterday sent, with the charge. What decides is now asked last, for the shares that
+   are really ready, and her last collection that went through is read again there.
+4. **Leap day:** counting back from today made a host due on 28 February and not due again on
+   the 29th. The 12 months are now counted forward from the moment she last collected.
+5. **Two helpers running one try:** one could write "nothing" while the other's collection was
+   accepted, and she would never be told. The try is now marked "collected" inside the step
+   that accepts the collection, and "nothing" is only written with the try's row locked and
+   no collection there.
+6. **A share that only carries the charge** and had no answer yet did not count as "being
+   checked", so she could be told before the charge was known. Unanswered shares are counted
+   now, and a charge that is still open is named.
+7. **The daily round kept the minute follow-up waiting.** Two loops now.
+8. **A founder's collection written by a server still running the older code** would have been
+   marked "host" for good. The column is now worked out by the database.
+9. **The words:** "Stripe refused it" and "it stays ready to collect" said more than the
+   record holds. The message now says "Not sent", "It is still yours", and that her Hosting
+   page shows how things stand and what she can collect.
+
+New cases in the real check for 3, 5 and 6. Points 1 and 2 need two processes at the same
+instant and are not played by the script; they were checked by reading.

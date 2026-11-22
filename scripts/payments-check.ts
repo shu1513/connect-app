@@ -1044,11 +1044,53 @@ async function main() {
           check("while one transfer has no clear answer, she is not told yet", (await toldOf(h9)).length === 0);
           await followUp(new Date(N9.getTime() + DAY + MIN), h9);
           const [told9] = await toldOf(h9);
-          check("after a day she is told what is known: one sent, one refused as not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Could not be sent: $12.38. Stripe refused it.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
+          check("after a day she is told what is known: one sent, one not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Not sent: $12.38. It is still yours.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
           await reconcileOperations(soon());
           await reconcileOperations(soon());
           await followUp(new Date(N9.getTime() + 2 * DAY), h9);
           check("the money helper finishes the unanswered one, and she is not told twice", (await sent(three.find((x) => x.payment.id === lost.paymentId)!)).status === "sent" && (await toldOf(h9)).length === 1);
+
+          console.log("   …what decides is asked when the collection is accepted: the shares that are really ready");
+          const h10 = await freshHost();
+          const old = await chargedCall(h10);
+          const fresh = await chargedCall(h10);
+          const N10 = yearAfter(await readyAt(old));
+          // The second share became ready only yesterday; the old one is held back by a bank dispute.
+          await db.update(schema.payments).set({ transferDueAt: new Date(N10.getTime() - DAY) }).where(eq(schema.payments.id, fresh.payment.id));
+          await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.id, old.payment.id));
+          await round(N10, h10);
+          const [early] = await triesOf(h10);
+          check("an old share that is held back does not get a fresh share sent early: the try sends nothing", early?.outcome === "nothing" && /waited that long/.test(early?.reason ?? "") && (await collectionsOf(h10)).length === 0 && (await sent(fresh)).transfers.length === 0, `${early?.outcome} ${early?.reason}`);
+          await db.update(schema.payments).set({ disputeOpen: false }).where(eq(schema.payments.id, old.payment.id));
+          await round(new Date(N10.getTime() + 7 * DAY + MIN), h10);
+          check("once the old share is ready again, a week later, both are sent", (await sent(old)).status === "sent" && (await sent(fresh)).status === "sent" && (await collectionsOf(h10)).length === 1);
+
+          console.log("   …one try run by two helpers at the same moment");
+          const h11 = await freshHost();
+          const twice = await chargedCall(h11);
+          const N11 = yearAfter(await readyAt(twice));
+          const try11 = (await claimTry(h11, N11))!;
+          await Promise.all([runTry(try11, N11), runTry(try11, N11)]);
+          await followUp(N11, h11);
+          const [after11] = await triesOf(h11);
+          check("one collection, one transfer, and the try says so", (await collectionsOf(h11)).length === 1 && (await sent(twice)).transfers.length === 1 && after11?.outcome === "collected" && (await toldOf(h11)).length === 1, `${after11?.outcome} ${after11?.reason}`);
+
+          console.log("   …a share that only carries the charge and has no answer yet");
+          const h13 = await freshHost();
+          const small: Parameters<typeof attend>[1] = [["host", 0, 23], ["customer", 0, 600]];
+          const [t1, t2] = [await chargedCall(h13, small), await chargedCall(h13, small)];
+          const N13 = yearAfter(await readyAt(t1, t2));
+          const try13 = (await claimTry(h13, N13))!;
+          const tinyAccepted = await acceptCollection({ collectionId: try13.id, hostId: h13, startedBy: null, now: N13 });
+          const feeOnly = tinyAccepted.started.find((x) => x.params.payoutFeeCents > 0)!;
+          await sendCollection(tinyAccepted.started.filter((x) => x !== feeOnly)); // the helper "stopped" before the share that carries the charge
+          await followUp(new Date(N13.getTime() + 3 * MIN), h13);
+          const pending = (await lastCollectionOf(h13))!.last;
+          check("the charge-only share counts as unanswered, so she is not told yet", pending.sentCents === 19 && pending.checkingCents === 0 && pending.checkingFeeCents === 19 && pending.unanswered === 1 && (await toldOf(h13)).length === 0, `${pending.sentCents} ${pending.checkingFeeCents} ${pending.unanswered}`);
+          await reconcileOperations(soon());
+          await followUp(new Date(N13.getTime() + 5 * MIN), h13);
+          const [told13] = await toldOf(h13);
+          check("once it is answered she is told, with the charge that was really taken", (await toldOf(h13)).length === 1 && Boolean(told13?.body.includes("Sent to your Stripe payout account: $0.19, in US dollars.")) && Boolean(told13?.body.includes("The collection charge that was taken: $0.19.")), told13?.body);
         }
       } finally {
         // Give the test payout account back to host@test.local, whatever happened above.

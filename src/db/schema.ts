@@ -1152,20 +1152,17 @@ export const collections = pgTable(
     startedBy: text("started_by").references(() => user.id),
     /**
      * Who started it: the host with her button, the founder for a closed account, or the helper for a host who had
-     * not collected for 12 months (plans/46-part-3-money-owed.md, decision 12). The code always says which; the
-     * database's own "host" is only for a server still running the code from before this column, while a new
-     * version is being put in place.
+     * not collected for 12 months (plans/46-part-3-money-owed.md, decision 12). Worked out by the database itself
+     * from who pressed, so it is right for every row there is, and for one written by a server that still runs
+     * the code from before this column.
      */
-    startedAs: text("started_as", { enum: ["host", "founder", "helper"] }).notNull().default("host"),
+    startedAs: text("started_as", { enum: ["host", "founder", "helper"] })
+      .notNull()
+      .generatedAlwaysAs(sql`case when started_by is null then 'helper' when started_by = host_id then 'host' else 'founder' end`),
     /** The host's 24 hours until the next collection are counted from here. */
     acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
   },
-  (t) => [
-    index("collections_host_idx").on(t.hostId, t.acceptedAt),
-    check("collections_started_as", sql`${t.startedAs} in ('host', 'founder', 'helper')`),
-    // Only the helper's collection has nobody who pressed.
-    check("collections_started_by", sql`(${t.startedAs} = 'helper') = (${t.startedBy} is null)`),
-  ],
+  (t) => [index("collections_host_idx").on(t.hostId, t.acceptedAt)],
 );
 
 /**

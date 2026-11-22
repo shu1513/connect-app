@@ -38,6 +38,7 @@ import { canCollectAgainAt, heldBack, type HeldBack } from "./rules";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_VALID = "This request is not valid. Reload the page and try again.";
+export const CLOSED_ACCOUNT = "This account is closed. The founder's final collection is for it.";
 export const DISPUTE_MESSAGE_WAITING =
   "Stripe has told us about a disputed charge and we are still checking which one. Please try again in a few minutes.";
 
@@ -124,10 +125,17 @@ export type CollectionInput = {
   /** Who pressed: the host, or the founder for a host who can no longer log in. Nobody (null) when the helper starts it. */
   startedBy: string | null;
   /**
-   * Asked with the host's row locked, before anything is accepted: words of refusal, or null to go on. Not asked
-   * again when this same collection was already made.
+   * Only for an account that is open. Asked with the person's own row held, so that an account cannot be closed
+   * between the look and the acceptance. (The helper asks for this; a host presses while logged in, and the
+   * founder's final collection is for a closed account.)
    */
-  onlyIf?: (tx: Tx, now: Date) => Promise<string | null>;
+  openAccountOnly?: boolean;
+  /**
+   * Asked last, with every lock held and every share judged, before anything is accepted: the shares that would
+   * be sent, as they stand now. Words of refusal, or null to go on. What it writes is saved with the collection
+   * or not at all. Not asked again when this same collection was already made.
+   */
+  onlyIf?: (tx: Tx, now: Date, ready: Payment[]) => Promise<string | null>;
   /** Only the check scripts pass this, to pretend it is another day. */
   now?: Date;
 };
@@ -242,10 +250,12 @@ export async function acceptCollection(input: CollectionInput): Promise<{ existi
       return { existing: true, started: [] };
     }
 
-    // What only this starter asks for, with the host's row locked: the helper asks here that the account is still
-    // open and that the 12 months still hold.
-    const refusal = await input.onlyIf?.(tx, now);
-    if (refusal) throw new MoneyError(refusal);
+    if (input.openAccountOnly) {
+      // The person's row is held (shared) until this step ends: closing the account changes that row, so it
+      // either is seen here or waits until the collection is accepted.
+      const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.hostId)).for("share");
+      if (!person || person.closedAt) throw new MoneyError(CLOSED_ACCOUNT);
+    }
 
     if (!host?.stripeAccountId || !host.payoutsReady) {
       throw new MoneyError("The payout account at Stripe is not ready yet, so nothing can be collected.");
@@ -324,9 +334,13 @@ export async function acceptCollection(input: CollectionInput): Promise<{ existi
       );
     }
 
-    // Who started it: nobody is the helper; the host herself; anybody else is the founder, for a closed account.
-    const startedAs = input.startedBy === null ? "helper" : input.startedBy === input.hostId ? "host" : "founder";
-    await tx.insert(schema.collections).values({ id: input.collectionId, hostId: input.hostId, startedBy: input.startedBy, startedAs, acceptedAt: now });
+    // What only this starter asks for, now that it is known what would be sent: the helper asks here that the 12
+    // months still hold for the shares that are really ready.
+    const refusal = await input.onlyIf?.(tx, now, ready.map((share) => share.payment));
+    if (refusal) throw new MoneyError(refusal);
+
+    // (Who started it is worked out by the database from who pressed: nobody is the helper.)
+    await tx.insert(schema.collections).values({ id: input.collectionId, hostId: input.hostId, startedBy: input.startedBy, acceptedAt: now });
     const started: StartedTransfer[] = [];
     for (const [index, { payment }] of ready.entries()) {
       const { amountCents, payoutFeeCents } = amounts[index];
@@ -498,6 +512,10 @@ export type CollectionView = {
   feeCents: number;
   /** Written down, with no clear answer from Stripe yet. */
   checkingCents: number;
+  /** The collection charge carried by shares with no clear answer yet: not known to be taken or not. */
+  checkingFeeCents: number;
+  /** How many of its shares have no clear answer yet (one that only carries the charge is one of them, with nothing in `checkingCents`). */
+  unanswered: number;
   /** Stripe refused these; they stay ready for a later collection. */
   refusedCents: number;
   /** Who started it: the host, the founder for a closed account, or the helper after 12 months without a collection. */
@@ -511,13 +529,16 @@ export async function viewOfCollection(collection: Pick<Collection, "id" | "acce
     .from(schema.collectionItems)
     .innerJoin(schema.moneyOperations, eq(schema.moneyOperations.id, schema.collectionItems.operationId))
     .where(eq(schema.collectionItems.collectionId, collection.id));
-  const view: CollectionView = { id: collection.id, acceptedAt: collection.acceptedAt, sentCents: 0, feeCents: 0, checkingCents: 0, refusedCents: 0, startedAs: collection.startedAs };
+  const view: CollectionView = { id: collection.id, acceptedAt: collection.acceptedAt, sentCents: 0, feeCents: 0, checkingCents: 0, checkingFeeCents: 0, unanswered: 0, refusedCents: 0, startedAs: collection.startedAs };
   for (const item of items) {
     if (item.status === "succeeded") {
       view.sentCents += item.amountCents;
       view.feeCents += item.payoutFeeCents;
-    } else if (item.status === "started") view.checkingCents += item.amountCents;
-    else view.refusedCents += item.amountCents + item.payoutFeeCents;
+    } else if (item.status === "started") {
+      view.checkingCents += item.amountCents;
+      view.checkingFeeCents += item.payoutFeeCents;
+      view.unanswered += 1;
+    } else view.refusedCents += item.amountCents + item.payoutFeeCents;
   }
   return view;
 }

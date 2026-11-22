@@ -217,16 +217,20 @@ async function main() {
   /**
    * Earnings a host has not collected for 12 months are sent to her without being asked (plans/46, part 3b), in a
    * loop of its own: it asks Stripe about each such host's payout account, and that must never delay closing a room
-   * or the money work. About once a day, and when the helper starts: every such host gets a try. About once a
-   * minute: a try the helper stopped in the middle of is run again, and a host whose transfers are all answered is
-   * told what was sent.
+   * or the money work. Two loops, so that a long daily round never keeps the follow-up waiting. About once a day,
+   * and when the helper starts: every such host gets a try. About once a minute: a try the helper stopped in the
+   * middle of is run again, and a host whose transfers are all answered is told what was sent.
    */
-  let uncollectedPasses = 0;
+  let uncollectedRounds = 0;
   async function uncollectedPass() {
     if (!stripeConfigured()) return;
-    const round = uncollectedPasses++;
-    if (round % 12 !== 0) return;
-    if (round % 17_280 === 0) await collectUncollected().catch((error) => console.error("[uncollected] the daily round failed; will retry", error));
+    if (uncollectedRounds++ % 17_280 !== 0) return;
+    await collectUncollected().catch((error) => console.error("[uncollected] the daily round failed; will retry", error));
+  }
+  let uncollectedFollowUps = 0;
+  async function uncollectedFollowUpPass() {
+    if (!stripeConfigured()) return;
+    if (uncollectedFollowUps++ % 12 !== 0) return;
     await followUpUncollected().catch((error) => console.error("[uncollected] the follow-up failed; will retry", error));
   }
 
@@ -256,6 +260,7 @@ async function main() {
     await disputePass();
     await noticePass();
     await uncollectedPass();
+    await uncollectedFollowUpPass();
     process.exit(0);
   }
 
@@ -275,7 +280,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass), loop("uncollected", uncollectedPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass), loop("uncollected", uncollectedPass), loop("uncollected follow-up", uncollectedFollowUpPass)]);
   process.exit(0);
 }
 
