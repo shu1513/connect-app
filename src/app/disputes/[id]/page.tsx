@@ -16,7 +16,7 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { getSignedIn, isAdminSession, requireUser } from "@/lib/session";
 import { SUPPORT_EMAIL } from "@/lib/terms";
-import { allowPayingAction, answerObjectionAction, cancelDebtAction, chooseAction, holdDebtAction, objectAction } from "./actions";
+import { allowPayingAction, answerObjectionAction, cancelDebtAction, chooseAction, holdDebtAction, objectAction, sendAgainAction } from "./actions";
 
 // The same title whoever asks: nothing is given away before it is known who may see the page.
 export const metadata: Metadata = { title: "A bank dispute" };
@@ -360,10 +360,19 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                   <p className="mt-1 opacity-80" data-not-delivered>
                     {asHost
                       ? "We could not reach you by email about this, so nothing is taken for now. Please check the email address of your account, or write to us."
-                      : "The email about this did not reach the host, so nothing is taken. Reach the host another way, or cancel the take-back."}
+                      : "The email about this did not reach the host, or its delivery was never confirmed, so nothing is taken. Send it again (once the host's address works), or cancel the take-back."}
                   </p>
                 )}
-                {(debt.status === "told" || debt.status === "answered") && debt.dueAt && debt.refusedAt && (
+                {founder && (debt.status === "told" || debt.status === "answered") && !debt.dueAt && debt.noticeProblemToldAt && (
+                  <form action={sendAgainAction} className="mt-2" data-send-again>
+                    <input type="hidden" name="dispute" value={dispute.id} />
+                    <input type="hidden" name="debt" value={debt.id} />
+                    <button type="submit" className={button}>
+                      Send it again
+                    </button>
+                  </form>
+                )}
+                {(debt.status === "told" || debt.status === "answered") && debt.dueAt && debt.dueAt <= now && debt.refusedAt && (
                   <p className="mt-1 opacity-80" data-refused>
                     {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
                   </p>

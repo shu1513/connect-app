@@ -18,6 +18,12 @@ export const RETRY_MS = DAY_MS;
 /** After this long of refusals the founder is told. It keeps being tried. */
 export const TELL_FOUNDER_AFTER_MS = 30 * DAY_MS;
 
+/**
+ * How long the sending service has to report an email as delivered before its silence is told to the founder. The
+ * days still count from the sending; without that report there is simply no due day.
+ */
+export const CONFIRM_WITHIN_MS = 2 * DAY_MS;
+
 /** After the founder has answered an objection and it is taken after all: not before this long after that answer was sent. */
 export const AFTER_ANSWER_MS = 3 * DAY_MS;
 
@@ -101,7 +107,9 @@ export function dueToTake(debt: { status: string; dueAt: Date | null; refusedAt:
 export const canCancel = (debt: { status: string }): boolean => OPEN.includes(debt.status);
 
 /** Whether the founder is due to be told that Stripe keeps refusing: 30 days after the first refusal, once. */
-export function tellFounderOfRefusals(debt: { status: string; firstRefusedAt: Date | null; founderToldAt: Date | null }, now: Date): boolean {
+export function tellFounderOfRefusals(debt: { status: string; dueAt?: Date | null; firstRefusedAt: Date | null; founderToldAt: Date | null }, now: Date): boolean {
+  // Not while it has no due day: nothing is being tried then, so "it keeps trying" would not be true.
+  if (debt.dueAt === null) return false;
   return TAKEABLE.includes(debt.status) && debt.firstRefusedAt !== null && debt.founderToldAt === null && now.getTime() - debt.firstRefusedAt.getTime() >= TELL_FOUNDER_AFTER_MS;
 }
 

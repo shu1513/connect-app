@@ -161,6 +161,9 @@ describe("cancelling, and telling the founder", () => {
     expect(tellFounderOfRefusals({ ...refused, status: "taken" }, new Date(first.getTime() + 2 * TELL_FOUNDER_AFTER_MS))).toBe(false);
     expect(tellFounderOfRefusals({ ...refused, status: "answered" }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(true);
     expect(tellFounderOfRefusals({ ...refused, status: "objected" }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(false);
+    // Not while it has no due day (its notice did not arrive): nothing is being tried then.
+    expect(tellFounderOfRefusals({ ...refused, dueAt: null }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(false);
+    expect(tellFounderOfRefusals({ ...refused, dueAt: first }, new Date(first.getTime() + TELL_FOUNDER_AFTER_MS))).toBe(true);
   });
 
   it("names the request to Stripe after the take-back", () => {

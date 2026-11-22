@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { suppressAddress } from "@/lib/notifications/delivery";
+import { recordEmailEvent } from "@/lib/notifications/provider-events";
 
 /**
  * Resend's messages about emails we sent: delivered, bounced, complained.
@@ -39,22 +40,19 @@ export async function POST(request: Request) {
     if (event.data.bounce?.type === "Permanent") await suppressAddress(address, `bounced (${event.data.bounce.subType ?? "permanent"})`);
     else console.warn(`[email] temporary bounce for ${address}: ${event.data.bounce?.type ?? "unknown"} ${event.data.bounce?.subType ?? ""}`);
   }
-  // The bounce is also written on the email it is about, whatever kind of bounce: a notice whose sending starts a
-  // count of days (a take-back's) must not count as sent when that very email did not arrive.
-  if (event.type === "email.bounced" && event.data.email_id) {
-    await db
-      .update(schema.emailOutbox)
-      .set({ bouncedAt: new Date(), lastError: `bounced: ${event.data.bounce?.type ?? "unknown"} ${event.data.bounce?.subType ?? ""}`.trim() })
-      .where(eq(schema.emailOutbox.providerId, event.data.email_id));
-  }
   if (event.type === "email.complained" && address) {
     await suppressAddress(address, "complained");
     // Marking our email as spam is the clearest "stop": reminders are switched off for that account too.
     await db.update(schema.user).set({ reminderEmails: false }).where(eq(schema.user.email, address.trim().toLowerCase()));
   }
-  if (event.type === "email.delivered" && event.data.email_id) {
-    // It arrived after all (a bounce the receiving side called temporary, say).
-    await db.update(schema.emailOutbox).set({ lastError: null, bouncedAt: null }).where(eq(schema.emailOutbox.providerId, event.data.email_id));
+  // Delivered or bounced is also written on the very email it is about (provider-events.ts): a notice whose arrival
+  // starts a count of days must be judged by that email, not by its address. When the app does not know the email yet
+  // (the report can arrive before the sender has saved the service's number for it), the service is asked to send
+  // the report again later; it repeats a report that was not accepted.
+  if ((event.type === "email.delivered" || event.type === "email.bounced") && event.data.email_id) {
+    const note = event.type === "email.bounced" ? `bounced: ${event.data.bounce?.type ?? "unknown"} ${event.data.bounce?.subType ?? ""}`.trim() : null;
+    const known = await recordEmailEvent(event.data.email_id, event.type === "email.bounced" ? "bounced" : "delivered", note);
+    if (!known) return new Response("not known yet", { status: 409 });
   }
   return new Response("ok");
 }

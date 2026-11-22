@@ -42,7 +42,7 @@ import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
 import { aboutOwner, disputePath, ownerOf, peopleFor, type Only } from "./record";
 import { outcomeOf } from "./status";
-import { canAnswer, canCancel, canHold, canObject, dueDay, dueToTake, OPEN, owedCents, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
+import { canAnswer, canCancel, canHold, canObject, CONFIRM_WITHIN_MS, dueDay, dueToTake, OPEN, owedCents, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
 import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const debts = schema.hostDebts;
@@ -257,17 +257,26 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
 
 type Reader = Pick<typeof db, "select">;
 
-/** What became of one email: the moment it really went out, or why it has not. Both empty while it is still on its way. */
-async function deliveryOf(reader: Reader, emailId: string | null): Promise<{ sentAt: Date | null; problem: string | null }> {
-  const [email] = emailId
-    ? await reader.select({ status: schema.emailOutbox.status, sentAt: schema.emailOutbox.sentAt, bouncedAt: schema.emailOutbox.bouncedAt, lastError: schema.emailOutbox.lastError }).from(schema.emailOutbox).where(eq(schema.emailOutbox.id, emailId))
-    : [];
+/**
+ * What became of one email: the moment it was sent, counted only once it has really arrived, or why it has not.
+ * Both are empty while it is still on its way.
+ *
+ * "Arrived" is judged by this very email, not by its address: the sending service accepted it, reported it as
+ * delivered, and never reported it as bounced (provider-events.ts; neither mark is ever emptied, so the order of the
+ * service's reports cannot matter). An email from before those reports were kept has neither mark and so has not
+ * arrived as far as the app can show: the founder sends it again.
+ */
+async function deliveryOf(reader: Reader, emailId: string | null, now: Date): Promise<{ sentAt: Date | null; problem: string | null }> {
+  const mail = schema.emailOutbox;
+  const [email] = emailId ? await reader.select({ status: mail.status, sentAt: mail.sentAt, deliveredAt: mail.deliveredAt, bouncedAt: mail.bouncedAt, lastError: mail.lastError }).from(mail).where(eq(mail.id, emailId)) : [];
   if (!email) return { sentAt: null, problem: "there is no email for it" };
-  // Judged by this very email, not by its address: the sending service reported that it bounced.
   if (email.bouncedAt) return { sentAt: null, problem: `it bounced${email.lastError ? ` (${email.lastError})` : ""}` };
   if (email.status === "failed") return { sentAt: null, problem: email.lastError ?? "it could not be sent" };
-  if (email.status === "sent" && email.sentAt) return { sentAt: email.sentAt, problem: null };
-  return { sentAt: null, problem: null };
+  if (email.status !== "sent") return { sentAt: null, problem: null };
+  if (!email.sentAt) return { sentAt: null, problem: "it is marked as sent, with no time of sending" };
+  if (email.deliveredAt) return { sentAt: email.sentAt, problem: null };
+  // Sent, and the sending service has not said that it was delivered. For a while that is simply waiting.
+  return { sentAt: null, problem: now.getTime() - email.sentAt.getTime() > CONFIRM_WITHIN_MS ? "the sending service has not confirmed that it was delivered" : null };
 }
 
 /**
@@ -275,9 +284,9 @@ async function deliveryOf(reader: Reader, emailId: string | null): Promise<{ sen
  * is wrong with them, if anything. `as` is the state it is judged in: for one that is being taken, the state it had
  * before.
  */
-async function dayOf(reader: Reader, debt: HostDebt, as: string = debt.status): Promise<{ day: Date | null; problem: string | null; which: "notice" | "answer" }> {
-  const notice = await deliveryOf(reader, debt.noticeEmailId);
-  const answer = as === "answered" ? await deliveryOf(reader, debt.answerEmailId) : null;
+async function dayOf(reader: Reader, debt: HostDebt, now: Date, as: string = debt.status): Promise<{ day: Date | null; problem: string | null; which: "notice" | "answer" }> {
+  const notice = await deliveryOf(reader, debt.noticeEmailId, now);
+  const answer = as === "answered" ? await deliveryOf(reader, debt.answerEmailId, now) : null;
   return {
     day: dueDay({ status: as, promisedAt: debt.firstDueAt, noticeSentAt: notice.sentAt, answerSentAt: answer?.sentAt ?? null }),
     problem: notice.problem ?? answer?.problem ?? null,
@@ -290,15 +299,15 @@ const sameDay = (a: Date | null, b: Date | null): boolean => (a === null ? b ===
 /**
  * Gives a take-back its due day, and takes it away again. The day is never kept by itself: every pass works it out
  * afresh from the emails (dueDay). So:
- *   - no day while the notice (or the answer to an objection) is still waiting, as it is in a copy of the app with
- *     no sending service;
- *   - no day when that email failed or bounced: the founder is told, once for that email, and only if somebody is
- *     there to be told;
+ *   - no day while the notice (or the answer to an objection) is still on its way, or not yet reported as delivered,
+ *     as in a copy of the app with no sending service;
+ *   - no day when that email failed, bounced, or was not reported as delivered within two days: the founder is told,
+ *     once for each such email, and can send it again or call the take-back off;
  *   - a day that was given is taken away again when its email turns out to have bounced;
- *   - a take-back from before this rule keeps the day its notice named as the earliest, and gets a day only once its
- *     notice is confirmed as sent.
- * Everything is read and written with the share's payment held, the same lock the taking starts under, so a day is
- * never put back by a pass that read the emails a moment too early.
+ *   - a take-back from before this rule keeps the day its notice named as the earliest, and gets a day only once a
+ *     notice of it has provably arrived.
+ * Everything is read and written with the share's payment held, the same lock the taking starts under and the same
+ * lock a report from the sending service is written under.
  */
 export async function dateNotices(now: Date, only?: Only): Promise<void> {
   const rows = await db
@@ -308,24 +317,26 @@ export async function dateNotices(now: Date, only?: Only): Promise<void> {
     .where(and(inArray(debts.status, [...TAKEABLE]), only ? inArray(debts.disputeId, only.disputeIds) : undefined));
   for (const { debt, dispute } of rows) {
     // A first look without the lock, only to leave alone what needs nothing. What is written is decided under it.
-    const seen = await dayOf(db, debt);
-    if (sameDay(seen.day, debt.dueAt) && (seen.problem === null) === (debt.noticeProblemToldAt === null)) continue;
+    const seen = await dayOf(db, debt, now);
+    if (sameDay(seen.day, debt.dueAt) && seen.problem === null && debt.noticeProblemToldAt === null) continue;
     await db
       .transaction(async (tx) => {
         await lockPayment(tx, debt.paymentId);
         const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
         if (!fresh || !TAKEABLE.includes(fresh.status)) return;
-        const { day, problem, which } = await dayOf(tx, fresh);
+        const { day, problem, which } = await dayOf(tx, fresh, now);
         let toldAt = problem === null ? null : fresh.noticeProblemToldAt;
-        if (problem !== null && fresh.noticeProblemToldAt === null) {
+        if (problem !== null) {
+          // Told once for each email that has something wrong (the key names the email, so a second email with a
+          // problem of its own is told too, and the same one is never told twice). Marked only when somebody was
+          // there to tell: with no admin in the database, the next pass tries again.
           const emailId = which === "answer" ? fresh.answerEmailId : fresh.noticeEmailId;
-          // Marked as told only when somebody was told: with no admin in the database, the next pass tries again.
-          if ((await tellFounders(tx, fresh, dispute, `undelivered:${emailId ?? "none"}`, (facts) => notDeliveredWords(facts, which, problem))) > 0) toldAt = now;
+          const told = await tellFounders(tx, fresh, dispute, `undelivered:${emailId ?? "none"}`, (facts) => notDeliveredWords(facts, which, problem));
+          if (told > 0) toldAt = toldAt ?? now;
         }
-        await tx
-          .update(debts)
-          .set({ dueAt: day, firstDueAt: fresh.firstDueAt ?? (fresh.status === "told" ? day : null), noticeProblemToldAt: toldAt, updatedAt: now })
-          .where(eq(debts.id, fresh.id));
+        const firstDueAt = fresh.firstDueAt ?? (fresh.status === "told" ? day : null);
+        if (sameDay(day, fresh.dueAt) && sameDay(firstDueAt, fresh.firstDueAt) && sameDay(toldAt, fresh.noticeProblemToldAt)) return;
+        await tx.update(debts).set({ dueAt: day, firstDueAt, noticeProblemToldAt: toldAt, updatedAt: now }).where(eq(debts.id, fresh.id));
       })
       .catch((error) => log(`could not give take-back ${debt.id} its due day`, error));
   }
@@ -407,6 +418,35 @@ export async function answerObjection(input: { debtId: string; adminId: string; 
   });
 }
 
+/**
+ * The founder sends the notice (or the answer to an objection) again, when the first one did not arrive: it failed,
+ * it bounced, or the sending service never said that it was delivered. A new message and a new email, with the same
+ * words; the days count from this one arriving, and never end before a day an earlier notice named. Only for a
+ * take-back that has something wrong with its email: one that has its day needs no second notice.
+ */
+export async function sendNoticeAgain(input: { debtId: string; adminId: string; disputeId?: string; now?: Date }): Promise<boolean> {
+  const now = input.now ?? new Date();
+  return db.transaction(async (tx) => {
+    const found = await lockedDebt(tx, input.debtId);
+    if (!found || (input.disputeId !== undefined && found.debt.disputeId !== input.disputeId) || !TAKEABLE.includes(found.debt.status)) return false;
+    const { debt, dispute } = found;
+    const { problem, which } = await dayOf(tx, debt, now);
+    if (problem === null) return false;
+    const [waiting] = await tx.update(debts).set({ dueAt: null, noticeProblemToldAt: null, updatedAt: now }).where(eq(debts.id, debt.id)).returning();
+    // A key of its own, so that it is a new message and a new email beside the first.
+    const again = `again:${now.getTime()}`;
+    if (which === "answer") {
+      const answerEmailId = await tellHost(tx, waiting, dispute, `answered:${again}`, (facts) => answeredWords(facts, debt.answer ?? ""));
+      await tx.update(debts).set({ answerEmailId }).where(eq(debts.id, debt.id));
+    } else {
+      const noticeEmailId = await tellHost(tx, waiting, dispute, `owed:${again}`, owedWords);
+      await tx.update(debts).set({ noticeEmailId }).where(eq(debts.id, debt.id));
+    }
+    await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: `take-back: the ${which} was sent again`, targetUserId: debt.hostId, targetId: debt.id });
+    return true;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 5. Taking it
 // ---------------------------------------------------------------------------
@@ -458,8 +498,8 @@ export function takePlan(debt: Pick<HostDebt, "id" | "paymentId">, now: Date = n
       if (!row || !dueToTake(row, now)) throw new MoneyError("This take-back is not waiting to be taken.");
       // The day on the row was worked out a moment ago. Here, with the share's payment held, the emails are read once
       // more: a notice that bounced since, or that turns out not to have gone out, stops it at the last moment.
-      const { day } = await dayOf(tx, row);
-      if (day === null || now < day) throw new MoneyError("The notice of this take-back is not confirmed as sent, or its day has not come.");
+      const { day } = await dayOf(tx, row, now);
+      if (day === null || now < day) throw new MoneyError("The notice of this take-back is not confirmed as delivered, or its day has not come.");
       const [dispute] = await tx.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, row.disputeId));
       if (dispute?.outcome !== "lost") throw new MoneyError("The dispute of this take-back is not lost any more.");
       await tx.update(debts).set({ status: "taking", updatedAt: new Date() }).where(eq(debts.id, row.id));
@@ -527,7 +567,7 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
   // first request still holds: the dispute is still lost, and the notice (and an answer) still counts as sent and
   // its day has come. A reversal Stripe already made is found and booked below either way.
   const [whole] = row ? await db.select().from(debts).where(eq(debts.id, params.debtId)) : [];
-  const stillDue = whole ? (await dayOf(db, whole, whole.status === "taking" ? stateBeforeTaking(whole) : whole.status)).day : null;
+  const stillDue = whole ? (await dayOf(db, whole, new Date(), whole.status === "taking" ? stateBeforeTaking(whole) : whole.status)).day : null;
   let resend = canRepeat && dispute?.outcome === "lost" && stillDue !== null && stillDue.getTime() <= Date.now();
   if (resend) resend = outcomeOf((await lookUp(() => stripe().disputes.retrieve(row.disputeId))).status) === "lost";
   let reversalId: string | undefined;

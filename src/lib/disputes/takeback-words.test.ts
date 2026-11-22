@@ -24,7 +24,7 @@ describe("what a host is told when a share is owed back", () => {
     expect(told).toContain('press "I think this is wrong" on this dispute\'s page in the app');
     expect(told).toContain("From the moment you press it, nothing is taken until a person at Connect has looked at it and answered you.");
     // Writing to support is not promised to stop it by itself: only once a person has read it.
-    expect(told).toContain("You can also write to us at support@connect.example. An email stops the taking only once a person at Connect has read it, so if the day is near, use the button.");
+    expect(told).toContain("You can also write to us at support@connect.example. An email does not stop the taking by itself: it stops only when a person at Connect has put a hold on it, which can take a working day or longer. If the day is near, use the button.");
   });
 
   it("names no day while the day is not known: it counts from the email really going out", () => {
@@ -112,6 +112,7 @@ describe("an objection", () => {
     expect(notice).toContain("A take-back is waiting: its notice did not reach Ana");
     expect(notice).toContain("could not be delivered by email: the address bounces (bounced (permanent))");
     expect(notice).toContain("nothing is taken while this is so");
+    expect(notice).toContain("On the dispute's page you can send it again");
     expect(all(notDeliveredWords(facts, "answer", "it could not be sent"))).toContain("The answer to the objection against taking $12.38 back from Ana");
   });
 });

@@ -572,16 +572,19 @@ was lost (and, once built, for a refund Connect gives after she collected):
 
 - She is told in writing, in the app and by email: which payment, why, how the amount is worked
   out. **The 14 days count from the moment the email was handed to the sending service**, not
-  from when the app wrote the debt down. If that email cannot be sent, or the address later
-  turns out not to work, nothing is taken and the founder is told.
+  from when the app wrote the debt down, **and nothing is taken unless that service has
+  reported the email as delivered** and never as bounced. Otherwise the founder is told and can
+  send the notice again.
 - **She can press "I think this is wrong"** and write why. Nothing is taken then until the
   founder has decided: call it off, or answer her in writing and take it after all, no earlier
   than the first day named and no earlier than 3 days after that answer went out. She cannot
   object a second time in the app; she can still write to support.
 
 Questions:
-- Is "handed to the sending service" the right start for the 14 days, or must it be receipt? A
-  message is also on her Messages page in the app from the first moment.
+- Is "handed to the sending service, and later reported as delivered" the right proof that she
+  was told? A message is also on her Messages page in the app from the first moment.
+- An objection sent by email stops the taking only once a person at Connect has put a hold on
+  it; the notice says so and points to the button. Is that fair notice of how to object?
 - Are 14 days, and 3 days after an answer, enough in each country hosts are in?
 - When the notice cannot be delivered at all (an address that no longer works), may the money be
   taken after notice in the app alone? Today the app does not.

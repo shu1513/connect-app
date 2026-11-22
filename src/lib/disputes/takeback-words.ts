@@ -43,7 +43,7 @@ export function owedWords(facts: DebtFacts): Told {
       `${how(facts)} The bank's own fees are not charged to you.\n\n` +
       `${facts.dueOn ? `From ${facts.dueOn}` : "From 14 days after this message was sent to you by email"}, Connect will ask Stripe to take ${facts.amount} back from your Stripe balance. Until then nothing is taken. "Your earnings" on your Hosting page shows the day.\n\n` +
       `If you think this is wrong, say so before that day: press "I think this is wrong" on this dispute's page in the app (it is linked from this message and from "Your earnings"). From the moment you press it, nothing is taken until a person at Connect has looked at it and answered you.\n\n` +
-      `You can also write to us at ${facts.supportEmail}. An email stops the taking only once a person at Connect has read it, so if the day is near, use the button.`,
+      `You can also write to us at ${facts.supportEmail}. An email does not stop the taking by itself: it stops only when a person at Connect has put a hold on it, which can take a working day or longer. If the day is near, use the button.`,
   };
 }
 
@@ -145,7 +145,7 @@ export function notDeliveredWords(facts: DebtFacts, which: "notice" | "answer", 
     subject: `A take-back is waiting: its ${which} did not reach ${facts.hostName}`,
     text:
       `The ${which === "notice" ? "notice about" : "answer to the objection against"} taking ${facts.amount} back from ${facts.hostName} (for ${facts.what}) could not be delivered by email: ${why}\n\n` +
-      `The days before it is taken count from that email really going out, so nothing is taken while this is so. The message is on the host's Messages page in the app. You can reach the host another way, or call the take-back off on the dispute's page.`,
+      `The days before it is taken count from that email really arriving, so nothing is taken while this is so. The message is on the host's Messages page in the app. On the dispute's page you can send it again (after the host has corrected their address, say), or call the take-back off.`,
   };
 }
 

@@ -152,11 +152,17 @@ export const emailOutbox = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     /**
-     * The sending service reported that THIS email bounced (any kind of bounce), after it had accepted it. Emptied
-     * again if it later reports the email as delivered. A notice whose sending starts a count of days (a take-back's)
-     * does not count as sent while this is set. It names nobody, so it stays when an old email is emptied.
+     * The sending service reported that THIS email bounced (any kind of bounce), after it had accepted it. A notice
+     * whose sending starts a count of days (a take-back's) does not count as arrived once this is set. It names
+     * nobody, so it stays when an old email is emptied.
      */
     bouncedAt: timestamp("bounced_at", { withTimezone: true }),
+    /**
+     * The sending service reported that THIS email was delivered to the receiving side. Neither this nor `bouncedAt`
+     * is ever emptied again: whatever order the service's reports arrive in, an email counts as having arrived only
+     * when it was reported delivered and never reported bounced.
+     */
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     providerId: text("provider_id"),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

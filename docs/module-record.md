@@ -5162,13 +5162,17 @@ first, and it changes how that existing way treats a host. Refunds come in the s
 **What was built** (decision 6 of that plan, and the lock of decision 4), for the debts there
 are today, all from lost bank disputes:
 - **The 14 days count from the notice email really going out**, not from the moment the app
-  wrote the debt down. One rule works the day out, afresh on every pass, from the emails
-  themselves: 14 days after the notice went out; never earlier than a day an earlier notice
-  named; none while that email waits, failed or bounced. When there is no day because of a
-  failure, the founder is told once and the host's pages say so. The notice itself says "14
-  days after this message was sent to you by email"; her pages show the day once it is known.
-- **A bounce is recorded on the email it is about** (the sending service names it), not judged
-  by the address.
+  wrote the debt down, **and there is a day only once that email has provably arrived**: the
+  sending service reported it as delivered, and never as bounced. One rule works the day out,
+  afresh on every pass, from the emails themselves: 14 days after the notice was sent; never
+  earlier than a day an earlier notice named; none while that email waits, failed, bounced, or
+  was never reported as delivered. When there is no day because something is wrong, the founder
+  is told once for that email, the host's pages say so, and the founder can send the notice
+  again. The notice itself says "14 days after this message was sent to you by email"; her
+  pages show the day once it is known.
+- **Delivered and bounced are recorded on the email they are about** (the sending service
+  names it), in one place (`src/lib/notifications/provider-events.ts`), and never emptied
+  again, so the order of the service's reports cannot matter.
 - **"I think this is wrong."** On the dispute's page a host can say why, while the take-back
   has only its notice. It is then "objected" and nothing is taken. The founder is told with her
   words and either calls it off or answers in writing and has it taken after all ("answered"):
@@ -5182,32 +5186,41 @@ are today, all from lost bank disputes:
   reversal Stripe refuses puts an answered take-back back to "answered".
 - **One lock for a dispute** when what its shares owe is worked out: two helpers on two shares
   of one disputed membership month can no longer count the same room.
-- Migrations `0055_host_debt_notice` and `0056_email_bounced`.
+- Migrations `0055_host_debt_notice`, `0056_email_bounced` and `0057_email_delivered`.
+- **For going live:** the sending service's reports must be switched on (the webhook and its
+  secret). Without them no notice is ever reported as delivered and no take-back is ever taken;
+  the founder is told after two days.
 
 **The builder's own choices:** the objection form is on the dispute's page (linked from "Your
 earnings"), not on the earnings page itself; an objection needs at least a sentence; an answer
-cannot be withdrawn; no way yet to send a notice again to an address that bounced (the founder
-calls it off or reaches her another way).
+cannot be withdrawn; a day needs a report of delivery, which is stricter than the plan's
+decision 6 as first written; two days without that report before the founder is told.
 
 **What the reviewer found.** Astra said to hold it, for five points that all came to one
 thing: money could have been taken before the host had truly been told (an early objection
 moved the day from 14 days to 3; a bounce was judged by the address and could lose a race with
 the taking; an old take-back kept its day while its email had not gone out; the notice promised
-that an email to support stops the taking). All are fixed; the list is in the plan.
+that an email to support stops the taking). All are fixed. Its second look found the rule for
+the day right and asked for more certainty about bounces; that led to the stricter rule above
+(a day only after a report of delivery) and to "send it again". Both lists are in the plan.
 
 **How it was checked.** Type check, lint and the automatic tests (the rule of the due day, of
 objecting and answering, and every new sentence). The real script against Stripe's test mode,
-`scripts/dispute-takeback-check.ts`, 98 checks: plan 47's own still pass, with the due days
+`scripts/dispute-takeback-check.ts`, 109 checks: plan 47's own still pass, with the due days
 coming from the helper's real pass, and the new part covers: no day and never taken while the notice
 has not gone out; a failed notice told to each admin once; the day from the moment of sending;
-a bounce of this very email takes the day away and is told, and a bounce of another email at
-the same address does not; an objection a second before the day stops it for good; the
+sent but not yet reported as delivered gives no day; a bounce of this very email, reported
+through the same door the real reports use, takes the day away for good and is told, a later
+report of delivery does not bring it back, and a bounce of another email at the same address
+does not count; the founder sends the notice again and the days count from that one; an objection a second before the day stops it for good; the
 founder's answer and its 3 days; an answer that comes early, or on day zero before any day was
 given, never makes it earlier than the notice's 14 days; no second objection; taken for real at
 Stripe after an answer; a real refusal by Stripe leaves an answered one answered; a won dispute
 calls an answered one off; held for an email, then called off; no objection while it is being
-taken; an unanswered request is not sent once its notice bounced; a day on the row is not
-enough when the notice is not confirmed as sent. `disputes-check` (72 checks) passes too. In a
+taken; of two unanswered requests that are really due, the helper sends one again and does not
+send the one whose notice bounced meanwhile; a day on the row is not enough when the notice is
+not confirmed as delivered; an email never reported as delivered is told to the founder after
+two days. `disputes-check` (72 checks) passes too. In a
 browser as the test host: the notice with its day, the objection, and what the dispute's page
 and "Your earnings" then say.
 

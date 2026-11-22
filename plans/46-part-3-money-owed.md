@@ -734,3 +734,33 @@ raised, and a 14-day request handled after the first month is settled by hand.
    is unanswered. Also: a host's objection names its dispute, so one page cannot object to
    another dispute's take-back.
 
+**Astra's second look at that step** said to hold it once more: the rule for the day was now
+right, but how reliably a bounce is known was not. Taken, with one rule that is stricter than
+decision 6 as first written:
+
+- **A take-back gets its day only once the sending service has reported its notice as
+  delivered**, and loses it for good once that email is ever reported as bounced. The two marks
+  are only ever set, never emptied, so the order in which the service's reports arrive cannot
+  matter. The days still count from the sending. A report that arrives before the app knows the
+  email is not accepted, so the service sends it again. A notice that is not reported as
+  delivered within two days is told to the founder like one that failed.
+- **The founder can send a notice (or an answer) again** when the first did not arrive; the days
+  count from the new one arriving, never before a day an earlier notice named. This is also how
+  a take-back from before these reports were kept is released: its old email has no such report.
+- **A report from the sending service is written under the same lock the taking starts under**,
+  so a bounce is either seen by the taking's last look or written after the taking has started.
+- The notice says an email to support stops nothing until a person at Connect has put a hold on
+  it. The warning to the founder is given once for each email that has something wrong, so a
+  failed answer is told even after a failed notice. Talk of "tried again once a day" is shown
+  only while something is being tried.
+- The checks of an unanswered request now use take-backs that are really due by the real clock:
+  one the helper has to send again, and one it must not because its notice bounced meanwhile.
+
+Left as it is, and why: a bounce reported while a repeated request is already on its way to
+Stripe cannot stop that request. Bounces come within hours of sending; a take-back is at least 14
+days after its notice arrived.
+
+**In production this needs the sending service's reports to be switched on** (the webhook and
+its secret, `RESEND_WEBHOOK_SECRET`). Without them no notice is ever reported as delivered, and
+no take-back is ever taken: the founder is told after two days that delivery was not confirmed.
+

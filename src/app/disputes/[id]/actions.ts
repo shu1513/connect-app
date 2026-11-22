@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { chooseAnswer, ChoiceError } from "@/lib/disputes/choose";
 import { allowPayingAgain } from "@/lib/disputes/paying";
-import { answerObjection, cancelDebt, DebtError, holdDebt, objectToDebt } from "@/lib/disputes/takeback";
+import { answerObjection, cancelDebt, DebtError, holdDebt, objectToDebt, sendNoticeAgain } from "@/lib/disputes/takeback";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin, requireUser } from "@/lib/session";
 
@@ -100,5 +100,15 @@ export async function answerObjectionAction(formData: FormData) {
     notice = error instanceof DebtError ? error.message : "Something went wrong. Nothing was changed. Please try again.";
   }
   redirect(withNotice(`/disputes/${id}`, notice));
+}
+
+/** The founder's button when a take-back's notice (or the answer to an objection) did not arrive: it is sent again, and the days count from this one. */
+export async function sendAgainAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("dispute") ?? "");
+  if (!DISPUTE_ID.test(id)) redirect("/admin");
+  const debtId = String(formData.get("debt") ?? "");
+  const again = DEBT_ID.test(debtId) && (await sendNoticeAgain({ debtId, disputeId: id, adminId: admin.id }));
+  redirect(withNotice(`/disputes/${id}`, again ? "Written again: a new message is on the host's Messages page and goes out by email. The days count from this one arriving." : "Nothing was sent: this take-back's email has nothing wrong with it, or the take-back is no longer waiting."));
 }
 
