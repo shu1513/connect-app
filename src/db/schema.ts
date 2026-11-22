@@ -2454,7 +2454,7 @@ export const hostDebts = pgTable(
     noticeEmailId: uuid("notice_email_id").references(() => emailOutbox.id, { onDelete: "set null" }),
     /** Set while the notice (or the answer) has not arrived and the founder was told so: the pages say it. Emptied when all is well again. */
     noticeProblemToldAt: timestamp("notice_problem_told_at", { withTimezone: true }),
-    /** The emails the founder has been told about (their numbers, separated by spaces; "none" for a take-back with no email): each once, however long it lasts. */
+    /** The emails the founder has been told about (their numbers, separated by spaces; "no-notice" or "no-answer" where there is no email at all): each once, however long it lasts. */
     noticeProblemsTold: text("notice_problems_told").notNull().default(""),
     /** "I think this is wrong": when, and the host's own words (or the founder's note of an objection that came by email). */
     objectedAt: timestamp("objected_at", { withTimezone: true }),

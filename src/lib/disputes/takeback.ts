@@ -320,7 +320,9 @@ export async function dateNotices(now: Date, only?: Only): Promise<void> {
   for (const { debt, dispute } of rows) {
     // A first look without the lock, only to leave alone what needs nothing. What is written is decided under it.
     const seen = await dayOf(db, debt, now);
-    const untold = (problems: typeof seen.problems, row: Pick<HostDebt, "noticeProblemsTold">) => problems.filter((one) => !toldAbout(row).includes(one.emailId ?? "none"));
+    // (A take-back with no email at all for its notice, or for its answer, is told under a name of its own for each.)
+    const nameOf = (one: (typeof seen.problems)[number]) => one.emailId ?? `no-${one.which}`;
+    const untold = (problems: typeof seen.problems, row: Pick<HostDebt, "noticeProblemsTold">) => problems.filter((one) => !toldAbout(row).includes(nameOf(one)));
     if (sameDay(seen.day, debt.dueAt) && untold(seen.problems, debt).length === 0 && (seen.problems.length === 0) === (debt.noticeProblemToldAt === null)) continue;
     await db
       .transaction(async (tx) => {
@@ -333,7 +335,7 @@ export async function dateNotices(now: Date, only?: Only): Promise<void> {
         // the database, the next pass tries again.
         const told = toldAbout(fresh);
         for (const one of untold(problems, fresh)) {
-          const key = one.emailId ?? "none";
+          const key = nameOf(one);
           if ((await tellFounders(tx, fresh, dispute, `undelivered:${key}`, (facts) => notDeliveredWords(facts, one.which, one.problem))) > 0) told.push(key);
         }
         const toldAt = problems.length === 0 ? null : told.length > 0 ? (fresh.noticeProblemToldAt ?? now) : null;
@@ -585,6 +587,9 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
       await lockPayment(tx, operation.paymentId!);
       const [whole] = await tx.select().from(debts).where(eq(debts.id, params.debtId)).for("update");
       if (!whole) return false;
+      // The dispute once more, as the app has it now: it may have been recorded as won while this waited for the lock.
+      const [current] = await tx.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, whole.disputeId));
+      if (current?.outcome !== "lost") return false;
       const at = new Date();
       const { day } = await dayOf(tx, whole, at, whole.status === "taking" ? stateBeforeTaking(whole) : whole.status);
       return day !== null && day.getTime() <= at.getTime();

@@ -155,7 +155,8 @@ export function notDeliveredWords(facts: DebtFacts, which: "notice" | "answer", 
  * answered it does not point to the button (there is none any more): it repeats the answer and says where to write.
  */
 export function noticeAgainWords(facts: DebtFacts, answer: string | null): Told {
-  const why = "We are sending this again because our first message about it did not reach you by email.";
+  // (The first one may have arrived all the same: what is known is only that its arrival was never confirmed.)
+  const why = "We are sending this again because we could not confirm that our first message about it reached you by email.";
   if (answer === null) {
     const first = owedWords(facts);
     return { subject: first.subject, text: `${why}\n\n${first.text}` };

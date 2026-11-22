@@ -121,7 +121,7 @@ describe("a notice that is sent again", () => {
   it("is the notice itself, with a line saying why it comes again", () => {
     const again = noticeAgainWords({ ...facts, dueOn: null }, null);
     expect(again.subject).toBe(owedWords(facts).subject);
-    expect(again.text.startsWith("We are sending this again because our first message about it did not reach you by email.")).toBe(true);
+    expect(again.text.startsWith("We are sending this again because we could not confirm that our first message about it reached you by email.")).toBe(true);
     expect(again.text).toContain('press "I think this is wrong"');
     expect(again.text).toContain("From 14 days after this message was sent to you by email");
   });

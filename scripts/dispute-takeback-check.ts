@@ -559,7 +559,7 @@ async function main() {
       check("the founder sends the notice again", (await sendNoticeAgain({ debtId: second.id, adminId: admin })) === true);
       second = await debtOf(early.disputeId);
       const again = (await messagesOf(second.id)).filter((one) => one.key.includes(":owed:again:"));
-      check("the second notice says why it comes again, and still shows the way to object", again.length === 1 && again[0].body.startsWith("We are sending this again because our first message about it did not reach you by email.") && again[0].body.includes('press "I think this is wrong"'));
+      check("the second notice says why it comes again, and still shows the way to object", again.length === 1 && again[0].body.startsWith("We are sending this again because we could not confirm that our first message about it reached you by email.") && again[0].body.includes('press "I think this is wrong"'));
       check("a second message is on the host's Messages page, and there is no day until its email has arrived", again.length === 1 && second.dueAt === null && second.noticeProblemToldAt === null && (await mailRow(second.noticeEmailId!)).status === "queued");
       const sentAgain = new Date(NOW.getTime() + 3 * DAYS);
       await setMail(second.noticeEmailId!, { status: "sent", sentAt: sentAgain, deliveredAt: sentAgain });

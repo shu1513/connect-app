@@ -783,3 +783,11 @@ Left as it is, and why: a report about an email the app will never know (a test 
 emptied after two years) is refused each time the sending service repeats it. The service gives
 up after its own number of tries; nothing is lost by it.
 
+**Astra's fourth look**, at those last changes only: the three points are fixed, and two small
+gaps in the new code, both taken. A take-back that was being taken at the moment of the change
+is made to wait for a fresh notice too; and the helper's repeat looks, under the lock, once more
+at whether the dispute is still recorded as lost. Also: a missing notice and a missing answer
+are told to the founder under names of their own, and a notice sent again says "we could not
+confirm that our first message reached you", since it may have. These four were made as Astra
+wrote them and not sent back a fifth time.
+
