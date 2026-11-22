@@ -396,8 +396,9 @@ each small enough to check well):
   about refunds yet.
 - **Step 2, refunds after collection**: everything else of part 3a. Built as two pull
   requests in turn, for the same reason: **2a**, a call's payment (the migration, the
-  founder's refund, the debt, the pages); **2b**, contributions and tips, the yearly
-  statement, the host's project page and the founder's contribution form. What 2a built, and
+  founder's refund, the debt, the pages); **2b**, the yearly statement only. Making a
+  contribution's or a tip's refund owed back by the host was NOT built (it waits for the
+  founder; see the end of this file). What 2a built, and
   where it differs from the lists below, is at the end of this file.
 
 **Not started until the founder has said yes to the reversal at Stripe as the one way.**
@@ -817,7 +818,7 @@ Migrations 0060 and 0061. Against the lists above:
 
 - **Names.** Stripe's time for the charge is `charge_at` (the list says `held_at_bank`); the
   founder's answer keeps step 1's `answered_at` and `answered_by`. `contribution_refund_id` and
-  the contribution's refund lines come with 2b.
+  the contribution's refund lines were not built (left for the founder to decide; see the end of this file).
 - **"While her share is on its way, no refund."** No rule of its own was needed: a payment has
   one money action in flight at a time, so a refund is not begun while a sending is unanswered.
   The check script keeps watch over it.
@@ -929,7 +930,7 @@ be staged; it is found afterwards and recorded as paid twice, which is checked);
 across several shares of one disputed membership month after one of them was settled or paid
 by hand (the rule has its own tests). The fill-in of migration 0061 for older rows ran on the
 local test database, which held 120 such refunds and 45 such take-backs; no other database has
-any, because nothing of this part was merged before. Contributions, tips and the yearly statement are 2b's.
+any, because nothing of this part was merged before. The yearly statement is 2b's; contributions and tips were left for the founder to decide (see the end of this file).
 
 ## What Astra found in the code of part 3a, step 2a, and what was done
 
@@ -1111,7 +1112,7 @@ are not forgotten.
    fails afterwards.* **Not done.** It needs a refund after collection, then a bank dispute lost
    on the rest, then that refund failing after Stripe had confirmed it; the difference is the
    rounding of one cent. The refund's own take-backs are worked out again in that case; the
-   dispute's is not. To do with step 2b or later.
+   dispute's is not. To do in a later change.
 6. *The call page's refund button could say "nothing was changed, try again" after Stripe had
    paid.* **Fixed:** the answer is read from what was written down whatever the call did; when it
    cannot be known, it says to look at the payment first.
@@ -1157,4 +1158,35 @@ Two are not taken, with the reasons:
   made at Stripe, where the app cannot require anything. The founder is told to hold first;
   the app stops as soon as it sees such a reversal; and one that slipped through is found
   afterwards and recorded as paid twice.
+
+## Part 3a, step 2b, as built: the yearly statement only (and what was left out, and why)
+
+**Built:** decision 8's part about the yearly statement. "Sent to you" is what was sent, with
+nothing taken off. A column of its own, "Taken back or paid back", holds what went back from
+the host, in the month Connect wrote it into its books (`host_takeback` and the new
+`host_repaid`). "Of that, paid by Connect" is now "Carried by Connect" and holds `connect_cost`
+with its sign: a contribution's or a tip's refund Connect gave from its own money, and what
+Connect waived of a share owed back after a call's refund or a lost bank dispute. On the page
+and in the file. No migration.
+
+**Left out, on the builder's own judgment, for the founder to decide:** decision 8's other
+part, that a **contribution or a tip** refunded after the host collected changes to the same
+pattern as a call (her share falls, and she owes it back). They stay as they are today: such a
+refund is Connect's own cost, the host keeps her share, and the founder's form says that
+nothing will be taken back from her. The reasons:
+
+- It asks nothing of a host. But it is **not what the draft Host Agreement describes**:
+  sections 6.5 and 8.5 say that a refund lowers the host's share and Connect's fee. For a
+  contribution or a tip refunded after collection the app leaves both as they were and books
+  the whole refund as Connect's cost. Whether the agreement should say that, or the app should
+  change, is a question for the lawyer (it is in `docs/for-the-lawyer.md`).
+- A contribution's refund is a different machine from a call's (a line that is "owed", tried,
+  and tried again by the helper). Bringing it under the take-backs means building the late
+  failure, the order of refunds and the room once more for that machine. The call's side
+  alone took five rounds of review to get right.
+- A tip and a contribution can both be large (the app takes a tip of up to tens of thousands
+  of dollars). Until this is built, the founder decides case by case whether to refund one
+  after collection at all, or settles it with the host by hand.
+
+If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of its own.
 

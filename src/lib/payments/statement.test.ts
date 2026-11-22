@@ -8,12 +8,29 @@ import { buildStatement, COLUMNS, plainDollars, readYear, statementCsv, type Sou
 const line = (kind: string, amountCents: number, at: string, source: Source = "call"): StatementLine => ({ kind, amountCents, at: new Date(at), source });
 
 describe("a host's yearly statement", () => {
-  it("counts a share taken back after a lost bank dispute as that much less sent, in the month it was taken", () => {
+  it("keeps what was sent as it was, and shows what went back in a column of its own, in the month it was recorded", () => {
     const s = buildStatement([line("host_transfer", -4435, "2026-03-20T09:00:00Z"), line("payout_fee", 25, "2026-03-20T09:00:00Z"), line("host_takeback", 4435, "2026-05-02T09:00:00Z")], 2026);
     expect(s.months[2].sentCents).toBe(4435);
-    expect(s.months[4].sentCents).toBe(-4435);
-    expect(s.total.sentCents).toBe(0);
+    // May's "Sent to you" is not a minus: the money that went back is beside it.
+    expect(s.months[4].sentCents).toBe(0);
+    expect(s.months[4].takenBackCents).toBe(4435);
+    expect(s.total.sentCents).toBe(4435);
+    expect(s.total.takenBackCents).toBe(4435);
     expect(s.total.collectionChargesCents).toBe(25);
+  });
+
+  it("follows a call refunded after she collected: her share falls, and what she owed is taken back, paid back, or carried by Connect", () => {
+    // 100 charged, 80 hers, 20 the fee; sent in December. A full refund in January.
+    const refund = [line("customer_refund", -10000, "2027-01-05T00:00:00Z"), line("platform_fee", -2000, "2027-01-05T00:00:00Z"), line("host_share", -8000, "2027-01-05T00:00:00Z")];
+    const taken = buildStatement([...refund, line("host_takeback", 8000, "2027-01-20T00:00:00Z")], 2027).total;
+    expect(taken).toMatchObject({ givenBackCents: 10000, shareCents: -8000, sentCents: 0, takenBackCents: 8000, paidByConnectCents: 0 });
+    const waived = buildStatement([...refund, line("connect_cost", 8000, "2027-01-20T00:00:00Z")], 2027).total;
+    expect(waived).toMatchObject({ takenBackCents: 0, paidByConnectCents: 8000 });
+    // She paid 50 back outside the app and the rest was let go.
+    const settled = buildStatement([...refund, line("host_repaid", 5000, "2027-02-01T00:00:00Z"), line("connect_cost", 3000, "2027-02-01T00:00:00Z")], 2027).total;
+    expect(settled).toMatchObject({ takenBackCents: 5000, paidByConnectCents: 3000 });
+    // A waiver that is taken off the books again (the refund failed after all, say) shows with its sign.
+    expect(buildStatement([line("connect_cost", 8000, "2027-01-20T00:00:00Z"), line("connect_cost", -8000, "2027-03-01T00:00:00Z")], 2027).total.paidByConnectCents).toBe(0);
   });
 
   it("adds up a call that was paid, its fee, her share, and the transfer with its collection charge", () => {
@@ -27,7 +44,7 @@ describe("a host's yearly statement", () => {
       ],
       2026,
     );
-    expect(s.months[2]).toEqual({ paidCents: 5000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 540, tipFeesCents: 0, shareCents: 4460, sentCents: 4435, collectionChargesCents: 25 });
+    expect(s.months[2]).toEqual({ paidCents: 5000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 540, tipFeesCents: 0, shareCents: 4460, sentCents: 4435, takenBackCents: 0, collectionChargesCents: 25 });
     expect(s.total).toEqual(s.months[2]);
     expect(s.paidBy).toEqual({ call: 5000, membership: 0, contribution: 0, tip: 0 });
   });
@@ -101,10 +118,10 @@ describe("the file and the year", () => {
   it("is a file a spreadsheet reads: a line of titles, twelve months and the year", () => {
     const csv = statementCsv(buildStatement([line("customer_charge", 5000, "2026-03-10T12:00:00Z"), line("customer_refund", -500, "2026-04-01T12:00:00Z")], 2026)).split("\r\n");
     expect(csv[0]).toContain("Not a tax form");
-    expect(csv[1]).toBe('Month,"Paid by customers","Given back (refunds)","Of that, paid by Connect","Connect\'s fees","Payment fees on tips","Your share","Sent to you","Collection charges"');
-    expect(csv[4]).toBe("March,50.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00");
-    expect(csv[5]).toBe("April,0.00,5.00,0.00,0.00,0.00,0.00,0.00,0.00");
-    expect(csv[14]).toBe("Year 2026,50.00,5.00,0.00,0.00,0.00,0.00,0.00,0.00");
+    expect(csv[1]).toBe('Month,"Paid by customers","Given back (refunds)","Carried by Connect","Connect\'s fees","Payment fees on tips","Your share","Sent to you","Taken back or paid back","Collection charges"');
+    expect(csv[4]).toBe("March,50.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00");
+    expect(csv[5]).toBe("April,0.00,5.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00");
+    expect(csv[14]).toBe("Year 2026,50.00,5.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00");
     // Then what was paid for, so that someone who keeps only the file has those figures too.
     expect(csv.slice(16, 21)).toEqual(['"Paid by customers in 2026, by what it was paid for"', '"Calls paid by card",50.00', '"Membership months",0.00', '"Contributions to your project",0.00', '"Tips, with the payment fee paid on top",0.00']);
     expect(csv).toHaveLength(22);
