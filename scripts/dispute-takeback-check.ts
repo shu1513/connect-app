@@ -559,6 +559,7 @@ async function main() {
       check("the founder sends the notice again", (await sendNoticeAgain({ debtId: second.id, adminId: admin })) === true);
       second = await debtOf(early.disputeId);
       const again = (await messagesOf(second.id)).filter((one) => one.key.includes(":owed:again:"));
+      check("the second notice says why it comes again, and still shows the way to object", again.length === 1 && again[0].body.startsWith("We are sending this again because our first message about it did not reach you by email.") && again[0].body.includes('press "I think this is wrong"'));
       check("a second message is on the host's Messages page, and there is no day until its email has arrived", again.length === 1 && second.dueAt === null && second.noticeProblemToldAt === null && (await mailRow(second.noticeEmailId!)).status === "queued");
       const sentAgain = new Date(NOW.getTime() + 3 * DAYS);
       await setMail(second.noticeEmailId!, { status: "sent", sentAt: sentAgain, deliveredAt: sentAgain });
@@ -665,6 +666,29 @@ async function main() {
       await passOnly(new Date(), stopped.disputeId);
       sixth = await debtOf(stopped.disputeId);
       check("and with its notice bounced it has no day, and is not taken", sixth.dueAt === null && sixth.status === "told" && (await transferAt(stopped.transferId)).amount_reversed === 0 && (await operationsOf(stopped.payment.id)).length === 1);
+
+      // The same take-back: objected and answered while its notice has still not arrived, and then the answer fails too.
+      await objectToDebt({ debtId: sixth.id, hostId: host.id, objection: "Objecting from the Messages page: the email never came." });
+      await answerObjection({ debtId: sixth.id, adminId: admin, answer: "We looked at it: the bank's decision stands." });
+      sixth = await debtOf(stopped.disputeId);
+      const failedAnswer = sixth.answerEmailId!;
+      await setMail(failedAnswer, { status: "failed", lastError: "422 made up for the answer" });
+      await passOnly(new Date(), stopped.disputeId);
+      await passOnly(new Date(), stopped.disputeId);
+      const bothTold = await founderMail(sixth.id, "undelivered:");
+      check("with the notice AND the answer not arrived, each admin is told about each of the two emails, once", admins.length > 0 && bothTold.length === 2 * admins.length && bothTold.some((mail) => mail.dedupeKey?.includes(`:undelivered:${failedAnswer}:`) && mail.body.includes("422 made up for the answer")) && bothTold.some((mail) => mail.dedupeKey?.includes(`:undelivered:${sixth.noticeEmailId}:`)), `${bothTold.length}`);
+      // The founder sends again: first the notice, in words that fit a take-back whose objection is answered.
+      check("the founder sends the notice again", (await sendNoticeAgain({ debtId: sixth.id, adminId: admin })) === true);
+      const noticeAgain = (await messagesOf(sixth.id)).filter((one) => one.key.includes(":owed:again:"));
+      check("sent again to a host whose objection was answered, the notice repeats the answer and points to no button", noticeAgain.length === 1 && noticeAgain[0].body.includes("You told us this is wrong, and we answered:") && noticeAgain[0].body.includes("the bank's decision stands") && !noticeAgain[0].body.includes("press"), noticeAgain[0]?.body.slice(0, 120));
+      check("then the answer, which had failed too", (await sendNoticeAgain({ debtId: sixth.id, adminId: admin })) === true && (await messagesOf(sixth.id)).filter((one) => one.key.includes(":answered:again:")).length === 1);
+      sixth = await debtOf(stopped.disputeId);
+      const bothAt = new Date();
+      await setMail(sixth.noticeEmailId!, { status: "sent", sentAt: bothAt, deliveredAt: bothAt });
+      await setMail(sixth.answerEmailId!, { status: "sent", sentAt: bothAt, deliveredAt: bothAt });
+      await passOnly(new Date(), stopped.disputeId);
+      sixth = await debtOf(stopped.disputeId);
+      check("with both arrived, its day is 14 days after the new notice", sixth.status === "answered" && sixth.dueAt?.getTime() === bothAt.getTime() + NOTICE_MS && sixth.noticeProblemToldAt === null, sixth.dueAt?.toISOString());
 
       // A take-back whose notice is still waiting cannot even be written down as a money action.
       const waitingOne = await collectedThenLost(host, await person("customer"));

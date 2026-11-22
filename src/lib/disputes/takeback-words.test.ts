@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, noticeAgainWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const facts: DebtFacts = {
   what: "the payment for your call with Ben on Monday",
@@ -114,6 +114,25 @@ describe("an objection", () => {
     expect(notice).toContain("nothing is taken while this is so");
     expect(notice).toContain("On the dispute's page you can send it again");
     expect(all(notDeliveredWords(facts, "answer", "it could not be sent"))).toContain("The answer to the objection against taking $12.38 back from Ana");
+  });
+});
+
+describe("a notice that is sent again", () => {
+  it("is the notice itself, with a line saying why it comes again", () => {
+    const again = noticeAgainWords({ ...facts, dueOn: null }, null);
+    expect(again.subject).toBe(owedWords(facts).subject);
+    expect(again.text.startsWith("We are sending this again because our first message about it did not reach you by email.")).toBe(true);
+    expect(again.text).toContain('press "I think this is wrong"');
+    expect(again.text).toContain("From 14 days after this message was sent to you by email");
+  });
+
+  it("for a take-back whose objection was already answered, repeats the answer and does not point to a button that is gone", () => {
+    const again = all(noticeAgainWords({ ...facts, dueOn: null }, "The bank's decision stands."));
+    expect(again).toContain("You told us this is wrong, and we answered:\n\nThe bank's decision stands.");
+    expect(again).toContain("not before 14 days after this message was sent to you by email");
+    expect(again).toContain("If you still think this is wrong, write to us at support@connect.example.");
+    expect(again).not.toContain("I think this is wrong\"");
+    expect(again).not.toContain("press");
   });
 });
 

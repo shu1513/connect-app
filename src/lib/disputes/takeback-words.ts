@@ -149,3 +149,26 @@ export function notDeliveredWords(facts: DebtFacts, which: "notice" | "answer", 
   };
 }
 
+/**
+ * The notice once more, when the founder sends it again because the first did not arrive. For a take-back that only
+ * has its notice it is the notice itself, with a line saying why it comes again. For one whose objection was already
+ * answered it does not point to the button (there is none any more): it repeats the answer and says where to write.
+ */
+export function noticeAgainWords(facts: DebtFacts, answer: string | null): Told {
+  const why = "We are sending this again because our first message about it did not reach you by email.";
+  if (answer === null) {
+    const first = owedWords(facts);
+    return { subject: first.subject, text: `${why}\n\n${first.text}` };
+  }
+  return {
+    subject: `Connect will ask Stripe to take back ${facts.amount}: a bank dispute was lost`,
+    text:
+      `${why}\n\n` +
+      `The dispute ${facts.customerName}'s bank had opened over ${facts.what} is lost: the bank decided for the customer and took the money back from Connect. You had already collected your share of that payment.\n\n` +
+      `${how(facts)} The bank's own fees are not charged to you.\n\n` +
+      `You told us this is wrong, and we answered:\n\n${answer}\n\n` +
+      `So Connect will ask Stripe to take ${facts.amount} back from your Stripe balance: not before 14 days after this message was sent to you by email. "Your earnings" on your Hosting page shows the day.\n\n` +
+      `If you still think this is wrong, write to us at ${facts.supportEmail}.`,
+  };
+}
+

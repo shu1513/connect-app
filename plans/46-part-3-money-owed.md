@@ -764,3 +764,22 @@ days after its notice arrived.
 its secret, `RESEND_WEBHOOK_SECRET`). Without them no notice is ever reported as delivered, and
 no take-back is ever taken: the founder is told after two days that delivery was not confirmed.
 
+**Astra's third look at that step** found the stricter rule sound and said to hold for three
+narrow points. All taken:
+
+- **The helper's repeat of a request that got no answer** now does everything that takes time
+  first (asking Stripe about the dispute) and only then, with the share locked, looks at the
+  emails one last time and decides. A bounce recorded before that moment stops the repeat.
+- **A take-back from before this change waits for a fresh notice.** Its old email has no
+  delivery history that can be trusted (a bounce was only noted against the address, or only
+  logged), and a late report of delivery for it could have made it due at once. The migration
+  takes away its link to that email and its day; the founder is told and sends the notice again.
+- **A notice that is sent again fits where the take-back stands.** For one whose objection was
+  already answered it repeats the answer and does not point to a button that is gone.
+- Also: when the notice and the answer have both failed, the founder is told about each; the
+  founder is not told "it keeps trying" while a day lies ahead again.
+
+Left as it is, and why: a report about an email the app will never know (a test email, one
+emptied after two years) is refused each time the sending service repeats it. The service gives
+up after its own number of tries; nothing is lost by it.
+

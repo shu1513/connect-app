@@ -109,6 +109,6 @@ export async function sendAgainAction(formData: FormData) {
   if (!DISPUTE_ID.test(id)) redirect("/admin");
   const debtId = String(formData.get("debt") ?? "");
   const again = DEBT_ID.test(debtId) && (await sendNoticeAgain({ debtId, disputeId: id, adminId: admin.id }));
-  redirect(withNotice(`/disputes/${id}`, again ? "Written again: a new message is on the host's Messages page and goes out by email. The days count from this one arriving." : "Nothing was sent: this take-back's email has nothing wrong with it, or the take-back is no longer waiting."));
+  redirect(withNotice(`/disputes/${id}`, again ? "Written again: a new message is on the host's Messages page and goes out by email. The days count from the moment this one is sent, once it is reported as delivered." : "Nothing was sent: this take-back's email has nothing wrong with it, or the take-back is no longer waiting."));
 }
 

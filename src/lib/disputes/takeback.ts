@@ -43,7 +43,7 @@ import { SUPPORT_EMAIL } from "@/lib/terms";
 import { aboutOwner, disputePath, ownerOf, peopleFor, type Only } from "./record";
 import { outcomeOf } from "./status";
 import { canAnswer, canCancel, canHold, canObject, CONFIRM_WITHIN_MS, dueDay, dueToTake, OPEN, owedCents, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals } from "./takeback-rules";
-import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, leftoverWords, notDeliveredWords, noticeAgainWords, objectedWords, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const debts = schema.hostDebts;
 
@@ -284,15 +284,17 @@ async function deliveryOf(reader: Reader, emailId: string | null, now: Date): Pr
  * is wrong with them, if anything. `as` is the state it is judged in: for one that is being taken, the state it had
  * before.
  */
-async function dayOf(reader: Reader, debt: HostDebt, now: Date, as: string = debt.status): Promise<{ day: Date | null; problem: string | null; which: "notice" | "answer" }> {
+async function dayOf(reader: Reader, debt: HostDebt, now: Date, as: string = debt.status): Promise<{ day: Date | null; problems: Array<{ which: "notice" | "answer"; emailId: string | null; problem: string }> }> {
   const notice = await deliveryOf(reader, debt.noticeEmailId, now);
   const answer = as === "answered" ? await deliveryOf(reader, debt.answerEmailId, now) : null;
-  return {
-    day: dueDay({ status: as, promisedAt: debt.firstDueAt, noticeSentAt: notice.sentAt, answerSentAt: answer?.sentAt ?? null }),
-    problem: notice.problem ?? answer?.problem ?? null,
-    which: notice.problem || !answer ? "notice" : "answer",
-  };
+  const problems: Array<{ which: "notice" | "answer"; emailId: string | null; problem: string }> = [];
+  if (notice.problem) problems.push({ which: "notice", emailId: debt.noticeEmailId, problem: notice.problem });
+  if (answer?.problem) problems.push({ which: "answer", emailId: debt.answerEmailId, problem: answer.problem });
+  return { day: dueDay({ status: as, promisedAt: debt.firstDueAt, noticeSentAt: notice.sentAt, answerSentAt: answer?.sentAt ?? null }), problems };
 }
+
+/** The emails the founder has been told about, as kept on the row. */
+const toldAbout = (debt: Pick<HostDebt, "noticeProblemsTold">): string[] => debt.noticeProblemsTold.split(" ").filter(Boolean);
 
 const sameDay = (a: Date | null, b: Date | null): boolean => (a === null ? b === null : b !== null && a.getTime() === b.getTime());
 
@@ -318,25 +320,27 @@ export async function dateNotices(now: Date, only?: Only): Promise<void> {
   for (const { debt, dispute } of rows) {
     // A first look without the lock, only to leave alone what needs nothing. What is written is decided under it.
     const seen = await dayOf(db, debt, now);
-    if (sameDay(seen.day, debt.dueAt) && seen.problem === null && debt.noticeProblemToldAt === null) continue;
+    const untold = (problems: typeof seen.problems, row: Pick<HostDebt, "noticeProblemsTold">) => problems.filter((one) => !toldAbout(row).includes(one.emailId ?? "none"));
+    if (sameDay(seen.day, debt.dueAt) && untold(seen.problems, debt).length === 0 && (seen.problems.length === 0) === (debt.noticeProblemToldAt === null)) continue;
     await db
       .transaction(async (tx) => {
         await lockPayment(tx, debt.paymentId);
         const [fresh] = await tx.select().from(debts).where(eq(debts.id, debt.id)).for("update");
         if (!fresh || !TAKEABLE.includes(fresh.status)) return;
-        const { day, problem, which } = await dayOf(tx, fresh, now);
-        let toldAt = problem === null ? null : fresh.noticeProblemToldAt;
-        if (problem !== null) {
-          // Told once for each email that has something wrong (the key names the email, so a second email with a
-          // problem of its own is told too, and the same one is never told twice). Marked only when somebody was
-          // there to tell: with no admin in the database, the next pass tries again.
-          const emailId = which === "answer" ? fresh.answerEmailId : fresh.noticeEmailId;
-          const told = await tellFounders(tx, fresh, dispute, `undelivered:${emailId ?? "none"}`, (facts) => notDeliveredWords(facts, which, problem));
-          if (told > 0) toldAt = toldAt ?? now;
+        const { day, problems } = await dayOf(tx, fresh, now);
+        // Each email that has something wrong is told to the founder once, on its own (a failed answer too, while
+        // the notice is failing), and written down as told only when somebody was there to tell: with no admin in
+        // the database, the next pass tries again.
+        const told = toldAbout(fresh);
+        for (const one of untold(problems, fresh)) {
+          const key = one.emailId ?? "none";
+          if ((await tellFounders(tx, fresh, dispute, `undelivered:${key}`, (facts) => notDeliveredWords(facts, one.which, one.problem))) > 0) told.push(key);
         }
+        const toldAt = problems.length === 0 ? null : told.length > 0 ? (fresh.noticeProblemToldAt ?? now) : null;
         const firstDueAt = fresh.firstDueAt ?? (fresh.status === "told" ? day : null);
-        if (sameDay(day, fresh.dueAt) && sameDay(firstDueAt, fresh.firstDueAt) && sameDay(toldAt, fresh.noticeProblemToldAt)) return;
-        await tx.update(debts).set({ dueAt: day, firstDueAt, noticeProblemToldAt: toldAt, updatedAt: now }).where(eq(debts.id, fresh.id));
+        const noticeProblemsTold = told.join(" ");
+        if (sameDay(day, fresh.dueAt) && sameDay(firstDueAt, fresh.firstDueAt) && sameDay(toldAt, fresh.noticeProblemToldAt) && noticeProblemsTold === fresh.noticeProblemsTold) return;
+        await tx.update(debts).set({ dueAt: day, firstDueAt, noticeProblemToldAt: toldAt, noticeProblemsTold, updatedAt: now }).where(eq(debts.id, fresh.id));
       })
       .catch((error) => log(`could not give take-back ${debt.id} its due day`, error));
   }
@@ -430,8 +434,11 @@ export async function sendNoticeAgain(input: { debtId: string; adminId: string; 
     const found = await lockedDebt(tx, input.debtId);
     if (!found || (input.disputeId !== undefined && found.debt.disputeId !== input.disputeId) || !TAKEABLE.includes(found.debt.status)) return false;
     const { debt, dispute } = found;
-    const { problem, which } = await dayOf(tx, debt, now);
-    if (problem === null) return false;
+    const { problems } = await dayOf(tx, debt, now);
+    // The notice first; the answer only when the notice itself is fine.
+    const [first] = problems;
+    if (!first) return false;
+    const which = first.which;
     const [waiting] = await tx.update(debts).set({ dueAt: null, noticeProblemToldAt: null, updatedAt: now }).where(eq(debts.id, debt.id)).returning();
     // A key of its own, so that it is a new message and a new email beside the first.
     const again = `again:${now.getTime()}`;
@@ -439,7 +446,9 @@ export async function sendNoticeAgain(input: { debtId: string; adminId: string; 
       const answerEmailId = await tellHost(tx, waiting, dispute, `answered:${again}`, (facts) => answeredWords(facts, debt.answer ?? ""));
       await tx.update(debts).set({ answerEmailId }).where(eq(debts.id, debt.id));
     } else {
-      const noticeEmailId = await tellHost(tx, waiting, dispute, `owed:${again}`, owedWords);
+      // The notice again says where things stand now: one whose objection was answered is not told to press a
+      // button it no longer has.
+      const noticeEmailId = await tellHost(tx, waiting, dispute, `owed:${again}`, (facts) => noticeAgainWords(facts, debt.status === "answered" ? (debt.answer ?? "") : null));
       await tx.update(debts).set({ noticeEmailId }).where(eq(debts.id, debt.id));
     }
     await tx.insert(schema.adminActions).values({ adminId: input.adminId, action: `take-back: the ${which} was sent again`, targetUserId: debt.hostId, targetId: debt.id });
@@ -564,12 +573,23 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
   const [dispute] = row ? await db.select({ outcome: schema.disputes.outcome }).from(schema.disputes).where(eq(schema.disputes.id, row.disputeId)) : [];
   const age = () => Date.now() - operation.createdAt.getTime();
   // A repeat can be the first time Stripe really does it. So it is sent only while everything that allowed the
-  // first request still holds: the dispute is still lost, and the notice (and an answer) still counts as sent and
-  // its day has come. A reversal Stripe already made is found and booked below either way.
-  const [whole] = row ? await db.select().from(debts).where(eq(debts.id, params.debtId)) : [];
-  const stillDue = whole ? (await dayOf(db, whole, new Date(), whole.status === "taking" ? stateBeforeTaking(whole) : whole.status)).day : null;
-  let resend = canRepeat && dispute?.outcome === "lost" && stillDue !== null && stillDue.getTime() <= Date.now();
+  // first request still holds: the dispute is still lost (here and at Stripe), and the notice (and an answer) has
+  // arrived and its day has come. A reversal Stripe already made is found and booked below either way.
+  let resend = canRepeat && dispute?.outcome === "lost";
   if (resend) resend = outcomeOf((await lookUp(() => stripe().disputes.retrieve(row.disputeId))).status) === "lost";
+  // The last look, after everything that takes time and with the share's payment held: the same lock a report from the
+  // sending service is written under, and the one the first request was authorised under. A bounce that was recorded
+  // before this moment stops the repeat.
+  if (resend) {
+    resend = await db.transaction(async (tx) => {
+      await lockPayment(tx, operation.paymentId!);
+      const [whole] = await tx.select().from(debts).where(eq(debts.id, params.debtId)).for("update");
+      if (!whole) return false;
+      const at = new Date();
+      const { day } = await dayOf(tx, whole, at, whole.status === "taking" ? stateBeforeTaking(whole) : whole.status);
+      return day !== null && day.getTime() <= at.getTime();
+    });
+  }
   let reversalId: string | undefined;
   // The clock is read right before the request goes out: the reads above can take time, and a repeat is only safe
   // while Stripe still knows the label.

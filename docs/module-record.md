@@ -5186,7 +5186,11 @@ are today, all from lost bank disputes:
   reversal Stripe refuses puts an answered take-back back to "answered".
 - **One lock for a dispute** when what its shares owe is worked out: two helpers on two shares
   of one disputed membership month can no longer count the same room.
-- Migrations `0055_host_debt_notice`, `0056_email_bounced` and `0057_email_delivered`.
+- **Take-backs from before this change wait for a fresh notice:** whether their old email
+  arrived cannot be shown any more. The migration takes their day away; the founder is told and
+  sends the notice again.
+- Migrations `0055_host_debt_notice`, `0056_email_bounced`, `0057_email_delivered` and
+  `0058_host_debt_fresh_notice`.
 - **For going live:** the sending service's reports must be switched on (the webhook and its
   secret). Without them no notice is ever reported as delivered and no take-back is ever taken;
   the founder is told after two days.
@@ -5202,11 +5206,14 @@ moved the day from 14 days to 3; a bounce was judged by the address and could lo
 the taking; an old take-back kept its day while its email had not gone out; the notice promised
 that an email to support stops the taking). All are fixed. Its second look found the rule for
 the day right and asked for more certainty about bounces; that led to the stricter rule above
-(a day only after a report of delivery) and to "send it again". Both lists are in the plan.
+(a day only after a report of delivery) and to "send it again". Its third look asked for
+three narrow things: the helper's repeat of an unanswered request decides under the lock,
+older take-backs wait for a fresh notice, and a notice sent again fits where the take-back
+stands. All three lists are in the plan.
 
 **How it was checked.** Type check, lint and the automatic tests (the rule of the due day, of
 objecting and answering, and every new sentence). The real script against Stripe's test mode,
-`scripts/dispute-takeback-check.ts`, 109 checks: plan 47's own still pass, with the due days
+`scripts/dispute-takeback-check.ts`, 115 checks: plan 47's own still pass, with the due days
 coming from the helper's real pass, and the new part covers: no day and never taken while the notice
 has not gone out; a failed notice told to each admin once; the day from the moment of sending;
 sent but not yet reported as delivered gives no day; a bounce of this very email, reported
@@ -5220,7 +5227,9 @@ calls an answered one off; held for an email, then called off; no objection whil
 taken; of two unanswered requests that are really due, the helper sends one again and does not
 send the one whose notice bounced meanwhile; a day on the row is not enough when the notice is
 not confirmed as delivered; an email never reported as delivered is told to the founder after
-two days. `disputes-check` (72 checks) passes too. In a
+two days; with the notice and the answer both failed, the founder is told about each, and a
+notice sent again to a host whose objection was answered repeats the answer and points to no
+button. `disputes-check` (72 checks) passes too. In a
 browser as the test host: the notice with its day, the objection, and what the dispute's page
 and "Your earnings" then say.
 

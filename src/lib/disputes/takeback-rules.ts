@@ -108,8 +108,9 @@ export const canCancel = (debt: { status: string }): boolean => OPEN.includes(de
 
 /** Whether the founder is due to be told that Stripe keeps refusing: 30 days after the first refusal, once. */
 export function tellFounderOfRefusals(debt: { status: string; dueAt?: Date | null; firstRefusedAt: Date | null; founderToldAt: Date | null }, now: Date): boolean {
-  // Not while it has no due day: nothing is being tried then, so "it keeps trying" would not be true.
-  if (debt.dueAt === null) return false;
+  // Not while it has no due day, or a day that has not come (a notice that was sent again, say): nothing is being
+  // tried then, so "it keeps trying" would not be true.
+  if (debt.dueAt === null || (debt.dueAt !== undefined && debt.dueAt.getTime() > now.getTime())) return false;
   return TAKEABLE.includes(debt.status) && debt.firstRefusedAt !== null && debt.founderToldAt === null && now.getTime() - debt.firstRefusedAt.getTime() >= TELL_FOUNDER_AFTER_MS;
 }
 
