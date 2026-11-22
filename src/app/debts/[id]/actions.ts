@@ -103,7 +103,9 @@ export async function countReversalAction(formData: FormData) {
     if (what !== "paid" && what !== "twice" && what !== "other") throw new DebtError("That form is no longer valid. Reload the page and try again.");
     const part = String(formData.get("part") ?? "").trim();
     if (!/^\d{1,7}(\.\d{1,2})?$/.test(part)) throw new DebtError("Type the part of the reversal in dollars, like 12.50.");
-    const counted = await countHandReversal({ debtId: id, adminId: admin.id, reversalId, as: what, cents: Math.round(Number(part) * 100) });
+    const openWas = Number(formData.get("open"));
+    if (!Number.isInteger(openWas) || openWas < 1) throw new DebtError("That form is no longer valid. Reload the page and try again.");
+    const counted = await countHandReversal({ debtId: id, adminId: admin.id, reversalId, as: what, cents: Math.round(Number(part) * 100), openWasCents: openWas });
     notice = !counted
       ? "That reversal is already accounted for."
       : what === "paid"

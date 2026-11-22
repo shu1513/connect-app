@@ -157,10 +157,17 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
               <li key={debt.id} data-take-back={debt.status}>
                 {/* For one that is over: all that was owed (what the app took and what a person at Connect took by hand), never the row's own remainder, which can be nothing. */}
                 {formatMoney(debt.status === "taken" ? debt.amountCents + debt.byHandCents : debt.amountCents)}
-                {debt.status === "taken" && debt.takenAt ? (
+                {debt.status === "taken" ? (
                   <>
                     {" "}
-                    was taken back from your Stripe balance{debt.amountCents > 0 ? <> on <LocalTime iso={debt.takenAt.toISOString()} /></> : null}.
+                    was taken back from your Stripe balance
+                    {/* A day only for what the app itself took: a part a person at Connect took by hand has its own day at Stripe. */}
+                    {debt.amountCents > 0 && debt.takenAt ? (
+                      <>
+                        {debt.byHandCents > 0 ? `, the last ${formatMoney(debt.amountCents)}` : ""} on <LocalTime iso={debt.takenAt.toISOString()} />
+                      </>
+                    ) : null}
+                    .
                     {debt.leftoverToldAt ? " It has since turned out not to be owed: a person at Connect gives it back to you." : ""}
                     {debt.overpaidCents > 0 ? ` Another ${formatMoney(debt.overpaidCents)} was taken on top of it: a person at Connect gives that back to you.` : ""}
                   </>

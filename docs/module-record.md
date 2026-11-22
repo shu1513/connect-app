@@ -5328,8 +5328,13 @@ than what was left on its transfer after the founder recorded a payment outside 
 reversal by hand that belonged partly to an open take-back and partly to an ended one; and
 several amounts and labels on the pages. All taken; the list is at the end of the plan.
 
-**How it was checked.** Type check, lint, the automatic tests (1025, with the sums and every
-new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 134
+Its fourth look was asked to name only what loses money, takes it twice, makes the books wrong
+or tells someone something false. It named nine such cases; the plainest was a form for a part
+of a reversal that, sent twice, was counted twice. All taken; the list is at the end of the
+plan.
+
+**How it was checked.** Type check, lint, the automatic tests (1026, with the sums and every
+new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 145
 checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
 the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 124, with the
 new checks for a waiver, a settlement and a win afterwards; `disputes-check` 72), and

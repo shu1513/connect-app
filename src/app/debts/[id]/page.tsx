@@ -135,7 +135,9 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
           </>
         ) : (
           <p data-debt-how>
-            The bank dispute over {what} was lost, and {found.hostName} had already collected their share. What the host owes back: <span className="font-medium">{formatMoney(debt.amountCents)}</span>.{" "}
+            The bank dispute over {what} was lost, and {found.hostName} had already collected their share.{" "}
+            {debt.status === "taken" || debt.status === "settled" ? "What the host owed back: " : debt.status === "cancelled" ? "What had been written as owed back: " : debt.byHandCents > 0 ? "What the host still owes back: " : "What the host owes back: "}
+            <span className="font-medium">{formatMoney(debt.status === "taken" ? debt.amountCents + debt.byHandCents : debt.amountCents)}</span>.{" "}
             <Link href={pageOfDebt(debt)} className="underline underline-offset-2">
               The dispute&apos;s page
             </Link>{" "}
@@ -192,7 +194,12 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
             </>
           )}
           {debt.status === "cancelled" && !fellAway && "Called off. Nothing is taken, and nothing is owed for it."}
-          {debt.status === "settled" && `Settled outside the app: ${formatMoney(debt.repaidCents ?? 0)} was paid back${debt.amountCents - (debt.repaidCents ?? 0) > 0 ? `, and Connect carries the remaining ${formatMoney(debt.amountCents - (debt.repaidCents ?? 0))}` : ""}. Nothing more is owed for it.`}
+          {/* What Connect carries is what the books hold for it now: nothing, once the cause has fallen away. */}
+          {debt.status === "settled" &&
+            !fellAway &&
+            `Settled outside the app: ${formatMoney(debt.repaidCents ?? 0)} was paid back${debt.costBookedCents > 0 ? `, and Connect carries the remaining ${formatMoney(debt.costBookedCents)}` : ""}. Nothing more is owed for it.`}
+          {debt.status === "settled" && fellAway && `It had been settled outside the app: ${formatMoney(debt.repaidCents ?? 0)} was paid back, and the rest was let go.`}
+          {debt.status === "taken" && !debt.takenAt && !fellAway && "Paid in full. Nothing more is owed for it."}
         </p>
         {debt.objection && (debt.status === "objected" || debt.status === "answered") && (
           <p className="mt-2 whitespace-pre-wrap opacity-80" data-objection>
@@ -267,6 +274,8 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
                   <form action={countReversalAction} className="flex flex-wrap items-end gap-2 pt-1">
                     <input type="hidden" name="debt" value={debt.id} />
                     <input type="hidden" name="reversal" value={one.id} />
+                    {/* What was open of it when this form was shown: a form sent twice is counted once. */}
+                    <input type="hidden" name="open" value={one.openCents} />
                     {view}
                     <label className="block">
                       The part of it, in dollars

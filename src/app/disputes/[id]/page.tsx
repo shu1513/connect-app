@@ -449,12 +449,14 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     </button>
                   </form>
                 )}
-                {founder && debt.status !== "taking" && (
+                {founder && (
                   <p className="mt-2 text-sm">
                     <Link href={`/debts/${debt.id}?as=founder`} className="underline underline-offset-2">
                       {debt.status === "told" || debt.status === "objected" || debt.status === "answered"
                         ? "The host paid it back outside the app, or you reversed it by hand at Stripe: record that"
-                        : "A reversal made by hand at Stripe was for this one: account for it"}
+                        : debt.status === "taking"
+                          ? "This take-back's own page"
+                          : "A reversal made by hand at Stripe was for this one: account for it"}
                     </Link>
                   </p>
                 )}

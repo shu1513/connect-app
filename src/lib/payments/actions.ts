@@ -404,16 +404,18 @@ export async function refundPayment(input: RefundInput): Promise<void> {
  * The steps of one refund, as a money action: written down, asked of Stripe, recorded. (Exported so that a check can
  * stop between the steps, as a helper that dies does.)
  *
- * The one who writes it down sends it to Stripe at once: one request, begun no later than half the time the helper
- * leaves an unfinished action alone (REFUND_SEND_WITHIN_MS), and given up after REFUND_SEND_TIMEOUT_MS. The clock is
- * read as the very last thing before the request leaves, with nothing awaited in between. Together the two are
- * shorter than the time before the helper first looks. So when the helper looks, the writer's request has either
- * reached Stripe or will never be sent: a clear "no" to the helper's own repeat, with Stripe's complete list of the
- * charge's refunds showing nothing, then really means that it did not happen. (A writer that is too late leaves the
- * action to the helper, which sends it under the same label.)
+ * The one who writes it down sends it to Stripe at once. The request is begun no later than REFUND_SEND_WITHIN_MS
+ * after the action was written down, counted from the same moment the helper counts from (the database's time for
+ * the step that wrote it, so a wait for the payment's lock is inside it), and the clock is read as the very last thing
+ * before the request leaves. Each try is given up after REFUND_SEND_TIMEOUT_MS; the Stripe library can try a broken
+ * connection once more by itself, so two tries are allowed for. All of it together (30 + 10 + 10 seconds) is shorter
+ * than the time before the helper first looks. So when the helper looks, the writer's request has either reached
+ * Stripe or will never be sent: a clear "no" to the helper's own repeat, with Stripe's complete list of the charge's
+ * refunds showing nothing, then really means that it did not happen. (A writer that is too late leaves the action to
+ * the helper, which sends it under the same label.)
  */
 const REFUND_SEND_WITHIN_MS = RECONCILE_AFTER_MS / 2;
-const REFUND_SEND_TIMEOUT_MS = RECONCILE_AFTER_MS / 3;
+const REFUND_SEND_TIMEOUT_MS = RECONCILE_AFTER_MS / 6;
 export function refundPlan(input: RefundInput, refundId: string): OperationPlan<RefundParams, RefundResult> {
   return {
     paymentId: input.paymentId,
@@ -449,7 +451,9 @@ export function refundPlan(input: RefundInput, refundId: string): OperationPlan<
         afterCollection: collected,
       });
       if (!payment.stripePaymentIntentId) throw new MoneyError("This payment has nothing to refund from.");
-      return { refundId, amountCents: input.amountCents, sendByMs: Date.now() + REFUND_SEND_WITHIN_MS, intentId: payment.stripePaymentIntentId };
+      // The database's time for this step: the very moment the action's own line will carry as "written down at".
+      const [{ writtenAt }] = await tx.select({ writtenAt: sql<string>`(extract(epoch from now()) * 1000)::bigint` }).from(schema.payments).where(eq(schema.payments.id, payment.id));
+      return { refundId, amountCents: input.amountCents, sendByMs: Number(writtenAt) + REFUND_SEND_WITHIN_MS, intentId: payment.stripePaymentIntentId };
     },
     execute: async (params, label) => {
       // (An action written down before the PaymentIntent was kept with it is looked up, before the clock is read.)

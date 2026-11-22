@@ -55,11 +55,8 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     // (plans/46-part-3-money-owed.md). What Stripe says now is read from Stripe there, not from this message.
     const refundId = String(object.id ?? "");
     if (!refundId.startsWith("re_")) return;
-    // The app's own number for the refund, which it carries at Stripe: so it is found even before the app has
-    // recorded Stripe's number for it.
-    const ours = (object.metadata as Record<string, string> | undefined)?.refundId;
     const { refundChangedAtStripe } = await import("@/lib/disputes/takeback");
-    await refundChangedAtStripe(refundId, ours && IS_ID.test(ours) ? ours : null);
+    await refundChangedAtStripe(refundId);
     return;
   }
 

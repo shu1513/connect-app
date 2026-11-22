@@ -2532,6 +2532,8 @@ export const hostDebts = pgTable(
     byHandCents: integer("by_hand_cents").notNull().default(0),
     /** Taken by a reversal made by hand on top of a take-back that was already paid: the host paid twice, and Connect owes this back to her. */
     overpaidCents: integer("overpaid_cents").notNull().default(0),
+    /** Of what she paid for this take-back: what the founder has already been told to give back, because less turned out to be owed. Not told a second time when the whole of it falls away later. */
+    excessToldCents: integer("excess_told_cents").notNull().default(0),
     /** Held because a reversal was made by hand on its transfer and nobody has said what it was for: when the founder was told. */
     handToldAt: timestamp("hand_told_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

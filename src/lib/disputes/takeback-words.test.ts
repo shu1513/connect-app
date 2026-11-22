@@ -328,25 +328,34 @@ describe("more is owed than can still be taken, a take-back that comes out lower
     expect(told).toContain("more is owed than can still be taken");
     expect(told).toContain("only $6.38 can still be taken out of that transfer");
     expect(told).toContain("less what the host paid back outside the app");
-    expect(told).toContain("nothing is taken, and the app does not try again by itself");
+    // It does look again: the founder is not told that the app has stopped for good.
+    expect(told).toContain("So nothing is taken now. The app looks again on every pass and takes it by itself as soon as it fits");
+    expect(told).not.toContain("does not try again");
   });
 
   it("tells the host the new, lower amount, and that everything else stays", () => {
-    const told = all(loweredWords({ ...facts, amount: "$40.02" }, "$40.03", false));
+    const told = all(loweredWords({ ...facts, amount: "$40.02" }, "$40.03", "lower"));
     expect(told).toContain("Less is owed than we wrote: $40.02 instead of $40.03");
     expect(told).toContain("did not go through after all");
     expect(told).toContain("Everything else stays as it was");
   });
 
   it("names what a reversal by hand already took of the lowered amount", () => {
-    const told = loweredWords({ ...facts, amount: "$38.02", byHand: { assessed: "$40.02", taken: "$2.00" } }, "$40.03", false).text;
+    const told = loweredWords({ ...facts, amount: "$38.02", byHand: { assessed: "$40.02", taken: "$2.00" } }, "$40.03", "lower").text;
     expect(told).toContain("What you owe for it is now $40.02, of which $2.00 has already been taken.");
   });
 
   it("tells the host when nothing is left of it", () => {
-    const told = all(loweredWords(facts, "$0.01", true));
+    const told = all(loweredWords(facts, "$0.01", "nothing"));
     expect(told).toContain("Nothing is owed after all: $0.01");
     expect(told).toContain("nothing is taken");
+  });
+
+  it("says that what was already taken covers it, and promises no day any more", () => {
+    const told = all(loweredWords(facts, "$0.83", "covered"));
+    expect(told).toContain("Nothing more is owed: $0.83");
+    expect(told).toContain("What has already been taken from your Stripe balance for it covers all that is owed now.");
+    expect(told).not.toContain("the day");
   });
 
   it("says that money was taken after the take-back was called off, not that it was paid twice", () => {

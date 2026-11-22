@@ -870,7 +870,7 @@ Migrations 0060 and 0061. Against the lists above:
   later decides the other way that cost is taken off again and what she had paid is flagged
   for giving back.
 
-**What `scripts/owed-check.ts` checks at Stripe's test mode** (134 checks): a call refunded
+**What `scripts/owed-check.ts` checks at Stripe's test mode** (145 checks): a call refunded
 before collection (ordinary, nothing owed) and twice after it (two debts, together exactly what
 was sent, each told once; no day while the notice is only sent, a day 14 days after it is
 reported as delivered; nothing a day early; then two real reversals and the lines in the
@@ -901,9 +901,12 @@ for a refund that was undone (ignored); a refund that was written down and not s
 behind 101 newer ones; a writer that hangs past its time (it sends nothing; the helper sends
 it, once); a refund "on its way" that Stripe fails while an older "paid" is still about to be
 written (the failure stands); more owed than is left to take after a payment outside the app
-and a reversal that was something else (nothing taken, the founder told); a reversal counted
-in parts the founder names; and a reversal that only carries a take-back's id (not taken for
-the app's own).
+and a reversal that was something else (nothing taken, the founder told; also when the taking
+was already written down); a reversal counted in parts the founder names, and the same form
+sent twice (counted once); a reversal for the very same amount that only carries a take-back's
+id (not taken for the app's own); two small refunds whose cents fall differently once the
+first has failed (one cent to give back, and not a second time; a waiver's cost one cent
+lower); and an unanswered refund at the last moment for repeats (left open an hour more).
 
 **Two stand-ins**, each named in the script: the sending service (the script marks the notice
 email as sent and as reported delivered), and, for "a refund and a dispute on one share" only,
@@ -917,9 +920,8 @@ part dispute: 40 and 20; the share with the collection charge and a half dispute
 79.75); 79.75 sent, 99.75 refunded, then the last 25 cents; the room after a payment outside
 the app and after a reversal by hand.
 
-**Not checked:** a take-back lowered because an earlier refund of the payment was undone (it
-needs the cents to fall a certain way, and Stripe's test card fails every refund of a charge
-together; the sum is the same one the real debts use); Stripe not answering at the moment a debt is to be written (the code writes
+**Not checked:** an OPEN take-back lowered because an earlier refund of the payment was undone
+(the settled and the waived case are checked; the sum is the same); Stripe not answering at the moment a debt is to be written (the code writes
 nothing and the next pass asks again; it cannot be staged against the real service); two
 helpers at once on one refund (the share's payment is locked, and the database allows one row
 for a refund and a share); a reversal made by hand in the very second the app takes (it cannot
@@ -1053,4 +1055,32 @@ than before; all taken.
     others up.* **Fixed:** each page has its limit, and no message is made to fail on purpose
     any more.
 13. *Checks.* **Added:** the cases named above.
+
+## Astra's fourth look at the code of step 2a, and what was done
+
+Asked to name only what loses money, takes it twice, makes the books wrong or tells someone
+something false: "hold the merge", nine points. All taken, and the automatic security check of
+the commit found one more of the same kind (the last line).
+
+1. *The same form for a part of a reversal, sent twice, was counted twice.* **Fixed:** the form
+   names what was open when it was shown; if that is no longer so, nothing is counted.
+2. *The helper's repeat of a taking did not look at the room again.* **Fixed.**
+3. *A reversal by hand for the very same amount, marked with the take-back's id, passed for a
+   new attempt's own request.* **Fixed:** a new attempt is only known by its label.
+4. *Stripe's message about a reversal could arrive in the instant the app was recording its
+   own, and report it as made by hand.* **Fixed:** the app's record is read in one picture, and
+   looked at once more under the lock before anyone is told.
+5. *A failure could still lose to an older "paid" when the app had not recorded Stripe's
+   number for the refund.* **Fixed:** the failure is final at once in that case too.
+6. *At the last moment for repeats one helper could call a refund failed while another's repeat
+   was on its way.* **Fixed:** "not found" is final only an hour after the last repeat could
+   have been sent. The writer's time is counted from the moment the action was written down,
+   and allows for the Stripe library's own second try.
+7. *A waiver was not corrected when the sum fell, and the same cent could be told twice.*
+   **Fixed:** what the founder was already told to give back is kept on the take-back.
+8. *The email "no room" said the app would not try again; it does.* **Fixed:** the words.
+9. *Three places on the pages still showed a wrong amount or day.* **Fixed.**
+10. *(The security check.) A take-back that was still open, of which a reversal by hand had
+    already taken more than is now owed, was lowered without telling anyone about the
+    difference.* **Fixed:** it is told like any other amount paid too much.
 

@@ -15,6 +15,7 @@ CREATE TABLE "hand_reversal_counts" (
 ALTER TABLE "host_debts" ADD COLUMN "cost_booked_cents" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "host_debts" ADD COLUMN "by_hand_cents" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "host_debts" ADD COLUMN "overpaid_cents" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "host_debts" ADD COLUMN "excess_told_cents" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "host_debts" ADD COLUMN "hand_told_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "refunds" ADD COLUMN "after_collection_no" integer;--> statement-breakpoint
 ALTER TABLE "refunds" ADD COLUMN "failure" text;--> statement-breakpoint

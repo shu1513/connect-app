@@ -1,5 +1,5 @@
 {
-  "id": "cd516a0b-d7f2-464b-b810-5cb75b819b25",
+  "id": "bd6c0f9c-ce4e-4599-9602-d51bbfc0eb15",
   "prevId": "6d0cc1e2-af19-4646-9e22-d6783c8d03a2",
   "version": "7",
   "dialect": "postgresql",
@@ -4181,6 +4181,13 @@
         },
         "overpaid_cents": {
           "name": "overpaid_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "excess_told_cents": {
+          "name": "excess_told_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

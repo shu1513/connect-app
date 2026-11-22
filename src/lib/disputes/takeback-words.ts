@@ -450,7 +450,7 @@ export function noRoomWordsForFounder(facts: DebtFacts, room: string): Told {
     subject: `A take-back is on hold: more is owed than can still be taken (${facts.hostName}, ${facts.amount})`,
     text:
       `The app was about to ask Stripe to take ${facts.amount} back from ${facts.hostName} (for ${facts.what}). By its own record only ${room} can still be taken out of that transfer: what was sent, less what was already taken back, less what you recorded of reversals made by hand, less what the host paid back outside the app.\n\n` +
-      `So nothing is taken, and the app does not try again by itself. On the take-back's page (linked below), record how it was settled, or call it off.`,
+      `So nothing is taken now. The app looks again on every pass and takes it by itself as soon as it fits (if what is owed becomes less, say), so do not also collect it another way without recording that: on the take-back's page (linked below), record how it was settled, or call it off.`,
   };
 }
 
@@ -458,12 +458,13 @@ export function noRoomWordsForFounder(facts: DebtFacts, room: string): Told {
  * To the host, when an earlier refund of the same payment failed after all and a later refund's take-back comes out
  * lower for it: what was written before, and what is owed now (or that nothing is).
  */
-export function loweredWords(facts: DebtFacts, was: string, nothingLeft: boolean): Told {
+export function loweredWords(facts: DebtFacts, was: string, now: "lower" | "nothing" | "covered"): Told {
   const why = `An earlier refund of the same payment (${facts.what}) did not go through after all: the customer's bank sent it back. With that one gone, this refund takes less off your share than we had worked out.`;
-  return nothingLeft
-    ? { subject: `Nothing is owed after all: ${was}`, text: `We had written that you owe Connect ${was} back. ${why}\n\nNothing is owed for it any more, and nothing is taken.` }
-    : {
-        subject: `Less is owed than we wrote: ${facts.byHand?.assessed ?? facts.amount} instead of ${was}`,
-        text: `We had written that you owe Connect ${was} back. ${why}\n\nWhat you owe for it is now ${facts.byHand?.assessed ?? facts.amount}${facts.byHand ? `, of which ${facts.byHand.taken} has already been taken` : ""}. Everything else stays as it was: the day, and how to tell us that you think it is wrong.`,
-      };
+  if (now === "nothing") return { subject: `Nothing is owed after all: ${was}`, text: `We had written that you owe Connect ${was} back. ${why}\n\nNothing is owed for it any more, and nothing is taken.` };
+  // What a person at Connect already took at Stripe covers all that is owed now: nothing more is taken.
+  if (now === "covered") return { subject: `Nothing more is owed: ${was}`, text: `We had written that you owe Connect ${was} back. ${why}\n\nWhat has already been taken from your Stripe balance for it covers all that is owed now. Nothing more is taken.` };
+  return {
+    subject: `Less is owed than we wrote: ${facts.byHand?.assessed ?? facts.amount} instead of ${was}`,
+    text: `We had written that you owe Connect ${was} back. ${why}\n\nWhat you owe for it is now ${facts.byHand?.assessed ?? facts.amount}${facts.byHand ? `, of which ${facts.byHand.taken} has already been taken` : ""}. Everything else stays as it was: the day, and how to tell us that you think it is wrong.`,
+  };
 }

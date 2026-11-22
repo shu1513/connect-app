@@ -49,6 +49,8 @@ import { handleStripeEvent } from "./stripe-events";
 const LABEL_SAFE_MS = 23 * 3_600_000;
 /** How long one search through a list at Stripe may take before it is given up as unfinished. */
 const SEARCH_WITHIN_MS = 20_000;
+/** From when "Stripe's list does not show it" is final for a request that can no longer be repeated: an hour after the last repeat could have been sent. */
+const SETTLED_AFTER_MS = 24 * 3_600_000;
 /**
  * A charge attempt we wrote off as refused can still have gone through at
  * Stripe. Before anything else is decided about a held payment with such an
@@ -237,6 +239,13 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
               if (Date.now() > until) throw new Error("the search through this charge's refunds took too long");
             }
           });
+        }
+        // Nothing found, and no "no" to a repeat of this look's own: that is only final once no repeat can still be
+        // on its way. Another helper may have sent one just before the last moment for repeats; until that one has
+        // had its time, the action stays open and is looked at again.
+        if (!refund && refusal === null && Date.now() - operation.createdAt.getTime() < SETTLED_AFTER_MS) {
+          log(`unfinished refund on payment ${operation.paymentId}: not found at Stripe yet, and a repeat may still be on its way; looked at again`);
+          continue;
         }
         if (!refund || refund.status === "failed" || refund.status === "canceled") {
           // The refund's line and its action end in one step, with the payment held: never one without the other.
