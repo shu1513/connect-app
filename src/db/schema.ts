@@ -1047,8 +1047,35 @@ export const refunds = pgTable(
     stripeRefundId: text("stripe_refund_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /**
+     * Asked for after the host's share had been sent (plans/46-part-3-money-owed.md): the customer is paid back from
+     * Connect's own money, and the host owes what her share shrank by.
+     */
+    afterCollection: boolean("after_collection").notNull().default(false),
+    /** For such a refund, written when Stripe confirms it: her share and Connect's fee before and after, so its notice can always be shown again exactly. */
+    shareBeforeCents: integer("share_before_cents"),
+    shareAfterCents: integer("share_after_cents"),
+    feeBeforeCents: integer("fee_before_cents"),
+    feeAfterCents: integer("fee_after_cents"),
+    /** What her share lost to this refund (before less after). Read from here, never from a take-back's row, whatever became of that row. */
+    hostOwesCents: integer("host_owes_cents").notNull().default(0),
+    /**
+     * Its place among this payment's refunds given after the sending: 1, 2, 3, in the order Stripe's confirmations
+     * were written down. Given with the payment held, so the order of two refunds never rests on a clock.
+     */
+    afterCollectionNo: integer("after_collection_no"),
+    /** The helper has looked at this refund and written its take-back, or found nothing to take back. Emptied when room comes free on the share. */
+    debtLookedAt: timestamp("debt_looked_at", { withTimezone: true }),
+    /** What Stripe said when it refused or failed this refund, for the founder's page. */
+    failure: text("failure"),
+    /** Stripe first confirmed this refund and later said it failed after all: when the app undid its record of it. */
+    failedLateAt: timestamp("failed_late_at", { withTimezone: true }),
+    /** Stripe says it failed after all, and the app could not undo its record at that moment (money was moving on the payment): the helper does it as soon as it can. */
+    undoPendingAt: timestamp("undo_pending_at", { withTimezone: true }),
+    /** This refund, given before the host collected, failed after all: the part of her share it had kept from being sent, which she and the founder were told is owed to her. */
+    underpaidCents: integer("underpaid_cents").notNull().default(0),
   },
-  (t) => [index("refunds_payment_idx").on(t.paymentId)],
+  (t) => [index("refunds_payment_idx").on(t.paymentId), index("refunds_debt_look_idx").on(t.finishedAt).where(sql`${t.afterCollection} and ${t.debtLookedAt} is null`)],
 );
 
 /**
@@ -2421,9 +2448,12 @@ export const hostDebts = pgTable(
   "host_debts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    disputeId: text("dispute_id")
-      .notNull()
-      .references(() => disputes.id, { onDelete: "cascade" }),
+    /**
+     * What it comes from: a lost bank dispute, or a refund Connect gave after the host had collected. Exactly one of
+     * the two is set.
+     */
+    disputeId: text("dispute_id").references(() => disputes.id, { onDelete: "cascade" }),
+    refundId: uuid("refund_id").references(() => refunds.id, { onDelete: "cascade" }),
     /** The share: the payment whose transfer carried the money to the host. */
     paymentId: uuid("payment_id")
       .notNull()
@@ -2442,7 +2472,9 @@ export const hostDebts = pgTable(
      * the founder has decided. answered: the founder answered the objection and it is taken after
      * all. cancelled: called off (by the founder, or because the bank decided the other way after
      * all). taking: Stripe is being asked. taken: done. nothing: looked at, and nothing is owed for
-     * this share (kept so that Stripe is not asked again every pass).
+     * this share (kept so that Stripe is not asked again every pass). waiting: written down and told, and never
+     * taken by the app (the Host Agreement was not in force for that payment); the founder settles it. settled:
+     * the founder settled it with the host outside the app.
      */
     status: text("status").notNull().default("told"),
     toldAt: timestamp("told_at", { withTimezone: true }).notNull(),
@@ -2479,23 +2511,86 @@ export const hostDebts = pgTable(
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     /** The admin who called it off. Empty when the app did (the bank decided the other way). */
     cancelledBy: text("cancelled_by").references(() => user.id),
-    /** Taken, and then the bank decided the other way: the founder and the host were told then, once. */
+    /** Settled outside the app: what the host paid back (the rest was let go), and the founder's note of how. */
+    repaidCents: integer("repaid_cents"),
+    settledNote: text("settled_note"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    /**
+     * For a refund's take-back: Stripe's time for the charge (the nearest record of the bank's hold), and the version
+     * of the Host Agreement that was in force and accepted by then. Empty version: it waits for the founder.
+     */
+    chargeAt: timestamp("charge_at", { withTimezone: true }),
+    agreementVersion: text("agreement_version"),
+    /**
+     * Taken, paid back or waived, and then the cause fell away (the bank decided the other way; the refund failed
+     * at Stripe after all): the founder and the host were told then, once.
+     */
     leftoverToldAt: timestamp("leftover_told_at", { withTimezone: true }),
+    /** What the books hold as Connect's cost for this take-back (a waiver, or the part let go when it was settled). Taken off again if the cause falls away. */
+    costBookedCents: integer("cost_booked_cents").notNull().default(0),
+    /** Of what was owed: what a reversal the founder made by hand at Stripe covered, as the founder recorded it. `amountCents` is what is then still owed. */
+    byHandCents: integer("by_hand_cents").notNull().default(0),
+    /** Taken by a reversal made by hand on top of a take-back that was already paid: the host paid twice, and Connect owes this back to her. */
+    overpaidCents: integer("overpaid_cents").notNull().default(0),
+    /** Of what she paid for this take-back: what the founder has already been told to give back, because less turned out to be owed. Not told a second time when the whole of it falls away later. */
+    excessToldCents: integer("excess_told_cents").notNull().default(0),
+    /** Held because a reversal was made by hand on its transfer and nobody has said what it was for: when the founder was told. */
+    handToldAt: timestamp("hand_told_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("host_debts_dispute_payment_uq").on(t.disputeId, t.paymentId),
+    uniqueIndex("host_debts_refund_payment_uq").on(t.refundId, t.paymentId),
+    check("host_debts_one_cause", sql`num_nonnulls(${t.disputeId}, ${t.refundId}) = 1`),
     index("host_debts_payment_idx").on(t.paymentId),
     index("host_debts_host_idx").on(t.hostId),
     index("host_debts_due_idx").on(t.dueAt).where(sql`${t.status} in ('told', 'answered')`),
     // A report about an email looks for the take-back whose notice or answer it is.
     index("host_debts_notice_email_idx").on(t.noticeEmailId),
     index("host_debts_answer_email_idx").on(t.answerEmailId),
-    check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing')`),
+    check("host_debts_status", sql`${t.status} in ('told', 'objected', 'answered', 'cancelled', 'taking', 'taken', 'nothing', 'waiting', 'settled')`),
     check("host_debts_amount", sql`${t.amountCents} >= 0`),
   ],
 );
+
+/**
+ * What the founder said a reversal was for that somebody made by hand at Stripe on a host's transfer
+ * (plans/46-part-3-money-owed.md). One reversal can pay several take-backs, so each line counts a part of it. While a
+ * reversal has a part that no line counts, the app takes nothing more from that transfer by itself: it cannot know
+ * whether that part already paid a take-back.
+ */
+export const handReversalCounts = pgTable(
+  "hand_reversal_counts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stripe's number of the reversal, and of the transfer it took from. */
+    stripeReversalId: text("stripe_reversal_id").notNull(),
+    stripeTransferId: text("stripe_transfer_id").notNull(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    /**
+     * paid: it paid (part of) a take-back that was open. twice: it was for a take-back that had already been paid,
+     * so the host paid twice and is owed it back. other: it had nothing to do with a take-back.
+     */
+    kind: text("kind").notNull(),
+    debtId: uuid("debt_id").references(() => hostDebts.id, { onDelete: "set null" }),
+    /** The part of the reversal this line counts. */
+    cents: integer("cents").notNull(),
+    decidedBy: text("decided_by")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("hand_reversal_counts_reversal_idx").on(t.stripeReversalId),
+    index("hand_reversal_counts_payment_idx").on(t.paymentId),
+    check("hand_reversal_counts_kind", sql`${t.kind} in ('paid', 'twice', 'other')`),
+    check("hand_reversal_counts_cents", sql`${t.cents} > 0`),
+  ],
+);
+export type HandReversalCount = typeof handReversalCounts.$inferSelect;
 export type HostDebt = typeof hostDebts.$inferSelect;
 export type Call = typeof calls.$inferSelect;
 export type Follow = typeof follows.$inferSelect;

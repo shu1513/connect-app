@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AFTER_ANSWER_MS, canAnswer, canCancel, canHold, canObject, dueDay, dueToTake, NOTICE_MS, OPEN, owedCents, RETRY_MS, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
+import { AFTER_ANSWER_MS, againstBank, paidBackCents, repaidOutsideStanding, toGiveBackCents, canAnswer, canCancel, canHold, canObject, canSettle, dueDay, dueToTake, leftAfterRefunds, NOTICE_MS, OPEN, owedCents, refundOwes, RESERVED, RETRY_MS, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, TELL_FOUNDER_AFTER_MS, tellFounderOfRefusals } from "./takeback-rules";
 
 const at = (iso: string) => new Date(iso);
 const NOW = at("2027-02-01T12:00:00Z");
@@ -172,3 +172,111 @@ describe("cancelling, and telling the founder", () => {
     expect(takebackLabel("abc")).toBe("takeback:abc");
   });
 });
+
+describe("what a refund after the sending makes a host owe (plans/46-part-3-money-owed.md, decision 4)", () => {
+  const room = 1_000_000;
+  it("is what her share lost to that refund", () => {
+    // 100 charged, 80 sent; 50 refunded: her share goes from 80 to 40.
+    expect(refundOwes({ sentCents: 8000, reductionsBeforeCents: 0, reductionCents: 4000, roomCents: room })).toBe(4000);
+  });
+
+  it("adds up over several refunds to no more than was sent: 30 and then 70 of 100 give 24 and 56", () => {
+    expect(refundOwes({ sentCents: 8000, reductionsBeforeCents: 0, reductionCents: 2400, roomCents: room })).toBe(2400);
+    expect(refundOwes({ sentCents: 8000, reductionsBeforeCents: 2400, reductionCents: 5600, roomCents: room })).toBe(5600);
+  });
+
+  it("for a share that carried the collection charge is at most what was sent: 79.75 of 80", () => {
+    expect(refundOwes({ sentCents: 7975, reductionsBeforeCents: 0, reductionCents: 4000, roomCents: room })).toBe(4000);
+    expect(refundOwes({ sentCents: 7975, reductionsBeforeCents: 0, reductionCents: 8000, roomCents: room })).toBe(7975);
+  });
+
+  it("adds nothing once refunds have used up all that was sent, whatever became of the earlier take-backs", () => {
+    // 99.75 refunded took 79.80 off her share (a take-back of 79.75, called off). The last 25 cents take another 20 cents off.
+    expect(refundOwes({ sentCents: 7975, reductionsBeforeCents: 7980, reductionCents: 20, roomCents: room })).toBe(0);
+  });
+
+  it("is never more than the room on the transfer, and nothing for nothing", () => {
+    expect(refundOwes({ sentCents: 8000, reductionsBeforeCents: 0, reductionCents: 4000, roomCents: 1500 })).toBe(1500);
+    expect(refundOwes({ sentCents: 8000, reductionsBeforeCents: 0, reductionCents: 4000, roomCents: 0 })).toBe(0);
+    expect(refundOwes({ sentCents: 0, reductionsBeforeCents: 0, reductionCents: 4000, roomCents: room })).toBe(0);
+    expect(refundOwes({ sentCents: 8000, reductionsBeforeCents: 0, reductionCents: 0, roomCents: room })).toBe(0);
+    expect(refundOwes({ sentCents: Number.NaN, reductionsBeforeCents: 0, reductionCents: 4000, roomCents: room })).toBe(0);
+  });
+
+  it("works the room out from what Stripe shows as not reversed, less what is still set aside, less what she paid back outside Stripe", () => {
+    expect(roomOn({ transferLeftCents: 8000, reservedCents: 0, repaidOutsideCents: 0 })).toBe(8000);
+    expect(roomOn({ transferLeftCents: 8000, reservedCents: 4000, repaidOutsideCents: 0 })).toBe(4000);
+    // She paid 40 back to Connect's bank account: Stripe still shows 80, and 40 of it is spoken for.
+    expect(roomOn({ transferLeftCents: 8000, reservedCents: 0, repaidOutsideCents: 4000 })).toBe(4000);
+    // A reversal made by hand at Stripe is in the first number already, and is not entered as paid back.
+    expect(roomOn({ transferLeftCents: 4000, reservedCents: 0, repaidOutsideCents: 0 })).toBe(4000);
+    expect(roomOn({ transferLeftCents: 1000, reservedCents: 4000, repaidOutsideCents: 0 })).toBe(0);
+  });
+
+  it("starts a dispute after refunds from what was sent less what her share lost to them", () => {
+    // 100 charged, 80 sent; 50 refunded after, so her share lost 40; the bank then takes 25 of the 50 that are left: half of 40.
+    const left = leftAfterRefunds(8000, 4000);
+    expect(left).toBe(4000);
+    expect(owedCents({ sentCents: left, disputedCents: 2500, chargeLeftCents: 5000, transferLeftCents: 8000, othersOpenCents: 4000 })).toBe(2000);
+    // The same whatever became of the refund's take-back: taken (40 reversed), or called off (nothing reversed, nothing set aside).
+    expect(owedCents({ sentCents: left, disputedCents: 2500, chargeLeftCents: 5000, transferLeftCents: 4000, othersOpenCents: 0 })).toBe(2000);
+    expect(owedCents({ sentCents: left, disputedCents: 2500, chargeLeftCents: 5000, transferLeftCents: 8000, othersOpenCents: 0 })).toBe(2000);
+    // With no refund after the sending it is what was sent, also for a share that carried the charge: half of 79.75 is 39.87.
+    expect(owedCents({ sentCents: leftAfterRefunds(7975, 0), disputedCents: 5000, chargeLeftCents: 10000, transferLeftCents: 7975, othersOpenCents: 0 })).toBe(3987);
+    expect(leftAfterRefunds(8000, 9000)).toBe(0);
+  });
+
+  it("keeps an amount set aside while a take-back is open or waiting, and lets the founder settle or call off exactly those", () => {
+    expect([...RESERVED]).toEqual(["told", "objected", "answered", "waiting"]);
+    for (const status of ["told", "objected", "answered", "waiting"]) expect(canSettle({ status }) && canCancel({ status })).toBe(true);
+    for (const status of ["taking", "taken", "cancelled", "settled", "nothing"]) expect(canSettle({ status }) || canCancel({ status })).toBe(false);
+    // One that waits for the founder is never due, whatever day is on it.
+    expect(dueToTake({ status: "waiting", dueAt: new Date(0), refusedAt: null }, NOW)).toBe(false);
+  });
+});
+
+describe("what a take-back counts for, once money has moved in more than one way", () => {
+  const row = (status: string, amountCents: number, more: { repaidCents?: number | null; byHandCents?: number } = {}) => ({ status, amountCents, repaidCents: more.repaidCents ?? null, byHandCents: more.byHandCents ?? 0 });
+
+  it("counts what was really paid back, whichever way", () => {
+    expect(paidBackCents(row("taken", 4000))).toBe(4000);
+    // Paid in full by a reversal made by hand: "taken" with nothing left on the row.
+    expect(paidBackCents(row("taken", 0, { byHandCents: 4000 }))).toBe(4000);
+    // $10 by hand, then the rest settled outside for $20 of $30.
+    expect(paidBackCents(row("settled", 3000, { repaidCents: 2000, byHandCents: 1000 }))).toBe(3000);
+    expect(paidBackCents(row("cancelled", 3000))).toBe(0);
+    expect(paidBackCents(row("told", 3000, { byHandCents: 1000 }))).toBe(1000);
+  });
+
+  it("counts against what the bank took: what is still reserved and what was paid, and not what was waived", () => {
+    expect(againstBank(row("told", 2000))).toBe(2000);
+    expect(againstBank(row("taking", 2000))).toBe(2000);
+    expect(againstBank(row("taken", 2000))).toBe(2000);
+    // The bank took 30 and the first share repaid 20 outside (10 let go): only 20 is used up, 10 is room again.
+    expect(againstBank(row("settled", 3000, { repaidCents: 2000 }))).toBe(2000);
+    // Fully paid by hand: the row has nothing left on it, and still counts for all of it.
+    expect(againstBank(row("taken", 0, { byHandCents: 4000 }))).toBe(4000);
+    expect(againstBank(row("cancelled", 4000))).toBe(0);
+    expect(againstBank(row("waiting", 4000))).toBe(0);
+    expect(againstBank(row("nothing", 0))).toBe(0);
+  });
+});
+
+describe("what is still to give back, and what an outside payment still uses up", () => {
+  it("does not ask twice for what the founder was already told to give back", () => {
+    // She paid 47 cents; one cent was told when an earlier refund failed; then this one fails too: 46 more, 47 in all.
+    expect(toGiveBackCents({ status: "settled", amountCents: 47, repaidCents: 47, byHandCents: 0, excessToldCents: 1 })).toBe(46);
+    expect(toGiveBackCents({ status: "taken", amountCents: 4000, repaidCents: null, byHandCents: 0, excessToldCents: 0 })).toBe(4000);
+    expect(toGiveBackCents({ status: "cancelled", amountCents: 4000, repaidCents: null, byHandCents: 0, excessToldCents: 0 })).toBe(0);
+    expect(toGiveBackCents({ status: "taken", amountCents: 0, repaidCents: null, byHandCents: 83, excessToldCents: 83 })).toBe(0);
+  });
+
+  it("counts an outside payment against the room only while its take-back's cause stands", () => {
+    const settled = { status: "settled", repaidCents: 8000, leftoverToldAt: null as Date | null };
+    expect(repaidOutsideStanding([settled])).toBe(8000);
+    // The refund failed after all: the founder gives the 80 back, and a second refund's take-back has all the room again.
+    expect(repaidOutsideStanding([{ ...settled, leftoverToldAt: new Date() }])).toBe(0);
+    expect(repaidOutsideStanding([{ status: "told", repaidCents: null, leftoverToldAt: null }, settled])).toBe(8000);
+  });
+});
+

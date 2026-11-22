@@ -172,7 +172,7 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 9 | The 14-day sentence | **Built** (pull request 80). The founder's tool for a new membership cancelled within 14 days is plan 46, part 3. |
 | 10 | Reasons when a host's page is declined or suspended | **Built** (part 1): saved, emailed and shown; closing an account takes a reason too. |
 | 11 | Tax details from hosts and the yearly reports | No code: Stripe's tools on the company's own Stripe account. See `docs/research/tax-forms-for-hosts.md`. A yearly statement a host can download is **built** (plan 46, part 5); it is a summary, not a tax form. |
-| 12 | Refunds by Connect in the host's place, also after she collected | Planned in detail (`plans/46-part-3-money-owed.md`, part 3a); not built. It waits for the founder's yes to how a debt is recovered. |
+| 12 | Refunds by Connect in the host's place, also after she collected | **Built for a call's payment** (part 3a, steps 1 and 2a): the founder refunds from a page of their own, names the ground, and the host then owes what her share lost; it is taken back through Stripe after 14 days' written notice, and she can object. Under a draft agreement it is written down and told, and never taken by the app. Contributions and tips follow (step 2b). |
 | 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
 | 14 | Sending earnings not collected for 12 months | Planned in detail (`plans/46-part-3-money-owed.md`, part 3b); not built. |
 
@@ -186,6 +186,16 @@ for the next one):
   login that is still used keeps moving its end forward.
 - Privacy Policy, section 7, a new line: counters of repeated login attempts, kept by network
   address, seven days after the last attempt.
+- Host Agreement, section 9.4: say plainly that the usual way is asking Stripe to take the
+  amount back out of what was sent; that the 14 days count from the day our email reached her;
+  that she can object with a button, that nothing is taken until we have answered, and that
+  after our answer it is taken no earlier than 3 days later; and that a payment she makes
+  outside the app can be recorded instead.
+- Host Agreement, section 8.2: after she has collected, only Connect can refund, and she then
+  owes what her share of that payment lost (never more than was sent to her).
+- Host Agreement, section 7.7: "[12]" becomes 12.
+- Payment Terms, section 12.3: name the late cancellation and the missed call beside "time you
+  used".
 
 ## 8. Astra's drafts, and where they differ from these
 

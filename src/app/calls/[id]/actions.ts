@@ -6,6 +6,7 @@ import { withNotice } from "@/lib/notice";
 import { callForParticipant, paymentToRefund } from "@/lib/payments/access";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { refundPayment } from "@/lib/payments/actions";
+import { refundAnswer, refundOutcome } from "@/lib/payments/founder-refund";
 import { CALL_WORDS, cancelledWords } from "@/lib/call-page/words";
 import { cancelCallWith, CancelChangedError } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
@@ -78,6 +79,8 @@ export async function refundAction(formData: FormData) {
   const back = admin && !access ? "/admin" : `/calls/${callId}/results`;
 
   let notice: string;
+  // What the admin record says about it: the amount the form named, until the refund's own line says otherwise.
+  let recorded = `$${Number.isFinite(dollars) ? dollars.toFixed(2) : "?"}`;
   try {
     // The host of this very call, or the founder, and only for a payment that belongs to this call.
     const found = await paymentToRefund({ callId, paymentId, userId: user.id, adminLogin: admin });
@@ -90,13 +93,44 @@ export async function refundAction(formData: FormData) {
       const to = await giveTimeBack({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
       notice = to === "free" ? "The time was given back. It is in the member's membership again." : "The time was given back. Its money will be paid back to the member's card.";
     } else {
-      await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
-      notice = "The refund was sent.";
+      // Whatever the call says or throws, the answer is read from what was written down: a refund that was begun has
+      // its line. "Nothing was changed, try again" is only ever said when there is no line at all.
+      let refused: string | null = null;
+      let unclear = false;
+      try {
+        await refundPayment({ paymentId, amountCents: Math.round(dollars * 100), decidedBy: user.id, decidedAs, reason, requestId });
+      } catch (error) {
+        if (error instanceof MoneyError) refused = error.message;
+        else {
+          unclear = true;
+          if (!(error instanceof OutcomeUnknownError)) console.error("[payments] a refund failed", error);
+        }
+      }
+      const read = await refundOutcome(requestId).then(
+        (found) => ({ outcome: found }),
+        (error) => {
+          console.error("[payments] what came of a refund could not be read", error);
+          return null;
+        },
+      );
+      const outcome = read?.outcome ?? null;
+      const notKnown = "The refund was asked for, and what came of it could not be confirmed just now. Look at the payment before you try again: it may have gone through.";
+      notice = !read
+        ? notKnown
+        : outcome && outcome.paymentId !== paymentId
+          ? "That form is no longer valid. Reload the page and try again."
+          : // No line, and the call ended in something that was not a plain refusal: then it is not known either.
+            !outcome && unclear
+            ? notKnown
+            : refundAnswer(outcome, decidedAs === "admin" ? "founder" : "host", refused);
+      // For the admin record: the amount that was written down, and where it stands.
+      if (outcome && outcome.paymentId === paymentId) recorded = `$${(outcome.amountCents / 100).toFixed(2)} (${outcome.status === "done" ? "given back" : outcome.status === "in_progress" ? "on its way" : "refused by Stripe"})`;
     }
     if (decidedAs === "admin") {
-      await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: `$${dollars.toFixed(2)}` }).catch((error) => {
-        console.error("[admin] the refund went through but could not be written to the admin record", error);
-        notice = "The refund was sent, but it could not be written to the admin record. Please note it by hand.";
+      await recordAdminAction({ adminId: user.id, action: "refund", targetId: paymentId, detail: recorded }).catch((error) => {
+        console.error("[admin] a refund could not be written to the admin record", error);
+        // What came of the refund stays as it was said; only this is added.
+        notice = `${notice} It could not be written to the admin record: please note it by hand.`;
       });
     }
   } catch (error) {

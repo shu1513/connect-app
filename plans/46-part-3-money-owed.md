@@ -394,7 +394,11 @@ each small enough to check well):
 - **Step 1, the notice and the objection** (decision 6, and the one lock for a dispute of
   decision 4), for the debts there are today, which are all from lost bank disputes. Nothing
   about refunds yet.
-- **Step 2, refunds after collection**: everything else of part 3a.
+- **Step 2, refunds after collection**: everything else of part 3a. Built as two pull
+  requests in turn, for the same reason: **2a**, a call's payment (the migration, the
+  founder's refund, the debt, the pages); **2b**, contributions and tips, the yearly
+  statement, the host's project page and the founder's contribution form. What 2a built, and
+  where it differs from the lists below, is at the end of this file.
 
 **Not started until the founder has said yes to the reversal at Stripe as the one way.**
 
@@ -806,4 +810,351 @@ taken.
 - The founder is told an email is "not confirmed as delivered", never that it did not arrive: it
   may have.
 - Indexes for the two lookups a report makes.
+
+## Part 3a, step 2a, as built (refunds of a call's payment after collection)
+
+Migrations 0060 and 0061. Against the lists above:
+
+- **Names.** Stripe's time for the charge is `charge_at` (the list says `held_at_bank`); the
+  founder's answer keeps step 1's `answered_at` and `answered_by`. `contribution_refund_id` and
+  the contribution's refund lines come with 2b.
+- **"While her share is on its way, no refund."** No rule of its own was needed: a payment has
+  one money action in flight at a time, so a refund is not begun while a sending is unanswered.
+  The check script keeps watch over it.
+- **"Told" or "waiting"** (decision 7) is decided when the debt is written: the Host Agreement
+  version in force at Stripe's time of the charge must be a published one, and she must have
+  accepted that version strictly before that second. Otherwise the debt waits, and the app
+  never takes it: the founder calls it off or records that it was settled outside the app.
+- **A refund's debt is written by the helper's next pass**, not in the founder's click: the
+  click's answer is what Stripe did with the refund (paid back, on its way, refused).
+- **The founder's list of ended take-backs** is sorted by when each ended.
+- **A reversal made by hand at Stripe is accounted for, not just left to Stripe's number**
+  (this changes decision 4, after Astra's reviews of the code). While a transfer has a
+  reversal the app did not make, or a part of one, that nobody has said anything about, the
+  app takes nothing more from that transfer and tells the founder (when it would take, and at
+  once when Stripe's message about a reversed transfer arrives). On the take-back's page the
+  founder says, for each such reversal: "it paid this take-back" (it is counted for it up to
+  what is still owed, booked as taken back, and only the rest stays owed; what is left of the
+  reversal stays open, so one reversal can pay two take-backs); "it was meant for this
+  take-back", for one that had already ended (the host has paid twice: she is told that the
+  money is owed back to her, and the founder sends it); or "it had nothing to do with a
+  take-back". Each part of a reversal is counted once. **What a take-back is written for no
+  longer depends on such a reversal:** the room on a transfer is what was sent, less what the
+  app took, less the parts the founder has accounted for. So a reversal made by hand before
+  the take-back is written is not taken off twice, and a transfer reversed in full by hand
+  still gets its take-back written, to be counted against. The founder is told to hold a
+  take-back before reversing anything by hand for it. The founder names the part of a reversal
+  each time (the page suggests what fits), so one reversal can pay an open take-back in part
+  and be money taken on top of an ended one in part. **And a take-back is never taken for more
+  than is left to take:** right before it asks Stripe, the app works out again what is left on
+  the transfer by its own record (less what she paid back outside the app); if the take-back
+  is larger, nothing is taken and the founder is told at once. Each request of the app's
+  carries its own label, so a reversal somebody else made is never mistaken for it.
+- **A refund that fails after Stripe confirmed it** (it happens: the customer's bank sends it
+  back) is undone: the payment counts as not refunded again, the three lines in the books are
+  written back, the take-back is called off at no cost to anyone, and the founder is told that
+  the customer got nothing. Stripe is asked whether the refund still stands before a debt is
+  written and again at the moment the money would be taken; Stripe's message about a failed
+  refund does the same. If she had already paid (taken, by hand, or outside), the app sends
+  nothing back by itself: she and the founder are told. While money is moving on the payment
+  (a taking, a sending, another refund) the failure is kept on the refund's line and undone on
+  the helper's next pass. A refund once marked failed is never brought back by an answer read
+  earlier. If the refund had been given BEFORE she collected, the smaller share is what was
+  sent: she and the founder are told what was never sent to her. The refunds that are left on
+  the payment are worked out again in their order (the cents can fall differently); an open
+  take-back is lowered by a difference, never raised.
+- **The order of two refunds** on one payment is a number given when each is confirmed, with
+  the payment held, not their times.
+- **Waivers and settlements work for a lost dispute's take-back too** (decisions 6 and 8): a
+  founder's waiver books Connect's cost, "Settled outside the app" is offered, and if the bank
+  later decides the other way that cost is taken off again and what she had paid is flagged
+  for giving back.
+
+**What `scripts/owed-check.ts` checks at Stripe's test mode** (148 checks): a call refunded
+before collection (ordinary, nothing owed) and twice after it (two debts, together exactly what
+was sent, each told once; no day while the notice is only sent, a day 14 days after it is
+reported as delivered; nothing a day early; then two real reversals and the lines in the
+books); the refusals (the host's own button even with the founder's flag, the founder without
+the special form or without a reason, a sending under way); the founder's answer read from
+what was written down, also for a form sent twice with another amount; a share that paid a
+collection charge (she owes what was sent, not the charge); a share sent with nothing; the
+objection, the answer and its days, calling off (Connect's cost, once); Stripe's total of
+refunds differing from the app's (nothing worked out until they agree); "settled outside the
+app", and a later refund on that share taken for its own part only; a host with no published
+agreement accepted before the charge, one who accepts afterwards, one in the very second, one
+a second before, one who accepted the real draft, and a charge Stripe no longer knows; a
+reversal of part of a transfer made by hand (held, told, counted once, and only the rest
+taken: never more than was owed); one made after the take-back had ended (told, recorded as
+paid twice, owed back to her); one made before the take-back was written, also for the whole
+transfer; one reversal counted for two take-backs; Stripe refusing the reversal, tried again,
+the founder told once after 30 days; no room on a transfer (a row that says nothing) and room that comes free
+(worked out afresh); a refund and a lost dispute on one share in four orders; a reversal whose
+answer was lost, found at Stripe and booked once; **a refund still on its way at Stripe** (no
+debt until Stripe confirms it, and the founder is not told it was given back); **a refund
+Stripe confirmed and then failed**: with the take-back still open (called off, the books as
+before, nobody pays), already taken (flagged for giving back), with Stripe's message arriving
+while it is being taken (kept, and undone on the next pass), and one whose answer the app
+never recorded (the message is kept; the helper asks what the refund is now), and one given
+before she collected (she and the founder are told what was never sent to her); a late "paid"
+for a refund that was undone (ignored); a refund that was written down and not sent in time
+(never sent); and a refund whose answer was lost, found on the second page of Stripe's list
+behind 101 newer ones; a writer that hangs past its time (it sends nothing; the helper sends
+it, once); a refund "on its way" that Stripe fails while an older "paid" is still about to be
+written (the failure stands); more owed than is left to take after a payment outside the app
+and a reversal that was something else (nothing taken, the founder told; also when the taking
+was already written down); a reversal counted in parts the founder names, and the same form
+sent twice (counted once); a reversal for the very same amount that only carries a take-back's
+id (not taken for the app's own); two small refunds whose cents fall differently once the
+first has failed (one cent to give back, and not a second time; a waiver's cost one cent
+lower); and an unanswered refund at the last moment for repeats (left open an hour more).
+
+**Two stand-ins**, each named in the script: the sending service (the script marks the notice
+email as sent and as reported delivered), and, for "a refund and a dispute on one share" only,
+the refund's line (it points at a real, confirmed refund of another test charge). Stripe's dispute test cards dispute a charge the moment it is taken, and a
+disputed charge cannot be refunded, so in the test area a real refund can never come before a
+dispute on the same payment. The charge, the transfer, the dispute and the reversals there are
+real.
+
+**Checked by the rules' own tests and not at Stripe**, because the test area cannot make a
+part dispute: 40 and 20; the share with the collection charge and a half dispute (39.87 of
+79.75); 79.75 sent, 99.75 refunded, then the last 25 cents; the room after a payment outside
+the app and after a reversal by hand.
+
+**Not checked:** an OPEN take-back lowered because an earlier refund of the payment was undone
+(the settled and the waived case are checked; the sum is the same); Stripe not answering at the moment a debt is to be written (the code writes
+nothing and the next pass asks again; it cannot be staged against the real service); two
+helpers at once on one refund (the share's payment is locked, and the database allows one row
+for a refund and a share); a reversal made by hand in the very second the app takes (it cannot
+be staged; it is found afterwards and recorded as paid twice, which is checked); the cap
+across several shares of one disputed membership month after one of them was settled or paid
+by hand (the rule has its own tests). The fill-in of migration 0061 for older rows ran on the
+local test database, which held 120 such refunds and 45 such take-backs; no other database has
+any, because nothing of this part was merged before. Contributions, tips and the yearly statement are 2b's.
+
+## What Astra found in the code of part 3a, step 2a, and what was done
+
+"Hold the merge": seven points that had to be fixed, seven that should be, two small. All taken.
+
+1. *A refund that Stripe confirms and later fails could still be taken from the host.*
+   **Fixed:** see "A refund that fails after Stripe confirmed it" above. Checked with Stripe's
+   own test card for it.
+2. *A reversal made by hand could pay a debt, and the app would take the whole debt again.*
+   (80 sent, 30 paid by bank, a debt of 50, 10 reversed by hand: 90 back on 80.) **Fixed:**
+   see "A reversal made by hand" above.
+3. *The helper could call a real refund failed:* it looked only at the first 100 refunds of a
+   charge, and took a "no" to its repeated request as proof. **Fixed:** every page is searched,
+   a refused repeat is settled by Stripe's list, and the refund's line and its action end in one
+   step.
+4. *A refund's debt was worked out without comparing Stripe's total of refunds with the
+   app's.* **Fixed:** it waits until the two agree, as a dispute's does.
+5. *A charge Stripe no longer has stopped the debt from ever being written.* **Fixed:** that one
+   answer means "no proof of the bank's time", so the debt is written as waiting; every other
+   failure is asked again.
+6. *The founder's answer could be untrue:* "Stripe has accepted it" before Stripe had answered,
+   and the amount of a form sent again. **Fixed:** the answer is built from the refund's own
+   line (its payment, its amount, Stripe's number, Stripe's reason), tells "accepted" from "not
+   answered yet", and refuses a request that belongs to another payment.
+7. *Waivers, settlements and a later win were incomplete for a lost dispute's take-back.*
+   **Fixed:** see above.
+8. *The order of two refunds rested on clocks.* **Fixed:** a number given with the payment held.
+9. *The helper's repeat of an unanswered take-back could act on an action already answered.*
+   **Fixed:** it repeats only this very action, still unanswered, with its row still "being
+   taken".
+10. *The estimate ignored what was really sent, and the answer promised a notice when nothing
+    could be owed.* **Fixed;** the call page's older refund button is answered the same way.
+11. *The notices called what was left after refunds "what was sent".* **Fixed:** they name what
+    was really sent, what refunds took, and what the sum starts from; a debt cut short is no
+    longer called "the difference".
+12. *The form said only the host reads the reason; the customer's email carries it too.*
+    **Fixed:** the form says both read it.
+13. *Several checks would pass with the feature broken.* **Fixed:** the cases named above, with
+    Stripe's own test cards for the two refund states.
+14. *The check let the helper loose on other runs' money.* **Fixed:** the helper's look can be
+    limited to named actions and refunds.
+15. *A founder who is also the host could not settle their own take-back.* **Fixed:** the
+    founder's view can be asked for.
+16. *A customer's 51st payment could not be found.* **Fixed:** "Older payments".
+
+## Astra's second look at the code of step 2a, and what was done
+
+"Hold the merge" again: ten points that had to be fixed, six that should be, one small. Of its
+first seven, two were closed and five only partly. All taken.
+
+1. *A refund's failure arriving while its take-back was being taken was lost.* **Fixed:** the
+   failure is kept on the refund's line and undone on the helper's next pass.
+2. *An answer read earlier could bring a failed refund back as paid; a failure arriving before
+   the app had recorded Stripe's answer was lost.* **Fixed:** a refund is confirmed only while
+   it is on its way; the helper asks what a refund is now after a repeated request; Stripe's
+   message about such a refund is kept until the answer is recorded.
+3. *After a refund given before collection failed, the part it had taken off her share was
+   never sent to her.* **Fixed:** she and the founder are told the amount; the app does not
+   send it by itself.
+4. *With one refund undone, a later refund's take-back could be a cent too high.* **Fixed:**
+   the refunds that are left are worked out again in their order.
+5. *A refused repeat with an empty list could still be a refund on its way.* **Fixed:** the one
+   who writes a refund down sends it at once or not at all (30 seconds, half the time the
+   helper leaves an action alone), so the helper's "no" plus an empty, complete list is final.
+6. *Reversals by hand: one made in the same minute as the app's, and one meant for two
+   take-backs.* **Fixed:** see "A reversal made by hand" above (ended take-backs, parts of a
+   reversal, Stripe's message, the advice to hold first).
+7. *A reversal by hand made before the take-back was written was taken off twice.* **Fixed:**
+   the room no longer depends on a reversal nobody has accounted for.
+8. *The cap across the shares of one dispute forgot settled and hand-paid shares, and room
+   freed on one share did not reach its sister shares.* **Fixed.**
+9. *Older rows got no place and no cost in migration 0061.* **Fixed:** the migration fills
+   them in.
+10. *The founder's answer was still untrue in places.* **Fixed:** every state of the take-back
+    has its own sentence, nothing is promised that is not known, the page tells "accepted by
+    Stripe" from "not answered yet", and the call page's button keeps the true outcome when the
+    admin record cannot be written.
+11. *Pages after a win or a failed refund showed the row's number, which can be nothing.*
+    **Fixed:** they show what she really paid; a refund that failed says so on its page; a
+    notice names what was first owed and what a reversal by hand already paid of it.
+12. *A reversal was taken for the app's own by a note on it alone.* **Fixed:** by its number,
+    and the helper's recovery also checks the amount.
+13. *The estimate ignored earlier refunds.* **Fixed:** it uses the same sum as the real one.
+14. *A search through Stripe's list had no limit of time.* **Fixed:** 20 seconds, then it is
+    unfinished and made again.
+15. *Checks missing.* **Added:** the cases listed above.
+16. *The older dispute check let the helper loose on other runs' money.* **Fixed.**
+17. *"Older payments" could skip a payment at the page's edge.* **Fixed:** the page ends by
+    both keys of the order, in both kinds of search.
+
+## Astra's third look at the code of step 2a, and what was done
+
+"Hold the merge" once more: ten points that had to be fixed, three that should be. Narrower
+than before; all taken.
+
+1. *A refund "on its way" whose failure arrived between a helper's reading "paid" and its
+   writing it.* **Fixed:** Stripe's failure is written with the payment held, by what the line
+   says at that moment; the helper's own look does the same.
+2. *The writer's deadline was read before a look into the database, and a retry could go out
+   late.* **Fixed:** the clock is read as the last thing before one request with a time limit;
+   both together are shorter than the helper's first look.
+3. *After the founder said a reversal was "something else", a take-back already written could
+   be larger than what was left.* **Fixed:** nothing is taken for more than is left; the founder
+   is told at once.
+4. *The amount never sent after a refund before collection was worked out with later refunds
+   mixed in.* **Fixed:** it is worked out at the collection.
+5. *A lower sum for a later refund was told as money to give back, also where part had been
+   waived.* **Fixed:** what she paid is compared with what is owed now; a waiver's cost is
+   lowered; an open take-back is lowered and she is told.
+6. *One reversal could not be split between an open take-back and an ended one.* **Fixed:** the
+   founder names the part.
+7. *A reversal by hand carrying a take-back's id could be taken for the app's own request.*
+   **Fixed:** each request carries its own label, and the amount has to fit.
+8. *Room freed for the shares of one dispute could miss a share being worked out at that
+   moment.* **Fixed:** both happen under the same lock.
+9. *If what came of a refund could not be read, the page said "nothing was changed, try
+   again".* **Fixed:** it says to look at the payment first.
+10. *Pages still showed a remainder where they meant what was owed or paid.* **Fixed:** one
+    label for each state; the founder's emails about reversals lead to the page with the
+    controls.
+11. *The migration's fill-in could bring back a cost that had been taken off.* **Fixed.**
+12. *A page of a search had no time limit of its own; a message that keeps failing could hold
+    others up.* **Fixed:** each page has its limit, and no message is made to fail on purpose
+    any more.
+13. *Checks.* **Added:** the cases named above.
+
+## Astra's fourth look at the code of step 2a, and what was done
+
+Asked to name only what loses money, takes it twice, makes the books wrong or tells someone
+something false: "hold the merge", nine points. All taken, and the automatic security check of
+the commit found one more of the same kind (the last line).
+
+1. *The same form for a part of a reversal, sent twice, was counted twice.* **Fixed:** the form
+   names what was open when it was shown; if that is no longer so, nothing is counted.
+2. *The helper's repeat of a taking did not look at the room again.* **Fixed.**
+3. *A reversal by hand for the very same amount, marked with the take-back's id, passed for a
+   new attempt's own request.* **Fixed:** a new attempt is only known by its label.
+4. *Stripe's message about a reversal could arrive in the instant the app was recording its
+   own, and report it as made by hand.* **Fixed:** the app's record is read in one picture, and
+   looked at once more under the lock before anyone is told.
+5. *A failure could still lose to an older "paid" when the app had not recorded Stripe's
+   number for the refund.* **Fixed:** the failure is final at once in that case too.
+6. *At the last moment for repeats one helper could call a refund failed while another's repeat
+   was on its way.* **Fixed:** "not found" is final only an hour after the last repeat could
+   have been sent. The writer's time is counted from the moment the action was written down,
+   and allows for the Stripe library's own second try.
+7. *A waiver was not corrected when the sum fell, and the same cent could be told twice.*
+   **Fixed:** what the founder was already told to give back is kept on the take-back.
+8. *The email "no room" said the app would not try again; it does.* **Fixed:** the words.
+9. *Three places on the pages still showed a wrong amount or day.* **Fixed.**
+10. *(The security check.) A take-back that was still open, of which a reversal by hand had
+    already taken more than is now owed, was lowered without telling anyone about the
+    difference.* **Fixed:** it is told like any other amount paid too much.
+
+## Astra's fifth look at the code of step 2a, and what was done
+
+"Hold the merge", nine points, most of them amounts and words on pages. Seven are taken; one
+is narrowed; one is left, on the builder's own judgment, and both are named here so that they
+are not forgotten.
+
+1. *After a take-back was settled outside the app and its refund then failed, the payment that
+   goes back to her still used up room: a second refund's take-back came out as nothing.*
+   **Fixed:** an outside payment counts against the room only while its cause stands. Checked
+   at Stripe (the second refund's line is the script's: Stripe's test card refuses a second
+   refund of a charge whose refund failed).
+2. *The email said 46 cents to send, the page and the list said 47.* **Fixed:** one sum for
+   emails and pages (what she paid, less what the founder was already told to give back).
+3. *A refund's own number typed by hand onto another refund at Stripe could undo the wrong
+   refund when that other one failed.* **Fixed:** a failed refund is matched by Stripe's number;
+   by the app's own number only a line that is still on its way, has no Stripe number yet, and
+   is for the same charge and amount.
+4. *Two helpers with different rights at Stripe (one may list, not refund) could end a refund
+   as failed while the other sends it.* **Narrowed, not closed:** a helper looks once more,
+   right before it repeats a request, whether the action is still unanswered. What is left needs
+   two helpers at the same refund in the same second AND different rights at Stripe during a
+   change of keys. Left as it is: closing it fully would keep every refused refund "not
+   confirmed" for a day, and block the payment's other money actions that long.
+5. *A lost dispute's take-back, written after a refund, can be one cent too high if that refund
+   fails afterwards.* **Not done.** It needs a refund after collection, then a bank dispute lost
+   on the rest, then that refund failing after Stripe had confirmed it; the difference is the
+   rounding of one cent. The refund's own take-backs are worked out again in that case; the
+   dispute's is not. To do with step 2b or later.
+6. *The call page's refund button could say "nothing was changed, try again" after Stripe had
+   paid.* **Fixed:** the answer is read from what was written down whatever the call did; when it
+   cannot be known, it says to look at the payment first.
+7. *The dispute's page showed a cost of Connect's that had been taken off the books.* **Fixed.**
+8. *A day was shown for money a person at Connect took by hand on another day.* **Fixed:** a day
+   is shown only for what the app itself took.
+9. *"The app asked Stripe ... within a few minutes" was not true in two cases.* **Fixed:** the
+   words say what is known.
+
+Also taken: a reversal by hand while a take-back is being taken is told as "on hold", not as
+"had ended"; a reversal that carries a label is only ever the attempt with that label.
+
+## What CodeRabbit found in step 2a (pull request 100), and what was done
+
+Nineteen points, none of them a stop. Seventeen are taken:
+
+- **The set-up script for Stripe's messages did not ask for the three new kinds** (a refund
+  that failed, a refund that changed, a transfer that was reversed). **Fixed.** The note for
+  going live now also says what is not noticed without them.
+- **The notices said "14 days after this message was sent"; the rule counts from its
+  arrival.** **Fixed** in the notices, the pages and the lawyer's file.
+- **When Stripe's total of refunds on a charge is not the app's** (a refund made at Stripe
+  itself), the app waited without a word. **Fixed:** the founder is told, once.
+- **Where room is short, refunds are now looked at in the order they were confirmed.**
+- **The helper's repeat of a taking:** a dispute that cannot be asked about stops the repeat,
+  not the search for a reversal that was already made.
+- **A search through Stripe's list** that runs past its time proves nothing also when its last
+  page is empty; and whether "not found" may be final is decided before the search begins.
+- **A cause that fell away frees room also where the take-back had ended** (a settled one):
+  take-backs that had got nothing are worked out again.
+- **The founder's answer** says "failed after all" while the app is still undoing a refund.
+- **The founder's email about reversals by hand** is sent again when another one appears.
+- **The check script:** the take-backs of the refunds that fail later are written right after
+  those refunds; a transfer is noted for the clean-up as soon as it is made; the clean-up ends
+  every money action of the run that is still unanswered; one more thing is asserted.
+
+Two are not taken, with the reasons:
+
+- *"Keep the part of an outside payment that was told as too much out of the room."* It is one
+  cent in one case, it would need another number kept apart on every take-back, and the room
+  it concerns is only used by a third refund on the same payment.
+- *"Make a hold on the transfer a condition for a reversal by hand."* A reversal by hand is
+  made at Stripe, where the app cannot require anything. The founder is told to hold first;
+  the app stops as soon as it sees such a reversal; and one that slipped through is found
+  afterwards and recorded as paid twice.
 

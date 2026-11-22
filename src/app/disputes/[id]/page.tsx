@@ -11,6 +11,7 @@ import { disputeForViewer } from "@/lib/disputes/pages";
 import { aboutOwner, ownerOf } from "@/lib/disputes/record";
 import { canChoose, planFor, stopsPaying } from "@/lib/disputes/rules";
 import { debtsOfDispute } from "@/lib/disputes/takeback";
+import { toGiveBackCents } from "@/lib/disputes/takeback-rules";
 import { isAppeal, reasonWords, standingOf } from "@/lib/disputes/status";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
@@ -316,7 +317,12 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
             {takeBacks.map((debt) => (
               <li key={debt.id} data-take-back={debt.status}>
                 <p>
-                  <span className="font-medium">{formatMoney(debt.amountCents)}</span>
+                  {/* What was first owed. Where a reversal made by hand has paid part of it, what is left is said after it. */}
+                  <span className="font-medium">{formatMoney(debt.amountCents + debt.byHandCents)}</span>
+                  {debt.byHandCents > 0 &&
+                    (["told", "objected", "answered"].includes(debt.status)
+                      ? ` (of which ${formatMoney(debt.byHandCents)} was already taken by a person at Connect, and ${formatMoney(debt.amountCents)} is still owed)`
+                      : ` (of which ${formatMoney(debt.byHandCents)} was taken by a reversal a person at Connect made at Stripe)`)}
                   {(debt.status === "told" || debt.status === "answered") &&
                     (debt.dueAt ? (
                       <>
@@ -326,24 +332,38 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                       </>
                     ) : debt.status === "answered" ? (
                       asHost ? (
-                        ": we have answered your objection. Connect asks Stripe to take it back, not before 3 days after our answer was sent to you by email."
+                        ": we have answered your objection. Connect asks Stripe to take it back, not before 3 days after our answer reached you by email."
                       ) : (
-                        ": the objection was answered. It gets its day once the answer's email has gone out (3 days after that, and not before the first day)."
+                        ": the objection was answered. It gets its day once the answer's email has arrived (3 days after that, and not before the first day)."
                       )
                     ) : asHost ? (
-                      ": Connect asks Stripe to take it back from your Stripe balance, not before 14 days after our email about it was sent to you. Until then nothing is taken."
+                      ": Connect asks Stripe to take it back from your Stripe balance, not before 14 days after our email about it reached you. Until then nothing is taken."
                     ) : (
-                      ": the host was told. It gets its day once the notice's email has gone out (14 days after that)."
+                      ": the host was told. It gets its day once the notice's email has arrived (14 days after that)."
                     ))}
                   {debt.status === "objected" && (asHost ? ": you told us this is wrong. Nothing is taken until we have answered you." : ": the host objected. Nothing is taken until you have decided.")}
                   {debt.status === "taking" && ": Stripe is being asked to take it back now."}
-                  {debt.status === "taken" && debt.takenAt && (
+                  {/* A day only for what the app itself took: what a person at Connect took by hand has its own day at Stripe. */}
+                  {debt.status === "taken" && debt.takenAt && debt.amountCents > 0 && (
                     <>
-                      : taken back on <LocalTime iso={debt.takenAt.toISOString()} />.
+                      : taken back{debt.byHandCents > 0 ? `, the last ${formatMoney(debt.amountCents)}` : ""} on <LocalTime iso={debt.takenAt.toISOString()} />.
                     </>
                   )}
+                  {debt.status === "taken" && (!debt.takenAt || debt.amountCents === 0) && ": taken back."}
                   {debt.status === "cancelled" && ": called off. Nothing is taken."}
+                  {/* What Connect carries is what the books hold for it now: nothing, once the bank has decided the other way. */}
+                  {debt.status === "settled" &&
+                    (debt.leftoverToldAt
+                      ? `: it had been settled outside the app. ${formatMoney(debt.repaidCents ?? 0)} was paid back, and the rest was let go.`
+                      : `: settled outside the app. ${formatMoney(debt.repaidCents ?? 0)} was paid back${debt.costBookedCents > 0 ? `, and Connect carries the remaining ${formatMoney(debt.costBookedCents)}` : ""}. Nothing more is owed for it.`)}
                 </p>
+                {debt.overpaidCents > 0 && (
+                  <p className="mt-1 opacity-80" data-overpaid>
+                    {asHost
+                      ? `${formatMoney(debt.overpaidCents)} was taken from your Stripe balance on top of this. That money is yours: a person at Connect gives it back to you.`
+                      : `${formatMoney(debt.overpaidCents)} was taken on top of this by a reversal made by hand at Stripe: send it back to the host.`}
+                  </p>
+                )}
                 {debt.objection && (debt.status === "objected" || debt.status === "answered") && (
                   <p className="mt-1 whitespace-pre-wrap opacity-80" data-objection>
                     {asHost ? "What you wrote: " : "What the host wrote: "}
@@ -377,9 +397,12 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     {asHost ? "Stripe could not take it back yet. It is tried again once a day." : `Stripe refused the last try${debt.refusal ? `: ${debt.refusal}` : "."} The app tries again once a day.`}
                   </p>
                 )}
-                {debt.status === "taken" && debt.leftoverToldAt && (
+                {debt.leftoverToldAt && toGiveBackCents(debt) > 0 && (
                   <p className="mt-1 opacity-80" data-leftover>
-                    {asHost ? "The bank has since let the payment stand. A person at Connect gives this amount back to you." : "The bank has since decided the other way. The app does not give this back by itself: send it to the host by hand."}
+                    {/* The amount she really paid back, whichever way: never the row's own number, which can be nothing. */}
+                    {asHost
+                      ? `The bank has since let the payment stand. A person at Connect gives the ${formatMoney(toGiveBackCents(debt))} you paid back to you again.`
+                      : `The bank has since decided the other way. The app does not give anything back by itself: send ${formatMoney(toGiveBackCents(debt))} to the host by hand.`}
                   </p>
                 )}
                 {asHost && debt.status === "told" && (
@@ -426,9 +449,20 @@ export default async function DisputePage(props: PageProps<"/disputes/[id]">) {
                     <input type="hidden" name="dispute" value={dispute.id} />
                     <input type="hidden" name="debt" value={debt.id} />
                     <button type="submit" className={button}>
-                      Cancel this take-back
+                      Cancel this take-back (Connect carries {formatMoney(debt.amountCents)})
                     </button>
                   </form>
+                )}
+                {founder && (
+                  <p className="mt-2 text-sm">
+                    <Link href={`/debts/${debt.id}?as=founder`} className="underline underline-offset-2">
+                      {debt.status === "told" || debt.status === "objected" || debt.status === "answered"
+                        ? "The host paid it back outside the app, or you reversed it by hand at Stripe: record that"
+                        : debt.status === "taking"
+                          ? "This take-back's own page"
+                          : "A reversal made by hand at Stripe was for this one: account for it"}
+                    </Link>
+                  </p>
                 )}
               </li>
             ))}

@@ -49,6 +49,27 @@ export async function handleStripeEvent(event: StripeMessage): Promise<void> {
     return;
   }
 
+  if (event.type === "refund.failed" || event.type === "refund.updated" || event.type === "charge.refund.updated") {
+    // A refund changed at Stripe. What matters: one that Stripe had confirmed can fail afterwards (the customer's bank
+    // sends it back). Then the app's record of it is undone, and a host who was to pay for it owes nothing
+    // (plans/46-part-3-money-owed.md). What Stripe says now is read from Stripe there, not from this message.
+    const refundId = String(object.id ?? "");
+    if (!refundId.startsWith("re_")) return;
+    const { refundChangedAtStripe } = await import("@/lib/disputes/takeback");
+    await refundChangedAtStripe(refundId);
+    return;
+  }
+
+  if (event.type === "transfer.reversed") {
+    // A host's transfer was reversed. The app knows its own reversals; one that somebody made by hand at Stripe
+    // may have paid a take-back, or paid one twice: the founder is told, and nothing more is taken meanwhile.
+    const transferId = String(object.id ?? "");
+    if (!transferId.startsWith("tr_")) return;
+    const { reversalSeenOnTransfer } = await import("@/lib/disputes/takeback");
+    await reversalSeenOnTransfer(transferId);
+    return;
+  }
+
   if (event.type.startsWith("charge.dispute.")) {
     const dispute = await stripe()
       .disputes.retrieve(String(object.id))

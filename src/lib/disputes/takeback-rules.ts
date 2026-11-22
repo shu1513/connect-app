@@ -105,7 +105,7 @@ export function dueToTake(debt: { status: string; dueAt: Date | null; refusedAt:
 }
 
 /** The founder can call a take-back off until the app starts it. One that has started, or is done, cannot be cancelled. */
-export const canCancel = (debt: { status: string }): boolean => OPEN.includes(debt.status);
+export const canCancel = (debt: { status: string }): boolean => OPEN.includes(debt.status) || debt.status === "waiting";
 
 /** Whether the founder is due to be told that Stripe keeps refusing: 30 days after the first refusal, once. */
 export function tellFounderOfRefusals(debt: { status: string; dueAt?: Date | null; firstRefusedAt: Date | null; founderToldAt: Date | null }, now: Date): boolean {
@@ -117,3 +117,88 @@ export function tellFounderOfRefusals(debt: { status: string; dueAt?: Date | nul
 
 /** The label of the request to Stripe is made from this (the money action adds the attempt's number). */
 export const takebackLabel = (debtId: string): string => `takeback:${debtId}`;
+
+// ---------------------------------------------------------------------------
+// A refund given after the host had collected (plans/46-part-3-money-owed.md, decision 4)
+// ---------------------------------------------------------------------------
+
+/** The states in which an amount is still set aside on its share: open, or waiting for the founder. */
+export const RESERVED: readonly string[] = [...OPEN, "waiting"];
+
+/**
+ * The room on a transfer: what Stripe shows as not reversed, less the take-backs on that share that are still open
+ * (told, waiting, objected, answered), less what the host paid back outside Stripe for that share. A reversal the
+ * founder made by hand at Stripe is in the first number already and is not counted again.
+ */
+export function roomOn(input: { transferLeftCents: number; reservedCents: number; repaidOutsideCents: number }): number {
+  const { transferLeftCents, reservedCents, repaidOutsideCents } = input;
+  if (![transferLeftCents, reservedCents, repaidOutsideCents].every(Number.isFinite)) return 0;
+  return Math.max(0, Math.floor(transferLeftCents) - Math.max(0, Math.floor(reservedCents)) - Math.max(0, Math.floor(repaidOutsideCents)));
+}
+
+/**
+ * What one refund makes the host owe.
+ *
+ * - `reductionCents`: what her share lost to THIS refund (her share before less her share after, as written on the
+ *   refund when Stripe confirmed it).
+ * - `reductionsBeforeCents`: the same, summed over every earlier refund after the sending, whatever became of the
+ *   take-backs for them (written as nothing, cut short, called off, repaid).
+ * - The reductions are never counted beyond what was really sent (`sentCents`): once refunds have used up all that
+ *   was sent, a further refund adds nothing.
+ * - And never more than the room on the transfer (`roomCents`).
+ */
+export function refundOwes(input: { sentCents: number; reductionsBeforeCents: number; reductionCents: number; roomCents: number }): number {
+  const { sentCents, reductionsBeforeCents, reductionCents, roomCents } = input;
+  if (![sentCents, reductionsBeforeCents, reductionCents, roomCents].every(Number.isFinite)) return 0;
+  if (sentCents <= 0 || reductionCents <= 0) return 0;
+  const before = Math.min(sentCents, Math.max(0, Math.floor(reductionsBeforeCents)));
+  const after = Math.min(sentCents, Math.max(0, Math.floor(reductionsBeforeCents)) + Math.floor(reductionCents));
+  return Math.max(0, Math.min(after - before, Math.floor(roomCents)));
+}
+
+/**
+ * What a lost dispute starts from on a share that had refunds after the sending: what was sent, less everything her
+ * share lost to those refunds, never below nothing. With no such refund it is what was sent, as before.
+ */
+export function leftAfterRefunds(sentCents: number, reductionsCents: number): number {
+  if (!Number.isFinite(sentCents) || !Number.isFinite(reductionsCents)) return 0;
+  return Math.max(0, Math.floor(sentCents) - Math.max(0, Math.floor(reductionsCents)));
+}
+
+/** The founder can settle a take-back outside the app while it is open or waiting: not once the app has started taking it. */
+export const canSettle = (debt: { status: string }): boolean => RESERVED.includes(debt.status);
+
+/**
+ * What a host has really paid back for one take-back, whichever way: taken by the app, counted from a reversal made
+ * by hand at Stripe, or paid to Connect outside the app. (A take-back that a reversal by hand paid in full is "taken"
+ * with nothing left on it: all of it is in `byHandCents`.) What a reversal by hand took ON TOP of a take-back that
+ * had ended (`overpaidCents`) is not part of it: that is owed back to her in any case, and told on its own.
+ */
+export const paidBackCents = (debt: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number }): number =>
+  (debt.status === "taken" ? debt.amountCents : 0) + (debt.repaidCents ?? 0) + debt.byHandCents;
+
+/**
+ * What one take-back counts against what the bank took in its dispute (all shares of a dispute together never owe
+ * more than that): what it still reserves, and what was really paid for it, whichever way. A waived amount, and the
+ * part of a settlement that was let go, count for nothing: that is room for another share again.
+ */
+export const againstBank = (row: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number }): number =>
+  ([...OPEN, "taking", "taken"].includes(row.status) ? row.amountCents : 0) + (row.status === "settled" ? (row.repaidCents ?? 0) : 0) + row.byHandCents;
+
+/**
+ * Of what a host paid for a take-back whose cause has fallen away: what is still to give back to her. What the
+ * founder was already told to give back of it (because less had turned out to be owed) is not told a second time.
+ * The emails and the pages all use this one sum.
+ */
+export const toGiveBackCents = (debt: { status: string; amountCents: number; repaidCents: number | null; byHandCents: number; excessToldCents: number }): number =>
+  Math.max(0, paidBackCents(debt) - debt.excessToldCents);
+
+/**
+ * What a host paid back outside Stripe for a share and still stands as paid: the payments of settled take-backs
+ * whose cause has NOT fallen away. Once it has (the refund failed after all, the bank decided the other way), the
+ * founder is told to give that money back, and it no longer uses up room on the transfer: a new take-back on the same
+ * share (the customer is refunded a second time, say) is written for its full amount again.
+ */
+export const repaidOutsideStanding = (rows: Array<{ status: string; repaidCents: number | null; leftoverToldAt: Date | null }>): number =>
+  rows.filter((row) => row.status === "settled" && row.leftoverToldAt === null).reduce((sum, row) => sum + (row.repaidCents ?? 0), 0);
+
