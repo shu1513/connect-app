@@ -1124,3 +1124,37 @@ are not forgotten.
 Also taken: a reversal by hand while a take-back is being taken is told as "on hold", not as
 "had ended"; a reversal that carries a label is only ever the attempt with that label.
 
+## What CodeRabbit found in step 2a (pull request 100), and what was done
+
+Nineteen points, none of them a stop. Seventeen are taken:
+
+- **The set-up script for Stripe's messages did not ask for the three new kinds** (a refund
+  that failed, a refund that changed, a transfer that was reversed). **Fixed.** The note for
+  going live now also says what is not noticed without them.
+- **The notices said "14 days after this message was sent"; the rule counts from its
+  arrival.** **Fixed** in the notices, the pages and the lawyer's file.
+- **When Stripe's total of refunds on a charge is not the app's** (a refund made at Stripe
+  itself), the app waited without a word. **Fixed:** the founder is told, once.
+- **Where room is short, refunds are now looked at in the order they were confirmed.**
+- **The helper's repeat of a taking:** a dispute that cannot be asked about stops the repeat,
+  not the search for a reversal that was already made.
+- **A search through Stripe's list** that runs past its time proves nothing also when its last
+  page is empty; and whether "not found" may be final is decided before the search begins.
+- **A cause that fell away frees room also where the take-back had ended** (a settled one):
+  take-backs that had got nothing are worked out again.
+- **The founder's answer** says "failed after all" while the app is still undoing a refund.
+- **The founder's email about reversals by hand** is sent again when another one appears.
+- **The check script:** the take-backs of the refunds that fail later are written right after
+  those refunds; a transfer is noted for the clean-up as soon as it is made; the clean-up ends
+  every money action of the run that is still unanswered; one more thing is asserted.
+
+Two are not taken, with the reasons:
+
+- *"Keep the part of an outside payment that was told as too much out of the room."* It is one
+  cent in one case, it would need another number kept apart on every take-back, and the room
+  it concerns is only used by a third refund on the same payment.
+- *"Make a hold on the transfer a condition for a reversal by hand."* A reversal by hand is
+  made at Stripe, where the app cannot require anything. The founder is told to hold first;
+  the app stops as soon as it sees such a reversal; and one that slipped through is found
+  afterwards and recorded as paid twice.
+

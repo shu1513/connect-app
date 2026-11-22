@@ -186,7 +186,7 @@ export default async function DebtPage(props: PageProps<"/debts/[id]">) {
                 "The objection was answered. It gets its day once the answer's email has arrived."
               )
             ) : asHost ? (
-              "Connect asks Stripe to take it back from your Stripe balance, not before 14 days after our email about it was sent to you. Until then nothing is taken."
+              "Connect asks Stripe to take it back from your Stripe balance, not before 14 days after our email about it reached you. Until then nothing is taken."
             ) : (
               "The host was told. It gets its day once the notice's email has arrived (14 days after that)."
             ))}

@@ -188,9 +188,9 @@ export async function Earnings({ hostId, payoutsReady, abroad, now }: { hostId: 
                         from <LocalTime iso={debt.dueAt.toISOString()} />.
                       </>
                     ) : debt.status === "answered" ? (
-                      "not before 3 days after our answer to your objection was sent to you by email."
+                      "not before 3 days after our answer to your objection reached you by email."
                     ) : (
-                      "not before 14 days after our email about it was sent to you."
+                      "not before 14 days after our email about it reached you."
                     )}
                     {!debt.dueAt && debt.noticeProblemToldAt && " We could not reach you by email about this, so nothing is taken for now; please check the email address of your account."}
                     {debt.status === "told" && " If you think this is wrong, you can say so on its page; nothing is taken then until we have answered you."}

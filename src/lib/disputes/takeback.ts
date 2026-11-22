@@ -68,6 +68,7 @@ import {
   refundOwedWordsForFounder,
   refundRefusedWords,
   refundTakenWords,
+  refundTotalsWordsForFounder,
   refundWaitingWords,
   refundWaitingWordsForFounder,
   refusedWords,
@@ -221,6 +222,23 @@ async function reductionsOn(reader: Reader, paymentId: string, before?: Refund):
 }
 
 /**
+ * Stripe's total of refunds on a charge is not the app's: a refund was made at Stripe outside the app, or Stripe has
+ * taken one back that the app has not undone yet. Until the two agree nothing is worked out for that payment (the
+ * sums would rest on a history that is not whole). So that this does not wait unseen, the founder is told, once for
+ * that pair of totals.
+ */
+async function tellOfRefundTotals(tx: Tx, paymentId: string, atStripeCents: number, inAppCents: number): Promise<void> {
+  const about = await aboutOwner(tx, { kind: "payment", id: paymentId });
+  const people = about ? await peopleFor(tx, about) : null;
+  if (!about || !people) return;
+  const names = { host: people.hostName, customer: people.customer.name };
+  for (const founder of people.founders) {
+    const told = refundTotalsWordsForFounder({ what: about.what("founder", founder, names), hostName: people.hostName, atStripe: formatMoney(atStripeCents), inApp: formatMoney(inAppCents) });
+    await queueEmail(tx, { to: founder.email, key: `refund-totals:${paymentId}:${atStripeCents}:${inAppCents}:founder:${founder.id}`, subject: told.subject, text: `${told.text}\n\nThe refund page (admin login):\n${appUrl()}/admin/refund\n` });
+  }
+}
+
+/**
  * What is left on a share's transfer, as the app knows it: what was sent, less what the app itself took back for this
  * share's take-backs, less every part of a reversal made by hand that the founder has accounted for. A reversal made
  * by hand that nobody has accounted for yet is NOT taken off here. Until the founder has said what it was for the app
@@ -310,7 +328,10 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
     if (!charge) return false;
     // For a call's own payment: Stripe's total of refunds on the charge has to be the app's. If Stripe knows of a
     // refund the app has not confirmed yet, the look waits for the app's record to catch up.
-    if (dispute.paymentId === paymentId && charge.amount_refunded !== share.refundedCents) return false;
+    if (dispute.paymentId === paymentId && charge.amount_refunded !== share.refundedCents) {
+      await tellOfRefundTotals(tx, paymentId, charge.amount_refunded, share.refundedCents);
+      return false;
+    }
     const settledOutside = repaidOutsideStanding(others);
     const reductions = await reductionsOn(tx, paymentId);
     const basis: Basis = {
@@ -374,7 +395,9 @@ async function refundsWithoutRow(only?: Only): Promise<string[]> {
     .select({ id: schema.refunds.id })
     .from(schema.refunds)
     .where(and(eq(schema.refunds.afterCollection, true), eq(schema.refunds.status, "done"), isNull(schema.refunds.debtLookedAt), only ? inArray(schema.refunds.id, only.refundIds ?? []) : undefined))
-    .orderBy(asc(schema.refunds.finishedAt), asc(schema.refunds.id));
+    // In the order they were confirmed (their places), as the sums count them: where room is short, the earlier
+    // refund's take-back gets it first.
+    .orderBy(sql`${schema.refunds.afterCollectionNo} asc nulls last`, asc(schema.refunds.finishedAt), asc(schema.refunds.id));
   return rows.map((row) => row.id);
 }
 
@@ -442,7 +465,10 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
     // Stripe's total of refunds on the charge has to be the app's: if Stripe knows of a refund the app has not
     // confirmed (or the other way round), nothing is worked out from a history that is not whole. Not marked as
     // looked at: the next pass asks again.
-    if (fits && charge!.amount_refunded !== share.refundedCents) return;
+    if (fits && charge!.amount_refunded !== share.refundedCents) {
+      await tellOfRefundTotals(tx, share.id, charge!.amount_refunded, share.refundedCents);
+      return;
+    }
     const basis: RefundBasis = {
       sentCents: share.transferCents!,
       reductionCents: refund.hostOwesCents,
@@ -509,6 +535,9 @@ async function settleChanged(now: Date, only?: Only): Promise<void> {
           await tellHost(tx, fresh, dispute, "cancelled", (facts) => cancelledWords(facts, "won"));
         }
         await fellAway(tx, fresh, now, `the bank decided dispute ${dispute.id} the other way after all`);
+        // What she had paid outside the app for it goes back to her and uses up no room any more: a take-back on
+        // this share (or on a sister share of the dispute) that had got nothing is worked out again.
+        if (!open) await freeSetAside(tx, fresh.paymentId, fresh.disputeId);
         // What she had really paid back for it, whichever way: the app does not give it back by itself.
         const paid = toGiveBackCents(fresh);
         if (paid > 0) {
@@ -897,7 +926,9 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
   // arrived and its day has come. A reversal Stripe already made is found and booked below either way.
   // (A take-back that comes from a refund has no dispute to ask about: its refund is checked under the lock below.)
   let resend = canRepeat && Boolean(row) && (disputeId ? dispute?.outcome === "lost" : true);
-  if (resend && disputeId) resend = outcomeOf((await lookUp(() => stripe().disputes.retrieve(disputeId))).status) === "lost";
+  // (If Stripe cannot be asked about the dispute, nothing is sent again; the search below still runs, so a reversal
+  // Stripe already made is found and booked whatever becomes of that question.)
+  if (resend && disputeId) resend = await stripe().disputes.retrieve(disputeId).then((atStripe) => outcomeOf(atStripe.status) === "lost", () => false);
   // The same two looks the first request had: the refund still stands at Stripe, and no reversal made by hand on the
   // transfer is unaccounted for. If either cannot be asked, nothing is sent again (the search below still runs).
   if (resend && row?.refundId) resend = await refundStands(row.refundId).catch(() => false);
@@ -951,6 +982,8 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
         }
         if (Date.now() > until) throw new Error("the search through this transfer's reversals took too long");
       }
+      // (Also when the last page came late and held nothing: a search that ran past its time proves nothing.)
+      if (reversalId === undefined && Date.now() > until) throw new Error("the search through this transfer's reversals took too long");
     });
   }
   if (reversalId !== undefined) {
@@ -1351,6 +1384,8 @@ export async function handReversalsOpen(debt: Pick<HostDebt, "paymentId" | "stri
     if (Date.now() > until) throw new Error("the search through this transfer's reversals took too long");
     seen.push({ id: reversal.id, amount: reversal.amount, created: reversal.created, metadata: reversal.metadata });
   }
+  // (Also when the last page came late: a list that was read past its time is not relied on.)
+  if (Date.now() > until) throw new Error("the search through this transfer's reversals took too long");
   if (seen.length === 0) return [];
   // After Stripe's list, and in one picture: a reversal of the app's own that Stripe already shows is then either
   // still an unanswered attempt or already recorded, never neither.
@@ -1373,7 +1408,8 @@ async function tellOfHand(debt: HostDebt, open: HandReversalSeen[], now: Date): 
     if (!cause) return;
     if (TAKEABLE.includes(fresh.status) && fresh.handToldAt === null) await tx.update(debts).set({ handToldAt: now, updatedAt: now }).where(eq(debts.id, fresh.id));
     const total = still.reduce((sum, one) => sum + one.openCents, 0);
-    await tellFounders(tx, fresh, cause, `hand:${still[0].id}`, (facts) => handHeldWordsForFounder(facts, formatMoney(total), ["taken", "settled", "cancelled"].includes(fresh.status)), true);
+    // Under a key of the whole set: the same set is told once, and a set that has grown is told again with its new total.
+    await tellFounders(tx, fresh, cause, `hand:${still.map((one) => one.id).sort().join("+")}`, (facts) => handHeldWordsForFounder(facts, formatMoney(total), ["taken", "settled", "cancelled"].includes(fresh.status)), true);
   });
 }
 

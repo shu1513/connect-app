@@ -571,13 +571,14 @@ How it works since this change, for a share a host had collected before a bank d
 was lost (and, once built, for a refund Connect gives after she collected):
 
 - She is told in writing, in the app and by email: which payment, why, how the amount is worked
-  out. **The 14 days count from the moment the email was handed to the sending service**, not
+  out. **The 14 days count from the email's arrival** (the later of the moment it was
+  handed to the sending service and the moment that service reported it as delivered), not
   from when the app wrote the debt down, **and nothing is taken unless that service has
   reported the email as delivered** and never as bounced. Otherwise the founder is told and can
   send the notice again.
 - **She can press "I think this is wrong"** and write why. Nothing is taken then until the
   founder has decided: call it off, or answer her in writing and take it after all, no earlier
-  than the first day named and no earlier than 3 days after that answer went out. She cannot
+  than the first day named and no earlier than 3 days after that answer arrived. She cannot
   object a second time in the app; she can still write to support.
 
 Questions:

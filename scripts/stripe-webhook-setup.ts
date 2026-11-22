@@ -25,6 +25,12 @@ const EVENTS = [
   "charge.dispute.closed",
   // A dispute that was lost and is later decided the other way.
   "charge.dispute.funds_reinstated",
+  // A refund that Stripe first confirmed and that then failed after all: the app undoes its record, and a host who
+  // was to pay for it owes nothing (plans/46-part-3-money-owed.md).
+  "refund.failed",
+  "refund.updated",
+  // A host's transfer was reversed: one made by hand at Stripe may have paid a take-back, or paid one twice.
+  "transfer.reversed",
 ] as const;
 const MARK = "connect-app-dev";
 

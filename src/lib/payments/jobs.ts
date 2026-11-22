@@ -208,6 +208,7 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
       } else if (operation.kind === "refund") {
         let refund: { id: string; status: string | null; failure_reason?: string | null } | undefined;
         let refusal: string | null = null;
+        let settled = false;
         // Looked at once more right before a repeat goes out: another helper may have ended this action since it
         // was picked up here (it found the refund, or a clear "no"). Then nothing is sent from this older look.
         const [stillOpen] = await db.select({ status: schema.moneyOperations.status }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operation.id));
@@ -232,6 +233,9 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           // Every page: a refund that really happened is never called failed because newer ones stand before it.
           // And within a limit of time: a search that is not finished by then proves nothing, and is made again on the
           // next pass, so one long list never holds every other action up.
+          // Whether "not found" may be final is decided BEFORE the search begins: only a search that began after the
+          // last repeat could no longer be on its way can say that the refund does not exist.
+          settled = Date.now() - operation.createdAt.getTime() >= SETTLED_AFTER_MS;
           const until = Date.now() + SEARCH_WITHIN_MS;
           await lookUp(async () => {
             // (Each page has its own limit of time too: a page that does not come is not waited for.)
@@ -242,12 +246,14 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
               }
               if (Date.now() > until) throw new Error("the search through this charge's refunds took too long");
             }
+            // (Also when the last page came late and held nothing: a search that ran past its time proves nothing.)
+            if (!refund && Date.now() > until) throw new Error("the search through this charge's refunds took too long");
           });
         }
         // Nothing found, and no "no" to a repeat of this look's own: that is only final once no repeat can still be
         // on its way. Another helper may have sent one just before the last moment for repeats; until that one has
         // had its time, the action stays open and is looked at again.
-        if (!refund && refusal === null && Date.now() - operation.createdAt.getTime() < SETTLED_AFTER_MS) {
+        if (!refund && refusal === null && !settled) {
           log(`unfinished refund on payment ${operation.paymentId}: not found at Stripe yet, and a repeat may still be on its way; looked at again`);
           continue;
         }

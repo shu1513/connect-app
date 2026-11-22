@@ -5339,7 +5339,13 @@ down at the end of the plan: a case that needs two helpers with different rights
 the same second, and a one-cent rounding in a lost dispute's take-back after a refund that
 fails later. After five rounds the change goes to the pull request and to CodeRabbit.
 
-**How it was checked.** Type check, lint, the automatic tests (1028, with the sums and every
+CodeRabbit read the pull request and left nineteen points, none of them a stop. The most
+useful: the set-up script for Stripe's messages did not ask for the three new kinds, so the
+app would never have been told of a failed refund or a reversed transfer; and the notices said
+"14 days after this message was sent" where the rule counts from its arrival. Seventeen are
+taken; the two that are not are in the plan, with the reasons.
+
+**How it was checked.** Type check, lint, the automatic tests (1030, with the sums and every
 new sentence). A new real script against Stripe's test mode, `scripts/owed-check.ts`, 148
 checks; what it covers, its two stand-ins and what it leaves to the rules' tests are listed at
 the end of the plan. Plan 47's scripts still pass (`dispute-takeback-check` 124, with the
@@ -5360,7 +5366,10 @@ be made in Stripe's test area.
 **Before going live.** The sending service's delivery reports must be switched on (step 1), or
 no take-back ever gets its day. And Stripe's messages to the app must include the two about
 refunds, `refund.failed` and `refund.updated`, and the one about a reversed transfer,
-`transfer.reversed` (in Stripe, under the webhook's events). Without the first two a refund
-that fails later is only noticed when the app is about to take money for it; without the third
-a reversal made by hand is only noticed then too.
+`transfer.reversed` (in Stripe, under the webhook's events). `scripts/stripe-webhook-setup.ts` now asks for them. Without the first two, a refund that
+fails later is noticed only when the helper is about to write its take-back or to take money
+for it. The helper does NOT look again at every confirmed refund on each pass: a failure of a
+refund whose take-back waits for the founder, or has already ended, would then never be
+noticed. Without the third, a reversal made by hand is noticed only when the app is about to
+take from that transfer, or when the founder opens the take-back's page.
 

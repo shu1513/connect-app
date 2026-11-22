@@ -518,7 +518,7 @@ async function main() {
       let debt = await debtOf(c.disputeId);
       const noticeId = debt.noticeEmailId!;
       const notice = await mailRow(noticeId);
-      check("a take-back whose notice has not gone out has no due day, and its notice names none", debt.status === "told" && debt.dueAt === null && notice?.status === "queued" && notice.to === host.email && notice.body.includes("From 14 days after this message was sent to you by email"), `${debt.dueAt} ${notice?.status}`);
+      check("a take-back whose notice has not gone out has no due day, and its notice names none", debt.status === "told" && debt.dueAt === null && notice?.status === "queued" && notice.to === host.email && notice.body.includes("From 14 days after this message reached you by email"), `${debt.dueAt} ${notice?.status}`);
       check("the notice says what each way of objecting does: the button at once, an email only once a person at Connect has put a hold on it", notice.body.includes("From the moment you press it, nothing is taken") && notice.body.includes("An email does not stop the taking by itself: it stops only when a person at Connect has put a hold on it"));
       await passOnly(new Date(NOW.getTime() + 10 * NOTICE_MS), c.disputeId);
       check("it is never taken while that is so, however much time passes", (await debtOf(c.disputeId)).status === "told" && (await transferAt(c.transferId)).amount_reversed === 0 && (await operationsOf(c.payment.id)).length === 0);

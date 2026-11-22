@@ -6,7 +6,7 @@ vi.mock("@/lib/refunds/emails", () => ({ queueRefundEmail: async () => undefined
 
 import { refundAnswer, refundEstimate, refundReason, type RefundOutcome } from "./founder-refund";
 
-const done: RefundOutcome = { paymentId: "p", amountCents: 500, status: "done", stripeRefundId: "re_1", failure: null, afterCollection: true, hostOwesCents: 464, sentCents: 1238, takeBack: "not_yet" };
+const done: RefundOutcome = { paymentId: "p", amountCents: 500, status: "done", stripeRefundId: "re_1", failure: null, failedAfterAll: false, afterCollection: true, hostOwesCents: 464, sentCents: 1238, takeBack: "not_yet" };
 
 describe("what the founder is told about a refund (plans/46-part-3-money-owed.md, decision 11)", () => {
   it("says the amount that was written down, never the one a form sent", () => {
@@ -27,6 +27,12 @@ describe("what the founder is told about a refund (plans/46-part-3-money-owed.md
     expect(unknown).toContain("do not refund it a second time before that");
     expect(unknown).not.toContain("the app asked Stripe");
     expect(unknown).not.toContain("accepted");
+  });
+
+  it("does not say \"given back\" for a refund Stripe has failed after all, while the app is still undoing it", () => {
+    const told = refundAnswer({ ...done, failedAfterAll: true, failure: "expired_or_canceled_card" }, "founder");
+    expect(told).toContain("failed at Stripe after it had first gone through (expired_or_canceled_card): the customer did not get the money");
+    expect(told).not.toContain("was given back");
   });
 
   it("gives Stripe's reason for a refusal", () => {

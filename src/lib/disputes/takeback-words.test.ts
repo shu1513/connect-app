@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, handTwiceWords, leftoverWords, loweredWords, noRoomWordsForFounder, refundFellAwayWords, shareRestoredWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
+import { answeredWords, cancelledWords, handCountedWords, handHeldWordsForFounder, handTwiceWords, leftoverWords, loweredWords, noRoomWordsForFounder, refundFellAwayWords, refundTotalsWordsForFounder, shareRestoredWords, refundFellAwayWordsForFounder, settledWords, notDeliveredWords, noticeAgainWords, objectedWords, refundCancelledWords, refundOwedWords, refundOwedWordsForFounder, refundRefusedWords, refundSettledWords, refundTakenWords, refundWaitingWords, refundWaitingWordsForFounder, objectedWordsForFounder, owedWords, owedWordsForFounder, refusedWords, takenWords, type DebtFacts } from "./takeback-words";
 
 const facts: DebtFacts = {
   what: "the payment for your call with Ben on Monday",
@@ -29,9 +29,9 @@ describe("what a host is told when a share is owed back", () => {
 
   it("names no day while the day is not known: it counts from the email really going out", () => {
     const told = owedWords({ ...facts, dueOn: null }).text;
-    expect(told).toContain("From 14 days after this message was sent to you by email, Connect will ask Stripe to take $12.38 back from your Stripe balance. Until then nothing is taken.");
+    expect(told).toContain("From 14 days after this message reached you by email, Connect will ask Stripe to take $12.38 back from your Stripe balance. Until then nothing is taken.");
     expect(told).toContain('"Your earnings" on your Hosting page shows the day.');
-    expect(owedWordsForFounder({ ...facts, dueOn: null }).text).toContain("from 14 days after that notice went out by email it asks Stripe");
+    expect(owedWordsForFounder({ ...facts, dueOn: null }).text).toContain("from 14 days after that notice arrived by email it asks Stripe");
   });
 
   it("says how a part is worked out", () => {
@@ -103,7 +103,7 @@ describe("an objection", () => {
   it("gives the host the founder's answer in full, and from when it is taken after all", () => {
     const told = all(answeredWords(facts, "The bank's decision stands whatever happened in the call."));
     expect(told).toContain("Our answer:\n\nThe bank's decision stands whatever happened in the call.");
-    expect(told).toContain("not before 3 days after this message was sent to you by email, and not before the day the first notice named");
+    expect(told).toContain("not before 3 days after this message reached you by email, and not before the day the first notice named");
     expect(told).toContain("If you still think this is wrong, write to us at support@connect.example.");
   });
 
@@ -123,13 +123,13 @@ describe("a notice that is sent again", () => {
     expect(again.subject).toBe(owedWords(facts).subject);
     expect(again.text.startsWith("We are sending this again because we could not confirm that our first message about it reached you by email.")).toBe(true);
     expect(again.text).toContain('press "I think this is wrong"');
-    expect(again.text).toContain("From 14 days after this message was sent to you by email");
+    expect(again.text).toContain("From 14 days after this message reached you by email");
   });
 
   it("for a take-back whose objection was already answered, repeats the answer and does not point to a button that is gone", () => {
     const again = all(noticeAgainWords({ ...facts, dueOn: null }, "The bank's decision stands."));
     expect(again).toContain("You told us this is wrong, and we answered:\n\nThe bank's decision stands.");
-    expect(again).toContain("not before 14 days after this message was sent to you by email");
+    expect(again).toContain("not before 14 days after this message reached you by email");
     expect(again).toContain("If you still think this is wrong, write to us at support@connect.example.");
     expect(again).not.toContain("I think this is wrong\"");
     expect(again).not.toContain("press");
@@ -152,7 +152,7 @@ describe("a take-back that comes from a refund given after the host had collecte
     expect(told).toContain("Connect has given Ben $50.00 back for the payment for your call with Ben on Monday. You had already collected your share of that payment, so the money came from Connect.");
     expect(told).toContain("Why Connect decided this refund: The host did not join the call. Ben waited ten minutes.");
     expect(told).toContain("Your share of that payment was $80.00 before this refund and is $40.00 after it. The difference is what you owe back: $40.00.");
-    expect(told).toContain("From 14 days after this message was sent to you by email, Connect will ask Stripe to take $40.00 back from your Stripe balance. Until then nothing is taken.");
+    expect(told).toContain("From 14 days after this message reached you by email, Connect will ask Stripe to take $40.00 back from your Stripe balance. Until then nothing is taken.");
     expect(told).toContain('press "I think this is wrong" on this take-back\'s page in the app');
     expect(told).toContain("An email does not stop the taking by itself");
     expect(told).not.toContain("bank");
@@ -366,6 +366,15 @@ describe("more is owed than can still be taken, a take-back that comes out lower
     expect(founder).toContain("after the take-back was called off");
     expect(founder).toContain("although nothing was owed for it any more");
     expect(founder).not.toContain("twice");
+  });
+});
+
+describe("Stripe's refunds and the app's do not agree", () => {
+  it("tells the founder both totals, what it mostly means, and that no take-back is worked out meanwhile", () => {
+    const told = all(refundTotalsWordsForFounder({ what: "the call of Ana (host) and Ben (customer) on Monday", hostName: "Ana", atStripe: "$30.00", inApp: "$20.00" }));
+    expect(told).toContain("Stripe shows $30.00 refunded on the charge, and the app has $20.00");
+    expect(told).toContain("a refund was made at Stripe itself and not through the app");
+    expect(told).toContain("the app works out no take-back from Ana for this payment");
   });
 });
 

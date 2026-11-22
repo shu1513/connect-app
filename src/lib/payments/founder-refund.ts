@@ -146,6 +146,8 @@ export type RefundOutcome = {
   stripeRefundId: string | null;
   /** What Stripe said when it refused or failed it. */
   failure: string | null;
+  /** Stripe said that it failed after it had first gone through, and the app has not undone its record yet (money was moving on the payment). */
+  failedAfterAll: boolean;
   afterCollection: boolean;
   hostOwesCents: number;
   /** For one after collection: what was really sent to the host for that share. */
@@ -166,6 +168,7 @@ export async function refundOutcome(refundId: string): Promise<RefundOutcome | n
     status: refund.status as RefundOutcome["status"],
     stripeRefundId: refund.stripeRefundId,
     failure: refund.failure,
+    failedAfterAll: refund.status === "done" && refund.undoPendingAt !== null,
     afterCollection: refund.afterCollection,
     hostOwesCents: refund.hostOwesCents,
     sentCents: payment?.transferStatus === "sent" ? (payment.transferCents ?? 0) : 0,
@@ -191,6 +194,8 @@ export function refundAnswer(outcome: RefundOutcome | null, as: "founder" | "hos
       ? `The refund of ${amount} is on its way: Stripe has accepted it and has not confirmed it yet. The app finishes it by itself.${outcome.afterCollection ? " What the host owes is worked out once it is confirmed." : ""}`
       : `The refund of ${amount} was recorded, and what came of it at Stripe is not confirmed yet: it may have gone through, or it may not have reached Stripe. The app finds out by itself; mostly that takes a few minutes, at the longest a day. Wait until the payment's page shows what happened, and do not refund it a second time before that.`;
   }
+  // Stripe has said that it failed after all; the app's record still says "given back" until it is undone.
+  if (outcome.failedAfterAll) return `The refund of ${amount} failed at Stripe after it had first gone through${outcome.failure ? ` (${outcome.failure})` : ""}: the customer did not get the money. The app is undoing its record of it, which takes a few minutes; nobody owes anything for it.`;
   if (!outcome.afterCollection) return as === "founder" ? `${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.` : `The refund of ${amount} was sent to the customer.`;
   const shrank = `${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`;
   if (outcome.takeBack === "nothing" || outcome.sentCents <= 0 || outcome.hostOwesCents <= 0) return `${shrank} Nothing can be taken back for it: nothing was sent to the host for this share, or nothing is left of what was sent.`;
