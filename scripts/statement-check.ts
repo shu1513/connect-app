@@ -127,6 +127,13 @@ async function main() {
     await line({ paymentId: third }, "host_share", 2823, "2026-04-11T13:00:00Z");
     await line({ paymentId: third }, "host_transfer", -2798, "2026-05-02T09:00:00Z");
     await line({ paymentId: third }, "payout_fee", 25, "2026-05-02T09:00:00Z");
+    // The next year, money of that share goes back (plans/46-part-3-money-owed.md): $10.00 is taken back out of the
+    // transfer and $5.00 she pays back herself in February; Connect waives $3.00 in March and takes that waiver off
+    // its books again in April.
+    await line({ paymentId: third }, "host_takeback", 1000, "2027-02-10T09:00:00Z");
+    await line({ paymentId: third }, "host_repaid", 500, "2027-02-11T09:00:00Z");
+    await line({ paymentId: third }, "connect_cost", 300, "2027-03-05T09:00:00Z");
+    await line({ paymentId: third }, "connect_cost", -300, "2027-04-05T09:00:00Z");
 
     // 6. A contribution of $25.00 in August 2026, given back in September after she had collected: Connect pays the refund itself.
     const [project] = await db.insert(schema.projects).values({ hostId: host, name: "Statement check", status: "ended", startedAt: at("2026-08-01T00:00:00Z"), endedAt: at("2026-10-01T00:00:00Z") }).returning({ id: schema.projects.id });
@@ -155,29 +162,31 @@ async function main() {
     console.log("\n1. The year 2026");
     const y26 = await S.statementFor(host, 2026);
     const month26 = (index: number) => JSON.stringify(y26.months[index]);
-    check("March: the call paid by card, its fee, her share, and what was sent with the collection charge", month26(2) === JSON.stringify({ paidCents: 5000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 275, tipFeesCents: 0, shareCents: 4725, sentCents: 4700, collectionChargesCents: 25 }), month26(2));
-    check("April: a call whose first collection was refused: nothing sent that month", month26(3) === JSON.stringify({ paidCents: 3000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 177, tipFeesCents: 0, shareCents: 2823, sentCents: 0, collectionChargesCents: 0 }), month26(3));
-    check("May: the tip with its payment fee apart and the tip whole as her share; and April's share, sent once, when it really went", month26(4) === JSON.stringify({ paidCents: 1061, givenBackCents: 0, paidByConnectCents: 0, feesCents: 0, tipFeesCents: 61, shareCents: 1000, sentCents: 2798, collectionChargesCents: 25 }), month26(4));
-    check("June: the member's month counted when it was paid, and her share of the one call from it", month26(5) === JSON.stringify({ paidCents: 12000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 177, tipFeesCents: 0, shareCents: 2823, sentCents: 0, collectionChargesCents: 0 }), month26(5));
-    check("July: her share of the member's unused time, with nothing paid again", month26(6) === JSON.stringify({ paidCents: 0, givenBackCents: 0, paidByConnectCents: 0, feesCents: 441, tipFeesCents: 0, shareCents: 8559, sentCents: 0, collectionChargesCents: 0 }), month26(6));
-    check("August and September: a contribution, and its refund after she had collected, which Connect paid itself", month26(7) === JSON.stringify({ paidCents: 2500, givenBackCents: 0, paidByConnectCents: 0, feesCents: 153, tipFeesCents: 0, shareCents: 2347, sentCents: 0, collectionChargesCents: 0 }) && month26(8) === JSON.stringify({ paidCents: 0, givenBackCents: 2500, paidByConnectCents: 2500, feesCents: 0, tipFeesCents: 0, shareCents: 0, sentCents: 0, collectionChargesCents: 0 }), `${month26(7)} ${month26(8)}`);
-    check("December: the payment a second before midnight is in 2026, and its refund is not", month26(11) === JSON.stringify({ paidCents: 4000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 226, tipFeesCents: 0, shareCents: 3774, sentCents: 0, collectionChargesCents: 0 }), month26(11));
-    check("the year: everything of hers once, and nothing of the other host", JSON.stringify(y26.total) === JSON.stringify({ paidCents: 27561, givenBackCents: 2500, paidByConnectCents: 2500, feesCents: 1449, tipFeesCents: 61, shareCents: 26051, sentCents: 7498, collectionChargesCents: 50 }), JSON.stringify(y26.total));
+    check("March: the call paid by card, its fee, her share, and what was sent with the collection charge", month26(2) === JSON.stringify({ paidCents: 5000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 275, tipFeesCents: 0, shareCents: 4725, sentCents: 4700, takenBackCents: 0, collectionChargesCents: 25 }), month26(2));
+    check("April: a call whose first collection was refused: nothing sent that month", month26(3) === JSON.stringify({ paidCents: 3000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 177, tipFeesCents: 0, shareCents: 2823, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }), month26(3));
+    check("May: the tip with its payment fee apart and the tip whole as her share; and April's share, sent once, when it really went", month26(4) === JSON.stringify({ paidCents: 1061, givenBackCents: 0, paidByConnectCents: 0, feesCents: 0, tipFeesCents: 61, shareCents: 1000, sentCents: 2798, takenBackCents: 0, collectionChargesCents: 25 }), month26(4));
+    check("June: the member's month counted when it was paid, and her share of the one call from it", month26(5) === JSON.stringify({ paidCents: 12000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 177, tipFeesCents: 0, shareCents: 2823, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }), month26(5));
+    check("July: her share of the member's unused time, with nothing paid again", month26(6) === JSON.stringify({ paidCents: 0, givenBackCents: 0, paidByConnectCents: 0, feesCents: 441, tipFeesCents: 0, shareCents: 8559, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }), month26(6));
+    check("August and September: a contribution, and its refund after she had collected, which Connect paid itself", month26(7) === JSON.stringify({ paidCents: 2500, givenBackCents: 0, paidByConnectCents: 0, feesCents: 153, tipFeesCents: 0, shareCents: 2347, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }) && month26(8) === JSON.stringify({ paidCents: 0, givenBackCents: 2500, paidByConnectCents: 2500, feesCents: 0, tipFeesCents: 0, shareCents: 0, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }), `${month26(7)} ${month26(8)}`);
+    check("December: the payment a second before midnight is in 2026, and its refund is not", month26(11) === JSON.stringify({ paidCents: 4000, givenBackCents: 0, paidByConnectCents: 0, feesCents: 226, tipFeesCents: 0, shareCents: 3774, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }), month26(11));
+    check("the year: everything of hers once, and nothing of the other host", JSON.stringify(y26.total) === JSON.stringify({ paidCents: 27561, givenBackCents: 2500, paidByConnectCents: 2500, feesCents: 1449, tipFeesCents: 61, shareCents: 26051, sentCents: 7498, takenBackCents: 0, collectionChargesCents: 50 }), JSON.stringify(y26.total));
     check("what customers paid for, by kind", JSON.stringify(y26.paidBy) === JSON.stringify({ call: 12000, membership: 12000, contribution: 2500, tip: 1061 }), JSON.stringify(y26.paidBy));
     check("the twelve months add up to the year in every column", S.COLUMNS.every(({ key }) => y26.months.reduce((sum, m) => sum + m[key], 0) === y26.total[key]));
 
     console.log("\n2. The year 2027, and the other host");
     const y27 = await S.statementFor(host, 2027);
-    check("January 2027: the refund at midnight UTC, with the fee that came back taken off", JSON.stringify(y27.months[0]) === JSON.stringify({ paidCents: 0, givenBackCents: 2000, paidByConnectCents: 0, feesCents: -113, tipFeesCents: 0, shareCents: -1887, sentCents: 0, collectionChargesCents: 0 }) && JSON.stringify(y27.total) === JSON.stringify(y27.months[0]), JSON.stringify(y27.months[0]));
+    check("January 2027: the refund at midnight UTC, with the fee that came back taken off", JSON.stringify(y27.months[0]) === JSON.stringify({ paidCents: 0, givenBackCents: 2000, paidByConnectCents: 0, feesCents: -113, tipFeesCents: 0, shareCents: -1887, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }) && y27.total.givenBackCents === 2000 && y27.total.feesCents === -113 && y27.total.shareCents === -1887 && y27.total.paidCents === 0, JSON.stringify(y27.months[0]));
+    check("2027: what went back from her is in its own column, in the month it went back, and nothing is taken off what was sent", y27.months[1].takenBackCents === 1500 && y27.months[1].sentCents === 0 && y27.total.takenBackCents === 1500 && y27.total.sentCents === 0 && y26.total.takenBackCents === 0, JSON.stringify(y27.months[1]));
+    check("2027: what Connect waived in March, and took off its books again in April", y27.months[2].paidByConnectCents === 300 && y27.months[3].paidByConnectCents === -300 && y27.total.paidByConnectCents === 0);
     const others = await S.statementFor(other, 2026);
-    check("the other host's statement has her own call and nothing else, in every column", JSON.stringify(others.total) === JSON.stringify({ paidCents: 9900, givenBackCents: 0, paidByConnectCents: 0, feesCents: 0, tipFeesCents: 0, shareCents: 9000, sentCents: 0, collectionChargesCents: 0 }) && JSON.stringify(others.paidBy) === JSON.stringify({ call: 9900, membership: 0, contribution: 0, tip: 0 }), JSON.stringify(others.total));
+    check("the other host's statement has her own call and nothing else, in every column", JSON.stringify(others.total) === JSON.stringify({ paidCents: 9900, givenBackCents: 0, paidByConnectCents: 0, feesCents: 0, tipFeesCents: 0, shareCents: 9000, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 }) && JSON.stringify(others.paidBy) === JSON.stringify({ call: 9900, membership: 0, contribution: 0, tip: 0 }), JSON.stringify(others.total));
     check("a customer has no statement: no host profile, no years", (await S.statementYears(customer, new Date())) === null);
     const years = await S.statementYears(host, at("2028-01-03T00:00:00Z"));
     check("a host's years run from the year her profile was made to this one", years?.first === 2026 && years.last === 2028, JSON.stringify(years));
 
     console.log("\n3. The file");
     const csv = S.statementCsv(y26).split("\r\n");
-    check("the file made from that statement: March, the year, and what was paid for", csv[4] === "March,50.00,0.00,0.00,2.75,0.00,47.25,47.00,0.25" && csv[14] === "Year 2026,275.61,25.00,25.00,14.49,0.61,260.51,74.98,0.50" && csv[17] === '"Calls paid by card",120.00' && csv[19] === '"Contributions to your project",25.00', `${csv[4]} | ${csv[14]} | ${csv[17]}`);
+    check("the file made from that statement: March, the year, and what was paid for", csv[4] === "March,50.00,0.00,0.00,2.75,0.00,47.25,47.00,0.00,0.25" && csv[14] === "Year 2026,275.61,25.00,25.00,14.49,0.61,260.51,74.98,0.00,0.50" && csv[17] === '"Calls paid by card",120.00' && csv[19] === '"Contributions to your project",25.00', `${csv[4]} | ${csv[14]} | ${csv[17]}`);
   } finally {
     const owned = (column: "paymentId" | "monthId" | "contributionPaymentId", ids: string[]) => (ids.length ? db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries[column], ids)) : Promise.resolve());
     await owned("paymentId", payments);

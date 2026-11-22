@@ -1158,3 +1158,29 @@ Two are not taken, with the reasons:
   the app stops as soon as it sees such a reversal; and one that slipped through is found
   afterwards and recorded as paid twice.
 
+## Part 3a, step 2b, as built: the yearly statement only (and what was left out, and why)
+
+**Built:** decision 8's part about the yearly statement. "Sent to you" is what was sent, with
+nothing taken off. A column of its own, "Taken back or paid back", holds what went back from
+the host in the month it went back (`host_takeback` and the new `host_repaid`). "Of that, paid
+by Connect" is now "Carried by Connect" and holds `connect_cost` with its sign. On the page
+and in the file. No migration.
+
+**Left out, on the builder's own judgment, for the founder to decide:** decision 8's other
+part, that a **contribution or a tip** refunded after the host collected changes to the same
+pattern as a call (her share falls, and she owes it back). They stay as they are today: such a
+refund is Connect's own cost, the host keeps her share, and the founder's form says that
+nothing will be taken back from her. The reasons:
+
+- It is the safe side for the agreements. The Host Agreement lets Connect ask a share back; it
+  does not oblige Connect to. Carrying such a refund itself breaks nothing that the drafts say.
+- A contribution's refund is a different machine from a call's (a line that is "owed", tried,
+  and tried again by the helper). Bringing it under the take-backs means building the late
+  failure, the order of refunds and the room once more for that machine. The call's side
+  alone took five rounds of review to get right.
+- A tip is small, and the host gets it whole. A contribution can be large; until this is
+  built, the founder decides case by case whether to refund one after collection at all, or
+  settles it with the host by hand.
+
+If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of its own.
+

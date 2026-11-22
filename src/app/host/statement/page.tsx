@@ -114,7 +114,8 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Given back:</strong> refunds, in the month the refund was written into our books. A payment of December given back in January is in two different years.
         </li>
         <li>
-          <strong>Of that, paid by Connect:</strong> the part of those refunds that Connect paid itself, because you had already collected your share. Your share was not taken back for it.
+          <strong>Carried by Connect:</strong> what Connect paid itself of refunds given after you had collected your share. For a contribution or a tip that is the refund itself (your share was not touched). For a call
+          it is what Connect decided not to take back from you, in the month it decided so.
         </li>
         <li>
           <strong>Connect&apos;s fees:</strong> our fee on calls, memberships and contributions. A fee we returned with a refund is taken off again, so a month can show a minus.
@@ -126,8 +127,11 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Your share:</strong> what you earned. For a member&apos;s month it is counted as the calls happen, or when unused time runs out, so it can fall in a later month than the payment.
         </li>
         <li>
-          <strong>Sent to you:</strong> what Connect sent to your payout account when you collected, after the collection charge. A share that was taken back from you after a
-          lost bank dispute is counted here as less sent, in the month it was taken (so a month can be below zero).
+          <strong>Sent to you:</strong> what Connect sent to your payout account when you collected, after the collection charge. Nothing is taken off here for money that went back later.
+        </li>
+        <li>
+          <strong>Taken back or paid back:</strong> what went back from you after it had been sent, in the month it went back: a share taken back out of a transfer (after a lost bank dispute, or after a refund Connect gave once you had
+          collected), or what you paid back to Connect yourself.
         </li>
         <li>
           <strong>Collection charges:</strong> the charge taken each time you collected. It is already off &quot;Sent to you&quot;.

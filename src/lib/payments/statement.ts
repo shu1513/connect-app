@@ -26,7 +26,11 @@ export type Sums = {
   paidCents: number;
   /** Refunds, in the month they were written into the books. */
   givenBackCents: number;
-  /** Of those refunds: what Connect paid itself, because the host had already collected her share. Her share was not taken back. */
+  /**
+   * What Connect carried itself of refunds given after the host had collected: a contribution's or a tip's refund at
+   * once (her share is not touched for those), and for a call what Connect waived of the share she owed back, in the
+   * month it was waived. With its sign: a waiver that is taken off the books again shows as a minus.
+   */
   paidByConnectCents: number;
   /** Connect's fees, with their signs: a fee returned with a refund is taken off again. */
   feesCents: number;
@@ -34,15 +38,20 @@ export type Sums = {
   tipFeesCents: number;
   /** The host's share, as it was earned: for a member's month as the calls happen or unused time runs out. */
   shareCents: number;
-  /** Transfers to the host that went through. */
+  /** Transfers to the host that went through: what was sent, with nothing taken off for what went back later. */
   sentCents: number;
+  /**
+   * What went back from her after it had been sent: taken back out of a transfer (after a lost bank dispute, or after a
+   * refund Connect gave once she had collected), or paid back by her outside the app. In the month it went back.
+   */
+  takenBackCents: number;
   /** The collection charges really taken from those transfers. Already off "sent". */
   collectionChargesCents: number;
 };
 
 export type Statement = { year: number; months: Sums[]; total: Sums; /** "Paid by customers", by what it was paid for. */ paidBy: Record<Source, number> };
 
-const none = (): Sums => ({ paidCents: 0, givenBackCents: 0, paidByConnectCents: 0, feesCents: 0, tipFeesCents: 0, shareCents: 0, sentCents: 0, collectionChargesCents: 0 });
+const none = (): Sums => ({ paidCents: 0, givenBackCents: 0, paidByConnectCents: 0, feesCents: 0, tipFeesCents: 0, shareCents: 0, sentCents: 0, takenBackCents: 0, collectionChargesCents: 0 });
 
 /** The first moment of a year, in UTC. */
 export const yearStart = (year: number): Date => new Date(Date.UTC(year, 0, 1));
@@ -63,10 +72,12 @@ function add(sums: Sums, line: StatementLine): void {
     else sums.feesCents += line.amountCents;
   } else if (line.kind === "host_share") sums.shareCents += line.amountCents;
   else if (line.kind === "host_transfer") sums.sentCents -= line.amountCents;
-  // A share taken back out of its transfer after a lost bank dispute (plans/47): that much less was sent, in the month it was taken.
-  else if (line.kind === "host_takeback") sums.sentCents -= line.amountCents;
+  // What went back from her (plans/46-part-3-money-owed.md, decision 8): taken back out of a transfer, or paid back
+  // by her outside the app. In a column of its own, in the month it went back: "Sent to you" stays what was sent,
+  // so a share sent in December and taken back in January no longer makes January's "Sent to you" a minus.
+  else if (line.kind === "host_takeback" || line.kind === "host_repaid") sums.takenBackCents += line.amountCents;
   else if (line.kind === "payout_fee") sums.collectionChargesCents += line.amountCents;
-  // A refund given after the host had collected: Connect paid it, and says so beside the refund.
+  // What Connect carried of a refund given after the host had collected, with its sign.
   else if (line.kind === "connect_cost") sums.paidByConnectCents += line.amountCents;
 }
 
@@ -90,11 +101,12 @@ export const MONTH_NAMES = ["January", "February", "March", "April", "May", "Jun
 export const COLUMNS: readonly { key: keyof Sums; title: string }[] = [
   { key: "paidCents", title: "Paid by customers" },
   { key: "givenBackCents", title: "Given back (refunds)" },
-  { key: "paidByConnectCents", title: "Of that, paid by Connect" },
+  { key: "paidByConnectCents", title: "Carried by Connect" },
   { key: "feesCents", title: "Connect's fees" },
   { key: "tipFeesCents", title: "Payment fees on tips" },
   { key: "shareCents", title: "Your share" },
   { key: "sentCents", title: "Sent to you" },
+  { key: "takenBackCents", title: "Taken back or paid back" },
   { key: "collectionChargesCents", title: "Collection charges" },
 ];
 
@@ -112,7 +124,7 @@ export const PAID_FOR: Record<Source, string> = { call: "Calls paid by card", me
 export function statementCsv(statement: Statement): string {
   const row = (label: string, sums: Sums) => [label, ...COLUMNS.map((column) => plainDollars(sums[column.key]))].join(",");
   return [
-    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. A payment a customer's bank took back in a dispute is not in 'Given back'; a share taken back from you after such a dispute is counted as less 'Sent to you', in the month it was taken."`,
+    `"Connect: summary of ${statement.year} for your own records. Not a tax form. US dollars. Counted by the day each line was written into Connect's books, in UTC. A payment a customer's bank took back in a dispute is not in 'Given back'. 'Sent to you' is what was sent; what went back from you afterwards (taken back out of a transfer, or paid back by you) is in 'Taken back or paid back', in the month it went back."`,
     ["Month", ...COLUMNS.map((column) => `"${column.title}"`)].join(","),
     ...statement.months.map((sums, index) => row(MONTH_NAMES[index], sums)),
     row(`Year ${statement.year}`, statement.total),

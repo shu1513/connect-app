@@ -642,3 +642,13 @@ Questions:
 - The customer was told by email that a refund was on its way, and it then failed. Must
   Connect tell the customer, and within what time must the money reach them another way?
 
+Added with the yearly statement's new columns (plan 46, part 3a, step 2b, 22 November 2026):
+
+- A **contribution or a tip** refunded by Connect after the host collected is still paid by
+  Connect itself, and nothing is asked back from the host (only a call's payment is). Is it
+  right that the Host Agreement lets Connect ask it back and Connect chooses not to, or should
+  the agreement say that for contributions and tips Connect carries it?
+- The host's yearly summary now shows, apart from "Sent to you", what went back from her
+  ("Taken back or paid back") and what Connect carried. It is a summary for her own records,
+  not a tax form. Is that split the right one for her tax return in each country hosts are in?
+
