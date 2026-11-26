@@ -388,8 +388,8 @@ Part 2:
 - **The customer's switch**, and marking messages as shown, take the conversation's row and
   nothing after it; a send reads the switch again after its own locks.
 - **Pages:** the conversation (`/conversations/[id]`: every message not shown yet and at least
-  the latest 50, with "Show earlier", the box, the customer's switch, the sentence for each closed state, the "Book a time" button)
-  and the list on "Messages". The conversation asks the server again every 5 seconds while it is
+  the latest 50, with "Show earlier", the box, the customer's switch, the sentence for each
+  closed state, the "Book a time" button) and the list on "Messages". The conversation asks the server again every 5 seconds while it is
   in front; what is typed in the box stays.
 - **The ways in:** "Write to *name*" on an agreed call's page, on the page after a call, and for
   a host beside each past customer on "People you have talked to". A customer sees a host by her
