@@ -5688,6 +5688,10 @@ From its smaller points: the script's "only these conversations" can no longer m
 them", a conversation whose messages are gone says so, and two sentences in the drafts were
 corrected (pressing "Report" opens the form; pausing an account emails that person).
 
+CodeRabbit was at its limit when the pull request was opened ("review limit reached", the next
+one 21 minutes away). As agreed for that case, the builder read the whole change in its place,
+line by line, after Astra's points were in, and found nothing more to change.
+
 **How it was checked.** Type check, lint, 1,109 automatic tests (10 new: the sentence a
 reporter reads for each outcome of the block, with no sentence naming a button; the stop
 switches form with and without the new box; messages on where no switch was ever saved, and a
