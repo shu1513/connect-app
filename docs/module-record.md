@@ -5409,3 +5409,57 @@ taken back, paid back, waived, and a waiver taken off again; the file's columns)
 script `scripts/statement-check.ts`, 17 checks, with a share that goes back the year after it
 was sent. Not looked at in a browser: only two sentences and one column changed on the page.
 
+## Earnings not collected for 12 months (plan 46, part 3b, 21 November 2026)
+
+**Why.** The draft Host Agreement (7.7) says that earnings a host does not collect for 12
+months are sent to her without being asked. Until now nothing was ever sent without a press,
+so a host who forgot would have left her money with Connect for good.
+
+**What was built.** The always-on helper has a loop for it. About once a day it looks at every
+host who has a share whose date has come. One whose last collection that went through is more
+than 12 months ago (or who never had one, and whose oldest such share is more than 12 months
+old) gets a try: a line in `uncollected_tries`, written under her lock before Stripe is asked
+anything. The try then runs what her own button runs (`collectEarnings`), under the try's own
+id, with nobody as the one who pressed; `collections.started_as` (worked out by the database
+from who pressed) says "helper". What decides is asked in the step that accepts the
+collection: the account is open, the try is still open, and the 12 months hold for the shares
+that are really ready, and no collection of the last 12 months is still without its answer;
+the try is marked "collected" in that same step. A try that makes no collection is written
+down with the reason, and the next one is at the first daily round at least seven days later. About once a
+minute, in a loop of its own, the helper runs a try again that it stopped in the middle of,
+and, in another, tells a host whose shares all have their answer what was sent, what the
+charge was, what was not sent and what is still being checked (from 26 hours after the
+collection also with something still open). Her Hosting page says beside her last collection that Connect started it.
+Migration 0062.
+
+**What was not built.** No page for the founder that lists the tries that sent nothing. No
+warning before the 12 months are over. Nothing about the law on unclaimed property (in the
+lawyer's file, section 22).
+
+**How it was checked.** Type check, lint, the automatic tests (the 12 months to the moment,
+the week between tries, every sentence of the message). The real script
+`scripts/payments-check.ts --payouts` (all of it passes, 183 checks; section 29 is new), against Stripe's
+test mode: a host at 11
+months is left and at 12 months and a day is sent everything, once; one whose collection in
+between sent nothing counts from the one before; a refused try is written down and tried again
+after a week and not before; two helpers at once and her own button in the same minute make
+one collection; a closed account and a held-back share are left; an old share that is held
+back does not get a fresh one sent early; one try run by two helpers at once makes one
+collection; a share that only carries the charge keeps the message back until it is answered;
+her own collection whose answer was lost keeps the helper away;
+the message names a transfer that did not go as not sent and an unanswered one as still being
+checked.
+
+**What the reviewer found.** Astra said "hold the merge" with nine points, all taken (the list
+is at the end of the plan). The ones about money: an account closed during the accepting step;
+the 12 months judged before the shares were locked; two helpers on one try; and an older
+weakness in the recovery of a transfer whose answer was lost, which the button had too. Its
+second look held the merge again with five points: a "no" to a repeated transfer was still
+taken as final too early; a collection of the last days whose answer was lost did not count as
+"collected"; two points of words; and the documents. All taken but one part of the first,
+which is left as it is on the builder's own judgment and written in the plan (a "no" to the
+very first request still ends the transfer at once). No third look was asked for. CodeRabbit
+found seven points, all taken (the list is in the plan): among them, a notice with something
+still open is now counted from the collection and goes at 26 hours; telling has a loop of its
+own; a daily round that fails is tried again in ten minutes; and a failure while writing down
+a "no" from Stripe no longer stops the round's other money work.

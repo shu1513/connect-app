@@ -1148,14 +1148,61 @@ export const collections = pgTable(
     hostId: text("host_id")
       .notNull()
       .references(() => user.id),
-    /** Who pressed: the host, or the founder for a host who can no longer log in. */
-    startedBy: text("started_by")
+    /** Who pressed: the host, or the founder for a host who can no longer log in. Nobody when the helper started it. */
+    startedBy: text("started_by").references(() => user.id),
+    /**
+     * Who started it: the host with her button, the founder for a closed account, or the helper for a host who had
+     * not collected for 12 months (plans/46-part-3-money-owed.md, decision 12). Worked out by the database itself
+     * from who pressed, so it is right for every row there is, and for one written by a server that still runs
+     * the code from before this column.
+     */
+    startedAs: text("started_as", { enum: ["host", "founder", "helper"] })
       .notNull()
-      .references(() => user.id),
+      .generatedAlwaysAs(sql`case when started_by is null then 'helper' when started_by = host_id then 'host' else 'founder' end`),
     /** The host's 24 hours until the next collection are counted from here. */
     acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
   },
   (t) => [index("collections_host_idx").on(t.hostId, t.acceptedAt)],
+);
+
+/**
+ * The helper's tries to send a host what she had not collected for 12 months (plans/46-part-3-money-owed.md,
+ * decision 12). A try is written down, under the host's lock, before Stripe is asked anything: so two helpers at
+ * once make one try, and a try that is run again is the same try. A try that makes a collection makes it under
+ * this line's own id.
+ *
+ * What came of it (outcome):
+ *   (empty)    not known yet: the helper runs it again
+ *   collected  a collection was accepted (what was really sent is on the collection's own lines)
+ *   nothing    no collection was accepted; `reason` says why. The next try is a week later.
+ */
+export const uncollectedTries = pgTable(
+  "uncollected_tries",
+  {
+    /** Also the id of the collection this try makes, if it makes one. */
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    /** When the try was written down. The next try of this host is at least a week after it. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull(),
+    /** Since when she had not collected, as it stood when the try was written down. */
+    uncollectedSince: timestamp("uncollected_since", { withTimezone: true }).notNull(),
+    outcome: text("outcome", { enum: ["collected", "nothing"] }),
+    /** Why nothing was collected, in words. */
+    reason: text("reason"),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** When the host was told what was sent. Only a try that made a collection is told. */
+    toldAt: timestamp("told_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("uncollected_tries_host_idx").on(t.hostId, t.claimedAt),
+    // One try of a host at a time.
+    uniqueIndex("uncollected_tries_open_idx").on(t.hostId).where(sql`${t.outcome} is null`),
+    // The ones the helper still has to tell the host about.
+    index("uncollected_tries_untold_idx").on(t.claimedAt).where(sql`${t.outcome} = 'collected' and ${t.toldAt} is null`),
+    check("uncollected_tries_outcome", sql`${t.outcome} is null or ${t.outcome} in ('collected', 'nothing')`),
+  ],
 );
 
 /**
@@ -2592,6 +2639,8 @@ export const handReversalCounts = pgTable(
 );
 export type HandReversalCount = typeof handReversalCounts.$inferSelect;
 export type HostDebt = typeof hostDebts.$inferSelect;
+export type Collection = typeof collections.$inferSelect;
+export type UncollectedTry = typeof uncollectedTries.$inferSelect;
 export type Call = typeof calls.$inferSelect;
 export type Follow = typeof follows.$inferSelect;
 export type Contribution = typeof contributions.$inferSelect;

@@ -1190,3 +1190,159 @@ nothing will be taken back from her. The reasons:
 
 If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of its own.
 
+## Part 3b, as built: earnings not collected for 12 months
+
+**Built:** decision 12, with these differences from the text above.
+
+- **The table of tries** (`uncollected_tries`, migration 0062) has no "week". A try is the
+  host, the moment it was written down, and an id. "One try a week" is asked under her lock:
+  no new try while her latest one is less than 7 days old or has no outcome yet. The database
+  refuses a second try without an outcome for the same host on top of that.
+- **The try's id is the collection's id.** So a try that is run again is the same collection,
+  by the rule her own button already has ("the same press, sent again").
+- **What decides is asked when the collection is accepted** (the writing down of the try is
+  only a first look, by the dates the shares carry). In that one step, with her row locked:
+  her account is open (her own row is held, so it cannot be closed in between); the try is
+  still open; and the 12 months hold for the shares that are **really ready** at that moment
+  (her last collection that went through, read again; if none, the oldest share that would be
+  sent). The try is marked "collected" in the same step. So a host who pressed her own button,
+  whose account was closed, or whose only old share is held back gets nothing from the
+  helper. Her 24 hours and everything that holds a share back are asked there as for any
+  collection.
+- **A try whose run fails for another reason than a refusal** (Stripe does not answer) stays
+  without an outcome and is run again about a minute later; after a day it is written down as
+  "nothing", and the next try is a week later.
+- **`collections.started_as`** is worked out by the database itself from who pressed
+  (nobody: the helper; the host: the host; anybody else: the founder). So it is right for the
+  rows that exist, and for one written by a server still running the older code.
+- **When the 12 months count from her last collection**, any share whose date has come is
+  sent, also one that became ready yesterday. That is what decision 12 says ("her last
+  collection that went through is more than 12 months ago").
+- **The email** is also a message on her Messages page (one pair, as every message since plan
+  47), and her Hosting page says beside her last collection that Connect started it. The
+  sentence about her own money is said to a host whose profile is in another country than the
+  United States, with an "if": the app does not know the currency of her bank account.
+- **The founder is not told** of a try that sent nothing. The lines are in the table; no page
+  shows them yet.
+
+**Rhythm:** two loops of their own in the helper, so that a long daily round never keeps the
+follow-up waiting. About once a day, and when the helper starts: every host with a share whose
+date has come is looked at, and one who seems due gets a try. About once a minute: a try
+without an outcome is run again; and, in a loop of its own, a host whose shares all have their
+answer is told. From 26 hours after the collection was accepted she is told with what is known
+by then; that is when a notice with something still open may go, not a promise of when it
+arrives. A daily round that could not start is tried again ten minutes later.
+
+**Checked by** `scripts/payments-check.ts --payouts`, section 29, against Stripe's test mode
+(the collections' own script, so its hosts and calls are used): the cases of the list under
+"Part 3b" above, with these limits. "A share that is held back" is a bank dispute, played by a
+flag on the payment (as section 22 does). "A payout account that is not ready" is a host whose
+account is taken away in the database; Stripe itself answering "not ready" for a linked account
+is not played here (`abroad-check` plays that for the button). The account is closed between
+the writing down and the collection, not during the accepting step itself.
+
+## What Astra found in the code of part 3b, and what was done
+
+Astra read the first build and said "hold the merge", with nine points. All nine were taken.
+
+1. **An account closed while the collection is being accepted** could still be sent money: the
+   look at "closed" and the closing did not share a lock. The accepting step now holds the
+   person's own row (shared) from the look to the end.
+2. **An older weakness, in the recovery of a transfer whose answer was lost** (the button's own
+   path, which the helper now uses too): with two helpers, one could repeat the request just
+   before the last moment for repeats while the other, just after it, found nothing at Stripe
+   and called the transfer failed; the share would then be "ready" again although Stripe sent
+   it. Now "not found" is only final for a search that began 24 hours after the action was
+   written down (the rule a refund's recovery already had). And a "no" to a repeat is not
+   taken as final before Stripe's own list was read: a transfer that is there is recorded.
+3. **The 12 months were judged by the dates the shares carry, before the shares were locked.**
+   A host whose only old share was held back (or refunded in that moment) could get a share
+   from yesterday sent, with the charge. What decides is now asked last, for the shares that
+   are really ready, and her last collection that went through is read again there.
+4. **Leap day:** counting back from today made a host due on 28 February and not due again on
+   the 29th. The 12 months are now counted forward from the moment she last collected.
+5. **Two helpers running one try:** one could write "nothing" while the other's collection was
+   accepted, and she would never be told. The try is now marked "collected" inside the step
+   that accepts the collection, and "nothing" is only written with the try's row locked and
+   no collection there.
+6. **A share that only carries the charge** and had no answer yet did not count as "being
+   checked", so she could be told before the charge was known. Unanswered shares are counted
+   now, and a charge that is still open is named.
+7. **The daily round kept the minute follow-up waiting.** Two loops now.
+8. **A founder's collection written by a server still running the older code** would have been
+   marked "host" for good. The column is now worked out by the database.
+9. **The words:** "Stripe refused it" and "it stays ready to collect" said more than the
+   record holds. The message now says "Not sent", "It is still yours", and that her Hosting
+   page shows how things stand and what she can collect.
+
+New cases in the real check for 3, 5 and 6. Points 1 and 2 need two processes at the same
+instant and are not played by the script; they were checked by reading.
+
+### Astra's second look at the code of part 3b, and what was done
+
+Astra read the fixes and held the merge once more, with five points. It found points 1, 4, 5,
+6, 7 and 8 of its first list closed.
+
+1. **The recovery of a transfer, again: a "no" to a repeated request** was taken as final at
+   once when Stripe's list showed nothing, although another sender's request could still be on
+   its way. Now one rule holds for every search: a transfer that is on the list is recorded;
+   "not there" lets the share go only when the search began 24 hours after the action was
+   written down. Until then the action stays open. That costs the host nothing: her next
+   collection is 24 hours after this one at the earliest.
+   **Left as it is, on the builder's own judgment:** a "no" that comes back to the *first*
+   sender (the press itself, within seconds of the acceptance) still ends the transfer at
+   once. For that to go wrong, two processes would have to hold different rights at Stripe in
+   the same seconds, and one of them be refused what the other is granted, under one
+   idempotency key. Making every refused share wait a day would also change what the host
+   sees after an ordinary refusal. The same kind of point was left open in step 2a.
+2. **A collection of the last days whose answer was lost** did not count as "collected", so
+   the helper could start a second collection, with a second charge, on top of it. Now a
+   collection of the last 12 months with an unanswered transfer (for more than nothing) stops
+   the helper: no try is written, and the accepting step refuses too.
+3. **The migration was rewritten in place** (same number, new content). That is only safe
+   because the first 0062 was never pushed: it was applied to the one local test database,
+   taken out by hand there, and the new one applied. Nothing to change.
+4. **Words:** "It is still yours" can be untrue by the time she reads it (a refund can take a
+   share away). The message now says "Not sent in this collection" and points to "Your
+   earnings" for what is hers to collect. Her Hosting page says the same ("was not sent in
+   this collection", no longer "it stays ready"), and names a charge that is still being
+   checked.
+5. **The documents promised a little more than the helper does.** Made exact: the next try is
+   at the first daily round at least seven days later, if she still seems due; a collection
+   accepted while the account was open is finished, and its message written, also if the
+   account is closed afterwards; after a day she can be told amounts that are not final, and
+   she is told once; the charge is 25 cents or, for very small shares, less.
+
+A new case in the real check for point 2. No third look was asked for: the two points about
+money are closed by a rule that is the same as the refund's, which had five looks.
+
+### What CodeRabbit found in part 3b (pull request 102), and what was done
+
+Seven points, all taken. Two of them showed a weakness of the builder's own beside them, which
+is fixed with them.
+
+1. **The day before a notice with something still open** was counted from the writing down of
+   the try, not from the collection (a try can be run long after it was written down). Counted
+   from the acceptance of the collection now. And made 26 hours instead of 24: a transfer
+   Stripe will not make is given up 24 hours after the acceptance, so at 24 hours she would
+   have been told "still being checked" minutes before it was known how it ended.
+2. **The check of her 24 hours could not fail:** the host had nothing ready, so her press was
+   refused anyway. It now has a share ready, asks for the 24-hour sentence, and collects it a
+   day later.
+3. **A failure while writing down what a "no" from Stripe means** left the whole round of
+   money work unfinished. Such a failure is now kept to its own action, for every kind of
+   action in that place, and the round goes on.
+4. **A collection without its answer** kept the helper away by a date counted back from today,
+   the mirror of the leap-day fault. It is now judged by the one rule: would she still be due
+   if it had gone through?
+5. **Telling waited behind the tries that are run again** (which ask Stripe). Two loops now.
+6. **A daily round that could not start** was not tried again until the next day. Ten minutes
+   now, and the round is timed by the clock, not by counting passes.
+7. **The search for a transfer at Stripe had no limit of time**, and (the builder's own, found
+   beside it) a "no" to the search itself was no longer kept apart from a "no" to the
+   transfer. It has the refund search's limits now, and a search that fails or runs long is
+   "could not look", never "not there".
+
+The builder's own, found while reading for point 3: a transfer that stays open after a "no"
+(up to 24 hours) was asked about again on every pass of the helper, every few seconds. Once in
+ten minutes now.
