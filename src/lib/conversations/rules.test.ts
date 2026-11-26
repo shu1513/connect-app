@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONVERSATION, type Facts, hostWokeIt, isSendKey, limitProblem, mayWrite, OPEN_MS, tidyMessage } from "./rules";
+import { callsThatCount, callTerms, CONVERSATION, type Facts, hostWokeIt, isSendKey, limitProblem, mayWrite, OPEN_MS, type PairCall, tidyMessage } from "./rules";
 import { limitWords, refusalWords } from "./words";
 
 const now = new Date("2026-12-01T12:00:00.000Z");
@@ -175,5 +175,50 @@ describe("every refusal has a sentence", () => {
     for (const why of ["switched_off", "you_blocked", "not_taking", "closed", "paused", "page_not_public", "you_muted", "book_again"] as const) {
       expect(refusalWords(why, "Hana").length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("the calls that count", () => {
+  const call = (over: Partial<PairCall> = {}): PairCall => ({ source: "customer", begunAt: ago(30 * 24 * 3_600_000), agreedAt: ago(29 * 24 * 3_600_000), endsAt: ago(20 * 24 * 3_600_000), bothJoined: true, ...over });
+
+  it("a booked call, a call now and a member's call count; a check script's never", () => {
+    expect(callsThatCount([call(), call({ source: "now" }), call({ source: "member" }), call({ source: "admin" })], null)).toHaveLength(3);
+  });
+
+  it('after "End call and report" only a request begun after the press counts, and never a member\'s booking', () => {
+    const stop = ago(10 * 24 * 3_600_000);
+    const before = call({ begunAt: new Date(stop.getTime() - 1) });
+    const atThePress = call({ begunAt: stop });
+    const after = call({ begunAt: new Date(stop.getTime() + 1) });
+    const nowAfter = call({ source: "now", begunAt: new Date(stop.getTime() + 1) });
+    const memberAfter = call({ source: "member", begunAt: new Date(stop.getTime() + 1) });
+    // A request that was begun before the press and agreed after it does not count either: only the first step is asked about.
+    const agreedAfter = call({ begunAt: new Date(stop.getTime() - 1), agreedAt: new Date(stop.getTime() + 1000) });
+    expect(callsThatCount([before, atThePress, after, nowAfter, memberAfter, agreedAfter], stop)).toEqual([after, nowAfter]);
+  });
+
+  it("around a call: from its agreement until 7 days after its booked end, to the second", () => {
+    expect(callTerms([call({ endsAt: ago(OPEN_MS - 1000) })], now).aroundCall).toBe(true);
+    expect(callTerms([call({ endsAt: ago(OPEN_MS) })], now).aroundCall).toBe(false);
+    // A call booked for next week is around already.
+    expect(callTerms([call({ endsAt: new Date(now.getTime() + 7 * 24 * 3_600_000), bothJoined: false })], now).aroundCall).toBe(true);
+    // Any one call is enough.
+    expect(callTerms([call(), call({ endsAt: ago(1000) })], now).aroundCall).toBe(true);
+    expect(callTerms([], now)).toEqual({ aroundCall: false, talked: false, latestAgreedAt: null });
+  });
+
+  it("they have talked: a call that is over and that both joined, that same call", () => {
+    expect(callTerms([call()], now).talked).toBe(true);
+    expect(callTerms([call({ bothJoined: false })], now).talked).toBe(false);
+    // Not over yet: both are in it right now.
+    expect(callTerms([call({ endsAt: new Date(now.getTime() + 60_000) })], now).talked).toBe(false);
+    // One call that is over and was missed, one that is still to come: no.
+    expect(callTerms([call({ bothJoined: false }), call({ endsAt: new Date(now.getTime() + 60_000) })], now).talked).toBe(false);
+  });
+
+  it("the latest agreement is the latest of them, whatever their order", () => {
+    const early = call({ agreedAt: ago(5000) });
+    const late = call({ agreedAt: ago(1000) });
+    expect(callTerms([late, early], now).latestAgreedAt).toEqual(late.agreedAt);
   });
 });

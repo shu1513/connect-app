@@ -35,6 +35,8 @@ import { askAfterCall } from "@/lib/projects/ask";
 import { tipAfterCall } from "@/lib/contributions/tips";
 import { firstLines } from "@/lib/projects/rules";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { conversationsOn } from "@/lib/safety/switches";
+import { WriteTo } from "@/components/write-to";
 import { rateCallAction, refundAction } from "../actions";
 import { SitePage } from "@/components/site-page";
 import { RefundRequest } from "./refund-request";
@@ -296,6 +298,12 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
           <Link href={bookAgain} className="inline-flex min-h-11 items-center underline underline-offset-2">
             Book another call with {nameOf.get(call.hostId)}
           </Link>
+        </p>
+      )}
+
+      {role !== "admin" && !call.safetyEndedAt && !call.cancelledAt && (await conversationsOn()) && (
+        <p className="mt-4">
+          <WriteTo callId={call.id} name={otherName} back={`/calls/${call.id}/results`} />
         </p>
       )}
 

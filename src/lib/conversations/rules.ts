@@ -103,6 +103,46 @@ export function mayWrite(facts: Facts, now: Date): Verdict {
   return { ok: false, why: "book_again" };
 }
 
+/** A call between this host and this customer, in these roles, that is not cancelled and was not ended with "End call and report". */
+export type PairCall = {
+  /** How it was asked for: "customer" (a booked request), "now", "member", or "admin" (a check script). */
+  source: string;
+  /** When the customer began asking for it: the very first step, before the card. */
+  begunAt: Date;
+  /** When it was agreed. */
+  agreedAt: Date;
+  /** Its booked end, as it stands now (adding time moves it). */
+  endsAt: Date;
+  /** Each of the two joined this call. */
+  bothJoined: boolean;
+};
+
+/**
+ * Which of the pair's calls count (decision 21). A call made by a check script never does. After
+ * an "End call and report" between the two people, in either direction, a call counts only if
+ * the customer began asking for it after that press and the host said yes to it: so not a
+ * member's booking (the host is not asked), and not a request that was already begun.
+ */
+export function callsThatCount(calls: PairCall[], latestStop: Date | null): PairCall[] {
+  return calls.filter((call) => {
+    if (call.source !== "customer" && call.source !== "now" && call.source !== "member") return false;
+    if (latestStop === null) return true;
+    return call.source !== "member" && call.begunAt.getTime() > latestStop.getTime();
+  });
+}
+
+/** The three terms, from the calls that count. */
+export function callTerms(counting: PairCall[], now: Date): { aroundCall: boolean; talked: boolean; latestAgreedAt: Date | null } {
+  let latestAgreedAt: Date | null = null;
+  for (const call of counting) if (!latestAgreedAt || call.agreedAt > latestAgreedAt) latestAgreedAt = call.agreedAt;
+  return {
+    // From the moment it is agreed (it is in this list) until 7 days after its booked end.
+    aroundCall: counting.some((call) => now.getTime() < call.endsAt.getTime() + OPEN_MS),
+    talked: counting.some((call) => call.endsAt.getTime() <= now.getTime() && call.bothJoined),
+    latestAgreedAt,
+  };
+}
+
 /** How much one person has sent, counted inside the sending step. */
 export type Counts = {
   /** Their messages in the last minute and the last 24 hours, over all conversations. */

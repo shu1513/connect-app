@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { newConversationCount } from "@/lib/conversations/read";
 import { unreadCount } from "@/lib/messages/messages";
 import { isAdmin } from "@/lib/payments/access";
 import { getUser } from "@/lib/session";
@@ -50,8 +51,9 @@ async function SiteHeader({ bare }: { bare: boolean }) {
   // The same look-up the page itself makes; it is done once per page view.
   const user = bare ? null : await getUser();
   const admin = user ? await isAdmin(user.id) : false;
-  // What Connect has written to them and they have not been shown yet (plans/47). Counted per page view, like the rest of the bar.
-  const unread = user ? await unreadCount(user.id) : 0;
+  // What Connect has written to them and they have not been shown yet (plans/47), plus the conversations in which
+  // the other person wrote something they have not been shown (plans/49). Counted per page view, like the rest of the bar.
+  const unread = user ? (await unreadCount(user.id)) + (await newConversationCount(user.id)) : 0;
   return (
     <header data-site-header={bare ? "bare" : user ? "member" : "visitor"} className={warm.header}>
       <div className={warm.headerInner}>

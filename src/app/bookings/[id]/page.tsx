@@ -18,6 +18,8 @@ import { Rating } from "@/components/rating";
 import { NOTE_MAX } from "@/lib/people/contacts";
 import { SitePage } from "@/components/site-page";
 import { HostPhoto } from "@/components/host-photo";
+import { WriteTo } from "@/components/write-to";
+import { conversationsOn } from "@/lib/safety/switches";
 
 export const metadata: Metadata = { title: "Request for a call" };
 
@@ -33,6 +35,8 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
   const notice = readNotice(`/bookings/${id}`, await props.searchParams);
   const price = requestPrice(booking);
   const ended = endedWords(booking, role);
+  // "Write to …" for an agreed call, while messages are switched on (plans/49). Whether the two may write is decided when it is pressed.
+  const canWrite = booking.stage === "accepted" && booking.callId !== null && (await conversationsOn());
 
   // The card form, for a paid request that has not been sent yet.
   // Past the card step's time the request is over, also in the moments before the helper has ended it: no card form then.
@@ -183,6 +187,12 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
       )}
 
       {note?.allowed && <NoteForm customerId={booking.customerId} name={otherName ?? "this customer"} text={note.text} max={NOTE_MAX} />}
+
+      {canWrite && booking.callId && (
+        <p className="mt-6">
+          <WriteTo callId={booking.callId} name={otherName ?? "this person"} back={`/bookings/${booking.id}`} />
+        </p>
+      )}
 
       {booking.stage !== "card" && (
         <div className="mt-8 text-sm opacity-70">
