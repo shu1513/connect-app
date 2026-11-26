@@ -528,7 +528,7 @@ The founder had asked for two separate studies before anything was built: one by
 
 **If it is built later:** start from `docs/research/messaging/compared.md`. The plan would use the points above, plus Astra's limits on sending, an emergency switch that stops all sending, new written rules that mention messages, and deleting messages 12 months after they were sent (a lawyer to confirm).
 
-**The founder's later thoughts (26 November 2026).** Messaging is still not built and nothing was planned. These points change two of the points above ("hosts cannot write to customers out of the blue" and "open until 7 days after the call"), and a later plan starts from them:
+**The founder's later thoughts (26 November 2026).** Messaging is not built yet. These points change two of the points above ("hosts cannot write to customers out of the blue" and "open until 7 days after the call"), and the build plan, `plans/49-messaging.md`, starts from them:
 
 - **Decided by the founder:** a host can write at any time to a customer she has had a call with. Her message opens the conversation again, and the customer can then answer for 7 days.
 - **Decided by the founder:** a customer can switch off messages from one host, not only from all hosts.
@@ -539,6 +539,8 @@ The founder had asked for two separate studies before anything was built: one by
   - A "Book a time" button inside the conversation and in the email about a waiting message, because a booking, not an answer, is what the host's message is for.
   - A closed conversation says "Book a call to write to her again", so the closed door points at a booking.
   - Only the host's messages start the 7 days again (and the end of a call starts them). A customer's answer does not, or she could keep the line open for ever by writing every six days.
+- **Decided by the founder, later the same day:** build it now, with the usual flow (a plan, Astra's check, then the build). Messaging is on from day one; the founder's switch is only an emergency stop. The phone apps get it later. And no email about a waiting message for now: a person sees a new message when they next open Connect. (Both studies had such an email. The builder said once what leaving it out costs; it is in the plan under "For the founder".)
+- **The plan:** `plans/49-messaging.md`, two parts. Astra checked it four times on 26 November ("not ready" with fourteen points, then nine, three and two; all answered in the plan). Found on the way, and not changed by the plan: the written rules say "End call and report" blocks the other person, and the app blocks only when the report form after it is sent.
 - For the lawyer: `docs/for-the-lawyer.md`, section 8.
 
 ---

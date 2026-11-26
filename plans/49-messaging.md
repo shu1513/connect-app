@@ -4,8 +4,8 @@
 agents), from the code as it is on `main` after pull request 103. It starts from the two studies of
 14 November 2026 (`docs/research/messaging/compared.md`) and from the founder's rules of
 26 November 2026 (`docs/module-record.md`, module 8b). Astra (gpt-6.2-astra, high effort) checked
-it against the code three times: "not ready" with fourteen must-fix points, then with nine, then
-with three. All are answered below; the lists are at the end.
+it against the code four times: "not ready" with fourteen must-fix points, then nine, then
+three, then two. All are answered below; the lists are at the end.
 
 **Its size, said plainly:** about one module, built in two parts, each its own pull request. No chat service is rented and nothing new is installed. Messages live in the app's own
 database, and the conversation's page asks the server again every few seconds, as the pages for
@@ -217,10 +217,11 @@ Three plain terms, each about *this host and this customer, in these roles*:
     Astra's checks)** The press ends the call, but the block only comes when the form after it
     is sent, and a person can leave that form. So for messages the press, once it is recorded
     on the call, is enough: from then on a call counts, in either conversation between the two,
-    only if the customer asked for it after the press and the host said yes to it. A member's
-    booking does not count for this, because it needs no yes from the host. Neither does a
-    request that was already waiting at the press. So nobody can write until both have acted
-    again. (A pair who had another call booked before the press lose the messages around that
+    only if the customer began asking for it after the press (its very first step, before the
+    card) and the host said yes to it. A member's booking does not count for this, because it
+    needs no yes from the host. Neither does a request that was already waiting, or already
+    begun, at the press. So nobody can write until both have acted again. Until then the
+    conversation only says that it is closed, without the "Book a call to write" button. (A pair who had another call booked before the press lose the messages around that
     call. That is the price of a rule this simple.) "End call and report" itself is not changed
     by this plan (see "Found on the way").
 22. **A report can be made from a message. (both studies)** Beside each message of the other
@@ -301,16 +302,17 @@ Part 1:
 4. A cancelled call stops counting at once; a first call cancelled closes the conversation for
    both, unless another call that counts is there. After a recorded "End call and report", form
    or no form, neither can write in either conversation: not because of an earlier call, a call
-   already booked for later, a recent message of the host's, a member's new booking, or a
-   request that was waiting and is accepted afterwards. A request sent after it and accepted
-   opens the conversation of its own direction only.
+   already booked for later, a recent message of the host's, a member's new booking, a request
+   that was waiting and is accepted afterwards, or a request begun before the press whose card
+   step finished after it. A request begun after it and accepted opens the conversation of its
+   own direction only, and only when no block stands between the two.
 5. With the customer's switch on, the host is refused outside a call and accepted around one.
 6. After a block, in either direction, neither can send in either conversation. A message sent at
    the same moment as a block either came first or is refused.
 7. Two messages sent at the same moment get two different numbers, in one order both people see.
    Two people opening a new conversation at the same moment get the same one.
-8. The same press sent twice makes one message, uses up one of each limit, and gives the same
-   answer.
+8. The same press sent twice makes one message, counts once against each limit it falls under,
+   and gives the same answer.
 9. Each limit holds when many messages arrive at once, also over several conversations. The
    five in a row hold before a booked call has started, and start again with an answer or a
    newly agreed call.
@@ -351,8 +353,9 @@ Part 2:
 - **The facts for them, in one place** (`src/lib/conversations/facts.ts`), all read inside the
   caller's database step: the calls that count (the call joined to its booking; the host and the
   customer named; asked for by a customer; not cancelled; not ended with "End call and report";
-  and, when there was such an ending between the two in either direction, only a call asked for
-  after the latest one and accepted by the host, so not a member's booking), "they have talked" (one of those calls,
+  and, when there was such an ending between the two in either direction, only a call whose
+  request was begun after the latest one (`bookings.createdAt`) and accepted by the host, so not
+  a member's booking), "they have talked" (one of those calls,
   over, with a "joined" line for each of the two on that same call), blocks, both accounts, the
   host's page.
 - **Opening a conversation** (`src/lib/conversations/open.ts`). The links below are small forms.
@@ -401,9 +404,11 @@ Part 2:
   may report again, which makes a second report. Now the report's number is always given. The
   step then looks whether this reporter's block of this person is there (blocking saves the
   block first and can stumble afterwards). If it is: the usual thank-you. If it is not: "Your
-  report was saved. This person is not blocked yet", and the reporter is sent back to where the
-  report was made, where the block button is. If even that look fails: "Your report was saved.
-  We could not confirm the block." The phone app goes on reading the sentence it is given.
+  report was saved. This person is not blocked yet", on a small receipt page with the report's
+  number and a "Block this person" button, which blocks the person of that report and works
+  only for its reporter. (Not every place a report is made from has a block button; a host's
+  page has none.) If even that look fails: "Your report was saved. We could not confirm the
+  block." The phone app goes on reading the sentence it is given.
 - **The report form's log line** no longer writes out a raw database error, which can hold what
   was sent (the pattern of the private-note form is used).
 - **The founder's look** (decision 24).
@@ -572,3 +577,18 @@ is, the two points not taken, and the numbers of the decisions).
 Also taken from its other points: a "wake" is defined by the host's own last message, the order
 of steps when a conversation is opened, the "Book a call" button going by whether this customer
 can book, and the Terms being named beside the Community Rules under "Found on the way".
+
+## Astra's fourth check (26 November 2026): "not ready"
+
+Two must-fix points, and three things found sound: the wording about the moment of the press,
+the three outcomes after a report, and the order of steps when a conversation is opened.
+
+1. *A request whose first step was pressed before "End call and report" and whose card step
+   finished after it would count as asked for after the press.* **Taken:** the request must have
+   been begun after the press (decision 21, the facts, proof 4).
+2. *"Sent back to where the report was made, where the block button is" is not true of a host's
+   page, which has none.* **Taken:** a receipt page with its own block button (part 2).
+
+Also taken: no "Book a call to write" button after an "End call and report", and the wording of
+proofs 4 and 8. Both must-fix points were corrected the way Astra said, so the builder did not
+ask for a fifth check of the plan. The code of each part goes to Astra as usual.
