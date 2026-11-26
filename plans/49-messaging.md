@@ -7,9 +7,10 @@ agents), from the code as it is on `main` after pull request 103. It starts from
 it against the code four times: "not ready" with fourteen must-fix points, then nine, then
 three, then two. All are answered below; the lists are at the end.
 
-**Its size, said plainly:** about one module, built in two parts, each its own pull request. No chat service is rented and nothing new is installed. Messages live in the app's own
-database, and the conversation's page asks the server again every few seconds, as the pages for
-"available now" already do.
+**Its size, said plainly:** about one module, built in two parts, each its own pull request. No
+chat service is rented and nothing new is installed. Messages live in the app's own database, and
+the conversation's page asks the server again every few seconds, as the pages for "available now"
+already do.
 
 **On from day one (the founder's decision).** When both parts are merged, messaging is on for
 everyone. The founder keeps one switch on the admin page, as an emergency stop. While part 1 is
@@ -203,8 +204,8 @@ Three plain terms, each about *this host and this customer, in these roles*:
     Messages deleted after 12 months no longer count; by then that does no harm.)
 18. **A host can wake at most 20 quiet conversations in 24 hours. (builder)** A message "wakes"
     when the host sends it outside a call and she has sent none in that conversation in the
-    7 days before it. The same press sent twice counts once. This, and there being no way to choose more than one
-    person, is how "never one message to many" is kept.
+    7 days before it. The same press sent twice counts once. This, and there being no way to
+    choose more than one person, is how "never one message to many" is kept.
 19. **A paused or closed account cannot write. (builder)** A paused person can still read and
     report. Nobody can write to a closed account.
 
@@ -221,8 +222,9 @@ Three plain terms, each about *this host and this customer, in these roles*:
     card) and the host said yes to it. A member's booking does not count for this, because it
     needs no yes from the host. Neither does a request that was already waiting, or already
     begun, at the press. So nobody can write until both have acted again. Until then the
-    conversation only says that it is closed, without the "Book a call to write" button. (A pair who had another call booked before the press lose the messages around that
-    call. That is the price of a rule this simple.) "End call and report" itself is not changed
+    conversation only says that it is closed, without the "Book a call to write" button. (A pair
+    who had another call booked before the press lose the messages around that call. That is
+    the price of a rule this simple.) "End call and report" itself is not changed
     by this plan (see "Found on the way").
 22. **A report can be made from a message. (both studies)** Beside each message of the other
     person there is "Report". It uses the form and the reasons that exist, and blocks, as
@@ -343,10 +345,10 @@ Part 2:
 - **Database** (one migration). `conversations`: the host, the customer (one row per pair, the
   database refuses a second), the number of the last message, the number each of the two has been
   shown up to, when the host last wrote, when the customer switched her off.
-  `conversation_messages`: the
-  conversation, the message's number in it, who wrote it, the words, the once-only key of the
-  press, whether it woke a quiet conversation, when. The database refuses a second message with
-  the same number, and a second with the same key from the same writer. One more field in
+  `conversation_messages`: the conversation, the message's number in it, who wrote it, the
+  words, the once-only key of the press, whether it woke a quiet conversation, when. The
+  database refuses a second message with the same number, and a second with the same key from
+  the same writer. One more field in
   `site_switches`, which starts at off.
 - **The rules as plain functions with tests** (`src/lib/conversations/rules.ts`): who may write,
   with the sentence for each refusal; the limits. Plain facts in, an answer out; no database.
@@ -355,16 +357,15 @@ Part 2:
   customer named; asked for by a customer; not cancelled; not ended with "End call and report";
   and, when there was such an ending between the two in either direction, only a call whose
   request was begun after the latest one (`bookings.createdAt`) and accepted by the host, so not
-  a member's booking), "they have talked" (one of those calls,
-  over, with a "joined" line for each of the two on that same call), blocks, both accounts, the
-  host's page.
+  a member's booking), "they have talked" (one of those calls, over, with a "joined" line for
+  each of the two on that same call), blocks, both accounts, the host's page.
 - **Opening a conversation** (`src/lib/conversations/open.ts`). The links below are small forms.
   The step works out the host and the customer itself: from the call the link names (the person
   must be one of its two), or, for a host's link beside a past customer, from the two having
   talked with her as the host. In this order: name the pair, take both calendar locks, check
   again that it is allowed, and only then make the pair's one row or find it. Then it sends the
-  person to its page. A refusal makes nothing. A conversation is listed on
-  "Messages" only once it holds a message, so opening one never shows up for the other person.
+  person to its page. A refusal makes nothing. A conversation is listed on "Messages" only once
+  it holds a message, so opening one never shows up for the other person.
 - **The step that sends** (`src/lib/conversations/send.ts`). One database step. It takes both
   people's calendar locks first, the same locks and the same order that blocking and booking
   take. So a send and a block happen in one order or the other, the same person's sends in other
@@ -395,8 +396,9 @@ Part 2:
 ### Part 2: safety, keeping, the wording, and switching it on
 
 - **Reporting from a message.** A kind of its own in the form's list ("message"). The form's
-  one field for "what is this about" carries the conversation and the message's number together. Inside the report's own database step, not
-  before it as for the other kinds: find that message, check that the reporter is the other
+  one field for "what is this about" carries the conversation and the message's number
+  together. Inside the report's own database step, not before it as for the other kinds: find
+  that message, check that the reporter is the other
   person of its conversation, take its writer as the person reported, and write what is kept
   (decision 23) into the new table `report_conversations`.
 - **When the block after a report runs into an error** (it runs after the report is saved, for
@@ -447,9 +449,9 @@ The Community Rules say of "End call and report": "The call ends for both of you
 person is blocked". The code blocks only when the form after the press is sent
 (`src/lib/safety/calls.ts`, `src/lib/safety/reports.ts`). Someone who presses and then closes the
 form has ended the call and blocked nobody. The Terms of Service make the same promise. This
-plan does not change that: making the press
-itself block touches the money of other calls, memberships and the phone app's screen, and Astra's
-second check showed how much has to be right for it. It is a change of its own, with its own
+plan does not change that: making the press itself block touches the money of other calls,
+memberships and the phone app's screen, and Astra's second check showed how much has to be right
+for it. It is a change of its own, with its own
 check. Until then the proposed wording for the lawyer says what the code does, and decision 21
 keeps messages safe either way.
 
