@@ -5,7 +5,8 @@ agents), from the code as it is on `main` after pull request 103. It starts from
 14 November 2026 (`docs/research/messaging/compared.md`) and from the founder's rules of
 26 November 2026 (`docs/module-record.md`, module 8b). Astra (gpt-6.2-astra, high effort) checked
 it against the code four times: "not ready" with fourteen must-fix points, then nine, then
-three, then two. All are answered below; the lists are at the end.
+three, then two. CodeRabbit then read the plan and made three points. All are answered below; the
+lists are at the end.
 
 **Its size, said plainly:** about one module, built in two parts, each its own pull request. No
 chat service is rented and nothing new is installed. Messages live in the app's own database, and
@@ -262,7 +263,10 @@ Three plain terms, each about *this host and this customer, in these roles*:
     The page "Messages" shows two lists: "Conversations" first, then "From Connect".
 29. **"Shown" is said by the person's own browser, as on the Messages page today. (Astra's
     check)** Sending a message does not mark anything as read. A person's own message never
-    counts as new for them.
+    counts as new for them. The page shows every message the person has not been shown yet, and
+    at least the latest 50, so nothing counts as shown that was not on the page. (With more than
+    500 new messages it shows the latest 500 and the older ones count as shown too, as the
+    Messages page does today: a count that no page can clear would only mislead.)
 30. **No email about a waiting message, for now. (founder)** Both studies had one ("You have a new
     message", without the message's words, at most one an hour). It is left out, and with it the
     setting, the stop link and the question of a postal address. The "Book a time" button of the
@@ -323,7 +327,8 @@ Part 1:
     answer. An attempt to open one that is refused leaves nothing behind.
 11. With the founder's switch off, nothing can be sent, and reading still works.
 12. "New" is right: not for one's own message, not lost when a message is sent while another
-    arrives, and gone when the last unread message is deleted.
+    arrives, and gone when the last unread message is deleted. With 60 new messages all 60 are on
+    the page, and a message that was not on the page stays new.
 
 Part 2:
 
@@ -382,8 +387,8 @@ Part 2:
   that follows still blocks when it is sent).
 - **The customer's switch**, and marking messages as shown, take the conversation's row and
   nothing after it; a send reads the switch again after its own locks.
-- **Pages:** the conversation (`/conversations/[id]`: the latest 50 messages with "Show earlier",
-  the box, the customer's switch, the sentence for each closed state, the "Book a time" button)
+- **Pages:** the conversation (`/conversations/[id]`: every message not shown yet and at least
+  the latest 50, with "Show earlier", the box, the customer's switch, the sentence for each closed state, the "Book a time" button)
   and the list on "Messages". The conversation asks the server again every 5 seconds while it is
   in front; what is typed in the box stays.
 - **The ways in:** "Write to *name*" on an agreed call's page, on the page after a call, and for
@@ -405,7 +410,10 @@ Part 2:
   every kind of report but a diary post's): today the reporter sees "something went wrong" and
   may report again, which makes a second report. Now the report's number is always given. The
   step then looks whether this reporter's block of this person is there (blocking saves the
-  block first and can stumble afterwards). If it is: the usual thank-you. If it is not: "Your
+  block first and can stumble afterwards). If it is: the usual thank-you. If the block went
+  through but a future call between the two could not be cancelled yet (blocking counts those,
+  and the report step throws the count away today): the thank-you says so and offers "Block
+  again", as the block button already does. If the block is not there: "Your
   report was saved. This person is not blocked yet", on a small receipt page with the report's
   number and a "Block this person" button, which blocks the person of that report and works
   only for its reporter. (Not every place a report is made from has a block button; a host's
@@ -594,3 +602,18 @@ the three outcomes after a report, and the order of steps when a conversation is
 Also taken: no "Book a call to write" button after an "End call and report", and the wording of
 proofs 4 and 8. Both must-fix points were corrected the way Astra said, so the builder did not
 ask for a fifth check of the plan. The code of each part goes to Astra as usual.
+
+## CodeRabbit's review of the plan (26 November 2026)
+
+Three points, all taken.
+
+1. *The record now says that a host's switch is the only thing that asks a customer for an ID
+   check, but the booking code still checks any call with a price of zero, and still limits
+   upcoming free calls to three.* **Taken:** the record says so in the three places
+   (`docs/module-record.md`). No host can make such a call any more; old ones and the check
+   scripts' still go that way.
+2. *With 60 new messages and 50 on the page, marking "shown up to the highest number" would mark
+   ten unseen ones as shown.* **Taken:** the page shows every message not shown yet
+   (decision 29, proof 12).
+3. *The receipt after a report looks only whether the block is there, not whether a future call
+   could not be cancelled.* **Taken** (part 2).
