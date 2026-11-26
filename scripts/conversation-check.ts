@@ -1,6 +1,6 @@
 /**
- * Testing tool: messages between a host and a customer (plans/49-messaging.md, part 1), against
- * the local database, with the pages read from the running app the way a browser gets them.
+ * Testing tool: messages between a host and a customer (plans/49-messaging.md, parts 1 and 2),
+ * against the local database, with the pages read from the running app the way a browser gets them.
  *
  * What is real and what is pretended:
  *   real       opening a conversation, sending, the limits, the customer's switch, blocking, and
@@ -13,8 +13,9 @@
  *
  * It makes its own people, touches no other account, needs no Stripe, and removes what it made.
  * Like the other check scripts it clears the local "too many attempts" counters at the start and
- * the end, because every request here comes from one network address. Messages are switched off on `main` while part 1 is alone there, so the script switches them on
- * for its run and puts the switch back where it was.
+ * the end, because every request here comes from one network address. It moves the founder's
+ * switch for messages during its run (on, off for two checks, on again) and puts it back where
+ * it was.
  *
  * What it does not cover: what only happens in a browser (the box keeping what was typed, the
  * page asking again every few seconds, the browser saying what it has shown). Those are tried by
@@ -85,6 +86,10 @@ async function main() {
   const { CONVERSATION } = await import("../src/lib/conversations/rules");
   const { block, unblock } = await import("../src/lib/safety/blocks");
   const { setSwitches, switches } = await import("../src/lib/safety/switches");
+  const { createReport, openReports, ReportError } = await import("../src/lib/safety/reports");
+  const { keepMessages, KEPT_AFTER, KEPT_BEFORE, keptMessagesFor, MessageGoneError, messagePlaceText, reportableMessage } = await import("../src/lib/safety/kept-messages");
+  const { reportNotice } = await import("../src/lib/safety/report-words");
+  const { deleteOldConversationMessages } = await import("../src/lib/retention");
 
   const up = await send("/login").catch(() => null);
   if (!up || up.status !== 200) throw new Error(`The app is not running at ${BASE}. Start it first.`);
@@ -709,6 +714,135 @@ async function main() {
       await setSwitches({ conversationsOff: false });
       check("switched on again, messages go through", sent(await say(talk, cory.id, "Back again")));
     }
+
+    // ----------------------------------------------------------------------
+    console.log("\n11. Deleting messages 12 months after they were sent");
+    {
+      const host = await asHost(await person("oldh"), "oldh", `Old Host ${RUN}`);
+      const guest = await person("oldc");
+      const id = (await openConversation({ userId: host.id, callId: (await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 2 })).id }))!;
+      await say(id, host.id, "an old message");
+      await say(id, guest.id, "an old answer");
+      await say(id, host.id, "a message of eleven months ago");
+      await say(id, guest.id, "a message of today");
+      const monthsAgo = (months: number) => new Date(Date.now() - months * 30.5 * DAY);
+      await db.update(schema.conversationMessages).set({ createdAt: monthsAgo(13) }).where(and(eq(schema.conversationMessages.conversationId, id), inArray(schema.conversationMessages.number, [1, 2])));
+      await db.update(schema.conversationMessages).set({ createdAt: monthsAgo(11) }).where(and(eq(schema.conversationMessages.conversationId, id), eq(schema.conversationMessages.number, 3)));
+      const other = (await openConversation({ userId: hana.id, callId: (await db.select({ id: schema.calls.id }).from(schema.calls).where(and(eq(schema.calls.hostId, hana.id), eq(schema.calls.customerId, cory.id))))[0].id }))!;
+      const othersBefore = (await messagesIn(other)).length;
+      const gone = await deleteOldConversationMessages(new Date(), { conversationIds: [id] });
+      const left = await messagesIn(id);
+      check("messages sent more than 12 months ago are deleted, later ones stay", gone === 2 && left.map((m) => m.number).join(",") === "3,4");
+      check("the conversation itself stays, with the number of its last message", (await rowOf(id)).lastNumber === 4 && (await conversationFor(guest.id, id)) !== null);
+      const next = await say(id, host.id, "the next one");
+      check("the next message gets the next number, never an old one", next.ok && next.number === 5);
+      check("nothing of another conversation was touched", (await messagesIn(other)).length === othersBefore);
+      check("a second round finds nothing more to delete", (await deleteOldConversationMessages(new Date(), { conversationIds: [id] })) === 0 && (await deleteOldConversationMessages(new Date(), { conversationIds: [] })) === 0);
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n12. A report made from a message, what is kept with it, and the founder's look");
+    {
+      const host = await asHost(await person("reph"), "reph", `Report Host ${RUN}`);
+      const guest = await person("repc");
+      const founder = await person("repadmin");
+      const id = (await openConversation({ userId: host.id, callId: (await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 2 })).id }))!;
+      // 200 messages, each with words of its own; then she writes the one that is reported, and he answers.
+      // (Two days old, so that they do not count against today's hundred.)
+      const at = new Date(Date.now() - 2 * DAY);
+      await db.insert(schema.conversationMessages).values(Array.from({ length: 200 }, (_, i) => ({ conversationId: id, number: i + 1, senderId: i % 2 === 0 ? host.id : guest.id, body: `earlier words ${i + 1} ${RUN}`, sendKey: randomUUID(), createdAt: at })));
+      await db.update(schema.conversations).set({ lastNumber: 200, lastMessageAt: at }).where(eq(schema.conversations.id, id));
+      const SECRET = `pay me outside ${RUN}`;
+      const bad = await say(id, host.id, `Please ${SECRET}.`);
+      const after = await say(id, guest.id, "No, thank you.");
+      check("the two more messages are numbers 201 and 202", bad.ok && bad.number === 201 && after.ok && after.number === 202);
+      const report = (who: string, place: string) => createReport({ reporterId: who, context: "message", contextId: place, reason: "offsite", text: "She asked me to pay outside.", now: new Date() });
+      const refused = async (trying: Promise<unknown>) => trying.then(() => false, (error) => error instanceof ReportError);
+      const reportsOf = async (who: string) => (await db.select({ id: schema.reports.id }).from(schema.reports).where(eq(schema.reports.reporterId, who))).length;
+
+      check("a person cannot report their own message", await refused(report(host.id, messagePlaceText(id, 201))));
+      check("someone who is not in the conversation cannot report a message in it", await refused(report(olga.id, messagePlaceText(id, 201))));
+      check("a message that is not there cannot be reported", (await refused(report(guest.id, messagePlaceText(id, 999)))) && (await refused(report(guest.id, messagePlaceText(randomUUID(), 1)))));
+      check("a place that is not a conversation and a number is refused", (await refused(report(guest.id, id))) && (await refused(report(guest.id, `${id}/0`))) && (await refused(report(guest.id, `${id}/1; drop table`))));
+      check("none of those wrote a report or kept anything", (await reportsOf(host.id)) === 0 && (await reportsOf(olga.id)) === 0 && (await reportsOf(guest.id)) === 0 && (await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.conversationId, id))).length === 0);
+
+      const outcome = await report(guest.id, messagePlaceText(id, 201));
+      const [saved] = await db.select().from(schema.reports).where(eq(schema.reports.reference, outcome.reference));
+      const [kept] = await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.reportId, saved.id));
+      const stretch = JSON.parse(kept.messages) as Array<{ number: number; from: string; at: string; body: string }>;
+      check("the other person's message can be reported, about its writer, and the report blocks her", outcome.block === "done" && saved.reportedId === host.id && saved.context === "message" && refusedAs(await say(id, host.id)) === "not_taking");
+      check(`what is kept: the message, ${KEPT_BEFORE} before it and what came after it, each with its number, writer, time and exact words`, kept.reportedNumber === 201 && stretch.length === KEPT_BEFORE + 2 && kept.keptCount === stretch.length && stretch[0].number === 201 - KEPT_BEFORE && stretch.at(-1)!.number === 202 && stretch.find((m) => m.number === 201)?.body === `Please ${SECRET}.` && stretch.find((m) => m.number === 201)?.from === "reported" && stretch.at(-1)!.from === "reporter" && stretch.every((m) => !Number.isNaN(Date.parse(m.at))));
+      check("and how many older ones were left out", kept.olderLeftOut === 200 - KEPT_BEFORE);
+      check("the report's own copy holds where the message is, and none of its words", saved.snapshot.includes(id) && !saved.snapshot.includes(SECRET) && !saved.snapshot.includes("earlier words"));
+      const listed = (await openReports()).find((entry) => entry.report.id === saved.id)!;
+      check("the founder's list says that messages are kept and how many, and holds none of their words", listed.kept?.keptCount === stretch.length && listed.kept.olderLeftOut === 100 && !JSON.stringify(listed).includes(SECRET) && !JSON.stringify(listed).includes("earlier words"));
+
+      // A message in the middle of a long conversation: a fixed stretch before it and after it, no more.
+      const middle = await report(guest.id, messagePlaceText(id, 121));
+      const [middleSaved] = await db.select().from(schema.reports).where(eq(schema.reports.reference, middle.reference));
+      const [middleKept] = await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.reportId, middleSaved.id));
+      const middleStretch = JSON.parse(middleKept.messages) as Array<{ number: number }>;
+      check(`a message in the middle keeps ${KEPT_BEFORE} before it and ${KEPT_AFTER} after it, and says how many older ones were left out`, middleStretch[0].number === 121 - KEPT_BEFORE && middleStretch.at(-1)!.number === 121 + KEPT_AFTER && middleStretch.length === KEPT_BEFORE + KEPT_AFTER + 1 && middleKept.olderLeftOut === 20);
+
+      const looksBefore = (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, saved.id))).length;
+      const failed = await keptMessagesFor({ adminId: `nobody-${RUN}`, reportId: saved.id }).then(() => false, () => true);
+      check("when the look cannot be written down, nothing is given back", failed && (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, saved.id))).length === looksBefore);
+      const look = await keptMessagesFor({ adminId: founder.id, reportId: saved.id });
+      const looks = await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, saved.id));
+      check("the founder's look gives the kept messages back, and is in the record of admin actions", look?.messages.length === stretch.length && look.reportedNumber === 201 && looks.length === looksBefore + 1 && looks[0].action === "kept messages read" && looks[0].adminId === founder.id && looks[0].targetUserId === host.id);
+      check("the record names the report and holds none of the words", looks[0].detail === `R-${outcome.reference}` && !JSON.stringify(looks).includes(SECRET));
+      await keptMessagesFor({ adminId: founder.id, reportId: saved.id });
+      check("a second look is written down again", (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, saved.id))).length === looksBefore + 2);
+      check("a report with nothing kept gives nothing back and writes nothing down", (await keptMessagesFor({ adminId: founder.id, reportId: randomUUID() })) === null);
+
+      // The helper deletes old messages without the conversation's lock. A message that goes between "it is there"
+      // and the keeping must stop the report: what is kept is read in one question, and the message must be in it.
+      const keeping = (number: number) => db.transaction((tx) => keepMessages(tx, randomUUID(), guest.id, messagePlaceText(id, number))).then(() => "kept", (error) => (error instanceof MessageGoneError ? "gone" : "other"));
+      const couldReport = (await reportableMessage(db, guest.id, messagePlaceText(id, 151))) !== null;
+      await db.delete(schema.conversationMessages).where(and(eq(schema.conversationMessages.conversationId, id), eq(schema.conversationMessages.number, 151)));
+      check("a message that was there a moment ago and is gone when the report is written stops the report, with its neighbours still there", couldReport && (await keeping(151)) === "gone" && (await refused(report(guest.id, messagePlaceText(id, 151)))) && (await messagesIn(id)).some((m) => m.number === 150) && (await messagesIn(id)).some((m) => m.number === 152));
+      check("so does a message of the reporter's own, and a conversation that is not theirs", (await keeping(150)) === "gone" && (await db.transaction((tx) => keepMessages(tx, randomUUID(), olga.id, messagePlaceText(id, 153))).then(() => false, (error) => error instanceof MessageGoneError)));
+      check("none of that kept anything", (await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.conversationId, id))).length === 2);
+
+      // What is kept does not go when the messages do.
+      await db.update(schema.conversationMessages).set({ createdAt: new Date(Date.now() - 400 * DAY) }).where(eq(schema.conversationMessages.conversationId, id));
+      const deleted = await deleteOldConversationMessages(new Date(), { conversationIds: [id] });
+      const [still] = await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.reportId, saved.id));
+      check("when the messages are deleted after 12 months, what is kept with the report stays", deleted === 201 && (await messagesIn(id)).length === 0 && still.messages.includes(SECRET));
+      check("a message that was deleted can no longer be reported", await refused(report(guest.id, messagePlaceText(id, 153))));
+      const emptied = await page(`/conversations/${talk}`, cory.jar);
+      check("(a conversation that still has messages does not say that none remain)", !emptied.words.includes("No messages remain"));
+
+      // With messages switched off, and for a paused person, a report can still be made.
+      const host2 = await asHost(await person("reph2"), "reph2", `Report Host Two ${RUN}`);
+      const guest2 = await person("repc2");
+      const id2 = (await openConversation({ userId: host2.id, callId: (await agreed({ hostId: host2.id, customerId: guest2.id, startsInDays: 2 })).id }))!;
+      await say(id2, host2.id, "A message to report");
+      await setSwitches({ conversationsOff: true });
+      await db.update(schema.user).set({ pausedAt: new Date(), pausedReason: "check" }).where(eq(schema.user.id, guest2.id));
+      // (The form's own function cannot be loaded outside the app; its two steps are taken here: the report, then its sentence.)
+      const whileOff = reportNotice(await createReport({ reporterId: guest2.id, context: "message", contextId: messagePlaceText(id2, 1), reason: "other", text: "", now: new Date() }));
+      await setSwitches({ conversationsOff: false });
+      check("with messages switched off, a paused person can still report a message, and reads the usual thank-you", !whileOff.needsReceipt && /^Thank you\. Your report is R-\d+\./.test(whileOff.notice) && (await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.conversationId, id2))).length === 1);
+
+      // In the pages, with the people who have logins: Olga reports a message of Hana's.
+      const quiet = (await conversationsBetween(hana.id, olga.id))[0].id;
+      await setMuted(olga.id, quiet, false, new Date());
+      await say(quiet, hana.id, "One more message for Olga");
+      const hers = await page(`/conversations/${quiet}`, hana.jar);
+      const his = await page(`/conversations/${quiet}`, olga.jar);
+      const theirs = (await messagesIn(quiet)).filter((m) => m.senderId === hana.id).map((m) => m.number);
+      check("Report is beside each message of the other person, and beside none of one's own", theirs.every((n) => his.html.includes(`data-report-message="${n}"`) && !hers.html.includes(`data-report-message="${n}"`)) && count(his.html, "data-report-message=") === theirs.length);
+      const place = encodeURIComponent(messagePlaceText(quiet, theirs.at(-1)!));
+      const form = await page(`/report?message=${place}`, olga.jar);
+      check("the link leads to the report form, for that message", his.html.includes(`/report?message=${place}`) && form.status === 200 && form.html.includes('name="context" value="message"') && form.html.includes(`value="${messagePlaceText(quiet, theirs.at(-1)!)}"`));
+      const made = await createReport({ reporterId: olga.id, context: "message", contextId: messagePlaceText(quiet, theirs.at(-1)!), reason: "other", text: "", now: new Date() });
+      const receipt = await page(`/report/saved/${made.reference}`, olga.jar);
+      check("the reporter can open the receipt of her report, with its number and a Block button that names only the report", receipt.status === 200 && receipt.html.includes(`data-report-receipt="${made.reference}"`) && receipt.words.includes(`R-${made.reference}`) && receipt.html.includes("data-block-reported") && receipt.html.includes(`name="reference" value="${made.reference}"`) && !receipt.html.includes(hana.id));
+      check("nobody else can, and a number that is no report gives Not found", (await page(`/report/saved/${made.reference}`, hana.jar)).status === 404 && (await page(`/report/saved/${made.reference}`, cory.jar)).status === 404 && (await page("/report/saved/999999999", olga.jar)).status === 404 && (await page("/report/saved/x", olga.jar)).status === 404);
+      check("the receipt needs a login", [302, 303, 307].includes((await page(`/report/saved/${made.reference}`)).status));
+      check("after the report the reported host is refused, and reads the sentence of the switch", (await page(`/conversations/${quiet}`, hana.jar)).words.includes(`${olga.name} is not taking messages right now.`));
+    }
   } finally {
     await setSwitches({ conversationsOff: wasOff });
     // Also a sign-up whose person was never written down here, because its confirmation failed.
@@ -716,6 +850,10 @@ async function main() {
     const ids = made.length ? made : ["-"];
     const callIds = calls.length ? calls : [randomUUID()];
     const mine = (await db.select({ id: schema.conversations.id }).from(schema.conversations).where(or(inArray(schema.conversations.hostId, ids), inArray(schema.conversations.customerId, ids)))).map((row) => row.id);
+    const myReports = (await db.select({ id: schema.reports.id }).from(schema.reports).where(or(inArray(schema.reports.reporterId, ids), inArray(schema.reports.reportedId, ids)))).map((row) => row.id);
+    if (myReports.length) await db.delete(schema.reportConversations).where(inArray(schema.reportConversations.reportId, myReports));
+    await db.delete(schema.adminActions).where(or(inArray(schema.adminActions.adminId, ids), inArray(schema.adminActions.targetUserId, ids)));
+    if (myReports.length) await db.delete(schema.reports).where(inArray(schema.reports.id, myReports));
     if (mine.length) await db.delete(schema.conversationMessages).where(inArray(schema.conversationMessages.conversationId, mine));
     if (mine.length) await db.delete(schema.conversations).where(inArray(schema.conversations.id, mine));
     await db.delete(schema.attendanceEvents).where(inArray(schema.attendanceEvents.callId, callIds));

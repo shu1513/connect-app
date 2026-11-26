@@ -7,7 +7,7 @@ import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/stat
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { queueEmail } from "@/lib/email";
+import { errorSummary, queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
 import { endRequestsAndCallsOf } from "@/lib/profiles/closing";
 import { photosOf } from "@/lib/profiles/photo";
@@ -16,9 +16,11 @@ import { liftSuspectedByReport, lockPost, markSuspectedByReport } from "@/lib/pr
 import { picturesOf } from "@/lib/projects/pictures";
 import { publicPost } from "@/lib/projects/posts";
 import { linksOf } from "@/lib/projects/rules";
+import { hasBlocked } from "@/lib/follows/follows";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
-import { REPORT_TEXT_MAX } from "./report-words";
+import { keepMessages, type KeptSummary, keptSummaries, MessageGoneError, reportableMessage } from "./kept-messages";
+import { type ReportBlock, REPORT_TEXT_MAX } from "./report-words";
 
 export class ReportError extends Error {}
 
@@ -89,8 +91,19 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
       },
     };
   }
+  if (context === "message") {
+    // A message of a conversation (plans/49-messaging.md, decision 22): only one of its two people, and only a
+    // message of the other one that is still there. Here only who it is about is worked out; what is kept with
+    // the report is read inside the report's own step, under the conversation's lock (`keepMessages`), and never
+    // goes into this copy: the founder's list reads every open report whole.
+    const found = await reportableMessage(db, reporterId, contextId);
+    if (!found) throw new ReportError(new MessageGoneError().message);
+    return { reportedId: found.writerId, snapshot: { message: { conversationId: found.conversationId, number: found.number } } };
+  }
   throw new ReportError("Report not understood.");
 }
+
+export type ReportOutcome = { reference: number; reportedId: string; block: ReportBlock; callsNotCancelled: number };
 
 /**
  * Files a report. Reporting a person (from a call, a request or their page) also blocks them for
@@ -98,7 +111,7 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
  * would end things between the two that the reporter did not ask to end (plans/23, choice G).
  * Urgent reports email every admin at once.
  */
-export async function createReport(input: { reporterId: string; context: string; contextId: string; reason: string; text: string; now: Date }): Promise<{ reference: number }> {
+export async function createReport(input: { reporterId: string; context: string; contextId: string; reason: string; text: string; now: Date }): Promise<ReportOutcome> {
   const reason = REPORT_REASONS.find((r) => r.key === input.reason);
   if (!reason) throw new ReportError("Choose a reason.");
   const text = input.text.replace(/\s+/g, " ").trim();
@@ -125,6 +138,13 @@ export async function createReport(input: { reporterId: string; context: string;
       .returning();
     // "Someone under 18" about a post: its pictures are kept away from the everyday checkers while the report is open.
     if (marksPictures) await markSuspectedByReport(tx, input.contextId, input.now);
+    // A report made from a message: the stretch of the conversation that is kept with it, in this same step. If
+    // the message has gone in the meantime, the whole step is undone and no report is written.
+    if (input.context === "message") {
+      await keepMessages(tx, row.id, input.reporterId, input.contextId).catch((error) => {
+        throw error instanceof MessageGoneError ? new ReportError(error.message) : error;
+      });
+    }
     if (reason.urgent) {
       for (const admin of await adminsIn(tx)) {
         await queueEmail(tx, {
@@ -137,8 +157,20 @@ export async function createReport(input: { reporterId: string; context: string;
     }
     return row;
   });
-  if (input.context !== "post") await block({ blockerId: input.reporterId, blockedId: reportedId, now: input.now });
-  return { reference: report.reference };
+  if (input.context === "post") return { reference: report.reference, reportedId, block: "none", callsNotCancelled: 0 };
+  // The report is saved. The block that follows can stumble by itself, and the reporter is then told what is
+  // true, with the report's number, in place of "something went wrong" (which made people report twice).
+  // Blocking saves the block first and cleans up afterwards, so after an error the block may well be there.
+  try {
+    const { callsNotCancelled } = await block({ blockerId: input.reporterId, blockedId: reportedId, now: input.now });
+    return { reference: report.reference, reportedId, block: "done", callsNotCancelled };
+  } catch (error) {
+    console.error(`[safety] the block after report R-${report.reference} ran into an error (${errorSummary(error)})`);
+    const stands = await hasBlocked(input.reporterId, reportedId).catch(() => null);
+    // A block that stands after an error was saved before the step got to the calls still to come: whether those
+    // were cancelled is not known, and is not called done.
+    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done_unsure" : "not_done", callsNotCancelled: 0 };
+  }
 }
 
 /** Everything the founder needs to judge a report. */
@@ -149,7 +181,9 @@ export async function openReports() {
     .innerJoin(schema.user, eq(schema.user.id, schema.reports.reporterId))
     .where(eq(schema.reports.status, "open"))
     .orderBy(desc(schema.reports.urgent), desc(schema.reports.createdAt));
-  const out = [];
+  // That messages are kept with a report, and how many: never their words (kept-messages.ts).
+  const kept = await keptSummaries(rows.filter(({ report }) => report.context === "message").map(({ report }) => report.id));
+  const out: Array<{ report: (typeof rows)[number]["report"]; reporterName: string; reported: { name: string; email: string; pausedAt: Date | null; closedAt: Date | null } | null; profile: typeof schema.hostProfiles.$inferSelect | null; earlierReports: number; callsTogether: number; actions: (typeof schema.adminActions.$inferSelect)[]; kept: KeptSummary | null }> = [];
   for (const { report, reporterName } of rows) {
     const [reported] = await db.select({ name: schema.user.name, email: schema.user.email, pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, report.reportedId));
     const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, report.reportedId));
@@ -159,7 +193,7 @@ export async function openReports() {
       .from(schema.calls)
       .where(or(and(eq(schema.calls.hostId, report.reporterId), eq(schema.calls.customerId, report.reportedId)), and(eq(schema.calls.hostId, report.reportedId), eq(schema.calls.customerId, report.reporterId))));
     const actions = await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetUserId, report.reportedId)).orderBy(desc(schema.adminActions.createdAt)).limit(10);
-    out.push({ report, reporterName, reported: reported ?? null, profile: profile ?? null, earlierReports: earlier, callsTogether: together, actions });
+    out.push({ report, reporterName, reported: reported ?? null, profile: profile ?? null, earlierReports: earlier, callsTogether: together, actions, kept: kept.get(report.id) ?? null });
   }
   return out;
 }

@@ -11,11 +11,11 @@ import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Report" };
 
-/** The report form. Reached from a host's page, a request, a call's page, "End call and report", or a post of a host's diary. */
+/** The report form. Reached from a host's page, a request, a call's page, "End call and report", a post of a host's diary, or a message of a conversation. */
 export default async function ReportPage(props: PageProps<"/report">) {
   const user = await requireUser();
   const query = await props.searchParams;
-  const context = (["call", "booking", "profile", "post"] as const).find((c) => typeof query[c] === "string");
+  const context = (["call", "booking", "profile", "post", "message"] as const).find((c) => typeof query[c] === "string");
   if (!context) notFound();
   const contextId = String(query[context]);
   const notice = readNotice("/report", query);

@@ -437,12 +437,13 @@ export const siteSwitches = pgTable("site_switches", {
   /** The oldest version of the app still allowed to run, such as "1.2.0". Empty: every version is allowed. */
   appOldestVersion: text("app_oldest_version").notNull().default(""),
   /**
-   * Messages between hosts and customers (plans/49-messaging.md, decision 31). While this is true
-   * nobody can send; everyone can still read their conversations. It starts at true: part 1 of
-   * the plan is merged with messages off, and part 2 turns them on once. After that only the
-   * founder moves it (the emergency stop).
+   * Messages between hosts and customers (plans/49-messaging.md, decision 31): the founder's
+   * emergency stop. While this is true nobody can send; everyone can still read their
+   * conversations and report from them. Messages are on from day one (the founder's decision):
+   * part 1 of the plan was merged with this at true, and part 2 turned it to false once, in its
+   * own migration. From then on only the founder moves it.
    */
-  conversationsOff: boolean("conversations_off").notNull().default(true),
+  conversationsOff: boolean("conversations_off").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2722,6 +2723,35 @@ export const conversationMessages = pgTable(
     check("conversation_messages_number", sql`${t.number} > 0`),
   ],
 );
+
+/**
+ * What is kept with a report that was made from a message (plans/49-messaging.md, decisions 23
+ * and 24): the reported message and a fixed stretch around it, as they were at that moment.
+ *
+ * A table of its own, and not `reports.snapshot`, on purpose: the founder's list of reports
+ * reads every open report whole, and these words must reach the founder only through the step
+ * that writes the look down first (`keptMessagesFor` in src/lib/safety/kept-messages.ts). It
+ * belongs to the report and is not touched when the messages themselves are deleted after 12
+ * months.
+ */
+export const reportConversations = pgTable("report_conversations", {
+  reportId: uuid("report_id")
+    .primaryKey()
+    .references(() => reports.id),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => conversations.id),
+  /** The number of the message the report was made from. */
+  reportedNumber: integer("reported_number").notNull(),
+  /** How many messages are kept here. */
+  keptCount: integer("kept_count").notNull(),
+  /** How many older messages that still existed were left out. */
+  olderLeftOut: integer("older_left_out").notNull().default(0),
+  /** The kept messages, oldest first, as text (JSON): each with its number, its writer, its time and its exact words. */
+  messages: text("messages").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ReportConversation = typeof reportConversations.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type ConversationMessage = typeof conversationMessages.$inferSelect;
 export type HandReversalCount = typeof handReversalCounts.$inferSelect;

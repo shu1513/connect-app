@@ -9,6 +9,8 @@ import { warm } from "@/components/warm-ui";
 import { mayMarkShown, viewFor } from "@/lib/conversations/read";
 import { CONVERSATION } from "@/lib/conversations/rules";
 import { CONVERSATION_WORDS, refusalWords } from "@/lib/conversations/words";
+import { messagePlaceText } from "@/lib/safety/kept-messages";
+import { REPORT_WORDS } from "@/lib/safety/report-words";
 import { readNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
 import { muteAction } from "../actions";
@@ -74,7 +76,7 @@ export default async function ConversationPage(props: PageProps<"/conversations/
 
       {messages.length === 0 ? (
         <p className="mt-6 text-sm opacity-70" data-no-messages>
-          No messages yet.
+          {conversation.lastNumber > 0 ? "No messages remain. Messages are deleted 12 months after they were sent." : "No messages yet."}
         </p>
       ) : (
         <ol className="mt-6 space-y-3" data-conversation-messages>
@@ -84,6 +86,15 @@ export default async function ConversationPage(props: PageProps<"/conversations/
               <li key={message.id} className={`rounded border border-neutral-400 p-3 text-sm ${mine ? "ml-8" : "mr-8"}`} data-message-number={message.number} data-from={mine ? "me" : "them"}>
                 <p className="opacity-70">
                   <span className="font-semibold">{mine ? "You" : other.name}</span> · <LocalTime iso={message.createdAt.toISOString()} />
+                  {/* A report is made from one message of the other person. It works while messages are switched off, and for a paused person. */}
+                  {!mine && (
+                    <>
+                      {" · "}
+                      <Link href={`/report?message=${encodeURIComponent(messagePlaceText(conversation.id, message.number))}`} className="underline underline-offset-2" data-report-message={message.number}>
+                        {REPORT_WORDS.reportMessage}
+                      </Link>
+                    </>
+                  )}
                 </p>
                 {/* The words as they were written, spaces and line ends included, as plain text: a web address in them is never a link. */}
                 <p className="mt-1 whitespace-pre-wrap break-words">{message.body}</p>
